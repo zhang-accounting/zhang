@@ -1,7 +1,7 @@
 [package]
 name = "avaro"
 description = "a plain text double-accounting tool which is compatible with beancount but more powerful"
-licese = "MIT"
+license = "MIT"
 version = "0.0.1"
 authors = ["Kilerd <blove694@gmail.com>"]
 edition = "2018"
