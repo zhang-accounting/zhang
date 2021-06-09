@@ -1,7 +1,7 @@
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+use lalrpop_util::lalrpop_mod;
+pub mod error;
+pub mod models;
+pub mod to_file;
+
+pub(crate) mod utils;
+lalrpop_mod!(#[allow(clippy::all)] pub parser);
