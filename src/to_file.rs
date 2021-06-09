@@ -62,7 +62,7 @@ impl ToAvaroFile for crate::models::Transaction {
     fn to_text(&self) -> String {
         let mut builder = String::new();
         builder.push_str(&self.date.to_string());
-        builder.push_str(" ");
+        builder.push(' ');
         builder.push_str(&self.flag.to_text());
         let pn = match (&self.payee, &self.narration) {
             (Some(payee), Some(narration)) => format!(
