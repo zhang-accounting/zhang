@@ -120,7 +120,7 @@ impl Account {
 
 ///
 /// ```rust
-/// use beancount::models::Account;
+/// use avaro::models::Account;
 /// use std::str::FromStr;
 ///
 /// assert!(Account::from_str("Assets:A:B").is_ok());
