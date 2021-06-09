@@ -1,7 +1,7 @@
 
 use crate::models::*;
 use chrono::{NaiveDate};
-use crate::error::BeanCountError;
+use crate::error::AvaroError;
 use lalrpop_util::ParseError;
 use snailquote::unescape;
 use std::str::FromStr;
@@ -10,7 +10,7 @@ grammar;
 
 extern {
     type Location = usize;
-    type Error = BeanCountError;
+    type Error = AvaroError;
 }
 
 match {
@@ -215,7 +215,7 @@ pub Commodity: String = {
 
 
 pub DateExpression: NaiveDate = {
-    <date:r"\d{4}-\d{1,2}-\d{1,2}"> =>? NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_|ParseError::User {error: BeanCountError::InvalidDate})
+    <date:r"\d{4}-\d{1,2}-\d{1,2}"> =>? NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_|ParseError::User {error: AvaroError::InvalidDate})
 }
 
 pub SPACE = {

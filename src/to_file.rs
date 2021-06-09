@@ -4,17 +4,17 @@ use crate::{
 };
 use itertools::Itertools;
 
-pub trait ToBeancountFile {
+pub trait ToAvaroFile {
     fn to_text(&self) -> String;
 }
 
-impl ToBeancountFile for Amount {
+impl ToAvaroFile for Amount {
     fn to_text(&self) -> String {
         format!("{} {}", self.0, self.1)
     }
 }
 
-impl ToBeancountFile for crate::models::Flag {
+impl ToAvaroFile for crate::models::Flag {
     fn to_text(&self) -> String {
         match self {
             Flag::Complete => "*".to_owned(),
@@ -23,13 +23,13 @@ impl ToBeancountFile for crate::models::Flag {
     }
 }
 
-impl ToBeancountFile for crate::models::AccountType {
+impl ToAvaroFile for crate::models::AccountType {
     fn to_text(&self) -> String {
         self.to_string()
     }
 }
 
-impl ToBeancountFile for crate::models::TransactionLine {
+impl ToAvaroFile for crate::models::TransactionLine {
     fn to_text(&self) -> String {
         let mut builder = String::new();
         if self.flag != Flag::Complete {
@@ -58,7 +58,7 @@ impl ToBeancountFile for crate::models::TransactionLine {
     }
 }
 
-impl ToBeancountFile for crate::models::Transaction {
+impl ToAvaroFile for crate::models::Transaction {
     fn to_text(&self) -> String {
         let mut builder = String::new();
         builder.push_str(&self.date.to_string());
@@ -99,7 +99,7 @@ impl ToBeancountFile for crate::models::Transaction {
     }
 }
 
-impl ToBeancountFile for crate::models::Directive {
+impl ToAvaroFile for crate::models::Directive {
     fn to_text(&self) -> String {
         match self {
             Directive::Open {
@@ -221,7 +221,7 @@ impl ToBeancountFile for crate::models::Directive {
 
 #[cfg(test)]
 mod test {
-    use crate::{models::Directive, parser::DirectiveExpressionParser, to_file::ToBeancountFile};
+    use crate::{models::Directive, parser::DirectiveExpressionParser, to_file::ToAvaroFile};
 
     fn parse(from: &str) -> String {
         let direct: Directive = DirectiveExpressionParser::new().parse(from).unwrap();

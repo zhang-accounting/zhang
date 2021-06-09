@@ -1,4 +1,4 @@
-use crate::{error::BeanCountError, parser::AccountExpressionParser};
+use crate::{error::AvaroError, parser::AccountExpressionParser};
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use indexmap::IndexMap;
@@ -127,12 +127,12 @@ impl Account {
 /// assert!(Account::from_str("Assets").is_err());
 /// ```
 impl FromStr for Account {
-    type Err = BeanCountError;
+    type Err = AvaroError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         AccountExpressionParser::new()
             .parse(s)
-            .map_err(|_| BeanCountError::InvalidAccount)
+            .map_err(|_| AvaroError::InvalidAccount)
     }
 }
 
