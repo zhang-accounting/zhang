@@ -2,7 +2,7 @@
 name = "avaro"
 description = "a plain text double-accounting tool which is compatible with avaro but more powerful"
 license = "MIT"
-version = "0.0.2-alpha"
+version = "0.0.2-alpha.1"
 authors = ["Kilerd <blove694@gmail.com>"]
 edition = "2018"
 
