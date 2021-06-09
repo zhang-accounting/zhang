@@ -1,0 +1,14 @@
+option "title" "Example Beancount file"
+option "operating_currency" "USD"
+
+
+; Commodities
+
+1792-01-01 commodity USD
+  export: "CASH"
+  name: "US Dollar"
+
+
+2018-01-01 * "Opening Balance for checking account"
+  Assets:US:BofA:Checking                         3344.50 USD
+  Equity:Opening-Balances                        -3344.50 USD

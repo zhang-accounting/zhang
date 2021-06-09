@@ -10,4 +10,4 @@ edition = "2018"
 path="avaro"
 
 [workspace]
-members = ["avaro", "avaro-wasm"]
+members = ["avaro", "avaro-wasm", "cli"]
