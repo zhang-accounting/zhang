@@ -78,8 +78,24 @@ pub enum Directive {
     },
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub enum AvaroString {
+    QuoteString(String),
+    UnquoteString(String),
+}
+
+impl AvaroString {
+    pub fn to_string(self) -> String {
+        match self {
+            AvaroString::QuoteString(inner) => inner,
+            AvaroString::UnquoteString(inner) => inner
+        }
+    }
+}
+
+
 #[derive(
-    Debug, EnumString, PartialEq, PartialOrd, strum_macros::ToString, Deserialize, Serialize,
+Debug, EnumString, PartialEq, PartialOrd, strum_macros::ToString, Deserialize, Serialize,
 )]
 pub enum AccountType {
     Assets,
@@ -97,8 +113,8 @@ pub struct Account {
 
 impl Serialize for Account {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
+        where
+            S: Serializer,
     {
         serializer.serialize_str(&format!(
             "{}{}{}",
@@ -159,7 +175,7 @@ pub struct TransactionLine {
 }
 
 #[derive(
-    EnumString, Debug, PartialEq, PartialOrd, strum_macros::ToString, Deserialize, Serialize,
+EnumString, Debug, PartialEq, PartialOrd, strum_macros::ToString, Deserialize, Serialize,
 )]
 pub enum Flag {
     #[strum(serialize = "*", to_string = "*")]
@@ -1053,18 +1069,18 @@ mod test {
 
     mod option {
         use crate::{models::Directive, parser::DirectiveExpressionParser};
+        use crate::p::parse_avaro;
 
         #[test]
         fn test() {
-            let x = DirectiveExpressionParser::new()
-                .parse(r#"option "title"  "Personal""#)
-                .unwrap();
+            let result = parse_avaro(r#"option "title"  "Personal""#);
+
             let directive = Directive::Option {
                 key: "title".to_owned(),
                 value: "Personal".to_owned(),
             };
 
-            assert_eq!(directive, x);
+            assert_eq!(directive, result.unwrap()[0]);
         }
     }
 

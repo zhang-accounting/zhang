@@ -1,0 +1,51 @@
+Entry = {SOI ~ (Item ~ NEWLINE+)* ~ Item? ~ EOI}
+
+Item  = {Option | Plugin | Commodity | Open | Close| Include | Note | Pad | Balance | Document | Price | Event}
+
+Option = {"option" ~ SPACE+ ~ String ~ SPACE+ ~  String}
+Plugin = {"plugin" ~ SPACE+ ~ (String ~ SPACE+)* ~ String }
+Commodity = {Date ~ SPACE+ ~ "commodity" ~ SPACE+ ~ CommodityName ~  CommodityMeta?}
+Open = {Date ~ SPACE+ ~ "open" ~ SPACE+ ~ AccountName }
+Close = {Date ~ SPACE+ ~ "close" ~ SPACE+ ~ AccountName }
+Include = {"include" ~ SPACE+ ~ QuoteString }
+Note = {Date ~ SPACE+ ~ "note" ~ SPACE+ ~ AccountName ~ SPACE+ ~ String}
+Pad = {Date ~ SPACE+ ~ "pad" ~ SPACE+ ~ AccountName ~ SPACE+ ~ AccountName}
+Balance = {Date ~ SPACE+ ~ "balance" ~ SPACE+ ~ AccountName ~ SPACE+ ~ number ~ SPACE+ ~ CommodityName}
+Document = {Date ~ SPACE+ ~ "document" ~ SPACE+ ~ AccountName ~ SPACE+ ~ String}
+Price = {Date ~ SPACE+ ~ "price" ~ SPACE+ ~ CommodityName ~ SPACE+ ~ number ~ SPACE+ ~ CommodityName}
+Event = {Date ~ SPACE+ ~ "event" ~ SPACE+ ~ String ~ SPACE+ ~ String}
+
+CommodityMeta = { identation_push ~ CommodityLines ~ DROP }
+
+identation = ${ Line ~ PEEK_ALL }
+identation_push = ${ identation ~ PUSH(SPACE+) }
+CommodityLines = {CommodityLine ~ (CommodityNextLine)*}
+CommodityNextLine = {identation ~ CommodityLine}
+CommodityLine = {String ~ SPACE* ~ ":" ~SPACE*~ String}
+
+Date = {ASCII_DIGIT{4} ~ "-"~ ASCII_DIGIT{1,2} ~ "-" ~ ASCII_DIGIT{1,2}}
+
+AccountName = { AccountType ~ (":"~UnquoteString)+}
+AccountType = {"Assets" | "Liabilities" | "Equity" | "Income" | "Expenses"}
+String = {UnquoteString | QuoteString }
+UnquoteString = { (("\\" ~ ("u" ~ ASCII_HEX_DIGIT{4})) | ASCII_ALPHANUMERIC | "." | "_" | "-")+}
+QuoteString = ${ "\"" ~ inner ~ "\"" }
+CommodityName = {ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "." | "_" | "-" | "'")+}
+
+inner = @{ char* }
+char = {
+    !("\"" | "\\") ~ ANY
+    | "\\" ~ ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
+    | "\\" ~ ("u" ~ ASCII_HEX_DIGIT{4})
+}
+
+SPACE = _{ " " | "\t" }
+Line = _{ "\n" | "\r" | "\n\r" }
+
+
+number = @{
+    "-"?
+    ~ ("0" | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*)
+    ~ ("." ~ ASCII_DIGIT*)?
+    ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
+}
