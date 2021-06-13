@@ -1,7 +1,8 @@
 use pest_consume::{Parser, Error, match_nodes};
 use bigdecimal::BigDecimal;
 use std::str::FromStr;
-use crate::models::{AvaroString, AccountType, Directive};
+use crate::models::{AvaroString, AccountType, Directive, Account};
+use chrono::NaiveDate;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -21,8 +22,8 @@ impl AvaroParser {
     fn inner(input: Node) -> Result<String> {
         Ok(input.as_str().to_owned())
     }
-    fn QuoteString(input:Node) -> Result<AvaroString> {
-        let ret:String = match_nodes!(
+    fn QuoteString(input: Node) -> Result<AvaroString> {
+        let ret: String = match_nodes!(
             input.into_children();
             [inner(i)] => i
         );
@@ -46,35 +47,58 @@ impl AvaroParser {
     fn AccountType(input: Node) -> Result<String> {
         Ok(input.as_str().to_owned())
     }
-    fn AccountName(input: Node) -> Result<String> {
-        let r = match_nodes!(input.into_children();
+    fn AccountName(input: Node) -> Result<Account> {
+        let r: (String, Vec<AvaroString>) = match_nodes!(input.into_children();
             [AccountType(a), UnquoteString(i)..] => {
-                let mut ret: Vec<String> = i.into_iter().map(|i|i.to_string()).collect();
-                ret.push(a);
-                ret
+                (a, i.collect())
             },
 
         );
-        Ok(r.join(""))
+        Ok(Account {
+            account_type: AccountType::from_str(&r.0).unwrap(),
+            value: r.1.into_iter().map(|it| it.to_string()).collect(),
+        })
     }
-    fn Date(input:Node) -> Result<String> {
-        Ok(input.as_str().to_owned())
+    fn Date(input: Node) -> Result<NaiveDate> {
+        Ok(NaiveDate::parse_from_str(input.as_str(), "%Y-%m-%d").unwrap())
     }
 
-    fn Option(input:Node) -> Result<Directive> {
+
+    fn Plugin(input: Node) -> Result<Directive> {
+        let ret: (AvaroString, Vec<AvaroString>) = match_nodes!(input.into_children();
+            [String(module), String(values)..] => (module, values.collect()),
+        );
+        let values = ret.1.into_iter().map(|it| it.to_string()).collect();
+        Ok(Directive::Plugin { module: ret.0.to_string(), value: values })
+    }
+
+    fn Option(input: Node) -> Result<Directive> {
         let ret = match_nodes!(input.into_children();
             [String(key), String(value)] => Directive::Option {key:key.to_string(),value:value.to_string()},
         );
         Ok(ret)
     }
 
-    fn Item(input: Node) ->Result<Directive> {
+    fn Open(input: Node) -> Result<Directive> {
+        let ret: (NaiveDate, Account, Vec<String>) = match_nodes!(input.into_children();
+            [Date(date), AccountName(a), CommodityName(commodities)..] => (date, a, commodities.collect())
+        );
+        Ok(Directive::Open {
+            date: ret.0,
+            account: ret.1,
+            commodities: ret.2,
+        })
+    }
+
+    fn Item(input: Node) -> Result<Directive> {
         let ret = match_nodes!(input.into_children();
             [Option(item)] => item,
+            [Open(item)] => item,
+            [Plugin(item)] => item,
         );
         Ok(ret)
     }
-    fn Entry(input: Node) ->Result<Vec<Directive>> {
+    fn Entry(input: Node) -> Result<Vec<Directive>> {
         let ret = match_nodes!(input.into_children();
             [Item(items).., _] => items.collect(),
         );

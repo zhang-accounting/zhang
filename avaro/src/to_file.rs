@@ -112,9 +112,9 @@ impl ToAvaroFile for crate::models::Directive {
                     date = &date.to_string(),
                     account = &account.to_string()
                 );
-                if let Some(commodities_data) = commodities {
+                if !commodities.is_empty() {
                     string.push(' ');
-                    string.push_str(&commodities_data.iter().join(", "));
+                    string.push_str(&commodities.iter().join(", "));
                 };
                 string
             }
@@ -207,9 +207,9 @@ impl ToAvaroFile for crate::models::Directive {
                 escape_with_quote(value)
             ),
             Directive::Plugin { module, value } => {
-                let mut builder = format!("plugin {}", escape_with_quote(module),);
-                if let Some(inner) = value {
-                    builder.push_str(&format!(" {}", escape_with_quote(inner)));
+                let mut builder = format!("plugin {}", escape_with_quote(module), );
+                for item in value {
+                    builder.push_str(&format!(" {}", escape_with_quote(item)));
                 }
                 builder
             }
@@ -242,10 +242,12 @@ mod test {
     fn balance() {
         parse_and_test("1970-01-01 balance Equity:hello 10 CNY");
     }
+
     #[test]
     fn option() {
         parse_and_test("option \"hello\" \"value\"");
     }
+
     #[test]
     fn close() {
         parse_and_test("1970-01-01 close Equity:hello");
@@ -324,14 +326,17 @@ mod test {
                   Expenses:TestCategory:One 1 CCC @@ 1 CNY"#)
         );
     }
+
     #[test]
     fn pad() {
         parse_and_test("1970-01-01 pad Assets:123:234:English:中文:日本語:한국어 Equity:ABC");
     }
+
     #[test]
     fn note() {
         parse_and_test(r#"1970-01-01 note Assets:123 "你 好 啊\\""#);
     }
+
     #[test]
     fn document() {
         parse_and_test("1970-01-01 document Assets:123 \"\"");
@@ -347,6 +352,7 @@ mod test {
     fn event() {
         parse_and_test(r#"1970-01-01 event "location" "China""#);
     }
+
     #[test]
     #[ignore]
     fn custom() {
@@ -358,10 +364,12 @@ mod test {
         parse_and_test(r#"plugin "module name" "config data""#);
         parse_and_test(r#"plugin "module name""#);
     }
+
     #[test]
     fn include() {
         parse_and_test(r#"include "file path""#);
     }
+
     #[test]
     fn comment() {
         parse_and_test(";你好啊");

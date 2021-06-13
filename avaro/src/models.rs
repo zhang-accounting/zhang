@@ -15,7 +15,7 @@ pub enum Directive {
     Open {
         date: NaiveDate,
         account: Account,
-        commodities: Option<Vec<String>>,
+        commodities: Vec<String>,
     },
     Close {
         date: NaiveDate,
@@ -68,7 +68,7 @@ pub enum Directive {
     },
     Plugin {
         module: String,
-        value: Option<String>,
+        value: Vec<String>,
     },
     Include {
         file: String,
@@ -107,8 +107,8 @@ pub enum AccountType {
 
 #[derive(Debug, PartialEq, PartialOrd, Deserialize)]
 pub struct Account {
-    account_type: AccountType,
-    value: Vec<String>,
+    pub account_type: AccountType,
+    pub value: Vec<String>,
 }
 
 impl Serialize for Account {
@@ -234,28 +234,6 @@ pub(crate) type AmountInfo = (
     Option<Amount>,
 );
 
-impl TransactionLine {
-    pub(crate) fn from_parser(
-        flag: Option<Flag>,
-        account: Account,
-        amount_info: Option<AmountInfo>,
-    ) -> Self {
-        let flag = flag.unwrap_or(Flag::Complete);
-        let (amount, cost, single_price, total_price) = match amount_info {
-            None => (None, None, None, None),
-            Some((a, c, s, t)) => (Some(a), c, s, t),
-        };
-
-        TransactionLine {
-            flag,
-            account,
-            amount,
-            cost,
-            single_price,
-            total_price,
-        }
-    }
-}
 
 #[cfg(test)]
 mod test {
@@ -291,7 +269,7 @@ mod test {
                         "한국어".to_owned(),
                     ],
                 ),
-                commodities: None,
+                commodities: vec![],
             };
             let x = single_directive_parser("1970-01-01 open Assets:123:234:English:中文:日本語:한국어");
             assert_eq!(directive, x);
@@ -312,7 +290,7 @@ mod test {
                         "한국어".to_owned(),
                     ],
                 ),
-                commodities: Some(vec!["CNY".to_owned()]),
+                commodities: vec!["CNY".to_owned()],
             };
             let x = single_directive_parser("1970-01-01 open Assets:123:234:English:中文:日本語:한국어 CNY");
             assert_eq!(directive, x);
@@ -333,7 +311,7 @@ mod test {
                         "한국어".to_owned(),
                     ],
                 ),
-                commodities: Some(vec!["CNY".to_owned(), "USD".to_owned(), "CAD".to_owned()]),
+                commodities: vec!["CNY".to_owned(), "USD".to_owned(), "CAD".to_owned()],
             };
             let x = single_directive_parser("1970-01-01 open Assets:123:234:English:中文:日本語:한국어 CNY, USD,CAD");
             assert_eq!(directive, x);
@@ -1017,7 +995,7 @@ mod test {
             let x = single_directive_parser(r#"plugin "module name"  "config data""#);
             let directive = Directive::Plugin {
                 module: "module name".to_owned(),
-                value: Some("config data".to_owned()),
+                value: vec!("config data".to_owned()),
             };
 
             assert_eq!(directive, x);
@@ -1028,7 +1006,7 @@ mod test {
             let x = single_directive_parser(r#"plugin "module name""#);
             let directive = Directive::Plugin {
                 module: "module name".to_owned(),
-                value: None,
+                value: vec![],
             };
 
             assert_eq!(directive, x);
@@ -1109,7 +1087,7 @@ mod test {
                         account_type: AccountType::Assets,
                         value: vec!["Book".to_owned()],
                     },
-                    commodities: None,
+                    commodities: vec![],
                 },
             ];
 
