@@ -221,11 +221,12 @@ impl ToAvaroFile for crate::models::Directive {
 
 #[cfg(test)]
 mod test {
-    use crate::{models::Directive, parser::DirectiveExpressionParser, to_file::ToAvaroFile};
+    use crate::{models::Directive, to_file::ToAvaroFile};
+    use crate::p::parse_avaro;
 
     fn parse(from: &str) -> String {
-        let direct: Directive = DirectiveExpressionParser::new().parse(from).unwrap();
-        direct.to_text()
+        let directive = parse_avaro(from).unwrap().into_iter().next().unwrap();
+        directive.to_text()
     }
 
     fn parse_and_test(from: &str) {
