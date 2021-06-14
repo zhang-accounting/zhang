@@ -89,12 +89,92 @@ impl AvaroParser {
             commodities: ret.2,
         })
     }
+    fn Close(input: Node) -> Result<Directive> {
+        let ret: (NaiveDate, Account) = match_nodes!(input.into_children();
+            [Date(date), AccountName(a)] => (date, a)
+        );
+        Ok(Directive::Close {
+            date: ret.0,
+            account: ret.1,
+        })
+    }
+    fn Commodity(input: Node) -> Result<Directive> {
+        todo!()
+    }
+    fn Include(input: Node) -> Result<Directive> {
+        let ret: AvaroString = match_nodes!(input.into_children();
+            [QuoteString(path)] => path,
+        );
+        Ok(Directive::Include { file: ret.to_string() })
+    }
+
+    fn Note(input: Node) -> Result<Directive> {
+        let ret: (NaiveDate, Account, AvaroString) = match_nodes!(input.into_children();
+            [Date(date), AccountName(a), String(path)] => (date, a, path),
+        );
+        Ok(Directive::Note {
+            date: ret.0,
+            account: ret.1,
+            description: ret.2.to_string(),
+        })
+    }
+
+    fn Pad(input: Node) -> Result<Directive> {
+        let ret: (NaiveDate, Account, Account) = match_nodes!(input.into_children();
+            [Date(date), AccountName(from), AccountName(to)] => (date, from, to),
+        );
+        Ok(Directive::Pad {
+            date: ret.0,
+            from: ret.1,
+            to: ret.2,
+        })
+    }
+
+    fn Event(input: Node) -> Result<Directive> {
+        let ret: (NaiveDate, AvaroString, AvaroString) = match_nodes!(input.into_children();
+            [Date(date), String(name), String(value)] => (date, name, value),
+        );
+        Ok(Directive::Event {
+            date: ret.0,
+            name: ret.1.to_string(),
+            value: ret.2.to_string(),
+        })
+    }
+
+    fn Balance(input: Node) -> Result<Directive> {
+        let ret: (NaiveDate, Account, BigDecimal, String) = match_nodes!(input.into_children();
+            [Date(date), AccountName(name), number(amount), CommodityName(commodity)] => (date, name, amount, commodity),
+        );
+        Ok(Directive::Balance {
+            date: ret.0,
+            account: ret.1,
+            amount: (ret.2, ret.3),
+        })
+    }
+
+    fn Document(input: Node) -> Result<Directive> {
+        let ret: (NaiveDate, Account, AvaroString) = match_nodes!(input.into_children();
+            [Date(date), AccountName(name), String(path)] => (date, name, path),
+        );
+        Ok(Directive::Document {
+            date: ret.0,
+            account: ret.1,
+            path: ret.2.to_string()
+        })
+    }
 
     fn Item(input: Node) -> Result<Directive> {
         let ret = match_nodes!(input.into_children();
             [Option(item)] => item,
             [Open(item)] => item,
             [Plugin(item)] => item,
+            [Close(item)] => item,
+            [Include(item)] => item,
+            [Note(item)] => item,
+            [Pad(item)] => item,
+            [Event(item)] => item,
+            [Document(item)] => item,
+            [Balance(item)] => item,
         );
         Ok(ret)
     }

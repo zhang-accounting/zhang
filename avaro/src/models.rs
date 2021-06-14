@@ -6,6 +6,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize, Serializer};
 use std::str::FromStr;
 use strum_macros::EnumString;
+use snailquote::unescape;
 
 pub type Amount = (BigDecimal, String);
 
@@ -87,7 +88,7 @@ pub enum AvaroString {
 impl AvaroString {
     pub fn to_string(self) -> String {
         match self {
-            AvaroString::QuoteString(inner) => inner,
+            AvaroString::QuoteString(inner) => unescape(&format!("\"{}\"", inner)).unwrap(),
             AvaroString::UnquoteString(inner) => inner
         }
     }
@@ -334,7 +335,7 @@ mod test {
                     vec!["123".to_owned(), "456".to_owned()],
                 ),
             };
-            let x = single_directive_parser(r#"1970-01-01 close Assets:123:456  "#);
+            let x = single_directive_parser(r#"1970-01-01 close Assets:123:456"#);
             assert_eq!(directive, x);
         }
     }
