@@ -198,8 +198,8 @@ impl ToAvaroFile for crate::models::Directive {
             } => format!(
                 "{date} custom {type_name} {value}",
                 date = date.to_string(),
-                type_name = escape_with_quote(type_name),
-                value = values.iter().map(|v| escape_with_quote(v)).join(" ")
+                type_name = type_name.to_string(),
+                value = values.iter().map(|v| v.to_string()).join(" ")
             ),
             Directive::Option { key, value } => format!(
                 "option {} {}",

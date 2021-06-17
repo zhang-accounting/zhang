@@ -1,7 +1,7 @@
 use pest_consume::{Parser, Error, match_nodes};
 use bigdecimal::BigDecimal;
 use std::str::FromStr;
-use crate::models::{AvaroString, AccountType, Directive, Account};
+use crate::models::{AvaroString, AccountType, Directive, Account, StringOrAccount};
 use chrono::NaiveDate;
 use indexmap::map::IndexMap;
 
@@ -100,7 +100,7 @@ impl AvaroParser {
         })
     }
 
-    fn identation(input: Node) -> Result<()> { Ok(())}
+    fn identation(input: Node) -> Result<()> { Ok(()) }
 
     fn CommodityLine(input: Node) -> Result<(AvaroString, AvaroString)> {
         let ret: (AvaroString, AvaroString) = match_nodes!(input.into_children();
@@ -143,6 +143,26 @@ impl AvaroParser {
             metas: ret.2,
         })
     }
+
+    fn StringOrAccount(input:Node) ->Result<StringOrAccount> {
+        let ret: StringOrAccount = match_nodes!(input.into_children();
+            [String(value)] => StringOrAccount::String(value),
+            [AccountName(value)] => StringOrAccount::Account(value),
+        );
+        Ok(ret)
+    }
+
+    fn Custom(input:Node) -> Result<Directive> {
+        let ret: (NaiveDate, AvaroString, Vec<StringOrAccount>) = match_nodes!(input.into_children();
+            [Date(date), String(module), StringOrAccount(options)..] => (date, module, options.collect()),
+        );
+        Ok(Directive::Custom {
+            date: ret.0,
+            type_name: ret.1,
+            values: ret.2
+        })
+    }
+
     fn Include(input: Node) -> Result<Directive> {
         let ret: AvaroString = match_nodes!(input.into_children();
             [QuoteString(path)] => path,
@@ -231,6 +251,7 @@ impl AvaroParser {
             [Balance(item)] => item,
             [Price(item)] => item,
             [Commodity(item)] => item,
+            [Custom(item)] => item,
         );
         Ok(ret)
     }
@@ -249,4 +270,13 @@ pub fn parse_avaro(input_str: &str) -> Result<Vec<Directive>> {
     let input = inputs.single()?;
     // Consume the `Node` recursively into the final value
     AvaroParser::Entry(input)
+}
+
+pub fn parse_account(input_str: &str) -> Result<Account> {
+    // Parse the input into `Nodes`
+    let inputs = AvaroParser::parse(Rule::AccountName, input_str)?;
+    // There should be a single root node in the parsed tree
+    let input = inputs.single()?;
+    // Consume the `Node` recursively into the final value
+    AvaroParser::AccountName(input)
 }

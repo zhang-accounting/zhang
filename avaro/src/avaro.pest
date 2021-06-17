@@ -1,6 +1,6 @@
 Entry = {SOI ~ (Item ~ NEWLINE+)* ~ Item? ~ EOI}
 
-Item  = {Option | Plugin | Commodity | Open | Close| Include | Note | Pad | Balance | Document | Price | Event}
+Item  = {Option | Plugin | Commodity | Open | Close| Include | Note | Pad | Balance | Document | Price | Event | Custom}
 
 Option = {"option" ~ SPACE+ ~ String ~ SPACE+ ~  String}
 Plugin = {"plugin" ~ SPACE+ ~ String ~  (SPACE+ ~ String )* }
@@ -14,6 +14,10 @@ Balance = {Date ~ SPACE+ ~ "balance" ~ SPACE+ ~ AccountName ~ SPACE+ ~ number ~ 
 Document = {Date ~ SPACE+ ~ "document" ~ SPACE+ ~ AccountName ~ SPACE+ ~ String}
 Price = {Date ~ SPACE+ ~ "price" ~ SPACE+ ~ CommodityName ~ SPACE+ ~ number ~ SPACE+ ~ CommodityName}
 Event = {Date ~ SPACE+ ~ "event" ~ SPACE+ ~ String ~ SPACE+ ~ String}
+Custom = {Date ~ SPACE+ ~ "custom" ~ SPACE+ ~ String ~ ( SPACE+ ~ StringOrAccount)+}
+
+
+StringOrAccount = { AccountName | String }
 
 CommodityMeta = { identation_push ~ CommodityLines ~ DROP }
 

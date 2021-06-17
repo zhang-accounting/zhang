@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use std::str::FromStr;
 use strum_macros::EnumString;
 use snailquote::unescape;
+use crate::p::parse_account;
 
 pub type Amount = (BigDecimal, String);
 
@@ -60,8 +61,8 @@ pub enum Directive {
     },
     Custom {
         date: NaiveDate,
-        type_name: String,
-        values: Vec<String>,
+        type_name: AvaroString,
+        values: Vec<StringOrAccount>,
     },
     Option {
         key: String,
@@ -84,6 +85,22 @@ pub enum AvaroString {
     QuoteString(String),
     UnquoteString(String),
 }
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub enum StringOrAccount {
+    String(AvaroString),
+    Account(Account),
+}
+
+impl StringOrAccount {
+    pub fn to_string(&self) -> String {
+        match self {
+            StringOrAccount::String(inner) => inner.to_string(),
+            StringOrAccount::Account(inner) => inner.to_string()
+        }
+    }
+}
+
 
 impl AvaroString {
     pub fn to_string(&self) -> String {
@@ -132,6 +149,9 @@ impl Account {
             account_type,
             value,
         }
+    }
+    pub fn from_str(content:&str) -> Account {
+        parse_account(content).unwrap()
     }
 }
 
@@ -1041,17 +1061,20 @@ mod test {
         use crate::{models::Directive};
         use chrono::NaiveDate;
         use crate::models::test::single_directive_parser;
+        use crate::models::{AvaroString, StringOrAccount, Account};
 
         #[test]
         fn custom() {
-            let x = single_directive_parser(r#"1970-01-01 custom "budget" Expenses:Eat "monthly" CNY"#);
+            let x = single_directive_parser(r#"2015-05-01 custom "budget" Expenses:Electricity  "quarterly"    85.00 EUR"#);
             let directive = Directive::Custom {
-                date: NaiveDate::from_ymd(1970, 1, 1),
-                type_name: "budget".to_owned(),
+                date: NaiveDate::from_ymd(2015, 05, 01),
+                type_name: AvaroString::QuoteString("budget".to_owned()),
                 values: vec![
-                    "Expenses:Eat".to_owned(),
-                    "monthly".to_owned(),
-                    "CNY".to_owned(),
+                    StringOrAccount::Account(Account::from_str("Expenses:Electricity")),
+                    StringOrAccount::String(AvaroString::QuoteString("quarterly".to_owned())),
+                    StringOrAccount::String(AvaroString::UnquoteString("85.00".to_owned())),
+                    StringOrAccount::String(AvaroString::UnquoteString("EUR".to_owned())),
+
                 ],
             };
 
