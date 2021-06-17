@@ -128,7 +128,7 @@ impl ToAvaroFile for crate::models::Directive {
                 let meta_info = metas
                     .iter()
                     .map(|(key, value)| {
-                        format!("\n  {}: {}", key.clone(), escape_with_quote(value))
+                        format!("\n  {}: {}", key.to_string(), value.to_string())
                     })
                     .join("");
                 format!(

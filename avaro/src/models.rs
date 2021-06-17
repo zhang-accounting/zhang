@@ -25,7 +25,7 @@ pub enum Directive {
     Commodity {
         date: NaiveDate,
         name: String,
-        metas: IndexMap<String, String>,
+        metas: Vec<(AvaroString, AvaroString)>,
     },
     Transaction(Transaction),
     Balance {
@@ -79,17 +79,17 @@ pub enum Directive {
     },
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub enum AvaroString {
     QuoteString(String),
     UnquoteString(String),
 }
 
 impl AvaroString {
-    pub fn to_string(self) -> String {
+    pub fn to_string(&self) -> String {
         match self {
             AvaroString::QuoteString(inner) => unescape(&format!("\"{}\"", inner)).unwrap(),
-            AvaroString::UnquoteString(inner) => inner
+            AvaroString::UnquoteString(inner) => inner.clone()
         }
     }
 }
@@ -364,22 +364,26 @@ mod test {
         use chrono::NaiveDate;
         use indexmap::IndexMap;
         use crate::models::test::single_directive_parser;
+        use crate::models::AvaroString;
 
         #[test]
         fn test_commodity_without_attribute() {
             let directive = Directive::Commodity {
                 date: NaiveDate::from_ymd(1970, 1, 1),
                 name: "CNY".to_owned(),
-                metas: IndexMap::new(),
+                metas: vec![],
             };
-            let x = single_directive_parser(r#"1970-01-01 commodity CNY  "#);
+            let x = single_directive_parser(r#"1970-01-01 commodity CNY"#);
             assert_eq!(directive, x);
         }
 
         #[test]
         fn test_commodity_with_single_attribute() {
-            let mut metas = IndexMap::new();
-            metas.insert("a".to_owned(), "b".to_owned());
+            let mut metas = vec![];
+            metas.push((
+                AvaroString::UnquoteString("a".to_owned()),
+                AvaroString::QuoteString("b".to_owned())
+                ));
             let directive = Directive::Commodity {
                 date: NaiveDate::from_ymd(1970, 1, 1),
                 name: "CNY".to_owned(),
@@ -397,12 +401,16 @@ mod test {
                   a: "b"
                   中文-test  :  "한국어 我也不知道我在说啥""#);
 
-            let mut metas = IndexMap::new();
-            metas.insert("a".to_owned(), "b".to_owned());
-            metas.insert(
-                "中文-test".to_owned(),
-                "한국어 我也不知道我在说啥".to_owned(),
-            );
+            let mut metas = vec![];
+            metas.push((
+                AvaroString::UnquoteString("a".to_owned()),
+                AvaroString::QuoteString("b".to_owned())
+            ));
+            metas.push((
+                AvaroString::UnquoteString("中文-test".to_owned()),
+                AvaroString::QuoteString("한국어 我也不知道我在说啥".to_owned())
+            ));
+
             let directive = Directive::Commodity {
                 date: NaiveDate::from_ymd(1970, 1, 1),
                 name: "CNY".to_owned(),

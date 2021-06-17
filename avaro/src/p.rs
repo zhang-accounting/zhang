@@ -3,6 +3,7 @@ use bigdecimal::BigDecimal;
 use std::str::FromStr;
 use crate::models::{AvaroString, AccountType, Directive, Account};
 use chrono::NaiveDate;
+use indexmap::map::IndexMap;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -98,8 +99,49 @@ impl AvaroParser {
             account: ret.1,
         })
     }
+
+    fn identation(input: Node) -> Result<()> { Ok(())}
+
+    fn CommodityLine(input: Node) -> Result<(AvaroString, AvaroString)> {
+        let ret: (AvaroString, AvaroString) = match_nodes!(input.into_children();
+            [String(key), String(value)] => (key, value),
+        );
+        Ok(ret)
+    }
+    fn CommodityNextLine(input: Node) -> Result<(AvaroString, AvaroString)> {
+        let ret: (AvaroString, AvaroString) = match_nodes!(input.into_children();
+            [identation(_), CommodityLine(line)] => line,
+        );
+        Ok(ret)
+    }
+    fn CommodityLines(input: Node) -> Result<Vec<(AvaroString, AvaroString)>> {
+        let ret: Vec<(AvaroString, AvaroString)> = match_nodes!(input.into_children();
+            [CommodityLine(line)] => vec![line],
+            [CommodityLine(line), CommodityNextLine(lines)..] => {
+                let mut vec: Vec<(AvaroString, AvaroString)> = lines.collect();
+                vec.insert(0, line);
+                vec
+            },
+        );
+        Ok(ret)
+    }
+    fn CommodityMeta(input: Node) -> Result<Vec<(AvaroString, AvaroString)>> {
+        let ret: Vec<(AvaroString, AvaroString)> = match_nodes!(input.into_children();
+            [identation(_), CommodityLines(lines)] => lines,
+        );
+        Ok(ret)
+    }
+
     fn Commodity(input: Node) -> Result<Directive> {
-        todo!()
+        let ret = match_nodes!(input.into_children();
+            [Date(date), CommodityName(name)] => (date, name, vec![]),
+            [Date(date), CommodityName(name), CommodityMeta(meta)] => (date, name, meta),
+        );
+        Ok(Directive::Commodity {
+            date: ret.0,
+            name: ret.1,
+            metas: ret.2,
+        })
     }
     fn Include(input: Node) -> Result<Directive> {
         let ret: AvaroString = match_nodes!(input.into_children();
@@ -159,9 +201,21 @@ impl AvaroParser {
         Ok(Directive::Document {
             date: ret.0,
             account: ret.1,
-            path: ret.2.to_string()
+            path: ret.2.to_string(),
         })
     }
+
+    fn Price(input: Node) -> Result<Directive> {
+        let ret: (NaiveDate, String, BigDecimal, String) = match_nodes!(input.into_children();
+            [Date(date), CommodityName(source), number(price), CommodityName(target)] => (date, source, price, target)
+        );
+        Ok(Directive::Price {
+            date: ret.0,
+            commodity: ret.1,
+            amount: (ret.2, ret.3),
+        })
+    }
+
 
     fn Item(input: Node) -> Result<Directive> {
         let ret = match_nodes!(input.into_children();
@@ -175,6 +229,8 @@ impl AvaroParser {
             [Event(item)] => item,
             [Document(item)] => item,
             [Balance(item)] => item,
+            [Price(item)] => item,
+            [Commodity(item)] => item,
         );
         Ok(ret)
     }
