@@ -24,12 +24,17 @@ Links = {SPACE+ ~ ("^"~UnquoteString)}
 TransactionDetail = {identation_push ~ TransactionLines ~ DROP}
 TransactionLines = {TransactionLine ~ (TransactionNextLine)*}
 TransactionLine = {TransactionPosting | CommodityLine}
-TransactionPosting = {TransactionFlag ~ AccountName ~ SPACE+ ~ number ~ SPACE+ ~ CommodityName ~ PostingPrice?}
+TransactionPosting = {TransactionFlag ~ AccountName ~ SPACE+ ~ number ~ SPACE+ ~ CommodityName ~ PostingMeta?}
 TransactionNextLine = {identation ~ TransactionLine}
 
-PostingPrice = {SPACE+ ~ "{" ~ SPACE* ~ number ~ SPACE+ ~ CommodityName~ PriceDate? ~ "}" ~( SPACE+~ "@"{1,2} ~ SPACE+~ number~ SPACE+~ CommodityName)?}
+PostingMeta = {SPACE+ ~ "{" ~ SPACE* ~ PostingCost~ PriceCostDate? ~ "}" ~( SPACE+~ PostingPrice)?}
 
-PriceDate = {SPACE* ~ "," ~ SPACE* ~ Date }
+PostingCost = {number ~ SPACE+ ~ CommodityName}
+PriceCostDate = {SPACE* ~ "," ~ SPACE* ~ Date }
+PostingPrice = {PostingSinglePrice | PostingTotalPrice}
+
+PostingSinglePrice = {"@" ~ SPACE+~ number~ SPACE+~ CommodityName}
+PostingTotalPrice = {"@@" ~ SPACE+~ number~ SPACE+~ CommodityName}
 
 StringOrAccount = { AccountName | String }
 

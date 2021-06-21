@@ -174,8 +174,13 @@ pub struct TransactionLine {
     pub account: Account,
     pub amount: Option<Amount>,
     pub cost: Option<(Amount, Option<String>)>,
-    pub single_price: Option<Amount>,
-    pub total_price: Option<Amount>,
+    pub price: Option<Price>,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub enum Price {
+    Single(Amount),
+    Total(Amount)
 }
 
 #[derive(
