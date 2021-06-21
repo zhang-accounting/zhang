@@ -1,9 +1,12 @@
-use pest_consume::{Parser, Error, match_nodes};
+use crate::models::{
+    Account, AccountType, Amount, AvaroString, Directive, Flag, Price, StringOrAccount,
+    Transaction, TransactionLine,
+};
 use bigdecimal::BigDecimal;
-use std::str::FromStr;
-use crate::models::{AvaroString, AccountType, Directive, Account, StringOrAccount, Amount, Flag, Price, TransactionLine, Transaction};
 use chrono::NaiveDate;
+use pest_consume::{match_nodes, Error, Parser};
 use snailquote::unescape;
+use std::str::FromStr;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -62,13 +65,15 @@ impl AvaroParser {
         Ok(NaiveDate::parse_from_str(input.as_str(), "%Y-%m-%d").unwrap())
     }
 
-
     fn Plugin(input: Node) -> Result<Directive> {
         let ret: (AvaroString, Vec<AvaroString>) = match_nodes!(input.into_children();
             [String(module), String(values)..] => (module, values.collect()),
         );
         let values = ret.1.into_iter().map(|it| it.to_string()).collect();
-        Ok(Directive::Plugin { module: ret.0.to_string(), value: values })
+        Ok(Directive::Plugin {
+            module: ret.0.to_string(),
+            value: values,
+        })
     }
 
     fn Option(input: Node) -> Result<Directive> {
@@ -78,7 +83,9 @@ impl AvaroParser {
         Ok(ret)
     }
     fn Comment(input: Node) -> Result<Directive> {
-        Ok(Directive::Comment { content: input.as_str().to_owned() })
+        Ok(Directive::Comment {
+            content: input.as_str().to_owned(),
+        })
     }
 
     fn Open(input: Node) -> Result<Directive> {
@@ -101,7 +108,9 @@ impl AvaroParser {
         })
     }
 
-    fn identation(input: Node) -> Result<()> { Ok(()) }
+    fn identation(input: Node) -> Result<()> {
+        Ok(())
+    }
 
     fn CommodityLine(input: Node) -> Result<(AvaroString, AvaroString)> {
         let ret: (AvaroString, AvaroString) = match_nodes!(input.into_children();
@@ -165,7 +174,12 @@ impl AvaroParser {
         Ok(ret)
     }
     fn TransactionPosting(input: Node) -> Result<TransactionLine> {
-        let ret: (Option<Flag>, Account, Option<Amount>, Option<(Option<Amount>, Option<NaiveDate>, Option<Price>)>) = match_nodes!(input.into_children();
+        let ret: (
+            Option<Flag>,
+            Account,
+            Option<Amount>,
+            Option<(Option<Amount>, Option<NaiveDate>, Option<Price>)>,
+        ) = match_nodes!(input.into_children();
             [AccountName(account_name)] => (None, account_name, None, None),
             [AccountName(account_name), PostingAmount(amount)] => (None, account_name, Some(amount), None),
             [AccountName(account_name),  PostingMeta(meta)] => (None, account_name, None, Some(meta)),
@@ -192,7 +206,9 @@ impl AvaroParser {
         Ok(line)
     }
 
-    fn TransactionLine(input: Node) -> Result<(Option<TransactionLine>, Option<(AvaroString, AvaroString)>)> {
+    fn TransactionLine(
+        input: Node,
+    ) -> Result<(Option<TransactionLine>, Option<(AvaroString, AvaroString)>)> {
         let ret: (Option<TransactionLine>, Option<(AvaroString, AvaroString)>) = match_nodes!(input.into_children();
             [TransactionPosting(posting)] => (Some(posting), None),
             [CommodityLine(meta)] => (None, Some(meta)),
@@ -200,7 +216,9 @@ impl AvaroParser {
         );
         Ok(ret)
     }
-    fn TransactionLines(input: Node) -> Result<Vec<(Option<TransactionLine>, Option<(AvaroString, AvaroString)>)>> {
+    fn TransactionLines(
+        input: Node,
+    ) -> Result<Vec<(Option<TransactionLine>, Option<(AvaroString, AvaroString)>)>> {
         let ret = match_nodes!(input.into_children();
             [TransactionLine(lines)..] => lines.collect(),
         );
@@ -233,7 +251,15 @@ impl AvaroParser {
     }
 
     fn Transaction(input: Node) -> Result<Directive> {
-        let ret: (NaiveDate, Option<Flag>, Option<AvaroString>, Option<AvaroString>, Vec<AvaroString>, Vec<AvaroString>, Vec<(Option<TransactionLine>, Option<(AvaroString, AvaroString)>)>) = match_nodes!(input.into_children();
+        let ret: (
+            NaiveDate,
+            Option<Flag>,
+            Option<AvaroString>,
+            Option<AvaroString>,
+            Vec<AvaroString>,
+            Vec<AvaroString>,
+            Vec<(Option<TransactionLine>, Option<(AvaroString, AvaroString)>)>,
+        ) = match_nodes!(input.into_children();
             [Date(date), TransactionFlag(flag), Tags(tags), Links(links), TransactionLines(lines)] => (date, flag, None, None, tags, links, lines),
             [Date(date), TransactionFlag(flag), QuoteString(narration), Tags(tags), Links(links), TransactionLines(lines)] => (date, flag, None, Some(narration), tags, links, lines),
             [Date(date), TransactionFlag(flag), QuoteString(payee), QuoteString(narration), Tags(tags), Links(links), TransactionLines(lines)] => (date, flag, Some(payee), Some(narration), tags, links,lines),
@@ -251,7 +277,7 @@ impl AvaroParser {
 
         for line in ret.6 {
             match line {
-                (Some(trx), None) => { transaction.lines.push(trx) }
+                (Some(trx), None) => transaction.lines.push(trx),
                 (None, Some(meta)) => transaction.metas.push(meta),
                 _ => {}
             }
@@ -259,7 +285,6 @@ impl AvaroParser {
 
         Ok(Directive::Transaction(transaction))
     }
-
 
     fn Commodity(input: Node) -> Result<Directive> {
         let ret = match_nodes!(input.into_children();
@@ -296,7 +321,9 @@ impl AvaroParser {
         let ret: AvaroString = match_nodes!(input.into_children();
             [QuoteString(path)] => path,
         );
-        Ok(Directive::Include { file: ret.to_string() })
+        Ok(Directive::Include {
+            file: ret.to_string(),
+        })
     }
 
     fn Note(input: Node) -> Result<Directive> {
@@ -364,7 +391,6 @@ impl AvaroParser {
             amount: (ret.2, ret.3),
         })
     }
-
 
     fn Item(input: Node) -> Result<Directive> {
         let ret = match_nodes!(input.into_children();

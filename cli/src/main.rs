@@ -4,8 +4,8 @@ fn main() {
     let content = std::fs::read_to_string(option).unwrap();
     let parser = avaro::EntryParser::new();
     let c = match parser.parse(&content) {
-        Ok(entry) => { serde_json::to_string(&entry).unwrap() }
-        Err(e) => format!("{{\"error\": {}}}", e.to_string())
+        Ok(entry) => serde_json::to_string(&entry).unwrap(),
+        Err(e) => format!("{{\"error\": {}}}", e.to_string()),
     };
     println!("{}", c);
 }

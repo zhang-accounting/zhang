@@ -9,7 +9,7 @@ use wasm_bindgen::prelude::*;
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen]
-extern {
+extern "C" {
     fn alert(s: &str);
 }
 
@@ -22,7 +22,7 @@ pub fn greet() {
 pub fn parse(content: &str) -> String {
     let parser = avaro::EntryParser::new();
     match parser.parse(content) {
-        Ok(entry) => { serde_json::to_string(&entry).unwrap() }
-        Err(e) => format!("{}", e.to_string())
+        Ok(entry) => serde_json::to_string(&entry).unwrap(),
+        Err(e) => format!("{}", e.to_string()),
     }
 }

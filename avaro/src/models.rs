@@ -1,11 +1,11 @@
+use crate::p::parse_account;
+use crate::to_file::ToAvaroFile;
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize, Serializer};
 use std::str::FromStr;
 use strum_macros::EnumString;
-use crate::p::parse_account;
-use crate::to_file::ToAvaroFile;
 
 pub type Amount = (BigDecimal, String);
 
@@ -94,25 +94,21 @@ impl StringOrAccount {
     pub fn to_string(&self) -> String {
         match self {
             StringOrAccount::String(inner) => inner.to_text(),
-            StringOrAccount::Account(inner) => inner.to_string()
+            StringOrAccount::Account(inner) => inner.to_string(),
         }
     }
 }
-
 
 impl AvaroString {
     pub fn to_string(&self) -> String {
         match self {
             AvaroString::QuoteString(inner) => inner.clone(),
-            AvaroString::UnquoteString(inner) => inner.clone()
+            AvaroString::UnquoteString(inner) => inner.clone(),
         }
     }
 }
 
-
-#[derive(
-Debug, EnumString, PartialEq, strum_macros::ToString, Deserialize, Serialize,
-)]
+#[derive(Debug, EnumString, PartialEq, strum_macros::ToString, Deserialize, Serialize)]
 pub enum AccountType {
     Assets,
     Liabilities,
@@ -129,8 +125,8 @@ pub struct Account {
 
 impl Serialize for Account {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         serializer.serialize_str(&format!(
             "{}{}{}",
@@ -152,7 +148,6 @@ impl Account {
         parse_account(content).unwrap()
     }
 }
-
 
 // todo tags links
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
@@ -183,9 +178,7 @@ pub enum Price {
     Total(Amount),
 }
 
-#[derive(
-EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize,
-)]
+#[derive(EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize)]
 pub enum Flag {
     #[strum(serialize = "*", to_string = "*")]
     Complete,
@@ -206,7 +199,6 @@ impl ToString for Account {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use crate::models::Directive;
@@ -219,11 +211,9 @@ mod test {
     }
 
     mod open {
-        use crate::{
-            models::{Account, AccountType, Directive},
-        };
-        use chrono::NaiveDate;
         use crate::models::test::single_directive_parser;
+        use crate::models::{Account, AccountType, Directive};
+        use chrono::NaiveDate;
 
         #[test]
         fn test_open_directive() {
@@ -242,7 +232,9 @@ mod test {
                 ),
                 commodities: vec![],
             };
-            let x = single_directive_parser("1970-01-01 open Assets:123:234:English:中文:日本語:한국어");
+            let x = single_directive_parser(
+                "1970-01-01 open Assets:123:234:English:中文:日本語:한국어",
+            );
             assert_eq!(directive, x);
         }
 
@@ -263,7 +255,9 @@ mod test {
                 ),
                 commodities: vec!["CNY".to_owned()],
             };
-            let x = single_directive_parser("1970-01-01 open Assets:123:234:English:中文:日本語:한국어 CNY");
+            let x = single_directive_parser(
+                "1970-01-01 open Assets:123:234:English:中文:日本語:한국어 CNY",
+            );
             assert_eq!(directive, x);
         }
 
@@ -284,17 +278,17 @@ mod test {
                 ),
                 commodities: vec!["CNY".to_owned(), "USD".to_owned(), "CAD".to_owned()],
             };
-            let x = single_directive_parser("1970-01-01 open Assets:123:234:English:中文:日本語:한국어 CNY, USD,CAD");
+            let x = single_directive_parser(
+                "1970-01-01 open Assets:123:234:English:中文:日本語:한국어 CNY, USD,CAD",
+            );
             assert_eq!(directive, x);
         }
     }
 
     mod close {
-        use crate::{
-            models::{Account, AccountType, Directive},
-        };
-        use chrono::NaiveDate;
         use crate::models::test::single_directive_parser;
+        use crate::models::{Account, AccountType, Directive};
+        use chrono::NaiveDate;
 
         #[test]
         fn test_close() {
@@ -311,11 +305,9 @@ mod test {
     }
 
     mod note {
-        use crate::{
-            models::{Account, AccountType, Directive},
-        };
-        use chrono::NaiveDate;
         use crate::models::test::single_directive_parser;
+        use crate::models::{Account, AccountType, Directive};
+        use chrono::NaiveDate;
 
         #[test]
         fn test_note_directive() {
@@ -330,10 +322,10 @@ mod test {
     }
 
     mod commodity {
-        use crate::{models::Directive};
-        use chrono::NaiveDate;
         use crate::models::test::single_directive_parser;
         use crate::models::AvaroString;
+        use crate::models::Directive;
+        use chrono::NaiveDate;
 
         #[test]
         fn test_commodity_without_attribute() {
@@ -351,7 +343,7 @@ mod test {
             let mut metas = vec![];
             metas.push((
                 AvaroString::UnquoteString("a".to_owned()),
-                AvaroString::QuoteString("b".to_owned())
+                AvaroString::QuoteString("b".to_owned()),
             ));
             let directive = Directive::Commodity {
                 date: NaiveDate::from_ymd(1970, 1, 1),
@@ -359,25 +351,29 @@ mod test {
                 metas,
             };
 
-            let x = single_directive_parser(r#"1970-01-01 commodity CNY
-                  a: "b""#);
+            let x = single_directive_parser(
+                r#"1970-01-01 commodity CNY
+                  a: "b""#,
+            );
             assert_eq!(directive, x);
         }
 
         #[test]
         fn test_commodity_with_attributes() {
-            let x = single_directive_parser(r#"1970-01-01 commodity CNY
+            let x = single_directive_parser(
+                r#"1970-01-01 commodity CNY
                   a: "b"
-                  中文-test  :  "한국어 我也不知道我在说啥""#);
+                  中文-test  :  "한국어 我也不知道我在说啥""#,
+            );
 
             let mut metas = vec![];
             metas.push((
                 AvaroString::UnquoteString("a".to_owned()),
-                AvaroString::QuoteString("b".to_owned())
+                AvaroString::QuoteString("b".to_owned()),
             ));
             metas.push((
                 AvaroString::UnquoteString("中文-test".to_owned()),
-                AvaroString::QuoteString("한국어 我也不知道我在说啥".to_owned())
+                AvaroString::QuoteString("한국어 我也不知道我在说啥".to_owned()),
             ));
 
             let directive = Directive::Commodity {
@@ -390,19 +386,19 @@ mod test {
     }
 
     mod transaction {
-        use crate::{
-            models::{Account, AccountType, Directive, Flag, Transaction, TransactionLine}
-        };
+        use crate::models::test::single_directive_parser;
+        use crate::models::{Account, AccountType, Directive, Flag, Transaction, TransactionLine};
+        use crate::models::{AvaroString, Price};
         use bigdecimal::{BigDecimal, FromPrimitive};
         use chrono::NaiveDate;
-        use crate::models::test::single_directive_parser;
-        use crate::models::{Price, AvaroString};
 
         #[test]
         fn simple_test() {
-            let x = single_directive_parser(r#"1970-01-01 * "Payee" "Narration"
+            let x = single_directive_parser(
+                r#"1970-01-01 * "Payee" "Narration"
                   Assets:123  -1 CNY
-                  Expenses:TestCategory:One 1 CNY"#);
+                  Expenses:TestCategory:One 1 CNY"#,
+            );
 
             let a = TransactionLine {
                 flag: None,
@@ -441,9 +437,11 @@ mod test {
 
         #[test]
         fn without_payee_with_narration() {
-            let x = single_directive_parser(r#"1970-01-01 * "Narration"
+            let x = single_directive_parser(
+                r#"1970-01-01 * "Narration"
                   Assets:123  -1 CNY
-                  Expenses:TestCategory:One 1 CNY"#);
+                  Expenses:TestCategory:One 1 CNY"#,
+            );
 
             let a = TransactionLine {
                 flag: None,
@@ -482,9 +480,11 @@ mod test {
 
         #[test]
         fn cost_and_cost_comment() {
-            let x = single_directive_parser(r#"1970-01-01 * "Narration"
+            let x = single_directive_parser(
+                r#"1970-01-01 * "Narration"
                   Assets:123  -1 CNY {0.1 USD , 2111-11-11}
-                  Expenses:TestCategory:One 1 CNY {0.1 USD}"#);
+                  Expenses:TestCategory:One 1 CNY {0.1 USD}"#,
+            );
 
             let a = TransactionLine {
                 flag: None,
@@ -523,10 +523,12 @@ mod test {
 
         #[test]
         fn multiple_transaction_lines() {
-            let x = single_directive_parser(r#"1970-01-01 * "Payee" "Narration"
+            let x = single_directive_parser(
+                r#"1970-01-01 * "Payee" "Narration"
                   Assets:123  -1 CNY
                   Expenses:TestCategory:One 0.5 CNY
-                  Expenses:TestCategory:Two 0.5 CNY"#);
+                  Expenses:TestCategory:Two 0.5 CNY"#,
+            );
 
             let a = TransactionLine {
                 flag: None,
@@ -576,9 +578,11 @@ mod test {
 
         #[test]
         fn optional_amount_in_line() {
-            let x = single_directive_parser(r#"1970-01-01 * "Payee" "Narration"
+            let x = single_directive_parser(
+                r#"1970-01-01 * "Payee" "Narration"
                   Assets:123  -1 CNY
-                  Expenses:TestCategory:One"#);
+                  Expenses:TestCategory:One"#,
+            );
 
             let a = TransactionLine {
                 flag: None,
@@ -617,9 +621,11 @@ mod test {
 
         #[test]
         fn optional_single_price() {
-            let x = single_directive_parser(r#"1970-01-01 * "Payee" "Narration"
+            let x = single_directive_parser(
+                r#"1970-01-01 * "Payee" "Narration"
                   Assets:123  -1 CNY
-                  Expenses:TestCategory:One 1 CCC @ 1 CNY"#);
+                  Expenses:TestCategory:One 1 CCC @ 1 CNY"#,
+            );
 
             let a = TransactionLine {
                 flag: None,
@@ -658,9 +664,11 @@ mod test {
 
         #[test]
         fn optional_total_price() {
-            let x = single_directive_parser(r#"1970-01-01 * "Payee" "Narration"
+            let x = single_directive_parser(
+                r#"1970-01-01 * "Payee" "Narration"
                   Assets:123  -1 CNY
-                  Expenses:TestCategory:One 1 CCC @@ 1 CNY"#);
+                  Expenses:TestCategory:One 1 CCC @@ 1 CNY"#,
+            );
 
             let a = TransactionLine {
                 flag: None,
@@ -699,9 +707,11 @@ mod test {
 
         #[test]
         fn with_optional_tags_without_payee() {
-            let x = single_directive_parser(r#"1970-01-01 *  "Narration" #mytag #tag2
+            let x = single_directive_parser(
+                r#"1970-01-01 *  "Narration" #mytag #tag2
                   Assets:123  -1 CNY
-                  Expenses:TestCategory:One 1 CCC @@ 1 CNY"#);
+                  Expenses:TestCategory:One 1 CCC @@ 1 CNY"#,
+            );
 
             let a = TransactionLine {
                 flag: None,
@@ -728,7 +738,10 @@ mod test {
                 flag: Some(Flag::Complete),
                 payee: None,
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
-                tags: vec![AvaroString::UnquoteString("mytag".to_owned()), AvaroString::UnquoteString("tag2".to_owned())],
+                tags: vec![
+                    AvaroString::UnquoteString("mytag".to_owned()),
+                    AvaroString::UnquoteString("tag2".to_owned()),
+                ],
                 links: vec![],
                 lines: vec![a, b],
                 metas: vec![],
@@ -740,9 +753,11 @@ mod test {
 
         #[test]
         fn optional_tags() {
-            let x = single_directive_parser(r#"1970-01-01 * "Payee" "Narration" #mytag #tag2
+            let x = single_directive_parser(
+                r#"1970-01-01 * "Payee" "Narration" #mytag #tag2
                   Assets:123  -1 CNY
-                  Expenses:TestCategory:One 1 CCC @@ 1 CNY"#);
+                  Expenses:TestCategory:One 1 CCC @@ 1 CNY"#,
+            );
 
             let a = TransactionLine {
                 flag: None,
@@ -769,7 +784,10 @@ mod test {
                 flag: Some(Flag::Complete),
                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
-                tags: vec![AvaroString::UnquoteString("mytag".to_owned()), AvaroString::UnquoteString("tag2".to_owned())],
+                tags: vec![
+                    AvaroString::UnquoteString("mytag".to_owned()),
+                    AvaroString::UnquoteString("tag2".to_owned()),
+                ],
                 links: vec![],
                 lines: vec![a, b],
                 metas: vec![],
@@ -781,9 +799,11 @@ mod test {
 
         #[test]
         fn optional_links() {
-            let x = single_directive_parser(r#"1970-01-01 * "Payee" "Narration" ^link1 ^link-2
+            let x = single_directive_parser(
+                r#"1970-01-01 * "Payee" "Narration" ^link1 ^link-2
                   Assets:123  -1 CNY
-                  Expenses:TestCategory:One 1 CCC @@ 1 CNY"#);
+                  Expenses:TestCategory:One 1 CCC @@ 1 CNY"#,
+            );
 
             let a = TransactionLine {
                 flag: None,
@@ -811,7 +831,10 @@ mod test {
                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
-                links: vec![AvaroString::UnquoteString("link1".to_owned()), AvaroString::UnquoteString("link-2".to_owned())],
+                links: vec![
+                    AvaroString::UnquoteString("link1".to_owned()),
+                    AvaroString::UnquoteString("link-2".to_owned()),
+                ],
                 lines: vec![a, b],
                 metas: vec![],
             };
@@ -822,15 +845,15 @@ mod test {
     }
 
     mod pad {
-        use crate::{
-            models::{Account, AccountType, Directive},
-        };
-        use chrono::NaiveDate;
         use crate::models::test::single_directive_parser;
+        use crate::models::{Account, AccountType, Directive};
+        use chrono::NaiveDate;
 
         #[test]
         fn pad_directive() {
-            let x = single_directive_parser("1970-01-01 pad Assets:123:234:English:中文:日本語:한국어 Equity:ABC");
+            let x = single_directive_parser(
+                "1970-01-01 pad Assets:123:234:English:中文:日本語:한국어 Equity:ABC",
+            );
             let directive = Directive::Pad {
                 date: NaiveDate::from_ymd(1970, 1, 1),
                 from: Account::new(
@@ -852,16 +875,16 @@ mod test {
     }
 
     mod balance {
-        use crate::{
-            models::{Account, AccountType, Directive},
-        };
+        use crate::models::test::single_directive_parser;
+        use crate::models::{Account, AccountType, Directive};
         use bigdecimal::BigDecimal;
         use chrono::NaiveDate;
-        use crate::models::test::single_directive_parser;
 
         #[test]
         fn balance_directive() {
-            let x = single_directive_parser("1970-01-01 balance Assets:123:234:English:中文:日本語:한국어  1 CNY");
+            let x = single_directive_parser(
+                "1970-01-01 balance Assets:123:234:English:中文:日本語:한국어  1 CNY",
+            );
             let directive = Directive::Balance {
                 date: NaiveDate::from_ymd(1970, 1, 1),
                 account: Account::new(
@@ -883,11 +906,9 @@ mod test {
     }
 
     mod document {
-        use crate::{
-            models::{Account, AccountType, Directive},
-        };
-        use chrono::NaiveDate;
         use crate::models::test::single_directive_parser;
+        use crate::models::{Account, AccountType, Directive};
+        use chrono::NaiveDate;
 
         #[test]
         fn empty_string() {
@@ -915,10 +936,10 @@ mod test {
     }
 
     mod price {
-        use crate::{models::Directive};
+        use crate::models::test::single_directive_parser;
+        use crate::models::Directive;
         use bigdecimal::BigDecimal;
         use chrono::NaiveDate;
-        use crate::models::test::single_directive_parser;
 
         #[test]
         fn test() {
@@ -934,9 +955,9 @@ mod test {
     }
 
     mod event {
-        use crate::{models::Directive};
-        use chrono::NaiveDate;
         use crate::models::test::single_directive_parser;
+        use crate::models::Directive;
+        use chrono::NaiveDate;
 
         #[test]
         fn test() {
@@ -952,8 +973,8 @@ mod test {
     }
 
     mod option {
-        use crate::{models::Directive};
         use crate::models::test::single_directive_parser;
+        use crate::models::Directive;
 
         #[test]
         fn test() {
@@ -969,15 +990,15 @@ mod test {
     }
 
     mod plugin {
-        use crate::{models::Directive};
         use crate::models::test::single_directive_parser;
+        use crate::models::Directive;
 
         #[test]
         fn has_plugin_data() {
             let x = single_directive_parser(r#"plugin "module name"  "config data""#);
             let directive = Directive::Plugin {
                 module: "module name".to_owned(),
-                value: vec!("config data".to_owned()),
+                value: vec!["config data".to_owned()],
             };
 
             assert_eq!(directive, x);
@@ -996,8 +1017,8 @@ mod test {
     }
 
     mod include {
-        use crate::{models::Directive};
         use crate::models::test::single_directive_parser;
+        use crate::models::Directive;
 
         #[test]
         fn has_plugin_data() {
@@ -1011,14 +1032,16 @@ mod test {
     }
 
     mod custom {
-        use crate::{models::Directive};
-        use chrono::NaiveDate;
         use crate::models::test::single_directive_parser;
-        use crate::models::{AvaroString, StringOrAccount, Account};
+        use crate::models::Directive;
+        use crate::models::{Account, AvaroString, StringOrAccount};
+        use chrono::NaiveDate;
 
         #[test]
         fn custom() {
-            let x = single_directive_parser(r#"2015-05-01 custom "budget" Expenses:Electricity  "quarterly"    85.00 EUR"#);
+            let x = single_directive_parser(
+                r#"2015-05-01 custom "budget" Expenses:Electricity  "quarterly"    85.00 EUR"#,
+            );
             let directive = Directive::Custom {
                 date: NaiveDate::from_ymd(2015, 05, 01),
                 type_name: AvaroString::QuoteString("budget".to_owned()),
@@ -1035,8 +1058,8 @@ mod test {
     }
 
     mod comment {
-        use crate::{models::Directive};
         use crate::models::test::single_directive_parser;
+        use crate::models::Directive;
 
         #[test]
         fn comma() {
@@ -1058,11 +1081,9 @@ mod test {
     }
 
     mod entry {
-        use crate::{
-            models::{Account, AccountType, Directive},
-        };
-        use chrono::NaiveDate;
+        use crate::models::{Account, AccountType, Directive};
         use crate::p::parse_avaro;
+        use chrono::NaiveDate;
 
         #[test]
         fn conbine_test() {

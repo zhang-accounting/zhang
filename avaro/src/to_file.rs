@@ -1,10 +1,10 @@
 use itertools::Itertools;
 
+use crate::models::{AvaroString, Directive, Price};
 use crate::{
     models::{Amount, Flag},
     utils::escape_with_quote,
 };
-use crate::models::{AvaroString, Directive, Price};
 
 pub trait ToAvaroFile {
     fn to_text(&self) -> String;
@@ -35,7 +35,7 @@ impl ToAvaroFile for AvaroString {
     fn to_text(&self) -> String {
         match self {
             AvaroString::QuoteString(inner) => escape_with_quote(inner).to_string(),
-            AvaroString::UnquoteString(inner) => inner.clone()
+            AvaroString::UnquoteString(inner) => inner.clone(),
         }
     }
 }
@@ -85,11 +85,9 @@ impl ToAvaroFile for crate::models::Transaction {
         }
 
         let pn = match (&self.payee, &self.narration) {
-            (Some(payee), Some(narration)) => format!(
-                " {} {}",
-                payee.to_text(),
-                narration.to_text()
-            ),
+            (Some(payee), Some(narration)) => {
+                format!(" {} {}", payee.to_text(), narration.to_text())
+            }
             (None, Some(narration)) => format!(" {}", narration.to_text()),
             _ => format!(""),
         };
@@ -147,9 +145,7 @@ impl ToAvaroFile for crate::models::Directive {
             Directive::Commodity { date, name, metas } => {
                 let meta_info = metas
                     .iter()
-                    .map(|(key, value)| {
-                        format!("\n  {}: {}", key.to_text(), value.to_text())
-                    })
+                    .map(|(key, value)| format!("\n  {}: {}", key.to_text(), value.to_text()))
                     .join("");
                 format!(
                     "{date} commodity {name}{meta_info}",
@@ -227,7 +223,7 @@ impl ToAvaroFile for crate::models::Directive {
                 escape_with_quote(value)
             ),
             Directive::Plugin { module, value } => {
-                let mut builder = format!("plugin {}", escape_with_quote(module), );
+                let mut builder = format!("plugin {}", escape_with_quote(module),);
                 for item in value {
                     builder.push_str(&format!(" {}", escape_with_quote(item)));
                 }
@@ -241,8 +237,8 @@ impl ToAvaroFile for crate::models::Directive {
 
 #[cfg(test)]
 mod test {
-    use crate::{to_file::ToAvaroFile};
     use crate::p::parse_avaro;
+    use crate::to_file::ToAvaroFile;
 
     fn parse(from: &str) -> String {
         let directive = parse_avaro(from).unwrap().into_iter().next().unwrap();
