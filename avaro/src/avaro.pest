@@ -1,6 +1,6 @@
 Entry = {SOI ~ (Item ~ NEWLINE+)* ~ Item? ~ EOI}
 
-Item  = {Option | Plugin | Commodity | Open | Close| Include | Note | Pad | Balance | Document | Price | Event | Custom}
+Item  = {Option | Plugin | Commodity | Open | Close| Include | Note | Pad | Balance | Document | Price | Event | Custom | Transaction}
 
 Option = {"option" ~ SPACE+ ~ String ~ SPACE+ ~  String}
 Plugin = {"plugin" ~ SPACE+ ~ String ~  (SPACE+ ~ String )* }
@@ -15,7 +15,19 @@ Document = {Date ~ SPACE+ ~ "document" ~ SPACE+ ~ AccountName ~ SPACE+ ~ String}
 Price = {Date ~ SPACE+ ~ "price" ~ SPACE+ ~ CommodityName ~ SPACE+ ~ number ~ SPACE+ ~ CommodityName}
 Event = {Date ~ SPACE+ ~ "event" ~ SPACE+ ~ String ~ SPACE+ ~ String}
 Custom = {Date ~ SPACE+ ~ "custom" ~ SPACE+ ~ String ~ ( SPACE+ ~ StringOrAccount)+}
+Transaction = {Date ~ SPACE+ ~ TransactionFlag ~ (SPACE+ ~ QuoteString){0,2} ~ TransactionDetail}
 
+
+TransactionFlag = { ("!" | "*")? }
+TransactionDetail = {identation_push ~ TransactionLines ~ DROP}
+TransactionLines = {TransactionLine ~ (TransactionNextLine)*}
+TransactionLine = {TransactionPosting | CommodityLine}
+TransactionPosting = {TransactionFlag ~ AccountName ~ SPACE+ ~ number ~ SPACE+ ~ CommodityName ~ PostingPrice?}
+TransactionNextLine = {identation ~ TransactionLine}
+
+PostingPrice = {SPACE+ ~ "{" ~ SPACE* ~ number ~ SPACE+ ~ CommodityName~ PriceDate? ~ "}" ~( SPACE+~ "@"{1,2} ~ SPACE+~ number~ SPACE+~ CommodityName)?}
+
+PriceDate = {SPACE* ~ "," ~ SPACE* ~ Date }
 
 StringOrAccount = { AccountName | String }
 
