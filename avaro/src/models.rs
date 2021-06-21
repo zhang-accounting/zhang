@@ -1094,6 +1094,14 @@ mod test {
             };
             assert_eq!(directive, x);
         }
+        #[test]
+        fn two() {
+            let x = single_directive_parser("* 你好啊");
+            let directive = Directive::Comment {
+                content: "* 你好啊".to_owned(),
+            };
+            assert_eq!(directive, x);
+        }
     }
 
     mod entry {

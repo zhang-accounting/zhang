@@ -79,6 +79,9 @@ impl AvaroParser {
         );
         Ok(ret)
     }
+    fn Comment(input: Node) -> Result<Directive> {
+        Ok(Directive::Comment { content: input.as_str().to_owned() })
+    }
 
     fn Open(input: Node) -> Result<Directive> {
         let ret: (NaiveDate, Account, Vec<String>) = match_nodes!(input.into_children();
@@ -144,7 +147,7 @@ impl AvaroParser {
         })
     }
 
-    fn StringOrAccount(input:Node) ->Result<StringOrAccount> {
+    fn StringOrAccount(input: Node) -> Result<StringOrAccount> {
         let ret: StringOrAccount = match_nodes!(input.into_children();
             [String(value)] => StringOrAccount::String(value),
             [AccountName(value)] => StringOrAccount::Account(value),
@@ -152,14 +155,14 @@ impl AvaroParser {
         Ok(ret)
     }
 
-    fn Custom(input:Node) -> Result<Directive> {
+    fn Custom(input: Node) -> Result<Directive> {
         let ret: (NaiveDate, AvaroString, Vec<StringOrAccount>) = match_nodes!(input.into_children();
             [Date(date), String(module), StringOrAccount(options)..] => (date, module, options.collect()),
         );
         Ok(Directive::Custom {
             date: ret.0,
             type_name: ret.1,
-            values: ret.2
+            values: ret.2,
         })
     }
 
@@ -252,6 +255,7 @@ impl AvaroParser {
             [Price(item)] => item,
             [Commodity(item)] => item,
             [Custom(item)] => item,
+            [Comment(item)] => item,
         );
         Ok(ret)
     }
