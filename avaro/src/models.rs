@@ -113,7 +113,7 @@ impl AvaroString {
 
 
 #[derive(
-Debug, EnumString, PartialEq, PartialOrd, strum_macros::ToString, Deserialize, Serialize,
+Debug, EnumString, PartialEq, strum_macros::ToString, Deserialize, Serialize,
 )]
 pub enum AccountType {
     Assets,
@@ -123,7 +123,7 @@ pub enum AccountType {
     Expenses,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Deserialize)]
+#[derive(Debug, PartialEq, Deserialize)]
 pub struct Account {
     pub account_type: AccountType,
     pub value: Vec<String>,
@@ -150,41 +150,43 @@ impl Account {
             value,
         }
     }
-    pub fn from_str(content:&str) -> Account {
+    pub fn from_str(content: &str) -> Account {
         parse_account(content).unwrap()
     }
 }
 
 
 // todo tags links
-#[derive(Debug, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct Transaction {
     pub date: NaiveDate,
-    pub flag: Flag,
-    pub payee: Option<String>,
-    pub narration: Option<String>,
-    pub tags: Vec<String>,
-    pub links: Vec<String>,
+    pub flag: Option<Flag>,
+    pub payee: Option<AvaroString>,
+    pub narration: Option<AvaroString>,
+    pub tags: Vec<AvaroString>,
+    pub links: Vec<AvaroString>,
     pub lines: Vec<TransactionLine>,
+    pub metas: Vec<(AvaroString, AvaroString)>,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct TransactionLine {
-    pub flag: Flag,
+    pub flag: Option<Flag>,
     pub account: Account,
     pub amount: Option<Amount>,
-    pub cost: Option<(Amount, Option<String>)>,
+    pub cost: Option<Amount>,
+    pub cost_date: Option<NaiveDate>,
     pub price: Option<Price>,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub enum Price {
     Single(Amount),
-    Total(Amount)
+    Total(Amount),
 }
 
 #[derive(
-EnumString, Debug, PartialEq, PartialOrd, strum_macros::ToString, Deserialize, Serialize,
+EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize,
 )]
 pub enum Flag {
     #[strum(serialize = "*", to_string = "*")]
@@ -206,52 +208,6 @@ impl ToString for Account {
     }
 }
 
-impl Transaction {
-    pub fn new(
-        date: NaiveDate,
-        flag: Flag,
-        payee: Option<String>,
-        narration: Option<String>,
-        tags: Vec<String>,
-        links: Vec<String>,
-        lines: Vec<TransactionLine>,
-    ) -> Self {
-        Transaction {
-            date,
-            flag,
-            payee,
-            narration,
-            tags,
-            links,
-            lines,
-        }
-    }
-
-    pub(crate) fn from_parser(
-        date: NaiveDate,
-        flag: Flag,
-        pn: Option<(String, Option<String>)>,
-        tags: Vec<String>,
-        links: Vec<String>,
-        lines: Vec<TransactionLine>,
-    ) -> Transaction {
-        let (payee, narration) = match pn {
-            None => (None, None),
-            Some((narration, None)) => (None, Some(narration)),
-            Some((payee, Some(narration))) => (Some(payee), Some(narration)),
-        };
-
-        Transaction {
-            date,
-            flag,
-            payee,
-            narration,
-            tags,
-            links,
-            lines,
-        }
-    }
-}
 
 pub(crate) type AmountInfo = (
     Amount,
@@ -408,7 +364,7 @@ mod test {
             metas.push((
                 AvaroString::UnquoteString("a".to_owned()),
                 AvaroString::QuoteString("b".to_owned())
-                ));
+            ));
             let directive = Directive::Commodity {
                 date: NaiveDate::from_ymd(1970, 1, 1),
                 name: "CNY".to_owned(),
@@ -452,6 +408,7 @@ mod test {
         use bigdecimal::{BigDecimal, FromPrimitive};
         use chrono::NaiveDate;
         use crate::models::test::single_directive_parser;
+        use crate::models::{Price, AvaroString};
 
         #[test]
         fn simple_test() {
@@ -460,33 +417,34 @@ mod test {
                   Expenses:TestCategory:One 1 CNY"#);
 
             let a = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(AccountType::Assets, vec!["123".to_owned()]),
                 amount: Some((BigDecimal::from(-1i16), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
             let b = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(
                     AccountType::Expenses,
                     vec!["TestCategory".to_owned(), "One".to_owned()],
                 ),
                 amount: Some((BigDecimal::from(1i16), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Flag::Complete,
-                payee: Some("Payee".to_owned()),
-                narration: Some("Narration".to_owned()),
+                flag: Some(Flag::Complete),
+                payee: Some(AvaroString::QuoteString("Payee".to_owned())),
+                narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
                 links: vec![],
                 lines: vec![a, b],
+                metas: vec![],
             };
             let x1 = Directive::Transaction(transaction);
 
@@ -500,33 +458,34 @@ mod test {
                   Expenses:TestCategory:One 1 CNY"#);
 
             let a = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(AccountType::Assets, vec!["123".to_owned()]),
                 amount: Some((BigDecimal::from(-1i16), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
             let b = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(
                     AccountType::Expenses,
                     vec!["TestCategory".to_owned(), "One".to_owned()],
                 ),
                 amount: Some((BigDecimal::from(1i16), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Flag::Complete,
+                flag: Some(Flag::Complete),
                 payee: None,
-                narration: Some("Narration".to_owned()),
+                narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
                 links: vec![],
                 lines: vec![a, b],
+                metas: vec![],
             };
             let x1 = Directive::Transaction(transaction);
 
@@ -536,43 +495,38 @@ mod test {
         #[test]
         fn cost_and_cost_comment() {
             let x = single_directive_parser(r#"1970-01-01 * "Narration"
-                  Assets:123  -1 CNY {0.1 USD , "TEST"}
+                  Assets:123  -1 CNY {0.1 USD , 2111-11-11}
                   Expenses:TestCategory:One 1 CNY {0.1 USD}"#);
 
             let a = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(AccountType::Assets, vec!["123".to_owned()]),
                 amount: Some((BigDecimal::from(-1i16), "CNY".to_string())),
-                cost: Some((
-                    (BigDecimal::from_f32(0.1f32).unwrap(), "USD".to_owned()),
-                    Some("TEST".to_owned()),
-                )),
-                single_price: None,
-                total_price: None,
+                cost: Some((BigDecimal::from_f32(0.1f32).unwrap(), "USD".to_owned())),
+                cost_date: Some(NaiveDate::from_ymd(2111, 11, 11)),
+                price: None,
             };
             let b = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(
                     AccountType::Expenses,
                     vec!["TestCategory".to_owned(), "One".to_owned()],
                 ),
                 amount: Some((BigDecimal::from(1i16), "CNY".to_string())),
-                cost: Some((
-                    (BigDecimal::from_f32(0.1f32).unwrap(), "USD".to_owned()),
-                    None,
-                )),
-                single_price: None,
-                total_price: None,
+                cost: Some((BigDecimal::from_f32(0.1f32).unwrap(), "USD".to_owned())),
+                cost_date: None,
+                price: None,
             };
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Flag::Complete,
+                flag: Some(Flag::Complete),
                 payee: None,
-                narration: Some("Narration".to_owned()),
+                narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
                 links: vec![],
                 lines: vec![a, b],
+                metas: vec![],
             };
             let x1 = Directive::Transaction(transaction);
 
@@ -587,44 +541,45 @@ mod test {
                   Expenses:TestCategory:Two 0.5 CNY"#);
 
             let a = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(AccountType::Assets, vec!["123".to_owned()]),
                 amount: Some((BigDecimal::from(-1i16), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
             let b = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(
                     AccountType::Expenses,
                     vec!["TestCategory".to_owned(), "One".to_owned()],
                 ),
                 amount: Some((BigDecimal::from_f32(0.5f32).unwrap(), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
             let c = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(
                     AccountType::Expenses,
                     vec!["TestCategory".to_owned(), "Two".to_owned()],
                 ),
                 amount: Some((BigDecimal::from_f32(0.5f32).unwrap(), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Flag::Complete,
-                payee: Some("Payee".to_owned()),
-                narration: Some("Narration".to_owned()),
+                flag: Some(Flag::Complete),
+                payee: Some(AvaroString::QuoteString("Payee".to_owned())),
+                narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
                 links: vec![],
                 lines: vec![a, b, c],
+                metas: vec![],
             };
             let x1 = Directive::Transaction(transaction);
 
@@ -638,33 +593,34 @@ mod test {
                   Expenses:TestCategory:One"#);
 
             let a = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(AccountType::Assets, vec!["123".to_owned()]),
                 amount: Some((BigDecimal::from(-1i16), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
             let b = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(
                     AccountType::Expenses,
                     vec!["TestCategory".to_owned(), "One".to_owned()],
                 ),
                 amount: None,
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Flag::Complete,
-                payee: Some("Payee".to_owned()),
-                narration: Some("Narration".to_owned()),
+                flag: Some(Flag::Complete),
+                payee: Some(AvaroString::QuoteString("Payee".to_owned())),
+                narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
                 links: vec![],
                 lines: vec![a, b],
+                metas: vec![],
             };
             let x1 = Directive::Transaction(transaction);
 
@@ -678,33 +634,34 @@ mod test {
                   Expenses:TestCategory:One 1 CCC @ 1 CNY"#);
 
             let a = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(AccountType::Assets, vec!["123".to_owned()]),
                 amount: Some((BigDecimal::from(-1i16), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
             let b = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(
                     AccountType::Expenses,
                     vec!["TestCategory".to_owned(), "One".to_owned()],
                 ),
                 amount: Some((BigDecimal::from(1i16), "CCC".to_string())),
                 cost: None,
-                single_price: Some((BigDecimal::from(1i16), "CNY".to_string())),
-                total_price: None,
+                cost_date: None,
+                price: Some(Price::Single((BigDecimal::from(1i16), "CNY".to_string()))),
             };
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Flag::Complete,
-                payee: Some("Payee".to_owned()),
-                narration: Some("Narration".to_owned()),
+                flag: Some(Flag::Complete),
+                payee: Some(AvaroString::QuoteString("Payee".to_owned())),
+                narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
                 links: vec![],
                 lines: vec![a, b],
+                metas: vec![],
             };
             let x1 = Directive::Transaction(transaction);
 
@@ -718,33 +675,34 @@ mod test {
                   Expenses:TestCategory:One 1 CCC @@ 1 CNY"#);
 
             let a = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(AccountType::Assets, vec!["123".to_owned()]),
                 amount: Some((BigDecimal::from(-1i16), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
             let b = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(
                     AccountType::Expenses,
                     vec!["TestCategory".to_owned(), "One".to_owned()],
                 ),
                 amount: Some((BigDecimal::from(1i16), "CCC".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: Some((BigDecimal::from(1i16), "CNY".to_string())),
+                cost_date: None,
+                price: Some(Price::Total((BigDecimal::from(1i16), "CNY".to_string()))),
             };
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Flag::Complete,
-                payee: Some("Payee".to_owned()),
-                narration: Some("Narration".to_owned()),
+                flag: Some(Flag::Complete),
+                payee: Some(AvaroString::QuoteString("Payee".to_owned())),
+                narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
                 links: vec![],
                 lines: vec![a, b],
+                metas: vec![],
             };
             let x1 = Directive::Transaction(transaction);
 
@@ -758,33 +716,34 @@ mod test {
                   Expenses:TestCategory:One 1 CCC @@ 1 CNY"#);
 
             let a = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(AccountType::Assets, vec!["123".to_owned()]),
                 amount: Some((BigDecimal::from(-1i16), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
             let b = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(
                     AccountType::Expenses,
                     vec!["TestCategory".to_owned(), "One".to_owned()],
                 ),
                 amount: Some((BigDecimal::from(1i16), "CCC".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: Some((BigDecimal::from(1i16), "CNY".to_string())),
+                cost_date: None,
+                price: Some(Price::Total((BigDecimal::from(1i16), "CNY".to_string()))),
             };
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Flag::Complete,
+                flag: Some(Flag::Complete),
                 payee: None,
-                narration: Some("Narration".to_owned()),
-                tags: vec!["mytag".to_owned(), "tag2".to_owned()],
+                narration: Some(AvaroString::QuoteString("Narration".to_owned())),
+                tags: vec![AvaroString::UnquoteString("mytag".to_owned()), AvaroString::UnquoteString("tag2".to_owned())],
                 links: vec![],
                 lines: vec![a, b],
+                metas: vec![],
             };
             let x1 = Directive::Transaction(transaction);
 
@@ -798,33 +757,34 @@ mod test {
                   Expenses:TestCategory:One 1 CCC @@ 1 CNY"#);
 
             let a = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(AccountType::Assets, vec!["123".to_owned()]),
                 amount: Some((BigDecimal::from(-1i16), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
             let b = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(
                     AccountType::Expenses,
                     vec!["TestCategory".to_owned(), "One".to_owned()],
                 ),
                 amount: Some((BigDecimal::from(1i16), "CCC".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: Some((BigDecimal::from(1i16), "CNY".to_string())),
+                cost_date: None,
+                price: Some(Price::Total((BigDecimal::from(1i16), "CNY".to_string()))),
             };
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Flag::Complete,
-                payee: Some("Payee".to_owned()),
-                narration: Some("Narration".to_owned()),
-                tags: vec!["mytag".to_owned(), "tag2".to_owned()],
+                flag: Some(Flag::Complete),
+                payee: Some(AvaroString::QuoteString("Payee".to_owned())),
+                narration: Some(AvaroString::QuoteString("Narration".to_owned())),
+                tags: vec![AvaroString::UnquoteString("mytag".to_owned()), AvaroString::UnquoteString("tag2".to_owned())],
                 links: vec![],
                 lines: vec![a, b],
+                metas: vec![],
             };
             let x1 = Directive::Transaction(transaction);
 
@@ -838,33 +798,34 @@ mod test {
                   Expenses:TestCategory:One 1 CCC @@ 1 CNY"#);
 
             let a = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(AccountType::Assets, vec!["123".to_owned()]),
                 amount: Some((BigDecimal::from(-1i16), "CNY".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: None,
+                cost_date: None,
+                price: None,
             };
             let b = TransactionLine {
-                flag: Flag::Complete,
+                flag: None,
                 account: Account::new(
                     AccountType::Expenses,
                     vec!["TestCategory".to_owned(), "One".to_owned()],
                 ),
                 amount: Some((BigDecimal::from(1i16), "CCC".to_string())),
                 cost: None,
-                single_price: None,
-                total_price: Some((BigDecimal::from(1i16), "CNY".to_string())),
+                cost_date: None,
+                price: Some(Price::Total((BigDecimal::from(1i16), "CNY".to_string()))),
             };
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Flag::Complete,
-                payee: Some("Payee".to_owned()),
-                narration: Some("Narration".to_owned()),
+                flag: Some(Flag::Complete),
+                payee: Some(AvaroString::QuoteString("Payee".to_owned())),
+                narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
-                links: vec!["link1".to_owned(), "link-2".to_owned()],
+                links: vec![AvaroString::UnquoteString("link1".to_owned()), AvaroString::UnquoteString("link-2".to_owned())],
                 lines: vec![a, b],
+                metas: vec![],
             };
             let x1 = Directive::Transaction(transaction);
 
@@ -1079,7 +1040,6 @@ mod test {
                     StringOrAccount::String(AvaroString::QuoteString("quarterly".to_owned())),
                     StringOrAccount::String(AvaroString::UnquoteString("85.00".to_owned())),
                     StringOrAccount::String(AvaroString::UnquoteString("EUR".to_owned())),
-
                 ],
             };
 
@@ -1099,6 +1059,7 @@ mod test {
             };
             assert_eq!(directive, x);
         }
+
         #[test]
         fn two() {
             let x = single_directive_parser("* 你好啊");

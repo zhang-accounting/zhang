@@ -1,7 +1,7 @@
 use pest_consume::{Parser, Error, match_nodes};
 use bigdecimal::BigDecimal;
 use std::str::FromStr;
-use crate::models::{AvaroString, AccountType, Directive, Account, StringOrAccount};
+use crate::models::{AvaroString, AccountType, Directive, Account, StringOrAccount, Amount, Flag, Price, TransactionLine, Transaction};
 use chrono::NaiveDate;
 use indexmap::map::IndexMap;
 
@@ -111,29 +111,157 @@ impl AvaroParser {
         );
         Ok(ret)
     }
-    fn CommodityNextLine(input: Node) -> Result<(AvaroString, AvaroString)> {
-        let ret: (AvaroString, AvaroString) = match_nodes!(input.into_children();
-            [identation(_), CommodityLine(line)] => line,
-        );
-        Ok(ret)
-    }
-    fn CommodityLines(input: Node) -> Result<Vec<(AvaroString, AvaroString)>> {
-        let ret: Vec<(AvaroString, AvaroString)> = match_nodes!(input.into_children();
-            [CommodityLine(line)] => vec![line],
-            [CommodityLine(line), CommodityNextLine(lines)..] => {
-                let mut vec: Vec<(AvaroString, AvaroString)> = lines.collect();
-                vec.insert(0, line);
-                vec
-            },
-        );
-        Ok(ret)
-    }
+
     fn CommodityMeta(input: Node) -> Result<Vec<(AvaroString, AvaroString)>> {
         let ret: Vec<(AvaroString, AvaroString)> = match_nodes!(input.into_children();
-            [identation(_), CommodityLines(lines)] => lines,
+            [CommodityLine(lines)..] => lines.collect(),
         );
         Ok(ret)
     }
+
+    fn PostingCost(input: Node) -> Result<Amount> {
+        let ret: Amount = match_nodes!(input.into_children();
+            [number(amount), CommodityName(c)] => (amount,c),
+        );
+        Ok(ret)
+    }
+    fn PostingTotalPrice(input: Node) -> Result<Amount> {
+        let ret: Amount = match_nodes!(input.into_children();
+            [number(amount), CommodityName(c)] => (amount,c),
+        );
+        Ok(ret)
+    }
+    fn PostingSinglePrice(input: Node) -> Result<Amount> {
+        let ret: Amount = match_nodes!(input.into_children();
+            [number(amount), CommodityName(c)] => (amount,c),
+        );
+        Ok(ret)
+    }
+    fn PostingAmount(input: Node) -> Result<Amount> {
+        let ret: Amount = match_nodes!(input.into_children();
+            [number(amount), CommodityName(c)] => (amount,c),
+        );
+        Ok(ret)
+    }
+
+    fn TransactionFlag(input: Node) -> Result<Option<Flag>> {
+        Ok(Some(Flag::from_str(input.as_str().trim()).unwrap()))
+    }
+
+    fn PostingPrice(input: Node) -> Result<Price> {
+        let ret: Price = match_nodes!(input.into_children();
+            [PostingTotalPrice(p)] => Price::Total(p),
+            [PostingSinglePrice(p)] => Price::Single(p),
+        );
+        Ok(ret)
+    }
+    fn PostingMeta(input: Node) -> Result<(Option<Amount>, Option<NaiveDate>, Option<Price>)> {
+        let ret: (Option<Amount>, Option<NaiveDate>, Option<Price>) = match_nodes!(input.into_children();
+            [] => (None, None, None),
+            [PostingCost(cost)] => (Some(cost), None, None),
+            [PostingPrice(p)] => (None, None, Some(p)),
+            [PostingCost(cost), Date(d)] => (Some(cost), Some(d), None),
+            [PostingCost(cost), PostingPrice(p)] => (Some(cost), None, Some(p)),
+            [PostingCost(cost), Date(d), PostingPrice(p)] => (Some(cost), Some(d), Some(p)),
+        );
+        Ok(ret)
+    }
+    fn TransactionPosting(input: Node) -> Result<TransactionLine> {
+        let ret: (Option<Flag>, Account, Option<Amount>, Option<(Option<Amount>, Option<NaiveDate>, Option<Price>)>) = match_nodes!(input.into_children();
+            [AccountName(account_name)] => (None, account_name, None, None),
+            [AccountName(account_name), PostingAmount(amount)] => (None, account_name, Some(amount), None),
+            [AccountName(account_name),  PostingMeta(meta)] => (None, account_name, None, Some(meta)),
+            [AccountName(account_name), PostingAmount(amount), PostingMeta(meta)] => (None, account_name, Some(amount), Some(meta)),
+            [TransactionFlag(flag), AccountName(account_name)] => (flag, account_name, None, None),
+            [TransactionFlag(flag), AccountName(account_name), PostingAmount(amount)] => (flag, account_name, Some(amount), None),
+            [TransactionFlag(flag), AccountName(account_name), PostingAmount(amount), PostingMeta(meta)] => (flag, account_name, Some(amount), Some(meta)),
+        );
+        let (_, _, _, meta) = ret;
+
+        let mut line = TransactionLine {
+            flag: ret.0,
+            account: ret.1,
+            amount: ret.2,
+            cost: None,
+            cost_date: None,
+            price: None,
+        };
+        if let Some(meta) = meta {
+            line.cost = meta.0;
+            line.cost_date = meta.1;
+            line.price = meta.2;
+        }
+        Ok(line)
+    }
+
+    fn TransactionLine(input: Node) -> Result<(Option<TransactionLine>, Option<(AvaroString, AvaroString)>)> {
+        let ret: (Option<TransactionLine>, Option<(AvaroString, AvaroString)>) = match_nodes!(input.into_children();
+            [TransactionPosting(posting)] => (Some(posting), None),
+            [CommodityLine(meta)] => (None, Some(meta)),
+
+        );
+        Ok(ret)
+    }
+    fn TransactionLines(input: Node) -> Result<Vec<(Option<TransactionLine>, Option<(AvaroString, AvaroString)>)>> {
+        let ret = match_nodes!(input.into_children();
+            [TransactionLine(lines)..] => lines.collect(),
+        );
+        Ok(ret)
+    }
+
+    fn Tag(input:Node) -> Result<AvaroString> {
+        let ret = match_nodes!(input.into_children();
+            [UnquoteString(tag)] => tag,
+        );
+        Ok(ret)
+    }
+    fn Link(input:Node) -> Result<AvaroString> {
+        let ret = match_nodes!(input.into_children();
+            [UnquoteString(tag)] => tag,
+        );
+        Ok(ret)
+    }
+    fn Tags(input:Node) -> Result<Vec<AvaroString>> {
+        let ret = match_nodes!(input.into_children();
+            [Tag(tags)..] => tags.collect(),
+        );
+        Ok(ret)
+    }
+    fn Links(input:Node) -> Result<Vec<AvaroString>> {
+        let ret = match_nodes!(input.into_children();
+            [Link(links)..] => links.collect(),
+        );
+        Ok(ret)
+    }
+
+    fn Transaction(input: Node) -> Result<Directive> {
+        let ret: (NaiveDate, Option<Flag>, Option<AvaroString>, Option<AvaroString>, Vec<AvaroString>, Vec<AvaroString>, Vec<(Option<TransactionLine>, Option<(AvaroString, AvaroString)>)>) = match_nodes!(input.into_children();
+            [Date(date), TransactionFlag(flag), Tags(tags), Links(links), TransactionLines(lines)] => (date, flag, None, None, tags, links, lines),
+            [Date(date), TransactionFlag(flag), QuoteString(narration), Tags(tags), Links(links), TransactionLines(lines)] => (date, flag, None, Some(narration), tags, links, lines),
+            [Date(date), TransactionFlag(flag), QuoteString(payee), QuoteString(narration), Tags(tags), Links(links), TransactionLines(lines)] => (date, flag, Some(payee), Some(narration), tags, links,lines),
+        );
+        let mut transaction = Transaction {
+            date: ret.0,
+            flag: ret.1,
+            payee: ret.2,
+            narration: ret.3,
+            tags: ret.4,
+            links: ret.5,
+            lines: vec![],
+            metas: vec![],
+        };
+
+        for line in ret.6 {
+            match line {
+                (Some(trx), None) => { transaction.lines.push(trx) }
+                (None, Some(meta)) => transaction.metas.push(meta),
+                _ => {}
+            }
+        }
+
+        Ok(Directive::Transaction(transaction))
+    }
+
 
     fn Commodity(input: Node) -> Result<Directive> {
         let ret = match_nodes!(input.into_children();
@@ -256,6 +384,7 @@ impl AvaroParser {
             [Commodity(item)] => item,
             [Custom(item)] => item,
             [Comment(item)] => item,
+            [Transaction(item)] => item,
         );
         Ok(ret)
     }

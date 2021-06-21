@@ -1,4 +1,4 @@
-Entry = {SOI ~ (Item ~ NEWLINE+)* ~ Item? ~ EOI}
+Entry = {SOI ~ Line* ~ (Item ~ NEWLINE+)* ~ Item? ~ EOI}
 
 Item  = {Option | Plugin | Commodity | Open | Close| Include | Note | Pad | Balance | Document | Price | Event | Custom | Transaction | Comment}
 
@@ -15,22 +15,25 @@ Document = {Date ~ SPACE+ ~ "document" ~ SPACE+ ~ AccountName ~ SPACE+ ~ String}
 Price = {Date ~ SPACE+ ~ "price" ~ SPACE+ ~ CommodityName ~ SPACE+ ~ number ~ SPACE+ ~ CommodityName}
 Event = {Date ~ SPACE+ ~ "event" ~ SPACE+ ~ String ~ SPACE+ ~ String}
 Custom = {Date ~ SPACE+ ~ "custom" ~ SPACE+ ~ String ~ ( SPACE+ ~ StringOrAccount)+}
-Transaction = {Date ~ SPACE+ ~ TransactionFlag ~ (SPACE+ ~ QuoteString){0,2} ~  Tags? ~ Links? ~ TransactionDetail}
+Transaction = {Date ~ TransactionFlag? ~ (SPACE+ ~ QuoteString){0,2} ~  Tags? ~ Links? ~ TransactionDetail}
 Comment = {(";" | "*") ~ (!Line ~ ANY)*}
 
-TransactionFlag = { ("!" | "*")? }
-Tags = {SPACE+ ~ ("#"~UnquoteString)}
-Links = {SPACE+ ~ ("^"~UnquoteString)}
-TransactionDetail = {identation_push ~ TransactionLines ~ DROP}
+TransactionFlag = { SPACE+ ~ ("!" | "*") }
+Tags = {Tag*}
+Tag = {SPACE+ ~ ("#"~UnquoteString)}
+Links = {Link*}
+Link = {SPACE+ ~ ("^"~UnquoteString)}
+TransactionDetail = _{identation_push ~ TransactionLines ~ DROP}
 TransactionLines = {TransactionLine ~ (TransactionNextLine)*}
 TransactionLine = {TransactionPosting | CommodityLine}
-TransactionPosting = {TransactionFlag ~ AccountName ~ SPACE+ ~ number ~ SPACE+ ~ CommodityName ~ PostingMeta?}
-TransactionNextLine = {identation ~ TransactionLine}
+TransactionPosting = {TransactionFlag? ~ AccountName ~ (SPACE+ ~ PostingAmount)? ~ PostingMeta}
+TransactionNextLine = _{identation ~ TransactionLine}
 
-PostingMeta = {SPACE+ ~ "{" ~ SPACE* ~ PostingCost~ PriceCostDate? ~ "}" ~( SPACE+~ PostingPrice)?}
+PostingAmount = {number ~ SPACE+ ~ CommodityName}
+PostingMeta = {(SPACE+ ~ "{" ~ SPACE* ~ PostingCost~ PriceCostDate? ~ "}")? ~ ( SPACE+~ PostingPrice)?}
 
 PostingCost = {number ~ SPACE+ ~ CommodityName}
-PriceCostDate = {SPACE* ~ "," ~ SPACE* ~ Date }
+PriceCostDate = _{SPACE* ~ "," ~ SPACE* ~ Date }
 PostingPrice = {PostingSinglePrice | PostingTotalPrice}
 
 PostingSinglePrice = {"@" ~ SPACE+~ number~ SPACE+~ CommodityName}
@@ -40,10 +43,10 @@ StringOrAccount = { AccountName | String }
 
 CommodityMeta = { identation_push ~ CommodityLines ~ DROP }
 
-identation = ${ Line ~ PEEK_ALL }
+identation = _{ Line ~ PEEK_ALL }
 identation_push = _{ identation ~ PUSH(SPACE+) }
-CommodityLines = {CommodityLine ~ (CommodityNextLine)*}
-CommodityNextLine = {identation ~ CommodityLine}
+CommodityLines = _{CommodityLine ~ (CommodityNextLine)*}
+CommodityNextLine = _{identation ~ CommodityLine}
 CommodityLine = {String ~ SPACE* ~ ":" ~SPACE*~ String}
 
 Date = {ASCII_DIGIT{4} ~ "-"~ ASCII_DIGIT{1,2} ~ "-" ~ ASCII_DIGIT{1,2}}

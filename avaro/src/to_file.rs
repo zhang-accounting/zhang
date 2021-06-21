@@ -3,6 +3,7 @@ use crate::{
     utils::escape_with_quote,
 };
 use itertools::Itertools;
+use crate::models::Price;
 
 pub trait ToAvaroFile {
     fn to_text(&self) -> String;
@@ -32,28 +33,34 @@ impl ToAvaroFile for crate::models::AccountType {
 impl ToAvaroFile for crate::models::TransactionLine {
     fn to_text(&self) -> String {
         let mut builder = String::new();
-        if self.flag != Flag::Complete {
-            builder.push_str("! ");
+        if let Some(flag) = &self.flag {
+            builder.push_str(&flag.to_string());
+            builder.push_str(" ");
         }
         builder.push_str(&self.account.to_string());
         if let Some(amount_inner) = &self.amount {
             builder.push_str(&format!(" {}", amount_inner.to_text()));
         };
-        if let Some((amount, note)) = &self.cost {
+        if let Some(cost) = &self.cost {
             builder.push_str(" { ");
-            builder.push_str(&amount.to_text());
-            if let Some(note_inner) = note {
+            builder.push_str(&cost.to_text());
+            if let Some(date) = &self.cost_date {
                 builder.push_str(", ");
-                builder.push_str(&escape_with_quote(note_inner));
+                builder.push_str(&date.to_string());
             }
             builder.push_str(" }");
         };
-        if let Some(single) = &self.single_price {
-            builder.push_str(&format!(" @ {}", single.to_text()));
-        };
-        if let Some(inner) = &self.total_price {
-            builder.push_str(&format!(" @@ {}", inner.to_text()));
-        };
+        if let Some(price) = &self.price {
+            match price {
+                Price::Single(inner) => {
+                    builder.push_str(&format!(" @ {}", inner.to_text()));
+                }
+                Price::Total(inner) => {
+                    builder.push_str(&format!(" @@ {}", inner.to_text()));
+                }
+            }
+        }
+
         builder
     }
 }
@@ -63,14 +70,17 @@ impl ToAvaroFile for crate::models::Transaction {
         let mut builder = String::new();
         builder.push_str(&self.date.to_string());
         builder.push(' ');
-        builder.push_str(&self.flag.to_text());
+        if let Some(falg) = &self.flag {
+            builder.push_str(&falg.to_text());
+        }
+
         let pn = match (&self.payee, &self.narration) {
             (Some(payee), Some(narration)) => format!(
                 " {} {}",
-                escape_with_quote(payee),
-                escape_with_quote(narration)
+                payee.to_string(),
+                narration.to_string()
             ),
-            (None, Some(narration)) => format!(" {}", escape_with_quote(narration)),
+            (None, Some(narration)) => format!(" {}", narration.to_string()),
             _ => format!(""),
         };
         builder.push_str(&pn);
@@ -78,13 +88,13 @@ impl ToAvaroFile for crate::models::Transaction {
         let tags = self
             .tags
             .iter()
-            .map(|inner| format!(" #{}", inner))
+            .map(|inner| format!(" #{}", inner.to_string()))
             .join("");
         builder.push_str(&tags);
         let links = self
             .links
             .iter()
-            .map(|inner| format!(" ^{}", inner))
+            .map(|inner| format!(" ^{}", inner.to_string()))
             .join("");
         builder.push_str(&links);
 
