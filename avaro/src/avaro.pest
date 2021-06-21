@@ -1,6 +1,6 @@
 Entry = {SOI ~ (Item ~ NEWLINE+)* ~ Item? ~ EOI}
 
-Item  = {Option | Plugin | Commodity | Open | Close| Include | Note | Pad | Balance | Document | Price | Event | Custom | Transaction}
+Item  = {Option | Plugin | Commodity | Open | Close| Include | Note | Pad | Balance | Document | Price | Event | Custom | Transaction | Comment}
 
 Option = {"option" ~ SPACE+ ~ String ~ SPACE+ ~  String}
 Plugin = {"plugin" ~ SPACE+ ~ String ~  (SPACE+ ~ String )* }
@@ -16,7 +16,7 @@ Price = {Date ~ SPACE+ ~ "price" ~ SPACE+ ~ CommodityName ~ SPACE+ ~ number ~ SP
 Event = {Date ~ SPACE+ ~ "event" ~ SPACE+ ~ String ~ SPACE+ ~ String}
 Custom = {Date ~ SPACE+ ~ "custom" ~ SPACE+ ~ String ~ ( SPACE+ ~ StringOrAccount)+}
 Transaction = {Date ~ SPACE+ ~ TransactionFlag ~ (SPACE+ ~ QuoteString){0,2} ~ TransactionDetail}
-
+Comment = {(";" | "*") ~ (!Line ~ ANY)*}
 
 TransactionFlag = { ("!" | "*")? }
 TransactionDetail = {identation_push ~ TransactionLines ~ DROP}
