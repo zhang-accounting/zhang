@@ -105,7 +105,7 @@ impl StringOrAccount {
 impl AvaroString {
     pub fn to_string(&self) -> String {
         match self {
-            AvaroString::QuoteString(inner) => unescape(&format!("\"{}\"", inner)).unwrap(),
+            AvaroString::QuoteString(inner) => inner.clone(),
             AvaroString::UnquoteString(inner) => inner.clone()
         }
     }

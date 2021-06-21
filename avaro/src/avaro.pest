@@ -55,7 +55,7 @@ AccountName = { AccountType ~ (":"~UnquoteString)+}
 AccountType = {"Assets" | "Liabilities" | "Equity" | "Income" | "Expenses"}
 String = {UnquoteString | QuoteString }
 UnquoteString = { ((!("\"" | ":" | "(" | ")" | "," | " " | "\t" | Line) ~ ANY)  | ASCII_ALPHANUMERIC | "." | "_" | "-")+}
-QuoteString = ${ "\"" ~ inner ~ "\"" }
+QuoteString = @{ "\"" ~ inner ~ "\"" }
 CommodityName = {ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "." | "_" | "-" | "'")*}
 
 inner = @{ char* }

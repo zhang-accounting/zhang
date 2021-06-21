@@ -3,7 +3,7 @@ use crate::{
     utils::escape_with_quote,
 };
 use itertools::Itertools;
-use crate::models::Price;
+use crate::models::{Price, AvaroString};
 
 pub trait ToAvaroFile {
     fn to_text(&self) -> String;
@@ -27,6 +27,15 @@ impl ToAvaroFile for crate::models::Flag {
 impl ToAvaroFile for crate::models::AccountType {
     fn to_text(&self) -> String {
         self.to_string()
+    }
+}
+
+impl ToAvaroFile for AvaroString {
+    fn to_text(&self) -> String {
+        match self {
+            AvaroString::QuoteString(inner) => escape_with_quote(inner).to_string(),
+            AvaroString::UnquoteString(inner) => inner.clone()
+        }
     }
 }
 
@@ -77,10 +86,10 @@ impl ToAvaroFile for crate::models::Transaction {
         let pn = match (&self.payee, &self.narration) {
             (Some(payee), Some(narration)) => format!(
                 " {} {}",
-                payee.to_string(),
-                narration.to_string()
+                payee.to_text(),
+                narration.to_text()
             ),
-            (None, Some(narration)) => format!(" {}", narration.to_string()),
+            (None, Some(narration)) => format!(" {}", narration.to_text()),
             _ => format!(""),
         };
         builder.push_str(&pn);
@@ -88,13 +97,13 @@ impl ToAvaroFile for crate::models::Transaction {
         let tags = self
             .tags
             .iter()
-            .map(|inner| format!(" #{}", inner.to_string()))
+            .map(|inner| format!(" #{}", inner.to_text()))
             .join("");
         builder.push_str(&tags);
         let links = self
             .links
             .iter()
-            .map(|inner| format!(" ^{}", inner.to_string()))
+            .map(|inner| format!(" ^{}", inner.to_text()))
             .join("");
         builder.push_str(&links);
 
@@ -138,7 +147,7 @@ impl ToAvaroFile for crate::models::Directive {
                 let meta_info = metas
                     .iter()
                     .map(|(key, value)| {
-                        format!("\n  {}: {}", key.to_string(), value.to_string())
+                        format!("\n  {}: {}", key.to_text(), value.to_text())
                     })
                     .join("");
                 format!(
@@ -287,9 +296,9 @@ mod test {
         );
 
         assert_eq!(
-            "1970-01-01 * \"Narration\"\n  Assets:123 -1 CNY { 0.1 USD, \"TEST\" }\n  Expenses:TestCategory:One 1 CNY { 0.1 USD }",
+            "1970-01-01 * \"Narration\"\n  Assets:123 -1 CNY { 0.1 USD, 2111-11-11 }\n  Expenses:TestCategory:One 1 CNY { 0.1 USD }",
             parse(r#"1970-01-01 * "Narration"
-                  Assets:123  -1 CNY {0.1 USD , "TEST"}
+                  Assets:123  -1 CNY {0.1 USD , 2111-11-11}
                   Expenses:TestCategory:One 1 CNY {0.1 USD}"#)
         );
         assert_eq!(

@@ -4,6 +4,7 @@ use std::str::FromStr;
 use crate::models::{AvaroString, AccountType, Directive, Account, StringOrAccount, Amount, Flag, Price, TransactionLine, Transaction};
 use chrono::NaiveDate;
 use indexmap::map::IndexMap;
+use snailquote::unescape;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -24,12 +25,10 @@ impl AvaroParser {
         Ok(input.as_str().to_owned())
     }
     fn QuoteString(input: Node) -> Result<AvaroString> {
-        let ret: String = match_nodes!(
-            input.into_children();
-            [inner(i)] => i
-        );
-        Ok(AvaroString::QuoteString(ret))
+        let string = input.as_str();
+        Ok(AvaroString::QuoteString(unescape(string).unwrap()))
     }
+
     fn UnquoteString(input: Node) -> Result<AvaroString> {
         Ok(AvaroString::UnquoteString(input.as_str().to_owned()))
     }
@@ -209,25 +208,25 @@ impl AvaroParser {
         Ok(ret)
     }
 
-    fn Tag(input:Node) -> Result<AvaroString> {
+    fn Tag(input: Node) -> Result<AvaroString> {
         let ret = match_nodes!(input.into_children();
             [UnquoteString(tag)] => tag,
         );
         Ok(ret)
     }
-    fn Link(input:Node) -> Result<AvaroString> {
+    fn Link(input: Node) -> Result<AvaroString> {
         let ret = match_nodes!(input.into_children();
             [UnquoteString(tag)] => tag,
         );
         Ok(ret)
     }
-    fn Tags(input:Node) -> Result<Vec<AvaroString>> {
+    fn Tags(input: Node) -> Result<Vec<AvaroString>> {
         let ret = match_nodes!(input.into_children();
             [Tag(tags)..] => tags.collect(),
         );
         Ok(ret)
     }
-    fn Links(input:Node) -> Result<Vec<AvaroString>> {
+    fn Links(input: Node) -> Result<Vec<AvaroString>> {
         let ret = match_nodes!(input.into_children();
             [Link(links)..] => links.collect(),
         );
