@@ -421,19 +421,13 @@ impl AvaroParser {
 }
 
 pub fn parse_avaro(input_str: &str) -> Result<Vec<Directive>> {
-    // Parse the input into `Nodes`
     let inputs = AvaroParser::parse(Rule::Entry, input_str)?;
-    // There should be a single root node in the parsed tree
     let input = inputs.single()?;
-    // Consume the `Node` recursively into the final value
     AvaroParser::Entry(input)
 }
 
 pub fn parse_account(input_str: &str) -> Result<Account> {
-    // Parse the input into `Nodes`
     let inputs = AvaroParser::parse(Rule::AccountName, input_str)?;
-    // There should be a single root node in the parsed tree
     let input = inputs.single()?;
-    // Consume the `Node` recursively into the final value
     AvaroParser::AccountName(input)
 }

@@ -1043,7 +1043,7 @@ mod test {
                 r#"2015-05-01 custom "budget" Expenses:Electricity  "quarterly"    85.00 EUR"#,
             );
             let directive = Directive::Custom {
-                date: NaiveDate::from_ymd(2015, 05, 01),
+                date: NaiveDate::from_ymd(2015, 5, 1),
                 type_name: AvaroString::QuoteString("budget".to_owned()),
                 values: vec![
                     StringOrAccount::Account(Account::from_str("Expenses:Electricity")),

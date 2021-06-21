@@ -2,52 +2,52 @@ Entry = {SOI ~ Line* ~ (Item ~ NEWLINE+)* ~ Item? ~ EOI}
 
 Item  = {Option | Plugin | Commodity | Open | Close| Include | Note | Pad | Balance | Document | Price | Event | Custom | Transaction | Comment}
 
-Option = {"option" ~ SPACE+ ~ String ~ SPACE+ ~  String}
-Plugin = {"plugin" ~ SPACE+ ~ String ~  (SPACE+ ~ String )* }
-Commodity = {Date ~ SPACE+ ~ "commodity" ~ SPACE+ ~ CommodityName ~  CommodityMeta?}
-Open = {Date ~ SPACE+ ~ "open" ~ SPACE+ ~ AccountName ~ ( SPACE+ ~CommodityName ~ (SPACE* ~ "," ~ SPACE* ~ CommodityName)*)? ~ CommodityMeta?}
-Close = {Date ~ SPACE+ ~ "close" ~ SPACE+ ~ AccountName }
-Include = {"include" ~ SPACE+ ~ QuoteString }
-Note = {Date ~ SPACE+ ~ "note" ~ SPACE+ ~ AccountName ~ SPACE+ ~ String}
-Pad = {Date ~ SPACE+ ~ "pad" ~ SPACE+ ~ AccountName ~ SPACE+ ~ AccountName}
-Balance = {Date ~ SPACE+ ~ "balance" ~ SPACE+ ~ AccountName ~ SPACE+ ~ number ~ SPACE+ ~ CommodityName}
-Document = {Date ~ SPACE+ ~ "document" ~ SPACE+ ~ AccountName ~ SPACE+ ~ String}
-Price = {Date ~ SPACE+ ~ "price" ~ SPACE+ ~ CommodityName ~ SPACE+ ~ number ~ SPACE+ ~ CommodityName}
-Event = {Date ~ SPACE+ ~ "event" ~ SPACE+ ~ String ~ SPACE+ ~ String}
-Custom = {Date ~ SPACE+ ~ "custom" ~ SPACE+ ~ String ~ ( SPACE+ ~ StringOrAccount)+}
-Transaction = {Date ~ TransactionFlag? ~ (SPACE+ ~ QuoteString){0,2} ~  Tags? ~ Links? ~ TransactionDetail}
+Option = {"option" ~ Space+ ~ String ~ Space+ ~  String}
+Plugin = {"plugin" ~ Space+ ~ String ~  (Space+ ~ String )* }
+Commodity = {Date ~ Space+ ~ "commodity" ~ Space+ ~ CommodityName ~  CommodityMeta?}
+Open = {Date ~ Space+ ~ "open" ~ Space+ ~ AccountName ~ ( Space+ ~CommodityName ~ (Space* ~ "," ~ Space* ~ CommodityName)*)? ~ CommodityMeta?}
+Close = {Date ~ Space+ ~ "close" ~ Space+ ~ AccountName }
+Include = {"include" ~ Space+ ~ QuoteString }
+Note = {Date ~ Space+ ~ "note" ~ Space+ ~ AccountName ~ Space+ ~ String}
+Pad = {Date ~ Space+ ~ "pad" ~ Space+ ~ AccountName ~ Space+ ~ AccountName}
+Balance = {Date ~ Space+ ~ "balance" ~ Space+ ~ AccountName ~ Space+ ~ number ~ Space+ ~ CommodityName}
+Document = {Date ~ Space+ ~ "document" ~ Space+ ~ AccountName ~ Space+ ~ String}
+Price = {Date ~ Space+ ~ "price" ~ Space+ ~ CommodityName ~ Space+ ~ number ~ Space+ ~ CommodityName}
+Event = {Date ~ Space+ ~ "event" ~ Space+ ~ String ~ Space+ ~ String}
+Custom = {Date ~ Space+ ~ "custom" ~ Space+ ~ String ~ ( Space+ ~ StringOrAccount)+}
+Transaction = {Date ~ TransactionFlag? ~ (Space+ ~ QuoteString){0,2} ~  Tags? ~ Links? ~ TransactionDetail}
 Comment = {(";" | "*") ~ (!Line ~ ANY)*}
 
-TransactionFlag = { SPACE+ ~ ("!" | "*") }
+TransactionFlag = { Space+ ~ ("!" | "*") }
 Tags = {Tag*}
-Tag = {SPACE+ ~ ("#"~UnquoteString)}
+Tag = {Space+ ~ ("#"~UnquoteString)}
 Links = {Link*}
-Link = {SPACE+ ~ ("^"~UnquoteString)}
+Link = {Space+ ~ ("^"~UnquoteString)}
 TransactionDetail = _{identation_push ~ TransactionLines ~ DROP}
 TransactionLines = {TransactionLine ~ (TransactionNextLine)*}
 TransactionLine = {TransactionPosting | CommodityLine}
-TransactionPosting = {TransactionFlag? ~ AccountName ~ (SPACE+ ~ PostingAmount)? ~ PostingMeta}
+TransactionPosting = {TransactionFlag? ~ AccountName ~ (Space+ ~ PostingAmount)? ~ PostingMeta}
 TransactionNextLine = _{identation ~ TransactionLine}
 
-PostingAmount = {number ~ SPACE+ ~ CommodityName}
-PostingMeta = {(SPACE+ ~ "{" ~ SPACE* ~ PostingCost~ PriceCostDate? ~ "}")? ~ ( SPACE+~ PostingPrice)?}
+PostingAmount = {number ~ Space+ ~ CommodityName}
+PostingMeta = {(Space+ ~ "{" ~ Space* ~ PostingCost~ PriceCostDate? ~ "}")? ~ ( Space+~ PostingPrice)?}
 
-PostingCost = {number ~ SPACE+ ~ CommodityName}
-PriceCostDate = _{SPACE* ~ "," ~ SPACE* ~ Date }
+PostingCost = {number ~ Space+ ~ CommodityName}
+PriceCostDate = _{Space* ~ "," ~ Space* ~ Date }
 PostingPrice = {PostingSinglePrice | PostingTotalPrice}
 
-PostingSinglePrice = {"@" ~ SPACE+~ number~ SPACE+~ CommodityName}
-PostingTotalPrice = {"@@" ~ SPACE+~ number~ SPACE+~ CommodityName}
+PostingSinglePrice = {"@" ~ Space+~ number~ Space+~ CommodityName}
+PostingTotalPrice = {"@@" ~ Space+~ number~ Space+~ CommodityName}
 
 StringOrAccount = { AccountName | String }
 
 CommodityMeta = { identation_push ~ CommodityLines ~ DROP }
 
 identation = _{ Line ~ PEEK_ALL }
-identation_push = _{ identation ~ PUSH(SPACE+) }
+identation_push = _{ identation ~ PUSH(Space+) }
 CommodityLines = _{CommodityLine ~ (CommodityNextLine)*}
 CommodityNextLine = _{identation ~ CommodityLine}
-CommodityLine = {String ~ SPACE* ~ ":" ~SPACE*~ String}
+CommodityLine = {String ~ Space* ~ ":" ~Space*~ String}
 
 Date = {ASCII_DIGIT{4} ~ "-"~ ASCII_DIGIT{1,2} ~ "-" ~ ASCII_DIGIT{1,2}}
 
@@ -65,7 +65,7 @@ char = {
     | "\\" ~ ("u" ~ ASCII_HEX_DIGIT{4})
 }
 
-SPACE = _{ " " | "\t" }
+Space = _{ " " | "\t" }
 Line = _{ "\n" | "\r" | "\n\r" }
 
 
