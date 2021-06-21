@@ -1,3 +1,4 @@
+use crate::error::AvaroError;
 use crate::p::parse_account;
 use crate::to_file::ToAvaroFile;
 use bigdecimal::BigDecimal;
@@ -90,8 +91,8 @@ pub enum StringOrAccount {
     Account(Account),
 }
 
-impl StringOrAccount {
-    pub fn to_string(&self) -> String {
+impl ToString for StringOrAccount {
+    fn to_string(&self) -> String {
         match self {
             StringOrAccount::String(inner) => inner.to_text(),
             StringOrAccount::Account(inner) => inner.to_string(),
@@ -99,8 +100,8 @@ impl StringOrAccount {
     }
 }
 
-impl AvaroString {
-    pub fn to_string(&self) -> String {
+impl ToString for AvaroString {
+    fn to_string(&self) -> String {
         match self {
             AvaroString::QuoteString(inner) => inner.clone(),
             AvaroString::UnquoteString(inner) => inner.clone(),
@@ -144,8 +145,13 @@ impl Account {
             value,
         }
     }
-    pub fn from_str(content: &str) -> Account {
-        parse_account(content).unwrap()
+}
+
+impl FromStr for Account {
+    type Err = AvaroError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        parse_account(s).map_err(|_e| AvaroError::InvalidAccount)
     }
 }
 
@@ -340,11 +346,10 @@ mod test {
 
         #[test]
         fn test_commodity_with_single_attribute() {
-            let mut metas = vec![];
-            metas.push((
+            let metas = vec![(
                 AvaroString::UnquoteString("a".to_owned()),
                 AvaroString::QuoteString("b".to_owned()),
-            ));
+            )];
             let directive = Directive::Commodity {
                 date: NaiveDate::from_ymd(1970, 1, 1),
                 name: "CNY".to_owned(),
@@ -366,15 +371,16 @@ mod test {
                   中文-test  :  "한국어 我也不知道我在说啥""#,
             );
 
-            let mut metas = vec![];
-            metas.push((
-                AvaroString::UnquoteString("a".to_owned()),
-                AvaroString::QuoteString("b".to_owned()),
-            ));
-            metas.push((
-                AvaroString::UnquoteString("中文-test".to_owned()),
-                AvaroString::QuoteString("한국어 我也不知道我在说啥".to_owned()),
-            ));
+            let metas = vec![
+                (
+                    AvaroString::UnquoteString("a".to_owned()),
+                    AvaroString::QuoteString("b".to_owned()),
+                ),
+                (
+                    AvaroString::UnquoteString("中文-test".to_owned()),
+                    AvaroString::QuoteString("한국어 我也不知道我在说啥".to_owned()),
+                ),
+            ];
 
             let directive = Directive::Commodity {
                 date: NaiveDate::from_ymd(1970, 1, 1),
@@ -1036,6 +1042,7 @@ mod test {
         use crate::models::Directive;
         use crate::models::{Account, AvaroString, StringOrAccount};
         use chrono::NaiveDate;
+        use std::str::FromStr;
 
         #[test]
         fn custom() {
@@ -1046,7 +1053,7 @@ mod test {
                 date: NaiveDate::from_ymd(2015, 5, 1),
                 type_name: AvaroString::QuoteString("budget".to_owned()),
                 values: vec![
-                    StringOrAccount::Account(Account::from_str("Expenses:Electricity")),
+                    StringOrAccount::Account(Account::from_str("Expenses:Electricity").unwrap()),
                     StringOrAccount::String(AvaroString::QuoteString("quarterly".to_owned())),
                     StringOrAccount::String(AvaroString::UnquoteString("85.00".to_owned())),
                     StringOrAccount::String(AvaroString::UnquoteString("EUR".to_owned())),

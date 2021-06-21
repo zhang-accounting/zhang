@@ -45,7 +45,7 @@ impl ToAvaroFile for crate::models::TransactionLine {
         let mut builder = String::new();
         if let Some(flag) = &self.flag {
             builder.push_str(&flag.to_string());
-            builder.push_str(" ");
+            builder.push(' ');
         }
         builder.push_str(&self.account.to_string());
         if let Some(amount_inner) = &self.amount {
