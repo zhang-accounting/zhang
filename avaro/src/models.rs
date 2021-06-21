@@ -8,6 +8,7 @@ use std::str::FromStr;
 use strum_macros::EnumString;
 use snailquote::unescape;
 use crate::p::parse_account;
+use crate::to_file::ToAvaroFile;
 
 pub type Amount = (BigDecimal, String);
 
@@ -95,7 +96,7 @@ pub enum StringOrAccount {
 impl StringOrAccount {
     pub fn to_string(&self) -> String {
         match self {
-            StringOrAccount::String(inner) => inner.to_string(),
+            StringOrAccount::String(inner) => inner.to_text(),
             StringOrAccount::Account(inner) => inner.to_string()
         }
     }

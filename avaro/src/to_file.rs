@@ -217,7 +217,7 @@ impl ToAvaroFile for crate::models::Directive {
             } => format!(
                 "{date} custom {type_name} {value}",
                 date = date.to_string(),
-                type_name = type_name.to_string(),
+                type_name = type_name.to_text(),
                 value = values.iter().map(|v| v.to_string()).join(" ")
             ),
             Directive::Option { key, value } => format!(
@@ -373,7 +373,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn custom() {
         parse_and_test(r#"1970-01-01 custom "budget" Expenses:Eat "monthly" CNY"#);
     }
