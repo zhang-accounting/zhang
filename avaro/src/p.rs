@@ -3,7 +3,6 @@ use bigdecimal::BigDecimal;
 use std::str::FromStr;
 use crate::models::{AvaroString, AccountType, Directive, Account, StringOrAccount, Amount, Flag, Price, TransactionLine, Transaction};
 use chrono::NaiveDate;
-use indexmap::map::IndexMap;
 use snailquote::unescape;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;

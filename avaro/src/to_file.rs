@@ -1,9 +1,10 @@
+use itertools::Itertools;
+
 use crate::{
-    models::{Amount, Directive, Flag},
+    models::{Amount, Flag},
     utils::escape_with_quote,
 };
-use itertools::Itertools;
-use crate::models::{Price, AvaroString};
+use crate::models::{AvaroString, Directive, Price};
 
 pub trait ToAvaroFile {
     fn to_text(&self) -> String;
@@ -240,7 +241,7 @@ impl ToAvaroFile for crate::models::Directive {
 
 #[cfg(test)]
 mod test {
-    use crate::{models::Directive, to_file::ToAvaroFile};
+    use crate::{to_file::ToAvaroFile};
     use crate::p::parse_avaro;
 
     fn parse(from: &str) -> String {

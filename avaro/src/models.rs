@@ -1,12 +1,9 @@
-use crate::{error::AvaroError};
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
-use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize, Serializer};
 use std::str::FromStr;
 use strum_macros::EnumString;
-use snailquote::unescape;
 use crate::p::parse_account;
 use crate::to_file::ToAvaroFile;
 
@@ -196,7 +193,7 @@ pub enum Flag {
     Incomplete,
 }
 
-pub(crate) fn amount_parse(input: &str) -> Amount {
+pub fn amount_parse(input: &str) -> Amount {
     let parts: Vec<String> = input.splitn(2, ' ').map(|p| p.trim().to_owned()).collect();
     let price = BigDecimal::from_str(parts[0].as_str()).unwrap();
     (price, parts[1].to_owned())
@@ -208,14 +205,6 @@ impl ToString for Account {
         format!("{}{}", self.account_type.to_string(), map)
     }
 }
-
-
-pub(crate) type AmountInfo = (
-    Amount,
-    Option<(Amount, Option<String>)>,
-    Option<Amount>,
-    Option<Amount>,
-);
 
 
 #[cfg(test)]
@@ -234,7 +223,6 @@ mod test {
             models::{Account, AccountType, Directive},
         };
         use chrono::NaiveDate;
-        use crate::p::parse_avaro;
         use crate::models::test::single_directive_parser;
 
         #[test]
@@ -344,7 +332,6 @@ mod test {
     mod commodity {
         use crate::{models::Directive};
         use chrono::NaiveDate;
-        use indexmap::IndexMap;
         use crate::models::test::single_directive_parser;
         use crate::models::AvaroString;
 
@@ -966,7 +953,6 @@ mod test {
 
     mod option {
         use crate::{models::Directive};
-        use crate::p::parse_avaro;
         use crate::models::test::single_directive_parser;
 
         #[test]
