@@ -19,11 +19,13 @@ jobs:
         uses: actions-rs/tarpaulin@v0.1
         with:
           args: '--ignore-tests --ciserver github-ci --out Lcov'
+        working-directory: ./avaro
       - name: upload to Coveralls
         uses: coverallsapp/github-action@master
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: './lcov.info'
+        working-directory: ./avaro
   formatter:
     runs-on: ubuntu-latest
     steps:
