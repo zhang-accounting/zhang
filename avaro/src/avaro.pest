@@ -15,10 +15,12 @@ Document = {Date ~ SPACE+ ~ "document" ~ SPACE+ ~ AccountName ~ SPACE+ ~ String}
 Price = {Date ~ SPACE+ ~ "price" ~ SPACE+ ~ CommodityName ~ SPACE+ ~ number ~ SPACE+ ~ CommodityName}
 Event = {Date ~ SPACE+ ~ "event" ~ SPACE+ ~ String ~ SPACE+ ~ String}
 Custom = {Date ~ SPACE+ ~ "custom" ~ SPACE+ ~ String ~ ( SPACE+ ~ StringOrAccount)+}
-Transaction = {Date ~ SPACE+ ~ TransactionFlag ~ (SPACE+ ~ QuoteString){0,2} ~ TransactionDetail}
+Transaction = {Date ~ SPACE+ ~ TransactionFlag ~ (SPACE+ ~ QuoteString){0,2} ~  Tags? ~ Links? ~ TransactionDetail}
 Comment = {(";" | "*") ~ (!Line ~ ANY)*}
 
 TransactionFlag = { ("!" | "*")? }
+Tags = {SPACE+ ~ ("#"~UnquoteString)}
+Links = {SPACE+ ~ ("^"~UnquoteString)}
 TransactionDetail = {identation_push ~ TransactionLines ~ DROP}
 TransactionLines = {TransactionLine ~ (TransactionNextLine)*}
 TransactionLine = {TransactionPosting | CommodityLine}
