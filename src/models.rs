@@ -1,12 +1,15 @@
-use crate::error::AvaroError;
-use crate::p::parse_account;
-use crate::to_file::ToAvaroFile;
+use std::str::FromStr;
+
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize, Serializer};
-use std::str::FromStr;
 use strum_macros::EnumString;
+
+use crate::account::AccountType;
+use crate::error::AvaroError;
+use crate::p::parse_account;
+use crate::to_file::ToAvaroFile;
 
 pub type Amount = (BigDecimal, String);
 
@@ -109,15 +112,6 @@ impl ToString for AvaroString {
     }
 }
 
-#[derive(Debug, EnumString, PartialEq, strum_macros::ToString, Deserialize, Serialize)]
-pub enum AccountType {
-    Assets,
-    Liabilities,
-    Equity,
-    Income,
-    Expenses,
-}
-
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Account {
     pub account_type: AccountType,
@@ -217,9 +211,11 @@ mod test {
     }
 
     mod open {
-        use crate::models::test::single_directive_parser;
-        use crate::models::{Account, AccountType, Directive};
         use chrono::NaiveDate;
+
+        use crate::account::AccountType;
+        use crate::models::{Account, Directive};
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn test_open_directive() {
@@ -292,9 +288,11 @@ mod test {
     }
 
     mod close {
-        use crate::models::test::single_directive_parser;
-        use crate::models::{Account, AccountType, Directive};
         use chrono::NaiveDate;
+
+        use crate::account::AccountType;
+        use crate::models::{Account, Directive};
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn test_close() {
@@ -311,9 +309,11 @@ mod test {
     }
 
     mod note {
-        use crate::models::test::single_directive_parser;
-        use crate::models::{Account, AccountType, Directive};
         use chrono::NaiveDate;
+
+        use crate::account::AccountType;
+        use crate::models::{Account, Directive};
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn test_note_directive() {
@@ -328,10 +328,11 @@ mod test {
     }
 
     mod commodity {
-        use crate::models::test::single_directive_parser;
+        use chrono::NaiveDate;
+
         use crate::models::AvaroString;
         use crate::models::Directive;
-        use chrono::NaiveDate;
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn test_commodity_without_attribute() {
@@ -392,11 +393,13 @@ mod test {
     }
 
     mod transaction {
-        use crate::models::test::single_directive_parser;
-        use crate::models::{Account, AccountType, Directive, Flag, Transaction, TransactionLine};
-        use crate::models::{AvaroString, Price};
         use bigdecimal::{BigDecimal, FromPrimitive};
         use chrono::NaiveDate;
+
+        use crate::account::AccountType;
+        use crate::models::{Account, Directive, Flag, Transaction, TransactionLine};
+        use crate::models::{AvaroString, Price};
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn simple_test() {
@@ -851,9 +854,11 @@ mod test {
     }
 
     mod pad {
-        use crate::models::test::single_directive_parser;
-        use crate::models::{Account, AccountType, Directive};
         use chrono::NaiveDate;
+
+        use crate::account::AccountType;
+        use crate::models::{Account, Directive};
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn pad_directive() {
@@ -881,10 +886,12 @@ mod test {
     }
 
     mod balance {
-        use crate::models::test::single_directive_parser;
-        use crate::models::{Account, AccountType, Directive};
         use bigdecimal::BigDecimal;
         use chrono::NaiveDate;
+
+        use crate::account::AccountType;
+        use crate::models::{Account, Directive};
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn balance_directive() {
@@ -912,9 +919,11 @@ mod test {
     }
 
     mod document {
-        use crate::models::test::single_directive_parser;
-        use crate::models::{Account, AccountType, Directive};
         use chrono::NaiveDate;
+
+        use crate::account::AccountType;
+        use crate::models::{Account, Directive};
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn empty_string() {
@@ -942,10 +951,11 @@ mod test {
     }
 
     mod price {
-        use crate::models::test::single_directive_parser;
-        use crate::models::Directive;
         use bigdecimal::BigDecimal;
         use chrono::NaiveDate;
+
+        use crate::models::Directive;
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn test() {
@@ -961,9 +971,10 @@ mod test {
     }
 
     mod event {
-        use crate::models::test::single_directive_parser;
-        use crate::models::Directive;
         use chrono::NaiveDate;
+
+        use crate::models::Directive;
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn test() {
@@ -979,8 +990,8 @@ mod test {
     }
 
     mod option {
-        use crate::models::test::single_directive_parser;
         use crate::models::Directive;
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn test() {
@@ -996,8 +1007,8 @@ mod test {
     }
 
     mod plugin {
-        use crate::models::test::single_directive_parser;
         use crate::models::Directive;
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn has_plugin_data() {
@@ -1023,8 +1034,8 @@ mod test {
     }
 
     mod include {
-        use crate::models::test::single_directive_parser;
         use crate::models::Directive;
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn has_plugin_data() {
@@ -1038,11 +1049,13 @@ mod test {
     }
 
     mod custom {
-        use crate::models::test::single_directive_parser;
-        use crate::models::Directive;
-        use crate::models::{Account, AvaroString, StringOrAccount};
-        use chrono::NaiveDate;
         use std::str::FromStr;
+
+        use chrono::NaiveDate;
+
+        use crate::models::{Account, AvaroString, StringOrAccount};
+        use crate::models::Directive;
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn custom() {
@@ -1065,8 +1078,8 @@ mod test {
     }
 
     mod comment {
-        use crate::models::test::single_directive_parser;
         use crate::models::Directive;
+        use crate::models::test::single_directive_parser;
 
         #[test]
         fn comma() {
@@ -1088,9 +1101,11 @@ mod test {
     }
 
     mod entry {
-        use crate::models::{Account, AccountType, Directive};
-        use crate::p::parse_avaro;
         use chrono::NaiveDate;
+
+        use crate::account::AccountType;
+        use crate::models::{Account, Directive};
+        use crate::p::parse_avaro;
 
         #[test]
         fn conbine_test() {

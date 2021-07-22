@@ -1,12 +1,15 @@
-use crate::models::{
-    Account, AccountType, Amount, AvaroString, Directive, Flag, Price, StringOrAccount,
-    Transaction, TransactionLine,
-};
+use std::str::FromStr;
+
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
-use pest_consume::{match_nodes, Error, Parser};
+use pest_consume::{Error, match_nodes, Parser};
 use snailquote::unescape;
-use std::str::FromStr;
+
+use crate::account::AccountType;
+use crate::models::{
+    Account, Amount, AvaroString, Directive, Flag, Price, StringOrAccount,
+    Transaction, TransactionLine,
+};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;

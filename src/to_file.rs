@@ -25,7 +25,7 @@ impl ToAvaroFile for crate::models::Flag {
     }
 }
 
-impl ToAvaroFile for crate::models::AccountType {
+impl ToAvaroFile for crate::account::AccountType {
     fn to_text(&self) -> String {
         self.to_string()
     }
