@@ -25,4 +25,4 @@ pest_derive = "2.1.0"
 pest_consume = "1.0.6"
 
 [workspace]
-members = ["avaro-wasm", "cli"]
+members = ["cli"]

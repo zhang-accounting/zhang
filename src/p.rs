@@ -92,8 +92,10 @@ impl AvaroParser {
     }
 
     fn Open(input: Node) -> Result<Directive> {
-        let ret: (NaiveDate, Account, Vec<String>) = match_nodes!(input.into_children();
-            [Date(date), AccountName(a), CommodityName(commodities)..] => (date, a, commodities.collect())
+        let ret: (NaiveDate, Account, Vec<String>, Vec<(AvaroString, AvaroString)>) = match_nodes!(input.into_children();
+            [Date(date), AccountName(a), CommodityName(commodities).., CommodityMeta(metas)] => (date, a, commodities.collect(), metas),
+            [Date(date), AccountName(a), CommodityName(commodities)..] => (date, a, commodities.collect(), vec![]),
+            [Date(date), AccountName(a), CommodityMeta(metas)] => (date, a, vec![], metas),
         );
         Ok(Directive::Open {
             date: ret.0,

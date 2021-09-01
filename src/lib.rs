@@ -3,6 +3,7 @@ pub mod models;
 pub mod to_file;
 pub mod account;
 pub mod amount;
+pub mod data;
 
 pub(crate) mod utils;
 
