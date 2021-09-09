@@ -26,9 +26,11 @@ Link = {Space+ ~ ("^"~UnquoteString)}
 TransactionDetail = _{identation_push ~ TransactionLines ~ DROP}
 TransactionLines = {TransactionLine ~ (TransactionNextLine)*}
 TransactionLine = {TransactionPosting | CommodityLine}
-TransactionPosting = {TransactionFlag? ~ AccountName ~ (Space+ ~ PostingAmount)? ~ PostingMeta}
+TransactionPosting = {TransactionFlag? ~ AccountName ~ (Space+ ~ PostingUnit)?}
 TransactionNextLine = _{identation ~ TransactionLine}
 
+
+PostingUnit = {(PostingAmount)? ~ PostingMeta}
 PostingAmount = {number ~ Space+ ~ CommodityName}
 PostingMeta = {(Space+ ~ "{" ~ Space* ~ PostingCost~ PriceCostDate? ~ "}")? ~ ( Space+~ PostingPrice)?}
 

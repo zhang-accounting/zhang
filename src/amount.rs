@@ -1,11 +1,27 @@
 use bigdecimal::{BigDecimal, Zero};
 use std::ops::{Add, Div, Mul, Neg, Sub};
+
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Amount {
-    number: BigDecimal,
-    currency: String,
+    pub number: BigDecimal,
+    pub currency: String,
 }
 
 impl Amount {
+
+    pub fn none() -> Amount {
+        Amount {
+            number: Default::default(),
+            currency: "".to_string()
+        }
+    }
+
+    pub fn new_with_i32(number: i32, currency: impl Into<String>) -> Amount {
+        Amount {
+            number: BigDecimal::from(number),
+            currency: currency.into(),
+        }
+    }
     pub fn new(number: BigDecimal, currency: impl Into<String>) -> Amount {
         Amount {
             number,

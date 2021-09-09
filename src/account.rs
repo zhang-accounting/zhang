@@ -3,7 +3,16 @@ use std::ops::Deref;
 use strum_macros::EnumString;
 
 #[derive(
-    Debug, EnumString, PartialEq, strum_macros::ToString, Deserialize, Serialize, Copy, Clone,
+    Debug,
+    EnumString,
+    PartialEq,
+    Eq,
+    strum_macros::ToString,
+    Deserialize,
+    Serialize,
+    Copy,
+    Clone,
+    Hash,
 )]
 pub enum AccountType {
     Assets,
@@ -20,7 +29,6 @@ pub struct Account {
 }
 
 impl Account {
-
     // todo add new account method
     /// Return parent account of the given account.
     pub fn parent(&self) -> Account {

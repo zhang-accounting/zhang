@@ -112,7 +112,7 @@ impl ToString for AvaroString {
     }
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Debug, PartialEq, Eq,  Deserialize, Hash)]
 pub struct Account {
     pub account_type: AccountType,
     pub value: Vec<String>,
@@ -172,10 +172,21 @@ pub struct TransactionLine {
     pub price: Option<Price>,
 }
 
-#[derive(Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize, Clone)]
 pub enum Price {
     Single(Amount),
     Total(Amount),
+}
+
+impl Price {
+
+    pub fn currency(self) -> String {
+        match self {
+            Price::Single(single) => {single.1}
+            Price::Total(total) => {total.1}
+        }
+    }
+
 }
 
 #[derive(EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize)]

@@ -2,13 +2,13 @@ use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
-use pest_consume::{Error, match_nodes, Parser};
+use pest_consume::{match_nodes, Error, Parser};
 use snailquote::unescape;
 
 use crate::account::AccountType;
 use crate::models::{
-    Account, Amount, AvaroString, Directive, Flag, Price, StringOrAccount,
-    Transaction, TransactionLine,
+    Account, Amount, AvaroString, Directive, Flag, Price, StringOrAccount, Transaction,
+    TransactionLine,
 };
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
@@ -92,7 +92,12 @@ impl AvaroParser {
     }
 
     fn Open(input: Node) -> Result<Directive> {
-        let ret: (NaiveDate, Account, Vec<String>, Vec<(AvaroString, AvaroString)>) = match_nodes!(input.into_children();
+        let ret: (
+            NaiveDate,
+            Account,
+            Vec<String>,
+            Vec<(AvaroString, AvaroString)>,
+        ) = match_nodes!(input.into_children();
             [Date(date), AccountName(a), CommodityName(commodities).., CommodityMeta(metas)] => (date, a, commodities.collect(), metas),
             [Date(date), AccountName(a), CommodityName(commodities)..] => (date, a, commodities.collect(), vec![]),
             [Date(date), AccountName(a), CommodityMeta(metas)] => (date, a, vec![], metas),
@@ -131,6 +136,22 @@ impl AvaroParser {
         Ok(ret)
     }
 
+    fn PostingUnit(
+        input: Node,
+    ) -> Result<(
+        Amount,
+        Option<(Option<Amount>, Option<NaiveDate>, Option<Price>)>,
+    )> {
+        let ret: (
+            Amount,
+            Option<(Option<Amount>, Option<NaiveDate>, Option<Price>)>,
+        ) = match_nodes!(input.into_children();
+            [PostingAmount(amount)] => (amount, None),
+            [PostingAmount(amount), PostingMeta(meta)] => (amount, Some(meta)),
+        );
+        Ok(ret)
+    }
+
     fn PostingCost(input: Node) -> Result<Amount> {
         let ret: Amount = match_nodes!(input.into_children();
             [number(amount), CommodityName(c)] => (amount,c),
@@ -149,9 +170,10 @@ impl AvaroParser {
         );
         Ok(ret)
     }
+
     fn PostingAmount(input: Node) -> Result<Amount> {
         let ret: Amount = match_nodes!(input.into_children();
-            [number(amount), CommodityName(c)] => (amount,c),
+            [number(amount), CommodityName(c)] => (amount, c),
         );
         Ok(ret)
     }
@@ -182,31 +204,36 @@ impl AvaroParser {
         let ret: (
             Option<Flag>,
             Account,
-            Option<Amount>,
-            Option<(Option<Amount>, Option<NaiveDate>, Option<Price>)>,
-        ) = match_nodes!(input.into_children();
-            [AccountName(account_name)] => (None, account_name, None, None),
-            [AccountName(account_name), PostingAmount(amount)] => (None, account_name, Some(amount), None),
-            [AccountName(account_name),  PostingMeta(meta)] => (None, account_name, None, Some(meta)),
-            [AccountName(account_name), PostingAmount(amount), PostingMeta(meta)] => (None, account_name, Some(amount), Some(meta)),
-            [TransactionFlag(flag), AccountName(account_name)] => (flag, account_name, None, None),
-            [TransactionFlag(flag), AccountName(account_name), PostingAmount(amount)] => (flag, account_name, Some(amount), None),
-            [TransactionFlag(flag), AccountName(account_name), PostingAmount(amount), PostingMeta(meta)] => (flag, account_name, Some(amount), Some(meta)),
+            Option<(
+                Amount,
+                Option<(Option<Amount>, Option<NaiveDate>, Option<Price>)>,
+            )>)
+         = match_nodes!(input.into_children();
+            [AccountName(account_name)] => (None, account_name, None),
+            [AccountName(account_name), PostingUnit(unit)] => (None, account_name, Some(unit)),
+            [TransactionFlag(flag), AccountName(account_name)] => (flag, account_name, None),
+            [TransactionFlag(flag), AccountName(account_name), PostingUnit(unit)] => (flag, account_name, Some(unit)),
         );
-        let (_, _, _, meta) = ret;
+
+        let (flag, account, unit) = ret;
 
         let mut line = TransactionLine {
-            flag: ret.0,
-            account: ret.1,
-            amount: ret.2,
+            flag: flag,
+            account: account,
+            amount: None,
             cost: None,
             cost_date: None,
             price: None,
         };
-        if let Some(meta) = meta {
-            line.cost = meta.0;
-            line.cost_date = meta.1;
-            line.price = meta.2;
+
+        if let Some((amount, meta)) = unit {
+            line.amount = Some(amount);
+
+            if let Some(meta) = meta {
+                line.cost = meta.0;
+                line.cost_date = meta.1;
+                line.price = meta.2;
+            }
         }
         Ok(line)
     }
