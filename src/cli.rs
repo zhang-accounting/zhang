@@ -1,6 +1,6 @@
 use crate::error::AvaroResult;
 use crate::importer;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -8,6 +8,13 @@ use std::path::PathBuf;
 pub enum Opts {
     #[clap(subcommand)]
     Importer(ImportOpts),
+
+    Parse(ParseOpts),
+}
+
+#[derive(Args, Debug)]
+pub struct ParseOpts {
+    file: PathBuf,
 }
 
 #[derive(Subcommand, Debug)]
@@ -19,6 +26,7 @@ impl Opts {
     pub fn run(self) {
         match self {
             Opts::Importer(importer) => importer.run(),
+            Opts::Parse(_) => {}
         }
     }
 }

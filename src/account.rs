@@ -24,11 +24,11 @@ pub enum AccountType {
     Expenses,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Account {
-    account_type: AccountType,
-    content: String,
-    components: Vec<String>,
+    pub(crate) account_type: AccountType,
+    pub(crate) content: String,
+    pub(crate) components: Vec<String>,
 }
 
 impl Account {

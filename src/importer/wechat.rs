@@ -1,18 +1,20 @@
+use std::collections::{HashMap, HashSet};
+use std::fs::{File, read};
+use std::io::{BufRead, BufReader};
+use std::ops::Neg;
+use std::path::PathBuf;
+use std::str::FromStr;
+
+use bigdecimal::BigDecimal;
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone};
+use log::warn;
+use serde::Deserialize;
+
 use crate::account::Account;
 use crate::amount::Amount;
 use crate::data::{Posting, Transaction};
 use crate::error::AvaroResult;
 use crate::models::Flag;
-use bigdecimal::BigDecimal;
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone};
-use log::warn;
-use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
-use std::fs::{read, File};
-use std::io::{BufRead, BufReader};
-use std::ops::Neg;
-use std::path::PathBuf;
-use std::str::FromStr;
 
 static CURRENCY: &str = "CNY";
 static COMMENT_STR: &str = "收款方备注:二维码收款";
@@ -131,7 +133,7 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
             Posting {
                 flag: None,
                 account: pay_way,
-                units: result.amount(),
+                units: Some(result.amount()),
                 cost: None,
                 price: None,
                 meta: Default::default(),
@@ -139,7 +141,7 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
             Posting {
                 flag: None,
                 account: payee,
-                units: result.amount().neg(),
+                units: Some(result.amount().neg()),
                 cost: None,
                 price: None,
                 meta: Default::default(),
@@ -149,7 +151,7 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
             date: result.datetime().naive_local(),
             flag: Some(Flag::Okay),
             payee: Some(result.payee().to_string()),
-            narration: result.narration().to_string(),
+            narration: Some(result.narration().to_string()),
             tags: HashSet::new(),
             links: HashSet::new(),
             postings: postings,

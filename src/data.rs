@@ -1,130 +1,141 @@
 use crate::account::Account;
 use crate::amount::Amount;
-use crate::models::Flag;
+use crate::models::{Flag, StringOrAccount};
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use std::collections::{HashMap, HashSet};
 
 pub type Meta = HashMap<String, String>;
 
+#[derive(Debug, PartialEq)]
 pub struct Open {
-    date: NaiveDateTime,
-    account: Account,
-    commodities: Vec<String>,
-    meta: Meta,
+    pub date: NaiveDateTime,
+    pub account: Account,
+    pub commodities: Vec<String>,
+    pub meta: Meta,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Close {
-    date: NaiveDateTime,
-    account: Account,
-    meta: Meta,
+    pub date: NaiveDateTime,
+    pub account: Account,
+    pub meta: Meta,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Commodity {
-    date: NaiveDateTime,
-    currency: String,
-    meta: Meta,
+    pub date: NaiveDateTime,
+    pub currency: String,
+    pub meta: Meta,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Pad {
-    date: NaiveDateTime,
-    account: Account,
-    source: Account,
-    meta: Meta,
+    pub date: NaiveDateTime,
+    pub account: Account,
+    pub source: Account,
+    pub meta: Meta,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Balance {
-    date: NaiveDateTime,
-    account: Account,
-    amount: Amount,
+    pub date: NaiveDateTime,
+    pub account: Account,
+    pub amount: Amount,
     /// the amount of tolerance to use in the verification.
-    tolerance: Option<BigDecimal>,
+    pub tolerance: Option<BigDecimal>,
     /// None if the balance check succeeds. This value is set to
     /// an Amount instance if the balance fails, the amount of the difference.
-    diff_amount: Option<Amount>,
-    meta: Meta,
+    pub diff_amount: Option<Amount>,
+    pub meta: Meta,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Posting {
     pub flag: Option<Flag>,
     pub account: Account,
-    pub units: Amount,
+    pub units: Option<Amount>,
     pub cost: Option<Amount>,
     pub price: Option<Amount>,
 
     pub meta: Meta,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Transaction {
     pub date: NaiveDateTime,
     pub flag: Option<Flag>,
     pub payee: Option<String>,
-    pub narration: String,
+    pub narration: Option<String>,
     pub tags: HashSet<String>,
     pub links: HashSet<String>,
     pub postings: Vec<Posting>,
     pub meta: Meta,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct TxnPosting<'a> {
     txn: &'a Transaction,
     posting: &'a Posting,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Note {
-    date: NaiveDateTime,
-    account:Account,
-    comment: String,
-    tags: Option<HashSet<String>>,
-    links: Option<HashSet<String>>,
+    pub date: NaiveDateTime,
+    pub account:Account,
+    pub comment: String,
+    pub tags: Option<HashSet<String>>,
+    pub links: Option<HashSet<String>>,
 
-    meta: Meta,
+    pub meta: Meta,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Event {
-    date: NaiveDateTime,
+    pub date: NaiveDateTime,
 
-    event_type: String,
-    description: String,
+    pub event_type: String,
+    pub description: String,
 
-    meta: Meta,
+    pub meta: Meta,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Query {
-    date: NaiveDateTime,
+    pub date: NaiveDateTime,
 
-    name: String,
-    query_string: String,
+    pub name: String,
+    pub query_string: String,
 
-    meta: Meta,
+    pub meta: Meta,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Price {
-    date: NaiveDateTime,
+    pub date: NaiveDateTime,
 
-    currency: String,
-    amount: Amount,
+    pub currency: String,
+    pub amount: Amount,
 
-    meta: Meta,
+    pub meta: Meta,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Document {
-    date: NaiveDateTime,
+    pub date: NaiveDateTime,
 
-    account: Account,
-    filename: String,
-    tags: Option<HashSet<String>>,
-    links: Option<HashSet<String>>,
-    meta: Meta,
+    pub account: Account,
+    pub filename: String,
+    pub tags: Option<HashSet<String>>,
+    pub links: Option<HashSet<String>>,
+    pub meta: Meta,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Custom {
-    date: NaiveDateTime,
+    pub date: NaiveDateTime,
 
-    account: Account,
-    custom_type: String,
-    values: Vec<String>,
-    meta: Meta,
+    pub custom_type: String,
+    pub values: Vec<StringOrAccount>,
+    pub meta: Meta,
 }

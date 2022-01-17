@@ -36,7 +36,7 @@ pub fn load(content: &str) -> Result<Vec<Directive>, crate::error::AvaroError> {
     // todo: sort entities
 
     // todo: book
-    booking::book(&mut entities)?;
+    // booking::book(&mut entities)?;
 
     // todo: run_transformations
 
