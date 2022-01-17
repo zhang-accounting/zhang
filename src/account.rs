@@ -1,5 +1,7 @@
+use crate::error::AvaroError;
 use serde::{Deserialize, Serialize, Serializer};
 use std::ops::Deref;
+use std::str::FromStr;
 use strum_macros::EnumString;
 
 #[derive(
@@ -22,6 +24,7 @@ pub enum AccountType {
     Expenses,
 }
 
+#[derive(Debug)]
 pub struct Account {
     account_type: AccountType,
     content: String,
@@ -104,6 +107,25 @@ impl Account {
             AccountType::Equity => -1,
             AccountType::Income => -1,
             AccountType::Expenses => 1,
+        }
+    }
+}
+
+impl FromStr for Account {
+    type Err = AvaroError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split(":").collect();
+
+        let split = parts.split_first();
+        if let Some((account_type, rest)) = split {
+            Ok(Account {
+                account_type: AccountType::from_str(account_type)?,
+                content: s.to_string(),
+                components: rest.into_iter().map(|it| it.to_string()).collect(),
+            })
+        } else {
+            Err(AvaroError::InvalidAccount)
         }
     }
 }

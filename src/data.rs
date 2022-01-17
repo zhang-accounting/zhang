@@ -45,25 +45,27 @@ pub struct Balance {
     meta: Meta,
 }
 
+#[derive(Debug)]
 pub struct Posting {
-    flag: Option<Flag>,
-    account: Account,
-    units: Amount,
-    cost: Amount,
-    price: Amount,
+    pub flag: Option<Flag>,
+    pub account: Account,
+    pub units: Amount,
+    pub cost: Option<Amount>,
+    pub price: Option<Amount>,
 
-    meta: Meta,
+    pub meta: Meta,
 }
 
+#[derive(Debug)]
 pub struct Transaction {
-    date: NaiveDateTime,
-    flag: Option<Flag>,
-    payee: Option<String>,
-    narration: String,
-    tags: HashSet<String>,
-    links: HashSet<String>,
-    postings: Vec<Posting>,
-    meta: Meta,
+    pub date: NaiveDateTime,
+    pub flag: Option<Flag>,
+    pub payee: Option<String>,
+    pub narration: String,
+    pub tags: HashSet<String>,
+    pub links: HashSet<String>,
+    pub postings: Vec<Posting>,
+    pub meta: Meta,
 }
 
 pub struct TxnPosting<'a> {

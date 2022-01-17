@@ -19,8 +19,8 @@ impl ToAvaroFile for Amount {
 impl ToAvaroFile for crate::models::Flag {
     fn to_text(&self) -> String {
         match self {
-            Flag::Complete => "*".to_owned(),
-            Flag::Incomplete => "!".to_owned(),
+            Flag::Okay => "*".to_owned(),
+            Flag::Warning => "!".to_owned(),
         }
     }
 }

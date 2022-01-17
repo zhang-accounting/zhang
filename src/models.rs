@@ -150,6 +150,7 @@ impl FromStr for Account {
 }
 
 // todo tags links
+#[deprecated]
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct Transaction {
     pub date: NaiveDate,
@@ -162,6 +163,7 @@ pub struct Transaction {
     pub metas: Vec<(AvaroString, AvaroString)>,
 }
 
+#[deprecated]
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct TransactionLine {
     pub flag: Option<Flag>,
@@ -192,9 +194,10 @@ impl Price {
 #[derive(EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize)]
 pub enum Flag {
     #[strum(serialize = "*", to_string = "*")]
-    Complete,
+    Okay,
     #[strum(serialize = "!", to_string = "!")]
-    Incomplete,
+    Warning,
+
 }
 
 pub fn amount_parse(input: &str) -> Amount {
@@ -442,7 +445,7 @@ mod test {
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Some(Flag::Complete),
+                flag: Some(Flag::Okay),
                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
@@ -485,7 +488,7 @@ mod test {
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Some(Flag::Complete),
+                flag: Some(Flag::Okay),
                 payee: None,
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
@@ -528,7 +531,7 @@ mod test {
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Some(Flag::Complete),
+                flag: Some(Flag::Okay),
                 payee: None,
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
@@ -583,7 +586,7 @@ mod test {
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Some(Flag::Complete),
+                flag: Some(Flag::Okay),
                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
@@ -626,7 +629,7 @@ mod test {
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Some(Flag::Complete),
+                flag: Some(Flag::Okay),
                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
@@ -669,7 +672,7 @@ mod test {
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Some(Flag::Complete),
+                flag: Some(Flag::Okay),
                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
@@ -712,7 +715,7 @@ mod test {
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Some(Flag::Complete),
+                flag: Some(Flag::Okay),
                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],
@@ -755,7 +758,7 @@ mod test {
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Some(Flag::Complete),
+                flag: Some(Flag::Okay),
                 payee: None,
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![
@@ -801,7 +804,7 @@ mod test {
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Some(Flag::Complete),
+                flag: Some(Flag::Okay),
                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![
@@ -847,7 +850,7 @@ mod test {
 
             let transaction = Transaction {
                 date: NaiveDate::from_ymd(1970, 1, 1),
-                flag: Some(Flag::Complete),
+                flag: Some(Flag::Okay),
                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
                 tags: vec![],

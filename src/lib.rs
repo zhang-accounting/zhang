@@ -26,6 +26,8 @@ pub(crate) mod utils;
 #[allow(clippy::type_complexity)]
 pub mod p;
 
+pub mod cli;
+pub mod importer;
 use crate::models::Directive;
 pub use p::parse_avaro;
 
