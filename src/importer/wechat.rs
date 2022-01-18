@@ -15,6 +15,7 @@ use crate::amount::Amount;
 use crate::data::{Posting, Transaction};
 use crate::error::AvaroResult;
 use crate::models::Flag;
+use crate::target::AvaroTarget;
 
 static CURRENCY: &str = "CNY";
 static COMMENT_STR: &str = "收款方备注:二维码收款";
@@ -158,6 +159,8 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
             meta: meta,
         };
 
+        let string = transaction.to_target();
+        println!("{}", string);
     }
 
     Ok(())
