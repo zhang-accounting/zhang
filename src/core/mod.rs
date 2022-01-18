@@ -4,7 +4,6 @@ pub mod account;
 pub mod amount;
 pub mod data;
 pub mod inventory;
-mod lib;
 
 pub fn load(content: &str) -> Result<Vec<Directive>, crate::error::AvaroError> {
     let mut entities = parse_avaro(content).unwrap();
