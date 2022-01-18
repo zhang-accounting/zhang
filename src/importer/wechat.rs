@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::{File, read};
+use std::fs::{read, File};
 use std::io::{BufRead, BufReader};
 use std::ops::Neg;
 use std::path::PathBuf;
@@ -7,13 +7,13 @@ use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone};
-use log::warn;
+use log::{error, warn};
 use serde::Deserialize;
 
 use crate::account::Account;
 use crate::amount::Amount;
 use crate::data::{Posting, Transaction};
-use crate::error::AvaroResult;
+use crate::error::{AvaroError, AvaroResult};
 use crate::models::Flag;
 use crate::target::AvaroTarget;
 
@@ -22,6 +22,7 @@ static COMMENT_STR: &str = "收款方备注:二维码收款";
 
 #[derive(Debug, Deserialize)]
 struct Config {
+    forbid_unknown_payee: bool,
     wechat_account: String,
     pay_ways: HashMap<String, String>,
     payees: HashMap<String, String>,
@@ -73,7 +74,7 @@ impl Record {
         Amount::new(value, CURRENCY)
     }
     fn payee(&self) -> &str {
-        &self.payee.trim()
+        self.payee.trim()
     }
     fn narration(&self) -> &str {
         if let Some(content) = self.narration.strip_prefix(COMMENT_STR) {
@@ -81,7 +82,7 @@ impl Record {
         } else if self.narration == "/" {
             ""
         } else {
-            &self.narration.trim()
+            self.narration.trim()
         }
     }
     fn transaction_no(&self) -> &str {
@@ -107,27 +108,38 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
     for result in reader1.deserialize().skip(16) {
         let result: Record = result?;
 
-        let pay_way = config
-            .pay_ways
-            .get(&result.pay_type)
-            .map(|it| it.to_string())
-            .unwrap_or_else(|| {
-                warn!("pay way [{}] is not configurated", &result.pay_type);
-                "Account:FixMe".to_string()
-            });
+        let pay_way = {
+            let option = config.pay_ways.get(result.payee()).map(|it| it.to_string());
+            if let Some(value) = option {
+                Ok(value)
+            } else if config.forbid_unknown_payee {
+                error!("pay way [{}] is not configurated", result.payee());
+                Err(AvaroError::InvalidAccount)
+            } else {
+                warn!("pay way [{}] is not configurated", result.payee());
+                Ok("Expenses:FixMe".to_string())
+            }
+        }?;
         let pay_way = Account::from_str(&pay_way)?;
-        let payee = config
-            .payees
-            .get(result.payee())
-            .map(|it| it.to_string())
-            .unwrap_or_else(|| {
+        let payee = {
+            let option = config.payees.get(result.payee()).map(|it| it.to_string());
+            if let Some(value) = option {
+                Ok(value)
+            } else if config.forbid_unknown_payee {
+                error!("payee [{}] is not configurated", result.payee());
+                Err(AvaroError::InvalidAccount)
+            } else {
                 warn!("payee [{}] is not configurated", result.payee());
-                "Expenses:FixMe".to_string()
-            });
+                Ok("Expenses:FixMe".to_string())
+            }
+        }?;
         let payee = Account::from_str(&payee)?;
 
         let mut meta = HashMap::new();
-        meta.insert("transaction_no".to_string(), result.transaction_no().to_string());
+        meta.insert(
+            "transaction_no".to_string(),
+            result.transaction_no().to_string(),
+        );
         meta.insert("payee_no".to_string(), result.payee_no().to_string());
 
         let postings = vec![
@@ -155,10 +167,9 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
             narration: Some(result.narration().to_string()),
             tags: HashSet::new(),
             links: HashSet::new(),
-            postings: postings,
-            meta: meta,
+            postings,
+            meta,
         };
-
         let string = transaction.to_target();
         println!("{}", string);
     }

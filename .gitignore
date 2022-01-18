@@ -1,3 +1,5 @@
 /target
 Cargo.lock
 .idea
+personal.avaro
+wechat_config.toml
