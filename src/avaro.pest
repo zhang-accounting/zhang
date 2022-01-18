@@ -51,7 +51,10 @@ CommodityLines = _{CommodityLine ~ (CommodityNextLine)*}
 CommodityNextLine = _{identation ~ CommodityLine}
 CommodityLine = {String ~ Space* ~ ":" ~Space*~ String}
 
-Date = {ASCII_DIGIT{4} ~ "-"~ ASCII_DIGIT{1,2} ~ "-" ~ ASCII_DIGIT{1,2}}
+Date = {DateTime | DateOnly}
+
+DateOnly = {ASCII_DIGIT{4} ~ "-"~ ASCII_DIGIT{1,2} ~ "-" ~ ASCII_DIGIT{1,2}}
+DateTime = {ASCII_DIGIT{4} ~ "-"~ ASCII_DIGIT{1,2} ~ "-" ~ ASCII_DIGIT{1,2} ~ " " ~ ASCII_DIGIT{1,2} ~ ":" ~ ASCII_DIGIT{1,2} ~ ":" ~ ASCII_DIGIT{1,2}}
 
 AccountName = { AccountType ~ (":"~UnquoteString)+}
 AccountType = {"Assets" | "Liabilities" | "Equity" | "Income" | "Expenses"}

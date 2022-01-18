@@ -43,6 +43,6 @@ pub fn load(content: &str) -> Result<Vec<Directive>, crate::error::AvaroError> {
     // todo: validate
 
     //
-
+    dbg!(&entities);
     Ok(entities)
 }

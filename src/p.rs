@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use pest_consume::{match_nodes, Error, Parser};
 use snailquote::unescape;
 
@@ -65,8 +65,20 @@ impl AvaroParser {
             components: r.1,
         })
     }
-    fn Date(input: Node) -> Result<NaiveDate> {
-        Ok(NaiveDate::parse_from_str(input.as_str(), "%Y-%m-%d").unwrap())
+    fn Date(input: Node) -> Result<NaiveDateTime> {
+        let datetime: NaiveDateTime = match_nodes!(input.into_children();
+            [DateOnly(d)] => d,
+            [DateTime(d)] => d
+        );
+        Ok(datetime)
+    }
+
+    fn DateOnly(input:Node) -> Result<NaiveDateTime> {
+        let date = NaiveDate::parse_from_str(input.as_str(), "%Y-%m-%d").unwrap();
+        Ok(date.and_hms(0, 0, 0))
+    }
+    fn DateTime(input:Node) -> Result<NaiveDateTime> {
+        Ok(NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M:%S").unwrap())
     }
 
     fn Plugin(input: Node) -> Result<Directive> {
@@ -93,13 +105,13 @@ impl AvaroParser {
     }
 
     fn Open(input: Node) -> Result<Directive> {
-        let ret: (NaiveDate, Account, Vec<String>, Vec<(String, String)>) = match_nodes!(input.into_children();
+        let ret: (NaiveDateTime, Account, Vec<String>, Vec<(String, String)>) = match_nodes!(input.into_children();
             [Date(date), AccountName(a), CommodityName(commodities).., CommodityMeta(metas)] => (date, a, commodities.collect(), metas),
             [Date(date), AccountName(a), CommodityName(commodities)..] => (date, a, commodities.collect(), vec![]),
             [Date(date), AccountName(a), CommodityMeta(metas)] => (date, a, vec![], metas),
         );
         let open = Open {
-            date: ret.0.and_hms(0, 0, 0),
+            date: ret.0,
             account: ret.1,
             commodities: ret.2,
             meta: ret.3.into_iter().collect(),
@@ -107,11 +119,11 @@ impl AvaroParser {
         Ok(Directive::Open(open))
     }
     fn Close(input: Node) -> Result<Directive> {
-        let ret: (NaiveDate, Account) = match_nodes!(input.into_children();
+        let ret: (NaiveDateTime, Account) = match_nodes!(input.into_children();
             [Date(date), AccountName(a)] => (date, a)
         );
         Ok(Directive::Close(Close {
-            date: ret.0.and_hms(0, 0, 0),
+            date: ret.0,
             account: ret.1,
             meta: Default::default(),
         }))
@@ -139,11 +151,11 @@ impl AvaroParser {
         input: Node,
     ) -> Result<(
         Amount,
-        Option<(Option<Amount>, Option<NaiveDate>, Option<SingleTotalPrice>)>,
+        Option<(Option<Amount>, Option<NaiveDateTime>, Option<SingleTotalPrice>)>,
     )> {
         let ret: (
             Amount,
-            Option<(Option<Amount>, Option<NaiveDate>, Option<SingleTotalPrice>)>,
+            Option<(Option<Amount>, Option<NaiveDateTime>, Option<SingleTotalPrice>)>,
         ) = match_nodes!(input.into_children();
             [PostingAmount(amount)] => (amount, None),
             [PostingAmount(amount), PostingMeta(meta)] => (amount, Some(meta)),
@@ -188,8 +200,8 @@ impl AvaroParser {
         );
         Ok(ret)
     }
-    fn PostingMeta(input: Node) -> Result<(Option<Amount>, Option<NaiveDate>, Option<SingleTotalPrice>)> {
-        let ret: (Option<Amount>, Option<NaiveDate>, Option<SingleTotalPrice>) = match_nodes!(input.into_children();
+    fn PostingMeta(input: Node) -> Result<(Option<Amount>, Option<NaiveDateTime>, Option<SingleTotalPrice>)> {
+        let ret: (Option<Amount>, Option<NaiveDateTime>, Option<SingleTotalPrice>) = match_nodes!(input.into_children();
             [] => (None, None, None),
             [PostingCost(cost)] => (Some(cost), None, None),
             [PostingPrice(p)] => (None, None, Some(p)),
@@ -205,7 +217,7 @@ impl AvaroParser {
             Account,
             Option<(
                 Amount,
-                Option<(Option<Amount>, Option<NaiveDate>, Option<SingleTotalPrice>)>,
+                Option<(Option<Amount>, Option<NaiveDateTime>, Option<SingleTotalPrice>)>,
             )>,
         ) = match_nodes!(input.into_children();
             [AccountName(account_name)] => (None, account_name, None),
@@ -280,7 +292,7 @@ impl AvaroParser {
 
     fn Transaction(input: Node) -> Result<Directive> {
         let ret: (
-            NaiveDate,
+            NaiveDateTime,
             Option<Flag>,
             Option<String>,
             Option<String>,
@@ -293,7 +305,7 @@ impl AvaroParser {
             [Date(date), TransactionFlag(flag), QuoteString(payee), QuoteString(narration), Tags(tags), Links(links), TransactionLines(lines)] => (date, flag, Some(payee), Some(narration), tags, links,lines),
         );
         let mut transaction = Transaction {
-            date: ret.0.and_hms(0, 0, 0),
+            date: ret.0,
             flag: ret.1,
             payee: ret.2,
             narration: ret.3,
@@ -324,7 +336,7 @@ impl AvaroParser {
             [Date(date), CommodityName(name), CommodityMeta(meta)] => (date, name, meta),
         );
         Ok(Directive::Commodity(Commodity{
-            date: ret.0.and_hms(0,0,0),
+            date: ret.0,
             currency: ret.1,
             meta: ret.2.into_iter().collect()
         }))
@@ -339,11 +351,11 @@ impl AvaroParser {
     }
 
     fn Custom(input: Node) -> Result<Directive> {
-        let ret: (NaiveDate, String, Vec<StringOrAccount>) = match_nodes!(input.into_children();
+        let ret: (NaiveDateTime, String, Vec<StringOrAccount>) = match_nodes!(input.into_children();
             [Date(date), String(module), StringOrAccount(options)..] => (date, module, options.collect()),
         );
         Ok(Directive::Custom(Custom{
-            date: ret.0.and_hms(0,0,0),
+            date: ret.0,
             custom_type: ret.1,
             values: ret.2,
             meta: Default::default()
@@ -360,11 +372,11 @@ impl AvaroParser {
     }
 
     fn Note(input: Node) -> Result<Directive> {
-        let ret: (NaiveDate, Account, String) = match_nodes!(input.into_children();
+        let ret: (NaiveDateTime, Account, String) = match_nodes!(input.into_children();
             [Date(date), AccountName(a), String(path)] => (date, a, path),
         );
         Ok(Directive::Note(Note{
-            date: ret.0.and_hms(0,0,0),
+            date: ret.0,
             account: ret.1,
             comment: ret.2,
             tags: None,
@@ -374,11 +386,11 @@ impl AvaroParser {
     }
 
     fn Pad(input: Node) -> Result<Directive> {
-        let ret: (NaiveDate, Account, Account) = match_nodes!(input.into_children();
+        let ret: (NaiveDateTime, Account, Account) = match_nodes!(input.into_children();
             [Date(date), AccountName(from), AccountName(to)] => (date, from, to),
         );
         Ok(Directive::Pad(Pad {
-            date: ret.0.and_hms(0,0,0),
+            date: ret.0,
             account: ret.1,
             source: ret.2,
             meta: Default::default()
@@ -386,11 +398,11 @@ impl AvaroParser {
     }
 
     fn Event(input: Node) -> Result<Directive> {
-        let ret: (NaiveDate, String, String) = match_nodes!(input.into_children();
+        let ret: (NaiveDateTime, String, String) = match_nodes!(input.into_children();
             [Date(date), String(name), String(value)] => (date, name, value),
         );
         Ok(Directive::Event(Event{
-            date: ret.0.and_hms(0,0,0),
+            date: ret.0,
             event_type: ret.1,
             description: ret.2,
             meta: Default::default()
@@ -398,11 +410,11 @@ impl AvaroParser {
     }
 
     fn Balance(input: Node) -> Result<Directive> {
-        let ret: (NaiveDate, Account, BigDecimal, String) = match_nodes!(input.into_children();
+        let ret: (NaiveDateTime, Account, BigDecimal, String) = match_nodes!(input.into_children();
             [Date(date), AccountName(name), number(amount), CommodityName(commodity)] => (date, name, amount, commodity),
         );
         Ok(Directive::Balance(Balance{
-            date: ret.0.and_hms(0,0,0),
+            date: ret.0,
             account: ret.1,
             amount: Amount::new(ret.2, ret.3),
             tolerance: None,
@@ -412,11 +424,11 @@ impl AvaroParser {
     }
 
     fn Document(input: Node) -> Result<Directive> {
-        let ret: (NaiveDate, Account, String) = match_nodes!(input.into_children();
+        let ret: (NaiveDateTime, Account, String) = match_nodes!(input.into_children();
             [Date(date), AccountName(name), String(path)] => (date, name, path),
         );
         Ok(Directive::Document(Document{
-            date: ret.0.and_hms(0,0,0),
+            date: ret.0,
             account: ret.1,
             filename: ret.2,
             tags: None,
@@ -426,11 +438,11 @@ impl AvaroParser {
     }
 
     fn Price(input: Node) -> Result<Directive> {
-        let ret: (NaiveDate, String, BigDecimal, String) = match_nodes!(input.into_children();
+        let ret: (NaiveDateTime, String, BigDecimal, String) = match_nodes!(input.into_children();
             [Date(date), CommodityName(source), number(price), CommodityName(target)] => (date, source, price, target)
         );
         Ok(Directive::Price(Price{
-            date: ret.0.and_hms(0,0,0),
+            date: ret.0,
             currency: ret.1,
             amount: Amount::new(ret.2, ret.3),
             meta: Default::default()
