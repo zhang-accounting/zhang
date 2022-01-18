@@ -10,9 +10,9 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone};
 use log::{error, warn};
 use serde::Deserialize;
 
-use crate::account::Account;
-use crate::amount::Amount;
-use crate::data::{Posting, Transaction};
+use crate::core::account::Account;
+use crate::core::amount::Amount;
+use crate::core::data::{Posting, Transaction};
 use crate::error::{AvaroError, AvaroResult};
 use crate::models::Flag;
 use crate::target::AvaroTarget;

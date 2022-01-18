@@ -11,12 +11,8 @@ macro_rules! parse {
     }};
 }
 
-pub mod account;
-pub mod amount;
 pub mod booking;
-pub mod data;
 pub mod error;
-pub mod inventory;
 pub mod models;
 pub mod to_file;
 
@@ -27,23 +23,10 @@ pub(crate) mod utils;
 pub mod p;
 
 pub mod cli;
+pub mod core;
 pub mod importer;
+pub mod exporter;
+
 pub mod target;
 use crate::models::Directive;
 pub use p::parse_avaro;
-
-pub fn load(content: &str) -> Result<Vec<Directive>, crate::error::AvaroError> {
-    let mut entities = parse_avaro(content).unwrap();
-    // todo: sort entities
-
-    // todo: book
-    // booking::book(&mut entities)?;
-
-    // todo: run_transformations
-
-    // todo: validate
-
-    //
-    dbg!(&entities);
-    Ok(entities)
-}

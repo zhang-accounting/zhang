@@ -6,9 +6,9 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize, Serializer};
 use strum_macros::EnumString;
 
-use crate::account::{Account, AccountType};
-use crate::amount::Amount;
-use crate::data::{
+use crate::core::account::{Account, AccountType};
+use crate::core::amount::Amount;
+use crate::core::data::{
     Balance, Close, Commodity, Custom, Document, Event, Note, Open, Pad, Price, Transaction,
 };
 use crate::error::AvaroError;

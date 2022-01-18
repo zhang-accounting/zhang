@@ -6,9 +6,9 @@ use chrono::{NaiveDate, NaiveDateTime};
 use pest_consume::{match_nodes, Error, Parser};
 use snailquote::unescape;
 
-use crate::account::{Account, AccountType};
-use crate::amount::Amount;
-use crate::data::{Balance, Close, Commodity, Custom, Document, Event, Note, Open, Pad, Posting, Price, Transaction};
+use crate::core::account::{Account, AccountType};
+use crate::core::amount::Amount;
+use crate::core::data::{Balance, Close, Commodity, Custom, Document, Event, Note, Open, Pad, Posting, Price, Transaction};
 use crate::models::{Directive, Flag, SingleTotalPrice, StringOrAccount};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;

@@ -132,7 +132,7 @@ impl FromStr for Account {
 
 #[cfg(test)]
 mod test {
-    use crate::account::{Account, AccountType};
+    use crate::core::account::{Account, AccountType};
 
     #[test]
     fn get_parent() {

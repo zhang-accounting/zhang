@@ -1,6 +1,6 @@
-use crate::account::Account;
-use crate::amount::Amount;
-use crate::data::{Posting, Transaction};
+use crate::core::account::Account;
+use crate::core::amount::Amount;
+use crate::core::data::{Posting, Transaction};
 use crate::models::Flag;
 use crate::target::AvaroTarget;
 use crate::utils::escape_with_quote;

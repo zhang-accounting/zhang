@@ -1,5 +1,5 @@
-use crate::account::Account;
-use crate::amount::Amount;
+use crate::core::account::Account;
+use crate::core::amount::Amount;
 use crate::models::{Flag, StringOrAccount};
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};

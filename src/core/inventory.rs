@@ -1,4 +1,4 @@
-use crate::amount::Amount;
+use crate::core::amount::Amount;
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{DateTime, Utc};
 use std::collections::hash_map::Entry;
@@ -105,8 +105,8 @@ impl Inventory {
 
 #[cfg(test)]
 mod test {
-    use crate::amount::Amount;
-    use crate::inventory::{Inventory, Position};
+    use crate::core::amount::Amount;
+    use crate::core::inventory::{Inventory, Position};
 
 
 
