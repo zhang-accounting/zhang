@@ -8,7 +8,10 @@ use snailquote::unescape;
 
 use crate::core::account::{Account, AccountType};
 use crate::core::amount::Amount;
-use crate::core::data::{Balance, Close, Commodity, Custom, Document, Event, Note, Open, Pad, Posting, Price, Transaction};
+use crate::core::data::{
+    Balance, Close, Commodity, Custom, Date, Document, Event, Note, Open, Pad, Posting, Price,
+    Transaction,
+};
 use crate::models::{Directive, Flag, SingleTotalPrice, StringOrAccount};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
@@ -65,20 +68,20 @@ impl AvaroParser {
             components: r.1,
         })
     }
-    fn Date(input: Node) -> Result<NaiveDateTime> {
-        let datetime: NaiveDateTime = match_nodes!(input.into_children();
+    fn Date(input: Node) -> Result<Date> {
+        let datetime: Date = match_nodes!(input.into_children();
             [DateOnly(d)] => d,
             [DateTime(d)] => d
         );
         Ok(datetime)
     }
 
-    fn DateOnly(input:Node) -> Result<NaiveDateTime> {
+    fn DateOnly(input: Node) -> Result<Date> {
         let date = NaiveDate::parse_from_str(input.as_str(), "%Y-%m-%d").unwrap();
-        Ok(date.and_hms(0, 0, 0))
+        Ok(Date::Date(date))
     }
-    fn DateTime(input:Node) -> Result<NaiveDateTime> {
-        Ok(NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M:%S").unwrap())
+    fn DateTime(input: Node) -> Result<Date> {
+        Ok(Date::Datetime(NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M:%S").unwrap()))
     }
 
     fn Plugin(input: Node) -> Result<Directive> {
@@ -105,7 +108,7 @@ impl AvaroParser {
     }
 
     fn Open(input: Node) -> Result<Directive> {
-        let ret: (NaiveDateTime, Account, Vec<String>, Vec<(String, String)>) = match_nodes!(input.into_children();
+        let ret: (Date, Account, Vec<String>, Vec<(String, String)>) = match_nodes!(input.into_children();
             [Date(date), AccountName(a), CommodityName(commodities).., CommodityMeta(metas)] => (date, a, commodities.collect(), metas),
             [Date(date), AccountName(a), CommodityName(commodities)..] => (date, a, commodities.collect(), vec![]),
             [Date(date), AccountName(a), CommodityMeta(metas)] => (date, a, vec![], metas),
@@ -119,7 +122,7 @@ impl AvaroParser {
         Ok(Directive::Open(open))
     }
     fn Close(input: Node) -> Result<Directive> {
-        let ret: (NaiveDateTime, Account) = match_nodes!(input.into_children();
+        let ret: (Date, Account) = match_nodes!(input.into_children();
             [Date(date), AccountName(a)] => (date, a)
         );
         Ok(Directive::Close(Close {
@@ -151,11 +154,19 @@ impl AvaroParser {
         input: Node,
     ) -> Result<(
         Amount,
-        Option<(Option<Amount>, Option<NaiveDateTime>, Option<SingleTotalPrice>)>,
+        Option<(
+            Option<Amount>,
+            Option<Date>,
+            Option<SingleTotalPrice>,
+        )>,
     )> {
         let ret: (
             Amount,
-            Option<(Option<Amount>, Option<NaiveDateTime>, Option<SingleTotalPrice>)>,
+            Option<(
+                Option<Amount>,
+                Option<Date>,
+                Option<SingleTotalPrice>,
+            )>,
         ) = match_nodes!(input.into_children();
             [PostingAmount(amount)] => (amount, None),
             [PostingAmount(amount), PostingMeta(meta)] => (amount, Some(meta)),
@@ -200,8 +211,18 @@ impl AvaroParser {
         );
         Ok(ret)
     }
-    fn PostingMeta(input: Node) -> Result<(Option<Amount>, Option<NaiveDateTime>, Option<SingleTotalPrice>)> {
-        let ret: (Option<Amount>, Option<NaiveDateTime>, Option<SingleTotalPrice>) = match_nodes!(input.into_children();
+    fn PostingMeta(
+        input: Node,
+    ) -> Result<(
+        Option<Amount>,
+        Option<Date>,
+        Option<SingleTotalPrice>,
+    )> {
+        let ret: (
+            Option<Amount>,
+            Option<Date>,
+            Option<SingleTotalPrice>,
+        ) = match_nodes!(input.into_children();
             [] => (None, None, None),
             [PostingCost(cost)] => (Some(cost), None, None),
             [PostingPrice(p)] => (None, None, Some(p)),
@@ -217,7 +238,11 @@ impl AvaroParser {
             Account,
             Option<(
                 Amount,
-                Option<(Option<Amount>, Option<NaiveDateTime>, Option<SingleTotalPrice>)>,
+                Option<(
+                    Option<Amount>,
+                    Option<Date>,
+                    Option<SingleTotalPrice>,
+                )>,
             )>,
         ) = match_nodes!(input.into_children();
             [AccountName(account_name)] => (None, account_name, None),
@@ -256,9 +281,7 @@ impl AvaroParser {
         );
         Ok(ret)
     }
-    fn TransactionLines(
-        input: Node,
-    ) -> Result<Vec<(Option<Posting>, Option<(String, String)>)>> {
+    fn TransactionLines(input: Node) -> Result<Vec<(Option<Posting>, Option<(String, String)>)>> {
         let ret = match_nodes!(input.into_children();
             [TransactionLine(lines)..] => lines.collect(),
         );
@@ -292,7 +315,7 @@ impl AvaroParser {
 
     fn Transaction(input: Node) -> Result<Directive> {
         let ret: (
-            NaiveDateTime,
+            Date,
             Option<Flag>,
             Option<String>,
             Option<String>,
@@ -335,10 +358,10 @@ impl AvaroParser {
             [Date(date), CommodityName(name)] => (date, name, vec![]),
             [Date(date), CommodityName(name), CommodityMeta(meta)] => (date, name, meta),
         );
-        Ok(Directive::Commodity(Commodity{
+        Ok(Directive::Commodity(Commodity {
             date: ret.0,
             currency: ret.1,
-            meta: ret.2.into_iter().collect()
+            meta: ret.2.into_iter().collect(),
         }))
     }
 
@@ -351,14 +374,14 @@ impl AvaroParser {
     }
 
     fn Custom(input: Node) -> Result<Directive> {
-        let ret: (NaiveDateTime, String, Vec<StringOrAccount>) = match_nodes!(input.into_children();
+        let ret: (Date, String, Vec<StringOrAccount>) = match_nodes!(input.into_children();
             [Date(date), String(module), StringOrAccount(options)..] => (date, module, options.collect()),
         );
-        Ok(Directive::Custom(Custom{
+        Ok(Directive::Custom(Custom {
             date: ret.0,
             custom_type: ret.1,
             values: ret.2,
-            meta: Default::default()
+            meta: Default::default(),
         }))
     }
 
@@ -372,80 +395,80 @@ impl AvaroParser {
     }
 
     fn Note(input: Node) -> Result<Directive> {
-        let ret: (NaiveDateTime, Account, String) = match_nodes!(input.into_children();
+        let ret: (Date, Account, String) = match_nodes!(input.into_children();
             [Date(date), AccountName(a), String(path)] => (date, a, path),
         );
-        Ok(Directive::Note(Note{
+        Ok(Directive::Note(Note {
             date: ret.0,
             account: ret.1,
             comment: ret.2,
             tags: None,
             links: None,
-            meta: Default::default()
+            meta: Default::default(),
         }))
     }
 
     fn Pad(input: Node) -> Result<Directive> {
-        let ret: (NaiveDateTime, Account, Account) = match_nodes!(input.into_children();
+        let ret: (Date, Account, Account) = match_nodes!(input.into_children();
             [Date(date), AccountName(from), AccountName(to)] => (date, from, to),
         );
         Ok(Directive::Pad(Pad {
             date: ret.0,
             account: ret.1,
             source: ret.2,
-            meta: Default::default()
+            meta: Default::default(),
         }))
     }
 
     fn Event(input: Node) -> Result<Directive> {
-        let ret: (NaiveDateTime, String, String) = match_nodes!(input.into_children();
+        let ret: (Date, String, String) = match_nodes!(input.into_children();
             [Date(date), String(name), String(value)] => (date, name, value),
         );
-        Ok(Directive::Event(Event{
+        Ok(Directive::Event(Event {
             date: ret.0,
             event_type: ret.1,
             description: ret.2,
-            meta: Default::default()
+            meta: Default::default(),
         }))
     }
 
     fn Balance(input: Node) -> Result<Directive> {
-        let ret: (NaiveDateTime, Account, BigDecimal, String) = match_nodes!(input.into_children();
+        let ret: (Date, Account, BigDecimal, String) = match_nodes!(input.into_children();
             [Date(date), AccountName(name), number(amount), CommodityName(commodity)] => (date, name, amount, commodity),
         );
-        Ok(Directive::Balance(Balance{
+        Ok(Directive::Balance(Balance {
             date: ret.0,
             account: ret.1,
             amount: Amount::new(ret.2, ret.3),
             tolerance: None,
             diff_amount: None,
-            meta: Default::default()
+            meta: Default::default(),
         }))
     }
 
     fn Document(input: Node) -> Result<Directive> {
-        let ret: (NaiveDateTime, Account, String) = match_nodes!(input.into_children();
+        let ret: (Date, Account, String) = match_nodes!(input.into_children();
             [Date(date), AccountName(name), String(path)] => (date, name, path),
         );
-        Ok(Directive::Document(Document{
+        Ok(Directive::Document(Document {
             date: ret.0,
             account: ret.1,
             filename: ret.2,
             tags: None,
             links: None,
-            meta: Default::default()
+            meta: Default::default(),
         }))
     }
 
     fn Price(input: Node) -> Result<Directive> {
-        let ret: (NaiveDateTime, String, BigDecimal, String) = match_nodes!(input.into_children();
+        let ret: (Date, String, BigDecimal, String) = match_nodes!(input.into_children();
             [Date(date), CommodityName(source), number(price), CommodityName(target)] => (date, source, price, target)
         );
-        Ok(Directive::Price(Price{
+        Ok(Directive::Price(Price {
             date: ret.0,
             currency: ret.1,
             amount: Amount::new(ret.2, ret.3),
-            meta: Default::default()
+            meta: Default::default(),
         }))
     }
 

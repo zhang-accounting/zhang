@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::data::{Posting, Transaction};
+use crate::core::data::{Date, Posting, Transaction};
 use crate::error::{AvaroError, AvaroResult};
 use crate::models::Flag;
 use crate::target::AvaroTarget;
@@ -179,7 +179,7 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
             },
         ];
         let transaction = Transaction {
-            date: result.datetime().naive_local(),
+            date: Date::Datetime(result.datetime().naive_local()),
             flag: Some(Flag::Okay),
             payee: result.payee().map(|it| it.to_string()),
             narration: result.narration().map(|it| it.to_string()),

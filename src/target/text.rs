@@ -1,11 +1,20 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::data::{Posting, Transaction};
+use crate::core::data::{Date, Posting, Transaction};
 use crate::models::Flag;
 use crate::target::AvaroTarget;
 use crate::utils::escape_with_quote;
 use itertools::Itertools;
 use std::collections::HashMap;
+
+impl AvaroTarget<String> for Date {
+    fn to_target(self) -> String {
+        match self {
+            Date::Date(date) => date.format("%Y-%m-%d").to_string(),
+            Date::Datetime(datetime) => datetime.format("%Y-%m-%d %H:%M:%S").to_string(),
+        }
+    }
+}
 
 impl AvaroTarget<String> for Flag {
     fn to_target(self) -> String {
@@ -36,7 +45,7 @@ impl AvaroTarget<Vec<String>> for HashMap<String, String> {
 impl AvaroTarget<String> for Transaction {
     fn to_target(self) -> String {
         let mut vec1 = vec![
-            Some(self.date.format("%Y-%m-%d %H:%M:%S").to_string()),
+            Some(self.date.to_target()),
             self.flag.map(|it| format!(" {}", it.to_target())),
             self.payee.map(|it| escape_with_quote(&it).to_string()),
             self.narration.map(|it| escape_with_quote(&it).to_string()),

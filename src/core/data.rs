@@ -8,8 +8,23 @@ use std::collections::{HashMap, HashSet};
 pub type Meta = HashMap<String, String>;
 
 #[derive(Debug, PartialEq)]
+pub enum Date {
+    Date(NaiveDate),
+    Datetime(NaiveDateTime),
+}
+
+impl Date {
+    fn get_datetime(&self) -> NaiveDateTime {
+        match self {
+            Date::Date(date) => date.and_hms(0, 0, 0),
+            Date::Datetime(datetime) => *datetime,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Open {
-    pub date: NaiveDateTime,
+    pub date: Date,
     pub account: Account,
     pub commodities: Vec<String>,
     pub meta: Meta,
@@ -17,21 +32,21 @@ pub struct Open {
 
 #[derive(Debug, PartialEq)]
 pub struct Close {
-    pub date: NaiveDateTime,
+    pub date: Date,
     pub account: Account,
     pub meta: Meta,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Commodity {
-    pub date: NaiveDateTime,
+    pub date: Date,
     pub currency: String,
     pub meta: Meta,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Pad {
-    pub date: NaiveDateTime,
+    pub date: Date,
     pub account: Account,
     pub source: Account,
     pub meta: Meta,
@@ -39,7 +54,7 @@ pub struct Pad {
 
 #[derive(Debug, PartialEq)]
 pub struct Balance {
-    pub date: NaiveDateTime,
+    pub date: Date,
     pub account: Account,
     pub amount: Amount,
     /// the amount of tolerance to use in the verification.
@@ -63,7 +78,7 @@ pub struct Posting {
 
 #[derive(Debug, PartialEq)]
 pub struct Transaction {
-    pub date: NaiveDateTime,
+    pub date: Date,
     pub flag: Option<Flag>,
     pub payee: Option<String>,
     pub narration: Option<String>,
@@ -81,8 +96,8 @@ pub struct TxnPosting<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Note {
-    pub date: NaiveDateTime,
-    pub account:Account,
+    pub date: Date,
+    pub account: Account,
     pub comment: String,
     pub tags: Option<HashSet<String>>,
     pub links: Option<HashSet<String>>,
@@ -92,7 +107,7 @@ pub struct Note {
 
 #[derive(Debug, PartialEq)]
 pub struct Event {
-    pub date: NaiveDateTime,
+    pub date: Date,
 
     pub event_type: String,
     pub description: String,
@@ -102,7 +117,7 @@ pub struct Event {
 
 #[derive(Debug, PartialEq)]
 pub struct Query {
-    pub date: NaiveDateTime,
+    pub date: Date,
 
     pub name: String,
     pub query_string: String,
@@ -112,7 +127,7 @@ pub struct Query {
 
 #[derive(Debug, PartialEq)]
 pub struct Price {
-    pub date: NaiveDateTime,
+    pub date: Date,
 
     pub currency: String,
     pub amount: Amount,
@@ -122,7 +137,7 @@ pub struct Price {
 
 #[derive(Debug, PartialEq)]
 pub struct Document {
-    pub date: NaiveDateTime,
+    pub date: Date,
 
     pub account: Account,
     pub filename: String,
@@ -133,7 +148,7 @@ pub struct Document {
 
 #[derive(Debug, PartialEq)]
 pub struct Custom {
-    pub date: NaiveDateTime,
+    pub date: Date,
 
     pub custom_type: String,
     pub values: Vec<StringOrAccount>,
