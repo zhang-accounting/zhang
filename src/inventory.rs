@@ -103,43 +103,12 @@ impl Inventory {
     }
 }
 
-impl FromStr for Inventory {
-    type Err = crate::error::AvaroError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // crate::p::parse_avaro()
-
-        todo! {}
-    }
-}
-
 #[cfg(test)]
 mod test {
     use crate::amount::Amount;
     use crate::inventory::{Inventory, Position};
 
-    mod from_string {
-        use crate::amount::Amount;
-        use crate::inventory::Inventory;
-        use bigdecimal::BigDecimal;
-        use std::str::FromStr;
 
-        #[test]
-        fn test_from_string() {
-            let inventory = Inventory::from_str("10 USD").unwrap();
-            assert_eq!(inventory, {
-                let mut inventory1 = Inventory::new();
-                inventory1.add_amount(
-                    Amount {
-                        number: BigDecimal::from(10i32),
-                        currency: "USD".to_string(),
-                    },
-                    None,
-                );
-                inventory1
-            })
-        }
-    }
 
     #[test]
     fn test_ctor_empty_len() {
