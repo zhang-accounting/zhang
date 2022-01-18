@@ -1,7 +1,7 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Date, Posting, Transaction};
-use crate::models::Flag;
+use crate::core::models::Flag;
 use crate::target::AvaroTarget;
 use crate::utils::escape_with_quote;
 use itertools::Itertools;

@@ -12,7 +12,7 @@ use crate::core::data::{
     Balance, Close, Commodity, Custom, Date, Document, Event, Note, Open, Pad, Posting, Price,
     Transaction,
 };
-use crate::models::{Directive, Flag, SingleTotalPrice, StringOrAccount};
+use crate::core::models::{Directive, Flag, SingleTotalPrice, StringOrAccount};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;

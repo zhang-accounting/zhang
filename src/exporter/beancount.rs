@@ -1,20 +1,15 @@
 use crate::core::data::Date;
 use crate::error::{AvaroError, AvaroResult};
-use crate::{core, Directive};
+use crate::{core, core::models::Directive};
 use itertools::Itertools;
 use std::fs::DirEntry;
 use std::path::PathBuf;
+use crate::core::ledger::Ledger;
 
 pub fn run(file: PathBuf, output: Option<PathBuf>) -> AvaroResult<()> {
-    let avaro_content = std::fs::read_to_string(file)?;
-    let vec = core::load(&avaro_content)?
-        .into_iter()
-        .map(|mut it| {
-            convert_datetime_to_date(&mut it);
-            it
-        })
-        .collect_vec();
-    dbg!(vec);
+    let mut ledger = Ledger::load(file)?;
+    ledger = ledger.apply(convert_datetime_to_date);
+    dbg!(ledger);
     Ok(())
 }
 
@@ -26,48 +21,48 @@ macro_rules! convert_to_datetime {
             $directive
                 .meta
                 .insert("time".to_string(), time.format("%H:%M:%S").to_string());
+            $directive
+        }else {
+            $directive
         }
     };
 }
 
-fn convert_datetime_to_date(directive: &mut Directive) {
+fn convert_datetime_to_date(directive: Directive) -> Directive {
     match directive {
-        Directive::Open(directive) => {
-            convert_to_datetime!(directive)
+        Directive::Open(mut directive) => {
+            Directive::Open(convert_to_datetime!(directive))
         }
-        Directive::Close(directive) => {
-            convert_to_datetime!(directive)
+        Directive::Close(mut directive) => {
+            Directive::Close(convert_to_datetime!(directive))
         }
-        Directive::Commodity(directive) => {
-            convert_to_datetime!(directive)
+        Directive::Commodity(mut directive) => {
+            Directive::Commodity(convert_to_datetime!(directive))
         }
-        Directive::Transaction(directive) => {
-            convert_to_datetime!(directive)
+        Directive::Transaction(mut directive) => {
+            Directive::Transaction(convert_to_datetime!(directive))
         }
-        Directive::Balance(directive) => {
-            convert_to_datetime!(directive)
+        Directive::Balance(mut directive) => {
+            Directive::Balance(convert_to_datetime!(directive))
         }
-        Directive::Pad(directive) => {
-            convert_to_datetime!(directive)
+        Directive::Pad(mut directive) => {
+            Directive::Pad(convert_to_datetime!(directive))
         }
-        Directive::Note(directive) => {
-            convert_to_datetime!(directive)
+        Directive::Note(mut directive) => {
+            Directive::Note(convert_to_datetime!(directive))
         }
-        Directive::Document(directive) => {
-            convert_to_datetime!(directive)
+        Directive::Document(mut directive) => {
+            Directive::Document(convert_to_datetime!(directive))
         }
-        Directive::Price(directive) => {
-            convert_to_datetime!(directive)
+        Directive::Price(mut directive) => {
+            Directive::Price(convert_to_datetime!(directive))
         }
-        Directive::Event(directive) => {
-            convert_to_datetime!(directive)
+        Directive::Event(mut directive) => {
+            Directive::Event(convert_to_datetime!(directive))
         }
-        Directive::Custom(directive) => {
-            convert_to_datetime!(directive)
+        Directive::Custom(mut directive) => {
+            Directive::Custom(convert_to_datetime!(directive))
         }
-        Directive::Option { .. } => {}
-        Directive::Plugin { .. } => {}
-        Directive::Include { .. } => {}
-        Directive::Comment { .. } => {}
+        _ => directive
     }
 }

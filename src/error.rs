@@ -1,7 +1,7 @@
+use std::any::Any;
 use thiserror::Error;
 
 pub type AvaroResult<T> = Result<T, AvaroError>;
-
 
 #[derive(Debug, Error)]
 pub enum AvaroError {
@@ -21,4 +21,7 @@ pub enum AvaroError {
 
     #[error("strum error: {0}")]
     StrumError(#[from] strum::ParseError),
+
+    #[error("pest error: {0}")]
+    PestError(String),
 }

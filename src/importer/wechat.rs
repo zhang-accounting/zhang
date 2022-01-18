@@ -14,7 +14,7 @@ use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Date, Posting, Transaction};
 use crate::error::{AvaroError, AvaroResult};
-use crate::models::Flag;
+use crate::core::models::Flag;
 use crate::target::AvaroTarget;
 
 static CURRENCY: &str = "CNY";

@@ -2,7 +2,7 @@ use crate::error::AvaroResult;
 use crate::{exporter, importer};
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
-use crate::core::load;
+use crate::core::ledger::Ledger;
 
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
@@ -43,8 +43,7 @@ impl Opts {
         match self {
             Opts::Importer(importer) => importer.run(),
             Opts::Parse(file) => {
-                let result = std::fs::read_to_string(file.file).expect("cannot open file");
-                load(&result);
+                Ledger::load(file.file).expect("Cannot load ledger");
             }
             Opts::Exporter(opts)=> {
                 opts.run()

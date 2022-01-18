@@ -13,7 +13,6 @@ macro_rules! parse {
 
 pub mod booking;
 pub mod error;
-pub mod models;
 pub mod to_file;
 
 pub(crate) mod utils;
@@ -28,5 +27,4 @@ pub mod importer;
 pub mod exporter;
 
 pub mod target;
-use crate::models::Directive;
 pub use p::parse_avaro;
