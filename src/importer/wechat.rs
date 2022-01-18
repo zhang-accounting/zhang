@@ -73,23 +73,38 @@ impl Record {
         };
         Amount::new(value, CURRENCY)
     }
-    fn payee(&self) -> &str {
-        self.payee.trim()
-    }
-    fn narration(&self) -> &str {
-        if let Some(content) = self.narration.strip_prefix(COMMENT_STR) {
-            content.trim()
-        } else if self.narration == "/" {
-            ""
+    fn payee(&self) -> Option<&str> {
+        let x = self.payee.trim();
+        if x.is_empty() {
+            None
         } else {
-            self.narration.trim()
+            Some(x)
         }
     }
-    fn transaction_no(&self) -> &str {
-        self.txn_no.trim()
+    fn narration(&self) -> Option<&str> {
+        if let Some(content) = self.narration.strip_prefix(COMMENT_STR) {
+            Some(content.trim())
+        } else if self.narration == "/" {
+            None
+        } else {
+            Some(self.narration.trim())
+        }
     }
-    fn payee_no(&self) -> &str {
-        self.payee_no.trim()
+    fn transaction_no(&self) -> Option<&str> {
+        let x = self.txn_no.trim();
+        if x.is_empty() || x.eq("/") {
+            None
+        } else {
+            Some(x)
+        }
+    }
+    fn payee_no(&self) -> Option<&str> {
+        let x = self.payee_no.trim();
+        if x.is_empty() || x.eq("/") {
+            None
+        } else {
+            Some(x)
+        }
     }
 }
 
@@ -108,39 +123,42 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
     for result in reader1.deserialize().skip(16) {
         let result: Record = result?;
 
+        let payee = result.payee().unwrap();
         let pay_way = {
-            let option = config.pay_ways.get(result.payee()).map(|it| it.to_string());
+            let pay_type = result.pay_type.as_str();
+            let option = config.pay_ways.get(pay_type).map(|it| it.to_string());
             if let Some(value) = option {
                 Ok(value)
             } else if config.forbid_unknown_payee {
-                error!("pay way [{}] is not configurated", result.payee());
+                error!("pay way [{}] is not configurated", pay_type);
                 Err(AvaroError::InvalidAccount)
             } else {
-                warn!("pay way [{}] is not configurated", result.payee());
+                warn!("pay way [{}] is not configurated", pay_type);
                 Ok("Expenses:FixMe".to_string())
             }
         }?;
         let pay_way = Account::from_str(&pay_way)?;
         let payee = {
-            let option = config.payees.get(result.payee()).map(|it| it.to_string());
+            let option = config.payees.get(payee).map(|it| it.to_string());
             if let Some(value) = option {
                 Ok(value)
             } else if config.forbid_unknown_payee {
-                error!("payee [{}] is not configurated", result.payee());
+                error!("payee [{}] is not configurated", payee);
                 Err(AvaroError::InvalidAccount)
             } else {
-                warn!("payee [{}] is not configurated", result.payee());
+                warn!("payee [{}] is not configurated", payee);
                 Ok("Expenses:FixMe".to_string())
             }
         }?;
         let payee = Account::from_str(&payee)?;
 
         let mut meta = HashMap::new();
-        meta.insert(
-            "transaction_no".to_string(),
-            result.transaction_no().to_string(),
-        );
-        meta.insert("payee_no".to_string(), result.payee_no().to_string());
+        if let Some(txn_no) = result.transaction_no() {
+            meta.insert("transaction_no".to_string(), txn_no.to_string());
+        }
+        if let Some(payee_no) = result.payee_no() {
+            meta.insert("payee_no".to_string(), payee_no.to_string());
+        }
 
         let postings = vec![
             Posting {
@@ -163,8 +181,8 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
         let transaction = Transaction {
             date: result.datetime().naive_local(),
             flag: Some(Flag::Okay),
-            payee: Some(result.payee().to_string()),
-            narration: Some(result.narration().to_string()),
+            payee: result.payee().map(|it| it.to_string()),
+            narration: result.narration().map(|it| it.to_string()),
             tags: HashSet::new(),
             links: HashSet::new(),
             postings,

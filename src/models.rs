@@ -13,7 +13,6 @@ use crate::data::{
 };
 use crate::error::AvaroError;
 use crate::p::parse_account;
-use crate::to_file::ToAvaroFile;
 
 #[derive(Debug, PartialEq)]
 pub enum Directive {
