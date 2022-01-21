@@ -1,7 +1,6 @@
 #[macro_use] extern crate log;
 
 use clap::Parser;
-use avaro::parse_avaro;
 use avaro::cli::Opts;
 
 

@@ -1,18 +1,11 @@
-use std::str::FromStr;
-
-use bigdecimal::BigDecimal;
-use chrono::NaiveDate;
-use itertools::Itertools;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use strum_macros::EnumString;
 
-use crate::core::account::{Account, AccountType};
+use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{
     Balance, Close, Commodity, Custom, Document, Event, Note, Open, Pad, Price, Transaction,
 };
-use crate::error::AvaroError;
-use crate::p::parse_account;
 
 #[derive(Debug, PartialEq)]
 pub enum Directive {
@@ -27,25 +20,47 @@ pub enum Directive {
     Price(Price),
     Event(Event),
     Custom(Custom),
-    Option { key: String, value: String },
-    Plugin { module: String, value: Vec<String> },
-    Include { file: String },
-    Comment { content: String },
+    Option {
+        key: AvaroString,
+        value: AvaroString,
+    },
+    Plugin {
+        module: AvaroString,
+        value: Vec<AvaroString>,
+    },
+    Include {
+        file: AvaroString,
+    },
+    Comment {
+        content: String,
+    },
 }
 
 #[derive(Debug, PartialEq)]
 pub enum StringOrAccount {
-    String(String),
+    String(AvaroString),
     Account(Account),
 }
 
+#[derive(Debug, PartialEq)]
+pub enum AvaroString {
+    UnquoteString(String),
+    QuoteString(String),
+}
+impl AvaroString {
+    pub fn to_plain_string(self) -> String {
+        match self {
+            AvaroString::UnquoteString(unquote) => unquote,
+            AvaroString::QuoteString(quote) => quote,
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum SingleTotalPrice {
     Single(Amount),
     Total(Amount),
 }
-
 
 #[derive(EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize)]
 pub enum Flag {

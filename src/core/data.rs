@@ -1,11 +1,11 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::models::{Flag, StringOrAccount};
+use crate::core::models::{AvaroString, Flag, StringOrAccount};
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use std::collections::{HashMap, HashSet};
 
-pub type Meta = HashMap<String, String>;
+pub type Meta = HashMap<String, AvaroString>;
 
 #[derive(Debug, PartialEq)]
 pub enum Date {
@@ -80,8 +80,8 @@ pub struct Posting {
 pub struct Transaction {
     pub date: Date,
     pub flag: Option<Flag>,
-    pub payee: Option<String>,
-    pub narration: Option<String>,
+    pub payee: Option<AvaroString>,
+    pub narration: Option<AvaroString>,
     pub tags: HashSet<String>,
     pub links: HashSet<String>,
     pub postings: Vec<Posting>,
@@ -98,7 +98,7 @@ pub struct TxnPosting<'a> {
 pub struct Note {
     pub date: Date,
     pub account: Account,
-    pub comment: String,
+    pub comment: AvaroString,
     pub tags: Option<HashSet<String>>,
     pub links: Option<HashSet<String>>,
 
@@ -109,8 +109,8 @@ pub struct Note {
 pub struct Event {
     pub date: Date,
 
-    pub event_type: String,
-    pub description: String,
+    pub event_type: AvaroString,
+    pub description: AvaroString,
 
     pub meta: Meta,
 }
@@ -119,8 +119,8 @@ pub struct Event {
 pub struct Query {
     pub date: Date,
 
-    pub name: String,
-    pub query_string: String,
+    pub name: AvaroString,
+    pub query_string: AvaroString,
 
     pub meta: Meta,
 }
@@ -140,7 +140,7 @@ pub struct Document {
     pub date: Date,
 
     pub account: Account,
-    pub filename: String,
+    pub filename: AvaroString,
     pub tags: Option<HashSet<String>>,
     pub links: Option<HashSet<String>>,
     pub meta: Meta,
@@ -150,7 +150,7 @@ pub struct Document {
 pub struct Custom {
     pub date: Date,
 
-    pub custom_type: String,
+    pub custom_type: AvaroString,
     pub values: Vec<StringOrAccount>,
     pub meta: Meta,
 }

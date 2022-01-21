@@ -1,5 +1,5 @@
 use crate::error::AvaroError;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use std::str::FromStr;
 use strum_macros::EnumString;

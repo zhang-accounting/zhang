@@ -1,4 +1,4 @@
-use std::any::Any;
+
 use thiserror::Error;
 
 pub type AvaroResult<T> = Result<T, AvaroError>;

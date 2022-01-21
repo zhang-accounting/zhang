@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{
@@ -5,12 +7,9 @@ use crate::core::data::{
     Price, Transaction,
 };
 use crate::core::ledger::Ledger;
-use crate::core::models::{Directive, Flag, StringOrAccount};
+use crate::core::models::{AvaroString, Directive, Flag, StringOrAccount};
 use crate::target::AvaroTarget;
 use crate::utils::escape_with_quote;
-use itertools::Itertools;
-use std::collections::HashMap;
-use std::fmt::format;
 
 fn append_meta(meta: Meta, string: String) -> String {
     let mut metas = meta
@@ -51,16 +50,25 @@ impl AvaroTarget<String> for Amount {
 impl AvaroTarget<Vec<String>> for Meta {
     fn to_target(self) -> Vec<String> {
         self.into_iter()
-            .sorted()
-            .map(|(k, v)| format!("{}: {}", k, v))
+            .sorted_by(|entry_a, entry_b| entry_a.0.cmp(&entry_b.0))
+            .map(|(k, v)| format!("{}: {}", k, v.to_target()))
             .collect_vec()
+    }
+}
+
+impl AvaroTarget<String> for AvaroString {
+    fn to_target(self) -> String {
+        match self {
+            AvaroString::UnquoteString(unquote) => unquote,
+            AvaroString::QuoteString(quote) => escape_with_quote(&quote).to_string(),
+        }
     }
 }
 
 impl AvaroTarget<String> for StringOrAccount {
     fn to_target(self) -> String {
         match self {
-            StringOrAccount::String(s) => escape_with_quote(&s).to_string(),
+            StringOrAccount::String(s) => s.to_target(),
             StringOrAccount::Account(account) => account.to_target(),
         }
     }
@@ -71,8 +79,8 @@ impl AvaroTarget<String> for Transaction {
         let mut vec1 = vec![
             Some(self.date.to_target()),
             self.flag.map(|it| format!(" {}", it.to_target())),
-            self.payee.map(|it| escape_with_quote(&it).to_string()),
-            self.narration.map(|it| escape_with_quote(&it).to_string()),
+            self.payee.map(|it| it.to_target()),
+            self.narration.map(|it| it.to_target()),
         ];
         let mut tags = self
             .tags
@@ -181,7 +189,7 @@ impl AvaroTarget<String> for Note {
             self.date.to_target(),
             "note".to_string(),
             self.account.to_target(),
-            self.comment,
+            self.comment.to_target(),
         ];
         append_meta(self.meta, line.join(" "))
     }
@@ -193,7 +201,7 @@ impl AvaroTarget<String> for Document {
             self.date.to_target(),
             "document".to_string(),
             self.account.to_target(),
-            self.filename,
+            self.filename.to_target(),
         ];
         append_meta(self.meta, line.join(" "))
     }
@@ -216,8 +224,8 @@ impl AvaroTarget<String> for Event {
         let mut line = vec![
             self.date.to_target(),
             "event".to_string(),
-            self.event_type,
-            self.description,
+            self.event_type.to_target(),
+            self.description.to_target(),
         ];
         append_meta(self.meta, line.join(" "))
     }
@@ -228,7 +236,7 @@ impl AvaroTarget<String> for Custom {
         let mut line = vec![
             self.date.to_target(),
             "custom".to_string(),
-            self.custom_type,
+            self.custom_type.to_target(),
         ];
         let mut values = self
             .values
@@ -255,24 +263,17 @@ impl AvaroTarget<String> for Directive {
             Directive::Event(event) => event.to_target(),
             Directive::Custom(cusotm) => cusotm.to_target(),
             Directive::Option { key, value } => {
-                let mut line = vec![
-                    "option".to_string(),
-                    escape_with_quote(&key).to_string(),
-                    escape_with_quote(&value).to_string(),
-                ];
+                let mut line = vec!["option".to_string(), key.to_target(), value.to_target()];
                 line.join(" ")
             }
             Directive::Plugin { module, value } => {
-                let mut line = vec!["plugin".to_string(), escape_with_quote(&module).to_string()];
-                let mut values = value
-                    .into_iter()
-                    .map(|it| escape_with_quote(&it).to_string())
-                    .collect_vec();
+                let mut line = vec!["plugin".to_string(), module.to_target()];
+                let mut values = value.into_iter().map(|it| it.to_target()).collect_vec();
                 line.append(&mut values);
                 line.join(" ")
             }
             Directive::Include { file } => {
-                let mut line = vec!["include".to_string(), escape_with_quote(&file).to_string()];
+                let mut line = vec!["include".to_string(), file.to_target()];
                 line.join(" ")
             }
             Directive::Comment { content } => {

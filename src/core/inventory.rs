@@ -3,9 +3,9 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::{DateTime, Utc};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
+use std::hash::{Hash};
 use std::ops::Add;
-use std::str::FromStr;
+
 
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub struct Cost {
@@ -89,12 +89,10 @@ impl Inventory {
                     o_mut.units.number = number;
                 }
             }
+        } else if units.number.is_zero() {
         } else {
-            if units.number.is_zero() {
-            } else {
-                self.data
-                    .insert(key, Position::new(units.clone(), cost.clone()));
-            }
+            self.data
+                .insert(key, Position::new(units.clone(), cost.clone()));
         }
     }
 

@@ -1,10 +1,10 @@
 use crate::core::data::Date;
-use crate::error::{AvaroError, AvaroResult};
-use crate::{core, core::models::Directive};
-use itertools::Itertools;
-use std::fs::DirEntry;
+use crate::error::{AvaroResult};
+use crate::{core::models::Directive};
+
 use std::path::PathBuf;
 use crate::core::ledger::Ledger;
+use crate::core::models::AvaroString;
 use crate::target::AvaroTarget;
 
 pub fn run(file: PathBuf, output: Option<PathBuf>) -> AvaroResult<()> {
@@ -21,7 +21,7 @@ macro_rules! convert_to_datetime {
             $directive.date = Date::Date(date);
             $directive
                 .meta
-                .insert("time".to_string(), time.format("%H:%M:%S").to_string());
+                .insert("time".to_string(), AvaroString::QuoteString(time.format("%H:%M:%S").to_string()));
             $directive
         }else {
             $directive

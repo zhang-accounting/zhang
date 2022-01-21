@@ -12,7 +12,7 @@ use crate::core::data::{
     Balance, Close, Commodity, Custom, Date, Document, Event, Note, Open, Pad, Posting, Price,
     Transaction,
 };
-use crate::core::models::{Directive, Flag, SingleTotalPrice, StringOrAccount};
+use crate::core::models::{AvaroString, Directive, Flag, SingleTotalPrice, StringOrAccount};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -32,16 +32,16 @@ impl AvaroParser {
     fn inner(input: Node) -> Result<String> {
         Ok(input.as_str().to_owned())
     }
-    fn QuoteString(input: Node) -> Result<String> {
+    fn QuoteString(input: Node) -> Result<AvaroString> {
         let string = input.as_str();
-        Ok(unescape(string).unwrap())
+        Ok(AvaroString::QuoteString(unescape(string).unwrap()))
     }
 
-    fn UnquoteString(input: Node) -> Result<String> {
-        Ok(input.as_str().to_owned())
+    fn UnquoteString(input: Node) -> Result<AvaroString> {
+        Ok(AvaroString::UnquoteString(input.as_str().to_owned()))
     }
 
-    fn String(input: Node) -> Result<String> {
+    fn String(input: Node) -> Result<AvaroString> {
         let ret = match_nodes!(
             input.into_children();
             [QuoteString(i)] => i,
@@ -58,7 +58,7 @@ impl AvaroParser {
     fn AccountName(input: Node) -> Result<Account> {
         let r: (String, Vec<String>) = match_nodes!(input.into_children();
             [AccountType(a), UnquoteString(i)..] => {
-                (a, i.collect())
+                (a, i.map(|it|it.to_plain_string()).collect())
             },
 
         );
@@ -81,23 +81,24 @@ impl AvaroParser {
         Ok(Date::Date(date))
     }
     fn DateTime(input: Node) -> Result<Date> {
-        Ok(Date::Datetime(NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M:%S").unwrap()))
+        Ok(Date::Datetime(
+            NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M:%S").unwrap(),
+        ))
     }
 
     fn Plugin(input: Node) -> Result<Directive> {
-        let ret: (String, Vec<String>) = match_nodes!(input.into_children();
+        let ret: (AvaroString, Vec<AvaroString>) = match_nodes!(input.into_children();
             [String(module), String(values)..] => (module, values.collect()),
         );
-        let values = ret.1.into_iter().map(|it| it.to_string()).collect();
         Ok(Directive::Plugin {
-            module: ret.0.to_string(),
-            value: values,
+            module: ret.0,
+            value: ret.1,
         })
     }
 
     fn Option(input: Node) -> Result<Directive> {
         let ret = match_nodes!(input.into_children();
-            [String(key), String(value)] => Directive::Option {key:key.to_string(),value:value.to_string()},
+            [String(key), String(value)] => Directive::Option {key:key,value:value},
         );
         Ok(ret)
     }
@@ -108,11 +109,12 @@ impl AvaroParser {
     }
 
     fn Open(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, Vec<String>, Vec<(String, String)>) = match_nodes!(input.into_children();
+        let ret: (Date, Account, Vec<String>, Vec<(String, AvaroString)>) = match_nodes!(input.into_children();
             [Date(date), AccountName(a), CommodityName(commodities).., CommodityMeta(metas)] => (date, a, commodities.collect(), metas),
             [Date(date), AccountName(a), CommodityName(commodities)..] => (date, a, commodities.collect(), vec![]),
             [Date(date), AccountName(a), CommodityMeta(metas)] => (date, a, vec![], metas),
         );
+
         let open = Open {
             date: ret.0,
             account: ret.1,
@@ -136,15 +138,15 @@ impl AvaroParser {
         Ok(())
     }
 
-    fn CommodityLine(input: Node) -> Result<(String, String)> {
-        let ret: (String, String) = match_nodes!(input.into_children();
-            [String(key), String(value)] => (key, value),
+    fn CommodityLine(input: Node) -> Result<(String, AvaroString)> {
+        let ret: (String, AvaroString) = match_nodes!(input.into_children();
+            [String(key), String(value)] => (key.to_plain_string(), value),
         );
         Ok(ret)
     }
 
-    fn CommodityMeta(input: Node) -> Result<Vec<(String, String)>> {
-        let ret: Vec<(String, String)> = match_nodes!(input.into_children();
+    fn CommodityMeta(input: Node) -> Result<Vec<(String, AvaroString)>> {
+        let ret: Vec<(String, AvaroString)> = match_nodes!(input.into_children();
             [CommodityLine(lines)..] => lines.collect(),
         );
         Ok(ret)
@@ -154,19 +156,11 @@ impl AvaroParser {
         input: Node,
     ) -> Result<(
         Amount,
-        Option<(
-            Option<Amount>,
-            Option<Date>,
-            Option<SingleTotalPrice>,
-        )>,
+        Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>,
     )> {
         let ret: (
             Amount,
-            Option<(
-                Option<Amount>,
-                Option<Date>,
-                Option<SingleTotalPrice>,
-            )>,
+            Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>,
         ) = match_nodes!(input.into_children();
             [PostingAmount(amount)] => (amount, None),
             [PostingAmount(amount), PostingMeta(meta)] => (amount, Some(meta)),
@@ -213,16 +207,8 @@ impl AvaroParser {
     }
     fn PostingMeta(
         input: Node,
-    ) -> Result<(
-        Option<Amount>,
-        Option<Date>,
-        Option<SingleTotalPrice>,
-    )> {
-        let ret: (
-            Option<Amount>,
-            Option<Date>,
-            Option<SingleTotalPrice>,
-        ) = match_nodes!(input.into_children();
+    ) -> Result<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)> {
+        let ret: (Option<Amount>, Option<Date>, Option<SingleTotalPrice>) = match_nodes!(input.into_children();
             [] => (None, None, None),
             [PostingCost(cost)] => (Some(cost), None, None),
             [PostingPrice(p)] => (None, None, Some(p)),
@@ -238,11 +224,7 @@ impl AvaroParser {
             Account,
             Option<(
                 Amount,
-                Option<(
-                    Option<Amount>,
-                    Option<Date>,
-                    Option<SingleTotalPrice>,
-                )>,
+                Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>,
             )>,
         ) = match_nodes!(input.into_children();
             [AccountName(account_name)] => (None, account_name, None),
@@ -273,15 +255,17 @@ impl AvaroParser {
         Ok(line)
     }
 
-    fn TransactionLine(input: Node) -> Result<(Option<Posting>, Option<(String, String)>)> {
-        let ret: (Option<Posting>, Option<(String, String)>) = match_nodes!(input.into_children();
+    fn TransactionLine(input: Node) -> Result<(Option<Posting>, Option<(String, AvaroString)>)> {
+        let ret: (Option<Posting>, Option<(String, AvaroString)>) = match_nodes!(input.into_children();
             [TransactionPosting(posting)] => (Some(posting), None),
             [CommodityLine(meta)] => (None, Some(meta)),
 
         );
         Ok(ret)
     }
-    fn TransactionLines(input: Node) -> Result<Vec<(Option<Posting>, Option<(String, String)>)>> {
+    fn TransactionLines(
+        input: Node,
+    ) -> Result<Vec<(Option<Posting>, Option<(String, AvaroString)>)>> {
         let ret = match_nodes!(input.into_children();
             [TransactionLine(lines)..] => lines.collect(),
         );
@@ -290,13 +274,13 @@ impl AvaroParser {
 
     fn Tag(input: Node) -> Result<String> {
         let ret = match_nodes!(input.into_children();
-            [UnquoteString(tag)] => tag,
+            [UnquoteString(tag)] => tag.to_plain_string(),
         );
         Ok(ret)
     }
     fn Link(input: Node) -> Result<String> {
         let ret = match_nodes!(input.into_children();
-            [UnquoteString(tag)] => tag,
+            [UnquoteString(tag)] => tag.to_plain_string(),
         );
         Ok(ret)
     }
@@ -317,11 +301,11 @@ impl AvaroParser {
         let ret: (
             Date,
             Option<Flag>,
-            Option<String>,
-            Option<String>,
+            Option<AvaroString>,
+            Option<AvaroString>,
             Vec<String>,
             Vec<String>,
-            Vec<(Option<Posting>, Option<(String, String)>)>,
+            Vec<(Option<Posting>, Option<(String, AvaroString)>)>,
         ) = match_nodes!(input.into_children();
             [Date(date), TransactionFlag(flag), Tags(tags), Links(links), TransactionLines(lines)] => (date, flag, None, None, tags, links, lines),
             [Date(date), TransactionFlag(flag), QuoteString(narration), Tags(tags), Links(links), TransactionLines(lines)] => (date, flag, None, Some(narration), tags, links, lines),
@@ -374,7 +358,7 @@ impl AvaroParser {
     }
 
     fn Custom(input: Node) -> Result<Directive> {
-        let ret: (Date, String, Vec<StringOrAccount>) = match_nodes!(input.into_children();
+        let ret: (Date, AvaroString, Vec<StringOrAccount>) = match_nodes!(input.into_children();
             [Date(date), String(module), StringOrAccount(options)..] => (date, module, options.collect()),
         );
         Ok(Directive::Custom(Custom {
@@ -386,16 +370,14 @@ impl AvaroParser {
     }
 
     fn Include(input: Node) -> Result<Directive> {
-        let ret: String = match_nodes!(input.into_children();
+        let ret: AvaroString = match_nodes!(input.into_children();
             [QuoteString(path)] => path,
         );
-        Ok(Directive::Include {
-            file: ret.to_string(),
-        })
+        Ok(Directive::Include { file: ret })
     }
 
     fn Note(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, String) = match_nodes!(input.into_children();
+        let ret: (Date, Account, AvaroString) = match_nodes!(input.into_children();
             [Date(date), AccountName(a), String(path)] => (date, a, path),
         );
         Ok(Directive::Note(Note {
@@ -421,7 +403,7 @@ impl AvaroParser {
     }
 
     fn Event(input: Node) -> Result<Directive> {
-        let ret: (Date, String, String) = match_nodes!(input.into_children();
+        let ret: (Date, AvaroString, AvaroString) = match_nodes!(input.into_children();
             [Date(date), String(name), String(value)] => (date, name, value),
         );
         Ok(Directive::Event(Event {
@@ -447,7 +429,7 @@ impl AvaroParser {
     }
 
     fn Document(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, String) = match_nodes!(input.into_children();
+        let ret: (Date, Account, AvaroString) = match_nodes!(input.into_children();
             [Date(date), AccountName(name), String(path)] => (date, name, path),
         );
         Ok(Directive::Document(Document {

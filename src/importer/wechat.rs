@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::{read, File};
+use std::fs::{File};
 use std::io::{BufRead, BufReader};
 use std::ops::Neg;
 use std::path::PathBuf;
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone};
+use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
 use log::{error, warn};
 use serde::Deserialize;
 
@@ -14,7 +14,7 @@ use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Date, Posting, Transaction};
 use crate::error::{AvaroError, AvaroResult};
-use crate::core::models::Flag;
+use crate::core::models::{AvaroString, Flag};
 use crate::target::AvaroTarget;
 
 static CURRENCY: &str = "CNY";
@@ -154,10 +154,10 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
 
         let mut meta = HashMap::new();
         if let Some(txn_no) = result.transaction_no() {
-            meta.insert("transaction_no".to_string(), txn_no.to_string());
+            meta.insert("transaction_no".to_string(), AvaroString::QuoteString(txn_no.to_string()));
         }
         if let Some(payee_no) = result.payee_no() {
-            meta.insert("payee_no".to_string(), payee_no.to_string());
+            meta.insert("payee_no".to_string(), AvaroString::QuoteString(payee_no.to_string()));
         }
 
         let postings = vec![
@@ -181,8 +181,8 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
         let transaction = Transaction {
             date: Date::Datetime(result.datetime().naive_local()),
             flag: Some(Flag::Okay),
-            payee: result.payee().map(|it| it.to_string()),
-            narration: result.narration().map(|it| it.to_string()),
+            payee: result.payee().map(|it| AvaroString::QuoteString(it.to_string())),
+            narration: result.narration().map(|it| AvaroString::QuoteString(it.to_string())),
             tags: HashSet::new(),
             links: HashSet::new(),
             postings,
