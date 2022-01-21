@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct Ledger {
-    directives: Vec<Directive>,
+    pub(crate) directives: Vec<Directive>,
 }
 
 impl Ledger {

@@ -1,7 +1,11 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::data::{Date, Posting, Transaction};
-use crate::core::models::Flag;
+use crate::core::data::{
+    Balance, Close, Commodity, Custom, Date, Document, Event, Meta, Note, Open, Pad, Posting,
+    Price, Transaction,
+};
+use crate::core::ledger::Ledger;
+use crate::core::models::{Directive, Flag, StringOrAccount};
 use crate::target::AvaroTarget;
 use crate::utils::escape_with_quote;
 use itertools::Itertools;
@@ -33,12 +37,21 @@ impl AvaroTarget<String> for Amount {
     }
 }
 
-impl AvaroTarget<Vec<String>> for HashMap<String, String> {
+impl AvaroTarget<Vec<String>> for Meta {
     fn to_target(self) -> Vec<String> {
         self.into_iter()
             .sorted()
             .map(|(k, v)| format!("{}: {}", k, v))
             .collect_vec()
+    }
+}
+
+impl AvaroTarget<String> for StringOrAccount {
+    fn to_target(self) -> String {
+        match self {
+            StringOrAccount::String(s) => escape_with_quote(&s).to_string(),
+            StringOrAccount::Account(account) => account.to_target(),
+        }
     }
 }
 
@@ -93,6 +106,183 @@ impl AvaroTarget<String> for Posting {
         vec1.into_iter().flatten().join(" ")
     }
 }
+impl AvaroTarget<String> for Open {
+    fn to_target(mut self) -> String {
+        let mut line = vec![
+            self.date.to_target(),
+            "open".to_string(),
+            self.account.to_target(),
+        ];
+        line.append(&mut self.commodities);
+        line.join(" ")
+    }
+}
+
+impl AvaroTarget<String> for Close {
+    fn to_target(self) -> String {
+        let mut line = vec![
+            self.date.to_target(),
+            "close".to_string(),
+            self.account.to_target(),
+        ];
+        line.join(" ")
+    }
+}
+
+impl AvaroTarget<String> for Commodity {
+    fn to_target(self) -> String {
+        let mut line = vec![
+            self.date.to_target(),
+            "commodity".to_string(),
+            self.currency,
+        ];
+        line.join(" ")
+    }
+}
+
+impl AvaroTarget<String> for Balance {
+    fn to_target(self) -> String {
+        let mut line = vec![
+            self.date.to_target(),
+            "balance".to_string(),
+            self.account.to_target(),
+            self.amount.to_target(),
+        ];
+        line.join(" ")
+    }
+}
+
+impl AvaroTarget<String> for Pad {
+    fn to_target(self) -> String {
+        let mut line = vec![
+            self.date.to_target(),
+            "pad".to_string(),
+            self.account.to_target(),
+            self.source.to_target(),
+        ];
+        line.join(" ")
+    }
+}
+
+impl AvaroTarget<String> for Note {
+    fn to_target(self) -> String {
+        let mut line = vec![
+            self.date.to_target(),
+            "note".to_string(),
+            self.account.to_target(),
+            self.comment,
+        ];
+        line.join(" ")
+    }
+}
+
+impl AvaroTarget<String> for Document {
+    fn to_target(self) -> String {
+        let mut line = vec![
+            self.date.to_target(),
+            "document".to_string(),
+            self.account.to_target(),
+            self.filename,
+        ];
+        line.join(" ")
+    }
+}
+
+impl AvaroTarget<String> for Price {
+    fn to_target(self) -> String {
+        let mut line = vec![
+            self.date.to_target(),
+            "price".to_string(),
+            self.currency,
+            self.amount.to_target(),
+        ];
+        line.join(" ")
+    }
+}
+
+impl AvaroTarget<String> for Event {
+    fn to_target(self) -> String {
+        let mut line = vec![
+            self.date.to_target(),
+            "event".to_string(),
+            self.event_type,
+            self.description,
+        ];
+        line.join(" ")
+    }
+}
+
+impl AvaroTarget<String> for Custom {
+    fn to_target(self) -> String {
+        let mut line = vec![
+            self.date.to_target(),
+            "custom".to_string(),
+            self.custom_type,
+        ];
+        let mut values = self
+            .values
+            .into_iter()
+            .map(|it| it.to_target())
+            .collect_vec();
+        line.append(&mut values);
+        line.join(" ")
+    }
+}
+
+impl AvaroTarget<String> for Directive {
+    fn to_target(self) -> String {
+        match self {
+            Directive::Open(open) => open.to_target(),
+            Directive::Close(close) => close.to_target(),
+            Directive::Commodity(commodity) => commodity.to_target(),
+            Directive::Transaction(txn) => txn.to_target(),
+            Directive::Balance(balance) => balance.to_target(),
+            Directive::Pad(pad) => pad.to_target(),
+            Directive::Note(note) => note.to_target(),
+            Directive::Document(document) => document.to_target(),
+            Directive::Price(price) => price.to_target(),
+            Directive::Event(event) => event.to_target(),
+            Directive::Custom(cusotm) => cusotm.to_target(),
+            Directive::Option { key, value } => {
+                let mut line = vec![
+                    "option".to_string(),
+                    escape_with_quote(&key).to_string(),
+                    escape_with_quote(&value).to_string(),
+                ];
+                line.join(" ")
+            }
+            Directive::Plugin { module, value } => {
+                let mut line = vec!["plugin".to_string(), escape_with_quote(&module).to_string()];
+                let mut values = value
+                    .into_iter()
+                    .map(|it| escape_with_quote(&it).to_string())
+                    .collect_vec();
+                line.append(&mut values);
+                line.join(" ")
+            }
+            Directive::Include { file } => {
+                let mut line = vec!["include".to_string(), escape_with_quote(&file).to_string()];
+                line.join(" ")
+            }
+            Directive::Comment { content } => {
+                let mut line = vec!["#".to_string(), content];
+                line.join(" ")
+            }
+        }
+    }
+}
+
+impl AvaroTarget<String> for Ledger {
+    fn to_target(self) -> String {
+        let vec = self
+            .directives
+            .into_iter()
+            .map(|it| it.to_target())
+            .collect_vec();
+        vec.join("\n\n")
+    }
+}
+
 //
 //
 // #[cfg(test)]

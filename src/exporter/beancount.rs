@@ -5,11 +5,12 @@ use itertools::Itertools;
 use std::fs::DirEntry;
 use std::path::PathBuf;
 use crate::core::ledger::Ledger;
+use crate::target::AvaroTarget;
 
 pub fn run(file: PathBuf, output: Option<PathBuf>) -> AvaroResult<()> {
     let mut ledger = Ledger::load(file)?;
     ledger = ledger.apply(convert_datetime_to_date);
-    dbg!(ledger);
+    println!("{}", ledger.to_target());
     Ok(())
 }
 
