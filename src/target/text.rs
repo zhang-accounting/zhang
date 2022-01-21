@@ -10,6 +10,17 @@ use crate::target::AvaroTarget;
 use crate::utils::escape_with_quote;
 use itertools::Itertools;
 use std::collections::HashMap;
+use std::fmt::format;
+
+fn append_meta(meta: Meta, string: String) -> String {
+    let mut metas = meta
+        .to_target()
+        .into_iter()
+        .map(|it| format!("  {}", it))
+        .collect_vec();
+    metas.insert(0, string);
+    metas.join("\n")
+}
 
 impl AvaroTarget<String> for Date {
     fn to_target(self) -> String {
@@ -114,7 +125,7 @@ impl AvaroTarget<String> for Open {
             self.account.to_target(),
         ];
         line.append(&mut self.commodities);
-        line.join(" ")
+        append_meta(self.meta, line.join(" "))
     }
 }
 
@@ -125,7 +136,7 @@ impl AvaroTarget<String> for Close {
             "close".to_string(),
             self.account.to_target(),
         ];
-        line.join(" ")
+        append_meta(self.meta, line.join(" "))
     }
 }
 
@@ -136,7 +147,7 @@ impl AvaroTarget<String> for Commodity {
             "commodity".to_string(),
             self.currency,
         ];
-        line.join(" ")
+        append_meta(self.meta, line.join(" "))
     }
 }
 
@@ -148,7 +159,7 @@ impl AvaroTarget<String> for Balance {
             self.account.to_target(),
             self.amount.to_target(),
         ];
-        line.join(" ")
+        append_meta(self.meta, line.join(" "))
     }
 }
 
@@ -160,7 +171,7 @@ impl AvaroTarget<String> for Pad {
             self.account.to_target(),
             self.source.to_target(),
         ];
-        line.join(" ")
+        append_meta(self.meta, line.join(" "))
     }
 }
 
@@ -172,7 +183,7 @@ impl AvaroTarget<String> for Note {
             self.account.to_target(),
             self.comment,
         ];
-        line.join(" ")
+        append_meta(self.meta, line.join(" "))
     }
 }
 
@@ -184,7 +195,7 @@ impl AvaroTarget<String> for Document {
             self.account.to_target(),
             self.filename,
         ];
-        line.join(" ")
+        append_meta(self.meta, line.join(" "))
     }
 }
 
@@ -196,7 +207,7 @@ impl AvaroTarget<String> for Price {
             self.currency,
             self.amount.to_target(),
         ];
-        line.join(" ")
+        append_meta(self.meta, line.join(" "))
     }
 }
 
@@ -208,7 +219,7 @@ impl AvaroTarget<String> for Event {
             self.event_type,
             self.description,
         ];
-        line.join(" ")
+        append_meta(self.meta, line.join(" "))
     }
 }
 
@@ -225,7 +236,7 @@ impl AvaroTarget<String> for Custom {
             .map(|it| it.to_target())
             .collect_vec();
         line.append(&mut values);
-        line.join(" ")
+        append_meta(self.meta, line.join(" "))
     }
 }
 
