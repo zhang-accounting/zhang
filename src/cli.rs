@@ -33,6 +33,7 @@ pub struct ParseOpts {
 pub enum ExportOpts {
     Beancount{
         file: PathBuf,
+        #[clap(short, long)]
         output: Option<PathBuf>,
     }
 
