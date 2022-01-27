@@ -1,8 +1,7 @@
-
+use crate::core::ledger::Ledger;
 use crate::{exporter, importer};
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
-use crate::core::ledger::Ledger;
 
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
@@ -17,12 +16,10 @@ pub enum Opts {
     Exporter(ExportOpts),
 }
 
-
 #[derive(Subcommand, Debug)]
 pub enum ImportOpts {
     Wechat { file: PathBuf, config: PathBuf },
 }
-
 
 #[derive(Args, Debug)]
 pub struct ParseOpts {
@@ -31,12 +28,11 @@ pub struct ParseOpts {
 
 #[derive(Subcommand, Debug)]
 pub enum ExportOpts {
-    Beancount{
+    Beancount {
         file: PathBuf,
         #[clap(short, long)]
         output: Option<PathBuf>,
-    }
-
+    },
 }
 
 impl Opts {
@@ -46,9 +42,7 @@ impl Opts {
             Opts::Parse(file) => {
                 Ledger::load(file.file).expect("Cannot load ledger");
             }
-            Opts::Exporter(opts)=> {
-                opts.run()
-            }
+            Opts::Exporter(opts) => opts.run(),
         }
     }
 }
@@ -67,7 +61,6 @@ impl ImportOpts {
         // dbg!(result);
     }
 }
-
 
 impl ExportOpts {
     pub fn run(self) {

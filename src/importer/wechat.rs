@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::{File};
+use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::ops::Neg;
 use std::path::PathBuf;
@@ -8,24 +8,28 @@ use std::str::FromStr;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
 use log::{error, warn};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Date, Posting, Transaction};
-use crate::error::{AvaroError, AvaroResult};
 use crate::core::models::{AvaroString, Flag};
+use crate::error::{AvaroError, AvaroResult};
 use crate::target::AvaroTarget;
+use itertools::Itertools;
 
 static CURRENCY: &str = "CNY";
 static COMMENT_STR: &str = "收款方备注:二维码收款";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct Config {
     forbid_unknown_payee: bool,
+    store_unknown_payee: bool,
     wechat_account: String,
     pay_ways: HashMap<String, String>,
     payees: HashMap<String, String>,
+    #[serde(default)]
+    unknown_payees: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,8 +113,8 @@ impl Record {
 }
 
 pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
-    let config_content = std::fs::read_to_string(config)?;
-    let config: Config = toml::from_str(&config_content)?;
+    let config_content = std::fs::read_to_string(&config)?;
+    let mut loaded_config: Config = toml::from_str(&config_content)?;
 
     let file1 = File::open(file)?;
     let mut reader = BufReader::new(file1);
@@ -120,44 +124,50 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
     }
     let mut reader1 = csv::Reader::from_reader(reader);
 
+    let mut unknown_payees = HashSet::new();
+
     for result in reader1.deserialize().skip(16) {
         let result: Record = result?;
 
         let payee = result.payee().unwrap();
         let pay_way = {
             let pay_type = result.pay_type.as_str();
-            let option = config.pay_ways.get(pay_type).map(|it| it.to_string());
+            let option = loaded_config
+                .pay_ways
+                .get(pay_type)
+                .map(|it| it.to_string());
+
             if let Some(value) = option {
-                Ok(value)
-            } else if config.forbid_unknown_payee {
-                error!("pay way [{}] is not configurated", pay_type);
-                Err(AvaroError::InvalidAccount)
+                value
             } else {
-                warn!("pay way [{}] is not configurated", pay_type);
-                Ok("Expenses:FixMe".to_string())
+                unknown_payees.insert(pay_type.to_string());
+                "Expenses:FixMe".to_string()
             }
-        }?;
+        };
         let pay_way = Account::from_str(&pay_way)?;
         let payee = {
-            let option = config.payees.get(payee).map(|it| it.to_string());
+            let option = loaded_config.payees.get(payee).map(|it| it.to_string());
             if let Some(value) = option {
-                Ok(value)
-            } else if config.forbid_unknown_payee {
-                error!("payee [{}] is not configurated", payee);
-                Err(AvaroError::InvalidAccount)
+                value
             } else {
-                warn!("payee [{}] is not configurated", payee);
-                Ok("Expenses:FixMe".to_string())
+                unknown_payees.insert(payee.to_string());
+                "Expenses:FixMe".to_string()
             }
-        }?;
+        };
         let payee = Account::from_str(&payee)?;
 
         let mut meta = HashMap::new();
         if let Some(txn_no) = result.transaction_no() {
-            meta.insert("transaction_no".to_string(), AvaroString::QuoteString(txn_no.to_string()));
+            meta.insert(
+                "transaction_no".to_string(),
+                AvaroString::QuoteString(txn_no.to_string()),
+            );
         }
         if let Some(payee_no) = result.payee_no() {
-            meta.insert("payee_no".to_string(), AvaroString::QuoteString(payee_no.to_string()));
+            meta.insert(
+                "payee_no".to_string(),
+                AvaroString::QuoteString(payee_no.to_string()),
+            );
         }
 
         let postings = vec![
@@ -181,8 +191,12 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
         let transaction = Transaction {
             date: Date::Datetime(result.datetime().naive_local()),
             flag: Some(Flag::Okay),
-            payee: result.payee().map(|it| AvaroString::QuoteString(it.to_string())),
-            narration: result.narration().map(|it| AvaroString::QuoteString(it.to_string())),
+            payee: result
+                .payee()
+                .map(|it| AvaroString::QuoteString(it.to_string())),
+            narration: result
+                .narration()
+                .map(|it| AvaroString::QuoteString(it.to_string())),
             tags: HashSet::new(),
             links: HashSet::new(),
             postings,
@@ -190,6 +204,22 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
         };
         let string = transaction.to_target();
         println!("{}", string);
+    }
+    if !unknown_payees.is_empty() {
+       if loaded_config.forbid_unknown_payee {
+           error!("payee [{}] is not configurated", unknown_payees.iter().join(","));
+       }else {
+           warn!("payee [{}] is not configurated", unknown_payees.iter().join(","));
+       }
+    }
+    if loaded_config.store_unknown_payee {
+        for x in unknown_payees {
+            loaded_config
+                .unknown_payees
+                .insert(x, "Expenses:FixMe".to_string());
+        }
+        let result1 = toml::to_string(&loaded_config)?;
+        std::fs::write(&config, result1)?;
     }
 
     Ok(())

@@ -17,7 +17,10 @@ pub enum AvaroError {
     CsvError(#[from] csv::Error),
 
     #[error("toml error: {0}")]
-    TomlError(#[from] toml::de::Error),
+    TomlDeError(#[from] toml::de::Error),
+
+    #[error("toml ser error: {0}")]
+    TomlSerError(#[from] toml::ser::Error),
 
     #[error("strum error: {0}")]
     StrumError(#[from] strum::ParseError),
