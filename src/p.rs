@@ -12,17 +12,17 @@ use crate::core::data::{
     Balance, Close, Commodity, Custom, Date, Document, Event, Note, Open, Pad, Posting, Price,
     Transaction,
 };
-use crate::core::models::{AvaroString, Directive, Flag, SingleTotalPrice, StringOrAccount};
+use crate::core::models::{ZhangString, Directive, Flag, SingleTotalPrice, StringOrAccount};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 
 #[derive(Parser)]
-#[grammar = "avaro.pest"]
-pub struct AvaroParser;
+#[grammar = "zhang.pest"]
+pub struct ZhangParser;
 
 #[pest_consume::parser]
-impl AvaroParser {
+impl ZhangParser {
     fn EOI(_input: Node) -> Result<()> {
         Ok(())
     }
@@ -32,16 +32,16 @@ impl AvaroParser {
     fn inner(input: Node) -> Result<String> {
         Ok(input.as_str().to_owned())
     }
-    fn quote_string(input: Node) -> Result<AvaroString> {
+    fn quote_string(input: Node) -> Result<ZhangString> {
         let string = input.as_str();
-        Ok(AvaroString::QuoteString(unescape(string).unwrap()))
+        Ok(ZhangString::QuoteString(unescape(string).unwrap()))
     }
 
-    fn unquote_string(input: Node) -> Result<AvaroString> {
-        Ok(AvaroString::UnquoteString(input.as_str().to_owned()))
+    fn unquote_string(input: Node) -> Result<ZhangString> {
+        Ok(ZhangString::UnquoteString(input.as_str().to_owned()))
     }
 
-    fn string(input: Node) -> Result<AvaroString> {
+    fn string(input: Node) -> Result<ZhangString> {
         let ret = match_nodes!(
             input.into_children();
             [quote_string(i)] => i,
@@ -87,7 +87,7 @@ impl AvaroParser {
     }
 
     fn plugin(input: Node) -> Result<Directive> {
-        let ret: (AvaroString, Vec<AvaroString>) = match_nodes!(input.into_children();
+        let ret: (ZhangString, Vec<ZhangString>) = match_nodes!(input.into_children();
             [string(module), string(values)..] => (module, values.collect()),
         );
         Ok(Directive::Plugin {
@@ -109,7 +109,7 @@ impl AvaroParser {
     }
 
     fn open(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, Vec<String>, Vec<(String, AvaroString)>) = match_nodes!(input.into_children();
+        let ret: (Date, Account, Vec<String>, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
             [date(date), account_name(a), commodity_name(commodities).., commodity_meta(metas)] => (date, a, commodities.collect(), metas),
             [date(date), account_name(a), commodity_name(commodities)..] => (date, a, commodities.collect(), vec![]),
             [date(date), account_name(a), commodity_meta(metas)] => (date, a, vec![], metas),
@@ -138,15 +138,15 @@ impl AvaroParser {
         Ok(())
     }
 
-    fn commodity_line(input: Node) -> Result<(String, AvaroString)> {
-        let ret: (String, AvaroString) = match_nodes!(input.into_children();
+    fn commodity_line(input: Node) -> Result<(String, ZhangString)> {
+        let ret: (String, ZhangString) = match_nodes!(input.into_children();
             [string(key), string(value)] => (key.to_plain_string(), value),
         );
         Ok(ret)
     }
 
-    fn commodity_meta(input: Node) -> Result<Vec<(String, AvaroString)>> {
-        let ret: Vec<(String, AvaroString)> = match_nodes!(input.into_children();
+    fn commodity_meta(input: Node) -> Result<Vec<(String, ZhangString)>> {
+        let ret: Vec<(String, ZhangString)> = match_nodes!(input.into_children();
             [commodity_line(lines)..] => lines.collect(),
         );
         Ok(ret)
@@ -255,8 +255,8 @@ impl AvaroParser {
         Ok(line)
     }
 
-    fn transaction_line(input: Node) -> Result<(Option<Posting>, Option<(String, AvaroString)>)> {
-        let ret: (Option<Posting>, Option<(String, AvaroString)>) = match_nodes!(input.into_children();
+    fn transaction_line(input: Node) -> Result<(Option<Posting>, Option<(String, ZhangString)>)> {
+        let ret: (Option<Posting>, Option<(String, ZhangString)>) = match_nodes!(input.into_children();
             [transaction_posting(posting)] => (Some(posting), None),
             [commodity_line(meta)] => (None, Some(meta)),
 
@@ -265,7 +265,7 @@ impl AvaroParser {
     }
     fn transaction_lines(
         input: Node,
-    ) -> Result<Vec<(Option<Posting>, Option<(String, AvaroString)>)>> {
+    ) -> Result<Vec<(Option<Posting>, Option<(String, ZhangString)>)>> {
         let ret = match_nodes!(input.into_children();
             [transaction_line(lines)..] => lines.collect(),
         );
@@ -301,11 +301,11 @@ impl AvaroParser {
         let ret: (
             Date,
             Option<Flag>,
-            Option<AvaroString>,
-            Option<AvaroString>,
+            Option<ZhangString>,
+            Option<ZhangString>,
             Vec<String>,
             Vec<String>,
-            Vec<(Option<Posting>, Option<(String, AvaroString)>)>,
+            Vec<(Option<Posting>, Option<(String, ZhangString)>)>,
         ) = match_nodes!(input.into_children();
             [date(date), transaction_flag(flag), tags(tags), links(links), transaction_lines(lines)] => (date, flag, None, None, tags, links, lines),
             [date(date), transaction_flag(flag), quote_string(narration), tags(tags), links(links), transaction_lines(lines)] => (date, flag, None, Some(narration), tags, links, lines),
@@ -358,7 +358,7 @@ impl AvaroParser {
     }
 
     fn custom(input: Node) -> Result<Directive> {
-        let ret: (Date, AvaroString, Vec<StringOrAccount>) = match_nodes!(input.into_children();
+        let ret: (Date, ZhangString, Vec<StringOrAccount>) = match_nodes!(input.into_children();
             [date(date), string(module), string_or_account(options)..] => (date, module, options.collect()),
         );
         Ok(Directive::Custom(Custom {
@@ -370,14 +370,14 @@ impl AvaroParser {
     }
 
     fn include(input: Node) -> Result<Directive> {
-        let ret: AvaroString = match_nodes!(input.into_children();
+        let ret: ZhangString = match_nodes!(input.into_children();
             [quote_string(path)] => path,
         );
         Ok(Directive::Include { file: ret })
     }
 
     fn note(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, AvaroString) = match_nodes!(input.into_children();
+        let ret: (Date, Account, ZhangString) = match_nodes!(input.into_children();
             [date(date), account_name(a), string(path)] => (date, a, path),
         );
         Ok(Directive::Note(Note {
@@ -403,7 +403,7 @@ impl AvaroParser {
     }
 
     fn event(input: Node) -> Result<Directive> {
-        let ret: (Date, AvaroString, AvaroString) = match_nodes!(input.into_children();
+        let ret: (Date, ZhangString, ZhangString) = match_nodes!(input.into_children();
             [date(date), string(name), string(value)] => (date, name, value),
         );
         Ok(Directive::Event(Event {
@@ -429,7 +429,7 @@ impl AvaroParser {
     }
 
     fn document(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, AvaroString) = match_nodes!(input.into_children();
+        let ret: (Date, Account, ZhangString) = match_nodes!(input.into_children();
             [date(date), account_name(name), string(path)] => (date, name, path),
         );
         Ok(Directive::Document(Document {
@@ -482,14 +482,14 @@ impl AvaroParser {
     }
 }
 
-pub fn parse_avaro(input_str: &str) -> Result<Vec<Directive>> {
-    let inputs = AvaroParser::parse(Rule::entry, input_str)?;
+pub fn parse_zhang(input_str: &str) -> Result<Vec<Directive>> {
+    let inputs = ZhangParser::parse(Rule::entry, input_str)?;
     let input = inputs.single()?;
-    AvaroParser::entry(input)
+    ZhangParser::entry(input)
 }
 
 pub fn parse_account(input_str: &str) -> Result<Account> {
-    let inputs = AvaroParser::parse(Rule::account_name, input_str)?;
+    let inputs = ZhangParser::parse(Rule::account_name, input_str)?;
     let input = inputs.single()?;
-    AvaroParser::account_name(input)
+    ZhangParser::account_name(input)
 }

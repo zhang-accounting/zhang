@@ -7,7 +7,7 @@ macro_rules! parse {
             .lines()
             .map(|it| it.replacen(" ", "", space_offset))
             .join("\n");
-        crate::p::parse_avaro(string1.trim()).unwrap()
+        crate::p::parse_zhang(string1.trim()).unwrap()
     }};
 }
 
@@ -27,4 +27,4 @@ pub mod importer;
 pub mod exporter;
 
 pub mod target;
-pub use p::parse_avaro;
+pub use p::parse_zhang;

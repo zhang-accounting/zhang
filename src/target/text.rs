@@ -7,8 +7,8 @@ use crate::core::data::{
     Price, Transaction,
 };
 use crate::core::ledger::Ledger;
-use crate::core::models::{AvaroString, Directive, Flag, StringOrAccount};
-use crate::target::AvaroTarget;
+use crate::core::models::{ZhangString, Directive, Flag, StringOrAccount};
+use crate::target::ZhangTarget;
 use crate::utils::escape_with_quote;
 
 fn append_meta(meta: Meta, string: String) -> String {
@@ -21,7 +21,7 @@ fn append_meta(meta: Meta, string: String) -> String {
     metas.join("\n")
 }
 
-impl AvaroTarget<String> for Date {
+impl ZhangTarget<String> for Date {
     fn to_target(self) -> String {
         match self {
             Date::Date(date) => date.format("%Y-%m-%d").to_string(),
@@ -30,24 +30,24 @@ impl AvaroTarget<String> for Date {
     }
 }
 
-impl AvaroTarget<String> for Flag {
+impl ZhangTarget<String> for Flag {
     fn to_target(self) -> String {
         self.to_string()
     }
 }
 
-impl AvaroTarget<String> for Account {
+impl ZhangTarget<String> for Account {
     fn to_target(self) -> String {
         self.content
     }
 }
-impl AvaroTarget<String> for Amount {
+impl ZhangTarget<String> for Amount {
     fn to_target(self) -> String {
         format!("{} {}", self.number, self.currency)
     }
 }
 
-impl AvaroTarget<Vec<String>> for Meta {
+impl ZhangTarget<Vec<String>> for Meta {
     fn to_target(self) -> Vec<String> {
         self.into_iter()
             .sorted_by(|entry_a, entry_b| entry_a.0.cmp(&entry_b.0))
@@ -56,16 +56,16 @@ impl AvaroTarget<Vec<String>> for Meta {
     }
 }
 
-impl AvaroTarget<String> for AvaroString {
+impl ZhangTarget<String> for ZhangString {
     fn to_target(self) -> String {
         match self {
-            AvaroString::UnquoteString(unquote) => unquote,
-            AvaroString::QuoteString(quote) => escape_with_quote(&quote).to_string(),
+            ZhangString::UnquoteString(unquote) => unquote,
+            ZhangString::QuoteString(quote) => escape_with_quote(&quote).to_string(),
         }
     }
 }
 
-impl AvaroTarget<String> for StringOrAccount {
+impl ZhangTarget<String> for StringOrAccount {
     fn to_target(self) -> String {
         match self {
             StringOrAccount::String(s) => s.to_target(),
@@ -74,7 +74,7 @@ impl AvaroTarget<String> for StringOrAccount {
     }
 }
 
-impl AvaroTarget<String> for Transaction {
+impl ZhangTarget<String> for Transaction {
     fn to_target(self) -> String {
         let mut vec1 = vec![
             Some(self.date.to_target()),
@@ -113,7 +113,7 @@ impl AvaroTarget<String> for Transaction {
     }
 }
 
-impl AvaroTarget<String> for Posting {
+impl ZhangTarget<String> for Posting {
     fn to_target(self) -> String {
         // todo cost and price
         let vec1 = vec![
@@ -125,7 +125,7 @@ impl AvaroTarget<String> for Posting {
         vec1.into_iter().flatten().join(" ")
     }
 }
-impl AvaroTarget<String> for Open {
+impl ZhangTarget<String> for Open {
     fn to_target(mut self) -> String {
         let mut line = vec![
             self.date.to_target(),
@@ -137,7 +137,7 @@ impl AvaroTarget<String> for Open {
     }
 }
 
-impl AvaroTarget<String> for Close {
+impl ZhangTarget<String> for Close {
     fn to_target(self) -> String {
         let mut line = vec![
             self.date.to_target(),
@@ -148,7 +148,7 @@ impl AvaroTarget<String> for Close {
     }
 }
 
-impl AvaroTarget<String> for Commodity {
+impl ZhangTarget<String> for Commodity {
     fn to_target(self) -> String {
         let mut line = vec![
             self.date.to_target(),
@@ -159,7 +159,7 @@ impl AvaroTarget<String> for Commodity {
     }
 }
 
-impl AvaroTarget<String> for Balance {
+impl ZhangTarget<String> for Balance {
     fn to_target(self) -> String {
         let mut line = vec![
             self.date.to_target(),
@@ -171,7 +171,7 @@ impl AvaroTarget<String> for Balance {
     }
 }
 
-impl AvaroTarget<String> for Pad {
+impl ZhangTarget<String> for Pad {
     fn to_target(self) -> String {
         let mut line = vec![
             self.date.to_target(),
@@ -183,7 +183,7 @@ impl AvaroTarget<String> for Pad {
     }
 }
 
-impl AvaroTarget<String> for Note {
+impl ZhangTarget<String> for Note {
     fn to_target(self) -> String {
         let mut line = vec![
             self.date.to_target(),
@@ -195,7 +195,7 @@ impl AvaroTarget<String> for Note {
     }
 }
 
-impl AvaroTarget<String> for Document {
+impl ZhangTarget<String> for Document {
     fn to_target(self) -> String {
         let mut line = vec![
             self.date.to_target(),
@@ -207,7 +207,7 @@ impl AvaroTarget<String> for Document {
     }
 }
 
-impl AvaroTarget<String> for Price {
+impl ZhangTarget<String> for Price {
     fn to_target(self) -> String {
         let mut line = vec![
             self.date.to_target(),
@@ -219,7 +219,7 @@ impl AvaroTarget<String> for Price {
     }
 }
 
-impl AvaroTarget<String> for Event {
+impl ZhangTarget<String> for Event {
     fn to_target(self) -> String {
         let mut line = vec![
             self.date.to_target(),
@@ -231,7 +231,7 @@ impl AvaroTarget<String> for Event {
     }
 }
 
-impl AvaroTarget<String> for Custom {
+impl ZhangTarget<String> for Custom {
     fn to_target(self) -> String {
         let mut line = vec![
             self.date.to_target(),
@@ -248,7 +248,7 @@ impl AvaroTarget<String> for Custom {
     }
 }
 
-impl AvaroTarget<String> for Directive {
+impl ZhangTarget<String> for Directive {
     fn to_target(self) -> String {
         match self {
             Directive::Open(open) => open.to_target(),
@@ -284,7 +284,7 @@ impl AvaroTarget<String> for Directive {
     }
 }
 
-impl AvaroTarget<String> for Ledger {
+impl ZhangTarget<String> for Ledger {
     fn to_target(self) -> String {
         let vec = self
             .directives
@@ -299,10 +299,10 @@ impl AvaroTarget<String> for Ledger {
 //
 // #[cfg(test)]
 // mod test {
-//     use crate::p::parse_avaro;
+//     use crate::p::parse_zhang;
 //
 //     fn parse(from: &str) -> String {
-//         let directive = parse_avaro(from).unwrap().into_iter().next().unwrap();
+//         let directive = parse_zhang(from).unwrap().into_iter().next().unwrap();
 //         directive.to_target()
 //     }
 //

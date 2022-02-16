@@ -1,6 +1,6 @@
 use crate::core::models::Directive;
-use crate::error::{AvaroError, AvaroResult};
-use crate::parse_avaro;
+use crate::error::{ZhangError, ZhangResult};
+use crate::parse_zhang;
 use itertools::Itertools;
 use std::path::PathBuf;
 
@@ -10,10 +10,10 @@ pub struct Ledger {
 }
 
 impl Ledger {
-    pub fn load(entry: PathBuf) -> AvaroResult<Ledger> {
+    pub fn load(entry: PathBuf) -> ZhangResult<Ledger> {
         let content = std::fs::read_to_string(entry)?;
         let directives =
-            parse_avaro(&content).map_err(|it| AvaroError::PestError(it.to_string()))?;
+            parse_zhang(&content).map_err(|it| ZhangError::PestError(it.to_string()))?;
         Ok(Self { directives })
     }
 

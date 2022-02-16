@@ -13,9 +13,9 @@ use serde::{Deserialize, Serialize};
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Date, Posting, Transaction};
-use crate::core::models::{AvaroString, Flag};
-use crate::error::{AvaroError, AvaroResult};
-use crate::target::AvaroTarget;
+use crate::core::models::{ZhangString, Flag};
+use crate::error::{ZhangError, ZhangResult};
+use crate::target::ZhangTarget;
 use itertools::Itertools;
 
 static CURRENCY: &str = "CNY";
@@ -112,7 +112,7 @@ impl Record {
     }
 }
 
-pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
+pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
     let config_content = std::fs::read_to_string(&config)?;
     let mut loaded_config: Config = toml::from_str(&config_content)?;
 
@@ -160,13 +160,13 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
         if let Some(txn_no) = result.transaction_no() {
             meta.insert(
                 "transaction_no".to_string(),
-                AvaroString::QuoteString(txn_no.to_string()),
+                ZhangString::QuoteString(txn_no.to_string()),
             );
         }
         if let Some(payee_no) = result.payee_no() {
             meta.insert(
                 "payee_no".to_string(),
-                AvaroString::QuoteString(payee_no.to_string()),
+                ZhangString::QuoteString(payee_no.to_string()),
             );
         }
 
@@ -193,10 +193,10 @@ pub fn run(file: PathBuf, config: PathBuf) -> AvaroResult<()> {
             flag: Some(Flag::Okay),
             payee: result
                 .payee()
-                .map(|it| AvaroString::QuoteString(it.to_string())),
+                .map(|it| ZhangString::QuoteString(it.to_string())),
             narration: result
                 .narration()
-                .map(|it| AvaroString::QuoteString(it.to_string())),
+                .map(|it| ZhangString::QuoteString(it.to_string())),
             tags: HashSet::new(),
             links: HashSet::new(),
             postings,

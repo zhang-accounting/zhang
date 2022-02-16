@@ -1,4 +1,4 @@
-use crate::error::AvaroError;
+use crate::error::ZhangError;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use std::str::FromStr;
@@ -112,7 +112,7 @@ impl Account {
 }
 
 impl FromStr for Account {
-    type Err = AvaroError;
+    type Err = ZhangError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split(":").collect();
@@ -125,7 +125,7 @@ impl FromStr for Account {
                 components: rest.into_iter().map(|it| it.to_string()).collect(),
             })
         } else {
-            Err(AvaroError::InvalidAccount)
+            Err(ZhangError::InvalidAccount)
         }
     }
 }

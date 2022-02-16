@@ -15,12 +15,12 @@ extern "C" {
 
 #[wasm_bindgen]
 pub fn greet() {
-    alert("Hello, avaro-js!");
+    alert("Hello, zhang-js!");
 }
 
 #[wasm_bindgen]
 pub fn parse(content: &str) -> String {
-    let parser = avaro::EntryParser::new();
+    let parser = zhang::EntryParser::new();
     match parser.parse(content) {
         Ok(entry) => serde_json::to_string(&entry).unwrap(),
         Err(e) => format!("{}", e.to_string()),

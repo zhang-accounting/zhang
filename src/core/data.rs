@@ -1,11 +1,11 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::models::{AvaroString, Flag, StringOrAccount};
+use crate::core::models::{ZhangString, Flag, StringOrAccount};
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use std::collections::{HashMap, HashSet};
 
-pub type Meta = HashMap<String, AvaroString>;
+pub type Meta = HashMap<String, ZhangString>;
 
 #[derive(Debug, PartialEq)]
 pub enum Date {
@@ -80,8 +80,8 @@ pub struct Posting {
 pub struct Transaction {
     pub date: Date,
     pub flag: Option<Flag>,
-    pub payee: Option<AvaroString>,
-    pub narration: Option<AvaroString>,
+    pub payee: Option<ZhangString>,
+    pub narration: Option<ZhangString>,
     pub tags: HashSet<String>,
     pub links: HashSet<String>,
     pub postings: Vec<Posting>,
@@ -98,7 +98,7 @@ pub struct TxnPosting<'a> {
 pub struct Note {
     pub date: Date,
     pub account: Account,
-    pub comment: AvaroString,
+    pub comment: ZhangString,
     pub tags: Option<HashSet<String>>,
     pub links: Option<HashSet<String>>,
 
@@ -109,8 +109,8 @@ pub struct Note {
 pub struct Event {
     pub date: Date,
 
-    pub event_type: AvaroString,
-    pub description: AvaroString,
+    pub event_type: ZhangString,
+    pub description: ZhangString,
 
     pub meta: Meta,
 }
@@ -119,8 +119,8 @@ pub struct Event {
 pub struct Query {
     pub date: Date,
 
-    pub name: AvaroString,
-    pub query_string: AvaroString,
+    pub name: ZhangString,
+    pub query_string: ZhangString,
 
     pub meta: Meta,
 }
@@ -140,7 +140,7 @@ pub struct Document {
     pub date: Date,
 
     pub account: Account,
-    pub filename: AvaroString,
+    pub filename: ZhangString,
     pub tags: Option<HashSet<String>>,
     pub links: Option<HashSet<String>>,
     pub meta: Meta,
@@ -150,7 +150,7 @@ pub struct Document {
 pub struct Custom {
     pub date: Date,
 
-    pub custom_type: AvaroString,
+    pub custom_type: ZhangString,
     pub values: Vec<StringOrAccount>,
     pub meta: Meta,
 }

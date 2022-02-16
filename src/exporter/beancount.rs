@@ -1,13 +1,13 @@
 use crate::core::data::Date;
 use crate::core::models::Directive;
-use crate::error::AvaroResult;
+use crate::error::ZhangResult;
 
 use crate::core::ledger::Ledger;
-use crate::core::models::AvaroString;
-use crate::target::AvaroTarget;
+use crate::core::models::ZhangString;
+use crate::target::ZhangTarget;
 use std::path::PathBuf;
 
-pub fn run(file: PathBuf, output: Option<PathBuf>) -> AvaroResult<()> {
+pub fn run(file: PathBuf, output: Option<PathBuf>) -> ZhangResult<()> {
     let mut ledger = Ledger::load(file)?;
     ledger = ledger.apply(convert_datetime_to_date);
     let beancount_content = ledger.to_target();
@@ -26,7 +26,7 @@ macro_rules! convert_to_datetime {
             $directive.date = Date::Date(date);
             $directive.meta.insert(
                 "time".to_string(),
-                AvaroString::QuoteString(time.format("%H:%M:%S").to_string()),
+                ZhangString::QuoteString(time.format("%H:%M:%S").to_string()),
             );
             $directive
         } else {

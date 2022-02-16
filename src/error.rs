@@ -1,10 +1,10 @@
 
 use thiserror::Error;
 
-pub type AvaroResult<T> = Result<T, AvaroError>;
+pub type ZhangResult<T> = Result<T, ZhangError>;
 
 #[derive(Debug, Error)]
-pub enum AvaroError {
+pub enum ZhangError {
     #[error("date is invalid")]
     InvalidDate,
     #[error("account is invalid")]

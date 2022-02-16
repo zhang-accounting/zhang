@@ -30,7 +30,7 @@
 // }
 //
 //
-// pub fn book(entities: &mut Vec<Directive>) -> Result<Vec<()>, crate::error::AvaroError> {
+// pub fn book(entities: &mut Vec<Directive>) -> Result<Vec<()>, crate::error::ZhangError> {
 //     book_full(entities);
 //     Ok(vec![])
 // }

@@ -1,7 +1,7 @@
 #[macro_use] extern crate log;
 
 use clap::Parser;
-use avaro::cli::Opts;
+use zhang::cli::Opts;
 
 
 fn main() {

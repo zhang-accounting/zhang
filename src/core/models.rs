@@ -21,15 +21,15 @@ pub enum Directive {
     Event(Event),
     Custom(Custom),
     Option {
-        key: AvaroString,
-        value: AvaroString,
+        key: ZhangString,
+        value: ZhangString,
     },
     Plugin {
-        module: AvaroString,
-        value: Vec<AvaroString>,
+        module: ZhangString,
+        value: Vec<ZhangString>,
     },
     Include {
-        file: AvaroString,
+        file: ZhangString,
     },
     Comment {
         content: String,
@@ -38,20 +38,20 @@ pub enum Directive {
 
 #[derive(Debug, PartialEq)]
 pub enum StringOrAccount {
-    String(AvaroString),
+    String(ZhangString),
     Account(Account),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum AvaroString {
+pub enum ZhangString {
     UnquoteString(String),
     QuoteString(String),
 }
-impl AvaroString {
+impl ZhangString {
     pub fn to_plain_string(self) -> String {
         match self {
-            AvaroString::UnquoteString(unquote) => unquote,
-            AvaroString::QuoteString(quote) => quote,
+            ZhangString::UnquoteString(unquote) => unquote,
+            ZhangString::QuoteString(quote) => quote,
         }
     }
 }
@@ -73,10 +73,10 @@ pub enum Flag {
 // #[cfg(test)]
 // mod test {
 //     use crate::models::Directive;
-//     use crate::p::parse_avaro;
+//     use crate::p::parse_zhang;
 //
 //     fn single_directive_parser(content: &str) -> Directive {
-//         let result = parse_avaro(content);
+//         let result = parse_zhang(content);
 //         let vec = result.unwrap();
 //         vec.into_iter().next().unwrap()
 //     }
@@ -202,7 +202,7 @@ pub enum Flag {
 //         use chrono::NaiveDate;
 //
 //         use crate::models::test::single_directive_parser;
-//         use crate::models::AvaroString;
+//         use crate::models::ZhangString;
 //         use crate::models::Directive;
 //
 //         #[test]
@@ -219,8 +219,8 @@ pub enum Flag {
 //         #[test]
 //         fn test_commodity_with_single_attribute() {
 //             let metas = vec![(
-//                 AvaroString::UnquoteString("a".to_owned()),
-//                 AvaroString::QuoteString("b".to_owned()),
+//                 ZhangString::UnquoteString("a".to_owned()),
+//                 ZhangString::QuoteString("b".to_owned()),
 //             )];
 //             let directive = Directive::Commodity {
 //                 date: NaiveDate::from_ymd(1970, 1, 1),
@@ -245,12 +245,12 @@ pub enum Flag {
 //
 //             let metas = vec![
 //                 (
-//                     AvaroString::UnquoteString("a".to_owned()),
-//                     AvaroString::QuoteString("b".to_owned()),
+//                     ZhangString::UnquoteString("a".to_owned()),
+//                     ZhangString::QuoteString("b".to_owned()),
 //                 ),
 //                 (
-//                     AvaroString::UnquoteString("中文-test".to_owned()),
-//                     AvaroString::QuoteString("한국어 我也不知道我在说啥".to_owned()),
+//                     ZhangString::UnquoteString("中文-test".to_owned()),
+//                     ZhangString::QuoteString("한국어 我也不知道我在说啥".to_owned()),
 //                 ),
 //             ];
 //
@@ -270,7 +270,7 @@ pub enum Flag {
 //         use crate::account::AccountType;
 //         use crate::models::test::single_directive_parser;
 //         use crate::models::{Account, Directive, Flag, Transaction, TransactionLine};
-//         use crate::models::{AvaroString, Price};
+//         use crate::models::{ZhangString, Price};
 //
 //         #[test]
 //         fn simple_test() {
@@ -303,8 +303,8 @@ pub enum Flag {
 //             let transaction = Transaction {
 //                 date: NaiveDate::from_ymd(1970, 1, 1),
 //                 flag: Some(Flag::Okay),
-//                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
-//                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
+//                 payee: Some(ZhangString::QuoteString("Payee".to_owned())),
+//                 narration: Some(ZhangString::QuoteString("Narration".to_owned())),
 //                 tags: vec![],
 //                 links: vec![],
 //                 lines: vec![a, b],
@@ -347,7 +347,7 @@ pub enum Flag {
 //                 date: NaiveDate::from_ymd(1970, 1, 1),
 //                 flag: Some(Flag::Okay),
 //                 payee: None,
-//                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
+//                 narration: Some(ZhangString::QuoteString("Narration".to_owned())),
 //                 tags: vec![],
 //                 links: vec![],
 //                 lines: vec![a, b],
@@ -390,7 +390,7 @@ pub enum Flag {
 //                 date: NaiveDate::from_ymd(1970, 1, 1),
 //                 flag: Some(Flag::Okay),
 //                 payee: None,
-//                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
+//                 narration: Some(ZhangString::QuoteString("Narration".to_owned())),
 //                 tags: vec![],
 //                 links: vec![],
 //                 lines: vec![a, b],
@@ -444,8 +444,8 @@ pub enum Flag {
 //             let transaction = Transaction {
 //                 date: NaiveDate::from_ymd(1970, 1, 1),
 //                 flag: Some(Flag::Okay),
-//                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
-//                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
+//                 payee: Some(ZhangString::QuoteString("Payee".to_owned())),
+//                 narration: Some(ZhangString::QuoteString("Narration".to_owned())),
 //                 tags: vec![],
 //                 links: vec![],
 //                 lines: vec![a, b, c],
@@ -487,8 +487,8 @@ pub enum Flag {
 //             let transaction = Transaction {
 //                 date: NaiveDate::from_ymd(1970, 1, 1),
 //                 flag: Some(Flag::Okay),
-//                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
-//                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
+//                 payee: Some(ZhangString::QuoteString("Payee".to_owned())),
+//                 narration: Some(ZhangString::QuoteString("Narration".to_owned())),
 //                 tags: vec![],
 //                 links: vec![],
 //                 lines: vec![a, b],
@@ -530,8 +530,8 @@ pub enum Flag {
 //             let transaction = Transaction {
 //                 date: NaiveDate::from_ymd(1970, 1, 1),
 //                 flag: Some(Flag::Okay),
-//                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
-//                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
+//                 payee: Some(ZhangString::QuoteString("Payee".to_owned())),
+//                 narration: Some(ZhangString::QuoteString("Narration".to_owned())),
 //                 tags: vec![],
 //                 links: vec![],
 //                 lines: vec![a, b],
@@ -573,8 +573,8 @@ pub enum Flag {
 //             let transaction = Transaction {
 //                 date: NaiveDate::from_ymd(1970, 1, 1),
 //                 flag: Some(Flag::Okay),
-//                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
-//                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
+//                 payee: Some(ZhangString::QuoteString("Payee".to_owned())),
+//                 narration: Some(ZhangString::QuoteString("Narration".to_owned())),
 //                 tags: vec![],
 //                 links: vec![],
 //                 lines: vec![a, b],
@@ -617,10 +617,10 @@ pub enum Flag {
 //                 date: NaiveDate::from_ymd(1970, 1, 1),
 //                 flag: Some(Flag::Okay),
 //                 payee: None,
-//                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
+//                 narration: Some(ZhangString::QuoteString("Narration".to_owned())),
 //                 tags: vec![
-//                     AvaroString::UnquoteString("mytag".to_owned()),
-//                     AvaroString::UnquoteString("tag2".to_owned()),
+//                     ZhangString::UnquoteString("mytag".to_owned()),
+//                     ZhangString::UnquoteString("tag2".to_owned()),
 //                 ],
 //                 links: vec![],
 //                 lines: vec![a, b],
@@ -662,11 +662,11 @@ pub enum Flag {
 //             let transaction = Transaction {
 //                 date: NaiveDate::from_ymd(1970, 1, 1),
 //                 flag: Some(Flag::Okay),
-//                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
-//                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
+//                 payee: Some(ZhangString::QuoteString("Payee".to_owned())),
+//                 narration: Some(ZhangString::QuoteString("Narration".to_owned())),
 //                 tags: vec![
-//                     AvaroString::UnquoteString("mytag".to_owned()),
-//                     AvaroString::UnquoteString("tag2".to_owned()),
+//                     ZhangString::UnquoteString("mytag".to_owned()),
+//                     ZhangString::UnquoteString("tag2".to_owned()),
 //                 ],
 //                 links: vec![],
 //                 lines: vec![a, b],
@@ -708,12 +708,12 @@ pub enum Flag {
 //             let transaction = Transaction {
 //                 date: NaiveDate::from_ymd(1970, 1, 1),
 //                 flag: Some(Flag::Okay),
-//                 payee: Some(AvaroString::QuoteString("Payee".to_owned())),
-//                 narration: Some(AvaroString::QuoteString("Narration".to_owned())),
+//                 payee: Some(ZhangString::QuoteString("Payee".to_owned())),
+//                 narration: Some(ZhangString::QuoteString("Narration".to_owned())),
 //                 tags: vec![],
 //                 links: vec![
-//                     AvaroString::UnquoteString("link1".to_owned()),
-//                     AvaroString::UnquoteString("link-2".to_owned()),
+//                     ZhangString::UnquoteString("link1".to_owned()),
+//                     ZhangString::UnquoteString("link-2".to_owned()),
 //                 ],
 //                 lines: vec![a, b],
 //                 metas: vec![],
@@ -926,7 +926,7 @@ pub enum Flag {
 //
 //         use crate::models::test::single_directive_parser;
 //         use crate::models::Directive;
-//         use crate::models::{Account, AvaroString, StringOrAccount};
+//         use crate::models::{Account, ZhangString, StringOrAccount};
 //
 //         #[test]
 //         fn custom() {
@@ -935,12 +935,12 @@ pub enum Flag {
 //             );
 //             let directive = Directive::Custom {
 //                 date: NaiveDate::from_ymd(2015, 5, 1),
-//                 type_name: AvaroString::QuoteString("budget".to_owned()),
+//                 type_name: ZhangString::QuoteString("budget".to_owned()),
 //                 values: vec![
 //                     StringOrAccount::Account(Account::from_str("Expenses:Electricity").unwrap()),
-//                     StringOrAccount::String(AvaroString::QuoteString("quarterly".to_owned())),
-//                     StringOrAccount::String(AvaroString::UnquoteString("85.00".to_owned())),
-//                     StringOrAccount::String(AvaroString::UnquoteString("EUR".to_owned())),
+//                     StringOrAccount::String(ZhangString::QuoteString("quarterly".to_owned())),
+//                     StringOrAccount::String(ZhangString::UnquoteString("85.00".to_owned())),
+//                     StringOrAccount::String(ZhangString::UnquoteString("EUR".to_owned())),
 //                 ],
 //             };
 //
@@ -976,13 +976,13 @@ pub enum Flag {
 //
 //         use crate::account::AccountType;
 //         use crate::models::{Account, Directive};
-//         use crate::p::parse_avaro;
+//         use crate::p::parse_zhang;
 //
 //         #[test]
 //         fn conbine_test() {
 //             let content: String = vec!["\n\n;你好啊", "1970-01-01 open Assets:Book\n"].join("\n");
 //
-//             let entry = parse_avaro(&content).unwrap();
+//             let entry = parse_zhang(&content).unwrap();
 //
 //             let directives = vec![
 //                 Directive::Comment {
