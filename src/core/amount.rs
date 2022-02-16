@@ -8,11 +8,10 @@ pub struct Amount {
 }
 
 impl Amount {
-
     pub fn none() -> Amount {
         Amount {
             number: Default::default(),
-            currency: "".to_string()
+            currency: "".to_string(),
         }
     }
 

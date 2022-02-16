@@ -7,7 +7,7 @@ use crate::core::data::{
     Price, Transaction,
 };
 use crate::core::ledger::Ledger;
-use crate::core::models::{ZhangString, Directive, Flag, StringOrAccount};
+use crate::core::models::{Directive, Flag, StringOrAccount, ZhangString};
 use crate::target::ZhangTarget;
 use crate::utils::escape_with_quote;
 
@@ -139,7 +139,7 @@ impl ZhangTarget<String> for Open {
 
 impl ZhangTarget<String> for Close {
     fn to_target(self) -> String {
-        let mut line = vec![
+        let line = vec![
             self.date.to_target(),
             "close".to_string(),
             self.account.to_target(),
@@ -150,7 +150,7 @@ impl ZhangTarget<String> for Close {
 
 impl ZhangTarget<String> for Commodity {
     fn to_target(self) -> String {
-        let mut line = vec![
+        let line = vec![
             self.date.to_target(),
             "commodity".to_string(),
             self.currency,
@@ -161,7 +161,7 @@ impl ZhangTarget<String> for Commodity {
 
 impl ZhangTarget<String> for Balance {
     fn to_target(self) -> String {
-        let mut line = vec![
+        let line = vec![
             self.date.to_target(),
             "balance".to_string(),
             self.account.to_target(),
@@ -173,7 +173,7 @@ impl ZhangTarget<String> for Balance {
 
 impl ZhangTarget<String> for Pad {
     fn to_target(self) -> String {
-        let mut line = vec![
+        let line = vec![
             self.date.to_target(),
             "pad".to_string(),
             self.account.to_target(),
@@ -185,7 +185,7 @@ impl ZhangTarget<String> for Pad {
 
 impl ZhangTarget<String> for Note {
     fn to_target(self) -> String {
-        let mut line = vec![
+        let line = vec![
             self.date.to_target(),
             "note".to_string(),
             self.account.to_target(),
@@ -197,7 +197,7 @@ impl ZhangTarget<String> for Note {
 
 impl ZhangTarget<String> for Document {
     fn to_target(self) -> String {
-        let mut line = vec![
+        let line = vec![
             self.date.to_target(),
             "document".to_string(),
             self.account.to_target(),
@@ -209,7 +209,7 @@ impl ZhangTarget<String> for Document {
 
 impl ZhangTarget<String> for Price {
     fn to_target(self) -> String {
-        let mut line = vec![
+        let line = vec![
             self.date.to_target(),
             "price".to_string(),
             self.currency,
@@ -221,7 +221,7 @@ impl ZhangTarget<String> for Price {
 
 impl ZhangTarget<String> for Event {
     fn to_target(self) -> String {
-        let mut line = vec![
+        let line = vec![
             self.date.to_target(),
             "event".to_string(),
             self.event_type.to_target(),
@@ -263,7 +263,7 @@ impl ZhangTarget<String> for Directive {
             Directive::Event(event) => event.to_target(),
             Directive::Custom(cusotm) => cusotm.to_target(),
             Directive::Option { key, value } => {
-                let mut line = vec!["option".to_string(), key.to_target(), value.to_target()];
+                let line = vec!["option".to_string(), key.to_target(), value.to_target()];
                 line.join(" ")
             }
             Directive::Plugin { module, value } => {
@@ -273,11 +273,11 @@ impl ZhangTarget<String> for Directive {
                 line.join(" ")
             }
             Directive::Include { file } => {
-                let mut line = vec!["include".to_string(), file.to_target()];
+                let line = vec!["include".to_string(), file.to_target()];
                 line.join(" ")
             }
             Directive::Comment { content } => {
-                let mut line = vec!["#".to_string(), content];
+                let line = vec!["#".to_string(), content];
                 line.join(" ")
             }
         }

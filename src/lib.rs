@@ -1,16 +1,3 @@
-macro_rules! parse {
-    ($content: expr) => {{
-        use itertools::Itertools;
-        let x = $content.lines().nth(1).unwrap();
-        let space_offset = x.len() - x.trim_start().len();
-        let string1 = $content
-            .lines()
-            .map(|it| it.replacen(" ", "", space_offset))
-            .join("\n");
-        crate::p::parse_zhang(string1.trim()).unwrap()
-    }};
-}
-
 pub mod booking;
 pub mod error;
 pub mod to_file;
@@ -23,8 +10,8 @@ pub mod p;
 
 pub mod cli;
 pub mod core;
-pub mod importer;
 pub mod exporter;
+pub mod importer;
 
 pub mod target;
 pub use p::parse_zhang;

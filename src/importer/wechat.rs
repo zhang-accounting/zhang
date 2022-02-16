@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Date, Posting, Transaction};
-use crate::core::models::{ZhangString, Flag};
-use crate::error::{ZhangError, ZhangResult};
+use crate::core::models::{Flag, ZhangString};
+use crate::error::ZhangResult;
 use crate::target::ZhangTarget;
 use itertools::Itertools;
 
@@ -36,8 +36,8 @@ struct Config {
 struct Record {
     #[serde(rename = "交易时间")]
     datetime: String,
-    #[serde(rename = "交易类型")]
-    txn_type: String,
+    // #[serde(rename = "交易类型")]
+    // txn_type: String,
     #[serde(rename = "交易对方")]
     payee: String,
     #[serde(rename = "商品")]
@@ -48,14 +48,14 @@ struct Record {
     amount: String,
     #[serde(rename = "支付方式")]
     pay_type: String,
-    #[serde(rename = "当前状态")]
-    status: String,
+    // #[serde(rename = "当前状态")]
+    // status: String,
     #[serde(rename = "交易单号")]
     txn_no: String,
     #[serde(rename = "商户单号")]
     payee_no: String,
-    #[serde(rename = "备注")]
-    comment: String,
+    // #[serde(rename = "备注")]
+    // comment: String,
 }
 
 impl Record {
@@ -68,7 +68,7 @@ impl Record {
         !matches!(self.is_income.as_str(), "支出" | "/")
     }
     fn amount(&self) -> Amount {
-        let option = self.amount.strip_prefix("¥").unwrap_or(&self.amount);
+        let option = self.amount.strip_prefix('¥').unwrap_or(&self.amount);
         let result = BigDecimal::from_str(option).unwrap();
         let value = if self.is_income() {
             result
@@ -119,8 +119,8 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
     let file1 = File::open(file)?;
     let mut reader = BufReader::new(file1);
     let mut string_buffer = String::new();
-    for i in 0..=15 {
-        reader.read_line(&mut string_buffer);
+    for _ in 0..=15 {
+        reader.read_line(&mut string_buffer)?;
     }
     let mut reader1 = csv::Reader::from_reader(reader);
 
@@ -206,11 +206,17 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
         println!("{}", string);
     }
     if !unknown_payees.is_empty() {
-       if loaded_config.forbid_unknown_payee {
-           error!("payee [{}] is not configurated", unknown_payees.iter().join(","));
-       }else {
-           warn!("payee [{}] is not configurated", unknown_payees.iter().join(","));
-       }
+        if loaded_config.forbid_unknown_payee {
+            error!(
+                "payee [{}] is not configurated",
+                unknown_payees.iter().join(",")
+            );
+        } else {
+            warn!(
+                "payee [{}] is not configurated",
+                unknown_payees.iter().join(",")
+            );
+        }
     }
     if loaded_config.store_unknown_payee {
         for x in unknown_payees {

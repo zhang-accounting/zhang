@@ -3,9 +3,8 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::{DateTime, Utc};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::hash::{Hash};
+use std::hash::Hash;
 use std::ops::Add;
-
 
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub struct Cost {
@@ -29,7 +28,7 @@ impl Position {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Eq, PartialEq, Debug, Clone, Default)]
 pub struct Inventory {
     data: HashMap<(Currency, Option<Cost>), Position>,
 }
@@ -42,11 +41,6 @@ pub enum MatchResult {
 }
 
 impl Inventory {
-    pub fn new() -> Self {
-        Inventory {
-            data: HashMap::new(),
-        }
-    }
     pub fn len(&self) -> usize {
         self.data.len()
     }
@@ -91,8 +85,7 @@ impl Inventory {
             }
         } else if units.number.is_zero() {
         } else {
-            self.data
-                .insert(key, Position::new(units.clone(), cost.clone()));
+            self.data.insert(key, Position::new(units, cost));
         }
     }
 
@@ -106,27 +99,25 @@ mod test {
     use crate::core::amount::Amount;
     use crate::core::inventory::{Inventory, Position};
 
-
-
     #[test]
     fn test_ctor_empty_len() {
-        let inventory = Inventory::new();
+        let inventory = Inventory::default();
         assert_eq!(0, inventory.len());
-        assert_eq!(true, inventory.is_empty());
+        assert!(inventory.is_empty());
 
-        let mut inventory1 = Inventory::new();
+        let mut inventory1 = Inventory::default();
         inventory1.add_position(Position::new(Amount::new_with_i32(100, "USD"), None));
         inventory1.add_position(Position::new(Amount::new_with_i32(101, "USD"), None));
         assert_eq!(1, inventory1.len());
-        assert_eq!(false, inventory1.is_empty());
+        assert!(!inventory1.is_empty());
 
-        let mut inventory2 = Inventory::new();
+        let mut inventory2 = Inventory::default();
         inventory2.add_position(Position::new(Amount::new_with_i32(100, "USD"), None));
         inventory2.add_position(Position::new(Amount::new_with_i32(101, "CAD"), None));
         assert_eq!(2, inventory2.len());
-        assert_eq!(false, inventory2.is_empty());
+        assert!(!inventory2.is_empty());
 
-        let mut inventory3 = Inventory::new();
+        let mut inventory3 = Inventory::default();
         assert_eq!(0, inventory3.len());
         inventory3.add_position(Position::new(Amount::new_with_i32(100, "USD"), None));
         assert_eq!(1, inventory3.len());

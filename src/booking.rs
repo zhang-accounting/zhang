@@ -157,7 +157,7 @@
 //         let balance = balances
 //             .get(&posting.account.to_string())
 //             .cloned()
-//             .unwrap_or(Inventory::new());
+//             .unwrap_or(Inventory::default());
 //
 //         if unit_currency.is_none() {
 //             let mut balance_currencies = balance.currencies();

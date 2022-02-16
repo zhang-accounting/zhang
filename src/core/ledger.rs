@@ -18,10 +18,7 @@ impl Ledger {
     }
 
     pub fn apply(mut self, applier: impl Fn(Directive) -> Directive) -> Self {
-        let vec = self.directives
-            .into_iter()
-            .map(applier)
-            .collect_vec();
+        let vec = self.directives.into_iter().map(applier).collect_vec();
         self.directives = vec;
         self
     }

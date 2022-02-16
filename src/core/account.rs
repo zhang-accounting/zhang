@@ -51,7 +51,7 @@ impl Account {
 
     pub fn join(&self, component: impl Into<String>) -> Account {
         let component = component.into();
-        let mut cloned: Vec<String> = self.components.iter().cloned().collect();
+        let mut cloned: Vec<String> = self.components.to_vec();
         cloned.push(component.clone());
         Account {
             account_type: self.account_type,
@@ -115,14 +115,14 @@ impl FromStr for Account {
     type Err = ZhangError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split(":").collect();
+        let parts: Vec<&str> = s.split(':').collect();
 
         let split = parts.split_first();
         if let Some((account_type, rest)) = split {
             Ok(Account {
                 account_type: AccountType::from_str(account_type)?,
                 content: s.to_string(),
-                components: rest.into_iter().map(|it| it.to_string()).collect(),
+                components: rest.iter().map(|it| it.to_string()).collect(),
             })
         } else {
             Err(ZhangError::InvalidAccount)

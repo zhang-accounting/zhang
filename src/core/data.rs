@@ -1,6 +1,6 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::models::{ZhangString, Flag, StringOrAccount};
+use crate::core::models::{Flag, StringOrAccount, ZhangString};
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use std::collections::{HashMap, HashSet};
@@ -11,15 +11,6 @@ pub type Meta = HashMap<String, ZhangString>;
 pub enum Date {
     Date(NaiveDate),
     Datetime(NaiveDateTime),
-}
-
-impl Date {
-    fn get_datetime(&self) -> NaiveDateTime {
-        match self {
-            Date::Date(date) => date.and_hms(0, 0, 0),
-            Date::Datetime(datetime) => *datetime,
-        }
-    }
 }
 
 #[derive(Debug, PartialEq)]

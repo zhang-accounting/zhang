@@ -12,7 +12,7 @@ use crate::core::data::{
     Balance, Close, Commodity, Custom, Date, Document, Event, Note, Open, Pad, Posting, Price,
     Transaction,
 };
-use crate::core::models::{ZhangString, Directive, Flag, SingleTotalPrice, StringOrAccount};
+use crate::core::models::{Directive, Flag, SingleTotalPrice, StringOrAccount, ZhangString};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -98,7 +98,7 @@ impl ZhangParser {
 
     fn option(input: Node) -> Result<Directive> {
         let ret = match_nodes!(input.into_children();
-            [string(key), string(value)] => Directive::Option {key:key,value:value},
+            [string(key), string(value)] => Directive::Option {key, value},
         );
         Ok(ret)
     }

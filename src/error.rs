@@ -1,4 +1,3 @@
-
 use thiserror::Error;
 
 pub type ZhangResult<T> = Result<T, ZhangError>;
