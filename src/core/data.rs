@@ -145,3 +145,25 @@ pub struct Custom {
     pub values: Vec<StringOrAccount>,
     pub meta: Meta,
 }
+
+#[derive(Debug, PartialEq)]
+pub struct Options {
+    pub key: ZhangString,
+    pub value: ZhangString,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Plugin {
+    pub module: ZhangString,
+    pub value: Vec<ZhangString>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Include {
+    pub file: ZhangString,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Comment {
+    pub content: String,
+}

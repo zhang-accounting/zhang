@@ -3,8 +3,8 @@ use itertools::Itertools;
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{
-    Balance, Close, Commodity, Custom, Date, Document, Event, Meta, Note, Open, Pad, Posting,
-    Price, Transaction,
+    Balance, Close, Comment, Commodity, Custom, Date, Document, Event, Include, Meta, Note, Open,
+    Options, Pad, Plugin, Posting, Price, Transaction,
 };
 use crate::core::ledger::Ledger;
 use crate::core::models::{Directive, Flag, StringOrAccount, ZhangString};
@@ -248,6 +248,42 @@ impl ZhangTarget<String> for Custom {
     }
 }
 
+impl ZhangTarget<String> for Options {
+    fn to_target(self) -> String {
+        let line = vec![
+            "option".to_string(),
+            self.key.to_target(),
+            self.value.to_target(),
+        ];
+        line.join(" ")
+    }
+}
+impl ZhangTarget<String> for Plugin {
+    fn to_target(self) -> String {
+        let mut line = vec!["plugin".to_string(), self.module.to_target()];
+        let mut values = self
+            .value
+            .into_iter()
+            .map(|it| it.to_target())
+            .collect_vec();
+        line.append(&mut values);
+        line.join(" ")
+    }
+}
+impl ZhangTarget<String> for Include {
+    fn to_target(self) -> String {
+        let line = vec!["include".to_string(), self.file.to_target()];
+        line.join(" ")
+    }
+}
+
+impl ZhangTarget<String> for Comment {
+    fn to_target(self) -> String {
+        let line = vec!["#".to_string(), self.content];
+        line.join(" ")
+    }
+}
+
 impl ZhangTarget<String> for Directive {
     fn to_target(self) -> String {
         match self {
@@ -262,24 +298,10 @@ impl ZhangTarget<String> for Directive {
             Directive::Price(price) => price.to_target(),
             Directive::Event(event) => event.to_target(),
             Directive::Custom(cusotm) => cusotm.to_target(),
-            Directive::Option { key, value } => {
-                let line = vec!["option".to_string(), key.to_target(), value.to_target()];
-                line.join(" ")
-            }
-            Directive::Plugin { module, value } => {
-                let mut line = vec!["plugin".to_string(), module.to_target()];
-                let mut values = value.into_iter().map(|it| it.to_target()).collect_vec();
-                line.append(&mut values);
-                line.join(" ")
-            }
-            Directive::Include { file } => {
-                let line = vec!["include".to_string(), file.to_target()];
-                line.join(" ")
-            }
-            Directive::Comment { content } => {
-                let line = vec!["#".to_string(), content];
-                line.join(" ")
-            }
+            Directive::Option(options) => options.to_target(),
+            Directive::Plugin(plugin) => plugin.to_target(),
+            Directive::Include(include) => include.to_target(),
+            Directive::Comment(comment) => comment.to_target(),
         }
     }
 }

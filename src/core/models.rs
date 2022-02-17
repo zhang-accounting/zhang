@@ -4,7 +4,8 @@ use strum_macros::EnumString;
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{
-    Balance, Close, Commodity, Custom, Document, Event, Note, Open, Pad, Price, Transaction,
+    Balance, Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Pad,
+    Plugin, Price, Transaction,
 };
 
 #[derive(Debug, PartialEq)]
@@ -20,20 +21,10 @@ pub enum Directive {
     Price(Price),
     Event(Event),
     Custom(Custom),
-    Option {
-        key: ZhangString,
-        value: ZhangString,
-    },
-    Plugin {
-        module: ZhangString,
-        value: Vec<ZhangString>,
-    },
-    Include {
-        file: ZhangString,
-    },
-    Comment {
-        content: String,
-    },
+    Option(Options),
+    Plugin(Plugin),
+    Include(Include),
+    Comment(Comment),
 }
 
 #[derive(Debug, PartialEq)]

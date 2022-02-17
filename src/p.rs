@@ -9,8 +9,8 @@ use snailquote::unescape;
 use crate::core::account::{Account, AccountType};
 use crate::core::amount::Amount;
 use crate::core::data::{
-    Balance, Close, Commodity, Custom, Date, Document, Event, Note, Open, Pad, Posting, Price,
-    Transaction,
+    Balance, Close, Comment, Commodity, Custom, Date, Document, Event, Include, Note, Open,
+    Options, Pad, Plugin, Posting, Price, Transaction,
 };
 use crate::core::models::{Directive, Flag, SingleTotalPrice, StringOrAccount, ZhangString};
 
@@ -56,6 +56,7 @@ impl ZhangParser {
         Ok(input.as_str().to_owned())
     }
     fn account_name(input: Node) -> Result<Account> {
+        dbg!(&input.as_span());
         let r: (String, Vec<String>) = match_nodes!(input.into_children();
             [account_type(a), unquote_string(i)..] => {
                 (a, i.map(|it|it.to_plain_string()).collect())
@@ -90,22 +91,22 @@ impl ZhangParser {
         let ret: (ZhangString, Vec<ZhangString>) = match_nodes!(input.into_children();
             [string(module), string(values)..] => (module, values.collect()),
         );
-        Ok(Directive::Plugin {
+        Ok(Directive::Plugin(Plugin {
             module: ret.0,
             value: ret.1,
-        })
+        }))
     }
 
     fn option(input: Node) -> Result<Directive> {
-        let ret = match_nodes!(input.into_children();
-            [string(key), string(value)] => Directive::Option {key, value},
+        let (key, value) = match_nodes!(input.into_children();
+            [string(key), string(value)] => (key, value),
         );
-        Ok(ret)
+        Ok(Directive::Option(Options { key, value }))
     }
     fn comment(input: Node) -> Result<Directive> {
-        Ok(Directive::Comment {
+        Ok(Directive::Comment(Comment {
             content: input.as_str().to_owned(),
-        })
+        }))
     }
 
     fn open(input: Node) -> Result<Directive> {
@@ -373,7 +374,8 @@ impl ZhangParser {
         let ret: ZhangString = match_nodes!(input.into_children();
             [quote_string(path)] => path,
         );
-        Ok(Directive::Include { file: ret })
+        let include = Include { file: ret };
+        Ok(Directive::Include(include))
     }
 
     fn note(input: Node) -> Result<Directive> {
