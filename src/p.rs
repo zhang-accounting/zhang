@@ -72,7 +72,8 @@ impl ZhangParser {
     fn date(input: Node) -> Result<Date> {
         let datetime: Date = match_nodes!(input.into_children();
             [date_only(d)] => d,
-            [datetime(d)] => d
+            [datetime(d)] => d,
+            [date_hour(d)] => d
         );
         Ok(datetime)
     }
@@ -84,6 +85,11 @@ impl ZhangParser {
     fn datetime(input: Node) -> Result<Date> {
         Ok(Date::Datetime(
             NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M:%S").unwrap(),
+        ))
+    }
+    fn date_hour(input: Node) -> Result<Date> {
+        Ok(Date::DateHour(
+            NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M").unwrap(),
         ))
     }
 
@@ -494,4 +500,29 @@ pub fn parse_account(input_str: &str) -> Result<Account> {
     let inputs = ZhangParser::parse(Rule::account_name, input_str)?;
     let input = inputs.single()?;
     ZhangParser::account_name(input)
+}
+
+#[cfg(test)]
+mod test {
+    use crate::core::account::Account;
+    use crate::core::data::{Date, Open};
+    use crate::core::models::Directive;
+    use crate::parse_zhang;
+    use chrono::NaiveDate;
+    use std::str::FromStr;
+
+    #[test]
+    fn should_parse_date_hour() {
+        let mut result = parse_zhang("2101-10-10 10:10 open Assets:Hello").unwrap();
+        let directive = result.remove(0);
+        assert_eq!(
+            Directive::Open(Open {
+                date: Date::DateHour(NaiveDate::from_ymd(2101, 10, 10).and_hms(10, 10, 0)),
+                account: Account::from_str("Assets:Hello").unwrap(),
+                commodities: vec![],
+                meta: Default::default()
+            }),
+            directive
+        )
+    }
 }

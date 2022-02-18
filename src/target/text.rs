@@ -26,6 +26,7 @@ impl ZhangTarget<String> for Date {
         match self {
             Date::Date(date) => date.format("%Y-%m-%d").to_string(),
             Date::Datetime(datetime) => datetime.format("%Y-%m-%d %H:%M:%S").to_string(),
+            Date::DateHour(datehour) => datehour.format("%Y-%m-%d %H:%M").to_string(),
         }
     }
 }

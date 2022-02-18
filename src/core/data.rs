@@ -10,6 +10,7 @@ pub type Meta = HashMap<String, ZhangString>;
 #[derive(Debug, PartialEq)]
 pub enum Date {
     Date(NaiveDate),
+    DateHour(NaiveDateTime),
     Datetime(NaiveDateTime),
 }
 
