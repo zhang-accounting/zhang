@@ -51,7 +51,15 @@ impl Ledger {
                         account_info.currencies.insert(currency.to_string());
                     }
                 }
-                Directive::Close(_) => {}
+                Directive::Close(close) => {
+                    let account_info = accounts
+                        .entry(close.account.content.to_string())
+                        .or_insert_with(|| AccountInfo {
+                            currencies: Default::default(),
+                            status: AccountStatus::Open,
+                        });
+                    account_info.status = AccountStatus::Close;
+                }
                 Directive::Commodity(_) => {}
                 Directive::Transaction(_) => {}
                 Directive::Balance(_) => {}
@@ -197,6 +205,20 @@ mod test {
                 sorted
             );
         }
+
+        #[test]
+        fn should_keep_order_given_same_datetime() {
+            assert_eq!(
+                test_parse_zhang(indoc! {r#"
+                    1970-01-01 open Assets:Hello
+                    1970-01-01 close Assets:Hello
+                "#}),
+                Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
+                    1970-01-01 open Assets:Hello
+                    1970-01-01 close Assets:Hello
+                "#}))
+            );
+        }
     }
     mod extract_account_info {
         use crate::core::ledger::{AccountStatus, Ledger};
@@ -211,6 +233,32 @@ mod test {
             assert_eq!(1, ledger.accounts.len());
             let account_info = ledger.accounts.get("Assets:Hello").unwrap();
             assert_eq!(AccountStatus::Open, account_info.status);
+            assert_eq!(1, account_info.currencies.len());
+            assert!(account_info.currencies.contains("CNY"));
+        }
+
+        #[test]
+        fn should_extract_account_close() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 close Assets:Hello
+            "#})
+                .unwrap();
+            assert_eq!(1, ledger.accounts.len());
+            let account_info = ledger.accounts.get("Assets:Hello").unwrap();
+            assert_eq!(AccountStatus::Close, account_info.status);
+            assert_eq!(0, account_info.currencies.len());
+        }
+
+        #[test]
+        fn should_mark_as_close_after_opening_account() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 open Assets:Hello CNY
+                1970-02-01 close Assets:Hello
+            "#})
+                .unwrap();
+            assert_eq!(1, ledger.accounts.len());
+            let account_info = ledger.accounts.get("Assets:Hello").unwrap();
+            assert_eq!(AccountStatus::Close, account_info.status);
             assert_eq!(1, account_info.currencies.len());
             assert!(account_info.currencies.contains("CNY"));
         }
