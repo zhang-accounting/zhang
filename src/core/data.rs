@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 pub type Meta = HashMap<String, ZhangString>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Date {
     Date(NaiveDate),
     DateHour(NaiveDateTime),
@@ -39,7 +39,7 @@ pub struct Close {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Commodity {
     pub date: Date,
     pub currency: String,

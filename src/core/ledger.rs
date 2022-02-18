@@ -1,4 +1,5 @@
-use crate::core::inventory::Currency;
+use crate::core::data::Commodity;
+use crate::core::inventory::{AccountName, Currency};
 use crate::core::models::Directive;
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
@@ -17,11 +18,16 @@ pub struct AccountInfo {
     currencies: HashSet<Currency>,
     status: AccountStatus,
 }
+#[derive(Debug)]
+pub struct CurrencyInfo {
+    pub commodity: Commodity,
+}
 
 #[derive(Debug)]
 pub struct Ledger {
     pub(crate) directives: Vec<Directive>,
-    pub accounts: HashMap<String, AccountInfo>,
+    pub accounts: HashMap<AccountName, AccountInfo>,
+    pub currencies: HashMap<Currency, CurrencyInfo>,
 }
 
 impl Ledger {
@@ -37,6 +43,7 @@ impl Ledger {
 
         let directives = Ledger::sort_directives_datetime(directives);
         let mut accounts = HashMap::default();
+        let mut currencies = HashMap::default();
         for directive in &directives {
             match directive {
                 Directive::Open(open) => {
@@ -60,7 +67,14 @@ impl Ledger {
                         });
                     account_info.status = AccountStatus::Close;
                 }
-                Directive::Commodity(_) => {}
+                Directive::Commodity(commodity) => {
+                    let _target_currency =
+                        currencies
+                            .entry(commodity.currency.to_string())
+                            .or_insert_with(|| CurrencyInfo {
+                                commodity: commodity.clone(),
+                            });
+                }
                 Directive::Transaction(_) => {}
                 Directive::Balance(_) => {}
                 Directive::Pad(_) => {}
@@ -78,6 +92,7 @@ impl Ledger {
         Ok(Self {
             directives,
             accounts,
+            currencies
         })
     }
 
@@ -220,7 +235,7 @@ mod test {
             );
         }
     }
-    mod extract_account_info {
+    mod extract_info {
         use crate::core::ledger::{AccountStatus, Ledger};
         use indoc::indoc;
 
@@ -242,7 +257,7 @@ mod test {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 close Assets:Hello
             "#})
-                .unwrap();
+            .unwrap();
             assert_eq!(1, ledger.accounts.len());
             let account_info = ledger.accounts.get("Assets:Hello").unwrap();
             assert_eq!(AccountStatus::Close, account_info.status);
@@ -255,12 +270,23 @@ mod test {
                 1970-01-01 open Assets:Hello CNY
                 1970-02-01 close Assets:Hello
             "#})
-                .unwrap();
+            .unwrap();
             assert_eq!(1, ledger.accounts.len());
             let account_info = ledger.accounts.get("Assets:Hello").unwrap();
             assert_eq!(AccountStatus::Close, account_info.status);
             assert_eq!(1, account_info.currencies.len());
             assert!(account_info.currencies.contains("CNY"));
+        }
+        #[test]
+        fn should_extract_commodities() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 commodity CNY
+                1970-02-01 commodity HKD
+            "#})
+                .unwrap();
+            assert_eq!(2, ledger.currencies.len());
+            assert!(ledger.currencies.contains_key("CNY"));
+            assert!(ledger.currencies.contains_key("HKD"));
         }
     }
 }

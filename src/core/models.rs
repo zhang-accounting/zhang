@@ -56,7 +56,7 @@ pub enum StringOrAccount {
     Account(Account),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ZhangString {
     UnquoteString(String),
     QuoteString(String),

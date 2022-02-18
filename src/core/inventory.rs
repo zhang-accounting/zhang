@@ -15,6 +15,7 @@ pub struct Cost {
 }
 
 pub type Currency = String;
+pub type AccountName = String;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Position {
