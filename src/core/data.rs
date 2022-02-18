@@ -14,6 +14,16 @@ pub enum Date {
     Datetime(NaiveDateTime),
 }
 
+impl Date {
+    pub fn naive_datetime(&self) -> NaiveDateTime {
+        match self {
+            Date::Date(date) => date.and_hms(0, 0, 0),
+            Date::DateHour(date_hour) => *date_hour,
+            Date::Datetime(datetime) => *datetime,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Open {
     pub date: Date,

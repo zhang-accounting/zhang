@@ -1,3 +1,4 @@
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumString;
 
@@ -25,6 +26,28 @@ pub enum Directive {
     Plugin(Plugin),
     Include(Include),
     Comment(Comment),
+}
+
+impl Directive {
+    pub fn datetime(&self) -> Option<NaiveDateTime> {
+        match self {
+            Directive::Open(open) => Some(open.date.naive_datetime()),
+            Directive::Close(close) => Some(close.date.naive_datetime()),
+            Directive::Commodity(commodity) => Some(commodity.date.naive_datetime()),
+            Directive::Transaction(txn) => Some(txn.date.naive_datetime()),
+            Directive::Balance(balance) => Some(balance.date.naive_datetime()),
+            Directive::Pad(pad) => Some(pad.date.naive_datetime()),
+            Directive::Note(note) => Some(note.date.naive_datetime()),
+            Directive::Document(document) => Some(document.date.naive_datetime()),
+            Directive::Price(price) => Some(price.date.naive_datetime()),
+            Directive::Event(event) => Some(event.date.naive_datetime()),
+            Directive::Custom(custom) => Some(custom.date.naive_datetime()),
+            Directive::Option(_) => None,
+            Directive::Plugin(_) => None,
+            Directive::Include(_) => None,
+            Directive::Comment(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
