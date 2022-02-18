@@ -32,15 +32,16 @@ pub struct Ledger {
 
 impl Ledger {
     pub fn load(entry: PathBuf) -> ZhangResult<Ledger> {
-        let content = std::fs::read_to_string(entry)?;
-        Ledger::load_from_str(&content)
+        let directives = Ledger::load_directive_from_file(entry)?;
+        Ledger::process(directives)
     }
 
-    pub fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
-        let content = content.as_ref();
-        let directives =
-            parse_zhang(content).map_err(|it| ZhangError::PestError(it.to_string()))?;
+    fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Directive>> {
+        let content = std::fs::read_to_string(entry)?;
+        parse_zhang(&content).map_err(|it| ZhangError::PestError(it.to_string()))
+    }
 
+    fn process(directives: Vec<Directive>) -> ZhangResult<Ledger> {
         let directives = Ledger::sort_directives_datetime(directives);
         let mut accounts = HashMap::default();
         let mut currencies = HashMap::default();
@@ -68,12 +69,11 @@ impl Ledger {
                     account_info.status = AccountStatus::Close;
                 }
                 Directive::Commodity(commodity) => {
-                    let _target_currency =
-                        currencies
-                            .entry(commodity.currency.to_string())
-                            .or_insert_with(|| CurrencyInfo {
-                                commodity: commodity.clone(),
-                            });
+                    let _target_currency = currencies
+                        .entry(commodity.currency.to_string())
+                        .or_insert_with(|| CurrencyInfo {
+                            commodity: commodity.clone(),
+                        });
                 }
                 Directive::Transaction(_) => {}
                 Directive::Balance(_) => {}
@@ -92,8 +92,15 @@ impl Ledger {
         Ok(Self {
             directives,
             accounts,
-            currencies
+            currencies,
         })
+    }
+
+    pub fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
+        let content = content.as_ref();
+        let directives =
+            parse_zhang(content).map_err(|it| ZhangError::PestError(it.to_string()))?;
+        Ledger::process(directives)
     }
 
     fn sort_directives_datetime(mut directives: Vec<Directive>) -> Vec<Directive> {
@@ -283,7 +290,7 @@ mod test {
                 1970-01-01 commodity CNY
                 1970-02-01 commodity HKD
             "#})
-                .unwrap();
+            .unwrap();
             assert_eq!(2, ledger.currencies.len());
             assert!(ledger.currencies.contains_key("CNY"));
             assert!(ledger.currencies.contains_key("HKD"));
