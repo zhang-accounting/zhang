@@ -297,7 +297,7 @@ impl ZhangTarget<String> for Directive {
             Directive::Document(document) => document.to_target(),
             Directive::Price(price) => price.to_target(),
             Directive::Event(event) => event.to_target(),
-            Directive::Custom(cusotm) => cusotm.to_target(),
+            Directive::Custom(custom) => custom.to_target(),
             Directive::Option(options) => options.to_target(),
             Directive::Plugin(plugin) => plugin.to_target(),
             Directive::Include(include) => include.to_target(),
