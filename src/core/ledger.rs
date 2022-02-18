@@ -237,5 +237,69 @@ mod test {
                 sorted
             )
         }
+
+        #[test]
+        fn should_sorted_between_none_datatime() {
+            let original = vec![
+                Directive::Option(Options {
+                    key: ZhangString::QuoteString("1".to_string()),
+                    value: ZhangString::QuoteString("1".to_string()),
+                }),
+                Directive::Open(Open {
+                    date: Date::Date(NaiveDate::from_ymd(1970, 3, 1)),
+                    account: Account::from_str("Assets:Hello").unwrap(),
+                    commodities: vec![],
+                    meta: Default::default(),
+                }),
+                Directive::Open(Open {
+                    date: Date::Date(NaiveDate::from_ymd(1970, 2, 1)),
+                    account: Account::from_str("Assets:Hello").unwrap(),
+                    commodities: vec![],
+                    meta: Default::default(),
+                }),
+                Directive::Option(Options {
+                    key: ZhangString::QuoteString("2".to_string()),
+                    value: ZhangString::QuoteString("2".to_string()),
+                }),
+                Directive::Open(Open {
+                    date: Date::Date(NaiveDate::from_ymd(1970, 1, 1)),
+                    account: Account::from_str("Assets:Hello").unwrap(),
+                    commodities: vec![],
+                    meta: Default::default(),
+                }),
+            ];
+            let sorted = Ledger::sort_directives_datetime(original);
+            assert_eq!(
+                vec![
+                    Directive::Option(Options {
+                        key: ZhangString::QuoteString("1".to_string()),
+                        value: ZhangString::QuoteString("1".to_string()),
+                    }),
+                    Directive::Open(Open {
+                        date: Date::Date(NaiveDate::from_ymd(1970, 2, 1)),
+                        account: Account::from_str("Assets:Hello").unwrap(),
+                        commodities: vec![],
+                        meta: Default::default(),
+                    }),
+                    Directive::Open(Open {
+                        date: Date::Date(NaiveDate::from_ymd(1970, 3, 1)),
+                        account: Account::from_str("Assets:Hello").unwrap(),
+                        commodities: vec![],
+                        meta: Default::default(),
+                    }),
+                    Directive::Option(Options {
+                        key: ZhangString::QuoteString("2".to_string()),
+                        value: ZhangString::QuoteString("2".to_string()),
+                    }),
+                    Directive::Open(Open {
+                        date: Date::Date(NaiveDate::from_ymd(1970, 1, 1)),
+                        account: Account::from_str("Assets:Hello").unwrap(),
+                        commodities: vec![],
+                        meta: Default::default(),
+                    }),
+                ],
+                sorted
+            );
+        }
     }
 }
