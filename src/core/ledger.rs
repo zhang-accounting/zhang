@@ -4,8 +4,9 @@ use crate::core::models::Directive;
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
 use itertools::Itertools;
+use log::{debug, info};
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 
 #[derive(Debug, PartialEq)]
@@ -26,14 +27,40 @@ pub struct CurrencyInfo {
 #[derive(Debug)]
 pub struct Ledger {
     pub(crate) directives: Vec<Directive>,
+    pub(crate) metas: Vec<Directive>,
     pub accounts: HashMap<AccountName, AccountInfo>,
     pub currencies: HashMap<Currency, CurrencyInfo>,
 }
 
 impl Ledger {
     pub fn load(entry: PathBuf) -> ZhangResult<Ledger> {
-        let directives = Ledger::load_directive_from_file(entry)?;
-        Ledger::process(directives)
+        let mut load_queue = VecDeque::new();
+        load_queue.push_back(entry);
+
+        let mut visited = HashSet::new();
+        let mut directives = vec![];
+        while let Some(load_entity) = load_queue.pop_front() {
+            let path = load_entity.canonicalize()?;
+            debug!("visited entry file: {}", path.to_str().unwrap());
+            if visited.contains(&path) {
+                continue;
+            }
+            visited.insert(path);
+            let entity_directives = Ledger::load_directive_from_file(load_entity)?;
+            entity_directives
+                .iter()
+                .filter(|it| matches!(it, Directive::Include(_)))
+                .for_each(|it| match it {
+                    Directive::Include(include_directive) => load_queue.push_back(PathBuf::from(
+                        include_directive.file.clone().to_plain_string(),
+                    )),
+                    _ => {
+                        unreachable!()
+                    }
+                });
+            directives.extend(entity_directives)
+        }
+        Ledger::process(dbg!(directives))
     }
 
     fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Directive>> {
@@ -42,7 +69,10 @@ impl Ledger {
     }
 
     fn process(directives: Vec<Directive>) -> ZhangResult<Ledger> {
-        let directives = Ledger::sort_directives_datetime(directives);
+        let (meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) =
+            directives.into_iter().partition(|it| it.datetime().is_none());
+        let directives = Ledger::sort_directives_datetime(dated_directive);
+        dbg!(&directives);
         let mut accounts = HashMap::default();
         let mut currencies = HashMap::default();
         for directive in &directives {
@@ -90,6 +120,7 @@ impl Ledger {
             }
         }
         Ok(Self {
+            metas: meta_directives,
             directives,
             accounts,
             currencies,
