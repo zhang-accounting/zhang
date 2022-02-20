@@ -78,6 +78,8 @@ pub struct Posting {
     pub meta: Meta,
 }
 
+impl Posting {}
+
 #[derive(Debug, PartialEq)]
 pub struct Transaction {
     pub date: Date,

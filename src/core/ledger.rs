@@ -1,12 +1,15 @@
+use crate::core::amount::Amount;
 use crate::core::data::Commodity;
 use crate::core::inventory::{AccountName, Currency};
 use crate::core::models::Directive;
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
+use bigdecimal::{BigDecimal, Zero};
 use itertools::Itertools;
 use log::debug;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::ops::Add;
 use std::path::PathBuf;
 
 #[derive(Debug, PartialEq)]
@@ -22,6 +25,23 @@ pub struct AccountInfo {
 #[derive(Debug)]
 pub struct CurrencyInfo {
     pub commodity: Commodity,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountSnapshot {
+    inner: HashMap<Currency, BigDecimal>,
+}
+
+impl AccountSnapshot {
+    pub fn add_amount(&mut self, amount: Amount) {
+        let decimal1 = BigDecimal::zero();
+        let x = self.inner.get(&amount.currency).unwrap_or(&decimal1);
+        let decimal = (x).add(&amount.number);
+        self.inner.insert(amount.currency, decimal);
+    }
+    pub fn snapshot(&self) -> AccountSnapshot {
+        self.clone()
+    }
 }
 
 #[derive(Debug)]
@@ -116,10 +136,7 @@ impl Ledger {
                 Directive::Price(_) => {}
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
-                Directive::Option(_) => {}
-                Directive::Plugin(_) => {}
-                Directive::Include(_) => {}
-                Directive::Comment(_) => {}
+                _ => {}
             }
         }
         Ok(Self {
@@ -368,6 +385,44 @@ mod test {
                 ledger.metas
             );
             assert_eq!(0, ledger.directives.len());
+        }
+    }
+
+    mod account_snapshot {
+        use crate::core::amount::Amount;
+        use crate::core::ledger::AccountSnapshot;
+        use bigdecimal::BigDecimal;
+
+        #[test]
+        fn should_add_to_inner() {
+            let mut snapshot = AccountSnapshot {
+                inner: Default::default(),
+            };
+            snapshot.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
+
+            assert_eq!(1, snapshot.inner.len());
+            assert_eq!(&BigDecimal::from(1i32), snapshot.inner.get("CNY").unwrap())
+        }
+
+        #[test]
+        fn should_snapshot_be_independent() {
+            let mut snapshot = AccountSnapshot {
+                inner: Default::default(),
+            };
+            snapshot.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
+
+            let new_snapshot = snapshot.snapshot();
+
+            snapshot.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
+
+            assert_eq!(1, snapshot.inner.len());
+            assert_eq!(&BigDecimal::from(2i32), snapshot.inner.get("CNY").unwrap());
+
+            assert_eq!(1, new_snapshot.inner.len());
+            assert_eq!(
+                &BigDecimal::from(1i32),
+                new_snapshot.inner.get("CNY").unwrap()
+            )
         }
     }
 }
