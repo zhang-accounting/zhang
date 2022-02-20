@@ -4,7 +4,7 @@ use crate::core::models::Directive;
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
 use itertools::Itertools;
-use log::{debug, info};
+use log::debug;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -27,7 +27,7 @@ pub struct CurrencyInfo {
 #[derive(Debug)]
 pub struct Ledger {
     pub(crate) directives: Vec<Directive>,
-    pub(crate) metas: Vec<Directive>,
+    pub metas: Vec<Directive>,
     pub accounts: HashMap<AccountName, AccountInfo>,
     pub currencies: HashMap<Currency, CurrencyInfo>,
 }
@@ -333,8 +333,7 @@ mod test {
     mod multiple_file {
         use crate::core::ledger::test::test_parse_zhang;
         use crate::core::ledger::Ledger;
-        use indoc::{indoc, writedoc};
-        use std::fs::File;
+        use indoc::indoc;
         use tempfile::tempdir;
 
         #[test]
@@ -347,7 +346,8 @@ mod test {
                 option "title" "Example"
                 include "include.zhang"
             "#},
-            );
+            )
+            .unwrap();
             let include = temp_dir.join("include.zhang");
             std::fs::write(
                 &include,
@@ -356,7 +356,8 @@ mod test {
                 option "description" "Example Description"
             "#
                 },
-            );
+            )
+            .unwrap();
             let ledger = Ledger::load(dbg!(example)).unwrap();
             assert_eq!(
                 test_parse_zhang(indoc! {r#"
