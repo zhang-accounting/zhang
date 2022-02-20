@@ -40,24 +40,27 @@ impl Ledger {
         let mut visited = HashSet::new();
         let mut directives = vec![];
         while let Some(load_entity) = load_queue.pop_front() {
+            dbg!(&load_entity);
             let path = load_entity.canonicalize()?;
             debug!("visited entry file: {}", path.to_str().unwrap());
             if visited.contains(&path) {
                 continue;
             }
-            visited.insert(path);
             let entity_directives = Ledger::load_directive_from_file(load_entity)?;
             entity_directives
                 .iter()
                 .filter(|it| matches!(it, Directive::Include(_)))
                 .for_each(|it| match it {
-                    Directive::Include(include_directive) => load_queue.push_back(PathBuf::from(
-                        include_directive.file.clone().to_plain_string(),
-                    )),
+                    Directive::Include(include_directive) => {
+                        let buf = PathBuf::from(include_directive.file.clone().to_plain_string());
+                        let include_path = path.parent().map(|it| it.join(&buf)).unwrap_or(buf);
+                        load_queue.push_back(include_path)
+                    }
                     _ => {
                         unreachable!()
                     }
                 });
+            visited.insert(path);
             directives.extend(entity_directives)
         }
         Ledger::process(dbg!(directives))
@@ -69,10 +72,10 @@ impl Ledger {
     }
 
     fn process(directives: Vec<Directive>) -> ZhangResult<Ledger> {
-        let (meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) =
-            directives.into_iter().partition(|it| it.datetime().is_none());
+        let (meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) = directives
+            .into_iter()
+            .partition(|it| it.datetime().is_none());
         let directives = Ledger::sort_directives_datetime(dated_directive);
-        dbg!(&directives);
         let mut accounts = HashMap::default();
         let mut currencies = HashMap::default();
         for directive in &directives {
@@ -325,6 +328,45 @@ mod test {
             assert_eq!(2, ledger.currencies.len());
             assert!(ledger.currencies.contains_key("CNY"));
             assert!(ledger.currencies.contains_key("HKD"));
+        }
+    }
+    mod multiple_file {
+        use crate::core::ledger::test::test_parse_zhang;
+        use crate::core::ledger::Ledger;
+        use indoc::{indoc, writedoc};
+        use std::fs::File;
+        use tempfile::tempdir;
+
+        #[test]
+        fn should_load_file_from_include_directive() {
+            let temp_dir = tempdir().unwrap().into_path();
+            let example = temp_dir.join("example.zhang");
+            std::fs::write(
+                &example,
+                indoc! {r#"
+                option "title" "Example"
+                include "include.zhang"
+            "#},
+            );
+            let include = temp_dir.join("include.zhang");
+            std::fs::write(
+                &include,
+                indoc! {
+                    r#"
+                option "description" "Example Description"
+            "#
+                },
+            );
+            let ledger = Ledger::load(dbg!(example)).unwrap();
+            assert_eq!(
+                test_parse_zhang(indoc! {r#"
+                option "title" "Example"
+                include "include.zhang"
+                option "description" "Example Description"
+            "#}),
+                ledger.metas
+            );
+            assert_eq!(0, ledger.directives.len());
         }
     }
 }
