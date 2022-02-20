@@ -1,6 +1,12 @@
 option "title" "Example Zhang"
-
-
-
-
 option "description" "a simple zhangben"
+
+
+1970-01-01 open Assets:Wechat CNY
+1970-01-01 open Expenses:Pay CNY
+
+2021-01-01 "Github" "Premium plan"
+  Assets:Wechat -10 CNY
+  Expenses:Pay 10 CNY
+
+
