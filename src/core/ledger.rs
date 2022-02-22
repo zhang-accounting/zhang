@@ -6,7 +6,7 @@ use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
 use bigdecimal::{BigDecimal, Zero};
 use itertools::Itertools;
-use log::debug;
+use log::{debug, error};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Add;
@@ -33,6 +33,11 @@ pub struct AccountSnapshot {
 }
 
 impl AccountSnapshot {
+    pub fn new() -> Self {
+        Self {
+            inner: HashMap::default(),
+        }
+    }
     pub fn add_amount(&mut self, amount: Amount) {
         let decimal1 = BigDecimal::zero();
         let x = self.inner.get(&amount.currency).unwrap_or(&decimal1);
@@ -50,6 +55,7 @@ pub struct Ledger {
     pub metas: Vec<Directive>,
     pub accounts: HashMap<AccountName, AccountInfo>,
     pub currencies: HashMap<Currency, CurrencyInfo>,
+    pub snapshot: HashMap<AccountName, AccountSnapshot>,
 }
 
 impl Ledger {
@@ -98,6 +104,7 @@ impl Ledger {
         let directives = Ledger::sort_directives_datetime(dated_directive);
         let mut accounts = HashMap::default();
         let mut currencies = HashMap::default();
+        let mut snapshot: HashMap<AccountName, AccountSnapshot> = HashMap::default();
         for directive in &directives {
             match directive {
                 Directive::Open(open) => {
@@ -128,7 +135,17 @@ impl Ledger {
                             commodity: commodity.clone(),
                         });
                 }
-                Directive::Transaction(_) => {}
+                Directive::Transaction(trx) => {
+                    if trx.is_balance() {
+                        error!("trx is not balanced");
+                    }
+                    for txn_posting in trx.txn_postings() {
+                        let target_account_snapshot = snapshot
+                            .entry(txn_posting.account_name())
+                            .or_insert_with(|| AccountSnapshot::new());
+                        target_account_snapshot.add_amount(txn_posting.units());
+                    }
+                }
                 Directive::Balance(_) => {}
                 Directive::Pad(_) => {}
                 Directive::Note(_) => {}
@@ -144,6 +161,7 @@ impl Ledger {
             directives,
             accounts,
             currencies,
+            snapshot,
         })
     }
 
@@ -368,11 +386,9 @@ mod test {
             let include = temp_dir.join("include.zhang");
             std::fs::write(
                 &include,
-                indoc! {
-                    r#"
-                option "description" "Example Description"
-            "#
-                },
+                indoc! {r#"
+                    option "description" "Example Description"
+                "#},
             )
             .unwrap();
             let ledger = Ledger::load(dbg!(example)).unwrap();
@@ -423,6 +439,47 @@ mod test {
                 &BigDecimal::from(1i32),
                 new_snapshot.inner.get("CNY").unwrap()
             )
+        }
+    }
+    mod txn {
+        use crate::core::ledger::test::test_parse_zhang;
+        use crate::core::ledger::Ledger;
+        use bigdecimal::BigDecimal;
+        use indoc::indoc;
+
+        #[test]
+        fn should_record_amount_into_snapshot() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 open Assets:From CNY
+                1970-01-01 open Expenses:To CNY
+
+                2022-02-22 "Payee"
+                  Assets:From -10 CNY
+                  Expenses:To 10 CNY
+            "#})
+            .unwrap();
+
+            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(
+                &BigDecimal::from(-10i32),
+                ledger
+                    .snapshot
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+            assert_eq!(
+                &BigDecimal::from(10i32),
+                ledger
+                    .snapshot
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
         }
     }
 }

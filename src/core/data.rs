@@ -1,9 +1,12 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
+use crate::core::inventory::AccountName;
 use crate::core::models::{Flag, StringOrAccount, ZhangString};
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
+use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
+use std::ops::Mul;
 
 pub type Meta = HashMap<String, ZhangString>;
 
@@ -78,8 +81,6 @@ pub struct Posting {
     pub meta: Meta,
 }
 
-impl Posting {}
-
 #[derive(Debug, PartialEq)]
 pub struct Transaction {
     pub date: Date,
@@ -92,10 +93,54 @@ pub struct Transaction {
     pub meta: Meta,
 }
 
+impl Transaction {
+    pub fn is_balance(&self) -> bool {
+        // todo: check if transaction is balanced
+        true
+    }
+
+    pub fn txn_postings(&self) -> Vec<TxnPosting> {
+        self.postings
+            .iter()
+            .map(|posting| TxnPosting {
+                txn: &self,
+                posting,
+            })
+            .collect_vec()
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct TxnPosting<'a> {
     txn: &'a Transaction,
     posting: &'a Posting,
+}
+
+impl<'a> TxnPosting<'a> {
+    pub fn units(&self) -> Amount {
+        if let Some(unit) = &self.posting.units {
+            unit.clone()
+        } else {
+            // get missing unit calculated from other postings
+            todo!()
+        }
+    }
+    pub fn costs(&self) -> Amount {
+        if let Some(cost) = &self.posting.cost {
+            cost.clone()
+        } else {
+            match (&self.posting.units, &self.posting.price) {
+                (Some(unit), Some(price)) => {
+                    Amount::new((&(&unit).number).mul(&price.number), price.currency.clone())
+                }
+                _ => self.units(),
+            }
+        }
+    }
+
+    pub fn account_name(&self) -> AccountName {
+        self.posting.account.content.clone()
+    }
 }
 
 #[derive(Debug, PartialEq)]
