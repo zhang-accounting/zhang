@@ -47,6 +47,13 @@ impl AccountSnapshot {
     pub fn snapshot(&self) -> AccountSnapshot {
         self.clone()
     }
+    pub fn pop(&mut self) -> Option<Amount> {
+        self.inner
+            .drain()
+            .take(1)
+            .next()
+            .map(|(currency, number)| Amount::new(number, currency))
+    }
 }
 
 #[derive(Debug)]
@@ -456,6 +463,41 @@ mod test {
                 2022-02-22 "Payee"
                   Assets:From -10 CNY
                   Expenses:To 10 CNY
+            "#})
+            .unwrap();
+
+            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(
+                &BigDecimal::from(-10i32),
+                ledger
+                    .snapshot
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+            assert_eq!(
+                &BigDecimal::from(10i32),
+                ledger
+                    .snapshot
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+        }
+
+        #[test]
+        fn should_record_amount_into_snapshot_given_none_unit_posting_and_single_unit_posting() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 open Assets:From CNY
+                1970-01-01 open Expenses:To CNY
+
+                2022-02-22 "Payee"
+                  Assets:From -10 CNY
+                  Expenses:To
             "#})
             .unwrap();
 

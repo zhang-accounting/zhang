@@ -1,12 +1,13 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::inventory::AccountName;
+use crate::core::ledger::AccountSnapshot;
 use crate::core::models::{Flag, StringOrAccount, ZhangString};
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
-use std::ops::Mul;
+use std::ops::{AddAssign, Mul, Neg};
 
 pub type Meta = HashMap<String, ZhangString>;
 
@@ -121,8 +122,19 @@ impl<'a> TxnPosting<'a> {
         if let Some(unit) = &self.posting.units {
             unit.clone()
         } else {
+            let vec = self
+                .txn
+                .txn_postings()
+                .iter()
+                .filter(|it| it.posting.units.is_some())
+                .map(|it| it.costs())
+                .collect_vec();
+            let mut snapshot = AccountSnapshot::new();
+            for x in vec {
+                snapshot.add_amount(x)
+            }
             // get missing unit calculated from other postings
-            todo!()
+            snapshot.pop().unwrap().neg()
         }
     }
     pub fn costs(&self) -> Amount {
