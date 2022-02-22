@@ -27,17 +27,12 @@ pub struct CurrencyInfo {
     pub commodity: Commodity,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AccountSnapshot {
     inner: HashMap<Currency, BigDecimal>,
 }
 
 impl AccountSnapshot {
-    pub fn new() -> Self {
-        Self {
-            inner: HashMap::default(),
-        }
-    }
     pub fn add_amount(&mut self, amount: Amount) {
         let decimal1 = BigDecimal::zero();
         let x = self.inner.get(&amount.currency).unwrap_or(&decimal1);
@@ -149,7 +144,7 @@ impl Ledger {
                     for txn_posting in trx.txn_postings() {
                         let target_account_snapshot = snapshot
                             .entry(txn_posting.account_name())
-                            .or_insert_with(|| AccountSnapshot::new());
+                            .or_insert_with(AccountSnapshot::default);
                         target_account_snapshot.add_amount(txn_posting.units());
                     }
                 }
@@ -449,7 +444,6 @@ mod test {
         }
     }
     mod txn {
-        use crate::core::ledger::test::test_parse_zhang;
         use crate::core::ledger::Ledger;
         use bigdecimal::BigDecimal;
         use indoc::indoc;
@@ -520,6 +514,78 @@ mod test {
                     .unwrap()
                     .inner
                     .get("CNY")
+                    .unwrap()
+            );
+        }
+
+        #[test]
+        fn should_record_amount_into_snapshot_given_none_unit_posting_and_more_unit_postings() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 open Assets:From CNY
+                1970-01-01 open Expenses:To CNY
+
+                2022-02-22 "Payee"
+                  Assets:From -5 CNY
+                  Assets:From -5 CNY
+                  Expenses:To
+            "#})
+            .unwrap();
+
+            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(
+                &BigDecimal::from(-10i32),
+                ledger
+                    .snapshot
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+            assert_eq!(
+                &BigDecimal::from(10i32),
+                ledger
+                    .snapshot
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+        }
+
+        #[test]
+        fn should_record_amount_into_snapshot_given_unit_postings_and_total_cost() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 open Assets:From CNY
+                1970-01-01 open Expenses:To CNY
+
+                2022-02-22 "Payee"
+                  Assets:From -5 CNY
+                  Assets:From -5 CNY
+                  Expenses:To 1 BTC @@ 10 CNY
+            "#})
+            .unwrap();
+
+            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(
+                &BigDecimal::from(-10i32),
+                ledger
+                    .snapshot
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+            assert_eq!(
+                &BigDecimal::from(1i32),
+                ledger
+                    .snapshot
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("BTC")
                     .unwrap()
             );
         }

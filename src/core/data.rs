@@ -3,11 +3,11 @@ use crate::core::amount::Amount;
 use crate::core::inventory::AccountName;
 use crate::core::ledger::AccountSnapshot;
 use crate::core::models::{Flag, StringOrAccount, ZhangString};
-use bigdecimal::{BigDecimal, Zero};
+use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
-use std::ops::{AddAssign, Mul, Neg};
+use std::ops::Mul;
 
 pub type Meta = HashMap<String, ZhangString>;
 
@@ -103,10 +103,7 @@ impl Transaction {
     pub fn txn_postings(&self) -> Vec<TxnPosting> {
         self.postings
             .iter()
-            .map(|posting| TxnPosting {
-                txn: &self,
-                posting,
-            })
+            .map(|posting| TxnPosting { txn: self, posting })
             .collect_vec()
     }
 }
@@ -129,7 +126,7 @@ impl<'a> TxnPosting<'a> {
                 .filter(|it| it.posting.units.is_some())
                 .map(|it| it.costs())
                 .collect_vec();
-            let mut snapshot = AccountSnapshot::new();
+            let mut snapshot = AccountSnapshot::default();
             for x in vec {
                 snapshot.add_amount(x)
             }
@@ -143,7 +140,7 @@ impl<'a> TxnPosting<'a> {
         } else {
             match (&self.posting.units, &self.posting.price) {
                 (Some(unit), Some(price)) => {
-                    Amount::new((&(&unit).number).mul(&price.number), price.currency.clone())
+                    Amount::new((&unit.number).mul(&price.number), price.currency.clone())
                 }
                 _ => self.units(),
             }
