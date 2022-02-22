@@ -1,12 +1,15 @@
+use crate::core::amount::Amount;
 use crate::core::data::Commodity;
 use crate::core::inventory::{AccountName, Currency};
 use crate::core::models::Directive;
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
+use bigdecimal::{BigDecimal, Zero};
 use itertools::Itertools;
-use log::debug;
+use log::{debug, error};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::ops::Add;
 use std::path::PathBuf;
 
 #[derive(Debug, PartialEq)]
@@ -24,12 +27,37 @@ pub struct CurrencyInfo {
     pub commodity: Commodity,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct AccountSnapshot {
+    inner: HashMap<Currency, BigDecimal>,
+}
+
+impl AccountSnapshot {
+    pub fn add_amount(&mut self, amount: Amount) {
+        let decimal1 = BigDecimal::zero();
+        let x = self.inner.get(&amount.currency).unwrap_or(&decimal1);
+        let decimal = (x).add(&amount.number);
+        self.inner.insert(amount.currency, decimal);
+    }
+    pub fn snapshot(&self) -> AccountSnapshot {
+        self.clone()
+    }
+    pub fn pop(&mut self) -> Option<Amount> {
+        self.inner
+            .drain()
+            .take(1)
+            .next()
+            .map(|(currency, number)| Amount::new(number, currency))
+    }
+}
+
 #[derive(Debug)]
 pub struct Ledger {
     pub(crate) directives: Vec<Directive>,
     pub metas: Vec<Directive>,
     pub accounts: HashMap<AccountName, AccountInfo>,
     pub currencies: HashMap<Currency, CurrencyInfo>,
+    pub snapshot: HashMap<AccountName, AccountSnapshot>,
 }
 
 impl Ledger {
@@ -78,6 +106,7 @@ impl Ledger {
         let directives = Ledger::sort_directives_datetime(dated_directive);
         let mut accounts = HashMap::default();
         let mut currencies = HashMap::default();
+        let mut snapshot: HashMap<AccountName, AccountSnapshot> = HashMap::default();
         for directive in &directives {
             match directive {
                 Directive::Open(open) => {
@@ -108,7 +137,17 @@ impl Ledger {
                             commodity: commodity.clone(),
                         });
                 }
-                Directive::Transaction(_) => {}
+                Directive::Transaction(trx) => {
+                    if trx.is_balance() {
+                        error!("trx is not balanced");
+                    }
+                    for txn_posting in trx.txn_postings() {
+                        let target_account_snapshot = snapshot
+                            .entry(txn_posting.account_name())
+                            .or_insert_with(AccountSnapshot::default);
+                        target_account_snapshot.add_amount(txn_posting.units());
+                    }
+                }
                 Directive::Balance(_) => {}
                 Directive::Pad(_) => {}
                 Directive::Note(_) => {}
@@ -116,10 +155,7 @@ impl Ledger {
                 Directive::Price(_) => {}
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
-                Directive::Option(_) => {}
-                Directive::Plugin(_) => {}
-                Directive::Include(_) => {}
-                Directive::Comment(_) => {}
+                _ => {}
             }
         }
         Ok(Self {
@@ -127,6 +163,7 @@ impl Ledger {
             directives,
             accounts,
             currencies,
+            snapshot,
         })
     }
 
@@ -351,11 +388,9 @@ mod test {
             let include = temp_dir.join("include.zhang");
             std::fs::write(
                 &include,
-                indoc! {
-                    r#"
-                option "description" "Example Description"
-            "#
-                },
+                indoc! {r#"
+                    option "description" "Example Description"
+                "#},
             )
             .unwrap();
             let ledger = Ledger::load(dbg!(example)).unwrap();
@@ -368,6 +403,227 @@ mod test {
                 ledger.metas
             );
             assert_eq!(0, ledger.directives.len());
+        }
+    }
+
+    mod account_snapshot {
+        use crate::core::amount::Amount;
+        use crate::core::ledger::AccountSnapshot;
+        use bigdecimal::BigDecimal;
+
+        #[test]
+        fn should_add_to_inner() {
+            let mut snapshot = AccountSnapshot {
+                inner: Default::default(),
+            };
+            snapshot.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
+
+            assert_eq!(1, snapshot.inner.len());
+            assert_eq!(&BigDecimal::from(1i32), snapshot.inner.get("CNY").unwrap())
+        }
+
+        #[test]
+        fn should_snapshot_be_independent() {
+            let mut snapshot = AccountSnapshot {
+                inner: Default::default(),
+            };
+            snapshot.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
+
+            let new_snapshot = snapshot.snapshot();
+
+            snapshot.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
+
+            assert_eq!(1, snapshot.inner.len());
+            assert_eq!(&BigDecimal::from(2i32), snapshot.inner.get("CNY").unwrap());
+
+            assert_eq!(1, new_snapshot.inner.len());
+            assert_eq!(
+                &BigDecimal::from(1i32),
+                new_snapshot.inner.get("CNY").unwrap()
+            )
+        }
+    }
+    mod txn {
+        use crate::core::ledger::Ledger;
+        use bigdecimal::BigDecimal;
+        use indoc::indoc;
+
+        #[test]
+        fn should_record_amount_into_snapshot() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 open Assets:From CNY
+                1970-01-01 open Expenses:To CNY
+
+                2022-02-22 "Payee"
+                  Assets:From -10 CNY
+                  Expenses:To 10 CNY
+            "#})
+            .unwrap();
+
+            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(
+                &BigDecimal::from(-10i32),
+                ledger
+                    .snapshot
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+            assert_eq!(
+                &BigDecimal::from(10i32),
+                ledger
+                    .snapshot
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+        }
+
+        #[test]
+        fn should_record_amount_into_snapshot_given_none_unit_posting_and_single_unit_posting() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 open Assets:From CNY
+                1970-01-01 open Expenses:To CNY
+
+                2022-02-22 "Payee"
+                  Assets:From -10 CNY
+                  Expenses:To
+            "#})
+            .unwrap();
+
+            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(
+                &BigDecimal::from(-10i32),
+                ledger
+                    .snapshot
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+            assert_eq!(
+                &BigDecimal::from(10i32),
+                ledger
+                    .snapshot
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+        }
+
+        #[test]
+        fn should_record_amount_into_snapshot_given_none_unit_posting_and_more_unit_postings() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 open Assets:From CNY
+                1970-01-01 open Expenses:To CNY
+
+                2022-02-22 "Payee"
+                  Assets:From -5 CNY
+                  Assets:From -5 CNY
+                  Expenses:To
+            "#})
+            .unwrap();
+
+            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(
+                &BigDecimal::from(-10i32),
+                ledger
+                    .snapshot
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+            assert_eq!(
+                &BigDecimal::from(10i32),
+                ledger
+                    .snapshot
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+        }
+
+        #[test]
+        fn should_record_amount_into_snapshot_given_unit_postings_and_total_cost() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 open Assets:From CNY
+                1970-01-01 open Expenses:To CNY
+
+                2022-02-22 "Payee"
+                  Assets:From -5 CNY
+                  Assets:From -5 CNY
+                  Expenses:To 1 BTC @@ 10 CNY
+            "#})
+            .unwrap();
+
+            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(
+                &BigDecimal::from(-10i32),
+                ledger
+                    .snapshot
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+            assert_eq!(
+                &BigDecimal::from(1i32),
+                ledger
+                    .snapshot
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("BTC")
+                    .unwrap()
+            );
+        }
+
+        #[test]
+        fn should_record_amount_into_snapshot_given_unit_postings_and_single_cost() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 open Assets:From CNY
+                1970-01-01 open Expenses:To CNY2
+
+                2022-02-22 "Payee"
+                  Assets:From -5 CNY
+                  Assets:From -5 CNY
+                  Expenses:To 10 CNY2 @ 1 CNY
+            "#})
+            .unwrap();
+
+            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(
+                &BigDecimal::from(-10i32),
+                ledger
+                    .snapshot
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+            assert_eq!(
+                &BigDecimal::from(10i32),
+                ledger
+                    .snapshot
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY2")
+                    .unwrap()
+            );
         }
     }
 }

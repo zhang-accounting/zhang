@@ -37,6 +37,9 @@ impl Amount {
             currency: self.currency.clone(),
         }
     }
+    pub fn neg(&self) -> Amount {
+        Amount::new((&(self.number)).neg(), self.currency.clone())
+    }
 }
 
 impl ToString for Amount {
