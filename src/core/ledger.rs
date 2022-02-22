@@ -589,5 +589,41 @@ mod test {
                     .unwrap()
             );
         }
+
+        #[test]
+        fn should_record_amount_into_snapshot_given_unit_postings_and_single_cost() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 open Assets:From CNY
+                1970-01-01 open Expenses:To CNY2
+
+                2022-02-22 "Payee"
+                  Assets:From -5 CNY
+                  Assets:From -5 CNY
+                  Expenses:To 10 CNY2 @ 1 CNY
+            "#})
+            .unwrap();
+
+            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(
+                &BigDecimal::from(-10i32),
+                ledger
+                    .snapshot
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+            assert_eq!(
+                &BigDecimal::from(10i32),
+                ledger
+                    .snapshot
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY2")
+                    .unwrap()
+            );
+        }
     }
 }
