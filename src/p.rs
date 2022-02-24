@@ -9,8 +9,8 @@ use snailquote::unescape;
 use crate::core::account::{Account, AccountType};
 use crate::core::amount::Amount;
 use crate::core::data::{
-    Balance, Close, Comment, Commodity, Custom, Date, Document, Event, Include, Note, Open,
-    Options, Plugin, Posting, Price, Transaction,
+    Balance, BalanceCheck, BalancePad, Close, Comment, Commodity, Custom, Date, Document, Event,
+    Include, Note, Open, Options, Plugin, Posting, Price, Transaction,
 };
 use crate::core::models::{Directive, Flag, SingleTotalPrice, StringOrAccount, ZhangString};
 
@@ -413,17 +413,30 @@ impl ZhangParser {
     }
 
     fn balance(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, BigDecimal, String) = match_nodes!(input.into_children();
-            [date(date), account_name(name), number(amount), commodity_name(commodity)] => (date, name, amount, commodity),
+        let ret: (Date, Account, BigDecimal, String, Option<Account>) = match_nodes!(input.into_children();
+            [date(date), account_name(name), number(amount), commodity_name(commodity)] => (date, name, amount, commodity, None),
+            [date(date), account_name(name), number(amount), commodity_name(commodity), account_name(pad)] => (date, name, amount, commodity, Some(pad)),
         );
-        Ok(Directive::Balance(Balance {
-            date: ret.0,
-            account: ret.1,
-            amount: Amount::new(ret.2, ret.3),
-            tolerance: None,
-            diff_amount: None,
-            meta: Default::default(),
-        }))
+        if let Some(pad) = ret.4 {
+            Ok(Directive::Balance(Balance::BalancePad(BalancePad {
+                date: ret.0,
+                account: ret.1,
+                amount: Amount::new(ret.2, ret.3),
+                tolerance: None,
+                diff_amount: None,
+                pad,
+                meta: Default::default(),
+            })))
+        } else {
+            Ok(Directive::Balance(Balance::BalanceCheck(BalanceCheck {
+                date: ret.0,
+                account: ret.1,
+                amount: Amount::new(ret.2, ret.3),
+                tolerance: None,
+                diff_amount: None,
+                meta: Default::default(),
+            })))
+        }
     }
 
     fn document(input: Node) -> Result<Directive> {
@@ -494,9 +507,11 @@ pub fn parse_account(input_str: &str) -> Result<Account> {
 #[cfg(test)]
 mod test {
     use crate::core::account::Account;
-    use crate::core::data::{Date, Open};
+    use crate::core::amount::Amount;
+    use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Open};
     use crate::core::models::Directive;
     use crate::parse_zhang;
+    use bigdecimal::BigDecimal;
     use chrono::NaiveDate;
     use std::str::FromStr;
 
@@ -512,6 +527,41 @@ mod test {
                 meta: Default::default()
             }),
             directive
+        )
+    }
+
+    #[test]
+    fn should_parse_balance_check_and_balance_pad() {
+        let balance = parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY")
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            Directive::Balance(Balance::BalanceCheck(BalanceCheck {
+                date: Date::DateHour(NaiveDate::from_ymd(2101, 10, 10).and_hms(10, 10, 0)),
+                account: Account::from_str("Assets:Hello").unwrap(),
+                amount: Amount::new(BigDecimal::from(123i32), "CNY"),
+                tolerance: None,
+                diff_amount: None,
+                meta: Default::default()
+            })),
+            balance
+        );
+
+        let balance =
+            parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY with pad Income:Earnings")
+                .unwrap()
+                .remove(0);
+        assert_eq!(
+            Directive::Balance(Balance::BalancePad(BalancePad {
+                date: Date::DateHour(NaiveDate::from_ymd(2101, 10, 10).and_hms(10, 10, 0)),
+                account: Account::from_str("Assets:Hello").unwrap(),
+                amount: Amount::new(BigDecimal::from(123i32), "CNY"),
+                tolerance: None,
+                diff_amount: None,
+                pad: Account::from_str("Income:Earnings").unwrap(),
+                meta: Default::default()
+            })),
+            balance
         )
     }
 }

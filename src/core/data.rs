@@ -58,7 +58,13 @@ pub struct Commodity {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Balance {
+pub enum Balance {
+    BalanceCheck(BalanceCheck),
+    BalancePad(BalancePad),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct BalanceCheck {
     pub date: Date,
     pub account: Account,
     pub amount: Amount,
@@ -67,6 +73,20 @@ pub struct Balance {
     /// None if the balance check succeeds. This value is set to
     /// an Amount instance if the balance fails, the amount of the difference.
     pub diff_amount: Option<Amount>,
+    pub meta: Meta,
+}
+#[derive(Debug, PartialEq)]
+pub struct BalancePad {
+    pub date: Date,
+    pub account: Account,
+    pub amount: Amount,
+    /// the amount of tolerance to use in the verification.
+    pub tolerance: Option<BigDecimal>,
+    /// None if the balance check succeeds. This value is set to
+    /// an Amount instance if the balance fails, the amount of the difference.
+    pub diff_amount: Option<Amount>,
+    pub pad: Account,
+
     pub meta: Meta,
 }
 

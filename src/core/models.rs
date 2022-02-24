@@ -34,7 +34,10 @@ impl Directive {
             Directive::Close(close) => Some(close.date.naive_datetime()),
             Directive::Commodity(commodity) => Some(commodity.date.naive_datetime()),
             Directive::Transaction(txn) => Some(txn.date.naive_datetime()),
-            Directive::Balance(balance) => Some(balance.date.naive_datetime()),
+            Directive::Balance(balance) => Some(match balance {
+                Balance::BalanceCheck(check) => check.date.naive_datetime(),
+                Balance::BalancePad(pad) => pad.date.naive_datetime(),
+            }),
             Directive::Note(note) => Some(note.date.naive_datetime()),
             Directive::Document(document) => Some(document.date.naive_datetime()),
             Directive::Price(price) => Some(price.date.naive_datetime()),
