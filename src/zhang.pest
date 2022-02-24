@@ -1,6 +1,6 @@
 entry = {SOI ~ line* ~ (item ~ NEWLINE+)* ~ item? ~ EOI}
 
-item  = {option | plugin | commodity | open | close| include | note | pad | balance | document | price | event | custom | transaction | comment}
+item  = {option | plugin | commodity | open | close| include | note | balance | document | price | event | custom | transaction | comment}
 
 option = {"option" ~ space+ ~ string ~ space+ ~  string}
 plugin = {"plugin" ~ space+ ~ string ~  (space+ ~ string )* }
@@ -9,7 +9,6 @@ open = {date ~ space+ ~ "open" ~ space+ ~ account_name ~ ( space+ ~commodity_nam
 close = {date ~ space+ ~ "close" ~ space+ ~ account_name }
 include = {"include" ~ space+ ~ quote_string }
 note = {date ~ space+ ~ "note" ~ space+ ~ account_name ~ space+ ~ string}
-pad = {date ~ space+ ~ "pad" ~ space+ ~ account_name ~ space+ ~ account_name}
 balance = {date ~ space+ ~ "balance" ~ space+ ~ account_name ~ space+ ~ number ~ space+ ~ commodity_name}
 document = {date ~ space+ ~ "document" ~ space+ ~ account_name ~ space+ ~ string}
 price = {date ~ space+ ~ "price" ~ space+ ~ commodity_name ~ space+ ~ number ~ space+ ~ commodity_name}

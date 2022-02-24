@@ -5,7 +5,7 @@ use strum_macros::EnumString;
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{
-    Balance, Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Pad,
+    Balance, Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options,
     Plugin, Price, Transaction,
 };
 
@@ -16,7 +16,6 @@ pub enum Directive {
     Commodity(Commodity),
     Transaction(Transaction),
     Balance(Balance),
-    Pad(Pad),
     Note(Note),
     Document(Document),
     Price(Price),
@@ -36,7 +35,6 @@ impl Directive {
             Directive::Commodity(commodity) => Some(commodity.date.naive_datetime()),
             Directive::Transaction(txn) => Some(txn.date.naive_datetime()),
             Directive::Balance(balance) => Some(balance.date.naive_datetime()),
-            Directive::Pad(pad) => Some(pad.date.naive_datetime()),
             Directive::Note(note) => Some(note.date.naive_datetime()),
             Directive::Document(document) => Some(document.date.naive_datetime()),
             Directive::Price(price) => Some(price.date.naive_datetime()),

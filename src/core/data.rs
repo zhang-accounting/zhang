@@ -58,14 +58,6 @@ pub struct Commodity {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Pad {
-    pub date: Date,
-    pub account: Account,
-    pub source: Account,
-    pub meta: Meta,
-}
-
-#[derive(Debug, PartialEq)]
 pub struct Balance {
     pub date: Date,
     pub account: Account,

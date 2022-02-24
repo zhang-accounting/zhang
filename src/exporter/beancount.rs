@@ -46,7 +46,6 @@ fn convert_datetime_to_date(directive: Directive) -> Directive {
             Directive::Transaction(convert_to_datetime!(directive))
         }
         Directive::Balance(mut directive) => Directive::Balance(convert_to_datetime!(directive)),
-        Directive::Pad(mut directive) => Directive::Pad(convert_to_datetime!(directive)),
         Directive::Note(mut directive) => Directive::Note(convert_to_datetime!(directive)),
         Directive::Document(mut directive) => Directive::Document(convert_to_datetime!(directive)),
         Directive::Price(mut directive) => Directive::Price(convert_to_datetime!(directive)),
