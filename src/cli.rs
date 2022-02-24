@@ -40,7 +40,7 @@ impl Opts {
         match self {
             Opts::Importer(importer) => importer.run(),
             Opts::Parse(file) => {
-                Ledger::load(file.file).expect("Cannot load ledger");
+                dbg!(Ledger::load(file.file).expect("Cannot load ledger"));
             }
             Opts::Exporter(opts) => opts.run(),
         }
