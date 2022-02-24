@@ -1,4 +1,4 @@
-use crate::core::data::Date;
+use crate::core::data::{Balance, Date};
 use crate::core::models::Directive;
 use crate::error::ZhangResult;
 
@@ -45,7 +45,50 @@ fn convert_datetime_to_date(directive: Directive) -> Directive {
         Directive::Transaction(mut directive) => {
             Directive::Transaction(convert_to_datetime!(directive))
         }
-        Directive::Balance(mut directive) => Directive::Balance(convert_to_datetime!(directive)),
+        Directive::Balance(mut directive) => Directive::Balance(match &mut directive {
+            Balance::BalanceCheck(check) => match check.date {
+                Date::Date(_) => directive,
+                Date::DateHour(date_hour) => {
+                    let (date, time) = (date_hour.date(), date_hour.time());
+                    check.date = Date::Date(date);
+                    check.meta.insert(
+                        "time".to_string(),
+                        ZhangString::QuoteString(time.format("%H:%M:%S").to_string()),
+                    );
+                    directive
+                }
+                Date::Datetime(datetime) => {
+                    let (date, time) = (datetime.date(), datetime.time());
+                    check.date = Date::Date(date);
+                    check.meta.insert(
+                        "time".to_string(),
+                        ZhangString::QuoteString(time.format("%H:%M:%S").to_string()),
+                    );
+                    directive
+                }
+            },
+            Balance::BalancePad(pad) => match pad.date {
+                Date::Date(_) => directive,
+                Date::DateHour(date_hour) => {
+                    let (date, time) = (date_hour.date(), date_hour.time());
+                    pad.date = Date::Date(date);
+                    pad.meta.insert(
+                        "time".to_string(),
+                        ZhangString::QuoteString(time.format("%H:%M:%S").to_string()),
+                    );
+                    directive
+                }
+                Date::Datetime(datetime) => {
+                    let (date, time) = (datetime.date(), datetime.time());
+                    pad.date = Date::Date(date);
+                    pad.meta.insert(
+                        "time".to_string(),
+                        ZhangString::QuoteString(time.format("%H:%M:%S").to_string()),
+                    );
+                    directive
+                }
+            },
+        }),
         Directive::Note(mut directive) => Directive::Note(convert_to_datetime!(directive)),
         Directive::Document(mut directive) => Directive::Document(convert_to_datetime!(directive)),
         Directive::Price(mut directive) => Directive::Price(convert_to_datetime!(directive)),

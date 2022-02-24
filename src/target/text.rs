@@ -162,13 +162,28 @@ impl ZhangTarget<String> for Commodity {
 
 impl ZhangTarget<String> for Balance {
     fn to_target(self) -> String {
-        let line = vec![
-            self.date.to_target(),
-            "balance".to_string(),
-            self.account.to_target(),
-            self.amount.to_target(),
-        ];
-        append_meta(self.meta, line.join(" "))
+        match self {
+            Balance::BalanceCheck(check) => {
+                let line = vec![
+                    check.date.to_target(),
+                    "balance".to_string(),
+                    check.account.to_target(),
+                    check.amount.to_target(),
+                ];
+                append_meta(check.meta, line.join(" "))
+            }
+            Balance::BalancePad(pad) => {
+                let line = vec![
+                    pad.date.to_target(),
+                    "balance".to_string(),
+                    pad.account.to_target(),
+                    pad.amount.to_target(),
+                    "with pad".to_string(),
+                    pad.pad.to_target(),
+                ];
+                append_meta(pad.meta, line.join(" "))
+            }
+        }
     }
 }
 
