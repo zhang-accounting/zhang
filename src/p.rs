@@ -10,7 +10,7 @@ use crate::core::account::{Account, AccountType};
 use crate::core::amount::Amount;
 use crate::core::data::{
     Balance, Close, Comment, Commodity, Custom, Date, Document, Event, Include, Note, Open,
-    Options, Pad, Plugin, Posting, Price, Transaction,
+    Options, Plugin, Posting, Price, Transaction,
 };
 use crate::core::models::{Directive, Flag, SingleTotalPrice, StringOrAccount, ZhangString};
 
@@ -400,18 +400,6 @@ impl ZhangParser {
         }))
     }
 
-    fn pad(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, Account) = match_nodes!(input.into_children();
-            [date(date), account_name(from), account_name(to)] => (date, from, to),
-        );
-        Ok(Directive::Pad(Pad {
-            date: ret.0,
-            account: ret.1,
-            source: ret.2,
-            meta: Default::default(),
-        }))
-    }
-
     fn event(input: Node) -> Result<Directive> {
         let ret: (Date, ZhangString, ZhangString) = match_nodes!(input.into_children();
             [date(date), string(name), string(value)] => (date, name, value),
@@ -472,7 +460,6 @@ impl ZhangParser {
             [close(item)] => item,
             [include(item)] => item,
             [note(item)] => item,
-            [pad(item)] => item,
             [event(item)] => item,
             [document(item)] => item,
             [balance(item)] => item,

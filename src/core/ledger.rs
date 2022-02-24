@@ -164,7 +164,6 @@ impl Ledger {
                     }
                 }
                 Directive::Balance(_) => {}
-                Directive::Pad(_) => {}
                 Directive::Note(_) => {}
                 Directive::Document(_) => {}
                 Directive::Price(_) => {}

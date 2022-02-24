@@ -4,7 +4,7 @@ use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{
     Balance, Close, Comment, Commodity, Custom, Date, Document, Event, Include, Meta, Note, Open,
-    Options, Pad, Plugin, Posting, Price, Transaction,
+    Options, Plugin, Posting, Price, Transaction,
 };
 use crate::core::ledger::Ledger;
 use crate::core::models::{Directive, Flag, StringOrAccount, ZhangString};
@@ -172,18 +172,6 @@ impl ZhangTarget<String> for Balance {
     }
 }
 
-impl ZhangTarget<String> for Pad {
-    fn to_target(self) -> String {
-        let line = vec![
-            self.date.to_target(),
-            "pad".to_string(),
-            self.account.to_target(),
-            self.source.to_target(),
-        ];
-        append_meta(self.meta, line.join(" "))
-    }
-}
-
 impl ZhangTarget<String> for Note {
     fn to_target(self) -> String {
         let line = vec![
@@ -293,7 +281,6 @@ impl ZhangTarget<String> for Directive {
             Directive::Commodity(commodity) => commodity.to_target(),
             Directive::Transaction(txn) => txn.to_target(),
             Directive::Balance(balance) => balance.to_target(),
-            Directive::Pad(pad) => pad.to_target(),
             Directive::Note(note) => note.to_target(),
             Directive::Document(document) => document.to_target(),
             Directive::Price(price) => price.to_target(),
