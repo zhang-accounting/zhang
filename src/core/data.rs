@@ -26,6 +26,13 @@ impl Date {
             Date::Datetime(datetime) => *datetime,
         }
     }
+    pub fn naive_date(&self) -> NaiveDate {
+        match self {
+            Date::Date(date) => *date,
+            Date::DateHour(date_hour) => date_hour.date(),
+            Date::Datetime(datetime) => datetime.date(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]

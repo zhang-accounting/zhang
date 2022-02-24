@@ -5,6 +5,7 @@ use crate::core::models::Directive;
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
 use bigdecimal::{BigDecimal, Zero};
+use chrono::NaiveDate;
 use itertools::Itertools;
 use log::{debug, error};
 use std::cmp::Ordering;
@@ -58,6 +59,7 @@ pub struct Ledger {
     pub accounts: HashMap<AccountName, AccountInfo>,
     pub currencies: HashMap<Currency, CurrencyInfo>,
     pub snapshot: HashMap<AccountName, AccountSnapshot>,
+    pub daily_snapshot: HashMap<NaiveDate, HashMap<AccountName, AccountSnapshot>>,
 }
 
 impl Ledger {
@@ -107,6 +109,9 @@ impl Ledger {
         let mut accounts = HashMap::default();
         let mut currencies = HashMap::default();
         let mut snapshot: HashMap<AccountName, AccountSnapshot> = HashMap::default();
+        let mut daily_snapshot: HashMap<NaiveDate, HashMap<AccountName, AccountSnapshot>> =
+            HashMap::default();
+        let mut target_day: Option<NaiveDate> = None;
         for directive in &directives {
             match directive {
                 Directive::Open(open) => {
@@ -141,6 +146,16 @@ impl Ledger {
                     if trx.is_balance() {
                         error!("trx is not balanced");
                     }
+                    let date = trx.date.naive_date();
+                    if let Some(target_day_inner) = target_day {
+                        if date.ne(&target_day_inner) {
+                            daily_snapshot.insert(target_day_inner, snapshot.clone());
+                            target_day = Some(date);
+                        }
+                    } else {
+                        target_day = Some(date);
+                    }
+
                     for txn_posting in trx.txn_postings() {
                         let target_account_snapshot = snapshot
                             .entry(txn_posting.account_name())
@@ -158,12 +173,16 @@ impl Ledger {
                 _ => {}
             }
         }
+        if let Some(last_day) = target_day {
+            daily_snapshot.insert(last_day, snapshot.clone());
+        }
         Ok(Self {
             metas: meta_directives,
             directives,
             accounts,
             currencies,
             snapshot,
+            daily_snapshot,
         })
     }
 
@@ -622,6 +641,49 @@ mod test {
                     .unwrap()
                     .inner
                     .get("CNY2")
+                    .unwrap()
+            );
+        }
+    }
+    mod daily_snapshot {
+        use crate::core::ledger::Ledger;
+        use bigdecimal::BigDecimal;
+        use chrono::NaiveDate;
+        use indoc::indoc;
+
+        #[test]
+        fn should_record_daily_snapshot() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                1970-01-01 open Assets:From CNY
+                1970-01-01 open Expenses:To CNY
+
+                2022-02-22 "Payee"
+                  Assets:From -10 CNY
+                  Expenses:To
+            "#})
+            .unwrap();
+
+            assert_eq!(1, ledger.daily_snapshot.len());
+            let account_snapshot = ledger
+                .daily_snapshot
+                .get(&NaiveDate::from_ymd(2022, 2, 22))
+                .unwrap();
+            assert_eq!(
+                &BigDecimal::from(-10i32),
+                account_snapshot
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
+            );
+            assert_eq!(
+                &BigDecimal::from(10i32),
+                account_snapshot
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
                     .unwrap()
             );
         }
