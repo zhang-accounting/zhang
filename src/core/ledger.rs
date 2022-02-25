@@ -1,5 +1,5 @@
 use crate::core::amount::Amount;
-use crate::core::data::Commodity;
+use crate::core::data::{Balance, Commodity};
 use crate::core::inventory::{AccountName, Currency};
 use crate::core::models::Directive;
 use crate::error::{ZhangError, ZhangResult};
@@ -10,7 +10,7 @@ use itertools::Itertools;
 use log::{debug, error};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::ops::Add;
+use std::ops::{Add, Neg, Sub};
 use std::path::PathBuf;
 
 #[derive(Debug, PartialEq)]
@@ -50,6 +50,12 @@ impl AccountSnapshot {
             .next()
             .map(|(currency, number)| Amount::new(number, currency))
     }
+    pub fn get(&self, currency: &Currency) -> BigDecimal {
+        self.inner
+            .get(currency)
+            .cloned()
+            .unwrap_or_else(BigDecimal::zero)
+    }
 }
 
 #[derive(Debug)]
@@ -70,7 +76,6 @@ impl Ledger {
         let mut visited = HashSet::new();
         let mut directives = vec![];
         while let Some(load_entity) = load_queue.pop_front() {
-            dbg!(&load_entity);
             let path = load_entity.canonicalize()?;
             debug!("visited entry file: {}", path.to_str().unwrap());
             if visited.contains(&path) {
@@ -93,7 +98,7 @@ impl Ledger {
             visited.insert(path);
             directives.extend(entity_directives)
         }
-        Ledger::process(dbg!(directives))
+        Ledger::process(directives)
     }
 
     fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Directive>> {
@@ -143,18 +148,16 @@ impl Ledger {
                         });
                 }
                 Directive::Transaction(trx) => {
-                    if trx.is_balance() {
+                    if !trx.is_balance() {
                         error!("trx is not balanced");
                     }
                     let date = trx.date.naive_date();
-                    if let Some(target_day_inner) = target_day {
-                        if date.ne(&target_day_inner) {
-                            daily_snapshot.insert(target_day_inner, snapshot.clone());
-                            target_day = Some(date);
-                        }
-                    } else {
-                        target_day = Some(date);
-                    }
+                    Self::record_daily_snapshot(
+                        &mut snapshot,
+                        &mut daily_snapshot,
+                        &mut target_day,
+                        date,
+                    );
 
                     for txn_posting in trx.txn_postings() {
                         let target_account_snapshot = snapshot
@@ -163,7 +166,56 @@ impl Ledger {
                         target_account_snapshot.add_amount(txn_posting.units());
                     }
                 }
-                Directive::Balance(_) => {}
+                Directive::Balance(balance) => match balance {
+                    Balance::BalanceCheck(balance_check) => {
+                        Self::record_daily_snapshot(
+                            &mut snapshot,
+                            &mut daily_snapshot,
+                            &mut target_day,
+                            balance_check.date.naive_date(),
+                        );
+
+                        let default = AccountSnapshot::default();
+                        let target_account_snapshot = snapshot
+                            .get(balance_check.account.name())
+                            .unwrap_or(&default);
+
+                        let decimal = target_account_snapshot.get(&balance_check.amount.currency);
+                        if decimal.ne(&balance_check.amount.number) {
+                            error!("balance error");
+                        }
+                    }
+                    Balance::BalancePad(balance_pad) => {
+                        Self::record_daily_snapshot(
+                            &mut snapshot,
+                            &mut daily_snapshot,
+                            &mut target_day,
+                            balance_pad.date.naive_date(),
+                        );
+
+                        let target_account_snapshot = snapshot
+                            .entry(balance_pad.account.name().to_string())
+                            .or_insert_with(AccountSnapshot::default);
+
+                        let source_amount =
+                            target_account_snapshot.get(&balance_pad.amount.currency);
+                        let source_target_amount = &balance_pad.amount.number;
+                        // source account
+                        let distance = source_target_amount.sub(source_amount);
+                        let neg_distance = (&distance).neg();
+                        target_account_snapshot
+                            .add_amount(Amount::new(distance, balance_pad.amount.currency.clone()));
+
+                        // add to pad
+                        let pad_account_snapshot = snapshot
+                            .entry(balance_pad.pad.name().to_string())
+                            .or_insert_with(AccountSnapshot::default);
+                        pad_account_snapshot.add_amount(Amount::new(
+                            neg_distance,
+                            balance_pad.amount.currency.clone(),
+                        ));
+                    }
+                },
                 Directive::Note(_) => {}
                 Directive::Document(_) => {}
                 Directive::Price(_) => {}
@@ -183,6 +235,22 @@ impl Ledger {
             snapshot,
             daily_snapshot,
         })
+    }
+
+    fn record_daily_snapshot(
+        snapshot: &mut HashMap<AccountName, AccountSnapshot>,
+        daily_snapshot: &mut HashMap<NaiveDate, HashMap<AccountName, AccountSnapshot>>,
+        target_day: &mut Option<NaiveDate>,
+        date: NaiveDate,
+    ) {
+        if let Some(target_day_inner) = target_day {
+            if date.ne(target_day_inner) {
+                daily_snapshot.insert(*target_day_inner, snapshot.clone());
+                *target_day = Some(date);
+            }
+        } else {
+            *target_day = Some(date);
+        }
     }
 
     pub fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
@@ -411,7 +479,7 @@ mod test {
                 "#},
             )
             .unwrap();
-            let ledger = Ledger::load(dbg!(example)).unwrap();
+            let ledger = Ledger::load(example).unwrap();
             assert_eq!(
                 test_parse_zhang(indoc! {r#"
                 option "title" "Example"
