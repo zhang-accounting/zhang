@@ -33,6 +33,11 @@ pub struct Account {
 
 impl Account {
     // todo add new account method
+
+    pub fn name(&self) -> &str {
+        &self.content
+    }
+
     /// Return parent account of the given account.
     pub fn parent(&self) -> Account {
         let parent_components: Vec<String> = self.components[0..self.components.len() - 1].to_vec();
