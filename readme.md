@@ -18,12 +18,12 @@
 - [ ] exporter
   - [x] beancount
   - [ ] sql
-- [ ] multiple file support
+- [x] multiple file support
 - [ ] parser span info
 - [ ] error msg
 - [ ] inline comment
-- [ ] profit calculation logic
-- [ ] embedded api server
+- [x] profit calculation logic
+- [x] embedded api server
   - [ ] file listener
   - [ ] convert `.zhang` file into sqlite
   - [ ] export sqlite change to `.zhang` file
