@@ -12,6 +12,7 @@ pub mod cli;
 pub mod core;
 pub mod exporter;
 pub mod importer;
+pub mod server;
 
 pub mod target;
 pub use p::parse_zhang;

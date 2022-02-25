@@ -14,6 +14,8 @@ pub enum Opts {
     /// export to target file
     #[clap(subcommand)]
     Exporter(ExportOpts),
+
+    Server(ServerOpts),
 }
 
 #[derive(Subcommand, Debug)]
@@ -35,6 +37,13 @@ pub enum ExportOpts {
     },
 }
 
+#[derive(Args, Debug)]
+pub struct ServerOpts {
+    pub file: PathBuf,
+    #[clap(short, long, default_value_t = 6666)]
+    pub port: u16,
+}
+
 impl Opts {
     pub fn run(self) {
         match self {
@@ -43,6 +52,7 @@ impl Opts {
                 dbg!(Ledger::load(file.file).expect("Cannot load ledger"));
             }
             Opts::Exporter(opts) => opts.run(),
+            Opts::Server(opts) => crate::server::serve(opts).expect("cannot serve"),
         }
     }
 }
