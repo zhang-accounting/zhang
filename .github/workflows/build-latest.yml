@@ -18,7 +18,7 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       - name: frontend init
-        run: yarn init
+        run: yarn init --yes
         working-directory: ./zhang-frontend
       - name: frontend build
         run: yarn run build:modern
@@ -42,7 +42,7 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       - name: frontend init
-        run: yarn init
+        run: yarn init --yes
         working-directory: ./zhang-frontend
       - name: frontend build
         run: yarn run build:modern
