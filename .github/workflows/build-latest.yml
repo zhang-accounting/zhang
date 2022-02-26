@@ -17,6 +17,12 @@ jobs:
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+      - name: frontend init
+        run: yarn init
+        working-directory: ./zhang-frontend
+      - name: frontend build
+        run: yarn run build:modern
+        working-directory: ./zhang-frontend
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
@@ -35,6 +41,12 @@ jobs:
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+      - name: frontend init
+        run: yarn init
+        working-directory: ./zhang-frontend
+      - name: frontend build
+        run: yarn run build:modern
+        working-directory: ./zhang-frontend
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
