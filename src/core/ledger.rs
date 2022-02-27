@@ -4,33 +4,37 @@ use crate::core::inventory::{AccountName, Currency};
 use crate::core::models::Directive;
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
+use async_graphql::{Enum, Interface, OutputType, SimpleObject};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
 use itertools::Itertools;
 use log::{debug, error};
+use serde::Serialize;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::{Add, Neg, Sub};
 use std::path::PathBuf;
-use serde::{Serialize};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Clone, Enum, Copy)]
 pub enum AccountStatus {
+    /// account is open
     Open,
+    /// account is closed
     Close,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AccountInfo {
-    currencies: HashSet<Currency>,
-    status: AccountStatus,
+    pub(crate) currencies: HashSet<Currency>,
+    pub(crate) status: AccountStatus,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CurrencyInfo {
     pub commodity: Commodity,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, SimpleObject)]
 pub struct AccountSnapshot {
+    #[serde(flatten)]
     inner: HashMap<Currency, BigDecimal>,
 }
 
