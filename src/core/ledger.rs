@@ -12,6 +12,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::{Add, Neg, Sub};
 use std::path::PathBuf;
+use serde::{Serialize};
 
 #[derive(Debug, PartialEq)]
 pub enum AccountStatus {
@@ -28,7 +29,7 @@ pub struct CurrencyInfo {
     pub commodity: Commodity,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct AccountSnapshot {
     inner: HashMap<Currency, BigDecimal>,
 }

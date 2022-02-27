@@ -56,7 +56,6 @@ impl ZhangParser {
         Ok(input.as_str().to_owned())
     }
     fn account_name(input: Node) -> Result<Account> {
-        dbg!(&input.as_span());
         let r: (String, Vec<String>) = match_nodes!(input.into_children();
             [account_type(a), unquote_string(i)..] => {
                 (a, i.map(|it|it.to_plain_string()).collect())
