@@ -187,7 +187,16 @@ impl Ledger {
 
                         let decimal = target_account_snapshot.get(&balance_check.amount.currency);
                         if decimal.ne(&balance_check.amount.number) {
-                            error!("balance error");
+                            error!(
+                                "balance error: account {} balance to {} {} with distance {} {}(current is {} {})",
+                                balance_check.account.name(),
+                                &balance_check.amount.number,
+                                &balance_check.amount.currency,
+                                (&balance_check.amount.number).sub(&decimal),
+                                &balance_check.amount.currency,
+                                &decimal,
+                                &balance_check.amount.currency
+                            );
                         }
                     }
                     Balance::BalancePad(balance_pad) => {

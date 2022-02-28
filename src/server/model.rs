@@ -1,8 +1,14 @@
+use crate::core::account::Account;
+use crate::core::amount::Amount;
+use crate::core::data::{BalanceCheck, Date, Transaction};
 use crate::core::inventory::Currency;
 use crate::core::ledger::{AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo};
 use crate::server::LedgerState;
-use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema};
+use async_graphql::{Context, EmptyMutation, EmptySubscription, Interface, Object, Schema, Union};
+use bigdecimal::{BigDecimal, Zero};
+use chrono::NaiveDate;
 use itertools::Itertools;
+use std::str::FromStr;
 
 pub type LedgerSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 
@@ -56,8 +62,27 @@ impl QueryRoot {
         todo!()
     }
 
-    async fn journals(&self, ctx: &Context<'_>) -> Vec<i32>{
-        todo!()
+    async fn journals(&self, ctx: &Context<'_>) -> Vec<JournalDto> {
+        vec![
+            JournalDto::Transaction(TransactionDto(Transaction {
+                date: Date::Date(NaiveDate::from_ymd(1970, 1, 1)),
+                flag: None,
+                payee: None,
+                narration: None,
+                tags: Default::default(),
+                links: Default::default(),
+                postings: vec![],
+                meta: Default::default(),
+            })),
+            JournalDto::BalanceCheck(BalanceCheckDto(BalanceCheck {
+                date: Date::Date(NaiveDate::from_ymd(1970, 1, 1)),
+                account: Account::from_str("Assets::Hello").unwrap(),
+                amount: Amount::new(BigDecimal::zero(), "CNY"),
+                tolerance: None,
+                diff_amount: None,
+                meta: Default::default(),
+            })),
+        ]
     }
 }
 
@@ -110,6 +135,34 @@ impl CurrencyDto {
             .map(|it| it.clone().to_plain_string())
             .map(|it| it.parse::<i32>().unwrap_or(2))
             .unwrap_or(2)
+    }
+}
+
+#[derive(Interface)]
+#[graphql(field(name = "a", type = "String"))]
+pub enum JournalDto {
+    Transaction(TransactionDto),
+    BalanceCheck(BalanceCheckDto),
+}
+
+pub struct TransactionDto(Transaction);
+
+#[Object]
+impl TransactionDto {
+    async fn a(&self) -> String {
+        "a".to_string()
+    }
+}
+
+pub struct BalanceCheckDto(BalanceCheck);
+
+#[Object]
+impl BalanceCheckDto {
+    async fn a(&self) -> String {
+        "a".to_string()
+    }
+    async fn b(&self) -> String {
+        "b".to_string()
     }
 }
 

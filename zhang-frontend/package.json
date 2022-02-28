@@ -35,12 +35,16 @@
     "@/hooks": "./src/hooks"
   },
   "dependencies": {
+    "@apollo/client": "^3.5.9",
     "@chakra-ui/react": "^1.8.5",
     "@emotion/react": "^11",
     "@emotion/styled": "^11",
     "framer-motion": "^6",
+    "graphql": "^16.3.0",
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
+    "react-router": "^6.2.1",
+    "react-router-dom": "^6.2.1",
     "typescript": "^4.5.5"
   },
   "devDependencies": {

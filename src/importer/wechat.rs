@@ -126,7 +126,8 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
 
     let mut unknown_payees = HashSet::new();
 
-    for result in reader1.deserialize().skip(16) {
+    let mut ret = vec![];
+    for result in reader1.deserialize() {
         let result: Record = result?;
 
         let payee = result.payee().unwrap();
@@ -202,8 +203,7 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
             postings,
             meta,
         };
-        let string = transaction.to_target();
-        println!("{}", string);
+        ret.push(transaction);
     }
     if !unknown_payees.is_empty() {
         if loaded_config.forbid_unknown_payee {
@@ -226,6 +226,11 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
         }
         let result1 = toml::to_string(&loaded_config)?;
         std::fs::write(&config, result1)?;
+    }
+    ret.reverse();
+    for trx in ret.into_iter() {
+
+        println!("{}\n", trx.to_target());
     }
 
     Ok(())
