@@ -63,7 +63,7 @@ pub enum Balance {
     BalancePad(BalancePad),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct BalanceCheck {
     pub date: Date,
     pub account: Account,
@@ -75,7 +75,7 @@ pub struct BalanceCheck {
     pub diff_amount: Option<Amount>,
     pub meta: Meta,
 }
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct BalancePad {
     pub date: Date,
     pub account: Account,
@@ -90,7 +90,7 @@ pub struct BalancePad {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Posting {
     pub flag: Option<Flag>,
     pub account: Account,
@@ -101,7 +101,7 @@ pub struct Posting {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Transaction {
     pub date: Date,
     pub flag: Option<Flag>,
