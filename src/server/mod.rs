@@ -27,7 +27,7 @@ pub fn serve(opts: ServerOpts) -> ZhangResult<()> {
 }
 async fn start_server(opts: ServerOpts) -> ZhangResult<()> {
     let ledger = Ledger::load(opts.file)?;
-    let ledger_data = Arc::new(RwLock::new(dbg!(ledger)));
+    let ledger_data = Arc::new(RwLock::new(ledger));
 
     let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
         .data(ledger_data.clone())

@@ -15,7 +15,7 @@ price = {date ~ space+ ~ "price" ~ space+ ~ commodity_name ~ space+ ~ number ~ s
 event = {date ~ space+ ~ "event" ~ space+ ~ string ~ space+ ~ string}
 custom = {date ~ space+ ~ "custom" ~ space+ ~ string ~ ( space+ ~ string_or_account)+}
 transaction = {date ~ transaction_flag? ~ (space+ ~ quote_string){0,2} ~  tags? ~ links? ~ transaction_detail}
-comment = {(";" | "*") ~ (!line ~ ANY)*}
+comment = {(";" | "*" | "#" | "//") ~ (!line ~ ANY)*}
 
 transaction_flag = { space+ ~ ("!" | "*") }
 tags = {tag*}
@@ -68,6 +68,7 @@ char = {
     !("\"" | "\\") ~ ANY
     | "\\" ~ ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
     | "\\" ~ ("u" ~ ASCII_HEX_DIGIT{4})
+    | "\\" ~ ("u" ~ "{" ~ ASCII_HEX_DIGIT{4} ~ "}")
 }
 
 space = _{ " " | "\t" }
