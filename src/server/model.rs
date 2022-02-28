@@ -1,8 +1,9 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::data::{BalanceCheck, Date, Transaction};
+use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction};
 use crate::core::inventory::Currency;
 use crate::core::ledger::{AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo};
+use crate::core::models::Directive;
 use crate::server::LedgerState;
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Interface, Object, Schema, Union};
 use bigdecimal::{BigDecimal, Zero};
@@ -63,26 +64,26 @@ impl QueryRoot {
     }
 
     async fn journals(&self, ctx: &Context<'_>) -> Vec<JournalDto> {
-        vec![
-            JournalDto::Transaction(TransactionDto(Transaction {
-                date: Date::Date(NaiveDate::from_ymd(1970, 1, 1)),
-                flag: None,
-                payee: None,
-                narration: None,
-                tags: Default::default(),
-                links: Default::default(),
-                postings: vec![],
-                meta: Default::default(),
-            })),
-            JournalDto::BalanceCheck(BalanceCheckDto(BalanceCheck {
-                date: Date::Date(NaiveDate::from_ymd(1970, 1, 1)),
-                account: Account::from_str("Assets::Hello").unwrap(),
-                amount: Amount::new(BigDecimal::zero(), "CNY"),
-                tolerance: None,
-                diff_amount: None,
-                meta: Default::default(),
-            })),
-        ]
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage
+            .directives
+            .iter()
+            .filter_map(|directive| match directive {
+                Directive::Transaction(trx) => {
+                    Some(JournalDto::Transaction(TransactionDto(trx.clone())))
+                }
+                Directive::Balance(balance) => match balance {
+                    Balance::BalanceCheck(check) => {
+                        Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone())))
+                    }
+                    Balance::BalancePad(pad) => {
+                        Some(JournalDto::BalancePad(BalancePadDto(pad.clone())))
+                    }
+                },
+                _ => None,
+            })
+            .rev()
+            .collect_vec()
     }
 }
 
@@ -139,18 +140,25 @@ impl CurrencyDto {
 }
 
 #[derive(Interface)]
-#[graphql(field(name = "a", type = "String"))]
+#[graphql(field(name = "date", type = "String"))]
 pub enum JournalDto {
     Transaction(TransactionDto),
     BalanceCheck(BalanceCheckDto),
+    BalancePad(BalancePadDto),
 }
 
 pub struct TransactionDto(Transaction);
 
 #[Object]
 impl TransactionDto {
-    async fn a(&self) -> String {
-        "a".to_string()
+    async fn date(&self) -> String {
+        self.0.date.naive_date().to_string()
+    }
+    async fn payee(&self) -> Option<String> {
+        self.0.payee.clone().map(|it| it.to_plain_string())
+    }
+    async fn narration(&self) -> Option<String> {
+        self.0.narration.clone().map(|it| it.to_plain_string())
     }
 }
 
@@ -158,11 +166,17 @@ pub struct BalanceCheckDto(BalanceCheck);
 
 #[Object]
 impl BalanceCheckDto {
-    async fn a(&self) -> String {
-        "a".to_string()
+    async fn date(&self) -> String {
+        self.0.date.naive_date().to_string()
     }
-    async fn b(&self) -> String {
-        "b".to_string()
+}
+
+pub struct BalancePadDto(BalancePad);
+
+#[Object]
+impl BalancePadDto {
+    async fn date(&self) -> String {
+        self.0.date.naive_date().to_string()
     }
 }
 

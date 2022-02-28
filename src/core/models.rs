@@ -77,7 +77,7 @@ pub enum SingleTotalPrice {
     Total(Amount),
 }
 
-#[derive(EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize)]
+#[derive(EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize, Clone)]
 pub enum Flag {
     #[strum(serialize = "*", to_string = "*")]
     Okay,
