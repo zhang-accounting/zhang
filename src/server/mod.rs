@@ -11,6 +11,8 @@ use axum::{AddExtensionLayer, Json, Router, routing::get};
 use log::info;
 use rust_embed::RustEmbed;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use model::{LedgerSchema, QueryRoot};
@@ -58,10 +60,12 @@ async fn graphql_handler(schema: Extension<LedgerSchema>, req: Json<Request>) ->
 
 async fn serve_frontend(uri: Uri) -> impl IntoResponse {
     let mut path = uri.path().trim_start_matches('/').to_string();
-    if path.is_empty() {
-        path = "index.html".to_string();
+    let buf = PathBuf::from_str(&path).unwrap();
+     if buf.extension().is_some() {
+        StaticFile(path)
+    }else {
+        StaticFile("index.html".to_string())
     }
-    StaticFile(path)
 }
 
 #[derive(RustEmbed)]
