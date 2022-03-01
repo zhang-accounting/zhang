@@ -72,7 +72,8 @@ pub struct BalanceCheck {
     pub tolerance: Option<BigDecimal>,
     /// None if the balance check succeeds. This value is set to
     /// an Amount instance if the balance fails, the amount of the difference.
-    pub diff_amount: Option<Amount>,
+    pub distance: Option<Amount>,
+    pub current_amount: Option<Amount>,
     pub meta: Meta,
 }
 #[derive(Debug, PartialEq, Clone)]
@@ -129,8 +130,8 @@ impl Transaction {
 
 #[derive(Debug, PartialEq)]
 pub struct TxnPosting<'a> {
-    txn: &'a Transaction,
-    posting: &'a Posting,
+    pub(crate) txn: &'a Transaction,
+    pub(crate) posting: &'a Posting,
 }
 
 impl<'a> TxnPosting<'a> {

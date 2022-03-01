@@ -115,14 +115,14 @@ impl Ledger {
         let (meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) = directives
             .into_iter()
             .partition(|it| it.datetime().is_none());
-        let directives = Ledger::sort_directives_datetime(dated_directive);
+        let mut directives = Ledger::sort_directives_datetime(dated_directive);
         let mut accounts = HashMap::default();
         let mut currencies = HashMap::default();
         let mut snapshot: HashMap<AccountName, AccountSnapshot> = HashMap::default();
         let mut daily_snapshot: HashMap<NaiveDate, HashMap<AccountName, AccountSnapshot>> =
             HashMap::default();
         let mut target_day: Option<NaiveDate> = None;
-        for directive in &directives {
+        for directive in &mut directives {
             match directive {
                 Directive::Open(open) => {
                     let account_info = accounts
@@ -186,7 +186,15 @@ impl Ledger {
                             .unwrap_or(&default);
 
                         let decimal = target_account_snapshot.get(&balance_check.amount.currency);
+                        balance_check.current_amount = Some(Amount::new(
+                            decimal.clone(),
+                            balance_check.amount.currency.clone(),
+                        ));
                         if decimal.ne(&balance_check.amount.number) {
+                            balance_check.distance = Some(Amount::new(
+                                (&balance_check.amount.number).sub(&decimal),
+                                balance_check.amount.currency.clone(),
+                            ));
                             error!(
                                 "balance error: account {} balance to {} {} with distance {} {}(current is {} {})",
                                 balance_check.account.name(),
