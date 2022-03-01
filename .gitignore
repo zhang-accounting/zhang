@@ -5,4 +5,4 @@ personal.zhang
 wechat_config.toml
 zhang-frontend/node_modules
 zhang-frontend/dist
-zhang-frontend/
+zhang-frontend/.parcel-cache
