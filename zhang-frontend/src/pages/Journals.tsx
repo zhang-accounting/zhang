@@ -1,53 +1,76 @@
+import BalanceCheckLine from "@/components/BalanceCheckLine";
+import BalancePadLine from "@/components/BalancePadLine";
+import TransactionLine from "@/components/TransactionLine";
 import { gql, useQuery } from "@apollo/client";
-import { Link } from "react-router-dom";
+import { Heading } from '@chakra-ui/react'
 
 function Journals() {
   const { loading, error, data } = useQuery(gql`
   query {
     journals {
       date
-      type:__typename
-    ... on TransactionDto {
-      payee
-      narration
-    }
+      type: __typename
+      ... on TransactionDto {
+        payee
+        narration
+        postings {
+          account {
+            name
+          }
+          unit {
+            number
+            currency
+          }
+        }
+      }
+      ... on BalanceCheckDto {
+        account {
+          name
+        }
+        balanceAmount {
+          number
+          currency
+        }
+        currentAmount {
+          number
+          currency
+        }
+        isBalanced
+        distance {
+          number
+          currency
+        }
+      }
     }
   }
+  
 `);
 
   if (loading) return <p>Loading...</p>;
   if (error) return <p>Error :(</p>;
-  console.log(data);
 
 
   return (
-    <table>
-            <thead>
+    <div>
+      <Heading mx={4} my={4}>{data.journals.length} Journals</Heading>
+      <div>
+      {data.journals.map((journal) => {
+        switch (journal.type) {
+          case "BalanceCheckDto":
+            return <BalanceCheckLine data={journal} />
+            break;
+          case "BalancePadDto":
+            return <BalancePadLine data={journal} />
+            break;
+          case "TransactionDto":
+            return <TransactionLine data={journal} />
+            break;
+        }
+      })
+      }
+    </div>
+    </div>
 
-                <tr>
-                    <th>date</th>
-                    <th>type</th>
-                    <th>payee narration</th>
-                    <th>#</th>
-                </tr>
-            </thead>
-            <tbody>
-                {data.journals.map((journal) => (
-                    <tr>
-                        <td>
-                            {journal.date}
-                        </td>
-                        <td>
-                            {journal.type}
-                        </td>
-                        <td>
-                            {`${journal?.payee} ${journal?.narration}`}
-                        </td>
-                        <td></td>
-                    </tr>
-                ))}
-            </tbody>
-        </table>
   );
 }
 

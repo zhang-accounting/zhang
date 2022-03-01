@@ -13,12 +13,11 @@ export default function Accounts() {
             inner
           }
         }
-      }
+      }    
 `);
 
     if (loading) return <p>Loading...</p>;
     if (error) return <p>Error :(</p>;
-    console.log(data);
 
     return (
         <table>
