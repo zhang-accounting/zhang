@@ -1,4 +1,3 @@
-import { ApolloClient, InMemoryCache } from "@apollo/client";
 import { Link, Route, Routes } from "react-router-dom";
 import "./App.css";
 import Accounts from "./pages/Accounts";
@@ -12,16 +11,6 @@ function App() {
 
   return (
     <div>
-      <nav
-        style={{
-          borderBottom: "solid 1px",
-          paddingBottom: "1rem",
-        }}
-      >
-        <Link to="/">index</Link> |{" "}
-        <Link to="/journals">Journals</Link> |{" "}
-        <Link to="/accounts">Accounts</Link>
-      </nav>
       <div>
         <Routes>
           <Route path="/" element={<Home />} />
