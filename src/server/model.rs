@@ -1,6 +1,6 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction};
+use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction, TxnPosting};
 use crate::core::inventory::Currency;
 use crate::core::ledger::{AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo};
 use crate::core::models::Directive;
@@ -9,6 +9,7 @@ use async_graphql::{Context, EmptyMutation, EmptySubscription, Interface, Object
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
 use itertools::Itertools;
+use std::arch::x86_64::_mm256_add_pd;
 use std::str::FromStr;
 
 pub type LedgerSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
@@ -160,6 +161,13 @@ impl TransactionDto {
     async fn narration(&self) -> Option<String> {
         self.0.narration.clone().map(|it| it.to_plain_string())
     }
+    async fn postings<'a>(&'a self) -> Vec<PostingDto<'a>> {
+        self.0
+            .txn_postings()
+            .into_iter()
+            .map(|it| PostingDto(it))
+            .collect_vec()
+    }
 }
 
 pub struct BalanceCheckDto(BalanceCheck);
@@ -169,6 +177,28 @@ impl BalanceCheckDto {
     async fn date(&self) -> String {
         self.0.date.naive_date().to_string()
     }
+    async fn account(&self, ctx: &Context<'_>) -> Option<AccountDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage
+            .accounts
+            .get(self.0.account.name())
+            .map(|info| AccountDto {
+                name: self.0.account.name().to_string(),
+                info: info.clone(),
+            })
+    }
+    async fn balance_amount(&self) -> AmountDto {
+        AmountDto(self.0.amount.clone())
+    }
+    async fn current_amount(&self) -> AmountDto {
+        AmountDto(self.0.current_amount.clone().expect("cannot get current amount"))
+    }
+    async fn distance(&self) -> Option<AmountDto> {
+        self.0.distance.clone().map(|it| AmountDto(it))
+    }
+    async fn is_balanced(&self) -> bool {
+        self.0.distance.is_none()
+    }
 }
 
 pub struct BalancePadDto(BalancePad);
@@ -177,6 +207,36 @@ pub struct BalancePadDto(BalancePad);
 impl BalancePadDto {
     async fn date(&self) -> String {
         self.0.date.naive_date().to_string()
+    }
+}
+
+pub struct PostingDto<'a>(TxnPosting<'a>);
+#[Object]
+impl<'a> PostingDto<'a> {
+    async fn account(&self, ctx: &Context<'_>) -> Option<AccountDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage
+            .accounts
+            .get(self.0.posting.account.name())
+            .map(|info| AccountDto {
+                name: self.0.posting.account.name().to_string(),
+                info: info.clone(),
+            })
+    }
+
+    async fn unit(&self) -> AmountDto {
+        AmountDto(self.0.units())
+    }
+}
+pub struct AmountDto(Amount);
+
+#[Object]
+impl AmountDto {
+    async fn number(&self) -> String {
+        self.0.number.to_string()
+    }
+    async fn currency(&self) -> String {
+        self.0.currency.clone()
     }
 }
 
