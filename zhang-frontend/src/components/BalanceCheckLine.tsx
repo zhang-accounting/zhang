@@ -1,12 +1,15 @@
-import { Box, Flex, Text } from "@chakra-ui/react";
+import { Badge, Box, Flex, Text } from "@chakra-ui/react";
 
 export default function Component({ data }) {
 
     return (
         <Flex minH={"2rem"} mx={'auto'} py={0.5} px={{ base: 2, sm: 12, md: 17 }} borderBottom='1px' borderColor={"gray.200"} _hover={{ backgroundColor: "gray.200" }}
             alignItems={"center"} fontSize={"smaller"}>
-            <Box flex='0 0 10%'>
+            <Box mr={2}>
                 <Text>{data.date}</Text>
+            </Box>
+            <Box mr={2}>
+                <Badge variant='outline' colorScheme={data.isBalanced ? "green" : "red"}>BC</Badge>
             </Box>
             <Flex flex='1' overflow={"hidden"}>
                 <Text fontWeight={500} mr={2}>{data.account?.name}</Text>
