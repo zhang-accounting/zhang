@@ -18,12 +18,12 @@ import {
 import { BrowserRouter, Link as RouteLink } from "react-router-dom";
 import App from "./App";
 import "./index.css";
+
+
 const client = new ApolloClient({
   uri: 'http://127.0.0.1:8000/graphql',
   cache: new InMemoryCache()
 });
-
-
 
 interface LinkItemProps {
   name: string;
@@ -89,7 +89,7 @@ const SidebarContent = ({ onClose, ...rest }: SidebarProps) => {
       {...rest}>
       <Flex h="20" alignItems="center" mx="8" justifyContent="space-between">
         <Text fontSize="2xl" fontFamily="monospace" fontWeight="bold">
-          Logo
+          账 Zhang
         </Text>
         <CloseButton display={{ base: 'flex', md: 'none' }} onClick={onClose} />
       </Flex>
@@ -173,7 +173,7 @@ const MobileNav = ({ onOpen, ...rest }: MobileProps) => {
         fontSize="2xl"
         fontFamily="monospace"
         fontWeight="bold">
-        Logo
+        账 Zhang
       </Text>
 
       <HStack spacing={{ base: '0', md: '6' }}>
