@@ -3,7 +3,7 @@ import BalancePadLine from "@/components/BalancePadLine";
 import TransactionLine from "@/components/TransactionLine";
 import { gql, useQuery } from "@apollo/client";
 import { Heading } from '@chakra-ui/react'
-
+src/utils/account-trie
 function Journals() {
   const { loading, error, data } = useQuery(gql`
   query {
