@@ -18,7 +18,7 @@ pub struct QueryRoot;
 
 #[Object]
 impl QueryRoot {
-    async fn prices(&self, ctx: &Context<'_>) -> Vec<i32> {
+    async fn statistic(&self, month_offset: i32) -> StatisticDto {
         todo!()
     }
     async fn currencies(&self, ctx: &Context<'_>) -> Vec<CurrencyDto> {
@@ -95,10 +95,10 @@ pub struct AccountDto {
 
 #[Object]
 impl AccountDto {
-    async fn name(&self, ctx: &Context<'_>) -> String {
+    async fn name(&self) -> String {
         self.name.to_string()
     }
-    async fn status(&self, ctx: &Context<'_>) -> AccountStatus {
+    async fn status(&self) -> AccountStatus {
         self.info.status.clone()
     }
     async fn snapshot(&self, ctx: &Context<'_>) -> AccountSnapshot {
@@ -191,7 +191,12 @@ impl BalanceCheckDto {
         AmountDto(self.0.amount.clone())
     }
     async fn current_amount(&self) -> AmountDto {
-        AmountDto(self.0.current_amount.clone().expect("cannot get current amount"))
+        AmountDto(
+            self.0
+                .current_amount
+                .clone()
+                .expect("cannot get current amount"),
+        )
     }
     async fn distance(&self) -> Option<AmountDto> {
         self.0.distance.clone().map(|it| AmountDto(it))
@@ -237,6 +242,15 @@ impl AmountDto {
     }
     async fn currency(&self) -> String {
         self.0.currency.clone()
+    }
+}
+
+pub struct StatisticDto();
+
+#[Object]
+impl StatisticDto {
+    async fn accounts(&self) -> Vec<AccountDto> {
+        todo!()
     }
 }
 
