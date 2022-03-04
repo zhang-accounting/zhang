@@ -39,6 +39,7 @@ async-trait = "0.1.52"
 futures-util = "0.3.21"
 crossbeam-channel = "0.5.2"
 notify = "5.0.0-pre.13"
+futures = "0.3.21"
 
 [dev-dependencies]
 indoc = "1.0.3"
