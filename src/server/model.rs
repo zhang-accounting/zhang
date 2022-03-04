@@ -1,16 +1,10 @@
-use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction, TxnPosting};
-use crate::core::inventory::Currency;
+use crate::core::data::{Balance, BalanceCheck, BalancePad, Transaction, TxnPosting};
 use crate::core::ledger::{AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo};
 use crate::core::models::Directive;
 use crate::server::LedgerState;
-use async_graphql::{Context, EmptyMutation, EmptySubscription, Interface, Object, Schema, Union};
-use bigdecimal::{BigDecimal, Zero};
-use chrono::NaiveDate;
+use async_graphql::{Context, EmptyMutation, EmptySubscription, Interface, Object, Schema};
 use itertools::Itertools;
-use std::arch::x86_64::_mm256_add_pd;
-use std::str::FromStr;
 
 pub type LedgerSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 
@@ -18,7 +12,7 @@ pub struct QueryRoot;
 
 #[Object]
 impl QueryRoot {
-    async fn statistic(&self, month_offset: i32) -> StatisticDto {
+    async fn statistic(&self, _month_offset: i32) -> StatisticDto {
         todo!()
     }
     async fn currencies(&self, ctx: &Context<'_>) -> Vec<CurrencyDto> {
@@ -57,10 +51,10 @@ impl QueryRoot {
             .collect_vec()
     }
 
-    async fn documents(&self, ctx: &Context<'_>) -> Vec<AccountDto> {
+    async fn documents(&self) -> Vec<AccountDto> {
         todo!()
     }
-    async fn document(&self, ctx: &Context<'_>) -> Vec<AccountDto> {
+    async fn document(&self) -> Vec<AccountDto> {
         todo!()
     }
 
@@ -99,7 +93,7 @@ impl AccountDto {
         self.name.to_string()
     }
     async fn status(&self) -> AccountStatus {
-        self.info.status.clone()
+        self.info.status
     }
     async fn snapshot(&self, ctx: &Context<'_>) -> AccountSnapshot {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
@@ -107,7 +101,7 @@ impl AccountDto {
             .snapshot
             .get(&self.name)
             .cloned()
-            .unwrap_or_else(AccountSnapshot::default)
+            .unwrap_or_default()
     }
     async fn currencies(&self, ctx: &Context<'_>) -> Vec<CurrencyDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
@@ -165,7 +159,7 @@ impl TransactionDto {
         self.0
             .txn_postings()
             .into_iter()
-            .map(|it| PostingDto(it))
+            .map(PostingDto)
             .collect_vec()
     }
 }
@@ -199,7 +193,7 @@ impl BalanceCheckDto {
         )
     }
     async fn distance(&self) -> Option<AmountDto> {
-        self.0.distance.clone().map(|it| AmountDto(it))
+        self.0.distance.clone().map(AmountDto)
     }
     async fn is_balanced(&self) -> bool {
         self.0.distance.is_none()

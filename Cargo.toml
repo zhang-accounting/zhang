@@ -37,6 +37,8 @@ tokio-util = { version = "0.6.7", features = ["io", "compat"] }
 async-graphql = "3.0.31"
 async-trait = "0.1.52"
 futures-util = "0.3.21"
+crossbeam-channel = "0.5.2"
+notify = "5.0.0-pre.13"
 
 [dev-dependencies]
 indoc = "1.0.3"
