@@ -23,8 +23,8 @@ export default function Accounts() {
     if (error) return <p>Error :(</p>;
 
     let trie = new AccountTrie();
-    trie.insert({name:"Assets"});
-    for(let account of data.accounts) {
+    trie.insert({ name: "Assets" });
+    for (let account of data.accounts) {
         trie.insert(account);
     }
     console.log("trie", trie);
@@ -43,35 +43,7 @@ export default function Accounts() {
                 </div>
 
             ))}
-            <table>
-                <thead>
 
-                    <tr>
-                        <th>status</th>
-                        <th>account name</th>
-                        <th>currencies</th>
-                        <th>balances</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {data.accounts.map((account) => (
-                        <tr key={account.name}>
-                            <td>
-                                {account.status}
-                            </td>
-                            <td>
-                                {account.name}
-                            </td>
-                            <td>
-                                {account.currencies.map(currency => <span key={currency.name}>{currency.name}</span>)}
-                            </td>
-                            <td>
-                                {Object.keys(account.snapshot.inner).map(currency => <span>{account.snapshot.inner[currency]} {currency}</span>)}
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
         </div>
     )
 }

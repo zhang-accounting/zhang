@@ -17,6 +17,7 @@ import {
 } from 'react-icons/fi';
 import { BrowserRouter, Link as RouteLink } from "react-router-dom";
 import App from "./App";
+import StatisticBox from "./components/StatisticBox";
 import "./index.css";
 
 
@@ -34,8 +35,10 @@ const LinkItems: Array<LinkItemProps> = [
   { name: 'Home', icon: FiHome, uri: "/" },
   { name: 'Journals', icon: FiTrendingUp, uri: "/journals" },
   { name: 'Accounts', icon: FiCompass, uri: "/accounts" },
-  { name: 'Commodities', icon: FiStar, uri: "/commodities" },
-  { name: 'Documents', icon: FiSettings, uri: "/documents" },
+  { name: 'Commodities todo', icon: FiStar, uri: "/commodities" },
+  { name: 'Documents todo', icon: FiSettings, uri: "/documents" },
+  { name: 'Statistic todo', icon: FiSettings, uri: "/statistic" },
+  { name: 'Liability todo', icon: FiSettings, uri: "/liability" },
 ];
 
 
@@ -175,9 +178,12 @@ const MobileNav = ({ onOpen, ...rest }: MobileProps) => {
         fontWeight="bold">
         账 Zhang
       </Text>
-      <div>
-        123
-      </div>
+      <Flex >
+        <StatisticBox text={"资产余额"} amount={"10000.00"} currency="CNY" />
+        <StatisticBox text={"本月收入"} amount={"10000.00"} currency="CNY" />
+        <StatisticBox text={"本月支出"} amount={"10000.00"} currency="CNY" />
+        <StatisticBox text={"负债"} amount={"10000.00"} currency="CNY" />
+      </Flex>
       
     </Flex>
   );
