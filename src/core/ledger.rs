@@ -112,7 +112,7 @@ impl Ledger {
         parse_zhang(&content).map_err(|it| ZhangError::PestError(it.to_string()))
     }
 
-    fn process(directives: Vec<Directive>, entry:Either<PathBuf, String>) -> ZhangResult<Ledger> {
+    fn process(directives: Vec<Directive>, entry: Either<PathBuf, String>) -> ZhangResult<Ledger> {
         let (meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) = directives
             .into_iter()
             .partition(|it| it.datetime().is_none());
@@ -296,6 +296,20 @@ impl Ledger {
         let vec = self.directives.into_iter().map(applier).collect_vec();
         self.directives = vec;
         self
+    }
+
+    pub fn reload(&mut self) -> ZhangResult<()> {
+        let reload_ledger = match &mut self.entry {
+            Either::Left(path_buf) => Ledger::load(path_buf.clone()),
+            Either::Right(raw_string) => Ledger::load_from_str(raw_string),
+        }?;
+        self.directives = reload_ledger.directives;
+        self.metas = reload_ledger.metas;
+        self.snapshot = reload_ledger.snapshot;
+        self.currencies = reload_ledger.currencies;
+        self.accounts = reload_ledger.accounts;
+        self.daily_snapshot = reload_ledger.daily_snapshot;
+        Ok(())
     }
 }
 
