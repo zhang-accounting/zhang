@@ -7,7 +7,7 @@ use crate::parse_zhang;
 use async_graphql::{Enum, Interface, OutputType, SimpleObject};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use log::{debug, error};
 use serde::Serialize;
 use std::cmp::Ordering;
@@ -65,6 +65,7 @@ impl AccountSnapshot {
 
 #[derive(Debug)]
 pub struct Ledger {
+    pub entry: Either<PathBuf, String>,
     pub(crate) directives: Vec<Directive>,
     pub metas: Vec<Directive>,
     pub accounts: HashMap<AccountName, AccountInfo>,
@@ -76,7 +77,7 @@ pub struct Ledger {
 impl Ledger {
     pub fn load(entry: PathBuf) -> ZhangResult<Ledger> {
         let mut load_queue = VecDeque::new();
-        load_queue.push_back(entry);
+        load_queue.push_back(entry.clone());
 
         let mut visited = HashSet::new();
         let mut directives = vec![];
@@ -103,7 +104,7 @@ impl Ledger {
             visited.insert(path);
             directives.extend(entity_directives)
         }
-        Ledger::process(directives)
+        Ledger::process(directives, Either::Left(entry))
     }
 
     fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Directive>> {
@@ -111,7 +112,7 @@ impl Ledger {
         parse_zhang(&content).map_err(|it| ZhangError::PestError(it.to_string()))
     }
 
-    fn process(directives: Vec<Directive>) -> ZhangResult<Ledger> {
+    fn process(directives: Vec<Directive>, entry:Either<PathBuf, String>) -> ZhangResult<Ledger> {
         let (meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) = directives
             .into_iter()
             .partition(|it| it.datetime().is_none());
@@ -250,6 +251,7 @@ impl Ledger {
             daily_snapshot.insert(last_day, snapshot.clone());
         }
         Ok(Self {
+            entry,
             metas: meta_directives,
             directives,
             accounts,
@@ -279,7 +281,7 @@ impl Ledger {
         let content = content.as_ref();
         let directives =
             parse_zhang(content).map_err(|it| ZhangError::PestError(it.to_string()))?;
-        Ledger::process(directives)
+        Ledger::process(directives, Either::Right(content.to_string()))
     }
 
     fn sort_directives_datetime(mut directives: Vec<Directive>) -> Vec<Directive> {
