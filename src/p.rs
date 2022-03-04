@@ -433,7 +433,7 @@ impl ZhangParser {
                 amount: Amount::new(ret.2, ret.3),
                 tolerance: None,
                 distance: None,
-                current_amount:None,
+                current_amount: None,
                 meta: Default::default(),
             })))
         }

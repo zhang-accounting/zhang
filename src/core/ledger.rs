@@ -4,7 +4,7 @@ use crate::core::inventory::{AccountName, Currency};
 use crate::core::models::Directive;
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
-use async_graphql::{Enum, Interface, OutputType, SimpleObject};
+use async_graphql::{Enum, SimpleObject};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
 use itertools::{Either, Itertools};

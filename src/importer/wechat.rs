@@ -229,7 +229,6 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
     }
     ret.reverse();
     for trx in ret.into_iter() {
-
         println!("{}\n", trx.to_target());
     }
 
