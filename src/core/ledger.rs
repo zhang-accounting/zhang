@@ -72,6 +72,7 @@ pub struct Ledger {
     pub currencies: HashMap<Currency, CurrencyInfo>,
     pub snapshot: HashMap<AccountName, AccountSnapshot>,
     pub daily_snapshot: HashMap<NaiveDate, HashMap<AccountName, AccountSnapshot>>,
+    pub(crate) visited_files: Vec<PathBuf>
 }
 
 impl Ledger {
@@ -104,7 +105,7 @@ impl Ledger {
             visited.insert(path);
             directives.extend(entity_directives)
         }
-        Ledger::process(directives, Either::Left(entry))
+        Ledger::process(directives, Either::Left(entry), visited.into_iter().collect_vec())
     }
 
     fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Directive>> {
@@ -112,7 +113,7 @@ impl Ledger {
         parse_zhang(&content).map_err(|it| ZhangError::PestError(it.to_string()))
     }
 
-    fn process(directives: Vec<Directive>, entry: Either<PathBuf, String>) -> ZhangResult<Ledger> {
+    fn process(directives: Vec<Directive>, entry: Either<PathBuf, String>, visited_files: Vec<PathBuf>) -> ZhangResult<Ledger> {
         let (meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) = directives
             .into_iter()
             .partition(|it| it.datetime().is_none());
@@ -258,6 +259,7 @@ impl Ledger {
             currencies,
             snapshot,
             daily_snapshot,
+            visited_files
         })
     }
 
@@ -281,7 +283,7 @@ impl Ledger {
         let content = content.as_ref();
         let directives =
             parse_zhang(content).map_err(|it| ZhangError::PestError(it.to_string()))?;
-        Ledger::process(directives, Either::Right(content.to_string()))
+        Ledger::process(directives, Either::Right(content.to_string()), vec![])
     }
 
     fn sort_directives_datetime(mut directives: Vec<Directive>) -> Vec<Directive> {
@@ -309,6 +311,7 @@ impl Ledger {
         self.currencies = reload_ledger.currencies;
         self.accounts = reload_ledger.accounts;
         self.daily_snapshot = reload_ledger.daily_snapshot;
+        self.visited_files = reload_ledger.visited_files;
         Ok(())
     }
 }

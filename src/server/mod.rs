@@ -3,10 +3,14 @@ use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use axum::{routing::get, AddExtensionLayer, Router};
+use crossbeam_channel::unbounded;
 use log::info;
 use model::QueryRoot;
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
+use tokio::runtime::{Handle, Runtime};
+use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
@@ -15,14 +19,46 @@ pub mod route;
 
 pub type LedgerState = Arc<RwLock<Ledger>>;
 
-pub fn serve(opts: ServerOpts) -> ZhangResult<()> {
-    let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(start_server(opts))
+fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Result<Event>>)> {
+    let (mut tx, rx) = channel(1);
+
+    // Automatically select the best implementation for your platform.
+    // You can also access each implementation directly e.g. INotifyWatcher.
+    let watcher = RecommendedWatcher::new(move |res| {
+        futures::executor::block_on(async {
+            tx.send(res).await.unwrap();
+        })
+    })?;
+
+    Ok((watcher, rx))
 }
-async fn start_server(opts: ServerOpts) -> ZhangResult<()> {
-    let ledger = Ledger::load(opts.file)?;
+
+pub fn serve(opts: ServerOpts) -> ZhangResult<()> {
+    let ledger = Ledger::load(opts.file.clone())?;
     let ledger_data = Arc::new(RwLock::new(ledger));
 
+    let runtime = tokio::runtime::Runtime::new()?;
+    let cloned_ledger = ledger_data.clone();
+    runtime.spawn(async move {
+        let (mut watcher, mut rx) = async_watcher().unwrap();
+        for x in &cloned_ledger.read().await.visited_files {
+            println!("watching {:?}", &x.to_str());
+            watcher.watch(&x, RecursiveMode::NonRecursive);
+        }
+        while let Some(res) = rx.recv().await {
+            match res {
+                Ok(event) => {
+                    println!("changed: {:?}", event);
+                    let mut guard = cloned_ledger.write().await;
+                    guard.reload();
+                },
+                Err(e) => println!("watch error: {:?}", e),
+            }
+        }
+    });
+    runtime.block_on(start_server(opts, ledger_data))
+}
+async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> ZhangResult<()> {
     let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
         .data(ledger_data.clone())
         .finish();

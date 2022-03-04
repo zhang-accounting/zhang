@@ -24,7 +24,8 @@
 - [ ] inline comment
 - [x] profit calculation logic
 - [x] embedded api server
-  - [ ] file listener
+  - [x] file listener
+  - [x] graphql api
   - [ ] convert `.zhang` file into sqlite
   - [ ] export sqlite change to `.zhang` file
 - [ ] frontend ui
