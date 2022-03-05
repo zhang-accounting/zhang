@@ -3,13 +3,11 @@ use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use axum::{routing::get, AddExtensionLayer, Router};
-use crossbeam_channel::unbounded;
-use log::info;
+use log::{error, info};
 use model::QueryRoot;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use tokio::runtime::{Handle, Runtime};
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
@@ -20,7 +18,7 @@ pub mod route;
 pub type LedgerState = Arc<RwLock<Ledger>>;
 
 fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Result<Event>>)> {
-    let (mut tx, rx) = channel(1);
+    let (tx, rx) = channel(1);
 
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
@@ -43,15 +41,24 @@ pub fn serve(opts: ServerOpts) -> ZhangResult<()> {
         let (mut watcher, mut rx) = async_watcher().unwrap();
         for x in &cloned_ledger.read().await.visited_files {
             println!("watching {:?}", &x.to_str());
-            watcher.watch(&x, RecursiveMode::NonRecursive);
+            watcher
+                .watch(x, RecursiveMode::NonRecursive)
+                .expect("cannot watch file");
         }
         while let Some(res) = rx.recv().await {
             match res {
                 Ok(event) => {
                     println!("changed: {:?}", event);
                     let mut guard = cloned_ledger.write().await;
-                    guard.reload();
-                },
+                    match guard.reload() {
+                        Ok(_) => {
+                            info!("reloaded")
+                        }
+                        Err(err) => {
+                            error!("error on reload: {}", err)
+                        }
+                    };
+                }
                 Err(e) => println!("watch error: {:?}", e),
             }
         }
