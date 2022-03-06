@@ -6,7 +6,7 @@ import { Heading } from '@chakra-ui/react'
 src/utils/account-trie
 function Journals() {
   const { loading, error, data } = useQuery(gql`
-  query {
+  query JOURNAL_LIST {
     journals {
       date
       type: __typename

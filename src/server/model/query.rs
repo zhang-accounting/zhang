@@ -5,13 +5,32 @@ use crate::core::models::Directive;
 use crate::server::LedgerState;
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Interface, Object, Schema};
 use itertools::Itertools;
-
-pub type LedgerSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
+use std::path::PathBuf;
 
 pub struct QueryRoot;
 
 #[Object]
 impl QueryRoot {
+    async fn entries(&self, ctx: &Context<'_>) -> Vec<FileEntryDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage
+            .visited_files
+            .iter()
+            .map(|it| FileEntryDto(it.clone()))
+            .collect_vec()
+    }
+    async fn entry(&self, ctx: &Context<'_>, name: String) -> Option<FileEntryDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage
+            .visited_files
+            .iter()
+            .find(|it| {
+                it.to_str()
+                    .map(|path_str| name.eq(path_str))
+                    .unwrap_or(false)
+            })
+            .map(|it| FileEntryDto(it.clone()))
+    }
     async fn statistic(&self, _month_offset: i32) -> StatisticDto {
         todo!()
     }
@@ -246,12 +265,26 @@ impl StatisticDto {
     async fn accounts(&self) -> Vec<AccountDto> {
         todo!()
     }
+    async fn total(&self) -> AccountSnapshot {
+        todo!()
+    }
+
+    async fn income(&self) -> AccountSnapshot {
+        todo!()
+    }
+    async fn expense(&self) -> AccountSnapshot {
+        todo!()
+    }
 }
 
-//
-// pub struct AccountSnapshotDto(AccountSnapshot);
-//
-// #[Object]
-// impl AccountSnapshot {
-//     async fn
-// }
+pub struct FileEntryDto(PathBuf);
+
+#[Object]
+impl FileEntryDto {
+    async fn name(&self) -> Option<&str> {
+        self.0.to_str()
+    }
+    async fn content(&self) -> String {
+        std::fs::read_to_string(&self.0).expect("Cannot open file")
+    }
+}

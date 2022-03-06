@@ -2,15 +2,16 @@ use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
-use axum::{routing::get, AddExtensionLayer, Router};
+use axum::{AddExtensionLayer, Router, routing::get};
 use log::{error, info};
-use model::QueryRoot;
+use model::query::QueryRoot;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
+use crate::server::model::mutation::MutationRoot;
 
 pub mod model;
 pub mod route;
@@ -66,7 +67,7 @@ pub fn serve(opts: ServerOpts) -> ZhangResult<()> {
     runtime.block_on(start_server(opts, ledger_data))
 }
 async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> ZhangResult<()> {
-    let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
+    let schema = Schema::build(QueryRoot, MutationRoot, EmptySubscription)
         .data(ledger_data.clone())
         .finish();
 
