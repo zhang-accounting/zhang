@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Transaction, TxnPosting};
 use crate::core::ledger::{AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo};
@@ -6,6 +7,7 @@ use crate::server::LedgerState;
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Interface, Object, Schema};
 use itertools::Itertools;
 use std::path::PathBuf;
+use chrono::NaiveDate;
 
 pub struct QueryRoot;
 
@@ -31,7 +33,10 @@ impl QueryRoot {
             })
             .map(|it| FileEntryDto(it.clone()))
     }
-    async fn statistic(&self, _month_offset: i32) -> StatisticDto {
+    async fn statistic(&self, ctx: &Context<'_>,  #[graphql(default = 0)] _month_offset: i32) -> StatisticDto {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        // ledger_stage.daily_snapshot
+        let map:BTreeMap<NaiveDate, ()> = BTreeMap::new();
         todo!()
     }
     async fn currencies(&self, ctx: &Context<'_>) -> Vec<CurrencyDto> {

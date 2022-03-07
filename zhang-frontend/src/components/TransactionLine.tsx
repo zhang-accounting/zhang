@@ -11,7 +11,7 @@ export default function Component({ data }) {
                 <Badge>TN</Badge>
             </Box>
             <Flex flex='1' overflow={"hidden"}>
-                <Text fontWeight={500} mr={2}>{data.payee}</Text>
+                <Text fontWeight={"bold"} mr={2}>{data.payee}</Text>
                 <Text>{data.narration}</Text>
             </Flex>
             <Flex direction={"column"} >
