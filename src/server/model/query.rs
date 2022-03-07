@@ -1,13 +1,15 @@
-use std::collections::BTreeMap;
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Transaction, TxnPosting};
+use crate::core::inventory::AccountName;
 use crate::core::ledger::{AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo};
 use crate::core::models::Directive;
 use crate::server::LedgerState;
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Interface, Object, Schema};
+use chrono::{NaiveDate, Utc};
 use itertools::Itertools;
+use now::TimeZoneNow;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use chrono::NaiveDate;
 
 pub struct QueryRoot;
 
@@ -33,11 +35,28 @@ impl QueryRoot {
             })
             .map(|it| FileEntryDto(it.clone()))
     }
-    async fn statistic(&self, ctx: &Context<'_>,  #[graphql(default = 0)] _month_offset: i32) -> StatisticDto {
+    async fn statistic(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(default = 0)] _month_offset: i32,
+    ) -> StatisticDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        // ledger_stage.daily_snapshot
-        let map:BTreeMap<NaiveDate, ()> = BTreeMap::new();
-        todo!()
+        let beginning_of_month = Utc.beginning_of_month().naive_local().date();
+        let end_of_month = Utc.end_of_month().naive_local().date();
+        let beginning_day_snapshot = ledger_stage
+            .daily_snapshot
+            .get_snapshot_by_date(dbg!(&beginning_of_month));
+        let end_day_snapshot = ledger_stage
+            .daily_snapshot
+            .get_snapshot_by_date(dbg!(&end_of_month));
+        dbg!(beginning_day_snapshot);
+        dbg!(end_day_snapshot);
+        StatisticDto {
+            start_date: beginning_of_month,
+            end_date: end_of_month,
+            start_date_snapshot: beginning_day_snapshot,
+            end_date_snapshot: end_day_snapshot,
+        }
     }
     async fn currencies(&self, ctx: &Context<'_>) -> Vec<CurrencyDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
@@ -263,7 +282,12 @@ impl AmountDto {
     }
 }
 
-pub struct StatisticDto();
+pub struct StatisticDto {
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+    start_date_snapshot: HashMap<AccountName, AccountSnapshot>,
+    end_date_snapshot: HashMap<AccountName, AccountSnapshot>,
+}
 
 #[Object]
 impl StatisticDto {
