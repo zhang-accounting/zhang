@@ -40,6 +40,7 @@ futures-util = "0.3.21"
 crossbeam-channel = "0.5.2"
 notify = "5.0.0-pre.13"
 futures = "0.3.21"
+now = "0.1.2"
 
 [dev-dependencies]
 indoc = "1.0.3"
