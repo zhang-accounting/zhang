@@ -12,7 +12,7 @@ export default function Component({ data }) {
                 <Badge variant='outline' colorScheme={data.isBalanced ? "green" : "red"}>BC</Badge>
             </Box>
             <Flex flex='1' overflow={"hidden"}>
-                <Text fontWeight={500} mr={2}>{data.account?.name}</Text>
+                <Text mr={2}>{data.account?.name}</Text>
             </Flex>
 
             <Flex alignItems={"center"} >

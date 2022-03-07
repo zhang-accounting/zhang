@@ -11,7 +11,7 @@ use itertools::{Either, Itertools};
 use log::{debug, error};
 use serde::Serialize;
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::{Add, Neg, Sub};
 use std::path::PathBuf;
 
@@ -36,6 +36,36 @@ pub struct CurrencyInfo {
 pub struct AccountSnapshot {
     #[serde(flatten)]
     inner: HashMap<Currency, BigDecimal>,
+}
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct DailyAccountSnapshot {
+    data: HashMap<NaiveDate, HashMap<AccountName, AccountSnapshot>>,
+    date_index: BTreeSet<NaiveDate>,
+}
+
+impl DailyAccountSnapshot {
+    pub(crate) fn insert_snapshot(
+        &mut self,
+        day: NaiveDate,
+        snapshot: HashMap<AccountName, AccountSnapshot>,
+    ) {
+        self.data.insert(day.clone(), snapshot);
+        self.date_index.insert(day);
+    }
+    pub(crate) fn get_snapshot_by_date(
+        &self,
+        day: &NaiveDate,
+    ) -> HashMap<AccountName, AccountSnapshot> {
+        let vec = self.date_index.iter().collect_vec();
+        let target_day = match vec.binary_search(&day) {
+            Ok(_) => day,
+            Err(gt_index) => vec[gt_index - 1],
+        };
+        self.data
+            .get(target_day)
+            .map(|it| it.clone())
+            .unwrap_or_default()
+    }
 }
 
 impl AccountSnapshot {
@@ -71,7 +101,7 @@ pub struct Ledger {
     pub accounts: HashMap<AccountName, AccountInfo>,
     pub currencies: HashMap<Currency, CurrencyInfo>,
     pub snapshot: HashMap<AccountName, AccountSnapshot>,
-    pub daily_snapshot: HashMap<NaiveDate, HashMap<AccountName, AccountSnapshot>>,
+    pub daily_snapshot: DailyAccountSnapshot,
     pub(crate) visited_files: Vec<PathBuf>,
 }
 
@@ -129,8 +159,7 @@ impl Ledger {
         let mut accounts = HashMap::default();
         let mut currencies = HashMap::default();
         let mut snapshot: HashMap<AccountName, AccountSnapshot> = HashMap::default();
-        let mut daily_snapshot: HashMap<NaiveDate, HashMap<AccountName, AccountSnapshot>> =
-            HashMap::default();
+        let mut daily_snapshot: DailyAccountSnapshot = DailyAccountSnapshot::default();
         let mut target_day: Option<NaiveDate> = None;
         for directive in &mut directives {
             match directive {
@@ -257,7 +286,7 @@ impl Ledger {
             }
         }
         if let Some(last_day) = target_day {
-            daily_snapshot.insert(last_day, snapshot.clone());
+            daily_snapshot.insert_snapshot(last_day, snapshot.clone());
         }
         Ok(Self {
             entry,
@@ -273,13 +302,13 @@ impl Ledger {
 
     fn record_daily_snapshot(
         snapshot: &mut HashMap<AccountName, AccountSnapshot>,
-        daily_snapshot: &mut HashMap<NaiveDate, HashMap<AccountName, AccountSnapshot>>,
+        daily_snapshot: &mut DailyAccountSnapshot,
         target_day: &mut Option<NaiveDate>,
         date: NaiveDate,
     ) {
         if let Some(target_day_inner) = target_day {
             if date.ne(target_day_inner) {
-                daily_snapshot.insert(*target_day_inner, snapshot.clone());
+                daily_snapshot.insert_snapshot(*target_day_inner, snapshot.clone());
                 *target_day = Some(date);
             }
         } else {
@@ -762,10 +791,11 @@ mod test {
         }
     }
     mod daily_snapshot {
-        use crate::core::ledger::Ledger;
+        use crate::core::ledger::{AccountSnapshot, DailyAccountSnapshot, Ledger};
         use bigdecimal::BigDecimal;
         use chrono::NaiveDate;
         use indoc::indoc;
+        use std::collections::HashMap;
 
         #[test]
         fn should_record_daily_snapshot() {
@@ -779,11 +809,10 @@ mod test {
             "#})
             .unwrap();
 
-            assert_eq!(1, ledger.daily_snapshot.len());
+            assert_eq!(1, ledger.daily_snapshot.data.len());
             let account_snapshot = ledger
                 .daily_snapshot
-                .get(&NaiveDate::from_ymd(2022, 2, 22))
-                .unwrap();
+                .get_snapshot_by_date(&NaiveDate::from_ymd(2022, 2, 22));
             assert_eq!(
                 &BigDecimal::from(-10i32),
                 account_snapshot
@@ -802,6 +831,18 @@ mod test {
                     .get("CNY")
                     .unwrap()
             );
+        }
+        #[test]
+        fn should_get_from_previous_day_given_day_is_not_in_data() {
+            let mut daily_snapshot = DailyAccountSnapshot::default();
+            let mut map = HashMap::default();
+            map.insert("AAAAA".to_string(), AccountSnapshot::default());
+            daily_snapshot.insert_snapshot(NaiveDate::from_ymd(2022, 2, 22), map);
+
+            let target_day_snapshot =
+                daily_snapshot.get_snapshot_by_date(&NaiveDate::from_ymd(2022, 3, 22));
+            assert_eq!(1, target_day_snapshot.len());
+            assert!(target_day_snapshot.contains_key("AAAAA"));
         }
     }
 }
