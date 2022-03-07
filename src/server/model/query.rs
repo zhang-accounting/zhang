@@ -41,16 +41,15 @@ impl QueryRoot {
         #[graphql(default = 0)] _month_offset: i32,
     ) -> StatisticDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        // todo implement month offset
         let beginning_of_month = Utc.beginning_of_month().naive_local().date();
         let end_of_month = Utc.end_of_month().naive_local().date();
         let beginning_day_snapshot = ledger_stage
             .daily_snapshot
-            .get_snapshot_by_date(dbg!(&beginning_of_month));
+            .get_snapshot_by_date(&beginning_of_month);
         let end_day_snapshot = ledger_stage
             .daily_snapshot
-            .get_snapshot_by_date(dbg!(&end_of_month));
-        dbg!(beginning_day_snapshot);
-        dbg!(end_day_snapshot);
+            .get_snapshot_by_date(&end_of_month);
         StatisticDto {
             start_date: beginning_of_month,
             end_date: end_of_month,
