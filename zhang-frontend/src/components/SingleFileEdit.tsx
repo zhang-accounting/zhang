@@ -21,7 +21,7 @@ export default function Component({ name, path }) {
         updateFile(path: $path, content: $content) 
     }
     `, {
-        refetchQueries: ["FILE_LIST", "SINGLE_FILE_ENTRY", "JOURNAL_LIST"]
+        refetchQueries: ["FILE_LIST", "SINGLE_FILE_ENTRY", "JOURNAL_LIST", "BAR_STATISTIC"]
     })
     const [content, setContent] = useState("");
     useEffect(() => {
