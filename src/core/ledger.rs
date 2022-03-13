@@ -30,13 +30,30 @@ pub struct AccountInfo {
 #[derive(Debug, Clone)]
 pub struct CurrencyInfo {
     pub commodity: Commodity,
+    pub prices: HashMap<NaiveDate, BigDecimal>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, SimpleObject)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct AccountSnapshot {
     #[serde(flatten)]
-    inner: HashMap<Currency, BigDecimal>,
+    pub(crate) inner: HashMap<Currency, BigDecimal>,
 }
+
+impl Add for &AccountSnapshot {
+    type Output = AccountSnapshot;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let mut snapshot = AccountSnapshot::default();
+        for (currency, amount) in &self.inner {
+            snapshot.add_amount(Amount::new(amount.clone(), currency));
+        }
+        for (currency, amount) in &rhs.inner {
+            snapshot.add_amount(Amount::new(amount.clone(), currency));
+        }
+        snapshot
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DailyAccountSnapshot {
     data: HashMap<NaiveDate, HashMap<AccountName, AccountSnapshot>>,
@@ -189,6 +206,7 @@ impl Ledger {
                         .entry(commodity.currency.to_string())
                         .or_insert_with(|| CurrencyInfo {
                             commodity: commodity.clone(),
+                            prices: HashMap::new(),
                         });
                 }
                 Directive::Transaction(trx) => {

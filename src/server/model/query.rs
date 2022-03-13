@@ -5,6 +5,7 @@ use crate::core::ledger::{AccountInfo, AccountSnapshot, AccountStatus, CurrencyI
 use crate::core::models::Directive;
 use crate::server::LedgerState;
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Interface, Object, Schema};
+use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, Utc};
 use itertools::Itertools;
 use now::TimeZoneNow;
@@ -137,13 +138,14 @@ impl AccountDto {
     async fn status(&self) -> AccountStatus {
         self.info.status
     }
-    async fn snapshot(&self, ctx: &Context<'_>) -> AccountSnapshot {
+    async fn snapshot(&self, ctx: &Context<'_>) -> SnapshotDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        ledger_stage
+        let snapshot = ledger_stage
             .snapshot
             .get(&self.name)
             .cloned()
-            .unwrap_or_default()
+            .unwrap_or_default();
+        SnapshotDto(snapshot)
     }
     async fn currencies(&self, ctx: &Context<'_>) -> Vec<CurrencyDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
@@ -293,15 +295,65 @@ impl StatisticDto {
     async fn accounts(&self) -> Vec<AccountDto> {
         todo!()
     }
-    async fn total(&self) -> AccountSnapshot {
-        todo!()
+    async fn total(&self) -> SnapshotDto {
+        let dto = self
+            .end_date_snapshot
+            .iter()
+            .filter(|(account_name, _)| {
+                account_name.starts_with("Assets") || account_name.starts_with("Liabilities")
+            })
+            .fold(AccountSnapshot::default(), |fold, lo| &fold + lo.1);
+        SnapshotDto(dto)
     }
 
-    async fn income(&self) -> AccountSnapshot {
-        todo!()
+    async fn income(&self) -> SnapshotDto {
+        let dto = self
+            .end_date_snapshot
+            .iter()
+            .filter(|(account_name, _)| account_name.starts_with("Income"))
+            .fold(AccountSnapshot::default(), |fold, lo| &fold + lo.1);
+        SnapshotDto(dto)
     }
-    async fn expense(&self) -> AccountSnapshot {
-        todo!()
+    async fn expense(&self) -> SnapshotDto {
+        let dto = self
+            .end_date_snapshot
+            .iter()
+            .filter(|(account_name, _)| account_name.starts_with("Expenses"))
+            .fold(AccountSnapshot::default(), |fold, lo| &fold + lo.1);
+        SnapshotDto(dto)
+    }
+    async fn liability(&self) -> SnapshotDto {
+        let dto = self
+            .end_date_snapshot
+            .iter()
+            .filter(|(account_name, _)| account_name.starts_with("Liabilities"))
+            .fold(AccountSnapshot::default(), |fold, lo| &fold + lo.1);
+        SnapshotDto(dto)
+    }
+}
+
+pub struct SnapshotDto(AccountSnapshot);
+
+#[Object]
+impl SnapshotDto {
+    async fn summary(&self) -> AmountDto {
+        //todo #7 options for ledger
+        let decimal = self
+            .0
+            .inner
+            .get("CNY")
+            .cloned()
+            .unwrap_or(BigDecimal::zero());
+        AmountDto(Amount::new(decimal, "CNY"))
+    }
+    async fn detail(&self) -> Vec<AmountDto> {
+        self.0
+            .inner
+            .clone()
+            .into_iter()
+            .map(|(c, n)| Amount::new(n, c))
+            .map(AmountDto)
+            .collect_vec()
     }
 }
 

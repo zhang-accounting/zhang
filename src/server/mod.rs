@@ -1,8 +1,9 @@
 use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
+use crate::server::model::mutation::MutationRoot;
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
-use axum::{AddExtensionLayer, Router, routing::get};
+use axum::{routing::get, AddExtensionLayer, Router};
 use log::{error, info};
 use model::query::QueryRoot;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
@@ -11,7 +12,6 @@ use std::sync::Arc;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use crate::server::model::mutation::MutationRoot;
 
 pub mod model;
 pub mod route;

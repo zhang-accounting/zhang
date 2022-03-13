@@ -9,14 +9,18 @@ export default function Accounts() {
         accounts {
           name
           status
+          snapshot {
+            summary{
+              number
+              currency
+            }
+          }
           currencies {
             name
           }
-          snapshot {
-            inner
-          }
         }
-      }    
+      }
+         
 `);
 
     if (loading) return <p>Loading...</p>;
