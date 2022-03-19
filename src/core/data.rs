@@ -126,6 +126,12 @@ impl Transaction {
             .map(|posting| TxnPosting { txn: self, posting })
             .collect_vec()
     }
+    pub fn has_account(&self, name: &AccountName) -> bool {
+        self.postings
+            .iter()
+            .find(|posting| posting.account.content.eq(name))
+            .is_some()
+    }
 }
 
 #[derive(Debug, PartialEq)]

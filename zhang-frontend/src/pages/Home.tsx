@@ -12,6 +12,7 @@ function Home() {
   return (
     <Box as="section" py={{ base: '4', md: '8' }}>
     <Container>
+      hello home
       <SimpleGrid columns={{ base: 1, md: 3 }} gap={{ base: '5', md: '6' }}>
         {stats.map(({ label, value }) => (
           <Stat key={label} label={label} value={value} />

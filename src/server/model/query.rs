@@ -84,14 +84,13 @@ impl QueryRoot {
             .map(|(name, info)| AccountDto { name, info })
             .collect_vec()
     }
-    async fn account(&self, ctx: &Context<'_>) -> Vec<AccountDto> {
+    async fn account(&self, ctx: &Context<'_>, name: String) -> Option<AccountDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
         ledger_stage
             .accounts
-            .clone()
-            .into_iter()
-            .map(|(name, info)| AccountDto { name, info })
-            .collect_vec()
+            .get(&name)
+            .cloned()
+            .map(|info| AccountDto { name, info })
     }
 
     async fn documents(&self) -> Vec<AccountDto> {
@@ -155,6 +154,36 @@ impl AccountDto {
             .into_iter()
             .filter(|(name, _)| self.info.currencies.contains(name))
             .map(|(_, info)| CurrencyDto(info))
+            .collect_vec()
+    }
+    async fn journals(&self, ctx: &Context<'_>) -> Vec<JournalDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage
+            .directives
+            .iter()
+            .filter(|directive| match directive {
+                Directive::Transaction(trx) => trx.has_account(&self.name),
+                Directive::Balance(balance) => match balance {
+                    Balance::BalanceCheck(check) => check.account.content.eq(&self.name),
+                    Balance::BalancePad(pad) => pad.account.content.eq(&self.name),
+                },
+                _ => false,
+            })
+            .filter_map(|directive| match directive {
+                Directive::Transaction(trx) => {
+                    Some(JournalDto::Transaction(TransactionDto(trx.clone())))
+                }
+                Directive::Balance(balance) => match balance {
+                    Balance::BalanceCheck(check) => {
+                        Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone())))
+                    }
+                    Balance::BalancePad(pad) => {
+                        Some(JournalDto::BalancePad(BalancePadDto(pad.clone())))
+                    }
+                },
+                _ => None,
+            })
+            .rev()
             .collect_vec()
     }
 }

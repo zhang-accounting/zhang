@@ -4,6 +4,7 @@ import Accounts from "./pages/Accounts";
 import Home from "./pages/Home";
 import Journals from "./pages/Journals";
 import RawEdit from "./pages/RawEdit";
+import SingleAccount from "./pages/SingleAccount";
 
 
 
@@ -18,6 +19,7 @@ function App() {
           <Route path="journals" element={<Journals />} />
           <Route path="accounts" element={<Accounts />} />
           <Route path="/edit" element={<RawEdit />} />
+          <Route path="/accounts/:accountName" element={<SingleAccount />} />
         </Routes>
       </div>
 
