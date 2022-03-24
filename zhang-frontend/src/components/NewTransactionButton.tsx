@@ -52,7 +52,7 @@ export default function Component({ }) {
 
     const save = () => {
         
-        appendData({ variables: { date: Math.round(date.getTime()/1000), content: preview() } })
+        appendData({ variables: { date: Math.round(date.getTime()/1000), content: `\n${preview()}\n` } })
     }
 
 
