@@ -6,3 +6,4 @@ wechat_config.toml
 zhang-frontend/node_modules
 zhang-frontend/dist
 zhang-frontend/.parcel-cache
+zhang-frontend/.DS_Store
