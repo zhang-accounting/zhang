@@ -17,6 +17,7 @@ import {
 } from 'react-icons/fi';
 import { BrowserRouter, Link as RouteLink } from "react-router-dom";
 import App from "./App";
+import NewTransactionButton from "./components/NewTransactionButton";
 import StatisticBar from "./components/StatisticBar";
 import StatisticBox from "./components/StatisticBox";
 import "./index.css";
@@ -98,6 +99,9 @@ const SidebarContent = ({ onClose, ...rest }: SidebarProps) => {
         </Text>
         <CloseButton display={{ base: 'flex', md: 'none' }} onClick={onClose} />
       </Flex>
+      <div>
+        <NewTransactionButton />
+      </div>
       {LinkItems.map((link) => (
         <NavItem key={link.name} icon={link.icon} uri={link.uri}>
           {link.name}
