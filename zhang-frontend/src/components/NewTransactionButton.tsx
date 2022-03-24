@@ -2,22 +2,27 @@ import { Box, Button, Checkbox, Code, Flex, Input, Modal, ModalBody, ModalCloseB
 import React, { useState } from "react";
 
 import Select from 'react-select';
-// import DatePicker from "react-datepicker";
-// import "react-datepicker/dist/react-datepicker.css";
 
 import DateTimePicker from 'react-datetime-picker';
 import { format } from "date-fns";
+import { gql, useMutation } from "@apollo/client";
 
 
 export default function Component({ }) {
+
+    const [appendData, _] = useMutation(gql`
+    mutation APPEND_DATA($date: Int, $content: String) {
+        appendData(date: $date, content: $content) 
+    }
+    `)
+
     const { isOpen, onOpen, onClose } = useDisclosure()
     const [dateOnly, setDateOnly] = useBoolean(false);
     const options = [
-        { value: 'chocolate', label: 'Chocolate' },
-        { value: 'strawberry', label: 'Strawberry' },
-        { value: 'vanilla', label: 'Vanilla' },
+        { value: 'Assets:A', label: 'Assets:A' },
+        { value: 'Assets:B', label: 'Assets:B' },
+        { value: 'Assets:C', label: 'Assets:C' },
     ];
-    const [selectedOption, setSelectedOption] = useState(null);
 
     const [date, setDate] = useState(new Date());
     const [payee, setPayee] = useState("");
@@ -43,6 +48,11 @@ export default function Component({ }) {
         const narrationDisplay = narration.trim().length === 0 ? "" : ` "${escape(narration.trim())}"`;
         const postingDisplay = postings.map(posting => `  ${posting.account?.value} ${posting.amount}`).join("\n");
         return `${dateDisplay} "${escape(payee)}"${narrationDisplay}\n${postingDisplay}`
+    }
+
+    const save = () => {
+        
+        appendData({ variables: { date: Math.round(date.getTime()/1000), content: preview() } })
     }
 
 
@@ -100,7 +110,7 @@ export default function Component({ }) {
 
                     </ModalBody>
                     <ModalFooter>
-                        <Button colorScheme='blue' mr={3}>
+                        <Button colorScheme='blue' mr={3} onClick={save}>
                             Save
                         </Button>
                         <Button onClick={onClose}>Cancel</Button>
