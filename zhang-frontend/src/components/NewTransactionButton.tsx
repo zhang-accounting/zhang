@@ -47,12 +47,16 @@ export default function Component({ }) {
         const dateDisplay = format(date, dateOnly ? "yyyy-MM-dd" : "yyyy-MM-dd hh:mm:ss");
         const narrationDisplay = narration.trim().length === 0 ? "" : ` "${escape(narration.trim())}"`;
         const postingDisplay = postings.map(posting => `  ${posting.account?.value} ${posting.amount}`).join("\n");
-        return `${dateDisplay} "${escape(payee)}"${narrationDisplay}\n${postingDisplay}`
+        return `${dateDisplay} ${JSON.stringify(payee)}${narrationDisplay}\n${postingDisplay}`
     }
-
     const save = () => {
-        
-        appendData({ variables: { date: Math.round(date.getTime()/1000), content: `\n${preview()}\n` } })
+
+        appendData({
+            variables: { date: Math.round(date.getTime() / 1000), content: `\n${preview()}\n` },
+            update(cache, { data }) {
+                cache.evict({ id: "JOURNAL_LIST" });
+            }
+        })
     }
 
 
