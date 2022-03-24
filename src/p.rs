@@ -161,15 +161,16 @@ impl ZhangParser {
     fn posting_unit(
         input: Node,
     ) -> Result<(
-        Amount,
+        Option<Amount>,
         Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>,
     )> {
         let ret: (
-            Amount,
+            Option<Amount>,
             Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>,
         ) = match_nodes!(input.into_children();
-            [posting_amount(amount)] => (amount, None),
-            [posting_amount(amount), posting_meta(meta)] => (amount, Some(meta)),
+            [posting_amount(amount)] => (Some(amount), None),
+            [posting_meta(meta)] => (None, Some(meta)),
+            [posting_amount(amount), posting_meta(meta)] => (Some(amount), Some(meta)),
         );
         Ok(ret)
     }
@@ -229,7 +230,7 @@ impl ZhangParser {
             Option<Flag>,
             Account,
             Option<(
-                Amount,
+                Option<Amount>,
                 Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>,
             )>,
         ) = match_nodes!(input.into_children();
@@ -251,7 +252,7 @@ impl ZhangParser {
         };
 
         if let Some((amount, meta)) = unit {
-            line.units = Some(amount);
+            line.units = amount;
 
             if let Some(meta) = meta {
                 line.cost = meta.0;
@@ -564,5 +565,20 @@ mod test {
             })),
             balance
         )
+    }
+    mod transaction {
+        use crate::parse_zhang;
+        use indoc::indoc;
+
+        #[test]
+        fn should_support_trailing_space() {
+            let vec = parse_zhang(indoc! {r#"
+                2022-03-24 11:38:56 ""
+                  Assets:B 1 CNY
+                  Assets:B   
+            "#})
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+        }
     }
 }
