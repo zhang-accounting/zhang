@@ -1,12 +1,17 @@
-import { Box, Button, Code, Flex, Input, Modal, ModalBody, ModalCloseButton, ModalContent, ModalFooter, ModalHeader, ModalOverlay, Text, useDisclosure } from "@chakra-ui/react";
-import { useState } from "react";
+import { Box, Button, Checkbox, Code, Flex, Input, Modal, ModalBody, ModalCloseButton, ModalContent, ModalFooter, ModalHeader, ModalOverlay, Text, useBoolean, useDisclosure } from "@chakra-ui/react";
+import React, { useState } from "react";
 
 import Select from 'react-select';
+// import DatePicker from "react-datepicker";
+// import "react-datepicker/dist/react-datepicker.css";
 
+import DateTimePicker from 'react-datetime-picker';
+import { format } from "date-fns";
 
 
 export default function Component({ }) {
     const { isOpen, onOpen, onClose } = useDisclosure()
+    const [dateOnly, setDateOnly] = useBoolean(false);
     const options = [
         { value: 'chocolate', label: 'Chocolate' },
         { value: 'strawberry', label: 'Strawberry' },
@@ -14,7 +19,7 @@ export default function Component({ }) {
     ];
     const [selectedOption, setSelectedOption] = useState(null);
 
-    const [date, setDate] = useState("");
+    const [date, setDate] = useState(new Date());
     const [payee, setPayee] = useState("");
     const [narration, setNarration] = useState("");
     const [postings, setPostings] = useState([
@@ -34,9 +39,10 @@ export default function Component({ }) {
     }
 
     const preview = (): string => {
+        const dateDisplay = format(date, dateOnly ? "yyyy-MM-dd" : "yyyy-MM-dd hh:mm:ss");
         const narrationDisplay = narration.trim().length === 0 ? "" : ` "${escape(narration.trim())}"`;
         const postingDisplay = postings.map(posting => `  ${posting.account?.value} ${posting.amount}`).join("\n");
-        return `${date} "${escape(payee)}"${narrationDisplay}\n${postingDisplay}`
+        return `${dateDisplay} "${escape(payee)}"${narrationDisplay}\n${postingDisplay}`
     }
 
 
@@ -54,7 +60,7 @@ export default function Component({ }) {
                             <Box>
                                 <Flex m={1}>
                                     <Box m={1}>
-                                        <Input placeholder='Flushed' />
+                                        <DateTimePicker onChange={setDate} value={date} />
                                     </Box>
                                     <Box m={1}>
                                         <Input placeholder='Payee' value={payee} onChange={e => setPayee(e.target.value)} />
@@ -79,11 +85,14 @@ export default function Component({ }) {
 
                                     </Flex>
                                 ))}
+                                <Flex>
+                                    <Checkbox checked={dateOnly} onChange={setDateOnly.toggle}>Date Only</Checkbox>
+                                </Flex>
                             </Box>
                             <Box>
                                 <Box>preview</Box>
                                 <Box bg={"gray.100"} p={4}>
-                                   <pre> <code>{preview()}</code></pre>
+                                    <pre> <code>{preview()}</code></pre>
                                 </Box>
                             </Box>
                         </Flex>
