@@ -57,20 +57,23 @@ export default function Component({ }) {
         const postingDisplay = postings.map(posting => `  ${posting.account?.value} ${posting.amount}`).join("\n");
         return `${dateDisplay} ${JSON.stringify(payee)}${narrationDisplay}\n${postingDisplay}`
     }
+
+    const valid = (): boolean => {
+        return postings.every(posting => posting.account !== null) &&
+            postings.filter(posting => posting.amount.trim().length === 0).length <= 1
+    }
     const save = () => {
 
         appendData({
-            variables: { date: Math.round(date.getTime() / 1000), content: `\n${preview()}\n` },
-            update(cache, { data }) {
-                cache.evict({ id: "JOURNAL_LIST" });
-            }
-        })
+            variables: { date: Math.round(date.getTime() / 1000), content: `\n${preview()}\n` }
+        });
+        onClose()
     }
 
     if (accountInfo.loading) return <p>Loading...</p>;
     if (accountInfo.error) return <p>Error :(</p>;
     console.log("data", accountInfo.data);
-    
+
     const accountSelectItems = Object.values(accountInfo.data.accounts.reduce((ret, singleAccountInfo) => {
         const type = singleAccountInfo.name.split(":")[0];
         const item = { label: singleAccountInfo.name, value: singleAccountInfo.name };
@@ -79,7 +82,7 @@ export default function Component({ }) {
         return ret;
     }, {})).sort();
     console.log("accountSelectItems", accountSelectItems);
-    
+
 
     return (
         <>
@@ -136,7 +139,7 @@ export default function Component({ }) {
 
                     </ModalBody>
                     <ModalFooter>
-                        <Button colorScheme='blue' mr={3} onClick={save}>
+                        <Button colorScheme='blue' mr={3} onClick={save} disabled={!valid()}>
                             Save
                         </Button>
                         <Button onClick={onClose}>Cancel</Button>
