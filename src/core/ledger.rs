@@ -392,6 +392,7 @@ impl Ledger {
         self.metas = reload_ledger.metas;
         self.snapshot = reload_ledger.snapshot;
         self.currencies = reload_ledger.currencies;
+        self.documents = reload_ledger.documents;
         self.accounts = reload_ledger.accounts;
         self.daily_snapshot = reload_ledger.daily_snapshot;
         self.visited_files = reload_ledger.visited_files;
