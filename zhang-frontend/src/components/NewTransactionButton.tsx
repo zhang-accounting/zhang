@@ -22,15 +22,12 @@ export default function Component({ }) {
     mutation APPEND_DATA($date: Int, $content: String) {
         appendData(date: $date, content: $content) 
     }
-    `)
+    `, {
+        refetchQueries: ["FILE_LIST", "SINGLE_FILE_ENTRY", "JOURNAL_LIST", "BAR_STATISTIC"]
+    })
 
     const { isOpen, onOpen, onClose } = useDisclosure()
     const [dateOnly, setDateOnly] = useBoolean(false);
-    const options = [
-        { value: 'Assets:A', label: 'Assets:A' },
-        { value: 'Assets:B', label: 'Assets:B' },
-        { value: 'Assets:C', label: 'Assets:C' },
-    ];
 
     const [date, setDate] = useState(new Date());
     const [payee, setPayee] = useState("");
