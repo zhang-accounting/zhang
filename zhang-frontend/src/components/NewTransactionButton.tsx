@@ -5,10 +5,18 @@ import Select from 'react-select';
 
 import DateTimePicker from 'react-datetime-picker';
 import { format } from "date-fns";
-import { gql, useMutation } from "@apollo/client";
+import { gql, useMutation, useQuery } from "@apollo/client";
 
 
 export default function Component({ }) {
+
+    const accountInfo = useQuery(gql`
+    query NEW_TRANSACTION_MODAL_DATA {
+        accounts {
+          name
+        }
+      }
+    `)
 
     const [appendData, _] = useMutation(gql`
     mutation APPEND_DATA($date: Int, $content: String) {
@@ -45,7 +53,7 @@ export default function Component({ }) {
 
     const preview = (): string => {
         const dateDisplay = format(date, dateOnly ? "yyyy-MM-dd" : "yyyy-MM-dd hh:mm:ss");
-        const narrationDisplay = narration.trim().length === 0 ? "" : ` "${escape(narration.trim())}"`;
+        const narrationDisplay = narration.trim().length === 0 ? "" : ` ${JSON.stringify(narration.trim())}`;
         const postingDisplay = postings.map(posting => `  ${posting.account?.value} ${posting.amount}`).join("\n");
         return `${dateDisplay} ${JSON.stringify(payee)}${narrationDisplay}\n${postingDisplay}`
     }
@@ -59,6 +67,19 @@ export default function Component({ }) {
         })
     }
 
+    if (accountInfo.loading) return <p>Loading...</p>;
+    if (accountInfo.error) return <p>Error :(</p>;
+    console.log("data", accountInfo.data);
+    
+    const accountSelectItems = Object.values(accountInfo.data.accounts.reduce((ret, singleAccountInfo) => {
+        const type = singleAccountInfo.name.split(":")[0];
+        const item = { label: singleAccountInfo.name, value: singleAccountInfo.name };
+        ret[type] = ret[type] || { label: type.toUpperCase(), options: [] };
+        ret[type].options.push(item);
+        return ret;
+    }, {})).sort();
+    console.log("accountSelectItems", accountSelectItems);
+    
 
     return (
         <>
@@ -88,9 +109,10 @@ export default function Component({ }) {
                                         <Box w='80%'>
                                             <Select
                                                 isClearable
+                                                isSearchable
                                                 value={posting.account}
                                                 onChange={(value) => updatePostingAccount(idx, value)}
-                                                options={options}
+                                                options={accountSelectItems}
                                             />
                                         </Box>
                                         <Box ml={2}>
