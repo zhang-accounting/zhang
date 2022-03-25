@@ -59,17 +59,30 @@ export default function Component({ }) {
         return postings.every(posting => posting.account !== null) &&
             postings.filter(posting => posting.amount.trim().length === 0).length <= 1
     }
+    const newPosting = () => {
+        const newPostings = [...postings];
+        newPostings.push({ account: null, amount: "" });
+        setPostings(newPostings);
+    }
+    const handleDeletePosting = (targetIdx: number) => {
+        setPostings(postings.filter((_, idx) => idx !== targetIdx));
+    }
     const save = () => {
-
         appendData({
             variables: { date: Math.round(date.getTime() / 1000), content: `\n${preview()}\n` }
         });
-        onClose()
+        onClose();
+        setDate(new Date);
+        setPayee("");
+        setNarration("");
+        setPostings([
+            { account: null, amount: "" },
+            { account: null, amount: "" }
+        ]);
     }
 
     if (accountInfo.loading) return <p>Loading...</p>;
     if (accountInfo.error) return <p>Error :(</p>;
-    console.log("data", accountInfo.data);
 
     const accountSelectItems = Object.values(accountInfo.data.accounts.reduce((ret, singleAccountInfo) => {
         const type = singleAccountInfo.name.split(":")[0];
@@ -78,8 +91,6 @@ export default function Component({ }) {
         ret[type].options.push(item);
         return ret;
     }, {})).sort();
-    console.log("accountSelectItems", accountSelectItems);
-
 
     return (
         <>
@@ -104,6 +115,9 @@ export default function Component({ }) {
                                         <Input placeholder='Narration' value={narration} onChange={e => setNarration(e.target.value)} />
                                     </Box>
                                 </Flex>
+                                <Flex>
+                                    <Button onClick={newPosting}>new Posting</Button>
+                                </Flex>
                                 {postings.map((posting, idx) => (
                                     <Flex m={1} key={idx}>
                                         <Box w='80%'>
@@ -117,6 +131,9 @@ export default function Component({ }) {
                                         </Box>
                                         <Box ml={2}>
                                             <Input placeholder='Amount' value={posting.amount} onChange={(e) => updatePostingAmount(idx, e.target.value)} />
+                                        </Box>
+                                        <Box ml={2}>
+                                            <Button disabled={postings.length <= 2} onClick={() => handleDeletePosting(idx)}>Delete</Button>
                                         </Box>
 
                                     </Flex>
