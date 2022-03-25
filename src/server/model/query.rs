@@ -1,7 +1,10 @@
+use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::data::{Balance, BalanceCheck, BalancePad, Transaction, TxnPosting};
+use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction, TxnPosting};
 use crate::core::inventory::AccountName;
-use crate::core::ledger::{AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo};
+use crate::core::ledger::{
+    AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DocumentType,
+};
 use crate::core::models::Directive;
 use crate::server::LedgerState;
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Interface, Object, Schema};
@@ -93,11 +96,27 @@ impl QueryRoot {
             .map(|info| AccountDto { name, info })
     }
 
-    async fn documents(&self) -> Vec<AccountDto> {
-        todo!()
-    }
-    async fn document(&self) -> Vec<AccountDto> {
-        todo!()
+    async fn documents(&self, ctx: &Context<'_>) -> Vec<DocumentDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage
+            .documents
+            .values()
+            .cloned()
+            .map(|it| match it {
+                DocumentType::AccountDocument {
+                    date,
+                    account,
+                    filename,
+                } => DocumentDto::AccountDocument(AccountDocumentDto {
+                    date,
+                    account,
+                    filename,
+                }),
+                DocumentType::TransactionDocument { .. } => {
+                    DocumentDto::TransactionDocument(TransactionDocumentDto {})
+                }
+            })
+            .collect_vec()
     }
 
     async fn journals(&self, ctx: &Context<'_>) -> Vec<JournalDto> {
@@ -395,5 +414,45 @@ impl FileEntryDto {
     }
     async fn content(&self) -> String {
         std::fs::read_to_string(&self.0).expect("Cannot open file")
+    }
+}
+
+#[derive(Interface)]
+#[graphql(field(name = "filename", type = "String"))]
+pub enum DocumentDto {
+    AccountDocument(AccountDocumentDto),
+    TransactionDocument(TransactionDocumentDto),
+}
+pub struct AccountDocumentDto {
+    date: Date,
+    account: Account,
+    filename: String,
+}
+
+#[Object]
+impl AccountDocumentDto {
+    async fn filename(&self) -> String {
+        self.filename.clone()
+    }
+    async fn account(&self, ctx: &Context<'_>) -> Option<AccountDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        let account_name = self.account.name().to_string();
+        ledger_stage
+            .accounts
+            .get(&account_name)
+            .cloned()
+            .map(|info| AccountDto {
+                name: account_name,
+                info,
+            })
+    }
+}
+
+pub struct TransactionDocumentDto {}
+
+#[Object]
+impl TransactionDocumentDto {
+    async fn filename(&self) -> String {
+        "".to_string()
     }
 }

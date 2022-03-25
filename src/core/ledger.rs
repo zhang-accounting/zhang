@@ -1,5 +1,6 @@
+use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::data::{Balance, Commodity};
+use crate::core::data::{Balance, Commodity, Date};
 use crate::core::inventory::{AccountName, Currency};
 use crate::core::models::Directive;
 use crate::error::{ZhangError, ZhangResult};
@@ -14,6 +15,20 @@ use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::{Add, Neg, Sub};
 use std::path::PathBuf;
+
+#[derive(Debug, Clone)]
+pub enum DocumentType {
+    AccountDocument {
+        date: Date,
+        account: Account,
+        filename: String,
+    },
+    TransactionDocument {
+        date: Date,
+        // todo add transaction location info
+        filename: String,
+    },
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Enum, Copy)]
 pub enum AccountStatus {
@@ -119,6 +134,7 @@ pub struct Ledger {
     pub currencies: HashMap<Currency, CurrencyInfo>,
     pub snapshot: HashMap<AccountName, AccountSnapshot>,
     pub daily_snapshot: DailyAccountSnapshot,
+    pub documents: HashMap<String, DocumentType>,
     pub(crate) visited_files: Vec<PathBuf>,
 }
 
@@ -175,6 +191,8 @@ impl Ledger {
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
         let mut accounts = HashMap::default();
         let mut currencies = HashMap::default();
+        let mut documents = HashMap::default();
+
         let mut snapshot: HashMap<AccountName, AccountSnapshot> = HashMap::default();
         let mut daily_snapshot: DailyAccountSnapshot = DailyAccountSnapshot::default();
         let mut target_day: Option<NaiveDate> = None;
@@ -296,7 +314,16 @@ impl Ledger {
                     }
                 },
                 Directive::Note(_) => {}
-                Directive::Document(_) => {}
+                Directive::Document(document) => {
+                    documents.insert(
+                        document.filename.clone().to_plain_string(),
+                        DocumentType::AccountDocument {
+                            date: document.date.clone(),
+                            account: document.account.clone(),
+                            filename: document.filename.clone().to_plain_string(),
+                        },
+                    );
+                }
                 Directive::Price(_) => {}
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
@@ -312,6 +339,7 @@ impl Ledger {
             directives,
             accounts,
             currencies,
+            documents,
             snapshot,
             daily_snapshot,
             visited_files,
