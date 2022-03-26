@@ -125,6 +125,19 @@ impl AccountSnapshot {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum LedgerError {
+    AccountBalanceCheckError {
+        account_name: String,
+        target: Amount,
+        current: Amount,
+        distance: Amount,
+    },
+    AccountDoesNotExist {},
+    AccountClosed {},
+    TransactionDoesNotBalance {},
+}
+
 #[derive(Debug)]
 pub struct Ledger {
     pub entry: Either<PathBuf, String>,
@@ -135,6 +148,7 @@ pub struct Ledger {
     pub snapshot: HashMap<AccountName, AccountSnapshot>,
     pub daily_snapshot: DailyAccountSnapshot,
     pub documents: HashMap<String, DocumentType>,
+    pub errors: Vec<LedgerError>,
     pub(crate) visited_files: Vec<PathBuf>,
 }
 
@@ -192,6 +206,7 @@ impl Ledger {
         let mut accounts = HashMap::default();
         let mut currencies = HashMap::default();
         let mut documents = HashMap::default();
+        let mut errors = vec![];
 
         let mut snapshot: HashMap<AccountName, AccountSnapshot> = HashMap::default();
         let mut daily_snapshot: DailyAccountSnapshot = DailyAccountSnapshot::default();
@@ -270,6 +285,21 @@ impl Ledger {
                                 (&balance_check.amount.number).sub(&decimal),
                                 balance_check.amount.currency.clone(),
                             ));
+                            errors.push(LedgerError::AccountBalanceCheckError {
+                                account_name: balance_check.account.name().to_string(),
+                                target: Amount::new(
+                                    balance_check.amount.number.clone(),
+                                    balance_check.amount.currency.clone(),
+                                ),
+                                current: Amount::new(
+                                    decimal.clone(),
+                                    balance_check.amount.currency.clone(),
+                                ),
+                                distance: Amount::new(
+                                    (&balance_check.amount.number).sub(&decimal),
+                                    balance_check.amount.currency.clone(),
+                                ),
+                            });
                             error!(
                                 "balance error: account {} balance to {} {} with distance {} {}(current is {} {})",
                                 balance_check.account.name(),
@@ -340,6 +370,7 @@ impl Ledger {
             accounts,
             currencies,
             documents,
+            errors,
             snapshot,
             daily_snapshot,
             visited_files,

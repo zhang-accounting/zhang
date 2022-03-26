@@ -2,9 +2,7 @@ use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction, TxnPosting};
 use crate::core::inventory::AccountName;
-use crate::core::ledger::{
-    AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DocumentType,
-};
+use crate::core::ledger::{AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DocumentType, LedgerError};
 use crate::core::models::Directive;
 use crate::server::LedgerState;
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Interface, Object, Schema};
@@ -140,6 +138,11 @@ impl QueryRoot {
             })
             .rev()
             .collect_vec()
+    }
+
+    async fn errors(&self, ctx: &Context<'_>) -> Vec<ErrorDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage.errors.iter().cloned().map(|it| ErrorDto(it)).collect_vec()
     }
 }
 
@@ -454,5 +457,29 @@ pub struct TransactionDocumentDto {}
 impl TransactionDocumentDto {
     async fn filename(&self) -> String {
         "".to_string()
+    }
+}
+
+
+pub struct ErrorDto(LedgerError);
+
+#[Object]
+impl ErrorDto {
+
+    async fn message(&self) -> String {
+        match self.0 {
+            LedgerError::AccountBalanceCheckError { .. } => {
+                "account not balance".to_string()
+            }
+            LedgerError::AccountDoesNotExist { .. } => {
+                "account does not exist".to_string()
+            }
+            LedgerError::AccountClosed { .. } => {
+                "account close".to_string()
+            }
+            LedgerError::TransactionDoesNotBalance { .. } => {
+                "trx does not balance".to_string()
+            }
+        }
     }
 }
