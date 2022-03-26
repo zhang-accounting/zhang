@@ -3,7 +3,8 @@ use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
 use crate::server::model::mutation::MutationRoot;
 use async_graphql::{EmptySubscription, Schema};
-use axum::{routing::get, AddExtensionLayer, Router};
+use axum::extract::Extension;
+use axum::{routing::get, Router};
 use log::{error, info};
 use model::query::QueryRoot;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
@@ -77,8 +78,8 @@ async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> Zha
             get(route::graphql_playground).post(route::graphql_handler),
         )
         .fallback(get(route::serve_frontend))
-        .layer(AddExtensionLayer::new(ledger_data))
-        .layer(AddExtensionLayer::new(schema))
+        .layer(Extension(ledger_data))
+        .layer(Extension(schema))
         .layer(CorsLayer::permissive());
 
     let addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), opts.port);
