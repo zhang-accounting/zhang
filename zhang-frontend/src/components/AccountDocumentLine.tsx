@@ -1,4 +1,5 @@
 import { Badge, Flex, Text } from "@chakra-ui/react";
+import { useNavigate } from "react-router";
 
 interface Props {
     filename: string
@@ -9,7 +10,7 @@ interface Props {
 }
 
 export default function Component({ filename, account }: Props) {
-
+    let navigate = useNavigate();
     const extension = filename.split(".").pop()?.toUpperCase();
 
     return (
@@ -18,7 +19,7 @@ export default function Component({ filename, account }: Props) {
                 <Badge variant='outline'>{extension}</Badge>
                 <Text mx={2}>{filename}</Text>
             </Flex>
-            <Text mx={1}>{account.name}</Text>
+            <Text mx={1} cursor="pointer" onClick={() => navigate(`/accounts/${account.name}`)}>{account.name}</Text>
         </Flex>
     )
 }
