@@ -422,6 +422,7 @@ impl Ledger {
         self.currencies = reload_ledger.currencies;
         self.documents = reload_ledger.documents;
         self.accounts = reload_ledger.accounts;
+        self.errors = reload_ledger.errors;
         self.daily_snapshot = reload_ledger.daily_snapshot;
         self.visited_files = reload_ledger.visited_files;
         Ok(())
