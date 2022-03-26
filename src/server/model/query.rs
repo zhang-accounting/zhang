@@ -2,15 +2,17 @@ use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction, TxnPosting};
 use crate::core::inventory::AccountName;
-use crate::core::ledger::{AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DocumentType, LedgerError};
+use crate::core::ledger::{
+    AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DocumentType, LedgerError,
+};
 use crate::core::models::Directive;
 use crate::server::LedgerState;
-use async_graphql::{Context, EmptyMutation, EmptySubscription, Interface, Object, Schema};
+use async_graphql::{Context, Interface, Object};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, Utc};
 use itertools::Itertools;
 use now::TimeZoneNow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub struct QueryRoot;
@@ -55,7 +57,7 @@ impl QueryRoot {
         StatisticDto {
             start_date: beginning_of_month,
             end_date: end_of_month,
-            start_date_snapshot: beginning_day_snapshot,
+            _start_date_snapshot: beginning_day_snapshot,
             end_date_snapshot: end_day_snapshot,
         }
     }
@@ -142,7 +144,12 @@ impl QueryRoot {
 
     async fn errors(&self, ctx: &Context<'_>) -> Vec<ErrorDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        ledger_stage.errors.iter().cloned().map(|it| ErrorDto(it)).collect_vec()
+        ledger_stage
+            .errors
+            .iter()
+            .cloned()
+            .map(ErrorDto)
+            .collect_vec()
     }
 }
 
@@ -337,14 +344,21 @@ impl AmountDto {
 pub struct StatisticDto {
     start_date: NaiveDate,
     end_date: NaiveDate,
-    start_date_snapshot: HashMap<AccountName, AccountSnapshot>,
+    _start_date_snapshot: HashMap<AccountName, AccountSnapshot>,
     end_date_snapshot: HashMap<AccountName, AccountSnapshot>,
 }
 
 #[Object]
 impl StatisticDto {
+    async fn start(&self) -> i64 {
+        self.start_date.and_hms(0, 0, 0).timestamp()
+    }
+    async fn end(&self) -> i64 {
+        self.end_date.and_hms(0, 0, 0).timestamp()
+    }
     async fn accounts(&self) -> Vec<AccountDto> {
-        todo!()
+        // todo
+        vec![]
     }
     async fn total(&self) -> SnapshotDto {
         let dto = self
@@ -394,7 +408,7 @@ impl SnapshotDto {
             .inner
             .get("CNY")
             .cloned()
-            .unwrap_or(BigDecimal::zero());
+            .unwrap_or_else(BigDecimal::zero);
         AmountDto(Amount::new(decimal, "CNY"))
     }
     async fn detail(&self) -> Vec<AmountDto> {
@@ -434,6 +448,9 @@ pub struct AccountDocumentDto {
 
 #[Object]
 impl AccountDocumentDto {
+    async fn date(&self) -> i64 {
+        self.date.naive_datetime().timestamp()
+    }
     async fn filename(&self) -> String {
         self.filename.clone()
     }
@@ -460,26 +477,16 @@ impl TransactionDocumentDto {
     }
 }
 
-
 pub struct ErrorDto(LedgerError);
 
 #[Object]
 impl ErrorDto {
-
     async fn message(&self) -> String {
         match self.0 {
-            LedgerError::AccountBalanceCheckError { .. } => {
-                "account not balance".to_string()
-            }
-            LedgerError::AccountDoesNotExist { .. } => {
-                "account does not exist".to_string()
-            }
-            LedgerError::AccountClosed { .. } => {
-                "account close".to_string()
-            }
-            LedgerError::TransactionDoesNotBalance { .. } => {
-                "trx does not balance".to_string()
-            }
+            LedgerError::AccountBalanceCheckError { .. } => "account not balance".to_string(),
+            // LedgerError::AccountDoesNotExist { .. } => "account does not exist".to_string(),
+            // LedgerError::AccountClosed { .. } => "account close".to_string(),
+            // LedgerError::TransactionDoesNotBalance { .. } => "trx does not balance".to_string(),
         }
     }
 }

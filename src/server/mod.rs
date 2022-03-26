@@ -2,7 +2,7 @@ use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
 use crate::server::model::mutation::MutationRoot;
-use async_graphql::{EmptyMutation, EmptySubscription, Schema};
+use async_graphql::{EmptySubscription, Schema};
 use axum::{routing::get, AddExtensionLayer, Router};
 use log::{error, info};
 use model::query::QueryRoot;

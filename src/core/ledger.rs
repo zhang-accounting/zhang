@@ -5,7 +5,7 @@ use crate::core::inventory::{AccountName, Currency};
 use crate::core::models::Directive;
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
-use async_graphql::{Enum, SimpleObject};
+use async_graphql::Enum;
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
 use itertools::{Either, Itertools};
@@ -81,7 +81,7 @@ impl DailyAccountSnapshot {
         day: NaiveDate,
         snapshot: HashMap<AccountName, AccountSnapshot>,
     ) {
-        self.data.insert(day.clone(), snapshot);
+        self.data.insert(day, snapshot);
         self.date_index.insert(day);
     }
     pub(crate) fn get_snapshot_by_date(
@@ -93,10 +93,7 @@ impl DailyAccountSnapshot {
             Ok(_) => day,
             Err(gt_index) => vec[gt_index - 1],
         };
-        self.data
-            .get(target_day)
-            .map(|it| it.clone())
-            .unwrap_or_default()
+        self.data.get(target_day).cloned().unwrap_or_default()
     }
 }
 
@@ -133,9 +130,9 @@ pub enum LedgerError {
         current: Amount,
         distance: Amount,
     },
-    AccountDoesNotExist {},
-    AccountClosed {},
-    TransactionDoesNotBalance {},
+    // AccountDoesNotExist {},
+    // AccountClosed {},
+    // TransactionDoesNotBalance {},
 }
 
 #[derive(Debug)]
