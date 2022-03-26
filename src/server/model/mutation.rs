@@ -5,10 +5,9 @@ use crate::target::ZhangTarget;
 use async_graphql::{Context, Object};
 use chrono::{Datelike, NaiveDateTime};
 use itertools::Either;
-use std::fmt::format;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::{Path, PathBuf, StripPrefixError};
+use std::path::PathBuf;
 use std::str::FromStr;
 
 pub struct MutationRoot;
@@ -25,8 +24,7 @@ impl MutationRoot {
         if contains_file {
             std::fs::write(path_buf, content).expect("cannot read");
             let mut ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
-            ledger_stage.reload();
-            true
+            ledger_stage.reload().is_ok()
         } else {
             false
         }
@@ -34,7 +32,7 @@ impl MutationRoot {
 
     async fn append_data(&self, ctx: &Context<'_>, date: i64, content: String) -> bool {
         let time = NaiveDateTime::from_timestamp(date, 0);
-        let mut ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
         let entry_path = match &ledger_stage.entry {
             Either::Left(path) => path,
             Either::Right(_) => {
@@ -46,7 +44,8 @@ impl MutationRoot {
             ledger_base_path.join(format!("data/{}/{}.zhang", time.year(), time.month()));
 
         if !target_file_path.exists() {
-            std::fs::create_dir_all(&target_file_path.parent().unwrap()).expect("cannot create folder recursive");
+            std::fs::create_dir_all(&target_file_path.parent().unwrap())
+                .expect("cannot create folder recursive");
             std::fs::write(&target_file_path, "").expect("cannot generate empty file");
         }
 
@@ -67,7 +66,7 @@ impl MutationRoot {
                 .open(&entry_path)
                 .unwrap();
             ledger_base_file
-                .write(format!("\n{}\n", include_directive).as_bytes())
+                .write_all(format!("\n{}\n", include_directive).as_bytes())
                 .unwrap();
         }
 
@@ -76,7 +75,7 @@ impl MutationRoot {
             .create(true)
             .open(buf)
             .unwrap();
-        file.write(content.as_bytes()).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
         true
     }
 }

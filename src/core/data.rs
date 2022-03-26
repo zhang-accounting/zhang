@@ -129,8 +129,7 @@ impl Transaction {
     pub fn has_account(&self, name: &AccountName) -> bool {
         self.postings
             .iter()
-            .find(|posting| posting.account.content.eq(name))
-            .is_some()
+            .any(|posting| posting.account.content.eq(name))
     }
 }
 
