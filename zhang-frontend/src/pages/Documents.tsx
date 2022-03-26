@@ -1,3 +1,4 @@
+import AccountDocumentLine from "@/components/AccountDocumentLine";
 import AccountLine from "@/components/AccountLine";
 import { gql, useQuery } from "@apollo/client";
 import { Heading } from "@chakra-ui/react";
@@ -27,12 +28,12 @@ export default function Documents() {
     return (
 
         <div>
-            <Heading>Documents</Heading>
+            <Heading>{data.documents.length} Documents</Heading>
             {data.documents.map(document => {
                 switch (document.__typename) {
                     case "AccountDocumentDto":
                         return (
-                            <div>{document.filename}</div>
+                            <AccountDocumentLine {...document} />
                         )
                     case "TransactionDocumentDto":
                         return (
