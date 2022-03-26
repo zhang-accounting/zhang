@@ -94,7 +94,7 @@ export default function Component({ }) {
 
     return (
         <>
-            <Button onClick={onOpen}>Trigger modal</Button>
+            <Button onClick={onOpen}>New Transaction</Button>
 
             <Modal onClose={onClose} isOpen={isOpen} isCentered size="3xl">
                 <ModalOverlay />
