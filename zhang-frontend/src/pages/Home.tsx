@@ -1,3 +1,4 @@
+import Block from "@/components/Block";
 import { gql, useQuery } from "@apollo/client";
 import { Box, Container, SimpleGrid, Stat } from "@chakra-ui/react";
 
@@ -10,15 +11,14 @@ function Home() {
   ]
  
   return (
-    <Box as="section" py={{ base: '4', md: '8' }}>
-    <Container>
-      hello home
-      <SimpleGrid columns={{ base: 1, md: 3 }} gap={{ base: '5', md: '6' }}>
-        {stats.map(({ label, value }) => (
-          <Stat key={label} label={label} value={value} />
-        ))}
-      </SimpleGrid>
-    </Container>
+    <Box as="section">
+      <Box>
+        {/* <Block title="Errors" />
+        <Block title="Errors" />
+        <Block title="Errors" />
+        <Block title="Errors" />
+        <Block title="Errors" /> */}
+      </Box>
   </Box>
   )
 }
