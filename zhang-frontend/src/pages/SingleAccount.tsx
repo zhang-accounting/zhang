@@ -124,7 +124,7 @@ function SingleAccount() {
                       <Tr>
                         <Td>{it.name}</Td>
                         <Td><Amount amount={data.account.snapshot.detail.find(cur => cur.currency === it.name)?.number || "0.00"} currency={it.name} /></Td>
-                        <Td isNumeric><AccountBalanceCheckLine /></Td>
+                        <Td isNumeric><AccountBalanceCheckLine currency={it.name} accountName={data.account.name} /></Td>
                       </Tr>
 
                     ))}
