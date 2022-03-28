@@ -215,6 +215,33 @@ impl AccountDto {
             .rev()
             .collect_vec()
     }
+
+    async fn documents(&self, ctx: &Context<'_>) -> Vec<DocumentDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage
+            .documents
+            .values()
+            .filter(|it| match it {
+                DocumentType::AccountDocument { account, .. } => account.content.eq(&self.name),
+                DocumentType::TransactionDocument { .. } => false, // todo transaction documents
+            })
+            .cloned()
+            .map(|it| match it {
+                DocumentType::AccountDocument {
+                    date,
+                    account,
+                    filename,
+                } => DocumentDto::AccountDocument(AccountDocumentDto {
+                    date,
+                    account,
+                    filename,
+                }),
+                DocumentType::TransactionDocument { .. } => {
+                    DocumentDto::TransactionDocument(TransactionDocumentDto {})
+                }
+            })
+            .collect_vec()
+    }
 }
 
 pub struct CurrencyDto(CurrencyInfo);
