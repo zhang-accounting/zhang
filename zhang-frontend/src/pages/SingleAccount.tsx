@@ -1,17 +1,31 @@
+import AccountBalanceCheckLine from '@/components/AccountBalanceCheckLine';
+import Amount from '@/components/Amount';
 import BalanceCheckLine from '@/components/BalanceCheckLine';
 import BalancePadLine from '@/components/BalancePadLine';
+import Block from '@/components/Block';
 import TransactionLine from '@/components/TransactionLine';
 import { gql, useQuery } from '@apollo/client';
-import { Badge, Heading, Tab, TabList, TabPanel, TabPanels, Tabs } from '@chakra-ui/react'
+import { Badge, Heading, Tab, Table, TableCaption, TabList, TabPanel, TabPanels, Tabs, Tbody, Td, Tfoot, Th, Thead, Tr } from '@chakra-ui/react'
 import { useParams } from "react-router";
 
 function SingleAccount() {
 
-    let { accountName } = useParams();
+  let { accountName } = useParams();
 
-    const { loading, error, data } = useQuery(gql`
+  const { loading, error, data } = useQuery(gql`
     query SINGLE_ACCONT_JOURNAL($name: String) {
         account(name: $name) {
+            name
+            status
+            currencies {
+              name
+            }
+            snapshot {
+              detail {
+                number
+                currency
+              }
+            }
             journals {
                 date
                 type: __typename
@@ -50,54 +64,82 @@ function SingleAccount() {
         }
       }    
 `, {
-        variables: {
-            name: accountName
-        }
-    });
-
-    return (
-        <div>
-            <Heading><Badge variant='outline' colorScheme={"green"}>OPEN</Badge>{accountName}</Heading>
-
-            <div>
-                <Tabs isLazy>
-                    <TabList>
-                        <Tab>Journals</Tab>
-                        <Tab>Documents</Tab>
-                        <Tab>Settings</Tab>
-                    </TabList>
-
-                    <TabPanels>
-                        <TabPanel >
-                            {
-                                loading ? <p>Loading...</p> :
-                                    error ? <p>Error :(</p> :
-                                        data.account.journals.map((journal) => {
-                                            switch (journal.type) {
-                                                case "BalanceCheckDto":
-                                                    return <BalanceCheckLine data={journal} />
-                                                    break;
-                                                case "BalancePadDto":
-                                                    return <BalancePadLine data={journal} />
-                                                    break;
-                                                case "TransactionDto":
-                                                    return <TransactionLine data={journal} />
-                                                    break;
-                                            }
-                                        })
-
-                            }
+    variables: {
+      name: accountName
+    }
+  });
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>Error :(</p>;
 
 
-                        </TabPanel>
-                        <TabPanel >Documents</TabPanel>
-                        <TabPanel >Settings</TabPanel>
-                    </TabPanels>
-                </Tabs>
-            </div>
-        </div>
+  return (
+    <div>
+      <Heading><Badge variant='outline' colorScheme={"green"}>{data.account.status}</Badge>{accountName}</Heading>
 
-    );
+      <div>
+        <Tabs isLazy>
+          <TabList>
+            <Tab>Journals</Tab>
+            <Tab>Documents</Tab>
+            <Tab>Settings</Tab>
+          </TabList>
+
+          <TabPanels>
+            <TabPanel >
+              {
+                loading ? <p>Loading...</p> :
+                  error ? <p>Error :(</p> :
+                    data.account.journals.map((journal) => {
+                      switch (journal.type) {
+                        case "BalanceCheckDto":
+                          return <BalanceCheckLine data={journal} />
+                          break;
+                        case "BalancePadDto":
+                          return <BalancePadLine data={journal} />
+                          break;
+                        case "TransactionDto":
+                          return <TransactionLine data={journal} />
+                          break;
+                      }
+                    })
+
+              }
+
+
+            </TabPanel>
+            <TabPanel >Documents</TabPanel>
+            <TabPanel >
+              <Block title='Balance Check'>
+
+                <Table variant='simple'>
+                  <Thead>
+                    <Tr>
+                      <Th>Currency</Th>
+                      <Th>Current Balance</Th>
+                      <Th isNumeric>Distanation</Th>
+                    </Tr>
+                  </Thead>
+                  <Tbody>
+                    {data.account.currencies.map(it => (
+                      <Tr>
+                        <Td>{it.name}</Td>
+                        <Td><Amount amount={data.account.snapshot.detail.find(cur => cur.currency === it.name)?.number || "0.00"} currency={it.name} /></Td>
+                        <Td isNumeric><AccountBalanceCheckLine /></Td>
+                      </Tr>
+
+                    ))}
+                  </Tbody>
+                </Table>
+
+              </Block>
+
+            </TabPanel>
+          </TabPanels>
+        </Tabs>
+      </div>
+    </div>
+
+  );
 }
 
 export default SingleAccount;
