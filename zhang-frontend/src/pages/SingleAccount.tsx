@@ -1,4 +1,5 @@
 import AccountBalanceCheckLine from '@/components/AccountBalanceCheckLine';
+import AccountDocumentLine from '@/components/AccountDocumentLine';
 import Amount from '@/components/Amount';
 import BalanceCheckLine from '@/components/BalanceCheckLine';
 import BalancePadLine from '@/components/BalancePadLine';
@@ -25,6 +26,10 @@ function SingleAccount() {
                 number
                 currency
               }
+            }
+            documents {
+              filename
+              __typename
             }
             journals {
                 date
@@ -107,7 +112,24 @@ function SingleAccount() {
 
 
             </TabPanel>
-            <TabPanel >Documents</TabPanel>
+            <TabPanel >
+              {data.account.documents.map(document => {
+                switch (document.__typename) {
+                  case "AccountDocumentDto":
+                    return (
+                      <AccountDocumentLine filename={document.filename} account={{
+                        name: data.account.name,
+                        status: data.account.status
+                      }} />
+                    )
+                  case "TransactionDocumentDto":
+                    return (
+                      <div>todo transaction document dto line</div>
+                    )
+                }
+              })}
+
+            </TabPanel>
             <TabPanel >
               <Block title='Balance Check'>
 
