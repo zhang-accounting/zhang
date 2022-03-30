@@ -3,6 +3,7 @@ use crate::core::amount::Amount;
 use crate::core::data::{Balance, Commodity, Date};
 use crate::core::inventory::{AccountName, Currency};
 use crate::core::models::Directive;
+use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
 use async_graphql::Enum;
@@ -41,6 +42,7 @@ pub enum AccountStatus {
 pub struct AccountInfo {
     pub(crate) currencies: HashSet<Currency>,
     pub(crate) status: AccountStatus,
+    pub(crate) meta: MultiValueMap<String, String>,
 }
 #[derive(Debug, Clone)]
 pub struct CurrencyInfo {
@@ -216,8 +218,14 @@ impl Ledger {
                         .or_insert_with(|| AccountInfo {
                             currencies: Default::default(),
                             status: AccountStatus::Open,
+                            meta: Default::default(),
                         });
                     account_info.status = AccountStatus::Open;
+                    for (meta_key, meta_value) in &open.meta {
+                        account_info
+                            .meta
+                            .insert(meta_key.clone(), meta_value.clone().to_plain_string());
+                    }
                     for currency in &open.commodities {
                         account_info.currencies.insert(currency.to_string());
                     }
@@ -228,8 +236,14 @@ impl Ledger {
                         .or_insert_with(|| AccountInfo {
                             currencies: Default::default(),
                             status: AccountStatus::Open,
+                            meta: Default::default(),
                         });
                     account_info.status = AccountStatus::Close;
+                    for (meta_key, meta_value) in &close.meta {
+                        account_info
+                            .meta
+                            .insert(meta_key.clone(), meta_value.clone().to_plain_string());
+                    }
                 }
                 Directive::Commodity(commodity) => {
                     let _target_currency = currencies

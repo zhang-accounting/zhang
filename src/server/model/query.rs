@@ -242,6 +242,17 @@ impl AccountDto {
             })
             .collect_vec()
     }
+    async fn one_meta(&self, key: String) -> Option<String> {
+        self.info.meta.get_one(&key).cloned()
+    }
+    async fn meta(&self, key: String) -> Vec<String> {
+        self.info
+            .meta
+            .get_all(&key)
+            .into_iter()
+            .cloned()
+            .collect_vec()
+    }
 }
 
 pub struct CurrencyDto(CurrencyInfo);
