@@ -5,8 +5,8 @@ use strum_macros::EnumString;
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{
-    Balance, Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options,
-    Plugin, Price, Transaction,
+    Balance, Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Plugin, Price,
+    Transaction,
 };
 
 #[derive(Debug, PartialEq)]

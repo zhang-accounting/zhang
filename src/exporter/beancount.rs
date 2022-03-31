@@ -39,12 +39,8 @@ fn convert_datetime_to_date(directive: Directive) -> Directive {
     match directive {
         Directive::Open(mut directive) => Directive::Open(convert_to_datetime!(directive)),
         Directive::Close(mut directive) => Directive::Close(convert_to_datetime!(directive)),
-        Directive::Commodity(mut directive) => {
-            Directive::Commodity(convert_to_datetime!(directive))
-        }
-        Directive::Transaction(mut directive) => {
-            Directive::Transaction(convert_to_datetime!(directive))
-        }
+        Directive::Commodity(mut directive) => Directive::Commodity(convert_to_datetime!(directive)),
+        Directive::Transaction(mut directive) => Directive::Transaction(convert_to_datetime!(directive)),
         Directive::Balance(mut directive) => Directive::Balance(match &mut directive {
             Balance::BalanceCheck(check) => match check.date {
                 Date::Date(_) => directive,

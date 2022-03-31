@@ -47,11 +47,7 @@ impl Inventory {
     }
 
     pub fn currencies(&self) -> Vec<Currency> {
-        self.data
-            .keys()
-            .into_iter()
-            .map(|(c, _)| c.to_string())
-            .collect()
+        self.data.keys().into_iter().map(|(c, _)| c.to_string()).collect()
     }
     pub fn cost_currencies(&self) -> Vec<Currency> {
         self.data

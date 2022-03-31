@@ -126,9 +126,7 @@ impl Transaction {
             .collect_vec()
     }
     pub fn has_account(&self, name: &AccountName) -> bool {
-        self.postings
-            .iter()
-            .any(|posting| posting.account.content.eq(name))
+        self.postings.iter().any(|posting| posting.account.content.eq(name))
     }
 }
 
@@ -171,9 +169,7 @@ impl<'a> TxnPosting<'a> {
             cost.clone()
         } else {
             match (&self.posting.units, &self.posting.price) {
-                (Some(unit), Some(price)) => {
-                    Amount::new((&unit.number).mul(&price.number), price.currency.clone())
-                }
+                (Some(unit), Some(price)) => Amount::new((&unit.number).mul(&price.number), price.currency.clone()),
                 _ => self.units(),
             }
         }

@@ -2,9 +2,7 @@ use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction, TxnPosting};
 use crate::core::inventory::AccountName;
-use crate::core::ledger::{
-    AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DocumentType, LedgerError,
-};
+use crate::core::ledger::{AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DocumentType, LedgerError};
 use crate::core::models::Directive;
 use crate::server::LedgerState;
 use async_graphql::{Context, Interface, Object};
@@ -30,20 +28,14 @@ impl QueryRoot {
         ledger_stage
             .visited_files
             .iter()
-            .find(|it| {
-                it.to_str()
-                    .map(|path_str| name.eq(path_str))
-                    .unwrap_or(false)
-            })
+            .find(|it| it.to_str().map(|path_str| name.eq(path_str)).unwrap_or(false))
             .map(|it| FileEntryDto(it.clone()))
     }
     async fn statistic(&self, ctx: &Context<'_>, from: i64, to: i64) -> StatisticDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
         let start_date = NaiveDateTime::from_timestamp(from, 0).date();
         let end_date = NaiveDateTime::from_timestamp(to, 0).date();
-        let start_date_snapshot = ledger_stage
-            .daily_snapshot
-            .get_snapshot_by_date(&start_date);
+        let start_date_snapshot = ledger_stage.daily_snapshot.get_snapshot_by_date(&start_date);
         let end_date_snapshot = ledger_stage.daily_snapshot.get_snapshot_by_date(&end_date);
         StatisticDto {
             start_date,
@@ -63,10 +55,7 @@ impl QueryRoot {
     }
     async fn currency(&self, ctx: &Context<'_>, name: String) -> Option<CurrencyDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        ledger_stage
-            .currencies
-            .get(&name)
-            .map(|info| CurrencyDto(info.clone()))
+        ledger_stage.currencies.get(&name).map(|info| CurrencyDto(info.clone()))
     }
 
     async fn accounts(&self, ctx: &Context<'_>) -> Vec<AccountDto> {
@@ -103,9 +92,7 @@ impl QueryRoot {
                     account,
                     filename,
                 }),
-                DocumentType::TransactionDocument { .. } => {
-                    DocumentDto::TransactionDocument(TransactionDocumentDto {})
-                }
+                DocumentType::TransactionDocument { .. } => DocumentDto::TransactionDocument(TransactionDocumentDto {}),
             })
             .collect_vec()
     }
@@ -116,16 +103,10 @@ impl QueryRoot {
             .directives
             .iter()
             .filter_map(|directive| match directive {
-                Directive::Transaction(trx) => {
-                    Some(JournalDto::Transaction(TransactionDto(trx.clone())))
-                }
+                Directive::Transaction(trx) => Some(JournalDto::Transaction(TransactionDto(trx.clone()))),
                 Directive::Balance(balance) => match balance {
-                    Balance::BalanceCheck(check) => {
-                        Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone())))
-                    }
-                    Balance::BalancePad(pad) => {
-                        Some(JournalDto::BalancePad(BalancePadDto(pad.clone())))
-                    }
+                    Balance::BalanceCheck(check) => Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone()))),
+                    Balance::BalancePad(pad) => Some(JournalDto::BalancePad(BalancePadDto(pad.clone()))),
                 },
                 _ => None,
             })
@@ -135,12 +116,7 @@ impl QueryRoot {
 
     async fn errors(&self, ctx: &Context<'_>) -> Vec<ErrorDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        ledger_stage
-            .errors
-            .iter()
-            .cloned()
-            .map(ErrorDto)
-            .collect_vec()
+        ledger_stage.errors.iter().cloned().map(ErrorDto).collect_vec()
     }
 }
 
@@ -193,16 +169,10 @@ impl AccountDto {
                 _ => false,
             })
             .filter_map(|directive| match directive {
-                Directive::Transaction(trx) => {
-                    Some(JournalDto::Transaction(TransactionDto(trx.clone())))
-                }
+                Directive::Transaction(trx) => Some(JournalDto::Transaction(TransactionDto(trx.clone()))),
                 Directive::Balance(balance) => match balance {
-                    Balance::BalanceCheck(check) => {
-                        Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone())))
-                    }
-                    Balance::BalancePad(pad) => {
-                        Some(JournalDto::BalancePad(BalancePadDto(pad.clone())))
-                    }
+                    Balance::BalanceCheck(check) => Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone()))),
+                    Balance::BalancePad(pad) => Some(JournalDto::BalancePad(BalancePadDto(pad.clone()))),
                 },
                 _ => None,
             })
@@ -230,9 +200,7 @@ impl AccountDto {
                     account,
                     filename,
                 }),
-                DocumentType::TransactionDocument { .. } => {
-                    DocumentDto::TransactionDocument(TransactionDocumentDto {})
-                }
+                DocumentType::TransactionDocument { .. } => DocumentDto::TransactionDocument(TransactionDocumentDto {}),
             })
             .collect_vec()
     }
@@ -240,12 +208,7 @@ impl AccountDto {
         self.info.meta.get_one(&key).cloned()
     }
     async fn meta(&self, key: String) -> Vec<String> {
-        self.info
-            .meta
-            .get_all(&key)
-            .into_iter()
-            .cloned()
-            .collect_vec()
+        self.info.meta.get_all(&key).into_iter().cloned().collect_vec()
     }
 }
 
@@ -290,11 +253,7 @@ impl TransactionDto {
         self.0.narration.clone().map(|it| it.to_plain_string())
     }
     async fn postings<'a>(&'a self) -> Vec<PostingDto<'a>> {
-        self.0
-            .txn_postings()
-            .into_iter()
-            .map(PostingDto)
-            .collect_vec()
+        self.0.txn_postings().into_iter().map(PostingDto).collect_vec()
     }
 }
 
@@ -307,24 +266,16 @@ impl BalanceCheckDto {
     }
     async fn account(&self, ctx: &Context<'_>) -> Option<AccountDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        ledger_stage
-            .accounts
-            .get(self.0.account.name())
-            .map(|info| AccountDto {
-                name: self.0.account.name().to_string(),
-                info: info.clone(),
-            })
+        ledger_stage.accounts.get(self.0.account.name()).map(|info| AccountDto {
+            name: self.0.account.name().to_string(),
+            info: info.clone(),
+        })
     }
     async fn balance_amount(&self) -> AmountDto {
         AmountDto(self.0.amount.clone())
     }
     async fn current_amount(&self) -> AmountDto {
-        AmountDto(
-            self.0
-                .current_amount
-                .clone()
-                .expect("cannot get current amount"),
-        )
+        AmountDto(self.0.current_amount.clone().expect("cannot get current amount"))
     }
     async fn distance(&self) -> Option<AmountDto> {
         self.0.distance.clone().map(AmountDto)
@@ -398,12 +349,8 @@ impl StatisticDto {
         let dto = self
             .end_date_snapshot
             .iter()
-            .filter(|(account_name, _)| {
-                account_name.starts_with("Assets") || account_name.starts_with("Liabilities")
-            })
-            .fold(ledger_stage.default_account_snapshot(), |fold, lo| {
-                &fold + lo.1
-            });
+            .filter(|(account_name, _)| account_name.starts_with("Assets") || account_name.starts_with("Liabilities"))
+            .fold(ledger_stage.default_account_snapshot(), |fold, lo| &fold + lo.1);
         SnapshotDto {
             date: self.end_date.and_hms(0, 0, 0),
             snapshot: dto,
@@ -417,9 +364,7 @@ impl StatisticDto {
             .end_date_snapshot
             .iter()
             .filter(|(account_name, _)| account_name.starts_with("Income"))
-            .fold(ledger_stage.default_account_snapshot(), |fold, lo| {
-                &fold + lo.1
-            });
+            .fold(ledger_stage.default_account_snapshot(), |fold, lo| &fold + lo.1);
         SnapshotDto {
             date: self.end_date.and_hms(0, 0, 0),
             snapshot: dto,
@@ -432,9 +377,7 @@ impl StatisticDto {
             .end_date_snapshot
             .iter()
             .filter(|(account_name, _)| account_name.starts_with("Expenses"))
-            .fold(ledger_stage.default_account_snapshot(), |fold, lo| {
-                &fold + lo.1
-            });
+            .fold(ledger_stage.default_account_snapshot(), |fold, lo| &fold + lo.1);
         SnapshotDto {
             date: self.end_date.and_hms(0, 0, 0),
             snapshot: dto,
@@ -447,9 +390,7 @@ impl StatisticDto {
             .end_date_snapshot
             .iter()
             .filter(|(account_name, _)| account_name.starts_with("Liabilities"))
-            .fold(ledger_stage.default_account_snapshot(), |fold, lo| {
-                &fold + lo.1
-            });
+            .fold(ledger_stage.default_account_snapshot(), |fold, lo| &fold + lo.1);
         SnapshotDto {
             date: self.end_date.and_hms(0, 0, 0),
             snapshot: dto,
@@ -471,9 +412,7 @@ impl SnapshotDto {
                 .option("operating_currency")
                 .unwrap_or_else(|| "CNY".to_string())
         };
-        let decimal = self
-            .snapshot
-            .calculate_to_currency(self.date, &operating_currency);
+        let decimal = self.snapshot.calculate_to_currency(self.date, &operating_currency);
         AmountDto(Amount::new(decimal, operating_currency))
     }
     async fn detail(&self) -> Vec<AmountDto> {

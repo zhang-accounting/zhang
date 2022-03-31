@@ -14,10 +14,7 @@ pub async fn graphql_playground() -> impl IntoResponse {
     Html(playground_source(GraphQLPlaygroundConfig::new("/graphql")))
 }
 
-pub async fn graphql_handler(
-    schema: Extension<LedgerSchema>,
-    req: Json<Request>,
-) -> Json<async_graphql::Response> {
+pub async fn graphql_handler(schema: Extension<LedgerSchema>, req: Json<Request>) -> Json<async_graphql::Response> {
     schema.execute(req.0).await.into()
 }
 

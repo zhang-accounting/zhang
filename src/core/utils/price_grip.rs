@@ -16,10 +16,7 @@ impl PriceGrip {
         target_currency_map.insert(to, amount);
     }
     pub fn get(&self, from: &Currency, to: &Currency) -> Option<BigDecimal> {
-        self.inner
-            .get(from)
-            .and_then(|from_map| from_map.get(to))
-            .cloned()
+        self.inner.get(from).and_then(|from_map| from_map.get(to)).cloned()
     }
 }
 
@@ -29,13 +26,7 @@ pub struct DatedPriceGrip {
 }
 
 impl DatedPriceGrip {
-    pub fn insert(
-        &mut self,
-        date: NaiveDateTime,
-        from: Currency,
-        to: Currency,
-        amount: BigDecimal,
-    ) {
+    pub fn insert(&mut self, date: NaiveDateTime, from: Currency, to: Currency, amount: BigDecimal) {
         if !self.inner.contains_key(&date) {
             self.inner.insert(date, PriceGrip::default());
         }
@@ -44,13 +35,7 @@ impl DatedPriceGrip {
         }
     }
 
-    pub fn calculate(
-        &self,
-        date: &NaiveDateTime,
-        from: &Currency,
-        to: &Currency,
-        number: &BigDecimal,
-    ) -> BigDecimal {
+    pub fn calculate(&self, date: &NaiveDateTime, from: &Currency, to: &Currency, number: &BigDecimal) -> BigDecimal {
         if from.eq(to) {
             return number.clone();
         }
