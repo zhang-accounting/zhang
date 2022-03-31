@@ -8,8 +8,7 @@ use crate::core::ledger::{
 use crate::core::models::Directive;
 use crate::server::LedgerState;
 use async_graphql::{Context, Interface, Object};
-use bigdecimal::{BigDecimal, Zero};
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{NaiveDate, NaiveDateTime, Utc};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -165,7 +164,10 @@ impl AccountDto {
             .get(&self.name)
             .cloned()
             .unwrap_or_else(|| ledger_stage.default_account_snapshot());
-        SnapshotDto(snapshot)
+        SnapshotDto {
+            date: Utc::now().naive_local(),
+            snapshot,
+        }
     }
     async fn currencies(&self, ctx: &Context<'_>) -> Vec<CurrencyDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
@@ -402,7 +404,10 @@ impl StatisticDto {
             .fold(ledger_stage.default_account_snapshot(), |fold, lo| {
                 &fold + lo.1
             });
-        SnapshotDto(dto)
+        SnapshotDto {
+            date: self.end_date.and_hms(0, 0, 0),
+            snapshot: dto,
+        }
     }
 
     async fn income(&self, ctx: &Context<'_>) -> SnapshotDto {
@@ -415,7 +420,10 @@ impl StatisticDto {
             .fold(ledger_stage.default_account_snapshot(), |fold, lo| {
                 &fold + lo.1
             });
-        SnapshotDto(dto)
+        SnapshotDto {
+            date: self.end_date.and_hms(0, 0, 0),
+            snapshot: dto,
+        }
     }
     async fn expense(&self, ctx: &Context<'_>) -> SnapshotDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
@@ -427,7 +435,10 @@ impl StatisticDto {
             .fold(ledger_stage.default_account_snapshot(), |fold, lo| {
                 &fold + lo.1
             });
-        SnapshotDto(dto)
+        SnapshotDto {
+            date: self.end_date.and_hms(0, 0, 0),
+            snapshot: dto,
+        }
     }
     async fn liability(&self, ctx: &Context<'_>) -> SnapshotDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
@@ -439,26 +450,34 @@ impl StatisticDto {
             .fold(ledger_stage.default_account_snapshot(), |fold, lo| {
                 &fold + lo.1
             });
-        SnapshotDto(dto)
+        SnapshotDto {
+            date: self.end_date.and_hms(0, 0, 0),
+            snapshot: dto,
+        }
     }
 }
 
-pub struct SnapshotDto(AccountSnapshot);
+pub struct SnapshotDto {
+    date: NaiveDateTime,
+    snapshot: AccountSnapshot,
+}
 
 #[Object]
 impl SnapshotDto {
-    async fn summary(&self) -> AmountDto {
-        //todo #7 options for ledger
+    async fn summary(&self, ctx: &Context<'_>) -> AmountDto {
+        let operating_currency = {
+            let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+            ledger_stage
+                .option("operating_currency")
+                .unwrap_or_else(|| "CNY".to_string())
+        };
         let decimal = self
-            .0
-            .inner
-            .get("CNY")
-            .cloned()
-            .unwrap_or_else(BigDecimal::zero);
-        AmountDto(Amount::new(decimal, "CNY"))
+            .snapshot
+            .calculate_to_currency(self.date, &operating_currency);
+        AmountDto(Amount::new(decimal, operating_currency))
     }
     async fn detail(&self) -> Vec<AmountDto> {
-        self.0
+        self.snapshot
             .inner
             .clone()
             .into_iter()

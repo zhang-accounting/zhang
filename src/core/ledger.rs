@@ -11,12 +11,12 @@ use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
 use async_graphql::Enum;
 use bigdecimal::{BigDecimal, Zero};
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use itertools::{Either, Itertools};
 use log::debug;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::ops::Add;
+use std::ops::{Add, AddAssign};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock as StdRwLock;
@@ -121,6 +121,15 @@ impl AccountSnapshot {
             .get(currency)
             .cloned()
             .unwrap_or_else(BigDecimal::zero)
+    }
+    pub fn calculate_to_currency(&self, date: NaiveDateTime, currency: &Currency) -> BigDecimal {
+        let price_guard = self.prices.read().unwrap();
+        let mut sum = BigDecimal::zero();
+        for (each_currency, each_number) in &self.inner {
+            let decimal = price_guard.calculate(&date, each_currency, currency, each_number);
+            sum.add_assign(decimal);
+        }
+        sum
     }
 }
 
@@ -274,8 +283,8 @@ impl Ledger {
         self
     }
 
-    pub fn option(&self, key: &str) -> Option<&str> {
-        self.configs.get(key).map(|it| it.as_ref())
+    pub fn option(&self, key: &str) -> Option<String> {
+        self.configs.get(key).map(|it| it.to_string())
     }
 
     pub fn reload(&mut self) -> ZhangResult<()> {
