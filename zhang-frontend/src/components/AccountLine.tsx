@@ -5,7 +5,6 @@ import Amount from "./Amount";
 export default function Component({ data }) {
     let navigate = useNavigate();
 
-    console.log(data);
     const onNavigate = () => {
         if (data.isNode) {
             navigate(data.val.name)
