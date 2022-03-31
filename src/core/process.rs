@@ -1,5 +1,5 @@
 use crate::core::amount::Amount;
-use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Transaction};
+use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Price, Transaction};
 use crate::core::inventory::AccountName;
 use crate::core::ledger::{
     AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DailyAccountSnapshot, DocumentType,
@@ -225,6 +225,18 @@ impl DirectiveProcess for Document {
                 account: self.account.clone(),
                 filename: self.filename.clone().to_plain_string(),
             },
+        );
+        Ok(())
+    }
+}
+
+impl DirectiveProcess for Price {
+    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext) -> ZhangResult<()> {
+        ledger.prices.insert(
+            self.date.naive_datetime(),
+            self.currency.clone(),
+            self.amount.currency.clone(),
+            self.amount.number.clone(),
         );
         Ok(())
     }
