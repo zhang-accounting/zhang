@@ -4,7 +4,9 @@ use crate::core::data::{Commodity, Date};
 use crate::core::inventory::{AccountName, Currency};
 use crate::core::models::Directive;
 use crate::core::process::{DirectiveProcess, ProcessContext};
+use crate::core::utils::latest_map::LatestMap;
 use crate::core::utils::multi_value_map::MultiValueMap;
+use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
 use async_graphql::Enum;
@@ -12,9 +14,8 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
 use itertools::{Either, Itertools};
 use log::debug;
-use serde::Serialize;
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Add;
 use std::path::PathBuf;
 
@@ -51,9 +52,8 @@ pub struct CurrencyInfo {
     pub prices: HashMap<NaiveDate, BigDecimal>,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default)]
 pub struct AccountSnapshot {
-    #[serde(flatten)]
     pub(crate) inner: HashMap<Currency, BigDecimal>,
 }
 
@@ -72,10 +72,9 @@ impl Add for &AccountSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default)]
 pub struct DailyAccountSnapshot {
-    data: HashMap<NaiveDate, HashMap<AccountName, AccountSnapshot>>,
-    date_index: BTreeSet<NaiveDate>,
+    inner: LatestMap<NaiveDate, HashMap<AccountName, AccountSnapshot>>,
 }
 
 impl DailyAccountSnapshot {
@@ -84,19 +83,13 @@ impl DailyAccountSnapshot {
         day: NaiveDate,
         snapshot: HashMap<AccountName, AccountSnapshot>,
     ) {
-        self.data.insert(day, snapshot);
-        self.date_index.insert(day);
+        self.inner.insert(day, snapshot);
     }
     pub(crate) fn get_snapshot_by_date(
         &self,
         day: &NaiveDate,
     ) -> HashMap<AccountName, AccountSnapshot> {
-        let vec = self.date_index.iter().collect_vec();
-        let target_day = match vec.binary_search(&day) {
-            Ok(_) => day,
-            Err(gt_index) => vec[gt_index - 1],
-        };
-        self.data.get(target_day).cloned().unwrap_or_default()
+        self.inner.get_latest(day).cloned().unwrap_or_default()
     }
 }
 
@@ -153,6 +146,7 @@ pub struct Ledger {
     pub errors: Vec<LedgerError>,
 
     pub configs: HashMap<String, String>,
+    pub prices: DatedPriceGrip,
 }
 
 impl Ledger {
@@ -219,6 +213,7 @@ impl Ledger {
             documents: HashMap::default(),
             errors: vec![],
             configs: HashMap::default(),
+            prices: DatedPriceGrip::default(),
         };
         let mut context = ProcessContext { target_day: None };
         for directive in &mut directives {
@@ -735,7 +730,6 @@ mod test {
             "#})
             .unwrap();
 
-            assert_eq!(1, ledger.daily_snapshot.data.len());
             let account_snapshot = ledger
                 .daily_snapshot
                 .get_snapshot_by_date(&NaiveDate::from_ymd(2022, 2, 22));
