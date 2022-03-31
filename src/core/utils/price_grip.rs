@@ -1,8 +1,9 @@
 use crate::core::inventory::Currency;
 use crate::core::utils::latest_map::LatestMap;
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDateTime;
 use std::collections::HashMap;
+use std::ops::Mul;
 
 #[derive(Debug, Clone, Default)]
 pub struct PriceGrip {
@@ -13,6 +14,12 @@ impl PriceGrip {
     pub fn insert(&mut self, from: Currency, to: Currency, amount: BigDecimal) {
         let target_currency_map = self.inner.entry(from).or_insert_with(HashMap::new);
         target_currency_map.insert(to, amount);
+    }
+    pub fn get(&self, from: &Currency, to: &Currency) -> Option<BigDecimal> {
+        self.inner
+            .get(from)
+            .and_then(|from_map| from_map.get(to))
+            .cloned()
     }
 }
 
@@ -35,5 +42,23 @@ impl DatedPriceGrip {
         if let Some(a) = self.inner.get_mut(&date) {
             a.insert(from, to, amount);
         }
+    }
+
+    pub fn calculate(
+        &self,
+        date: &NaiveDateTime,
+        from: &Currency,
+        to: &Currency,
+        number: &BigDecimal,
+    ) -> BigDecimal {
+        if from.eq(to) {
+            return number.clone();
+        }
+        let price = self
+            .inner
+            .get_latest(date)
+            .and_then(|grip| grip.get(from, to))
+            .unwrap_or_else(BigDecimal::zero);
+        number.mul(price)
     }
 }

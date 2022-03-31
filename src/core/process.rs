@@ -5,14 +5,27 @@ use crate::core::ledger::{
     AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DailyAccountSnapshot, DocumentType,
     Ledger, LedgerError,
 };
+use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::error::ZhangResult;
 use chrono::NaiveDate;
 use log::error;
 use std::collections::HashMap;
 use std::ops::{Neg, Sub};
+use std::sync::Arc;
+use std::sync::RwLock as StdRwLock;
 
 pub(crate) struct ProcessContext {
     pub(crate) target_day: Option<NaiveDate>,
+    pub(crate) prices: Arc<StdRwLock<DatedPriceGrip>>,
+}
+
+impl ProcessContext {
+    pub fn default_account_snapshot(&self) -> AccountSnapshot {
+        AccountSnapshot {
+            inner: Default::default(),
+            prices: self.prices.clone(),
+        }
+    }
 }
 
 pub(crate) trait DirectiveProcess {
@@ -118,7 +131,7 @@ impl DirectiveProcess for Transaction {
             let target_account_snapshot = ledger
                 .snapshot
                 .entry(txn_posting.account_name())
-                .or_insert_with(AccountSnapshot::default);
+                .or_insert_with(|| context.default_account_snapshot());
             target_account_snapshot.add_amount(txn_posting.units());
         }
         Ok(())
@@ -136,7 +149,7 @@ impl DirectiveProcess for Balance {
                     balance_check.date.naive_date(),
                 );
 
-                let default = AccountSnapshot::default();
+                let default = ledger.default_account_snapshot();
                 let target_account_snapshot = ledger
                     .snapshot
                     .get(balance_check.account.name())
@@ -190,7 +203,7 @@ impl DirectiveProcess for Balance {
                 let target_account_snapshot = ledger
                     .snapshot
                     .entry(balance_pad.account.name().to_string())
-                    .or_insert_with(AccountSnapshot::default);
+                    .or_insert_with(|| context.default_account_snapshot());
 
                 let source_amount = target_account_snapshot.get(&balance_pad.amount.currency);
                 let source_target_amount = &balance_pad.amount.number;
@@ -204,7 +217,7 @@ impl DirectiveProcess for Balance {
                 let pad_account_snapshot = ledger
                     .snapshot
                     .entry(balance_pad.pad.name().to_string())
-                    .or_insert_with(AccountSnapshot::default);
+                    .or_insert_with(|| context.default_account_snapshot());
                 pad_account_snapshot.add_amount(Amount::new(
                     neg_distance,
                     balance_pad.amount.currency.clone(),
@@ -232,7 +245,8 @@ impl DirectiveProcess for Document {
 
 impl DirectiveProcess for Price {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext) -> ZhangResult<()> {
-        ledger.prices.insert(
+        let mut result = ledger.prices.write().unwrap();
+        result.insert(
             self.date.naive_datetime(),
             self.currency.clone(),
             self.amount.currency.clone(),

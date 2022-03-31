@@ -164,7 +164,7 @@ impl AccountDto {
             .snapshot
             .get(&self.name)
             .cloned()
-            .unwrap_or_default();
+            .unwrap_or_else(|| ledger_stage.default_account_snapshot());
         SnapshotDto(snapshot)
     }
     async fn currencies(&self, ctx: &Context<'_>) -> Vec<CurrencyDto> {
@@ -390,39 +390,55 @@ impl StatisticDto {
         // todo
         vec![]
     }
-    async fn total(&self) -> SnapshotDto {
+    async fn total(&self, ctx: &Context<'_>) -> SnapshotDto {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+
         let dto = self
             .end_date_snapshot
             .iter()
             .filter(|(account_name, _)| {
                 account_name.starts_with("Assets") || account_name.starts_with("Liabilities")
             })
-            .fold(AccountSnapshot::default(), |fold, lo| &fold + lo.1);
+            .fold(ledger_stage.default_account_snapshot(), |fold, lo| {
+                &fold + lo.1
+            });
         SnapshotDto(dto)
     }
 
-    async fn income(&self) -> SnapshotDto {
+    async fn income(&self, ctx: &Context<'_>) -> SnapshotDto {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+
         let dto = self
             .end_date_snapshot
             .iter()
             .filter(|(account_name, _)| account_name.starts_with("Income"))
-            .fold(AccountSnapshot::default(), |fold, lo| &fold + lo.1);
+            .fold(ledger_stage.default_account_snapshot(), |fold, lo| {
+                &fold + lo.1
+            });
         SnapshotDto(dto)
     }
-    async fn expense(&self) -> SnapshotDto {
+    async fn expense(&self, ctx: &Context<'_>) -> SnapshotDto {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+
         let dto = self
             .end_date_snapshot
             .iter()
             .filter(|(account_name, _)| account_name.starts_with("Expenses"))
-            .fold(AccountSnapshot::default(), |fold, lo| &fold + lo.1);
+            .fold(ledger_stage.default_account_snapshot(), |fold, lo| {
+                &fold + lo.1
+            });
         SnapshotDto(dto)
     }
-    async fn liability(&self) -> SnapshotDto {
+    async fn liability(&self, ctx: &Context<'_>) -> SnapshotDto {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+
         let dto = self
             .end_date_snapshot
             .iter()
             .filter(|(account_name, _)| account_name.starts_with("Liabilities"))
-            .fold(AccountSnapshot::default(), |fold, lo| &fold + lo.1);
+            .fold(ledger_stage.default_account_snapshot(), |fold, lo| {
+                &fold + lo.1
+            });
         SnapshotDto(dto)
     }
 }
