@@ -4,7 +4,8 @@ use crate::error::ZhangResult;
 use crate::server::model::mutation::MutationRoot;
 use async_graphql::{EmptySubscription, Schema};
 use axum::extract::Extension;
-use axum::{routing::get, Router};
+use axum::routing::get;
+use axum::Router;
 use log::{error, info};
 use model::query::QueryRoot;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
@@ -73,10 +74,7 @@ async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> Zha
         .finish();
 
     let app = Router::new()
-        .route(
-            "/graphql",
-            get(route::graphql_playground).post(route::graphql_handler),
-        )
+        .route("/graphql", get(route::graphql_playground).post(route::graphql_handler))
         .fallback(get(route::serve_frontend))
         .layer(Extension(ledger_data))
         .layer(Extension(schema))

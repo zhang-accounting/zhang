@@ -70,11 +70,7 @@ impl Record {
     fn amount(&self) -> Amount {
         let option = self.amount.strip_prefix('¥').unwrap_or(&self.amount);
         let result = BigDecimal::from_str(option).unwrap();
-        let value = if self.is_income() {
-            result
-        } else {
-            result.neg()
-        };
+        let value = if self.is_income() { result } else { result.neg() };
         Amount::new(value, CURRENCY)
     }
     fn payee(&self) -> Option<&str> {
@@ -133,10 +129,7 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
         let payee = result.payee().unwrap();
         let pay_way = {
             let pay_type = result.pay_type.as_str();
-            let option = loaded_config
-                .pay_ways
-                .get(pay_type)
-                .map(|it| it.to_string());
+            let option = loaded_config.pay_ways.get(pay_type).map(|it| it.to_string());
 
             if let Some(value) = option {
                 value
@@ -165,10 +158,7 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
             );
         }
         if let Some(payee_no) = result.payee_no() {
-            meta.insert(
-                "payee_no".to_string(),
-                ZhangString::QuoteString(payee_no.to_string()),
-            );
+            meta.insert("payee_no".to_string(), ZhangString::QuoteString(payee_no.to_string()));
         }
 
         let postings = vec![
@@ -192,12 +182,8 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
         let transaction = Transaction {
             date: Date::Datetime(result.datetime().naive_local()),
             flag: Some(Flag::Okay),
-            payee: result
-                .payee()
-                .map(|it| ZhangString::QuoteString(it.to_string())),
-            narration: result
-                .narration()
-                .map(|it| ZhangString::QuoteString(it.to_string())),
+            payee: result.payee().map(|it| ZhangString::QuoteString(it.to_string())),
+            narration: result.narration().map(|it| ZhangString::QuoteString(it.to_string())),
             tags: HashSet::new(),
             links: HashSet::new(),
             postings,
@@ -207,22 +193,14 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
     }
     if !unknown_payees.is_empty() {
         if loaded_config.forbid_unknown_payee {
-            error!(
-                "payee [{}] is not configurated",
-                unknown_payees.iter().join(",")
-            );
+            error!("payee [{}] is not configurated", unknown_payees.iter().join(","));
         } else {
-            warn!(
-                "payee [{}] is not configurated",
-                unknown_payees.iter().join(",")
-            );
+            warn!("payee [{}] is not configurated", unknown_payees.iter().join(","));
         }
     }
     if loaded_config.store_unknown_payee {
         for x in unknown_payees {
-            loaded_config
-                .unknown_payees
-                .insert(x, "Expenses:FixMe".to_string());
+            loaded_config.unknown_payees.insert(x, "Expenses:FixMe".to_string());
         }
         let result1 = toml::to_string(&loaded_config)?;
         std::fs::write(&config, result1)?;

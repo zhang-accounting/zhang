@@ -2,8 +2,7 @@ use crate::core::amount::Amount;
 use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Price, Transaction};
 use crate::core::inventory::AccountName;
 use crate::core::ledger::{
-    AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DailyAccountSnapshot, DocumentType,
-    Ledger, LedgerError,
+    AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DailyAccountSnapshot, DocumentType, Ledger, LedgerError,
 };
 use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::error::ZhangResult;
@@ -11,8 +10,7 @@ use chrono::NaiveDate;
 use log::error;
 use std::collections::HashMap;
 use std::ops::{Neg, Sub};
-use std::sync::Arc;
-use std::sync::RwLock as StdRwLock;
+use std::sync::{Arc, RwLock as StdRwLock};
 
 pub(crate) struct ProcessContext {
     pub(crate) target_day: Option<NaiveDate>,
@@ -33,10 +31,8 @@ pub(crate) trait DirectiveProcess {
 }
 
 fn record_daily_snapshot(
-    snapshot: &mut HashMap<AccountName, AccountSnapshot>,
-    daily_snapshot: &mut DailyAccountSnapshot,
-    target_day: &mut Option<NaiveDate>,
-    date: NaiveDate,
+    snapshot: &mut HashMap<AccountName, AccountSnapshot>, daily_snapshot: &mut DailyAccountSnapshot,
+    target_day: &mut Option<NaiveDate>, date: NaiveDate,
 ) {
     if let Some(target_day_inner) = target_day {
         if date.ne(target_day_inner) {
@@ -50,10 +46,9 @@ fn record_daily_snapshot(
 
 impl DirectiveProcess for Options {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext) -> ZhangResult<()> {
-        ledger.configs.insert(
-            self.key.clone().to_plain_string(),
-            self.value.clone().to_plain_string(),
-        );
+        ledger
+            .configs
+            .insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());
         Ok(())
     }
 }
@@ -150,16 +145,11 @@ impl DirectiveProcess for Balance {
                 );
 
                 let default = ledger.default_account_snapshot();
-                let target_account_snapshot = ledger
-                    .snapshot
-                    .get(balance_check.account.name())
-                    .unwrap_or(&default);
+                let target_account_snapshot = ledger.snapshot.get(balance_check.account.name()).unwrap_or(&default);
 
                 let decimal = target_account_snapshot.get(&balance_check.amount.currency);
-                balance_check.current_amount = Some(Amount::new(
-                    decimal.clone(),
-                    balance_check.amount.currency.clone(),
-                ));
+                balance_check.current_amount =
+                    Some(Amount::new(decimal.clone(), balance_check.amount.currency.clone()));
                 if decimal.ne(&balance_check.amount.number) {
                     balance_check.distance = Some(Amount::new(
                         (&balance_check.amount.number).sub(&decimal),
@@ -171,25 +161,22 @@ impl DirectiveProcess for Balance {
                             balance_check.amount.number.clone(),
                             balance_check.amount.currency.clone(),
                         ),
-                        current: Amount::new(
-                            decimal.clone(),
-                            balance_check.amount.currency.clone(),
-                        ),
+                        current: Amount::new(decimal.clone(), balance_check.amount.currency.clone()),
                         distance: Amount::new(
                             (&balance_check.amount.number).sub(&decimal),
                             balance_check.amount.currency.clone(),
                         ),
                     });
                     error!(
-                                "balance error: account {} balance to {} {} with distance {} {}(current is {} {})",
-                                balance_check.account.name(),
-                                &balance_check.amount.number,
-                                &balance_check.amount.currency,
-                                (&balance_check.amount.number).sub(&decimal),
-                                &balance_check.amount.currency,
-                                &decimal,
-                                &balance_check.amount.currency
-                            );
+                        "balance error: account {} balance to {} {} with distance {} {}(current is {} {})",
+                        balance_check.account.name(),
+                        &balance_check.amount.number,
+                        &balance_check.amount.currency,
+                        (&balance_check.amount.number).sub(&decimal),
+                        &balance_check.amount.currency,
+                        &decimal,
+                        &balance_check.amount.currency
+                    );
                 }
             }
             Balance::BalancePad(balance_pad) => {
@@ -210,18 +197,14 @@ impl DirectiveProcess for Balance {
                 // source account
                 let distance = source_target_amount.sub(source_amount);
                 let neg_distance = (&distance).neg();
-                target_account_snapshot
-                    .add_amount(Amount::new(distance, balance_pad.amount.currency.clone()));
+                target_account_snapshot.add_amount(Amount::new(distance, balance_pad.amount.currency.clone()));
 
                 // add to pad
                 let pad_account_snapshot = ledger
                     .snapshot
                     .entry(balance_pad.pad.name().to_string())
                     .or_insert_with(|| context.default_account_snapshot());
-                pad_account_snapshot.add_amount(Amount::new(
-                    neg_distance,
-                    balance_pad.amount.currency.clone(),
-                ));
+                pad_account_snapshot.add_amount(Amount::new(neg_distance, balance_pad.amount.currency.clone()));
             }
         }
 

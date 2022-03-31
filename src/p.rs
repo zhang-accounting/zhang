@@ -9,8 +9,8 @@ use snailquote::unescape;
 use crate::core::account::{Account, AccountType};
 use crate::core::amount::Amount;
 use crate::core::data::{
-    Balance, BalanceCheck, BalancePad, Close, Comment, Commodity, Custom, Date, Document, Event,
-    Include, Note, Open, Options, Plugin, Posting, Price, Transaction,
+    Balance, BalanceCheck, BalancePad, Close, Comment, Commodity, Custom, Date, Document, Event, Include, Note, Open,
+    Options, Plugin, Posting, Price, Transaction,
 };
 use crate::core::models::{Directive, Flag, SingleTotalPrice, StringOrAccount, ZhangString};
 
@@ -212,9 +212,7 @@ impl ZhangParser {
         );
         Ok(ret)
     }
-    fn posting_meta(
-        input: Node,
-    ) -> Result<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)> {
+    fn posting_meta(input: Node) -> Result<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)> {
         let ret: (Option<Amount>, Option<Date>, Option<SingleTotalPrice>) = match_nodes!(input.into_children();
             [] => (None, None, None),
             [posting_cost(cost)] => (Some(cost), None, None),
@@ -270,9 +268,7 @@ impl ZhangParser {
         );
         Ok(ret)
     }
-    fn transaction_lines(
-        input: Node,
-    ) -> Result<Vec<(Option<Posting>, Option<(String, ZhangString)>)>> {
+    fn transaction_lines(input: Node) -> Result<Vec<(Option<Posting>, Option<(String, ZhangString)>)>> {
         let ret = match_nodes!(input.into_children();
             [transaction_line(lines)..] => lines.collect(),
         );
@@ -549,10 +545,9 @@ mod test {
             balance
         );
 
-        let balance =
-            parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY with pad Income:Earnings")
-                .unwrap()
-                .remove(0);
+        let balance = parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY with pad Income:Earnings")
+            .unwrap()
+            .remove(0);
         assert_eq!(
             Directive::Balance(Balance::BalancePad(BalancePad {
                 date: Date::DateHour(NaiveDate::from_ymd(2101, 10, 10).and_hms(10, 10, 0)),

@@ -18,8 +18,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::{Add, AddAssign};
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::RwLock as StdRwLock;
+use std::sync::{Arc, RwLock as StdRwLock};
 
 #[derive(Debug, Clone)]
 pub enum DocumentType {
@@ -84,17 +83,10 @@ pub struct DailyAccountSnapshot {
 }
 
 impl DailyAccountSnapshot {
-    pub(crate) fn insert_snapshot(
-        &mut self,
-        day: NaiveDate,
-        snapshot: HashMap<AccountName, AccountSnapshot>,
-    ) {
+    pub(crate) fn insert_snapshot(&mut self, day: NaiveDate, snapshot: HashMap<AccountName, AccountSnapshot>) {
         self.inner.insert(day, snapshot);
     }
-    pub(crate) fn get_snapshot_by_date(
-        &self,
-        day: &NaiveDate,
-    ) -> HashMap<AccountName, AccountSnapshot> {
+    pub(crate) fn get_snapshot_by_date(&self, day: &NaiveDate) -> HashMap<AccountName, AccountSnapshot> {
         self.inner.get_latest(day).cloned().unwrap_or_default()
     }
 }
@@ -117,10 +109,7 @@ impl AccountSnapshot {
             .map(|(currency, number)| Amount::new(number, currency))
     }
     pub fn get(&self, currency: &Currency) -> BigDecimal {
-        self.inner
-            .get(currency)
-            .cloned()
-            .unwrap_or_else(BigDecimal::zero)
+        self.inner.get(currency).cloned().unwrap_or_else(BigDecimal::zero)
     }
     pub fn calculate_to_currency(&self, date: NaiveDateTime, currency: &Currency) -> BigDecimal {
         let price_guard = self.prices.read().unwrap();
@@ -194,11 +183,7 @@ impl Ledger {
             visited.insert(path);
             directives.extend(entity_directives)
         }
-        Ledger::process(
-            directives,
-            Either::Left(entry),
-            visited.into_iter().collect_vec(),
-        )
+        Ledger::process(directives, Either::Left(entry), visited.into_iter().collect_vec())
     }
 
     fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Directive>> {
@@ -207,13 +192,10 @@ impl Ledger {
     }
 
     fn process(
-        directives: Vec<Directive>,
-        entry: Either<PathBuf, String>,
-        visited_files: Vec<PathBuf>,
+        directives: Vec<Directive>, entry: Either<PathBuf, String>, visited_files: Vec<PathBuf>,
     ) -> ZhangResult<Ledger> {
-        let (meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) = directives
-            .into_iter()
-            .partition(|it| it.datetime().is_none());
+        let (meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) =
+            directives.into_iter().partition(|it| it.datetime().is_none());
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
 
         let arc_price = Arc::new(StdRwLock::new(DatedPriceGrip::default()));
@@ -240,9 +222,7 @@ impl Ledger {
                 Directive::Option(option) => option.process(&mut ret_ledger, &mut context)?,
                 Directive::Open(open) => open.process(&mut ret_ledger, &mut context)?,
                 Directive::Close(close) => close.process(&mut ret_ledger, &mut context)?,
-                Directive::Commodity(commodity) => {
-                    commodity.process(&mut ret_ledger, &mut context)?
-                }
+                Directive::Commodity(commodity) => commodity.process(&mut ret_ledger, &mut context)?,
                 Directive::Transaction(trx) => trx.process(&mut ret_ledger, &mut context)?,
                 Directive::Balance(balance) => balance.process(&mut ret_ledger, &mut context)?,
                 Directive::Note(_) => {}
@@ -264,8 +244,7 @@ impl Ledger {
 
     pub fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
         let content = content.as_ref();
-        let directives =
-            parse_zhang(content).map_err(|it| ZhangError::PestError(it.to_string()))?;
+        let directives = parse_zhang(content).map_err(|it| ZhangError::PestError(it.to_string()))?;
         Ledger::process(directives, Either::Right(content.to_string()), vec![])
     }
 
@@ -525,8 +504,7 @@ mod test {
         use crate::core::ledger::AccountSnapshot;
         use crate::core::utils::price_grip::DatedPriceGrip;
         use bigdecimal::BigDecimal;
-        use std::sync::Arc;
-        use std::sync::RwLock as StdRwLock;
+        use std::sync::{Arc, RwLock as StdRwLock};
 
         #[test]
         fn should_add_to_inner() {
@@ -556,10 +534,7 @@ mod test {
             assert_eq!(&BigDecimal::from(2i32), snapshot.inner.get("CNY").unwrap());
 
             assert_eq!(1, new_snapshot.inner.len());
-            assert_eq!(
-                &BigDecimal::from(1i32),
-                new_snapshot.inner.get("CNY").unwrap()
-            )
+            assert_eq!(&BigDecimal::from(1i32), new_snapshot.inner.get("CNY").unwrap())
         }
     }
     mod txn {
@@ -582,23 +557,11 @@ mod test {
             assert_eq!(2, ledger.snapshot.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger
-                    .snapshot
-                    .get("Assets:From")
-                    .unwrap()
-                    .inner
-                    .get("CNY")
-                    .unwrap()
+                ledger.snapshot.get("Assets:From").unwrap().inner.get("CNY").unwrap()
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                ledger
-                    .snapshot
-                    .get("Expenses:To")
-                    .unwrap()
-                    .inner
-                    .get("CNY")
-                    .unwrap()
+                ledger.snapshot.get("Expenses:To").unwrap().inner.get("CNY").unwrap()
             );
         }
 
@@ -617,23 +580,11 @@ mod test {
             assert_eq!(2, ledger.snapshot.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger
-                    .snapshot
-                    .get("Assets:From")
-                    .unwrap()
-                    .inner
-                    .get("CNY")
-                    .unwrap()
+                ledger.snapshot.get("Assets:From").unwrap().inner.get("CNY").unwrap()
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                ledger
-                    .snapshot
-                    .get("Expenses:To")
-                    .unwrap()
-                    .inner
-                    .get("CNY")
-                    .unwrap()
+                ledger.snapshot.get("Expenses:To").unwrap().inner.get("CNY").unwrap()
             );
         }
 
@@ -653,23 +604,11 @@ mod test {
             assert_eq!(2, ledger.snapshot.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger
-                    .snapshot
-                    .get("Assets:From")
-                    .unwrap()
-                    .inner
-                    .get("CNY")
-                    .unwrap()
+                ledger.snapshot.get("Assets:From").unwrap().inner.get("CNY").unwrap()
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                ledger
-                    .snapshot
-                    .get("Expenses:To")
-                    .unwrap()
-                    .inner
-                    .get("CNY")
-                    .unwrap()
+                ledger.snapshot.get("Expenses:To").unwrap().inner.get("CNY").unwrap()
             );
         }
 
@@ -689,23 +628,11 @@ mod test {
             assert_eq!(2, ledger.snapshot.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger
-                    .snapshot
-                    .get("Assets:From")
-                    .unwrap()
-                    .inner
-                    .get("CNY")
-                    .unwrap()
+                ledger.snapshot.get("Assets:From").unwrap().inner.get("CNY").unwrap()
             );
             assert_eq!(
                 &BigDecimal::from(1i32),
-                ledger
-                    .snapshot
-                    .get("Expenses:To")
-                    .unwrap()
-                    .inner
-                    .get("BTC")
-                    .unwrap()
+                ledger.snapshot.get("Expenses:To").unwrap().inner.get("BTC").unwrap()
             );
         }
 
@@ -725,23 +652,11 @@ mod test {
             assert_eq!(2, ledger.snapshot.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger
-                    .snapshot
-                    .get("Assets:From")
-                    .unwrap()
-                    .inner
-                    .get("CNY")
-                    .unwrap()
+                ledger.snapshot.get("Assets:From").unwrap().inner.get("CNY").unwrap()
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                ledger
-                    .snapshot
-                    .get("Expenses:To")
-                    .unwrap()
-                    .inner
-                    .get("CNY2")
-                    .unwrap()
+                ledger.snapshot.get("Expenses:To").unwrap().inner.get("CNY2").unwrap()
             );
         }
     }
@@ -770,21 +685,11 @@ mod test {
                 .get_snapshot_by_date(&NaiveDate::from_ymd(2022, 2, 22));
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                account_snapshot
-                    .get("Assets:From")
-                    .unwrap()
-                    .inner
-                    .get("CNY")
-                    .unwrap()
+                account_snapshot.get("Assets:From").unwrap().inner.get("CNY").unwrap()
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                account_snapshot
-                    .get("Expenses:To")
-                    .unwrap()
-                    .inner
-                    .get("CNY")
-                    .unwrap()
+                account_snapshot.get("Expenses:To").unwrap().inner.get("CNY").unwrap()
             );
         }
         #[test]
@@ -800,8 +705,7 @@ mod test {
             );
             daily_snapshot.insert_snapshot(NaiveDate::from_ymd(2022, 2, 22), map);
 
-            let target_day_snapshot =
-                daily_snapshot.get_snapshot_by_date(&NaiveDate::from_ymd(2022, 3, 22));
+            let target_day_snapshot = daily_snapshot.get_snapshot_by_date(&NaiveDate::from_ymd(2022, 3, 22));
             assert_eq!(1, target_day_snapshot.len());
             assert!(target_day_snapshot.contains_key("AAAAA"));
         }

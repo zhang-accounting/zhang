@@ -3,8 +3,8 @@ use itertools::Itertools;
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{
-    Balance, Close, Comment, Commodity, Custom, Date, Document, Event, Include, Meta, Note, Open,
-    Options, Plugin, Posting, Price, Transaction,
+    Balance, Close, Comment, Commodity, Custom, Date, Document, Event, Include, Meta, Note, Open, Options, Plugin,
+    Posting, Price, Transaction,
 };
 use crate::core::ledger::Ledger;
 use crate::core::models::{Directive, Flag, StringOrAccount, ZhangString};
@@ -12,11 +12,7 @@ use crate::target::ZhangTarget;
 use crate::utils::escape_with_quote;
 
 fn append_meta(meta: Meta, string: String) -> String {
-    let mut metas = meta
-        .to_target()
-        .into_iter()
-        .map(|it| format!("  {}", it))
-        .collect_vec();
+    let mut metas = meta.to_target().into_iter().map(|it| format!("  {}", it)).collect_vec();
     metas.insert(0, string);
     metas.join("\n")
 }
@@ -83,16 +79,8 @@ impl ZhangTarget<String> for Transaction {
             self.payee.map(|it| it.to_target()),
             self.narration.map(|it| it.to_target()),
         ];
-        let mut tags = self
-            .tags
-            .into_iter()
-            .map(|it| Some(format!("#{}", it)))
-            .collect_vec();
-        let mut links = self
-            .links
-            .into_iter()
-            .map(|it| Some(format!("^{}", it)))
-            .collect_vec();
+        let mut tags = self.tags.into_iter().map(|it| Some(format!("#{}", it))).collect_vec();
+        let mut links = self.links.into_iter().map(|it| Some(format!("^{}", it))).collect_vec();
         vec1.append(&mut tags);
         vec1.append(&mut links);
 
@@ -128,11 +116,7 @@ impl ZhangTarget<String> for Posting {
 }
 impl ZhangTarget<String> for Open {
     fn to_target(mut self) -> String {
-        let mut line = vec![
-            self.date.to_target(),
-            "open".to_string(),
-            self.account.to_target(),
-        ];
+        let mut line = vec![self.date.to_target(), "open".to_string(), self.account.to_target()];
         line.append(&mut self.commodities);
         append_meta(self.meta, line.join(" "))
     }
@@ -140,22 +124,14 @@ impl ZhangTarget<String> for Open {
 
 impl ZhangTarget<String> for Close {
     fn to_target(self) -> String {
-        let line = vec![
-            self.date.to_target(),
-            "close".to_string(),
-            self.account.to_target(),
-        ];
+        let line = vec![self.date.to_target(), "close".to_string(), self.account.to_target()];
         append_meta(self.meta, line.join(" "))
     }
 }
 
 impl ZhangTarget<String> for Commodity {
     fn to_target(self) -> String {
-        let line = vec![
-            self.date.to_target(),
-            "commodity".to_string(),
-            self.currency,
-        ];
+        let line = vec![self.date.to_target(), "commodity".to_string(), self.currency];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -242,11 +218,7 @@ impl ZhangTarget<String> for Custom {
             "custom".to_string(),
             self.custom_type.to_target(),
         ];
-        let mut values = self
-            .values
-            .into_iter()
-            .map(|it| it.to_target())
-            .collect_vec();
+        let mut values = self.values.into_iter().map(|it| it.to_target()).collect_vec();
         line.append(&mut values);
         append_meta(self.meta, line.join(" "))
     }
@@ -254,22 +226,14 @@ impl ZhangTarget<String> for Custom {
 
 impl ZhangTarget<String> for Options {
     fn to_target(self) -> String {
-        let line = vec![
-            "option".to_string(),
-            self.key.to_target(),
-            self.value.to_target(),
-        ];
+        let line = vec!["option".to_string(), self.key.to_target(), self.value.to_target()];
         line.join(" ")
     }
 }
 impl ZhangTarget<String> for Plugin {
     fn to_target(self) -> String {
         let mut line = vec!["plugin".to_string(), self.module.to_target()];
-        let mut values = self
-            .value
-            .into_iter()
-            .map(|it| it.to_target())
-            .collect_vec();
+        let mut values = self.value.into_iter().map(|it| it.to_target()).collect_vec();
         line.append(&mut values);
         line.join(" ")
     }
@@ -311,11 +275,7 @@ impl ZhangTarget<String> for Directive {
 
 impl ZhangTarget<String> for Ledger {
     fn to_target(self) -> String {
-        let vec = self
-            .directives
-            .into_iter()
-            .map(|it| it.to_target())
-            .collect_vec();
+        let vec = self.directives.into_iter().map(|it| it.to_target()).collect_vec();
         vec.join("\n\n")
     }
 }
