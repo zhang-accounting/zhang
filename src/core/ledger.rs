@@ -140,6 +140,8 @@ pub enum LedgerError {
 #[derive(Debug)]
 pub struct Ledger {
     pub entry: Either<PathBuf, String>,
+    pub(crate) visited_files: Vec<PathBuf>,
+
     pub(crate) directives: Vec<Directive>,
     pub metas: Vec<Directive>,
     pub accounts: HashMap<AccountName, AccountInfo>,
@@ -148,7 +150,8 @@ pub struct Ledger {
     pub daily_snapshot: DailyAccountSnapshot,
     pub documents: HashMap<String, DocumentType>,
     pub errors: Vec<LedgerError>,
-    pub(crate) visited_files: Vec<PathBuf>,
+
+    pub configs: HashMap<String, String>,
 }
 
 impl Ledger {
@@ -206,12 +209,19 @@ impl Ledger {
         let mut currencies = HashMap::default();
         let mut documents = HashMap::default();
         let mut errors = vec![];
+        let mut configs = HashMap::new();
 
         let mut snapshot: HashMap<AccountName, AccountSnapshot> = HashMap::default();
         let mut daily_snapshot: DailyAccountSnapshot = DailyAccountSnapshot::default();
         let mut target_day: Option<NaiveDate> = None;
         for directive in &mut directives {
             match directive {
+                Directive::Option(option) => {
+                    configs.insert(
+                        option.key.clone().to_plain_string(),
+                        option.value.clone().to_plain_string(),
+                    );
+                }
                 Directive::Open(open) => {
                     let account_info = accounts
                         .entry(open.account.content.to_string())
@@ -385,6 +395,7 @@ impl Ledger {
             snapshot,
             daily_snapshot,
             visited_files,
+            configs,
         })
     }
 
@@ -430,15 +441,7 @@ impl Ledger {
             Either::Left(path_buf) => Ledger::load(path_buf.clone()),
             Either::Right(raw_string) => Ledger::load_from_str(raw_string),
         }?;
-        self.directives = reload_ledger.directives;
-        self.metas = reload_ledger.metas;
-        self.snapshot = reload_ledger.snapshot;
-        self.currencies = reload_ledger.currencies;
-        self.documents = reload_ledger.documents;
-        self.accounts = reload_ledger.accounts;
-        self.errors = reload_ledger.errors;
-        self.daily_snapshot = reload_ledger.daily_snapshot;
-        self.visited_files = reload_ledger.visited_files;
+        *self = reload_ledger;
         Ok(())
     }
 }
