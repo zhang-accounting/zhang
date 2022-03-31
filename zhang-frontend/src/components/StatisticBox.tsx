@@ -9,22 +9,7 @@ interface Props {
 }
 export default function Component({ text, amount, currency, detail, negetive }: Props) {
     const negative = (negetive || false) ? -1 : 1;
-    let detailTip = (
-        <Flex direction={"column"}>
-            <Flex justifyContent={"space-between"}>
-                <Text>1000</Text>
-                <Text ml={3}>CNY</Text>
-            </Flex>
-            <Flex justifyContent={"space-between"}>
-                <Text>1000</Text>
-                <Text>CNY</Text>
-            </Flex>
-            <Flex justifyContent={"space-between"}>
-                <Text>1000</Text>
-                <Text>CNY</Text>
-            </Flex>
-        </Flex>
-    )
+   
 
     var formatter = new Intl.NumberFormat('en-US', {
     });
