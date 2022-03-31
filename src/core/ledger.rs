@@ -18,6 +18,8 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Add;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::RwLock as StdRwLock;
 
 #[derive(Debug, Clone)]
 pub enum DocumentType {
@@ -52,16 +54,20 @@ pub struct CurrencyInfo {
     pub prices: HashMap<NaiveDate, BigDecimal>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AccountSnapshot {
     pub(crate) inner: HashMap<Currency, BigDecimal>,
+    pub(crate) prices: Arc<StdRwLock<DatedPriceGrip>>,
 }
 
 impl Add for &AccountSnapshot {
     type Output = AccountSnapshot;
 
     fn add(self, rhs: Self) -> Self::Output {
-        let mut snapshot = AccountSnapshot::default();
+        let mut snapshot = AccountSnapshot {
+            inner: Default::default(),
+            prices: self.prices.clone(),
+        };
         for (currency, amount) in &self.inner {
             snapshot.add_amount(Amount::new(amount.clone(), currency));
         }
@@ -146,7 +152,7 @@ pub struct Ledger {
     pub errors: Vec<LedgerError>,
 
     pub configs: HashMap<String, String>,
-    pub prices: DatedPriceGrip,
+    pub prices: Arc<StdRwLock<DatedPriceGrip>>,
 }
 
 impl Ledger {
@@ -201,6 +207,7 @@ impl Ledger {
             .partition(|it| it.datetime().is_none());
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
 
+        let arc_price = Arc::new(StdRwLock::new(DatedPriceGrip::default()));
         let mut ret_ledger = Self {
             entry,
             visited_files,
@@ -213,9 +220,12 @@ impl Ledger {
             documents: HashMap::default(),
             errors: vec![],
             configs: HashMap::default(),
-            prices: DatedPriceGrip::default(),
+            prices: arc_price.clone(),
         };
-        let mut context = ProcessContext { target_day: None };
+        let mut context = ProcessContext {
+            target_day: None,
+            prices: arc_price,
+        };
         for directive in &mut directives {
             match directive {
                 Directive::Option(option) => option.process(&mut ret_ledger, &mut context)?,
@@ -264,6 +274,10 @@ impl Ledger {
         self
     }
 
+    pub fn option(&self, key: &str) -> Option<&str> {
+        self.configs.get(key).map(|it| it.as_ref())
+    }
+
     pub fn reload(&mut self) -> ZhangResult<()> {
         let reload_ledger = match &mut self.entry {
             Either::Left(path_buf) => Ledger::load(path_buf.clone()),
@@ -271,6 +285,12 @@ impl Ledger {
         }?;
         *self = reload_ledger;
         Ok(())
+    }
+    pub fn default_account_snapshot(&self) -> AccountSnapshot {
+        AccountSnapshot {
+            inner: Default::default(),
+            prices: self.prices.clone(),
+        }
     }
 }
 
@@ -494,12 +514,16 @@ mod test {
     mod account_snapshot {
         use crate::core::amount::Amount;
         use crate::core::ledger::AccountSnapshot;
+        use crate::core::utils::price_grip::DatedPriceGrip;
         use bigdecimal::BigDecimal;
+        use std::sync::Arc;
+        use std::sync::RwLock as StdRwLock;
 
         #[test]
         fn should_add_to_inner() {
             let mut snapshot = AccountSnapshot {
                 inner: Default::default(),
+                prices: Arc::new(StdRwLock::new(DatedPriceGrip::default())),
             };
             snapshot.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
 
@@ -511,6 +535,7 @@ mod test {
         fn should_snapshot_be_independent() {
             let mut snapshot = AccountSnapshot {
                 inner: Default::default(),
+                prices: Arc::new(StdRwLock::new(DatedPriceGrip::default())),
             };
             snapshot.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
 
@@ -717,6 +742,7 @@ mod test {
         use chrono::NaiveDate;
         use indoc::indoc;
         use std::collections::HashMap;
+        use std::sync::Arc;
 
         #[test]
         fn should_record_daily_snapshot() {
@@ -756,7 +782,13 @@ mod test {
         fn should_get_from_previous_day_given_day_is_not_in_data() {
             let mut daily_snapshot = DailyAccountSnapshot::default();
             let mut map = HashMap::default();
-            map.insert("AAAAA".to_string(), AccountSnapshot::default());
+            map.insert(
+                "AAAAA".to_string(),
+                AccountSnapshot {
+                    inner: Default::default(),
+                    prices: Arc::new(Default::default()),
+                },
+            );
             daily_snapshot.insert_snapshot(NaiveDate::from_ymd(2022, 2, 22), map);
 
             let target_day_snapshot =
