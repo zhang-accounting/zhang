@@ -9,9 +9,8 @@ use crate::core::models::Directive;
 use crate::server::LedgerState;
 use async_graphql::{Context, Interface, Object};
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{NaiveDate, Utc};
+use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
-use now::TimeZoneNow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -39,26 +38,19 @@ impl QueryRoot {
             })
             .map(|it| FileEntryDto(it.clone()))
     }
-    async fn statistic(
-        &self,
-        ctx: &Context<'_>,
-        #[graphql(default = 0)] _month_offset: i32,
-    ) -> StatisticDto {
+    async fn statistic(&self, ctx: &Context<'_>, from: i64, to: i64) -> StatisticDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        // todo implement month offset
-        let beginning_of_month = Utc.beginning_of_month().naive_local().date();
-        let end_of_month = Utc.end_of_month().naive_local().date();
-        let beginning_day_snapshot = ledger_stage
+        let start_date = NaiveDateTime::from_timestamp(from, 0).date();
+        let end_date = NaiveDateTime::from_timestamp(to, 0).date();
+        let start_date_snapshot = ledger_stage
             .daily_snapshot
-            .get_snapshot_by_date(&beginning_of_month);
-        let end_day_snapshot = ledger_stage
-            .daily_snapshot
-            .get_snapshot_by_date(&end_of_month);
+            .get_snapshot_by_date(&start_date);
+        let end_date_snapshot = ledger_stage.daily_snapshot.get_snapshot_by_date(&end_date);
         StatisticDto {
-            start_date: beginning_of_month,
-            end_date: end_of_month,
-            _start_date_snapshot: beginning_day_snapshot,
-            end_date_snapshot: end_day_snapshot,
+            start_date,
+            end_date,
+            _start_date_snapshot: start_date_snapshot,
+            end_date_snapshot,
         }
     }
     async fn currencies(&self, ctx: &Context<'_>) -> Vec<CurrencyDto> {

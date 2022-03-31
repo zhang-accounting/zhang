@@ -51,7 +51,6 @@ impl MutationRoot {
 
         let buf = target_file_path.canonicalize().unwrap();
         if !ledger_stage.visited_files.contains(&buf) {
-            // todo add include directive
             let path = match target_file_path.strip_prefix(ledger_base_path) {
                 Ok(relative_path) => relative_path.to_str().unwrap(),
                 Err(_) => target_file_path.to_str().unwrap(),
