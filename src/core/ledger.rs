@@ -1,8 +1,9 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::data::{Balance, Commodity, Date};
+use crate::core::data::{Commodity, Date};
 use crate::core::inventory::{AccountName, Currency};
 use crate::core::models::Directive;
+use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
@@ -10,11 +11,11 @@ use async_graphql::Enum;
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
 use itertools::{Either, Itertools};
-use log::{debug, error};
+use log::debug;
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::ops::{Add, Neg, Sub};
+use std::ops::Add;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -205,214 +206,46 @@ impl Ledger {
             .into_iter()
             .partition(|it| it.datetime().is_none());
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
-        let mut accounts = HashMap::default();
-        let mut currencies = HashMap::default();
-        let mut documents = HashMap::default();
-        let mut errors = vec![];
-        let mut configs = HashMap::new();
 
-        let mut snapshot: HashMap<AccountName, AccountSnapshot> = HashMap::default();
-        let mut daily_snapshot: DailyAccountSnapshot = DailyAccountSnapshot::default();
-        let mut target_day: Option<NaiveDate> = None;
+        let mut ret_ledger = Self {
+            entry,
+            visited_files,
+            directives: vec![],
+            metas: meta_directives,
+            accounts: HashMap::default(),
+            currencies: HashMap::default(),
+            snapshot: HashMap::default(),
+            daily_snapshot: DailyAccountSnapshot::default(),
+            documents: HashMap::default(),
+            errors: vec![],
+            configs: HashMap::default(),
+        };
+        let mut context = ProcessContext { target_day: None };
         for directive in &mut directives {
             match directive {
-                Directive::Option(option) => {
-                    configs.insert(
-                        option.key.clone().to_plain_string(),
-                        option.value.clone().to_plain_string(),
-                    );
-                }
-                Directive::Open(open) => {
-                    let account_info = accounts
-                        .entry(open.account.content.to_string())
-                        .or_insert_with(|| AccountInfo {
-                            currencies: Default::default(),
-                            status: AccountStatus::Open,
-                            meta: Default::default(),
-                        });
-                    account_info.status = AccountStatus::Open;
-                    for (meta_key, meta_value) in &open.meta {
-                        account_info
-                            .meta
-                            .insert(meta_key.clone(), meta_value.clone().to_plain_string());
-                    }
-                    for currency in &open.commodities {
-                        account_info.currencies.insert(currency.to_string());
-                    }
-                }
-                Directive::Close(close) => {
-                    let account_info = accounts
-                        .entry(close.account.content.to_string())
-                        .or_insert_with(|| AccountInfo {
-                            currencies: Default::default(),
-                            status: AccountStatus::Open,
-                            meta: Default::default(),
-                        });
-                    account_info.status = AccountStatus::Close;
-                    for (meta_key, meta_value) in &close.meta {
-                        account_info
-                            .meta
-                            .insert(meta_key.clone(), meta_value.clone().to_plain_string());
-                    }
-                }
+                Directive::Option(option) => option.process(&mut ret_ledger, &mut context)?,
+                Directive::Open(open) => open.process(&mut ret_ledger, &mut context)?,
+                Directive::Close(close) => close.process(&mut ret_ledger, &mut context)?,
                 Directive::Commodity(commodity) => {
-                    let _target_currency = currencies
-                        .entry(commodity.currency.to_string())
-                        .or_insert_with(|| CurrencyInfo {
-                            commodity: commodity.clone(),
-                            prices: HashMap::new(),
-                        });
+                    commodity.process(&mut ret_ledger, &mut context)?
                 }
-                Directive::Transaction(trx) => {
-                    if !trx.is_balance() {
-                        error!("trx is not balanced");
-                    }
-                    let date = trx.date.naive_date();
-                    Self::record_daily_snapshot(
-                        &mut snapshot,
-                        &mut daily_snapshot,
-                        &mut target_day,
-                        date,
-                    );
-
-                    for txn_posting in trx.txn_postings() {
-                        let target_account_snapshot = snapshot
-                            .entry(txn_posting.account_name())
-                            .or_insert_with(AccountSnapshot::default);
-                        target_account_snapshot.add_amount(txn_posting.units());
-                    }
-                }
-                Directive::Balance(balance) => match balance {
-                    Balance::BalanceCheck(balance_check) => {
-                        Self::record_daily_snapshot(
-                            &mut snapshot,
-                            &mut daily_snapshot,
-                            &mut target_day,
-                            balance_check.date.naive_date(),
-                        );
-
-                        let default = AccountSnapshot::default();
-                        let target_account_snapshot = snapshot
-                            .get(balance_check.account.name())
-                            .unwrap_or(&default);
-
-                        let decimal = target_account_snapshot.get(&balance_check.amount.currency);
-                        balance_check.current_amount = Some(Amount::new(
-                            decimal.clone(),
-                            balance_check.amount.currency.clone(),
-                        ));
-                        if decimal.ne(&balance_check.amount.number) {
-                            balance_check.distance = Some(Amount::new(
-                                (&balance_check.amount.number).sub(&decimal),
-                                balance_check.amount.currency.clone(),
-                            ));
-                            errors.push(LedgerError::AccountBalanceCheckError {
-                                account_name: balance_check.account.name().to_string(),
-                                target: Amount::new(
-                                    balance_check.amount.number.clone(),
-                                    balance_check.amount.currency.clone(),
-                                ),
-                                current: Amount::new(
-                                    decimal.clone(),
-                                    balance_check.amount.currency.clone(),
-                                ),
-                                distance: Amount::new(
-                                    (&balance_check.amount.number).sub(&decimal),
-                                    balance_check.amount.currency.clone(),
-                                ),
-                            });
-                            error!(
-                                "balance error: account {} balance to {} {} with distance {} {}(current is {} {})",
-                                balance_check.account.name(),
-                                &balance_check.amount.number,
-                                &balance_check.amount.currency,
-                                (&balance_check.amount.number).sub(&decimal),
-                                &balance_check.amount.currency,
-                                &decimal,
-                                &balance_check.amount.currency
-                            );
-                        }
-                    }
-                    Balance::BalancePad(balance_pad) => {
-                        Self::record_daily_snapshot(
-                            &mut snapshot,
-                            &mut daily_snapshot,
-                            &mut target_day,
-                            balance_pad.date.naive_date(),
-                        );
-
-                        let target_account_snapshot = snapshot
-                            .entry(balance_pad.account.name().to_string())
-                            .or_insert_with(AccountSnapshot::default);
-
-                        let source_amount =
-                            target_account_snapshot.get(&balance_pad.amount.currency);
-                        let source_target_amount = &balance_pad.amount.number;
-                        // source account
-                        let distance = source_target_amount.sub(source_amount);
-                        let neg_distance = (&distance).neg();
-                        target_account_snapshot
-                            .add_amount(Amount::new(distance, balance_pad.amount.currency.clone()));
-
-                        // add to pad
-                        let pad_account_snapshot = snapshot
-                            .entry(balance_pad.pad.name().to_string())
-                            .or_insert_with(AccountSnapshot::default);
-                        pad_account_snapshot.add_amount(Amount::new(
-                            neg_distance,
-                            balance_pad.amount.currency.clone(),
-                        ));
-                    }
-                },
+                Directive::Transaction(trx) => trx.process(&mut ret_ledger, &mut context)?,
+                Directive::Balance(balance) => balance.process(&mut ret_ledger, &mut context)?,
                 Directive::Note(_) => {}
-                Directive::Document(document) => {
-                    documents.insert(
-                        document.filename.clone().to_plain_string(),
-                        DocumentType::AccountDocument {
-                            date: document.date.clone(),
-                            account: document.account.clone(),
-                            filename: document.filename.clone().to_plain_string(),
-                        },
-                    );
-                }
+                Directive::Document(document) => document.process(&mut ret_ledger, &mut context)?,
                 Directive::Price(_) => {}
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
                 _ => {}
             }
         }
-        if let Some(last_day) = target_day {
-            daily_snapshot.insert_snapshot(last_day, snapshot.clone());
+        if let Some(last_day) = context.target_day {
+            ret_ledger
+                .daily_snapshot
+                .insert_snapshot(last_day, ret_ledger.snapshot.clone());
         }
-        Ok(Self {
-            entry,
-            metas: meta_directives,
-            directives,
-            accounts,
-            currencies,
-            documents,
-            errors,
-            snapshot,
-            daily_snapshot,
-            visited_files,
-            configs,
-        })
-    }
-
-    fn record_daily_snapshot(
-        snapshot: &mut HashMap<AccountName, AccountSnapshot>,
-        daily_snapshot: &mut DailyAccountSnapshot,
-        target_day: &mut Option<NaiveDate>,
-        date: NaiveDate,
-    ) {
-        if let Some(target_day_inner) = target_day {
-            if date.ne(target_day_inner) {
-                daily_snapshot.insert_snapshot(*target_day_inner, snapshot.clone());
-                *target_day = Some(date);
-            }
-        } else {
-            *target_day = Some(date);
-        }
+        ret_ledger.directives = directives;
+        Ok(ret_ledger)
     }
 
     pub fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
