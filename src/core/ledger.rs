@@ -16,7 +16,7 @@ use itertools::{Either, Itertools};
 use log::debug;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::ops::{Add, AddAssign};
+use std::ops::{Add, AddAssign, Sub};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock as StdRwLock};
 
@@ -77,6 +77,24 @@ impl Add for &Inventory {
     }
 }
 
+impl Sub for &Inventory {
+    type Output = Inventory;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let mut new_inventory = Inventory {
+            inner: Default::default(),
+            prices: self.prices.clone(),
+        };
+        for (currency, amount) in &self.inner {
+            new_inventory.add_amount(Amount::new(amount.clone(), currency));
+        }
+        for (currency, amount) in &rhs.inner {
+            new_inventory.sub_amount(Amount::new(amount.clone(), currency));
+        }
+        new_inventory
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct DailyAccountInventory {
     inner: LatestMap<NaiveDate, HashMap<AccountName, Inventory>>,
@@ -98,6 +116,13 @@ impl Inventory {
         let decimal1 = BigDecimal::zero();
         let x = self.inner.get(&amount.currency).unwrap_or(&decimal1);
         let decimal = (x).add(&amount.number);
+        self.inner.insert(amount.currency, decimal);
+    }
+
+    pub fn sub_amount(&mut self, amount: Amount) {
+        let decimal1 = BigDecimal::zero();
+        let x = self.inner.get(&amount.currency).unwrap_or(&decimal1);
+        let decimal = (x).sub(&amount.number);
         self.inner.insert(amount.currency, decimal);
     }
     pub fn pin(&self) -> Inventory {

@@ -9,6 +9,7 @@ use async_graphql::{Context, Interface, Object};
 use chrono::{NaiveDate, NaiveDateTime, Utc};
 use itertools::Itertools;
 use std::collections::HashMap;
+use std::ops::Sub;
 use std::path::PathBuf;
 
 pub struct QueryRoot;
@@ -40,8 +41,8 @@ impl QueryRoot {
         StatisticDto {
             start_date,
             end_date,
-            _start_date_snapshot: start_date_snapshot,
-            end_date_snapshot,
+            start_snapshot: start_date_snapshot,
+            ens_snapshot: end_date_snapshot,
         }
     }
     async fn currencies(&self, ctx: &Context<'_>) -> Vec<CurrencyDto> {
@@ -327,10 +328,10 @@ impl AmountDto {
 
 pub struct StatisticDto {
     start_date: NaiveDate,
-    _start_date_snapshot: HashMap<AccountName, Inventory>,
+    start_snapshot: HashMap<AccountName, Inventory>,
 
     end_date: NaiveDate,
-    end_date_snapshot: HashMap<AccountName, Inventory>,
+    ens_snapshot: HashMap<AccountName, Inventory>,
 }
 
 #[Object]
@@ -347,7 +348,7 @@ impl StatisticDto {
     }
     async fn category_snapshot(&self, categories: Vec<String>) -> SnapshotDto {
         let dto = self
-            .end_date_snapshot
+            .ens_snapshot
             .iter()
             .filter(|(account_name, _)| categories.iter().any(|category| account_name.starts_with(category)))
             .map(|(k, v)| (k.clone(), v.clone()))
@@ -355,6 +356,35 @@ impl StatisticDto {
         SnapshotDto {
             date: self.end_date.and_hms(0, 0, 0),
             account_inventory: dto,
+        }
+    }
+    async fn distance(&self, ctx: &Context<'_>, #[graphql(default)] accounts: Vec<String>) -> SnapshotDto {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+
+        let account_filter = |&(k, _v): &(&AccountName, &Inventory)| {
+            if accounts.is_empty() {
+                true
+            } else {
+                let x1 = k.as_str();
+                accounts.iter().any(|it| it.eq(x1))
+            }
+        };
+        let mut ret: HashMap<AccountName, Inventory> = self
+            .ens_snapshot
+            .iter()
+            .filter(account_filter)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        for (account_name, inventory) in self.start_snapshot.iter().filter(account_filter) {
+            let target_account_inventory = ret
+                .entry(account_name.clone())
+                .or_insert_with(|| ledger_stage.default_account_inventory());
+            let x = (target_account_inventory as &Inventory).sub(inventory);
+            *target_account_inventory = x;
+        }
+        SnapshotDto {
+            date: self.end_date.and_hms(0, 0, 0),
+            account_inventory: ret,
         }
     }
 }
