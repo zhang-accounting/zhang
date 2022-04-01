@@ -1,0 +1,20 @@
+
+2022-04-01 11:30:06 balance Assets:Card:TestCard 100.00 CNY
+
+2022-04-01 02:06:29 balance Assets:Card:TestCard 100 USD
+
+2022-04-01 17:15:42 "公司" "发工资"
+  Income:Salary -1000 CNY
+  Assets:Card:TestCard 
+
+2022-04-01 17:17:52 "购物"
+  Assets:Card:TestCard -20 CNY
+  Expenses:Shopping 
+
+2022-04-01 17:45:56 ""
+  Liabilities:CreditCard -100 CNY
+  Expenses:Shopping 
+
+2022-04-01 17:46:23 "小额购物" "小额购物"
+  Liabilities:CreditCard -1 CNY
+  Expenses:Shopping 

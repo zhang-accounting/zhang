@@ -1,25 +1,16 @@
 import { ApolloClient, ApolloProvider, InMemoryCache } from "@apollo/client";
 import {
-  Avatar,
   Box, BoxProps, ChakraProvider, CloseButton, Drawer,
-  DrawerContent, Flex, FlexProps, HStack, Icon, IconButton, Link, Menu,
-  MenuButton,
-  MenuDivider,
-  MenuItem,
-  MenuList, Text, useColorModeValue, useDisclosure, VStack
+  DrawerContent, Flex, FlexProps, Icon, IconButton, Link, Text, useColorModeValue, useDisclosure
 } from '@chakra-ui/react';
 import React, { ReactNode, ReactText } from "react";
 import ReactDOM from "react-dom";
 import { IconType } from "react-icons";
-import {
-  FiBell,
-  FiChevronDown, FiCompass, FiHome, FiMenu, FiSettings, FiStar, FiTrendingUp
-} from 'react-icons/fi';
+import { FiCompass, FiHome, FiMenu, FiSettings, FiStar, FiTrendingUp } from 'react-icons/fi';
 import { BrowserRouter, Link as RouteLink } from "react-router-dom";
 import App from "./App";
 import NewTransactionButton from "./components/NewTransactionButton";
 import StatisticBar from "./components/StatisticBar";
-import StatisticBox from "./components/StatisticBox";
 import "./index.css";
 
 

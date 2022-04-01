@@ -1,6 +1,9 @@
 import { Badge, Box, Flex, Text } from "@chakra-ui/react";
-
-export default function Component({ data }) {
+import { TransactionDto } from "src/gql/jouralList";
+interface Props {
+    data: TransactionDto
+}
+export default function Component({ data }: Props) {
     return (
         <Flex mx={'auto'} py={0.5} px={{ base: 2, sm: 12, md: 17 }} borderBottom='1px' borderColor={"gray.200"} _hover={{ backgroundColor: "gray.200" }}
             alignItems={"center"} fontSize={"smaller"}>

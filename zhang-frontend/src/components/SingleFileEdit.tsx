@@ -1,17 +1,16 @@
 import { gql, useMutation, useQuery } from "@apollo/client";
-import { Button, Flex, Text } from "@chakra-ui/react";
+import { Button } from "@chakra-ui/react";
 import CodeMirror from '@uiw/react-codemirror';
 import { useEffect, useState } from "react";
+import { SingleFileEntryQuery, SINGLE_FILE_ENTRY } from "../gql/singleFile";
 
-export default function Component({ name, path }) {
-    const { loading, error, data } = useQuery(gql`
-    query SINGLE_FILE_ENTRY($name: String) {
-        entry(name: $name) {
-            name
-            content
-        }
-      }    
-`, {
+interface Props {
+    name?: string,
+    path: string
+}
+
+export default function Component({ path }: Props) {
+    const { loading, error, data } = useQuery<SingleFileEntryQuery>(SINGLE_FILE_ENTRY, {
         variables: {
             name: path
         }
@@ -32,7 +31,7 @@ export default function Component({ name, path }) {
     if (error) return <p>Error :(</p>;
 
 
-    
+
 
     return (
         <div>
@@ -40,11 +39,11 @@ export default function Component({ name, path }) {
                 value={content}
                 height="500px"
                 width="100%"
-                onChange={(value, viewUpdate) => {
+                onChange={(value) => {
                     setContent(value)
                 }}
             />
-            <Button disabled={data.entry.content === content} onClick={() => update({ variables: { path, content } })}>Update</Button>
+            <Button disabled={data?.entry.content === content} onClick={() => update({ variables: { path, content } })}>Update</Button>
         </div>
     )
 }

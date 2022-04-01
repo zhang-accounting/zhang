@@ -1,8 +1,5 @@
 {
   "extends": "@parcel/config-default",
-  "validators": {
-    "*.{ts,tsx}": ["@parcel/validator-typescript"]
-  },
   "compressors": {
     "*.{html,css,js,svg,map}": [
       "@parcel/compressor-gzip",

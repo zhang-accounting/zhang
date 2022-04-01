@@ -1,8 +1,9 @@
+import { AccountItem } from "src/gql/accountList";
 
 
 export default class AccountTrie {
     children: { [layer: string]: AccountTrie } = {}
-    val?: string
+    val?: AccountItem
     word?:string
     isNode?: boolean | undefined
 

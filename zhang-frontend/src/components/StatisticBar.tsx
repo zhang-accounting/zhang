@@ -1,6 +1,5 @@
 import { gql, useQuery } from "@apollo/client";
-import { Flex, Text, Tooltip } from "@chakra-ui/react";
-import Amount from "./Amount";
+import { Flex } from "@chakra-ui/react";
 import StatisticBox from "./StatisticBox";
 
 export default function Component({ }) {
