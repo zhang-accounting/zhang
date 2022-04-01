@@ -1,6 +1,5 @@
 [hooks]
-pre-push = "cargo nextest run"
-pre-commit = "cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings"
+pre-push = "cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings"
 
 [logging]
 verbose = true
