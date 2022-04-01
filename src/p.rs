@@ -492,12 +492,6 @@ pub fn parse_zhang(input_str: &str) -> Result<Vec<Directive>> {
     ZhangParser::entry(input)
 }
 
-pub fn parse_account(input_str: &str) -> Result<Account> {
-    let inputs = ZhangParser::parse(Rule::account_name, input_str)?;
-    let input = inputs.single()?;
-    ZhangParser::account_name(input)
-}
-
 #[cfg(test)]
 mod test {
 
@@ -593,7 +587,7 @@ mod test {
     }
     mod options {
         use crate::core::data::Options;
-        use crate::core::models::{Directive, ZhangString};
+        use crate::core::models::Directive;
         use crate::parse_zhang;
         use indoc::indoc;
 
@@ -635,7 +629,7 @@ mod test {
         }
     }
     mod document {
-        use crate::core::models::{Directive, ZhangString};
+        use crate::core::models::Directive;
         use crate::parse_zhang;
         use indoc::indoc;
 
