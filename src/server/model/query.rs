@@ -343,53 +343,13 @@ impl StatisticDto {
         // todo
         vec![]
     }
-    async fn total(&self, ctx: &Context<'_>) -> SnapshotDto {
+    async fn category_snapshot(&self, ctx: &Context<'_>, categories: Vec<String>) -> SnapshotDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
 
         let dto = self
             .end_date_snapshot
             .iter()
-            .filter(|(account_name, _)| account_name.starts_with("Assets") || account_name.starts_with("Liabilities"))
-            .fold(ledger_stage.default_account_snapshot(), |fold, lo| &fold + lo.1);
-        SnapshotDto {
-            date: self.end_date.and_hms(0, 0, 0),
-            snapshot: dto,
-        }
-    }
-
-    async fn income(&self, ctx: &Context<'_>) -> SnapshotDto {
-        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-
-        let dto = self
-            .end_date_snapshot
-            .iter()
-            .filter(|(account_name, _)| account_name.starts_with("Income"))
-            .fold(ledger_stage.default_account_snapshot(), |fold, lo| &fold + lo.1);
-        SnapshotDto {
-            date: self.end_date.and_hms(0, 0, 0),
-            snapshot: dto,
-        }
-    }
-    async fn expense(&self, ctx: &Context<'_>) -> SnapshotDto {
-        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-
-        let dto = self
-            .end_date_snapshot
-            .iter()
-            .filter(|(account_name, _)| account_name.starts_with("Expenses"))
-            .fold(ledger_stage.default_account_snapshot(), |fold, lo| &fold + lo.1);
-        SnapshotDto {
-            date: self.end_date.and_hms(0, 0, 0),
-            snapshot: dto,
-        }
-    }
-    async fn liability(&self, ctx: &Context<'_>) -> SnapshotDto {
-        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-
-        let dto = self
-            .end_date_snapshot
-            .iter()
-            .filter(|(account_name, _)| account_name.starts_with("Liabilities"))
+            .filter(|(account_name, _)| categories.iter().any(|category| account_name.starts_with(category)))
             .fold(ledger_stage.default_account_snapshot(), |fold, lo| &fold + lo.1);
         SnapshotDto {
             date: self.end_date.and_hms(0, 0, 0),
