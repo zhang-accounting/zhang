@@ -23,7 +23,7 @@ export default function Component({ }) {
           currency
         }
       }
-      income: categorySnapshot(categories: ["Income"]) {
+      monthIncome: distance(accounts: ["Income"]) {
         summary {
           number
           currency
@@ -33,7 +33,7 @@ export default function Component({ }) {
           currency
         }
       }
-      expense: categorySnapshot(categories: ["Expenses"]) {
+      monthExpense: distance(accounts: ["Expenses"]) {
         summary {
           number
           currency
@@ -43,6 +43,7 @@ export default function Component({ }) {
           currency
         }
       }
+  
       liability: categorySnapshot(categories: ["Liabilities"]) {
         summary {
           number
@@ -55,6 +56,7 @@ export default function Component({ }) {
       }
     }
   }
+  
       
     `, {
     variables: {
@@ -67,8 +69,8 @@ export default function Component({ }) {
   return (
     <Flex >
       <StatisticBox text={"资产余额"} amount={data.statistic.total.summary.number} currency={data.statistic.total.summary.currency} />
-      <StatisticBox text={"本月收入"} amount={data.statistic.income.summary.number} currency={data.statistic.income.summary.currency} negetive />
-      <StatisticBox text={"本月支出"} amount={data.statistic.expense.summary.number} currency={data.statistic.expense.summary.currency} />
+      <StatisticBox text={"本月收入"} amount={data.statistic.monthIncome.summary.number} currency={data.statistic.monthIncome.summary.currency} negetive />
+      <StatisticBox text={"本月支出"} amount={data.statistic.monthExpense.summary.number} currency={data.statistic.monthExpense.summary.currency} />
       <StatisticBox text={"负债"} amount={data.statistic.liability.summary.number} currency={data.statistic.liability.summary.currency} negetive />
     </Flex>
   )
