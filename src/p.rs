@@ -506,12 +506,11 @@ mod test {
             ZhangString::QuoteString($s.to_string())
         };
     }
-
-    macro_rules! unquote {
-        ($s: expr) => {
-            crate::core::models::ZhangString::UnquoteString($s.to_string())
-        };
-    }
+    // macro_rules! unquote {
+    //     ($s: expr) => {
+    //         crate::core::models::ZhangString::UnquoteString($s.to_string())
+    //     };
+    // }
     macro_rules! date {
         ($year: expr,$month: expr, $day: expr) => {
             crate::core::data::Date::Date(chrono::NaiveDate::from_ymd($year, $month, $day))
@@ -615,8 +614,8 @@ mod test {
         }
     }
     mod comment {
-        use crate::core::data::{Comment, Options};
-        use crate::core::models::{Directive, ZhangString};
+        use crate::core::data::Comment;
+        use crate::core::models::Directive;
         use crate::parse_zhang;
         use indoc::indoc;
 
@@ -636,8 +635,6 @@ mod test {
         }
     }
     mod document {
-        use crate::core::account::Account;
-        use crate::core::data::{Comment, Document, Options};
         use crate::core::models::{Directive, ZhangString};
         use crate::parse_zhang;
         use indoc::indoc;
@@ -655,6 +652,29 @@ mod test {
                 assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
                 assert_eq!(inner.account, account!("Assets:Card"));
                 assert_eq!(inner.filename, quote!("abc.jpg"));
+            }
+        }
+    }
+    mod price {
+        use crate::core::models::Directive;
+        use crate::parse_zhang;
+        use bigdecimal::BigDecimal;
+        use indoc::indoc;
+
+        #[test]
+        fn should_parse() {
+            let mut vec = parse_zhang(indoc! {r#"
+                1970-01-01 01:01:01 price USD 7 CNY
+            "#})
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap();
+            assert!(matches!(directive, Directive::Price(..)));
+            if let Directive::Price(inner) = directive {
+                assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
+                assert_eq!(inner.currency, "USD");
+                assert_eq!(inner.amount.currency, "CNY");
+                assert_eq!(inner.amount.number, BigDecimal::from(7i32));
             }
         }
     }
