@@ -56,8 +56,6 @@ export default function Component({ }) {
       }
     }
   }
-  
-      
     `, {
     variables: {
       from: Math.round(begining_time.getTime() / 1000),
@@ -69,9 +67,9 @@ export default function Component({ }) {
   return (
     <Flex >
       <StatisticBox text={"资产余额"} amount={data.statistic.total.summary.number} currency={data.statistic.total.summary.currency} />
+      <StatisticBox text={"负债"} amount={data.statistic.liability.summary.number} currency={data.statistic.liability.summary.currency} negetive />
       <StatisticBox text={"本月收入"} amount={data.statistic.monthIncome.summary.number} currency={data.statistic.monthIncome.summary.currency} negetive />
       <StatisticBox text={"本月支出"} amount={data.statistic.monthExpense.summary.number} currency={data.statistic.monthExpense.summary.currency} />
-      <StatisticBox text={"负债"} amount={data.statistic.liability.summary.number} currency={data.statistic.liability.summary.currency} negetive />
     </Flex>
   )
 }
