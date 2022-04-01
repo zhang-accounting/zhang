@@ -254,7 +254,7 @@ impl Ledger {
                 Directive::Balance(balance) => balance.process(&mut ret_ledger, &mut context)?,
                 Directive::Note(_) => {}
                 Directive::Document(document) => document.process(&mut ret_ledger, &mut context)?,
-                Directive::Price(_) => {}
+                Directive::Price(price) => price.process(&mut ret_ledger, &mut context)?,
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
                 _ => {}
