@@ -6,7 +6,7 @@ use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType
 use crate::core::models::Directive;
 use crate::server::LedgerState;
 use async_graphql::{Context, Interface, Object};
-use chrono::{NaiveDate, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, Utc};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::ops::Sub;
@@ -34,10 +34,10 @@ impl QueryRoot {
     }
     async fn statistic(&self, ctx: &Context<'_>, from: i64, to: i64) -> StatisticDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        let start_date = NaiveDateTime::from_timestamp(from, 0).date();
-        let end_date = NaiveDateTime::from_timestamp(to, 0).date();
-        let start_date_snapshot = ledger_stage.daily_inventory.get_account_inventory(&start_date);
-        let end_date_snapshot = ledger_stage.daily_inventory.get_account_inventory(&end_date);
+        let start_date = NaiveDateTime::from_timestamp(from, 0);
+        let end_date = NaiveDateTime::from_timestamp(to, 0);
+        let start_date_snapshot = ledger_stage.daily_inventory.get_account_inventory(&start_date.date());
+        let end_date_snapshot = ledger_stage.daily_inventory.get_account_inventory(&end_date.date());
         StatisticDto {
             start_date,
             end_date,
@@ -327,20 +327,20 @@ impl AmountDto {
 }
 
 pub struct StatisticDto {
-    start_date: NaiveDate,
+    start_date: NaiveDateTime,
     start_snapshot: HashMap<AccountName, Inventory>,
 
-    end_date: NaiveDate,
+    end_date: NaiveDateTime,
     ens_snapshot: HashMap<AccountName, Inventory>,
 }
 
 #[Object]
 impl StatisticDto {
     async fn start(&self) -> i64 {
-        self.start_date.and_hms(0, 0, 0).timestamp()
+        self.start_date.timestamp()
     }
     async fn end(&self) -> i64 {
-        self.end_date.and_hms(0, 0, 0).timestamp()
+        self.end_date.timestamp()
     }
     async fn accounts(&self) -> Vec<AccountDto> {
         // todo
@@ -354,19 +354,18 @@ impl StatisticDto {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         SnapshotDto {
-            date: self.end_date.and_hms(0, 0, 0),
+            date: self.end_date,
             account_inventory: dto,
         }
     }
     async fn distance(&self, ctx: &Context<'_>, #[graphql(default)] accounts: Vec<String>) -> SnapshotDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-
         let account_filter = |&(k, _v): &(&AccountName, &Inventory)| {
             if accounts.is_empty() {
                 true
             } else {
-                let x1 = k.as_str();
-                accounts.iter().any(|it| it.eq(x1))
+                let account_name_ref = k.as_str();
+                accounts.iter().any(|it| account_name_ref.starts_with(it))
             }
         };
         let mut ret: HashMap<AccountName, Inventory> = self
@@ -383,7 +382,7 @@ impl StatisticDto {
             *target_account_inventory = x;
         }
         SnapshotDto {
-            date: self.end_date.and_hms(0, 0, 0),
+            date: self.end_date,
             account_inventory: ret,
         }
     }
