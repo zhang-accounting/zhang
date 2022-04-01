@@ -9,50 +9,53 @@ export default function Component({ }) {
   const end_time = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
   const { loading, error, data } = useQuery(gql`
-    query BAR_STATISTIC($from: Int, $to: Int) {
-      statistic(from: $from, to: $to) {
-        total {
-          summary {
-            number
-            currency
-          }
-          detail {
-            number
-            currency
-          }
+  query BAR_STATISTIC($from: Int, $to: Int) {
+    statistic(from: $from, to: $to) {
+      start
+      end
+      total: categorySnapshot(categories: ["Assets", "Liabilities"]) {
+        summary {
+          number
+          currency
         }
-        income {
-          summary {
-            number
-            currency
-          }
-          detail {
-            number
-            currency
-          }
-        }
-        expense {
-          summary {
-            number
-            currency
-          }
-          detail {
-            number
-            currency
-          }
-        }
-        liability {
-          summary {
-            number
-            currency
-          }
-          detail {
-            number
-            currency
-          }
+        detail {
+          number
+          currency
         }
       }
-    }      
+      income: categorySnapshot(categories: ["Income"]) {
+        summary {
+          number
+          currency
+        }
+        detail {
+          number
+          currency
+        }
+      }
+      expense: categorySnapshot(categories: ["Expenses"]) {
+        summary {
+          number
+          currency
+        }
+        detail {
+          number
+          currency
+        }
+      }
+      liability: categorySnapshot(categories: ["Liabilities"]) {
+        summary {
+          number
+          currency
+        }
+        detail {
+          number
+          currency
+        }
+      }
+    }
+  }
+      
     `, {
     variables: {
       from: Math.round(begining_time.getTime() / 1000),
