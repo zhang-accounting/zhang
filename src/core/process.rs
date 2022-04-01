@@ -2,7 +2,7 @@ use crate::core::amount::Amount;
 use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Price, Transaction};
 use crate::core::inventory::AccountName;
 use crate::core::ledger::{
-    AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DailyAccountSnapshot, DocumentType, Ledger, LedgerError,
+    AccountInfo, AccountStatus, CurrencyInfo, DailyAccountInventory, DocumentType, Inventory, Ledger, LedgerError,
 };
 use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::error::ZhangResult;
@@ -18,8 +18,8 @@ pub(crate) struct ProcessContext {
 }
 
 impl ProcessContext {
-    pub fn default_account_snapshot(&self) -> AccountSnapshot {
-        AccountSnapshot {
+    pub fn default_account_snapshot(&self) -> Inventory {
+        Inventory {
             inner: Default::default(),
             prices: self.prices.clone(),
         }
@@ -31,12 +31,12 @@ pub(crate) trait DirectiveProcess {
 }
 
 fn record_daily_snapshot(
-    snapshot: &mut HashMap<AccountName, AccountSnapshot>, daily_snapshot: &mut DailyAccountSnapshot,
+    snapshot: &mut HashMap<AccountName, Inventory>, daily_snapshot: &mut DailyAccountInventory,
     target_day: &mut Option<NaiveDate>, date: NaiveDate,
 ) {
     if let Some(target_day_inner) = target_day {
         if date.ne(target_day_inner) {
-            daily_snapshot.insert_snapshot(*target_day_inner, snapshot.clone());
+            daily_snapshot.insert_account_inventory(*target_day_inner, snapshot.clone());
             *target_day = Some(date);
         }
     } else {
@@ -116,15 +116,15 @@ impl DirectiveProcess for Transaction {
         }
         let date = self.date.naive_date();
         record_daily_snapshot(
-            &mut ledger.snapshot,
-            &mut ledger.daily_snapshot,
+            &mut ledger.account_inventory,
+            &mut ledger.daily_inventory,
             &mut context.target_day,
             date,
         );
 
         for txn_posting in self.txn_postings() {
             let target_account_snapshot = ledger
-                .snapshot
+                .account_inventory
                 .entry(txn_posting.account_name())
                 .or_insert_with(|| context.default_account_snapshot());
             target_account_snapshot.add_amount(txn_posting.units());
@@ -138,14 +138,14 @@ impl DirectiveProcess for Balance {
         match self {
             Balance::BalanceCheck(balance_check) => {
                 record_daily_snapshot(
-                    &mut ledger.snapshot,
-                    &mut ledger.daily_snapshot,
+                    &mut ledger.account_inventory,
+                    &mut ledger.daily_inventory,
                     &mut context.target_day,
                     balance_check.date.naive_date(),
                 );
 
                 let target_account_snapshot = ledger
-                    .snapshot
+                    .account_inventory
                     .entry(balance_check.account.name().to_string())
                     .or_insert_with(|| context.default_account_snapshot());
 
@@ -185,14 +185,14 @@ impl DirectiveProcess for Balance {
             }
             Balance::BalancePad(balance_pad) => {
                 record_daily_snapshot(
-                    &mut ledger.snapshot,
-                    &mut ledger.daily_snapshot,
+                    &mut ledger.account_inventory,
+                    &mut ledger.daily_inventory,
                     &mut context.target_day,
                     balance_pad.date.naive_date(),
                 );
 
                 let target_account_snapshot = ledger
-                    .snapshot
+                    .account_inventory
                     .entry(balance_pad.account.name().to_string())
                     .or_insert_with(|| context.default_account_snapshot());
 
@@ -205,7 +205,7 @@ impl DirectiveProcess for Balance {
 
                 // add to pad
                 let pad_account_snapshot = ledger
-                    .snapshot
+                    .account_inventory
                     .entry(balance_pad.pad.name().to_string())
                     .or_insert_with(|| context.default_account_snapshot());
                 pad_account_snapshot.add_amount(Amount::new(neg_distance, balance_pad.amount.currency.clone()));
