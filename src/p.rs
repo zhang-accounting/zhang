@@ -500,64 +500,165 @@ pub fn parse_account(input_str: &str) -> Result<Account> {
 
 #[cfg(test)]
 mod test {
-    use crate::core::account::Account;
-    use crate::core::amount::Amount;
-    use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Open};
-    use crate::core::models::Directive;
-    use crate::parse_zhang;
-    use bigdecimal::BigDecimal;
-    use chrono::NaiveDate;
-    use std::str::FromStr;
 
-    #[test]
-    fn should_parse_date_hour() {
-        let mut result = parse_zhang("2101-10-10 10:10 open Assets:Hello").unwrap();
-        let directive = result.remove(0);
-        assert_eq!(
-            Directive::Open(Open {
-                date: Date::DateHour(NaiveDate::from_ymd(2101, 10, 10).and_hms(10, 10, 0)),
-                account: Account::from_str("Assets:Hello").unwrap(),
-                commodities: vec![],
-                meta: Default::default()
-            }),
-            directive
-        )
+    macro_rules! quote {
+        ($s: expr) => {
+            ZhangString::QuoteString($s.to_string())
+        };
     }
 
-    #[test]
-    fn should_parse_balance_check_and_balance_pad() {
-        let balance = parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY")
-            .unwrap()
-            .remove(0);
-        assert_eq!(
-            Directive::Balance(Balance::BalanceCheck(BalanceCheck {
-                date: Date::DateHour(NaiveDate::from_ymd(2101, 10, 10).and_hms(10, 10, 0)),
-                account: Account::from_str("Assets:Hello").unwrap(),
-                amount: Amount::new(BigDecimal::from(123i32), "CNY"),
-                tolerance: None,
-                distance: None,
-                current_amount: None,
-                meta: Default::default()
-            })),
-            balance
-        );
-
-        let balance = parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY with pad Income:Earnings")
-            .unwrap()
-            .remove(0);
-        assert_eq!(
-            Directive::Balance(Balance::BalancePad(BalancePad {
-                date: Date::DateHour(NaiveDate::from_ymd(2101, 10, 10).and_hms(10, 10, 0)),
-                account: Account::from_str("Assets:Hello").unwrap(),
-                amount: Amount::new(BigDecimal::from(123i32), "CNY"),
-                tolerance: None,
-                diff_amount: None,
-                pad: Account::from_str("Income:Earnings").unwrap(),
-                meta: Default::default()
-            })),
-            balance
-        )
+    macro_rules! unquote {
+        ($s: expr) => {
+            crate::core::models::ZhangString::UnquoteString($s.to_string())
+        };
     }
+    macro_rules! date {
+        ($year: expr,$month: expr, $day: expr) => {
+            crate::core::data::Date::Date(chrono::NaiveDate::from_ymd($year, $month, $day))
+        };
+        ($year: expr,$month: expr, $day: expr,$hour: expr,$min: expr) => {
+            crate::core::data::Date::DateHour(chrono::NaiveDate::from_ymd($year, $month, $day).and_hms($hour, $min, 0))
+        };
+        ($year: expr,$month: expr, $day: expr,$hour: expr,$min: expr,$sec: expr) => {
+            crate::core::data::Date::Datetime(
+                chrono::NaiveDate::from_ymd($year, $month, $day).and_hms($hour, $min, $sec),
+            )
+        };
+    }
+    macro_rules! account {
+        ($account: expr) => {{
+            use std::str::FromStr;
+            crate::core::account::Account::from_str($account).unwrap()
+        }};
+    }
+
+    mod date_time_support {
+        use crate::core::account::Account;
+        use crate::core::amount::Amount;
+        use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Open};
+        use crate::core::models::Directive;
+        use crate::parse_zhang;
+        use bigdecimal::BigDecimal;
+        use chrono::NaiveDate;
+        use std::str::FromStr;
+
+        #[test]
+        fn should_parse_date_hour() {
+            let mut result = parse_zhang("2101-10-10 10:10 open Assets:Hello").unwrap();
+            let directive = result.remove(0);
+            assert_eq!(
+                Directive::Open(Open {
+                    date: date!(2101, 10, 10, 10, 10),
+                    account: account!("Assets:Hello"),
+                    commodities: vec![],
+                    meta: Default::default()
+                }),
+                directive
+            )
+        }
+
+        #[test]
+        fn should_parse_balance_check_and_balance_pad() {
+            let balance = parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY")
+                .unwrap()
+                .remove(0);
+            assert_eq!(
+                Directive::Balance(Balance::BalanceCheck(BalanceCheck {
+                    date: Date::DateHour(NaiveDate::from_ymd(2101, 10, 10).and_hms(10, 10, 0)),
+                    account: Account::from_str("Assets:Hello").unwrap(),
+                    amount: Amount::new(BigDecimal::from(123i32), "CNY"),
+                    tolerance: None,
+                    distance: None,
+                    current_amount: None,
+                    meta: Default::default()
+                })),
+                balance
+            );
+
+            let balance = parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY with pad Income:Earnings")
+                .unwrap()
+                .remove(0);
+            assert_eq!(
+                Directive::Balance(Balance::BalancePad(BalancePad {
+                    date: Date::DateHour(NaiveDate::from_ymd(2101, 10, 10).and_hms(10, 10, 0)),
+                    account: Account::from_str("Assets:Hello").unwrap(),
+                    amount: Amount::new(BigDecimal::from(123i32), "CNY"),
+                    tolerance: None,
+                    diff_amount: None,
+                    pad: Account::from_str("Income:Earnings").unwrap(),
+                    meta: Default::default()
+                })),
+                balance
+            )
+        }
+    }
+    mod options {
+        use crate::core::data::Options;
+        use crate::core::models::{Directive, ZhangString};
+        use crate::parse_zhang;
+        use indoc::indoc;
+
+        #[test]
+        fn should_parse() {
+            let mut vec = parse_zhang(indoc! {r#"
+                option "title" "Example"
+            "#})
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            assert_eq!(
+                vec.pop().unwrap(),
+                Directive::Option(Options {
+                    key: quote!("title"),
+                    value: quote!("Example")
+                })
+            );
+        }
+    }
+    mod comment {
+        use crate::core::data::{Comment, Options};
+        use crate::core::models::{Directive, ZhangString};
+        use crate::parse_zhang;
+        use indoc::indoc;
+
+        #[test]
+        fn should_parse() {
+            let mut vec = parse_zhang(indoc! {r#"
+                ; comment here
+            "#})
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            assert_eq!(
+                vec.pop().unwrap(),
+                Directive::Comment(Comment {
+                    content: "; comment here".to_string(),
+                })
+            );
+        }
+    }
+    mod document {
+        use crate::core::account::Account;
+        use crate::core::data::{Comment, Document, Options};
+        use crate::core::models::{Directive, ZhangString};
+        use crate::parse_zhang;
+        use indoc::indoc;
+
+        #[test]
+        fn should_parse() {
+            let mut vec = parse_zhang(indoc! {r#"
+                1970-01-01 01:01:01 document Assets:Card "abc.jpg"
+            "#})
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap();
+            assert!(matches!(directive, Directive::Document(..)));
+            if let Directive::Document(inner) = directive {
+                assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
+                assert_eq!(inner.account, account!("Assets:Card"));
+                assert_eq!(inner.filename, quote!("abc.jpg"));
+            }
+        }
+    }
+
     mod transaction {
         use crate::parse_zhang;
         use indoc::indoc;
