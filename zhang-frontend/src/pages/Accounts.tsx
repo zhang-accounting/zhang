@@ -38,7 +38,7 @@ export default function Accounts() {
         <div>
           <Heading>{group}</Heading>
           <div>
-            {Object.keys(trie.children[group].children).map(item => (
+            {Object.keys(trie.children[group].children).sort().map(item => (
               <AccountLine data={trie.children[group].children[item]} />
             ))}
           </div>
