@@ -1,15 +1,10 @@
 import SingleFileEdit from "@/components/SingleFileEdit";
-import { gql, useQuery } from "@apollo/client";
-import { Box, Container, SimpleGrid, Stat, Tab, TabList, TabPanel, TabPanels, Tabs } from "@chakra-ui/react";
+import { useQuery } from "@apollo/client";
+import { Box, Tab, TabList, TabPanel, TabPanels, Tabs } from "@chakra-ui/react";
+import { FileListQuery, FILE_LIST } from "../gql/fileList";
 
 function RawEdit() {
-    const { loading, error, data } = useQuery(gql`
-    query FILE_LIST {
-        entries {
-            name
-        }
-      }    
-`);
+    const { loading, error, data } = useQuery<FileListQuery>(FILE_LIST);
 
     if (loading) return <p>Loading...</p>;
     if (error) return <p>Error :(</p>;
@@ -20,13 +15,13 @@ function RawEdit() {
         <Box as="section">
             <Tabs isLazy>
                 <TabList>
-                    {data.entries.map(entry => (
+                    {data?.entries.map(entry => (
                         <Tab key={entry.name}>{entry.name.split("/").pop()}</Tab>
                     ))}
                 </TabList>
 
                 <TabPanels>
-                    {data.entries.map(entry => (
+                    {data?.entries.map(entry => (
                         <TabPanel key={entry.name}>
                             <SingleFileEdit name={entry.name.split("/").pop()} path={entry.name} />
                         </TabPanel>

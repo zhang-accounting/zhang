@@ -1,16 +1,24 @@
-import { Box, Button, Checkbox, Code, Flex, Input, Modal, ModalBody, ModalCloseButton, ModalContent, ModalFooter, ModalHeader, ModalOverlay, Text, useBoolean, useDisclosure } from "@chakra-ui/react";
-import React, { useState } from "react";
-
-import Select from 'react-select';
-
-import DateTimePicker from 'react-datetime-picker';
-import { format } from "date-fns";
 import { gql, useMutation, useQuery } from "@apollo/client";
+import { Box, Button, Checkbox, Flex, Input, Modal, ModalBody, ModalCloseButton, ModalContent, ModalFooter, ModalHeader, ModalOverlay, useBoolean, useDisclosure } from "@chakra-ui/react";
+import { format } from "date-fns";
+import { useState } from "react";
+import DateTimePicker from 'react-datetime-picker';
+import Select from 'react-select';
+import { AccountItem } from "src/gql/accountList";
 
 
+interface Posting {
+    account: { value: string } | null,
+    amount: string
+}
+
+interface SelectItem { label: string, value: string }
+interface SelectMap {
+    [type_name: string]: { label: string, options: SelectItem[] }
+}
 export default function Component({ }) {
 
-    const accountInfo = useQuery(gql`
+    const accountInfo = useQuery<{ accounts: AccountItem[] }>(gql`
     query NEW_TRANSACTION_MODAL_DATA {
         accounts {
           name
@@ -32,17 +40,17 @@ export default function Component({ }) {
     const [date, setDate] = useState(new Date());
     const [payee, setPayee] = useState("");
     const [narration, setNarration] = useState("");
-    const [postings, setPostings] = useState([
+    const [postings, setPostings] = useState<Posting[]>([
         { account: null, amount: "" },
         { account: null, amount: "" }
     ])
 
-    const updatePostingAccount = (idx, account) => {
+    const updatePostingAccount = (idx: number, account: { value: string } | null) => {
         const clonedPostings = [...postings];
         clonedPostings[idx].account = account;
         setPostings(clonedPostings);
     }
-    const updatePostingAmount = (idx, amount) => {
+    const updatePostingAmount = (idx: number, amount: string) => {
         const clonedPostings = [...postings];
         clonedPostings[idx].amount = amount;
         setPostings(clonedPostings);
@@ -83,14 +91,14 @@ export default function Component({ }) {
 
     if (accountInfo.loading) return <p>Loading...</p>;
     if (accountInfo.error) return <p>Error :(</p>;
-
-    const accountSelectItems = Object.values(accountInfo.data.accounts.reduce((ret, singleAccountInfo) => {
+    const selectMap = accountInfo.data?.accounts.reduce((ret, singleAccountInfo) => {
         const type = singleAccountInfo.name.split(":")[0];
         const item = { label: singleAccountInfo.name, value: singleAccountInfo.name };
         ret[type] = ret[type] || { label: type.toUpperCase(), options: [] };
         ret[type].options.push(item);
         return ret;
-    }, {})).sort();
+    }, {} as SelectMap);
+    const accountSelectItems = Object.values(selectMap || {}).sort();
 
     return (
         <>

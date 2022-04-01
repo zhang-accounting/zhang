@@ -1,4 +1,4 @@
-import { Box, Flex,Text } from "@chakra-ui/react";
+import { Box } from "@chakra-ui/react";
 import { ReactElement } from "react";
 interface Props {
     title: string,

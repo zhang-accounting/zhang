@@ -1,26 +1,10 @@
 import AccountDocumentLine from "@/components/AccountDocumentLine";
-import AccountLine from "@/components/AccountLine";
-import { gql, useQuery } from "@apollo/client";
+import { useQuery } from "@apollo/client";
 import { Heading } from "@chakra-ui/react";
-import AccountTrie from "../utils/AccountTrie";
+import { DocumentListQuery, DOCUMENT_LIST } from "../gql/documentList";
 
 export default function Documents() {
-    const { loading, error, data } = useQuery(gql`
-    query DOCUMENT_LIST {
-        documents {
-          filename
-          __typename
-          ... on AccountDocumentDto {
-            account {
-              name
-              status
-            }
-          }
-        }
-      }
-      
-         
-`);
+    const { loading, error, data } = useQuery<DocumentListQuery>(DOCUMENT_LIST);
 
     if (loading) return <p>Loading...</p>;
     if (error) return <p>Error :(</p>;
@@ -28,8 +12,8 @@ export default function Documents() {
     return (
 
         <div>
-            <Heading>{data.documents.length} Documents</Heading>
-            {data.documents.map(document => {
+            <Heading>{data?.documents.length} Documents</Heading>
+            {data?.documents.map(document => {
                 switch (document.__typename) {
                     case "AccountDocumentDto":
                         return (

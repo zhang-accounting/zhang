@@ -1,13 +1,12 @@
 import { Badge, Flex, Text } from "@chakra-ui/react";
 import { useNavigate } from "react-router";
+import { AccountItem } from "src/gql/accountList";
 
-interface Props {
-    filename: string
-    account: {
-        name: string,
-        status: string
-    }
-}
+export interface Props {
+    filename: string,
+    account: AccountItem
+  }
+  
 
 export default function Component({ filename, account }: Props) {
     let navigate = useNavigate();

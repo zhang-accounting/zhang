@@ -1,28 +1,12 @@
 import AccountLine from "@/components/AccountLine";
-import { gql, useQuery } from "@apollo/client";
+import { useQuery } from "@apollo/client";
 import { Checkbox, Heading, useBoolean } from "@chakra-ui/react";
+import { AccountListQuery, ACCOUNT_LIST } from "../gql/accountList";
 import { useEffect, useState } from "react";
 import AccountTrie from "../utils/AccountTrie";
 
 export default function Accounts() {
-  const { loading, error, data } = useQuery(gql`
-    query {
-        accounts {
-          name
-          status
-          snapshot {
-            summary{
-              number
-              currency
-            }
-          }
-          currencies {
-            name
-          }
-        }
-      }
-         
-`);
+  const { loading, error, data } = useQuery<AccountListQuery>(ACCOUNT_LIST);
 
   const [hideClosedAccount, sethideClosedAccount] = useBoolean(false);
   const [accountTrie, setAccountTrie] = useState(new AccountTrie());
