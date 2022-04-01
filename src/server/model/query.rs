@@ -2,7 +2,7 @@ use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction, TxnPosting};
 use crate::core::inventory::AccountName;
-use crate::core::ledger::{AccountInfo, AccountSnapshot, AccountStatus, CurrencyInfo, DocumentType, LedgerError};
+use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType, Inventory, LedgerError};
 use crate::core::models::Directive;
 use crate::server::LedgerState;
 use async_graphql::{Context, Interface, Object};
@@ -35,8 +35,8 @@ impl QueryRoot {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
         let start_date = NaiveDateTime::from_timestamp(from, 0).date();
         let end_date = NaiveDateTime::from_timestamp(to, 0).date();
-        let start_date_snapshot = ledger_stage.daily_snapshot.get_snapshot_by_date(&start_date);
-        let end_date_snapshot = ledger_stage.daily_snapshot.get_snapshot_by_date(&end_date);
+        let start_date_snapshot = ledger_stage.daily_inventory.get_account_inventory(&start_date);
+        let end_date_snapshot = ledger_stage.daily_inventory.get_account_inventory(&end_date);
         StatisticDto {
             start_date,
             end_date,
@@ -136,13 +136,13 @@ impl AccountDto {
     async fn snapshot(&self, ctx: &Context<'_>) -> SnapshotDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
         let snapshot = ledger_stage
-            .snapshot
+            .account_inventory
             .get(&self.name)
             .cloned()
-            .unwrap_or_else(|| ledger_stage.default_account_snapshot());
+            .unwrap_or_else(|| ledger_stage.default_account_inventory());
         SnapshotDto {
             date: Utc::now().naive_local(),
-            snapshot,
+            inventory: snapshot,
         }
     }
     async fn currencies(&self, ctx: &Context<'_>) -> Vec<CurrencyDto> {
@@ -326,9 +326,10 @@ impl AmountDto {
 
 pub struct StatisticDto {
     start_date: NaiveDate,
+    _start_date_snapshot: HashMap<AccountName, Inventory>,
+
     end_date: NaiveDate,
-    _start_date_snapshot: HashMap<AccountName, AccountSnapshot>,
-    end_date_snapshot: HashMap<AccountName, AccountSnapshot>,
+    end_date_snapshot: HashMap<AccountName, Inventory>,
 }
 
 #[Object]
@@ -350,17 +351,17 @@ impl StatisticDto {
             .end_date_snapshot
             .iter()
             .filter(|(account_name, _)| categories.iter().any(|category| account_name.starts_with(category)))
-            .fold(ledger_stage.default_account_snapshot(), |fold, lo| &fold + lo.1);
+            .fold(ledger_stage.default_account_inventory(), |fold, lo| &fold + lo.1);
         SnapshotDto {
             date: self.end_date.and_hms(0, 0, 0),
-            snapshot: dto,
+            inventory: dto,
         }
     }
 }
 
 pub struct SnapshotDto {
     date: NaiveDateTime,
-    snapshot: AccountSnapshot,
+    inventory: Inventory,
 }
 
 #[Object]
@@ -372,11 +373,11 @@ impl SnapshotDto {
                 .option("operating_currency")
                 .unwrap_or_else(|| "CNY".to_string())
         };
-        let decimal = self.snapshot.calculate_to_currency(self.date, &operating_currency);
+        let decimal = self.inventory.calculate_to_currency(self.date, &operating_currency);
         AmountDto(Amount::new(decimal, operating_currency))
     }
     async fn detail(&self) -> Vec<AmountDto> {
-        self.snapshot
+        self.inventory
             .inner
             .clone()
             .into_iter()

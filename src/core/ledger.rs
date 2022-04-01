@@ -54,51 +54,53 @@ pub struct CurrencyInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct AccountSnapshot {
+pub struct Inventory {
     pub(crate) inner: HashMap<Currency, BigDecimal>,
     pub(crate) prices: Arc<StdRwLock<DatedPriceGrip>>,
 }
 
-impl Add for &AccountSnapshot {
-    type Output = AccountSnapshot;
+impl Add for &Inventory {
+    type Output = Inventory;
 
     fn add(self, rhs: Self) -> Self::Output {
-        let mut snapshot = AccountSnapshot {
+        let mut new_inventory = Inventory {
             inner: Default::default(),
             prices: self.prices.clone(),
         };
         for (currency, amount) in &self.inner {
-            snapshot.add_amount(Amount::new(amount.clone(), currency));
+            new_inventory.add_amount(Amount::new(amount.clone(), currency));
         }
         for (currency, amount) in &rhs.inner {
-            snapshot.add_amount(Amount::new(amount.clone(), currency));
+            new_inventory.add_amount(Amount::new(amount.clone(), currency));
         }
-        snapshot
+        new_inventory
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct DailyAccountSnapshot {
-    inner: LatestMap<NaiveDate, HashMap<AccountName, AccountSnapshot>>,
+pub struct DailyAccountInventory {
+    inner: LatestMap<NaiveDate, HashMap<AccountName, Inventory>>,
 }
 
-impl DailyAccountSnapshot {
-    pub(crate) fn insert_snapshot(&mut self, day: NaiveDate, snapshot: HashMap<AccountName, AccountSnapshot>) {
-        self.inner.insert(day, snapshot);
+impl DailyAccountInventory {
+    pub(crate) fn insert_account_inventory(
+        &mut self, day: NaiveDate, account_inventory_map: HashMap<AccountName, Inventory>,
+    ) {
+        self.inner.insert(day, account_inventory_map);
     }
-    pub(crate) fn get_snapshot_by_date(&self, day: &NaiveDate) -> HashMap<AccountName, AccountSnapshot> {
+    pub(crate) fn get_account_inventory(&self, day: &NaiveDate) -> HashMap<AccountName, Inventory> {
         self.inner.get_latest(day).cloned().unwrap_or_default()
     }
 }
 
-impl AccountSnapshot {
+impl Inventory {
     pub fn add_amount(&mut self, amount: Amount) {
         let decimal1 = BigDecimal::zero();
         let x = self.inner.get(&amount.currency).unwrap_or(&decimal1);
         let decimal = (x).add(&amount.number);
         self.inner.insert(amount.currency, decimal);
     }
-    pub fn snapshot(&self) -> AccountSnapshot {
+    pub fn pin(&self) -> Inventory {
         self.clone()
     }
     pub fn pop(&mut self) -> Option<Amount> {
@@ -144,8 +146,8 @@ pub struct Ledger {
     pub metas: Vec<Directive>,
     pub accounts: HashMap<AccountName, AccountInfo>,
     pub currencies: HashMap<Currency, CurrencyInfo>,
-    pub snapshot: HashMap<AccountName, AccountSnapshot>,
-    pub daily_snapshot: DailyAccountSnapshot,
+    pub account_inventory: HashMap<AccountName, Inventory>,
+    pub daily_inventory: DailyAccountInventory,
     pub documents: HashMap<String, DocumentType>,
     pub errors: Vec<LedgerError>,
 
@@ -206,8 +208,8 @@ impl Ledger {
             metas: meta_directives,
             accounts: HashMap::default(),
             currencies: HashMap::default(),
-            snapshot: HashMap::default(),
-            daily_snapshot: DailyAccountSnapshot::default(),
+            account_inventory: HashMap::default(),
+            daily_inventory: DailyAccountInventory::default(),
             documents: HashMap::default(),
             errors: vec![],
             configs: HashMap::default(),
@@ -235,8 +237,8 @@ impl Ledger {
         }
         if let Some(last_day) = context.target_day {
             ret_ledger
-                .daily_snapshot
-                .insert_snapshot(last_day, ret_ledger.snapshot.clone());
+                .daily_inventory
+                .insert_account_inventory(last_day, ret_ledger.account_inventory.clone());
         }
         ret_ledger.directives = directives;
         Ok(ret_ledger)
@@ -274,8 +276,8 @@ impl Ledger {
         *self = reload_ledger;
         Ok(())
     }
-    pub fn default_account_snapshot(&self) -> AccountSnapshot {
-        AccountSnapshot {
+    pub fn default_account_inventory(&self) -> Inventory {
+        Inventory {
             inner: Default::default(),
             prices: self.prices.clone(),
         }
@@ -499,42 +501,42 @@ mod test {
         }
     }
 
-    mod account_snapshot {
+    mod account_inventory {
         use crate::core::amount::Amount;
-        use crate::core::ledger::AccountSnapshot;
+        use crate::core::ledger::Inventory;
         use crate::core::utils::price_grip::DatedPriceGrip;
         use bigdecimal::BigDecimal;
         use std::sync::{Arc, RwLock as StdRwLock};
 
         #[test]
         fn should_add_to_inner() {
-            let mut snapshot = AccountSnapshot {
+            let mut inventory = Inventory {
                 inner: Default::default(),
                 prices: Arc::new(StdRwLock::new(DatedPriceGrip::default())),
             };
-            snapshot.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
+            inventory.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
 
-            assert_eq!(1, snapshot.inner.len());
-            assert_eq!(&BigDecimal::from(1i32), snapshot.inner.get("CNY").unwrap())
+            assert_eq!(1, inventory.inner.len());
+            assert_eq!(&BigDecimal::from(1i32), inventory.inner.get("CNY").unwrap())
         }
 
         #[test]
-        fn should_snapshot_be_independent() {
-            let mut snapshot = AccountSnapshot {
+        fn should_inventory_be_independent() {
+            let mut inventory = Inventory {
                 inner: Default::default(),
                 prices: Arc::new(StdRwLock::new(DatedPriceGrip::default())),
             };
-            snapshot.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
+            inventory.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
 
-            let new_snapshot = snapshot.snapshot();
+            let new_inventory = inventory.pin();
 
-            snapshot.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
+            inventory.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
 
-            assert_eq!(1, snapshot.inner.len());
-            assert_eq!(&BigDecimal::from(2i32), snapshot.inner.get("CNY").unwrap());
+            assert_eq!(1, inventory.inner.len());
+            assert_eq!(&BigDecimal::from(2i32), inventory.inner.get("CNY").unwrap());
 
-            assert_eq!(1, new_snapshot.inner.len());
-            assert_eq!(&BigDecimal::from(1i32), new_snapshot.inner.get("CNY").unwrap())
+            assert_eq!(1, new_inventory.inner.len());
+            assert_eq!(&BigDecimal::from(1i32), new_inventory.inner.get("CNY").unwrap())
         }
     }
     mod txn {
@@ -543,7 +545,7 @@ mod test {
         use indoc::indoc;
 
         #[test]
-        fn should_record_amount_into_snapshot() {
+        fn should_record_amount_into_inventory() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY
@@ -554,19 +556,31 @@ mod test {
             "#})
             .unwrap();
 
-            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger.snapshot.get("Assets:From").unwrap().inner.get("CNY").unwrap()
+                ledger
+                    .account_inventory
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                ledger.snapshot.get("Expenses:To").unwrap().inner.get("CNY").unwrap()
+                ledger
+                    .account_inventory
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
             );
         }
 
         #[test]
-        fn should_record_amount_into_snapshot_given_none_unit_posting_and_single_unit_posting() {
+        fn should_record_amount_into_inventory_given_none_unit_posting_and_single_unit_posting() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY
@@ -577,19 +591,31 @@ mod test {
             "#})
             .unwrap();
 
-            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger.snapshot.get("Assets:From").unwrap().inner.get("CNY").unwrap()
+                ledger
+                    .account_inventory
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                ledger.snapshot.get("Expenses:To").unwrap().inner.get("CNY").unwrap()
+                ledger
+                    .account_inventory
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
             );
         }
 
         #[test]
-        fn should_record_amount_into_snapshot_given_none_unit_posting_and_more_unit_postings() {
+        fn should_record_amount_into_inventory_given_none_unit_posting_and_more_unit_postings() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY
@@ -601,19 +627,31 @@ mod test {
             "#})
             .unwrap();
 
-            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger.snapshot.get("Assets:From").unwrap().inner.get("CNY").unwrap()
+                ledger
+                    .account_inventory
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                ledger.snapshot.get("Expenses:To").unwrap().inner.get("CNY").unwrap()
+                ledger
+                    .account_inventory
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
             );
         }
 
         #[test]
-        fn should_record_amount_into_snapshot_given_unit_postings_and_total_cost() {
+        fn should_record_amount_into_inventory_given_unit_postings_and_total_cost() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY
@@ -625,19 +663,31 @@ mod test {
             "#})
             .unwrap();
 
-            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger.snapshot.get("Assets:From").unwrap().inner.get("CNY").unwrap()
+                ledger
+                    .account_inventory
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
             );
             assert_eq!(
                 &BigDecimal::from(1i32),
-                ledger.snapshot.get("Expenses:To").unwrap().inner.get("BTC").unwrap()
+                ledger
+                    .account_inventory
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("BTC")
+                    .unwrap()
             );
         }
 
         #[test]
-        fn should_record_amount_into_snapshot_given_unit_postings_and_single_cost() {
+        fn should_record_amount_into_inventory_given_unit_postings_and_single_cost() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY2
@@ -649,19 +699,31 @@ mod test {
             "#})
             .unwrap();
 
-            assert_eq!(2, ledger.snapshot.len());
+            assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger.snapshot.get("Assets:From").unwrap().inner.get("CNY").unwrap()
+                ledger
+                    .account_inventory
+                    .get("Assets:From")
+                    .unwrap()
+                    .inner
+                    .get("CNY")
+                    .unwrap()
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                ledger.snapshot.get("Expenses:To").unwrap().inner.get("CNY2").unwrap()
+                ledger
+                    .account_inventory
+                    .get("Expenses:To")
+                    .unwrap()
+                    .inner
+                    .get("CNY2")
+                    .unwrap()
             );
         }
     }
-    mod daily_snapshot {
-        use crate::core::ledger::{AccountSnapshot, DailyAccountSnapshot, Ledger};
+    mod daily_inventory {
+        use crate::core::ledger::{DailyAccountInventory, Inventory, Ledger};
         use bigdecimal::BigDecimal;
         use chrono::NaiveDate;
         use indoc::indoc;
@@ -669,7 +731,7 @@ mod test {
         use std::sync::Arc;
 
         #[test]
-        fn should_record_daily_snapshot() {
+        fn should_record_daily_inventory() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY
@@ -680,34 +742,34 @@ mod test {
             "#})
             .unwrap();
 
-            let account_snapshot = ledger
-                .daily_snapshot
-                .get_snapshot_by_date(&NaiveDate::from_ymd(2022, 2, 22));
+            let account_inventory = ledger
+                .daily_inventory
+                .get_account_inventory(&NaiveDate::from_ymd(2022, 2, 22));
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                account_snapshot.get("Assets:From").unwrap().inner.get("CNY").unwrap()
+                account_inventory.get("Assets:From").unwrap().inner.get("CNY").unwrap()
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                account_snapshot.get("Expenses:To").unwrap().inner.get("CNY").unwrap()
+                account_inventory.get("Expenses:To").unwrap().inner.get("CNY").unwrap()
             );
         }
         #[test]
         fn should_get_from_previous_day_given_day_is_not_in_data() {
-            let mut daily_snapshot = DailyAccountSnapshot::default();
+            let mut daily_inventory = DailyAccountInventory::default();
             let mut map = HashMap::default();
             map.insert(
                 "AAAAA".to_string(),
-                AccountSnapshot {
+                Inventory {
                     inner: Default::default(),
                     prices: Arc::new(Default::default()),
                 },
             );
-            daily_snapshot.insert_snapshot(NaiveDate::from_ymd(2022, 2, 22), map);
+            daily_inventory.insert_account_inventory(NaiveDate::from_ymd(2022, 2, 22), map);
 
-            let target_day_snapshot = daily_snapshot.get_snapshot_by_date(&NaiveDate::from_ymd(2022, 3, 22));
-            assert_eq!(1, target_day_snapshot.len());
-            assert!(target_day_snapshot.contains_key("AAAAA"));
+            let target_day_inventory = daily_inventory.get_account_inventory(&NaiveDate::from_ymd(2022, 3, 22));
+            assert_eq!(1, target_day_inventory.len());
+            assert!(target_day_inventory.contains_key("AAAAA"));
         }
     }
 }
