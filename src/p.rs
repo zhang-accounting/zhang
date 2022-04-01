@@ -503,7 +503,7 @@ mod test {
 
     macro_rules! quote {
         ($s: expr) => {
-            ZhangString::QuoteString($s.to_string())
+            crate::core::models::ZhangString::QuoteString($s.to_string())
         };
     }
     // macro_rules! unquote {
@@ -675,6 +675,76 @@ mod test {
                 assert_eq!(inner.currency, "USD");
                 assert_eq!(inner.amount.currency, "CNY");
                 assert_eq!(inner.amount.number, BigDecimal::from(7i32));
+            }
+        }
+    }
+    mod event {
+        use crate::core::models::Directive;
+        use crate::parse_zhang;
+        use indoc::indoc;
+
+        #[test]
+        fn should_parse() {
+            let mut vec = parse_zhang(indoc! {r#"
+                1970-01-01 01:01:01 event "something" "value"
+            "#})
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap();
+            assert!(matches!(directive, Directive::Event(..)));
+            if let Directive::Event(inner) = directive {
+                assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
+                assert_eq!(inner.event_type, quote!("something"));
+                assert_eq!(inner.description, quote!("value"));
+            }
+        }
+    }
+    mod plugin {
+        use crate::core::models::Directive;
+        use crate::parse_zhang;
+        use indoc::indoc;
+
+        #[test]
+        fn should_parse() {
+            let mut vec = parse_zhang(indoc! {r#"
+                plugin "module" "123"+ "345"
+            "#})
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap();
+            assert!(matches!(directive, Directive::Plugin(..)));
+            if let Directive::Plugin(inner) = directive {
+                assert_eq!(inner.module, quote!("module"));
+                assert_eq!(inner.value, vec![quote!("123"), quote!("345")]);
+            }
+        }
+    }
+
+    mod custom {
+        use crate::core::models::{Directive, StringOrAccount};
+        use crate::parse_zhang;
+        use indoc::indoc;
+
+        #[test]
+        fn should_parse() {
+            let mut vec = parse_zhang(indoc! {r#"
+                1970-01-01 01:01:01 custom "budget" Assets:Card "100 CNY" "monthly"
+            "#})
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap();
+            assert!(matches!(directive, Directive::Custom(..)));
+            if let Directive::Custom(inner) = directive {
+                assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
+                assert_eq!(inner.custom_type, quote!("budget"));
+                assert_eq!(
+                    inner.values,
+                    vec![
+                        StringOrAccount::Account(account!("Assets:Card")),
+                        StringOrAccount::String(quote!("100 CNY")),
+                        StringOrAccount::String(quote!("monthly"))
+                    ]
+                );
             }
         }
     }
