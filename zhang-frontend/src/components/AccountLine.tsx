@@ -20,7 +20,7 @@ export default function Component({ data }) {
                 )}
             </Flex>
             <Box pl={2}>
-                {Object.keys(data.children).map(child => (
+                {Object.keys(data.children).sort().map(child => (
                     <Component data={data.children[child]} />
                 ))}
             </Box>
