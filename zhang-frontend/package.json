@@ -4,7 +4,7 @@
   "scripts": {
     "start": "parcel serve ./public/index.html --port 3000 --open --target modern",
     "build:watch": "parcel watch ./public/index.html --target modern",
-    "build": "yarn build:legacy && yarn build:modern",
+    "build": "yarn build:modern",
     "build:legacy": "parcel build ./public/index.html --target legacy",
     "build:modern": "parcel build ./public/index.html --target modern",
     "test": "jest"
