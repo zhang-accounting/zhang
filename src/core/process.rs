@@ -144,37 +144,41 @@ impl DirectiveProcess for Balance {
                     balance_check.date.naive_date(),
                 );
 
-                let default = ledger.default_account_snapshot();
-                let target_account_snapshot = ledger.snapshot.get(balance_check.account.name()).unwrap_or(&default);
+                let target_account_snapshot = ledger
+                    .snapshot
+                    .entry(balance_check.account.name().to_string())
+                    .or_insert_with(|| context.default_account_snapshot());
 
-                let decimal = target_account_snapshot.get(&balance_check.amount.currency);
-                balance_check.current_amount =
-                    Some(Amount::new(decimal.clone(), balance_check.amount.currency.clone()));
-                if decimal.ne(&balance_check.amount.number) {
-                    balance_check.distance = Some(Amount::new(
-                        (&balance_check.amount.number).sub(&decimal),
+                let target_account_balance = target_account_snapshot.get(&balance_check.amount.currency);
+                balance_check.current_amount = Some(Amount::new(
+                    target_account_balance.clone(),
+                    balance_check.amount.currency.clone(),
+                ));
+                if target_account_balance.ne(&balance_check.amount.number) {
+                    let distance = Amount::new(
+                        (&balance_check.amount.number).sub(&target_account_balance),
                         balance_check.amount.currency.clone(),
-                    ));
+                    );
+                    balance_check.distance = Some(distance.clone());
+
                     ledger.errors.push(LedgerError::AccountBalanceCheckError {
                         account_name: balance_check.account.name().to_string(),
                         target: Amount::new(
                             balance_check.amount.number.clone(),
                             balance_check.amount.currency.clone(),
                         ),
-                        current: Amount::new(decimal.clone(), balance_check.amount.currency.clone()),
-                        distance: Amount::new(
-                            (&balance_check.amount.number).sub(&decimal),
-                            balance_check.amount.currency.clone(),
-                        ),
+                        current: Amount::new(target_account_balance.clone(), balance_check.amount.currency.clone()),
+                        distance: distance.clone(),
                     });
+                    target_account_snapshot.add_amount(distance);
                     error!(
                         "balance error: account {} balance to {} {} with distance {} {}(current is {} {})",
                         balance_check.account.name(),
                         &balance_check.amount.number,
                         &balance_check.amount.currency,
-                        (&balance_check.amount.number).sub(&decimal),
+                        (&balance_check.amount.number).sub(&target_account_balance),
                         &balance_check.amount.currency,
-                        &decimal,
+                        &target_account_balance,
                         &balance_check.amount.currency
                     );
                 }
