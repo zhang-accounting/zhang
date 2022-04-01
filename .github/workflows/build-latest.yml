@@ -28,7 +28,7 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       - name: fake frontend build
-        run: mkdir dist/modern
+        run: mkdir -p dist/modern
         working-directory: ./zhang-frontend
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
@@ -49,7 +49,7 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       - name: fake frontend build
-        run: mkdir dist/modern
+        run: mkdir -p dist/modern
         working-directory: ./zhang-frontend
       - name: Format
         run: cargo fmt --all -- --check
