@@ -137,12 +137,13 @@ impl AccountDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
         let snapshot = ledger_stage
             .account_inventory
-            .get(&self.name)
-            .cloned()
-            .unwrap_or_else(|| ledger_stage.default_account_inventory());
+            .iter()
+            .filter(|(ac, _)| ac.as_str().eq(&self.name))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         SnapshotDto {
             date: Utc::now().naive_local(),
-            inventory: snapshot,
+            account_inventory: snapshot,
         }
     }
     async fn currencies(&self, ctx: &Context<'_>) -> Vec<CurrencyDto> {
@@ -344,24 +345,23 @@ impl StatisticDto {
         // todo
         vec![]
     }
-    async fn category_snapshot(&self, ctx: &Context<'_>, categories: Vec<String>) -> SnapshotDto {
-        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-
+    async fn category_snapshot(&self, categories: Vec<String>) -> SnapshotDto {
         let dto = self
             .end_date_snapshot
             .iter()
             .filter(|(account_name, _)| categories.iter().any(|category| account_name.starts_with(category)))
-            .fold(ledger_stage.default_account_inventory(), |fold, lo| &fold + lo.1);
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         SnapshotDto {
             date: self.end_date.and_hms(0, 0, 0),
-            inventory: dto,
+            account_inventory: dto,
         }
     }
 }
 
 pub struct SnapshotDto {
     date: NaiveDateTime,
-    inventory: Inventory,
+    account_inventory: HashMap<AccountName, Inventory>,
 }
 
 #[Object]
@@ -373,13 +373,25 @@ impl SnapshotDto {
                 .option("operating_currency")
                 .unwrap_or_else(|| "CNY".to_string())
         };
-        let decimal = self.inventory.calculate_to_currency(self.date, &operating_currency);
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+
+        let inventory = self
+            .account_inventory
+            .iter()
+            .fold(ledger_stage.default_account_inventory(), |fold, lo| &fold + lo.1);
+
+        let decimal = inventory.calculate_to_currency(self.date, &operating_currency);
         AmountDto(Amount::new(decimal, operating_currency))
     }
-    async fn detail(&self) -> Vec<AmountDto> {
-        self.inventory
+    async fn detail(&self, ctx: &Context<'_>) -> Vec<AmountDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        let inventory = self
+            .account_inventory
+            .iter()
+            .fold(ledger_stage.default_account_inventory(), |fold, lo| &fold + lo.1);
+
+        inventory
             .inner
-            .clone()
             .into_iter()
             .map(|(c, n)| Amount::new(n, c))
             .map(AmountDto)
