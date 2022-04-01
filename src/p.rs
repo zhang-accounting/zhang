@@ -701,7 +701,7 @@ mod test {
         #[test]
         fn should_parse() {
             let mut vec = parse_zhang(indoc! {r#"
-                plugin "module" "123"+ "345"
+                plugin "module" "123" "345"
             "#})
             .unwrap();
             assert_eq!(vec.len(), 1);
