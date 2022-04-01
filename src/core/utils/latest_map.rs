@@ -26,7 +26,12 @@ impl<Key: Eq + Hash + Clone + Ord, Value> LatestMap<Key, Value> {
         let sorted_keys = self.date_index.iter().collect_vec();
         let target_key = match sorted_keys.binary_search(&key) {
             Ok(_) => key,
-            Err(gt_index) => sorted_keys[gt_index - 1],
+            Err(gt_index) => {
+                if gt_index == 0 {
+                    return None;
+                }
+                sorted_keys[gt_index - 1]
+            }
         };
         self.data.get(target_key)
     }
