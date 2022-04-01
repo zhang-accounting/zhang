@@ -33,7 +33,7 @@ mod test {
     fn should_insert() {
         let mut map: MultiValueMap<i32, i32> = MultiValueMap::default();
         map.insert(1, 2);
-        assert_eq!(map.inner.contains_key(&1), true);
+        assert!(map.inner.contains_key(&1));
         assert_eq!(map.inner.get(&1).unwrap(), &vec![2i32]);
     }
     #[test]
@@ -41,7 +41,7 @@ mod test {
         let mut map: MultiValueMap<i32, i32> = MultiValueMap::default();
         map.insert(1, 2);
         map.insert(1, 3);
-        assert_eq!(map.inner.contains_key(&1), true);
+        assert!(map.inner.contains_key(&1));
         assert_eq!(map.inner.get(&1).unwrap(), &vec![2i32, 3i32]);
     }
     #[test]
