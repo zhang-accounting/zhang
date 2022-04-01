@@ -29,9 +29,6 @@ impl ZhangParser {
     fn number(input: Node) -> Result<BigDecimal> {
         Ok(BigDecimal::from_str(input.as_str()).unwrap())
     }
-    fn inner(input: Node) -> Result<String> {
-        Ok(input.as_str().to_owned())
-    }
     fn quote_string(input: Node) -> Result<ZhangString> {
         let string = input.as_str();
         Ok(ZhangString::QuoteString(unescape(string).unwrap()))
