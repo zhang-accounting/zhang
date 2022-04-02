@@ -33,7 +33,7 @@ jobs:
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: '--ignore-tests --ciserver github-ci --out Lcov'
+          args: '--doc --tests --ignore-tests --ciserver github-ci --out Lcov'
       - name: upload to Coveralls
         uses: coverallsapp/github-action@master
         with:
