@@ -221,7 +221,7 @@ impl Ledger {
     fn process(
         directives: Vec<Directive>, entry: Either<PathBuf, String>, visited_files: Vec<PathBuf>,
     ) -> ZhangResult<Ledger> {
-        let (meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) =
+        let (mut meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
 
@@ -230,7 +230,7 @@ impl Ledger {
             entry,
             visited_files,
             directives: vec![],
-            metas: meta_directives,
+            metas: vec![],
             accounts: HashMap::default(),
             currencies: HashMap::default(),
             account_inventory: HashMap::default(),
@@ -244,7 +244,7 @@ impl Ledger {
             target_day: None,
             prices: arc_price,
         };
-        for directive in &mut directives {
+        for directive in meta_directives.iter_mut().chain(directives.iter_mut()) {
             match directive {
                 Directive::Option(option) => option.process(&mut ret_ledger, &mut context)?,
                 Directive::Open(open) => open.process(&mut ret_ledger, &mut context)?,
@@ -265,6 +265,7 @@ impl Ledger {
                 .daily_inventory
                 .insert_account_inventory(last_day, ret_ledger.account_inventory.clone());
         }
+        ret_ledger.metas = meta_directives;
         ret_ledger.directives = directives;
         Ok(ret_ledger)
     }
@@ -795,6 +796,31 @@ mod test {
             let target_day_inventory = daily_inventory.get_account_inventory(&NaiveDate::from_ymd(2022, 3, 22));
             assert_eq!(1, target_day_inventory.len());
             assert!(target_day_inventory.contains_key("AAAAA"));
+        }
+    }
+
+    mod option {
+        use crate::core::ledger::Ledger;
+        use indoc::indoc;
+
+        #[test]
+        fn should_read_to_option() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                option "title" "Example accounting book"
+                option "operating_currency" "CNY"
+            "#})
+            .unwrap();
+            assert_eq!(ledger.option("title").unwrap(), "Example accounting book");
+            assert_eq!(ledger.option("operating_currency").unwrap(), "CNY");
+        }
+        #[test]
+        fn should_store_the_latest_one_given_same_name_option() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                option "title" "Example accounting book"
+                option "title" "Example accounting book 2"
+            "#})
+            .unwrap();
+            assert_eq!(ledger.option("title").unwrap(), "Example accounting book 2");
         }
     }
 }
