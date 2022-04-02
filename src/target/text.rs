@@ -321,6 +321,13 @@ mod test {
             1970-01-01 balance Equity:hello 10 CNY
         "#}
         );
+
+        assert_parse!(
+            "balance pad",
+            indoc! {r#"
+            1970-01-01 balance Assets:hello 10 CNY with pad Income:Salary
+        "#}
+        );
     }
 
     #[test]
