@@ -37,6 +37,12 @@ jobs:
         uses: actions-rs/tarpaulin@v0.1
         with:
           args: '--doc --tests --ignore-tests --ciserver github-ci --out Lcov'
+      - name: Archive code coverage report
+        uses: actions/upload-artifact@v3
+        with:
+          name: code-coverage
+          path: |
+            ./lcov.info
       - name: upload to Coveralls
         uses: coverallsapp/github-action@master
         with:
