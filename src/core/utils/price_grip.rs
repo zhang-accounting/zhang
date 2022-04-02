@@ -47,3 +47,107 @@ impl DatedPriceGrip {
         number.mul(price)
     }
 }
+
+#[cfg(test)]
+mod test {
+    mod price_grip {
+        use crate::core::utils::price_grip::PriceGrip;
+        use bigdecimal::BigDecimal;
+
+        #[test]
+        fn should_insert_price() {
+            let mut grip = PriceGrip::default();
+            grip.insert("USD".to_string(), "CNY".to_string(), BigDecimal::from(10i32));
+            assert_eq!(
+                grip.inner.get("USD").unwrap().get("CNY").unwrap(),
+                &BigDecimal::from(10i32)
+            );
+
+            grip.insert("USD".to_string(), "CNY".to_string(), BigDecimal::from(20i32));
+            assert_eq!(
+                grip.inner.get("USD").unwrap().get("CNY").unwrap(),
+                &BigDecimal::from(20i32)
+            );
+        }
+
+        #[test]
+        fn should_get_price() {
+            let mut grip = PriceGrip::default();
+            grip.insert("USD".to_string(), "CNY".to_string(), BigDecimal::from(7i32));
+            assert_eq!(
+                grip.get(&"USD".to_string(), &"CNY".to_string()),
+                Some(BigDecimal::from(7i32))
+            );
+            assert_eq!(grip.get(&"USD".to_string(), &"CCY".to_string()), None);
+            assert_eq!(grip.get(&"CNY".to_string(), &"USD".to_string()), None);
+        }
+    }
+    mod dated_price_grip {
+        use crate::core::utils::price_grip::DatedPriceGrip;
+        use bigdecimal::BigDecimal;
+        use chrono::NaiveDateTime;
+
+        #[test]
+        fn should_insert_price_grip() {
+            let mut dpg = DatedPriceGrip::default();
+            dpg.insert(
+                NaiveDateTime::from_timestamp(0, 0),
+                "USD".to_string(),
+                "CNY".to_string(),
+                BigDecimal::from(7i32),
+            );
+            assert!(dpg.inner.contains_key(&NaiveDateTime::from_timestamp(0, 0)));
+            assert_eq!(
+                dpg.inner
+                    .get_latest(&NaiveDateTime::from_timestamp(0, 0))
+                    .unwrap()
+                    .get(&"USD".to_string(), &"CNY".to_string())
+                    .unwrap(),
+                BigDecimal::from(7i32)
+            )
+        }
+        #[test]
+        fn should_return_it_given_same_from_to_currency() {
+            let dpg = DatedPriceGrip::default();
+            assert_eq!(
+                dpg.calculate(
+                    &NaiveDateTime::from_timestamp(0, 0),
+                    &"CNY".to_string(),
+                    &"CNY".to_string(),
+                    &BigDecimal::from(100i32)
+                ),
+                BigDecimal::from(100i32)
+            );
+        }
+        #[test]
+        fn should_calculate_to_target_currency() {
+            let mut dpg = DatedPriceGrip::default();
+            dpg.insert(
+                NaiveDateTime::from_timestamp(0, 0),
+                "USD".to_string(),
+                "CNY".to_string(),
+                BigDecimal::from(7i32),
+            );
+
+            assert_eq!(
+                dpg.calculate(
+                    &NaiveDateTime::from_timestamp(0, 0),
+                    &"USD".to_string(),
+                    &"CNY".to_string(),
+                    &BigDecimal::from(100i32)
+                ),
+                BigDecimal::from(700i32)
+            );
+
+            assert_eq!(
+                dpg.calculate(
+                    &NaiveDateTime::from_timestamp(1000, 0),
+                    &"USD".to_string(),
+                    &"CNY".to_string(),
+                    &BigDecimal::from(100i32)
+                ),
+                BigDecimal::from(700i32)
+            );
+        }
+    }
+}
