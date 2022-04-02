@@ -1,5 +1,5 @@
-use crate::core::inventory::Currency;
 use crate::core::utils::latest_map::LatestMap;
+use crate::core::Currency;
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDateTime;
 use std::collections::HashMap;

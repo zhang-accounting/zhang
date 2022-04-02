@@ -1,12 +1,12 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Commodity, Date};
-use crate::core::inventory::{AccountName, Currency};
 use crate::core::models::Directive;
 use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::latest_map::LatestMap;
 use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::core::utils::price_grip::DatedPriceGrip;
+use crate::core::{AccountName, Currency};
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
 use async_graphql::Enum;
