@@ -21,15 +21,26 @@ pub struct Account {
 }
 
 impl Account {
-    // todo add new account method
-
+    ///
+    /// ```rust
+    /// use std::str::FromStr;
+    /// use zhang::core::account::Account;
+    /// assert_eq!(Account::from_str("Assets:A:B").unwrap().name(), "Assets:A:B");
+    /// ```
     pub fn name(&self) -> &str {
         &self.content
     }
 
+    ///
+    /// ```rust
+    /// use std::str::FromStr;
+    /// use zhang::core::account::Account;
+    /// assert_eq!(Account::from_str("Assets:A:B").unwrap().parent().name(), "Assets:A");
+    /// ```
     /// Return parent account of the given account.
     pub fn parent(&self) -> Account {
-        let parent_components: Vec<String> = self.components[0..self.components.len() - 1].to_vec();
+        let mut parent_components: Vec<String> = self.components[0..self.components.len() - 1].to_vec();
+        parent_components.insert(0, self.account_type.to_string());
         let content = parent_components.join(":");
         Account {
             account_type: self.account_type,
@@ -127,19 +138,6 @@ impl FromStr for Account {
 #[cfg(test)]
 mod test {
     use crate::core::account::{Account, AccountType};
-
-    #[test]
-    fn get_parent() {
-        let account = Account {
-            account_type: AccountType::Assets,
-            content: "Assets:A:B".to_string(),
-            components: vec!["Assets".to_owned(), "A".to_owned(), "B".to_owned()],
-        };
-        let parent = account.parent();
-
-        assert_eq!("Assets:A", parent.content);
-        assert_eq!(vec!["Assets", "A"], parent.components);
-    }
 
     #[test]
     fn get_leaf() {
