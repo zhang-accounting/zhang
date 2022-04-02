@@ -1,10 +1,10 @@
 pub mod account;
 pub mod amount;
 pub mod data;
-pub mod inventory;
 pub mod ledger;
 pub mod models;
-
+pub(crate) mod process;
 pub mod utils;
 
-pub(crate) mod process;
+pub type Currency = String;
+pub type AccountName = String;

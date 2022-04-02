@@ -1,9 +1,9 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction, TxnPosting};
-use crate::core::inventory::AccountName;
 use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType, Inventory, LedgerError};
 use crate::core::models::Directive;
+use crate::core::AccountName;
 use crate::server::LedgerState;
 use async_graphql::{Context, Interface, Object};
 use chrono::{NaiveDateTime, Utc};

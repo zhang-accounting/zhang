@@ -1,7 +1,7 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::inventory::AccountName;
 use crate::core::models::{Flag, StringOrAccount, ZhangString};
+use crate::core::AccountName;
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
