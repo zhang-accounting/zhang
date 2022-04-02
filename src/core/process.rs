@@ -1,8 +1,7 @@
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Price, Transaction};
-use crate::core::ledger::{
-    AccountInfo, AccountStatus, CurrencyInfo, DailyAccountInventory, DocumentType, Inventory, Ledger, LedgerError,
-};
+use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType, Ledger, LedgerError};
+use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
 use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::core::AccountName;
 use crate::error::ZhangResult;
