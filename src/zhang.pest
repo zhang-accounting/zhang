@@ -31,7 +31,7 @@ transaction_next_line = _{identation ~ transaction_line}
 
 posting_unit = {(posting_amount)? ~ posting_meta}
 posting_amount = {number ~ space+ ~ commodity_name}
-posting_meta = {(space+ ~ "{" ~ space* ~ posting_cost~ price_cost_date? ~ "}")? ~ ( space+ ~ posting_price)?}
+posting_meta = {(space+ ~ "{" ~ space* ~ posting_cost~ price_cost_date? ~ space* ~ "}")? ~ ( space+ ~ posting_price)?}
 
 posting_cost = {number ~ space+ ~ commodity_name}
 price_cost_date = _{space* ~ "," ~ space* ~ date }
@@ -50,7 +50,7 @@ commodity_lines = _{commodity_line ~ (commodity_next_line)*}
 commodity_next_line = _{identation ~ commodity_line}
 commodity_line = {string ~ space* ~ ":" ~space*~ string}
 
-date = {datetime | date_hour | date_only}
+date = {datetime | date_hour | date_only }
 
 date_only = {ASCII_DIGIT{4} ~ "-"~ ASCII_DIGIT{1,2} ~ "-" ~ ASCII_DIGIT{1,2}}
 datetime = {ASCII_DIGIT{4} ~ "-"~ ASCII_DIGIT{1,2} ~ "-" ~ ASCII_DIGIT{1,2} ~ " " ~ ASCII_DIGIT{1,2} ~ ":" ~ ASCII_DIGIT{1,2} ~ ":" ~ ASCII_DIGIT{1,2}}

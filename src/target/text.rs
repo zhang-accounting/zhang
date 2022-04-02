@@ -75,7 +75,7 @@ impl ZhangTarget<String> for Transaction {
     fn to_target(self) -> String {
         let mut vec1 = vec![
             Some(self.date.to_target()),
-            self.flag.map(|it| format!(" {}", it.to_target())),
+            self.flag.map(|it| it.to_target()),
             self.payee.map(|it| it.to_target()),
             self.narration.map(|it| it.to_target()),
         ];
@@ -115,9 +115,10 @@ impl ZhangTarget<String> for Posting {
     }
 }
 impl ZhangTarget<String> for Open {
-    fn to_target(mut self) -> String {
+    fn to_target(self) -> String {
         let mut line = vec![self.date.to_target(), "open".to_string(), self.account.to_target()];
-        line.append(&mut self.commodities);
+        let commodities = self.commodities.iter().join(", ");
+        line.push(commodities);
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -247,8 +248,7 @@ impl ZhangTarget<String> for Include {
 
 impl ZhangTarget<String> for Comment {
     fn to_target(self) -> String {
-        let line = vec!["#".to_string(), self.content];
-        line.join(" ")
+        self.content
     }
 }
 
@@ -280,159 +280,253 @@ impl ZhangTarget<String> for Ledger {
     }
 }
 
-//
-//
-// #[cfg(test)]
-// mod test {
-//     use crate::p::parse_zhang;
-//
-//     fn parse(from: &str) -> String {
-//         let directive = parse_zhang(from).unwrap().into_iter().next().unwrap();
-//         directive.to_target()
-//     }
-//
-//     fn parse_and_test(from: &str) {
-//         assert_eq!(from, parse(from));
-//     }
-//
-//     #[test]
-//     fn open_to_text() {
-//         parse_and_test("1970-01-01 open Equity:hello CNY");
-//     }
-//
-//     #[test]
-//     fn balance() {
-//         parse_and_test("1970-01-01 balance Equity:hello 10 CNY");
-//     }
-//
-//     #[test]
-//     fn option() {
-//         parse_and_test("option \"hello\" \"value\"");
-//     }
-//
-//     #[test]
-//     fn close() {
-//         parse_and_test("1970-01-01 close Equity:hello");
-//     }
-//
-//     #[test]
-//     fn commodity() {
-//         parse_and_test("1970-01-01 commodity CNY");
-//         parse_and_test("1970-01-01 commodity CNY\n  a: \"b\"");
-//     }
-//
-//     #[test]
-//     fn transaction() {
-//         assert_eq!(
-//             "1970-01-01 * \"Payee\" \"Narration\"\n  Assets:123 -1 CNY\n  Expenses:TestCategory:One 1 CNY",
-//             parse(r#"1970-01-01 * "Payee" "Narration"
-//                   Assets:123  -1 CNY
-//                   Expenses:TestCategory:One 1 CNY"#)
-//         );
-//         assert_eq!(
-//             "1970-01-01 * \"Narration\"\n  Assets:123 -1 CNY\n  Expenses:TestCategory:One 1 CNY",
-//             parse(
-//                 r#"1970-01-01 * "Narration"
-//                   Assets:123  -1 CNY
-//                   Expenses:TestCategory:One 1 CNY"#
-//             )
-//         );
-//
-//         assert_eq!(
-//             "1970-01-01 * \"Narration\"\n  Assets:123 -1 CNY { 0.1 USD, 2111-11-11 }\n  Expenses:TestCategory:One 1 CNY { 0.1 USD }",
-//             parse(r#"1970-01-01 * "Narration"
-//                   Assets:123  -1 CNY {0.1 USD , 2111-11-11}
-//                   Expenses:TestCategory:One 1 CNY {0.1 USD}"#)
-//         );
-//         assert_eq!(
-//             "1970-01-01 * \"Payee\" \"Narration\"\n  Assets:123 -1 CNY\n  Expenses:TestCategory:One 0.5 CNY\n  Expenses:TestCategory:Two 0.5 CNY",
-//             parse(r#"1970-01-01 * "Payee" "Narration"
-//                   Assets:123  -1 CNY
-//                   Expenses:TestCategory:One 0.5 CNY
-//                   Expenses:TestCategory:Two 0.5 CNY"#)
-//         );
-//         assert_eq!(
-//             "1970-01-01 * \"Payee\" \"Narration\"\n  Assets:123 -1 CNY\n  Expenses:TestCategory:One",
-//             parse(r#"1970-01-01 * "Payee" "Narration"
-//                   Assets:123  -1 CNY
-//                   Expenses:TestCategory:One"#)
-//         );
-//         assert_eq!(
-//             "1970-01-01 * \"Payee\" \"Narration\"\n  Assets:123 -1 CNY\n  Expenses:TestCategory:One 1 CCC @ 1 CNY",
-//             parse(r#"1970-01-01 * "Payee" "Narration"
-//                   Assets:123  -1 CNY
-//                   Expenses:TestCategory:One 1 CCC @ 1 CNY"#)
-//         );
-//         assert_eq!(
-//             "1970-01-01 * \"Payee\" \"Narration\"\n  Assets:123 -1 CNY\n  Expenses:TestCategory:One 1 CCC @@ 1 CNY",
-//             parse(r#"1970-01-01 * "Payee" "Narration"
-//                   Assets:123  -1 CNY
-//                   Expenses:TestCategory:One 1 CCC @@ 1 CNY"#)
-//         );
-//         assert_eq!(
-//             "1970-01-01 * \"Narration\" #mytag #tag2\n  Assets:123 -1 CNY\n  Expenses:TestCategory:One 1 CCC @@ 1 CNY",
-//             parse(r#"1970-01-01 *  "Narration" #mytag #tag2
-//                   Assets:123  -1 CNY
-//                   Expenses:TestCategory:One 1 CCC @@ 1 CNY"#)
-//         );
-//         assert_eq!(
-//             "1970-01-01 * \"Payee\" \"Narration\" #mytag #tag2\n  Assets:123 -1 CNY\n  Expenses:TestCategory:One 1 CCC @@ 1 CNY",
-//             parse(r#"1970-01-01 * "Payee" "Narration" #mytag #tag2
-//                   Assets:123  -1 CNY
-//                   Expenses:TestCategory:One 1 CCC @@ 1 CNY"#)
-//         );
-//         assert_eq!(
-//             "1970-01-01 * \"Payee\" \"Narration\" ^link1 ^link-2\n  Assets:123 -1 CNY\n  Expenses:TestCategory:One 1 CCC @@ 1 CNY",
-//             parse(r#"1970-01-01 * "Payee" "Narration" ^link1 ^link-2
-//                   Assets:123  -1 CNY
-//                   Expenses:TestCategory:One 1 CCC @@ 1 CNY"#)
-//         );
-//     }
-//
-//     #[test]
-//     fn pad() {
-//         parse_and_test("1970-01-01 pad Assets:123:234:English:中文:日本語:한국어 Equity:ABC");
-//     }
-//
-//     #[test]
-//     fn note() {
-//         parse_and_test(r#"1970-01-01 note Assets:123 "你 好 啊\\""#);
-//     }
-//
-//     #[test]
-//     fn document() {
-//         parse_and_test("1970-01-01 document Assets:123 \"\"");
-//         parse_and_test(r#"1970-01-01 document Assets:123 "here I am""#);
-//     }
-//
-//     #[test]
-//     fn price() {
-//         parse_and_test(r#"1970-01-01 price USD 7 CNY"#);
-//     }
-//
-//     #[test]
-//     fn event() {
-//         parse_and_test(r#"1970-01-01 event "location" "China""#);
-//     }
-//
-//     #[test]
-//     fn custom() {
-//         parse_and_test(r#"1970-01-01 custom "budget" Expenses:Eat "monthly" CNY"#);
-//     }
-//
-//     #[test]
-//     fn plugin() {
-//         parse_and_test(r#"plugin "module name" "config data""#);
-//         parse_and_test(r#"plugin "module name""#);
-//     }
-//
-//     #[test]
-//     fn include() {
-//         parse_and_test(r#"include "file path""#);
-//     }
-//
-//     #[test]
-//     fn comment() {
-//         parse_and_test(";你好啊");
-//     }
-// }
+#[cfg(test)]
+mod test {
+    use crate::p::parse_zhang;
+    use crate::target::ZhangTarget;
+    use indoc::indoc;
+
+    fn parse(from: &str) -> String {
+        let directive = parse_zhang(from).unwrap().into_iter().next().unwrap();
+        directive.to_target()
+    }
+
+    macro_rules! assert_parse {
+        ($msg: expr, $content: expr) => {
+            assert_eq!($content.trim(), parse($content).trim(), $msg);
+        };
+    }
+
+    #[test]
+    fn open_to_text() {
+        assert_parse!(
+            "open with single commodity",
+            indoc! {r#"
+            1970-01-01 open Equity:hello CNY
+        "#}
+        );
+        assert_parse!(
+            "open with multiple commodities",
+            indoc! {r#"
+            1970-01-01 open Equity:hello CNY, USD
+        "#}
+        );
+    }
+
+    #[test]
+    fn balance() {
+        assert_parse!(
+            "balance check",
+            indoc! {r#"
+            1970-01-01 balance Equity:hello 10 CNY
+        "#}
+        );
+    }
+
+    #[test]
+    fn option() {
+        assert_parse!(
+            "option directive",
+            indoc! {r#"
+            option "hello" "value"
+        "#}
+        );
+    }
+
+    #[test]
+    fn close() {
+        assert_parse!(
+            "close directive",
+            indoc! {r#"
+            1970-01-01 close Equity:hello
+        "#}
+        );
+    }
+
+    #[test]
+    fn commodity() {
+        assert_parse!(
+            "commodity directive",
+            indoc! {r#"
+            1970-01-01 commodity CNY
+        "#}
+        );
+        assert_parse!(
+            "commodity directive with meta",
+            indoc! {r#"
+            1970-01-01 commodity CNY
+              a: "b"
+        "#}
+        );
+    }
+
+    #[test]
+    fn transaction() {
+        assert_parse!(
+            "transaction directive with payee and narration",
+            indoc! {r#"
+            1970-01-01 * "Payee" "Narration"
+              Assets:123 -1 CNY
+              Expenses:TestCategory:One 1 CNY
+        "#}
+        );
+        assert_parse!(
+            "transaction directive with narration",
+            indoc! {r#"
+            1970-01-01 * "Narration"
+              Assets:123 -1 CNY
+              Expenses:TestCategory:One 1 CNY
+        "#}
+        );
+        //
+        // assert_parse!(
+        //     "transaction directive with price",
+        //     indoc! {r#"
+        //     1970-01-01 * "Narration"
+        //       Assets:123 -1 CNY { 0.1 USD, 2111-11-11 }
+        //       Expenses:TestCategory:One 1 CNY { 0.1 USD }
+        // "#}
+        // );
+
+        assert_parse!(
+            "transaction directive with multiple postings",
+            indoc! {r#"
+            1970-01-01 * "Payee" "Narration"
+              Assets:123 -1 CNY
+              Expenses:TestCategory:One 0.5 CNY
+              Expenses:TestCategory:Two 0.5 CNY
+        "#}
+        );
+
+        assert_parse!(
+            "transaction directive with postings without cost",
+            indoc! {r#"
+            1970-01-01 * "Payee" "Narration"
+              Assets:123 -1 CNY
+              Expenses:TestCategory:One
+        "#}
+        );
+
+        // assert_parse!(
+        //     "transaction directive with price",
+        //     indoc! {r#"
+        //     1970-01-01 * "Payee" "Narration"
+        //       Assets:123 -1 CNY
+        //       Expenses:TestCategory:One 1 CCC @ 1 CNY
+        // "#}
+        // );
+
+        // assert_parse!(
+        //     "transaction directive with total price",
+        //     indoc! {r#"
+        //     1970-01-01 * "Payee" "Narration"
+        //       Assets:123 -1 CNY
+        //       Expenses:TestCategory:One 1 CCC @@ 1 CNY
+        // "#}
+        // );
+
+        // assert_parse!(
+        //     "transaction directive with tags",
+        //     indoc! {r#"
+        //     1970-01-01 *  "Narration" #mytag #tag2
+        //       Assets:123 -1 CNY
+        //       Expenses:TestCategory:One 1 CCC @@ 1 CNY
+        // "#}
+        // );
+
+        // assert_parse!(
+        //     "transaction directive with tags",
+        //     indoc! {r#"
+        //     1970-01-01 * "Payee" "Narration" ^link1 ^link-2
+        //       Assets:123 -1 CNY
+        //       Expenses:TestCategory:One 1 CCC @@ 1 CNY
+        // "#}
+        // );
+    }
+
+    #[test]
+    fn note() {
+        assert_parse!(
+            "note directive",
+            indoc! {r#"
+            1970-01-01 note Assets:123 "你 好 啊"
+        "#}
+        );
+    }
+
+    #[test]
+    fn document() {
+        assert_parse!(
+            "document directive",
+            indoc! {r#"
+            1970-01-01 document Assets:123 "abc.jpg"
+        "#}
+        );
+    }
+
+    #[test]
+    fn price() {
+        assert_parse!(
+            "price directive ",
+            indoc! {r#"
+            1970-01-01 price USD 7 CNY
+        "#}
+        );
+    }
+
+    #[test]
+    fn event() {
+        assert_parse!(
+            "event directive ",
+            indoc! {r#"
+            1970-01-01 event "location" "China"
+        "#}
+        );
+    }
+
+    #[test]
+    fn custom() {
+        assert_parse!(
+            "custom directive ",
+            indoc! {r#"
+            1970-01-01 custom "budget" Expenses:Eat "monthly" "CNY"
+        "#}
+        );
+    }
+
+    #[test]
+    fn plugin() {
+        assert_parse!(
+            "plugin with config",
+            indoc! {r#"
+            plugin "module name" "config data"
+        "#}
+        );
+        assert_parse!(
+            "plugin without config",
+            indoc! {r#"
+            plugin "module name"
+        "#}
+        );
+    }
+
+    #[test]
+    fn include() {
+        assert_parse!(
+            "include directive ",
+            indoc! {r#"
+            include "file path"
+        "#}
+        );
+    }
+
+    #[test]
+    fn comment() {
+        assert_parse!(
+            "comment directive ",
+            indoc! {r#"
+            ;你好啊
+        "#}
+        );
+    }
+}
