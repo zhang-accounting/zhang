@@ -28,5 +28,6 @@
   - [x] graphql api
   - [ ] convert `.zhang` file into sqlite
   - [ ] export sqlite change to `.zhang` file
-- [ ] frontend ui
+- [x] frontend ui
+  - [ ] design system
 - [ ] wasm plugin system
