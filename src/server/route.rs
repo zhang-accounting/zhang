@@ -29,7 +29,7 @@ pub async fn serve_frontend(uri: Uri) -> impl IntoResponse {
 }
 
 #[derive(RustEmbed)]
-#[folder = "zhang-frontend/dist/modern"]
+#[folder = "frontend/build"]
 struct Asset;
 
 pub struct StaticFile<T>(pub T);
