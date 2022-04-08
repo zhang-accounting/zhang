@@ -1,13 +1,11 @@
-import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
-import AccountDocumentLine from '../components/AccountDocumentLine';
-import Amount from '../components/Amount';
-import BalanceCheckLine from '../components/BalanceCheckLine';
-import BalancePadLine from '../components/BalancePadLine';
-import Block from '../components/Block';
-import TransactionLine from '../components/TransactionLine';
 import { useQuery } from '@apollo/client';
 import { Badge, Heading, Tab, Table, TabList, TabPanel, TabPanels, Tabs, Tbody, Td, Th, Thead, Tr } from '@chakra-ui/react';
 import { useParams } from "react-router";
+import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
+import AccountDocumentLine from '../components/AccountDocumentLine';
+import Amount from '../components/Amount';
+import Block from '../components/Block';
+import JournalLine from '../components/JournalLine';
 import { AccountItem } from '../gql/accountList';
 import { SingleAccountJournalQuery, SINGLE_ACCONT_JOURNAL } from '../gql/singleAccount';
 
@@ -39,21 +37,7 @@ function SingleAccount() {
           <TabPanels>
             <TabPanel >
               {
-                loading ? <p>Loading...</p> :
-                  error ? <p>Error :(</p> :
-                    data?.account.journals.map((journal, idx) => {
-                      switch (journal.type) {
-                        case "BalanceCheckDto":
-                          return <BalanceCheckLine key={idx} data={journal} />
-                        case "BalancePadDto":
-                          return <BalancePadLine key={idx} data={journal} />
-                        case "TransactionDto":
-                          return <TransactionLine key={idx} data={journal} />
-                        default:
-                          return <div></div>
-                      }
-                    })
-
+                data?.account.journals.map((journal, idx) => <JournalLine key={idx} data={journal} />)
               }
 
 
