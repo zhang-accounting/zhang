@@ -15,7 +15,7 @@ export default function SingleFileEdit({ path }: Props) {
             name: path
         }
     });
-    const [update, _] = useMutation(gql`
+    const [update] = useMutation(gql`
     mutation UPDATE_FILE($path: String, $content: String) {
         updateFile(path: $path, content: $content) 
     }

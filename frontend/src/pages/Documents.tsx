@@ -23,6 +23,8 @@ export default function Documents() {
                         return (
                             <div>todo transaction document dto line</div>
                         )
+                    default:
+                        return(<div></div>);
                 }
             })}
         </div>

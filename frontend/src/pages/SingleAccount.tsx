@@ -45,13 +45,12 @@ function SingleAccount() {
                       switch (journal.type) {
                         case "BalanceCheckDto":
                           return <BalanceCheckLine key={idx} data={journal} />
-                          break;
                         case "BalancePadDto":
                           return <BalancePadLine key={idx} data={journal} />
-                          break;
                         case "TransactionDto":
                           return <TransactionLine key={idx} data={journal} />
-                          break;
+                        default:
+                          return <div></div>
                       }
                     })
 
@@ -74,6 +73,8 @@ function SingleAccount() {
                       return (
                         <div key={idx}>todo transaction document dto line</div>
                       )
+                    default:
+                      return <div></div>
                   }
                 })}</div>
               </Block>

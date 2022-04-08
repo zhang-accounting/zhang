@@ -2,7 +2,7 @@ import { gql, useQuery } from "@apollo/client";
 import { Flex } from "@chakra-ui/react";
 import StatisticBox from "./StatisticBox";
 
-export default function StatisticBar({ }) {
+export default function StatisticBar() {
   const now = new Date();
   const begining_time = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 1);
   const end_time = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
