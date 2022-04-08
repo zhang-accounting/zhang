@@ -19,13 +19,12 @@ function Journals() {
           switch (journal.type) {
             case "BalanceCheckDto":
               return <BalanceCheckLine data={journal} />
-              break;
             case "BalancePadDto":
               return <BalancePadLine data={journal} />
-              break;
             case "TransactionDto":
               return <TransactionLine data={journal} />
-              break;
+            default:
+              return (<div></div>)
           }
         })
         }

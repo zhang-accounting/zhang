@@ -9,7 +9,7 @@ interface Props {
 export default function AccountBalanceCheckLine({ currency, accountName }: Props) {
     const [amount, setAmount] = useState("")
 
-    const [appendData, _] = useMutation(gql`
+    const [appendData] = useMutation(gql`
     mutation APPEND_DATA($date: Int, $content: String) {
         appendData(date: $date, content: $content) 
     }

@@ -17,7 +17,7 @@ interface SelectItem { label: string, value: string }
 interface SelectMap {
     [type_name: string]: { label: string, options: SelectItem[] }
 }
-export default function NewTransactionButton({ }) {
+export default function NewTransactionButton() {
 
     const accountInfo = useQuery<{ accounts: AccountItem[] }>(gql`
     query NEW_TRANSACTION_MODAL_DATA {
@@ -27,7 +27,7 @@ export default function NewTransactionButton({ }) {
       }
     `)
 
-    const [appendData, _] = useMutation(gql`
+    const [appendData] = useMutation(gql`
     mutation APPEND_DATA($date: Int, $content: String) {
         appendData(date: $date, content: $content) 
     }
@@ -81,7 +81,7 @@ export default function NewTransactionButton({ }) {
             variables: { date: Math.round(date.getTime() / 1000), content: `\n${preview()}\n` }
         });
         onClose();
-        setDate(new Date);
+        setDate(new Date());
         setPayee("");
         setNarration("");
         setPostings([
