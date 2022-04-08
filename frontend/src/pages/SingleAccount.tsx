@@ -41,16 +41,16 @@ function SingleAccount() {
               {
                 loading ? <p>Loading...</p> :
                   error ? <p>Error :(</p> :
-                    data?.account.journals.map((journal) => {
+                    data?.account.journals.map((journal, idx) => {
                       switch (journal.type) {
                         case "BalanceCheckDto":
-                          return <BalanceCheckLine data={journal} />
+                          return <BalanceCheckLine key={idx} data={journal} />
                           break;
                         case "BalancePadDto":
-                          return <BalancePadLine data={journal} />
+                          return <BalancePadLine key={idx} data={journal} />
                           break;
                         case "TransactionDto":
-                          return <TransactionLine data={journal} />
+                          return <TransactionLine key={idx} data={journal} />
                           break;
                       }
                     })
@@ -61,18 +61,18 @@ function SingleAccount() {
             </TabPanel>
             <TabPanel >
               <Block title='Documents'>
-                <div>{data?.account.documents.map(document => {
+                <div>{data?.account.documents.map((document, idx) => {
                   switch (document.__typename) {
                     case "AccountDocumentDto":
                       return (
-                        <AccountDocumentLine filename={document.filename} account={{
+                        <AccountDocumentLine key={idx} filename={document.filename} account={{
                           name: data.account.name,
                           status: data.account.status
                         } as AccountItem} />
                       )
                     case "TransactionDocumentDto":
                       return (
-                        <div>todo transaction document dto line</div>
+                        <div key={idx}>todo transaction document dto line</div>
                       )
                   }
                 })}</div>
@@ -91,8 +91,8 @@ function SingleAccount() {
                     </Tr>
                   </Thead>
                   <Tbody>
-                    {data?.account.currencies.map(it => (
-                      <Tr>
+                    {data?.account.currencies.map((it, idx) => (
+                      <Tr key={idx}>
                         <Td>{it.name}</Td>
                         <Td><Amount amount={data.account.snapshot.detail.find(cur => cur.currency === it.name)?.number || "0.00"} currency={it.name} /></Td>
                         <Td isNumeric><AccountBalanceCheckLine currency={it.name} accountName={data.account.name} /></Td>

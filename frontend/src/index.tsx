@@ -109,39 +109,36 @@ interface NavItemProps extends FlexProps {
 }
 const NavItem = ({ icon, children, uri, ...rest }: NavItemProps) => {
   return (
-    <RouteLink to={uri}>
-      <Link style={{ textDecoration: 'none' }} _focus={{ boxShadow: 'none' }}>
-        <Flex
-          align="center"
-          paddingLeft={4}
-          paddingRight={4}
-          paddingTop={2}
-          paddingBottom={2}
-          marginTop={1}
-          mx="4"
-          borderRadius="3"
-          role="group"
-          cursor="pointer"
-          _hover={{
-            bg: 'cyan.400',
-            color: 'white',
-          }}
-          {...rest}>
-          {icon && (
-            <Icon
-              mr="4"
-              fontSize="16"
-              _groupHover={{
-                color: 'white',
-              }}
-              as={icon}
-            />
-          )}
-          {children}
-        </Flex>
-      </Link>
-    </RouteLink>
-
+    <Link as={RouteLink} to={uri} style={{ textDecoration: 'none' }} _focus={{ boxShadow: 'none' }}>
+      <Flex
+        align="center"
+        paddingLeft={4}
+        paddingRight={4}
+        paddingTop={2}
+        paddingBottom={2}
+        marginTop={1}
+        mx="4"
+        borderRadius="3"
+        role="group"
+        cursor="pointer"
+        _hover={{
+          bg: 'cyan.400',
+          color: 'white',
+        }}
+        {...rest}>
+        {icon && (
+          <Icon
+            mr="4"
+            fontSize="16"
+            _groupHover={{
+              color: 'white',
+            }}
+            as={icon}
+          />
+        )}
+        {children}
+      </Flex>
+    </Link>
   );
 };
 
@@ -176,7 +173,7 @@ const MobileNav = ({ onOpen, ...rest }: MobileProps) => {
         账 Zhang
       </Text>
       <StatisticBar />
-      
+
     </Flex>
   );
 };

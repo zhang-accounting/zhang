@@ -18,8 +18,8 @@ export default function TransactionLine({ data }: Props) {
                 <Text>{data.narration}</Text>
             </Flex>
             <Flex direction={"column"} >
-                {data.postings.map(posting => (
-                    <Flex alignContent="space-between" justifyContent={"space-between"}>
+                {data.postings.map((posting, idx) => (
+                    <Flex alignContent="space-between" justifyContent={"space-between"} key={idx}>
                         <Text mx={2}>{posting?.account?.name}</Text>
                         <Text align={"right"} mx={2}>{posting.unit.number} {posting.unit.currency}</Text>
                     </Flex>
