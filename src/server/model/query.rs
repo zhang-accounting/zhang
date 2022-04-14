@@ -9,9 +9,11 @@ use crate::server::LedgerState;
 use async_graphql::{Context, Interface, Object};
 use chrono::{NaiveDateTime, Utc};
 use itertools::Itertools;
+use std::cmp::min;
 use std::collections::HashMap;
-use std::ops::Sub;
+use std::ops::{Add, Sub};
 use std::path::PathBuf;
+use time::Duration;
 
 pub struct QueryRoot;
 
@@ -358,6 +360,31 @@ impl StatisticDto {
             date: self.end_date,
             account_inventory: dto,
         }
+    }
+    async fn frames(&self, ctx: &Context<'_>, gap: i64) -> Vec<StatisticDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+
+        let mut ret = vec![];
+
+        let mut loop_gap_start = self.start_date;
+        let mut loop_gap_end = self.start_date;
+        while loop_gap_end < self.end_date {
+            loop_gap_end = min(loop_gap_end.add(Duration::days(gap)), self.end_date);
+            let start_date_snapshot = ledger_stage
+                .daily_inventory
+                .get_account_inventory(&loop_gap_start.date());
+            let end_date_snapshot = ledger_stage.daily_inventory.get_account_inventory(&loop_gap_end.date());
+            let frame_statistic = StatisticDto {
+                start_date: loop_gap_start,
+                end_date: loop_gap_end,
+                start_snapshot: start_date_snapshot,
+                ens_snapshot: end_date_snapshot,
+            };
+            ret.push(frame_statistic);
+
+            loop_gap_start = loop_gap_end;
+        }
+        ret
     }
     async fn distance(&self, ctx: &Context<'_>, #[graphql(default)] accounts: Vec<String>) -> SnapshotDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
