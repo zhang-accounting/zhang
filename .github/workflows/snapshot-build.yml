@@ -16,17 +16,17 @@ jobs:
           - platform: macos
             target: x86_64-apple-darwin
             os: macos-latest
-            bin: staple
+            bin: zhang
 
           - platform: ubuntu
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            bin: staple
+            bin: zhang
           
           - platform: windows
             target: x86_64-pc-windows-msvc
             os: windows-latest
-            bin: staple.exe
+            bin: zhang.exe
     steps:
       - uses: actions/checkout@v1
 
@@ -55,11 +55,11 @@ jobs:
         run: |
           cd target/${{ matrix.target }}/release
           strip ${{ matrix.bin }}
-          tar czvf staple-${{ matrix.platform }}.tar.gz ${{ matrix.bin }}
+          tar czvf zhang-${{ matrix.platform }}.tar.gz ${{ matrix.bin }}
       
       - name: Release assets
         uses: softprops/action-gh-release@v1
         with:
-          files: target/${{ matrix.target }}/release/staple-${{ matrix.platform }}.tar.gz
+          files: target/${{ matrix.target }}/release/zhang-${{ matrix.platform }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
