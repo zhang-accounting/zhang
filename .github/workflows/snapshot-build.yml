@@ -60,6 +60,7 @@ jobs:
       - name: Release assets
         uses: softprops/action-gh-release@v1
         with:
+          name: snapshot-build-${{ github.run_id }}
           files: target/${{ matrix.target }}/release/zhang-${{ matrix.platform }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
