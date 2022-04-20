@@ -11,7 +11,26 @@ import { BrowserRouter, Link as RouteLink } from "react-router-dom";
 import App from "./App";
 import NewTransactionButton from "./components/NewTransactionButton";
 import StatisticBar from "./components/StatisticBar";
+import {
+  Chart as ChartJS,
+  LinearScale,
+  CategoryScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Legend,
+  Tooltip,
+} from 'chart.js';
 
+ChartJS.register(
+  LinearScale,
+  CategoryScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Legend,
+  Tooltip
+);
 
 const client = new ApolloClient({
   // eslint-disable-line
