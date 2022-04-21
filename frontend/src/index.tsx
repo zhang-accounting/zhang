@@ -20,6 +20,7 @@ import {
   LineElement,
   Legend,
   Tooltip,
+  Title
 } from 'chart.js';
 
 ChartJS.register(
@@ -29,7 +30,8 @@ ChartJS.register(
   PointElement,
   LineElement,
   Legend,
-  Tooltip
+  Tooltip,
+  Title
 );
 
 const client = new ApolloClient({
