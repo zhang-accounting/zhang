@@ -28,7 +28,7 @@ const options = {
       type: 'linear' as const,
       display: true,
       position: 'left' as const,
-        beginAtZero: false
+      beginAtZero: false
     },
     y1: {
       type: 'linear' as const,
@@ -37,11 +37,12 @@ const options = {
       grid: {
         drawOnChartArea: false,
       },
+      beginAtZero: false
     },
   },
 };
 const build_chart_data = (data: StatisticResponse) => {
-  const labels = data.statistic.frames.map(frame => format(new Date(frame.end*1000), 'MM/dd/yyyy'));
+  const labels = data.statistic.frames.map(frame => format(new Date(frame.end * 1000), 'MMM dd'));
   const total_dataset = data.statistic.frames.map(frame => parseFloat(frame.total.summary.number));
   const income_dataset = data.statistic.frames.map(frame => -1 * parseFloat(frame.income.summary.number));
   const expense_dataset = data.statistic.frames.map(frame => parseFloat(frame.expense.summary.number));
