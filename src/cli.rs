@@ -6,15 +6,18 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
 pub enum Opts {
+    /// import sources accounting file as zhang data
     #[clap(subcommand)]
     Importer(ImportOpts),
 
+    /// zhang parser
     Parse(ParseOpts),
 
     /// export to target file
     #[clap(subcommand)]
     Exporter(ExportOpts),
 
+    /// start an internal server with frontend ui
     Server(ServerOpts),
 }
 
