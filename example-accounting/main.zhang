@@ -8,6 +8,10 @@ option "operating_currency" "CNY"
 1970-01-01 open Income:PreviousCompanySalary CNY, USD
 1970-01-01 open Expenses:Shopping CNY, USD
 1970-01-01 open Liabilities:CreditCard CNY, USD
+
+1970-01-01 open Income:公司:工资 CNY
+
+
 1970-01-01 price USD  7 CNY
 
 
