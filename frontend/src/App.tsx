@@ -4,6 +4,7 @@ import Documents from "./pages/Documents";
 import Home from "./pages/Home";
 import Journals from "./pages/Journals";
 import RawEdit from "./pages/RawEdit";
+import Report from "./pages/Report";
 import SingleAccount from "./pages/SingleAccount";
 
 
@@ -18,9 +19,10 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="journals" element={<Journals />} />
           <Route path="accounts" element={<Accounts />} />
+          <Route path="/accounts/:accountName" element={<SingleAccount />} />
           <Route path="documents" element={<Documents />} />
           <Route path="/edit" element={<RawEdit />} />
-          <Route path="/accounts/:accountName" element={<SingleAccount />} />
+          <Route path="/report" element={<Report />} />
         </Routes>
       </div>
 
