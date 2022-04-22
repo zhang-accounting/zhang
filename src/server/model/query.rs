@@ -351,11 +351,16 @@ impl StatisticDto {
     }
 
     // todo add type filter for journals
-    async fn journals(&self, ctx: &Context<'_>) -> Vec<JournalDto> {
+    async fn journals(&self, ctx: &Context<'_>, #[graphql(default)] transaction_only: bool) -> Vec<JournalDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
         ledger_stage
             .directives
             .iter()
+            .filter(|directive| match directive {
+                Directive::Transaction(_) => true,
+                Directive::Balance(_) => !transaction_only,
+                _ => false,
+            })
             .filter(|directive| match directive {
                 Directive::Transaction(trx) => {
                     trx.date.naive_datetime().ge(&self.start_date) && trx.date.naive_datetime().lt(&self.end_date)
