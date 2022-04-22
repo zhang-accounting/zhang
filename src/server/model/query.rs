@@ -349,6 +349,39 @@ impl StatisticDto {
         // todo
         vec![]
     }
+
+    // todo add type filter for journals
+    async fn journals(&self, ctx: &Context<'_>) -> Vec<JournalDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage
+            .directives
+            .iter()
+            .filter(|directive| match directive {
+                Directive::Transaction(trx) => {
+                    trx.date.naive_datetime().ge(&self.start_date) && trx.date.naive_datetime().lt(&self.end_date)
+                }
+                Directive::Balance(balance) => match balance {
+                    Balance::BalanceCheck(check) => {
+                        check.date.naive_datetime().ge(&self.start_date)
+                            && check.date.naive_datetime().lt(&self.end_date)
+                    }
+                    Balance::BalancePad(pad) => {
+                        pad.date.naive_datetime().ge(&self.start_date) && pad.date.naive_datetime().lt(&self.end_date)
+                    }
+                },
+                _ => false,
+            })
+            .filter_map(|directive| match directive {
+                Directive::Transaction(trx) => Some(JournalDto::Transaction(TransactionDto(trx.clone()))),
+                Directive::Balance(balance) => match balance {
+                    Balance::BalanceCheck(check) => Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone()))),
+                    Balance::BalancePad(pad) => Some(JournalDto::BalancePad(BalancePadDto(pad.clone()))),
+                },
+                _ => None,
+            })
+            .rev()
+            .collect_vec()
+    }
     async fn category_snapshot(&self, categories: Vec<String>) -> SnapshotDto {
         let dto = self
             .ens_snapshot
