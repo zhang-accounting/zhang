@@ -12,6 +12,33 @@ query STATISTIC($from: Int, $to: Int, $gap: Int) {
     statistic(from: $from, to: $to) {
       start
       end
+      journals(transactionOnly: true) {
+        type: __typename
+      }
+      income: distance(accounts: ["Income"]) {
+        summary {
+          number
+          currency
+        }
+      }
+      expense: distance(accounts: ["Expenses"]) {
+        summary {
+          number
+          currency
+        }
+      }
+      incomeExpense: distance(accounts: ["Income", "Expenses"]) {
+        summary {
+          number
+          currency
+        }
+      }
+      total: categorySnapshot(categories: ["Assets", "Liabilities"]) {
+        summary {
+          number
+          currency
+        }
+      }
       frames(gap: $gap) {
         start
         end

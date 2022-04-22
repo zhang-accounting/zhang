@@ -1,4 +1,4 @@
-import { Amount } from "./gql/jouralList"
+import { Amount, JournalItem } from "./gql/jouralList"
 
 export interface Snapshot {
     summary: Amount,
@@ -12,7 +12,8 @@ export interface FileEntry {
 export type Statistic = {
     start: number,
     end: number,
-    frames: Statistic[]
+    frames: Statistic[],
+    journals: JournalItem[]
 
 } & {
     [key: string]: Snapshot
