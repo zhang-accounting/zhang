@@ -13,6 +13,7 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
 use std::path::PathBuf;
+use std::str::FromStr;
 use time::Duration;
 
 pub struct QueryRoot;
@@ -136,6 +137,16 @@ impl AccountDto {
     }
     async fn status(&self) -> AccountStatus {
         self.info.status
+    }
+    async fn account_type(&self) -> String {
+        Account::from_str(&self.name).unwrap().account_type.to_string()
+    }
+    async fn sign(&self) -> i32 {
+        if Account::from_str(&self.name).unwrap().is_invert_account() {
+            -1
+        } else {
+            1
+        }
     }
     async fn snapshot(&self, ctx: &Context<'_>) -> SnapshotDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
