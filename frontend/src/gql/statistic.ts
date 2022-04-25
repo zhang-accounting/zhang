@@ -14,6 +14,22 @@ query STATISTIC($from: Int, $to: Int, $gap: Int) {
       end
       journals(transactionOnly: true) {
         type: __typename
+        ... on TransactionDto {
+          date
+          payee
+          narration
+          postings {
+            unit {
+              currency
+              number
+            }
+            account {
+              name
+              accountType
+              sign
+            }
+          }
+        }
       }
       income: distance(accounts: ["Income"]) {
         summary {
