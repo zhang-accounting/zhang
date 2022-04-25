@@ -1,12 +1,15 @@
-import { Box, Flex, Heading, Select, Progress, Stat, StatLabel, StatNumber } from "@chakra-ui/react";
+import { useQuery } from "@apollo/client";
+import { Box, Flex, Heading, Progress, ProgressLabel, Select, Stat, StatLabel, StatNumber } from "@chakra-ui/react";
 // @ts-ignore
 import DateRangePicker from '@wojtekmaj/react-daterange-picker';
-import Block from "../components/Block";
-import { Chart } from 'react-chartjs-2';
-import { STATISTIC, StatisticResponse } from "../gql/statistic";
-import { useQuery } from "@apollo/client";
 import { format } from "date-fns";
+import * as _ from 'lodash';
+import { Chart } from 'react-chartjs-2';
 import Amount from "../components/Amount";
+import Block from "../components/Block";
+import JournalLine from "../components/JournalLine";
+import { Posting, TransactionDto } from "../gql/jouralList";
+import { STATISTIC, StatisticResponse } from "../gql/statistic";
 
 
 const options = {
@@ -71,6 +74,10 @@ const build_chart_data = (data: StatisticResponse) => {
         ],
     }
 }
+
+function sumPostings(postings: Posting[]): number {
+    return _.sumBy(postings, posting => parseFloat(posting.unit.number));
+}
 export default function Report() {
     const now = new Date();
     const begining_time = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 1);
@@ -85,6 +92,49 @@ export default function Report() {
     });
     if (loading) return <p>Loading...</p>;
     if (error) return <p>Error :(</p>;
+    // income
+    const incomeData = data?.statistic.journals.flatMap(journal => {
+        switch (journal.type) {
+            case "TransactionDto":
+                return journal.postings
+            default:
+                return [];
+        }
+    }).filter(posting => posting.account.accountType === "Income") || [];
+
+    const incomeTotal = sumPostings(incomeData);
+
+    const incomeRank = _.sortBy(_.map(_.groupBy(incomeData, posting => posting.account.name), (postings, name) => ({ name, total: sumPostings(postings) })), item => item.total);
+    const incomeJournalRank = _.sortBy(
+        data?.statistic.journals
+            .filter(journal => journal.type === "TransactionDto")
+            .filter(journal => (journal as TransactionDto).postings.some(posting => posting.account.accountType === "Income")),
+        journal => sumPostings((journal as TransactionDto).postings.filter(posting => posting.account.accountType === "Income"))
+    )
+        || [];
+
+
+    const expenseData = data?.statistic.journals.flatMap(journal => {
+        switch (journal.type) {
+            case "TransactionDto":
+                return journal.postings
+            default:
+                return [];
+        }
+    }).filter(posting => posting.account.accountType === "Expenses") || [];
+
+    const expenseTotal = sumPostings(expenseData);
+
+    const expenseRank = _.sortBy(_.map(_.groupBy(expenseData, posting => posting.account.name), (postings, name) => ({ name, total: sumPostings(postings) })), item => item.total);
+
+    const expenseJournalRank = _.sortBy(
+        data?.statistic.journals
+            .filter(journal => journal.type === "TransactionDto")
+            .filter(journal => (journal as TransactionDto).postings.some(posting => posting.account.accountType === "Expenses")),
+        journal => sumPostings((journal as TransactionDto).postings.filter(posting => posting.account.accountType === "Expenses")),
+    ).reverse()
+        || [];
+
     return (
 
         <div>
@@ -132,70 +182,42 @@ export default function Report() {
             <Flex>
                 <Box flex="0 0 30%" m={1}>
                     <Block title="收入占比">
-                        <Box pb={1}>
-                            <p>AAA</p>
-                            <Progress value={80} size='xs' />
-                        </Box>
-                        <Box >
-                            <p>AAA</p>
-                            <Progress value={80} size='xs' />
-                        </Box>
-                        <Box >
-                            <p>AAA</p>
-                            <Progress value={70} size='xs' />
-                        </Box>
-                        <Box >
-                            <p>AAA</p>
-                            <Progress value={15} size='xs' />
-                        </Box>
-                        <Box >
-                            <p>AAA</p>
-                            <Progress value={3} size='xs' />
-                        </Box>
-                        <Box >
-                            <p>AAA</p>
-                            <Progress value={2} size='xs' />
-                        </Box>
+                        {incomeRank.map(each_income =>
+                            <Box key={each_income.name} pb={1}>
+                                <p>{each_income.name}</p>
+                                <Progress value={each_income.total} max={incomeTotal} size='md' >
+                                    <ProgressLabel textAlign={"left"}>{Math.round(each_income.total / incomeTotal * 10000) / 100}%</ProgressLabel>
+                                </Progress>
+                            </Box>
+                        )}
                     </Block>
                 </Box>
                 <Box flex="1" m={1}>
                     <Block title="收入排行">
-                        <p>Lines</p>
+                        <div>
+                            {incomeJournalRank.map((journal, idx) => <JournalLine key={idx} data={journal} />)}
+                        </div>
                     </Block>
                 </Box>
             </Flex>
             <Flex>
                 <Box flex="0 0 30%" m={1}>
                     <Block title="支出占比">
-                        <Box pb={1}>
-                            <p>AAA</p>
-                            <Progress value={80} size='xs' />
-                        </Box>
-                        <Box >
-                            <p>AAA</p>
-                            <Progress value={80} size='xs' />
-                        </Box>
-                        <Box >
-                            <p>AAA</p>
-                            <Progress value={70} size='xs' />
-                        </Box>
-                        <Box >
-                            <p>AAA</p>
-                            <Progress value={15} size='xs' />
-                        </Box>
-                        <Box >
-                            <p>AAA</p>
-                            <Progress value={3} size='xs' />
-                        </Box>
-                        <Box >
-                            <p>AAA</p>
-                            <Progress value={2} size='xs' />
-                        </Box>
+                        {expenseRank.map(each_income =>
+                            <Box key={each_income.name} pb={1}>
+                                <p>{each_income.name}</p>
+                                <Progress value={each_income.total} max={expenseTotal} size='md' >
+                                    <ProgressLabel textAlign={"left"}>{Math.round(each_income.total / expenseTotal * 10000) / 100}%</ProgressLabel>
+                                </Progress>
+                            </Box>
+                        )}
                     </Block>
                 </Box>
                 <Box flex="1" m={1}>
                     <Block title="支出排行">
-                        <p>Lines</p>
+                        <div>
+                            {expenseJournalRank.map((journal, idx) => <JournalLine key={idx} data={journal} />)}
+                        </div>
                     </Block>
                 </Box>
             </Flex>

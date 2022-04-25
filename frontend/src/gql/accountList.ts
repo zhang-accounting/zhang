@@ -10,6 +10,8 @@ export interface AccountListQuery {
 export interface AccountItem {
   name: string,
   status: "OPEN" | "CLOSE",
+  accountType: "Liabilities" | "Expenses" | "Income" | "Assets" | "Equity",
+  sign: 1 | -1,
   snapshot: Snapshot,
   documents: Document[],
   journals: JournalItem[]
