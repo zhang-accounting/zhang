@@ -1,18 +1,33 @@
-import { BalanceCheckDto, BalancePadDto, TransactionDto } from "../gql/jouralList";
+import { Dispatch, SetStateAction } from "react";
+import { BalanceCheckDto, BalancePadDto, JournalItem, TransactionDto } from "../gql/jouralList";
 import BalanceCheckLine from "./BalanceCheckLine";
 import BalancePadLine from "./BalancePadLine";
 import TransactionLine from "./TransactionLine";
 interface Props {
-    data: TransactionDto | BalanceCheckDto | BalancePadDto
+  data: JournalItem,
+  setSelectedJournal?: Dispatch<SetStateAction<JournalItem | null>>,
 }
-export default function JournalLine({ data }: Props) {
-    switch (data.type) {
-        case "BalanceCheckDto":
-          return <BalanceCheckLine data={data} />
-        case "BalancePadDto":
-          return <BalancePadLine data={data} />
-        case "TransactionDto":
-          return <TransactionLine data={data} />
-      }
-    
+export default function JournalLine({ data, setSelectedJournal }: Props) {
+  let line = null;
+  switch (data.type) {
+    case "BalanceCheckDto":
+      line = <BalanceCheckLine data={data} />;
+      break;
+    case "BalancePadDto":
+      line = <BalancePadLine data={data} />;
+      break;
+    case "TransactionDto":
+      line = <TransactionLine data={data} />;
+      break;
+  }
+  if(setSelectedJournal) {
+    return (
+      <div onClick={() => setSelectedJournal(data)}>
+        {line}
+      </div>
+    )
+  }else {
+    return line;
+  }
+  
 }
