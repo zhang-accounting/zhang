@@ -271,6 +271,12 @@ impl TransactionDto {
     async fn postings<'a>(&'a self) -> Vec<PostingDto<'a>> {
         self.0.txn_postings().into_iter().map(PostingDto).collect_vec()
     }
+    async fn tags(&self) -> Vec<String> {
+        self.0.tags.iter().cloned().collect_vec()
+    }
+    async fn links(&self) -> Vec<String> {
+        self.0.links.iter().cloned().collect_vec()
+    }
 }
 
 pub struct BalanceCheckDto(BalanceCheck);
