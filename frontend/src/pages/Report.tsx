@@ -3,7 +3,9 @@ import { Box, Flex, Heading, Progress, ProgressLabel, Select, Stat, StatLabel, S
 // @ts-ignore
 import DateRangePicker from '@wojtekmaj/react-daterange-picker';
 import { format } from "date-fns";
+import { setValues } from "framer-motion/types/render/utils/setters";
 import * as _ from 'lodash';
+import { useState } from "react";
 import { Chart } from 'react-chartjs-2';
 import Amount from "../components/Amount";
 import Block from "../components/Block";
@@ -39,6 +41,7 @@ const options = {
 };
 
 const build_chart_data = (data: StatisticResponse) => {
+    console.log("Execute build chat data", data);
     const labels = data.statistic.frames.map(frame => format(new Date(frame.end * 1000), 'MMM dd'));
     const total_dataset = data.statistic.frames.map(frame => parseFloat(frame.total.summary.number));
     const income_dataset = data.statistic.frames.map(frame => -1 * parseFloat(frame.income.summary.number));
@@ -82,12 +85,14 @@ export default function Report() {
     const now = new Date();
     const begining_time = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 1);
     const end_time = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const [value, setValue] = useState([begining_time, end_time]);
+    const [gap, setGap] = useState(1);
 
     const { loading, error, data } = useQuery<StatisticResponse>(STATISTIC, {
         variables: {
-            from: Math.round(begining_time.getTime() / 1000),
-            to: Math.round(end_time.getTime() / 1000),
-            gap: 1
+            from: Math.round(new Date(value[0].getFullYear(), value[0].getMonth(), value[0].getDate(), 0, 0, 1).getTime() / 1000),
+            to: Math.round(new Date(value[1].getFullYear(), value[1].getMonth(), value[1].getDate(), 23, 59, 59).getTime() / 1000),
+            gap: gap
         }
     });
     if (loading) return <p>Loading...</p>;
@@ -142,13 +147,13 @@ export default function Report() {
             <Flex>
                 <Box><Heading>Report</Heading></Box>
                 <Box>
-                    <DateRangePicker />
+                    <DateRangePicker onChange={setValue} value={value} />
                 </Box>
 
-                <Box><Select>
-                    <option selected value='option1'>Daily</option>
-                    <option value='option2'>Weekly</option>
-                    <option value='option3'>Monthly</option>
+                <Box><Select size="sm" onChange={e => setGap(parseInt(e.target.value))} value={gap}>
+                    <option value={"1"}>Daily</option>
+                    <option value={"7"}>Weekly</option>
+                    <option value={"30"}>Monthly</option>
                 </Select></Box>
             </Flex>
             <Flex>
@@ -182,7 +187,7 @@ export default function Report() {
             <Flex>
                 <Box flex="0 0 30%" m={1}>
                     <Block title="收入占比">
-                        {incomeRank.map(each_income =>
+                        {_.take(incomeRank, 10).map(each_income =>
                             <Box key={each_income.name} pb={1}>
                                 <p>{each_income.name}</p>
                                 <Progress value={each_income.total} max={incomeTotal} size='md' >
@@ -195,7 +200,7 @@ export default function Report() {
                 <Box flex="1" m={1}>
                     <Block title="收入排行">
                         <div>
-                            {incomeJournalRank.map((journal, idx) => <JournalLine key={idx} data={journal} />)}
+                            {_.take(incomeJournalRank, 10).map((journal, idx) => <JournalLine key={idx} data={journal} />)}
                         </div>
                     </Block>
                 </Box>
@@ -203,7 +208,7 @@ export default function Report() {
             <Flex>
                 <Box flex="0 0 30%" m={1}>
                     <Block title="支出占比">
-                        {expenseRank.map(each_income =>
+                        {_.take(expenseRank, 10).map(each_income =>
                             <Box key={each_income.name} pb={1}>
                                 <p>{each_income.name}</p>
                                 <Progress value={each_income.total} max={expenseTotal} size='md' >
@@ -216,7 +221,7 @@ export default function Report() {
                 <Box flex="1" m={1}>
                     <Block title="支出排行">
                         <div>
-                            {expenseJournalRank.map((journal, idx) => <JournalLine key={idx} data={journal} />)}
+                            {_.take(expenseJournalRank, 10).map((journal, idx) => <JournalLine key={idx} data={journal} />)}
                         </div>
                     </Block>
                 </Box>
