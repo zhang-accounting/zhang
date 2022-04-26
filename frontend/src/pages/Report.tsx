@@ -3,7 +3,6 @@ import { Box, Flex, Heading, Progress, ProgressLabel, Select, Stat, StatLabel, S
 // @ts-ignore
 import DateRangePicker from '@wojtekmaj/react-daterange-picker';
 import { format } from "date-fns";
-import { setValues } from "framer-motion/types/render/utils/setters";
 import * as _ from 'lodash';
 import { useState } from "react";
 import { Chart } from 'react-chartjs-2';
