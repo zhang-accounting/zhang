@@ -144,40 +144,48 @@ export default function Report() {
 
         <div>
 
-            <Flex>
+            <Flex m={1} mb={3} justifyContent="space-between" alignItems="flex-end">
                 <Box><Heading>Report</Heading></Box>
                 <Box>
-                    <DateRangePicker onChange={setValue} value={value} />
+                    <Box>
+                        <DateRangePicker onChange={setValue} value={value} />
+                    </Box>
+
+                    <Box><Select size="sm" onChange={e => setGap(parseInt(e.target.value))} value={gap}>
+                        <option value={"1"}>Daily</option>
+                        <option value={"7"}>Weekly</option>
+                        <option value={"30"}>Monthly</option>
+                    </Select></Box>
                 </Box>
 
-                <Box><Select size="sm" onChange={e => setGap(parseInt(e.target.value))} value={gap}>
-                    <option value={"1"}>Daily</option>
-                    <option value={"7"}>Weekly</option>
-                    <option value={"30"}>Monthly</option>
-                </Select></Box>
             </Flex>
-            <Flex>
-                <Stat>
-                    <StatLabel>资产余额</StatLabel>
-                    <StatNumber><Amount amount={data?.statistic.total.summary.number} currency={data?.statistic.total.summary.currency} /></StatNumber>
-                </Stat>
-                <Stat>
-                    <StatLabel>总收支</StatLabel>
-                    <StatNumber><Amount amount={data?.statistic.incomeExpense.summary.number} currency={data?.statistic.incomeExpense.summary.currency} negetive /></StatNumber>
-                </Stat>
-                <Stat>
-                    <StatLabel>收入</StatLabel>
-                    <StatNumber><Amount amount={data?.statistic.income.summary.number} currency={data?.statistic.income.summary.currency} negetive /></StatNumber>
-                </Stat>
-                <Stat>
-                    <StatLabel>支出</StatLabel>
-                    <StatNumber><Amount amount={data?.statistic.expense.summary.number} currency={data?.statistic.expense.summary.currency} /></StatNumber>
-                </Stat>
-                <Stat>
-                    <StatLabel>交易数</StatLabel>
-                    <StatNumber>{data?.statistic.journals.length}</StatNumber>
-                </Stat>
-            </Flex>
+            <Box m={1}>
+                <Block>
+
+                    <Flex py={2}>
+                        <Stat>
+                            <StatLabel>资产余额</StatLabel>
+                            <StatNumber><Amount amount={data?.statistic.total.summary.number} currency={data?.statistic.total.summary.currency} /></StatNumber>
+                        </Stat>
+                        <Stat>
+                            <StatLabel>总收支</StatLabel>
+                            <StatNumber><Amount amount={data?.statistic.incomeExpense.summary.number} currency={data?.statistic.incomeExpense.summary.currency} negetive /></StatNumber>
+                        </Stat>
+                        <Stat>
+                            <StatLabel>收入</StatLabel>
+                            <StatNumber><Amount amount={data?.statistic.income.summary.number} currency={data?.statistic.income.summary.currency} negetive /></StatNumber>
+                        </Stat>
+                        <Stat>
+                            <StatLabel>支出</StatLabel>
+                            <StatNumber><Amount amount={data?.statistic.expense.summary.number} currency={data?.statistic.expense.summary.currency} /></StatNumber>
+                        </Stat>
+                        <Stat>
+                            <StatLabel>交易数</StatLabel>
+                            <StatNumber>{data?.statistic.journals.length}</StatNumber>
+                        </Stat>
+                    </Flex>
+                </Block>
+            </Box>
             <Box m={1}>
                 <Block title="Graph">
                     <Chart type='bar' data={build_chart_data(data!)} options={options} height={100} />
