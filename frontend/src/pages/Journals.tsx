@@ -3,6 +3,7 @@ import { Box, CloseButton, Flex, Heading } from '@chakra-ui/react';
 import { useState } from "react";
 import Block from "../components/Block";
 import JournalLine from "../components/JournalLine";
+import JournalPreview from "../components/journalPreview/JournalPreview";
 import { JouralListQuery, JournalItem, JOURNAL_LIST } from "../gql/jouralList";
 function Journals() {
   const { loading, error, data } = useQuery<JouralListQuery>(JOURNAL_LIST);
@@ -23,8 +24,7 @@ function Journals() {
       {selectedJournal &&
         <Box flex=" 0 0 30%">
           <div><CloseButton onClick={() => setSelectedJournal(null)} /></div>
-          <Heading>{selectedJournal.date}</Heading>
-          <Heading>{selectedJournal.type}</Heading>
+          <JournalPreview data={selectedJournal!} />
 
         </Box>
       }
