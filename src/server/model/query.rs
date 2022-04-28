@@ -262,6 +262,9 @@ impl TransactionDto {
     async fn date(&self) -> String {
         self.0.date.naive_date().to_string()
     }
+    async fn timestamp(&self) -> i64 {
+        self.0.date.naive_datetime().timestamp()
+    }
     async fn payee(&self) -> Option<String> {
         self.0.payee.clone().map(|it| it.to_plain_string())
     }
