@@ -1,5 +1,5 @@
 import { Dispatch, SetStateAction } from "react";
-import { BalanceCheckDto, BalancePadDto, JournalItem, TransactionDto } from "../gql/jouralList";
+import { JournalItem } from "../gql/jouralList";
 import BalanceCheckLine from "./BalanceCheckLine";
 import BalancePadLine from "./BalancePadLine";
 import TransactionLine from "./TransactionLine";

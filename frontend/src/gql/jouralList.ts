@@ -10,10 +10,13 @@ export type JournalItem = TransactionDto | BalanceCheckDto | BalancePadDto;
 
 export interface TransactionDto {
     date: string,
+    timestamp: number,
     type: "TransactionDto"
     payee: string
     narration?: string
     postings: Posting[]
+    tags: string[]
+    links: string[]
 }
 
 export interface Posting {
@@ -48,8 +51,11 @@ query JOURNAL_LIST {
     date
     type: __typename
     ... on TransactionDto {
+      timestamp
       payee
       narration
+      tags
+      links
       postings {
         account {
           name
