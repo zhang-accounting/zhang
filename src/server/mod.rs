@@ -35,7 +35,8 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
 }
 
 pub fn serve(opts: ServerOpts) -> ZhangResult<()> {
-    let ledger = Ledger::load(opts.file.clone())?;
+    let serve_file = opts.path.join(&opts.endpoint);
+    let ledger = Ledger::load(serve_file)?;
     let ledger_data = Arc::new(RwLock::new(ledger));
 
     let runtime = tokio::runtime::Runtime::new()?;
