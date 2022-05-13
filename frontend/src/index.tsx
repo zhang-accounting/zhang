@@ -51,7 +51,7 @@ const LinkItems: Array<LinkItemProps> = [
   { name: 'Accounts', icon: FiCompass, uri: "/accounts" },
   { name: 'Commodities todo', icon: FiStar, uri: "/commodities" },
   { name: 'Documents', icon: FiSettings, uri: "/documents" },
-  { name: 'Report todo', icon: FiSettings, uri: "/report" },
+  { name: 'Report', icon: FiSettings, uri: "/report" },
   { name: 'Liability todo', icon: FiSettings, uri: "/liability" },
   { name: 'Raw Editing', icon: FiSettings, uri: "/edit" },
 ];
