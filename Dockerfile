@@ -4,7 +4,7 @@ LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
 
 COPY  target/x86_64-unknown-linux-musl/release/zhang /application/zhang
 
-RUN "mkdir /data"
+RUN mkdir /data
 
 WORKDIR application
 VOLUME "/data"
