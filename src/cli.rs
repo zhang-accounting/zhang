@@ -42,7 +42,14 @@ pub enum ExportOpts {
 
 #[derive(Args, Debug)]
 pub struct ServerOpts {
-    pub file: PathBuf,
+    /// base path of zhang project
+    pub path: PathBuf,
+
+    /// the endpoint of main zhang file.
+    #[clap(short, long, default_value = "main.zhang")]
+    pub endpoint: String,
+
+    /// serve port
     #[clap(short, long, default_value_t = 6666)]
     pub port: u16,
 }

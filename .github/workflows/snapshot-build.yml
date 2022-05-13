@@ -7,26 +7,7 @@ on:
 
 jobs:
   release:
-    name: Snapshot build on ${{ matrix.platform }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        platform: [macos, ubuntu, windows]
-        include:
-          - platform: macos
-            target: x86_64-apple-darwin
-            os: macos-latest
-            bin: zhang
-
-          - platform: ubuntu
-            target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            bin: zhang
-          
-          - platform: windows
-            target: x86_64-pc-windows-msvc
-            os: windows-latest
-            bin: zhang.exe
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
 
@@ -38,29 +19,24 @@ jobs:
         run: yarn run build
         working-directory: ./frontend
 
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Cache cargo build
         uses: actions/cache@v1
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       
-      - name: Run code build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target ${{ matrix.target }}
+      - name: build musl target release
+        run: docker run -v $PWD:/volume -v "/home/runner/.cargo/registry":/root/.cargo/registry clux/muslrust:stable cargo build --release
 
-      - name: Prepare assets
-        shell: bash
-        run: |
-          cd target/${{ matrix.target }}/release
-          strip ${{ matrix.bin }}
-          tar czvf zhang-${{ matrix.platform }}.tar.gz ${{ matrix.bin }}
+      - name: Docker build
+        run: docker build --tag ghcr.io/kilerd/zhang:snapshot .
       
-      - name: Release assets
-        uses: softprops/action-gh-release@v1
-        with:
-          name: snapshot-build-${{ github.run_id }}
-          files: target/${{ matrix.target }}/release/zhang-${{ matrix.platform }}.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      - name: docker push image
+        run: docker push ghcr.io/kilerd/zhang:snapshot
