@@ -280,6 +280,17 @@ impl TransactionDto {
     async fn links(&self) -> Vec<String> {
         self.0.links.iter().cloned().collect_vec()
     }
+    async fn metas(&self) -> Vec<MetaDto> {
+        self.0
+            .meta
+            .clone()
+            .into_iter()
+            .map(|(key, value)| MetaDto {
+                key,
+                value: value.to_plain_string(),
+            })
+            .collect_vec()
+    }
 }
 
 pub struct BalanceCheckDto(BalanceCheck);
@@ -580,5 +591,20 @@ impl ErrorDto {
             // LedgerError::AccountClosed { .. } => "account close".to_string(),
             // LedgerError::TransactionDoesNotBalance { .. } => "trx does not balance".to_string(),
         }
+    }
+}
+
+pub struct MetaDto {
+    key: String,
+    value: String,
+}
+
+#[Object]
+impl MetaDto {
+    async fn key(&self) -> String {
+        self.key.clone()
+    }
+    async fn value(&self) -> String {
+        self.value.clone()
     }
 }

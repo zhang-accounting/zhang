@@ -12,7 +12,7 @@ export default function TransactionPreview(props: Props) {
         <div>
             <Box mb={10}>
             <Box mx={1} my={2}>{format(new Date(props.data.timestamp * 1000), "yyyy-MM-dd hh:mm:ss")}</Box>
-            <Box mx={1} my={2}>{props.data.payee}</Box>
+            <Box mx={1} my={2}><Text fontWeight={"bold"}>{props.data.payee}</Text></Box>
             <Box mx={1} my={2}>{props.data.narration}</Box>
             <Box mx={1} my={2}>
                 {props.data.tags.map(tag => <Tag borderRadius='full' variant="outline">#{tag}</Tag>)}
@@ -21,7 +21,15 @@ export default function TransactionPreview(props: Props) {
             </Box>
             <Box mx={1} my={4}>
                 <Block title="Metas">
-                    <Box>metas</Box>
+                    <Box>
+                        {props.data.metas.map((meta, idx) => (
+                            <Flex key={idx} justifyContent="space-between">
+                            <div>{meta.key}</div>
+                            <div>{meta.value}</div>
+                        </Flex>
+                        ))}
+
+                    </Box>
                 </Block>
             </Box>
             <Box mx={1} my={4}>
