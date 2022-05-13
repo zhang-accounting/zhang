@@ -63,10 +63,8 @@ impl DirectiveProcess for Open {
                 meta: Default::default(),
             });
         account_info.status = AccountStatus::Open;
-        for (meta_key, meta_value) in &self.meta {
-            account_info
-                .meta
-                .insert(meta_key.clone(), meta_value.clone().to_plain_string());
+        for (meta_key, meta_value) in self.meta.clone().get_flatten() {
+            account_info.meta.insert(meta_key, meta_value.to_plain_string());
         }
         for currency in &self.commodities {
             account_info.currencies.insert(currency.to_string());
@@ -86,10 +84,8 @@ impl DirectiveProcess for Close {
                 meta: Default::default(),
             });
         account_info.status = AccountStatus::Close;
-        for (meta_key, meta_value) in &self.meta {
-            account_info
-                .meta
-                .insert(meta_key.clone(), meta_value.clone().to_plain_string());
+        for (meta_key, meta_value) in self.meta.clone().get_flatten() {
+            account_info.meta.insert(meta_key, meta_value.to_plain_string());
         }
         Ok(())
     }

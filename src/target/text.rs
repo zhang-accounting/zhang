@@ -46,7 +46,8 @@ impl ZhangTarget<String> for Amount {
 
 impl ZhangTarget<Vec<String>> for Meta {
     fn to_target(self) -> Vec<String> {
-        self.into_iter()
+        self.get_flatten()
+            .into_iter()
             .sorted_by(|entry_a, entry_b| entry_a.0.cmp(&entry_b.0))
             .map(|(k, v)| format!("{}: {}", k, v.to_target()))
             .collect_vec()

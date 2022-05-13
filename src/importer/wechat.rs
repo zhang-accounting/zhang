@@ -14,6 +14,7 @@ use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Date, Posting, Transaction};
 use crate::core::models::{Flag, ZhangString};
+use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::error::ZhangResult;
 use crate::target::ZhangTarget;
 use itertools::Itertools;
@@ -150,7 +151,7 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
         };
         let payee = Account::from_str(&payee)?;
 
-        let mut meta = HashMap::new();
+        let mut meta = MultiValueMap::default();
         if let Some(txn_no) = result.transaction_no() {
             meta.insert(
                 "transaction_no".to_string(),

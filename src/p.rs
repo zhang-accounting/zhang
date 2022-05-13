@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
@@ -13,6 +12,7 @@ use crate::core::data::{
     Options, Plugin, Posting, Price, Transaction,
 };
 use crate::core::models::{Directive, Flag, SingleTotalPrice, StringOrAccount, ZhangString};
+use crate::core::utils::multi_value_map::MultiValueMap;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -321,7 +321,7 @@ impl ZhangParser {
             tags: ret.4.into_iter().collect(),
             links: ret.5.into_iter().collect(),
             postings: vec![],
-            meta: HashMap::default(),
+            meta: MultiValueMap::default(),
         };
 
         for line in ret.6 {
