@@ -103,7 +103,19 @@ export default function NewTransactionButton() {
 
     return (
         <>
-            <Button onClick={onOpen}>New Transaction</Button>
+        <Flex
+        align="center"
+        paddingLeft={4}
+        paddingRight={4}
+        paddingTop={2}
+        paddingBottom={2}
+        marginTop={1}
+        mx="4"
+        borderRadius="3"
+        >
+         <Button onClick={onOpen}>New Transaction</Button>
+      </Flex>
+           
 
             <Modal onClose={onClose} isOpen={isOpen} isCentered size="3xl">
                 <ModalOverlay />
