@@ -1,4 +1,3 @@
-import { Flex } from "@chakra-ui/react";
 import { JournalItem, TransactionDto } from "../../gql/jouralList";
 import TransactionPreview from "./TransactionPreview";
 interface Props {
