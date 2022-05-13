@@ -1,14 +1,15 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::models::{Flag, StringOrAccount, ZhangString};
+use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::core::AccountName;
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ops::{Mul, Neg};
 
-pub type Meta = HashMap<String, ZhangString>;
+pub type Meta = MultiValueMap<String, ZhangString>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Date {

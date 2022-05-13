@@ -240,7 +240,7 @@ impl CurrencyDto {
         self.0
             .commodity
             .meta
-            .get("precision")
+            .get_one(&"precision".to_string())
             .map(|it| it.clone().to_plain_string())
             .map(|it| it.parse::<i32>().unwrap_or(2))
             .unwrap_or(2)
@@ -284,6 +284,7 @@ impl TransactionDto {
         self.0
             .meta
             .clone()
+            .get_flatten()
             .into_iter()
             .map(|(key, value)| MetaDto {
                 key,
