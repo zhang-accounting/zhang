@@ -6,10 +6,11 @@ interface Props {
 }
 export default function Amount({ amount, currency, negetive }: Props) {
     const flag = negetive || false ? -1 : 1;
-
+    var formatter = new Intl.NumberFormat('en-US', {
+    });
     return (
         <Flex>
-            <Text>{flag * parseFloat(amount || "0")}</Text>
+            <Text>{formatter.format(flag * parseFloat(amount || "0"))}</Text>
             <Text mx={1}>{currency}</Text>
         </Flex>
     )
