@@ -1,5 +1,5 @@
 import { useQuery } from '@apollo/client';
-import { Badge, Box, Heading, Tab, Table, TabList, TabPanel, TabPanels, Tabs, Tbody, Td, Th, Thead, Tr, Text } from '@chakra-ui/react';
+import { Badge, Heading, Tab, Table, TabList, TabPanel, TabPanels, Tabs, Tbody, Td, Th, Thead, Tr } from '@chakra-ui/react';
 import { useParams } from "react-router";
 import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
 import AccountDocumentLine from '../components/AccountDocumentLine';

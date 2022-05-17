@@ -1,6 +1,6 @@
 import { useMutation } from '@apollo/client';
 import React, { useEffect } from 'react';
-import { useDropzone, FileWithPath } from 'react-dropzone';
+import { FileWithPath, useDropzone } from 'react-dropzone';
 import { UPLOAD_ACCOUNT_DOCUMENT } from '../gql/uploadAccountDocument';
 
 interface Props {
@@ -22,7 +22,7 @@ export default function AccountDocumentUpload(props: Props) {
         if(acceptedFiles.length > 0) {
             uploadAccountDocuments({ variables: { account: props.accountName, files: acceptedFiles } })
         }
-    }, [acceptedFiles, props.accountName]);
+    }, [acceptedFiles, props.accountName, uploadAccountDocuments]);
 
     const files = acceptedFiles.map((file: FileWithPath) => (
         <li key={file.path}>
