@@ -1,4 +1,4 @@
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -10,10 +10,10 @@ use log::info;
 use uuid::Uuid;
 
 use crate::core::account::Account;
-use crate::core::data::{Date, Document, Include};
+use crate::core::data::{Date, Document};
 use crate::core::models::{Directive, ZhangString};
+use crate::parse_zhang;
 use crate::server::LedgerState;
-use crate::target::ZhangTarget;
 
 pub struct MutationRoot;
 
@@ -38,42 +38,13 @@ impl MutationRoot {
     async fn append_data(&self, ctx: &Context<'_>, date: i64, content: String) -> bool {
         let time = NaiveDateTime::from_timestamp(date, 0);
         let ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
-        let (entry, endpoint) = match &ledger_stage.entry {
-            Either::Left(path) => path,
-            Either::Right(_) => {
-                return false;
+        match parse_zhang(&content) {
+            Ok(directives) => {
+                ledger_stage.append_directives(directives, format!("data/{}/{}.zhang", time.year(), time.month()));
+                true
             }
-        };
-        let target_file_path = entry.join(format!("data/{}/{}.zhang", time.year(), time.month()));
-
-        if !target_file_path.exists() {
-            std::fs::create_dir_all(&target_file_path.parent().unwrap()).expect("cannot create folder recursive");
-            std::fs::write(&target_file_path, "").expect("cannot generate empty file");
+            Err(_) => false,
         }
-
-        let buf = target_file_path.canonicalize().unwrap();
-        if !ledger_stage.visited_files.contains(&buf) {
-            let path = match target_file_path.strip_prefix(entry) {
-                Ok(relative_path) => relative_path.to_str().unwrap(),
-                Err(_) => target_file_path.to_str().unwrap(),
-            };
-            let include_directive = Directive::Include(Include {
-                file: ZhangString::QuoteString(path.to_string()),
-            })
-            .to_target();
-            let mut ledger_base_file = OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(&entry.join(endpoint))
-                .unwrap();
-            ledger_base_file
-                .write_all(format!("\n{}\n", include_directive).as_bytes())
-                .unwrap();
-        }
-
-        let mut file = OpenOptions::new().append(true).create(true).open(buf).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-        true
     }
 
     async fn upload_account_document(&self, ctx: &Context<'_>, account_name: String, files: Vec<Upload>) -> bool {
