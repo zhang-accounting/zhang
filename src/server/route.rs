@@ -1,11 +1,10 @@
 use crate::server::model::LedgerSchema;
 use async_graphql::http::{playground_source, GraphQLPlaygroundConfig};
-use async_graphql::Request;
+use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::body::{boxed, Full};
 use axum::extract::Extension;
 use axum::http::{header, StatusCode, Uri};
 use axum::response::{Html, IntoResponse, Response};
-use axum::Json;
 use rust_embed::RustEmbed;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -14,7 +13,7 @@ pub async fn graphql_playground() -> impl IntoResponse {
     Html(playground_source(GraphQLPlaygroundConfig::new("/graphql")))
 }
 
-pub async fn graphql_handler(schema: Extension<LedgerSchema>, req: Json<Request>) -> Json<async_graphql::Response> {
+pub async fn graphql_handler(schema: Extension<LedgerSchema>, req: GraphQLRequest) -> GraphQLResponse {
     schema.execute(req.0).await.into()
 }
 

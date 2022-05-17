@@ -9,7 +9,6 @@ interface Props {
 }
 export default function StatisticBox({ text, amount, currency, negetive }: Props) {
 
-
     
 
     const displayBox = <Flex direction={"column"} mx={3}>

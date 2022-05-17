@@ -1,14 +1,19 @@
-use crate::core::data::Include;
+use std::fs::{File, OpenOptions};
+use std::io::{BufReader, BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+
+use async_graphql::{Context, Object, Upload};
+use chrono::{Datelike, Local, NaiveDateTime};
+use itertools::{Either, Itertools};
+use log::info;
+use uuid::Uuid;
+
+use crate::core::account::Account;
+use crate::core::data::{Date, Document, Include};
 use crate::core::models::{Directive, ZhangString};
 use crate::server::LedgerState;
 use crate::target::ZhangTarget;
-use async_graphql::{Context, Object};
-use chrono::{Datelike, NaiveDateTime};
-use itertools::Either;
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::PathBuf;
-use std::str::FromStr;
 
 pub struct MutationRoot;
 
@@ -33,14 +38,13 @@ impl MutationRoot {
     async fn append_data(&self, ctx: &Context<'_>, date: i64, content: String) -> bool {
         let time = NaiveDateTime::from_timestamp(date, 0);
         let ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
-        let entry_path = match &ledger_stage.entry {
+        let (entry, endpoint) = match &ledger_stage.entry {
             Either::Left(path) => path,
             Either::Right(_) => {
                 return false;
             }
         };
-        let ledger_base_path = entry_path.parent().unwrap();
-        let target_file_path = ledger_base_path.join(format!("data/{}/{}.zhang", time.year(), time.month()));
+        let target_file_path = entry.join(format!("data/{}/{}.zhang", time.year(), time.month()));
 
         if !target_file_path.exists() {
             std::fs::create_dir_all(&target_file_path.parent().unwrap()).expect("cannot create folder recursive");
@@ -49,7 +53,7 @@ impl MutationRoot {
 
         let buf = target_file_path.canonicalize().unwrap();
         if !ledger_stage.visited_files.contains(&buf) {
-            let path = match target_file_path.strip_prefix(ledger_base_path) {
+            let path = match target_file_path.strip_prefix(entry) {
                 Ok(relative_path) => relative_path.to_str().unwrap(),
                 Err(_) => target_file_path.to_str().unwrap(),
             };
@@ -57,7 +61,11 @@ impl MutationRoot {
                 file: ZhangString::QuoteString(path.to_string()),
             })
             .to_target();
-            let mut ledger_base_file = OpenOptions::new().append(true).create(true).open(&entry_path).unwrap();
+            let mut ledger_base_file = OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(&entry.join(endpoint))
+                .unwrap();
             ledger_base_file
                 .write_all(format!("\n{}\n", include_directive).as_bytes())
                 .unwrap();
@@ -67,4 +75,55 @@ impl MutationRoot {
         file.write_all(content.as_bytes()).unwrap();
         true
     }
+
+    async fn upload_account_document(&self, ctx: &Context<'_>, account_name: String, files: Vec<Upload>) -> bool {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
+        let (entry, _endpoint) = match &ledger_stage.entry {
+            Either::Left(path) => path,
+            Either::Right(_) => {
+                return false;
+            }
+        };
+        let documents = files
+            .into_iter()
+            .map(|file| {
+                let file = file.value(ctx).unwrap();
+                let v4 = Uuid::new_v4();
+
+                let buf = entry.join("attachments").join(v4.to_string()).join(&file.filename);
+                info!("upload: filename={} direction={}", file.filename, buf.display());
+                create_folder_if_not_exist(&buf);
+                let file1 = file.content;
+                let mut reader = BufReader::new(file1);
+
+                let mut contents = String::new();
+                reader.read_to_string(&mut contents).expect("Cannot read file");
+
+                let f = File::create(&buf).expect("Unable to create file");
+                let mut f = BufWriter::new(f);
+                f.write_all(contents.as_bytes()).expect("cannot wirte content");
+                let path = match buf.strip_prefix(&entry) {
+                    Ok(relative_path) => relative_path.to_str().unwrap(),
+                    Err(_) => buf.to_str().unwrap(),
+                };
+                Document {
+                    date: Date::Datetime(Local::now().naive_local()),
+                    account: Account::from_str(&account_name).unwrap(),
+                    filename: ZhangString::QuoteString(path.to_string()),
+                    tags: None,
+                    links: None,
+                    meta: Default::default(),
+                }
+            })
+            .map(Directive::Document)
+            .collect_vec();
+        let time = Local::now().naive_local();
+
+        ledger_stage.append_directives(documents, format!("data/{}/{}.zhang", time.year(), time.month()));
+        true
+    }
+}
+
+pub(crate) fn create_folder_if_not_exist(filename: &Path) {
+    std::fs::create_dir_all(&filename.parent().unwrap()).expect("cannot create folder recursive");
 }

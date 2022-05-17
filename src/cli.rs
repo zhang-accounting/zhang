@@ -28,7 +28,12 @@ pub enum ImportOpts {
 
 #[derive(Args, Debug)]
 pub struct ParseOpts {
-    file: PathBuf,
+    /// base path of zhang project
+    pub path: PathBuf,
+
+    /// the endpoint of main zhang file.
+    #[clap(short, long, default_value = "main.zhang")]
+    pub endpoint: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -58,8 +63,8 @@ impl Opts {
     pub fn run(self) {
         match self {
             Opts::Importer(importer) => importer.run(),
-            Opts::Parse(file) => {
-                Ledger::load(file.file).expect("Cannot load ledger");
+            Opts::Parse(parse_opts) => {
+                Ledger::load(parse_opts.path, parse_opts.endpoint).expect("Cannot load ledger");
             }
             Opts::Exporter(opts) => opts.run(),
             Opts::Server(opts) => crate::server::serve(opts).expect("cannot serve"),

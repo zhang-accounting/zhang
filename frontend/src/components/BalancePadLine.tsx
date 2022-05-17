@@ -4,7 +4,7 @@ interface Props {
     data: BalancePadDto
 }
 
-export default function BalancePadLine(props: Props) {
+export default function BalancePadLine({ }: Props) {
     return (
         <div>
             BalancepadLine

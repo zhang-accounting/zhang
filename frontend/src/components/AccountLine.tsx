@@ -25,8 +25,8 @@ export default function AccountLine({ data }: Props) {
                 )}
             </Flex>
             <Box pl={2}>
-                {Object.keys(data.children).sort().map(child => (
-                    <AccountLine data={data.children[child]} />
+                {Object.keys(data.children).sort().map((child, idx) => (
+                    <AccountLine key={idx} data={data.children[child]} />
                 ))}
             </Box>
         </Flex>

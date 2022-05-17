@@ -1,4 +1,4 @@
-import { ApolloClient, ApolloProvider, InMemoryCache } from "@apollo/client";
+import { ApolloClient, ApolloProvider, HttpLink, InMemoryCache } from "@apollo/client";
 import {
   Box, BoxProps, ChakraProvider, CloseButton, Drawer,
   DrawerContent, Flex, FlexProps, Icon, IconButton, Link, Text, useColorModeValue, useDisclosure
@@ -12,11 +12,18 @@ import App from "./App";
 import NewTransactionButton from "./components/NewTransactionButton";
 import StatisticBar from "./components/StatisticBar";
 import { Chart, registerables } from 'chart.js';
+// @ts-ignore
+import {createUploadLink } from 'apollo-upload-client';
+
 Chart.register(...registerables);
 
+
 const client = new ApolloClient({
-  // eslint-disable-line
-  uri: process.env.NODE_ENV !== 'production' ? 'http://127.0.0.1:8000/graphql' : '/graphql',
+
+  link: createUploadLink({
+    // eslint-disable-line
+    uri: process.env.NODE_ENV !== 'production' ? 'http://127.0.0.1:8000/graphql' : '/graphql'
+  }),
   cache: new InMemoryCache()
 });
 

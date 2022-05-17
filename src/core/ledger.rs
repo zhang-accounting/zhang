@@ -1,7 +1,7 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::data::{Commodity, Date};
-use crate::core::models::Directive;
+use crate::core::data::{Commodity, Date, Include};
+use crate::core::models::{Directive, ZhangString};
 use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
 use crate::core::utils::multi_value_map::MultiValueMap;
@@ -9,6 +9,8 @@ use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::core::{AccountName, Currency};
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
+use crate::server::model::mutation::create_folder_if_not_exist;
+use crate::target::ZhangTarget;
 use async_graphql::Enum;
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
@@ -16,6 +18,8 @@ use itertools::{Either, Itertools};
 use log::debug;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock as StdRwLock};
 
@@ -67,7 +71,7 @@ pub enum LedgerError {
 
 #[derive(Debug)]
 pub struct Ledger {
-    pub entry: Either<PathBuf, String>,
+    pub entry: Either<(PathBuf, String), String>,
     pub(crate) visited_files: Vec<PathBuf>,
 
     pub(crate) directives: Vec<Directive>,
@@ -84,9 +88,10 @@ pub struct Ledger {
 }
 
 impl Ledger {
-    pub fn load(entry: PathBuf) -> ZhangResult<Ledger> {
+    pub fn load(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
+        let main_endpoint = entry.join(&endpoint);
         let mut load_queue = VecDeque::new();
-        load_queue.push_back(entry.clone());
+        load_queue.push_back(main_endpoint);
 
         let mut visited = HashSet::new();
         let mut directives = vec![];
@@ -113,7 +118,11 @@ impl Ledger {
             visited.insert(path);
             directives.extend(entity_directives)
         }
-        Ledger::process(directives, Either::Left(entry), visited.into_iter().collect_vec())
+        Ledger::process(
+            directives,
+            Either::Left((entry, endpoint)),
+            visited.into_iter().collect_vec(),
+        )
     }
 
     fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Directive>> {
@@ -122,7 +131,7 @@ impl Ledger {
     }
 
     fn process(
-        directives: Vec<Directive>, entry: Either<PathBuf, String>, visited_files: Vec<PathBuf>,
+        directives: Vec<Directive>, entry: Either<(PathBuf, String), String>, visited_files: Vec<PathBuf>,
     ) -> ZhangResult<Ledger> {
         let (mut meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
@@ -173,7 +182,7 @@ impl Ledger {
         Ok(ret_ledger)
     }
 
-    pub fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
+    pub(crate) fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
         let content = content.as_ref();
         let directives = parse_zhang(content).map_err(|it| ZhangError::PestError(it.to_string()))?;
         Ledger::process(directives, Either::Right(content.to_string()), vec![])
@@ -199,7 +208,7 @@ impl Ledger {
 
     pub fn reload(&mut self) -> ZhangResult<()> {
         let reload_ledger = match &mut self.entry {
-            Either::Left(path_buf) => Ledger::load(path_buf.clone()),
+            Either::Left((entry, endpoint)) => Ledger::load(entry.clone(), endpoint.clone()),
             Either::Right(raw_string) => Ledger::load_from_str(raw_string),
         }?;
         *self = reload_ledger;
@@ -210,6 +219,35 @@ impl Ledger {
             inner: Default::default(),
             prices: self.prices.clone(),
         }
+    }
+
+    pub(crate) fn append_directives(&self, directives: Vec<Directive>, target_endpoint: impl Into<Option<String>>) {
+        let (entry, endpoint) = match &self.entry {
+            Either::Left(path) => path,
+            Either::Right(_) => {
+                return;
+            }
+        };
+        let endpoint = entry.join(target_endpoint.into().unwrap_or_else(|| endpoint.clone()));
+
+        create_folder_if_not_exist(&endpoint);
+
+        if !self.visited_files.contains(&endpoint) {
+            let path = match endpoint.strip_prefix(entry) {
+                Ok(relative_path) => relative_path.to_str().unwrap(),
+                Err(_) => endpoint.to_str().unwrap(),
+            };
+            self.append_directives(
+                vec![Directive::Include(Include {
+                    file: ZhangString::QuoteString(path.to_string()),
+                })],
+                None,
+            );
+        }
+        let mut directive_content = directives.into_iter().map(|it| it.to_target()).join("\n");
+        directive_content.push('\n');
+        let mut ledger_base_file = OpenOptions::new().append(true).create(true).open(&endpoint).unwrap();
+        ledger_base_file.write_all(directive_content.as_bytes()).unwrap();
     }
 }
 
@@ -417,7 +455,7 @@ mod test {
                 "#},
             )
             .unwrap();
-            let ledger = Ledger::load(example).unwrap();
+            let ledger = Ledger::load(temp_dir, "example.zhang".to_string()).unwrap();
             assert_eq!(
                 test_parse_zhang(indoc! {r#"
                 option "title" "Example"

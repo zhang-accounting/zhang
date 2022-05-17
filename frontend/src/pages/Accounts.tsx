@@ -36,8 +36,8 @@ export default function Accounts() {
         <div key={group}>
           <Heading size={"l"}>{group}</Heading>
           <div>
-            {Object.keys(accountTrie.children[group].children).sort().map(item => (
-              <AccountLine data={accountTrie.children[group].children[item]} />
+            {Object.keys(accountTrie.children[group].children).sort().map((item, idx) => (
+              <AccountLine key={idx} data={accountTrie.children[group].children[item]} />
             ))}
           </div>
         </div>
