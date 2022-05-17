@@ -96,12 +96,12 @@ impl MutationRoot {
                 let file1 = file.content;
                 let mut reader = BufReader::new(file1);
 
-                let mut contents = String::new();
-                reader.read_to_string(&mut contents).expect("Cannot read file");
+                let mut buf_content = vec![];
+                reader.read_to_end(&mut buf_content).expect("Cannot read file");
 
                 let f = File::create(&buf).expect("Unable to create file");
                 let mut f = BufWriter::new(f);
-                f.write_all(contents.as_bytes()).expect("cannot wirte content");
+                f.write_all(&buf_content).expect("cannot wirte content");
                 let path = match buf.strip_prefix(&entry) {
                     Ok(relative_path) => relative_path.to_str().unwrap(),
                     Err(_) => buf.to_str().unwrap(),
