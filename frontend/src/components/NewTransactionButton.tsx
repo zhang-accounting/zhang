@@ -103,19 +103,19 @@ export default function NewTransactionButton() {
 
     return (
         <>
-        <Flex
-        align="center"
-        paddingLeft={4}
-        paddingRight={4}
-        paddingTop={2}
-        paddingBottom={2}
-        marginTop={1}
-        mx="4"
-        borderRadius="3"
-        >
-         <Button onClick={onOpen}>New Transaction</Button>
-      </Flex>
-           
+            <Flex
+                align="center"
+                paddingLeft={4}
+                paddingRight={4}
+                paddingTop={2}
+                paddingBottom={2}
+                marginTop={1}
+                mx="4"
+                borderRadius="3"
+            >
+                <Button onClick={onOpen}>New Transaction</Button>
+            </Flex>
+
 
             <Modal onClose={onClose} isOpen={isOpen} isCentered size="3xl">
                 <ModalOverlay />
@@ -143,6 +143,27 @@ export default function NewTransactionButton() {
                                     <Flex m={1} key={idx}>
                                         <Box w='80%'>
                                             <Select
+                                                styles={{
+                                                    control: (provided, state) =>{
+                                                        const borderColor = state.isFocused ? "var(--chakra-colors-gray-300)": "var(--chakra-colors-gray-200)"
+                                                        return {
+                                                            ...provided,
+                                                            borderWidth: "1px",
+                                                            borderColor: borderColor
+                                                        }
+                                                    },
+                                                    singleValue: (provided, state) => ({
+                                                        ...provided,
+                                                        fontSize: "var(--chakra-fontSizes-md)",
+                                                        margin: "5px 7px"
+                                                    }),
+                                                    placeholder: (provided, state) => ({
+                                                        ...provided,
+                                                        fontSize: "var(--chakra-fontSizes-md)",
+                                                        color: "#a0aec0",
+                                                        margin: "5px 7px"
+                                                    })
+                                                }}
                                                 isClearable
                                                 isSearchable
                                                 value={posting.account}
