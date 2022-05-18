@@ -1,6 +1,6 @@
 import { Badge, Flex, Text } from "@chakra-ui/react";
 import { useNavigate } from "react-router";
-import { AccountItem } from "../gql/accountList";
+import { AccountItem } from "../../gql/accountList";
 
 export interface Props {
     filename: string,

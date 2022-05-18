@@ -9,15 +9,22 @@ export interface DocumentListQuery {
 
 export const DOCUMENT_LIST = gql`
 query DOCUMENT_LIST {
-    documents {
-      filename
-      __typename
-      ... on AccountDocumentDto {
-        account {
-          name
-          status
-        }
+  documents {
+    date
+    filename
+    __typename
+    ... on AccountDocumentDto {
+      account {
+        name
+        status
       }
     }
-  } 
+    ... on TransactionDocumentDto {
+      transaction {
+        payee,
+        narration
+      }
+    }
+  }
+}
 `

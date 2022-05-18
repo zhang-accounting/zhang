@@ -1,6 +1,6 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::data::{Commodity, Date, Include};
+use crate::core::data::{Commodity, Date, Include, Transaction};
 use crate::core::models::{Directive, ZhangString};
 use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
@@ -32,7 +32,7 @@ pub enum DocumentType {
     },
     TransactionDocument {
         date: Date,
-        // todo add transaction location info
+        trx: Transaction,
         filename: String,
     },
 }
@@ -80,7 +80,7 @@ pub struct Ledger {
     pub currencies: HashMap<Currency, CurrencyInfo>,
     pub account_inventory: HashMap<AccountName, Inventory>,
     pub daily_inventory: DailyAccountInventory,
-    pub documents: HashMap<String, DocumentType>,
+    pub documents: Vec<DocumentType>,
     pub errors: Vec<LedgerError>,
 
     pub configs: HashMap<String, String>,
@@ -147,7 +147,7 @@ impl Ledger {
             currencies: HashMap::default(),
             account_inventory: HashMap::default(),
             daily_inventory: DailyAccountInventory::default(),
-            documents: HashMap::default(),
+            documents: Vec::new(),
             errors: vec![],
             configs: HashMap::default(),
             prices: arc_price.clone(),

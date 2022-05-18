@@ -116,13 +116,25 @@ impl DirectiveProcess for Transaction {
             &mut context.target_day,
             date,
         );
-
         for txn_posting in self.txn_postings() {
             let target_account_snapshot = ledger
                 .account_inventory
                 .entry(txn_posting.account_name())
                 .or_insert_with(|| context.default_account_snapshot());
             target_account_snapshot.add_amount(txn_posting.units());
+        }
+        for document in self
+            .meta.clone()
+            .get_flatten()
+            .into_iter()
+            .filter(|(key, _)| key.eq("document"))
+        {
+            let (_, document_file_name) = document;
+            ledger.documents.push(DocumentType::TransactionDocument {
+                date: self.date.clone(),
+                trx: self.clone(),
+                filename: document_file_name.to_plain_string(),
+            })
         }
         Ok(())
     }
@@ -213,14 +225,11 @@ impl DirectiveProcess for Balance {
 
 impl DirectiveProcess for Document {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext) -> ZhangResult<()> {
-        ledger.documents.insert(
-            self.filename.clone().to_plain_string(),
-            DocumentType::AccountDocument {
-                date: self.date.clone(),
-                account: self.account.clone(),
-                filename: self.filename.clone().to_plain_string(),
-            },
-        );
+        ledger.documents.push(DocumentType::AccountDocument {
+            date: self.date.clone(),
+            account: self.account.clone(),
+            filename: self.filename.clone().to_plain_string(),
+        });
         Ok(())
     }
 }
