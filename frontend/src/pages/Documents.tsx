@@ -1,7 +1,8 @@
-import AccountDocumentLine from "../components/AccountDocumentLine";
+import AccountDocumentLine from "../components/documentLines/AccountDocumentLine";
 import { useQuery } from "@apollo/client";
 import { Heading } from "@chakra-ui/react";
 import { DocumentListQuery, DOCUMENT_LIST } from "../gql/documentList";
+import TransactionDocumentLine from "../components/documentLines/TransactionDocumentLine";
 
 export default function Documents() {
     const { loading, error, data } = useQuery<DocumentListQuery>(DOCUMENT_LIST);
@@ -21,7 +22,7 @@ export default function Documents() {
                         )
                     case "TransactionDocumentDto":
                         return (
-                            <div>todo transaction document dto line</div>
+                            <TransactionDocumentLine {...document} />
                         )
                     default:
                         return(<div></div>);

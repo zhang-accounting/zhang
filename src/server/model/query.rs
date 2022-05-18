@@ -83,10 +83,10 @@ impl QueryRoot {
 
     async fn documents(&self, ctx: &Context<'_>) -> Vec<DocumentDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        ledger_stage
+        let vec = ledger_stage
             .documents
-            .values()
-            .cloned()
+            .clone()
+            .into_iter()
             .map(|it| match it {
                 DocumentType::AccountDocument {
                     date,
@@ -97,9 +97,12 @@ impl QueryRoot {
                     account,
                     filename,
                 }),
-                DocumentType::TransactionDocument { .. } => DocumentDto::TransactionDocument(TransactionDocumentDto {}),
+                DocumentType::TransactionDocument { date, filename, trx } => {
+                    DocumentDto::TransactionDocument(TransactionDocumentDto { date, filename, trx })
+                }
             })
-            .collect_vec()
+            .collect_vec();
+        vec
     }
 
     async fn journals(&self, ctx: &Context<'_>) -> Vec<JournalDto> {
@@ -200,7 +203,7 @@ impl AccountDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
         ledger_stage
             .documents
-            .values()
+            .iter()
             .filter(|it| match it {
                 DocumentType::AccountDocument { account, .. } => account.content.eq(&self.name),
                 DocumentType::TransactionDocument { .. } => false, // todo transaction documents
@@ -216,7 +219,9 @@ impl AccountDto {
                     account,
                     filename,
                 }),
-                DocumentType::TransactionDocument { .. } => DocumentDto::TransactionDocument(TransactionDocumentDto {}),
+                DocumentType::TransactionDocument { date, filename, trx } => {
+                    DocumentDto::TransactionDocument(TransactionDocumentDto { date, filename, trx })
+                }
             })
             .collect_vec()
     }
@@ -539,6 +544,7 @@ impl FileEntryDto {
 }
 
 #[derive(Interface)]
+#[graphql(field(name = "date", type = "i64"))]
 #[graphql(field(name = "filename", type = "String"))]
 pub enum DocumentDto {
     AccountDocument(AccountDocumentDto),
@@ -572,12 +578,22 @@ impl AccountDocumentDto {
     }
 }
 
-pub struct TransactionDocumentDto {}
+pub struct TransactionDocumentDto {
+    date: Date,
+    filename: String,
+    trx: Transaction,
+}
 
 #[Object]
 impl TransactionDocumentDto {
+    async fn date(&self) -> i64 {
+        self.date.naive_datetime().timestamp()
+    }
     async fn filename(&self) -> String {
-        "".to_string()
+        self.filename.clone()
+    }
+    async fn transaction(&self) -> TransactionDto {
+        TransactionDto(self.trx.clone())
     }
 }
 
