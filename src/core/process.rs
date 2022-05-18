@@ -124,7 +124,8 @@ impl DirectiveProcess for Transaction {
             target_account_snapshot.add_amount(txn_posting.units());
         }
         for document in self
-            .meta.clone()
+            .meta
+            .clone()
             .get_flatten()
             .into_iter()
             .filter(|(key, _)| key.eq("document"))

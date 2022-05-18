@@ -83,7 +83,7 @@ impl QueryRoot {
 
     async fn documents(&self, ctx: &Context<'_>) -> Vec<DocumentDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        let vec = ledger_stage
+        ledger_stage
             .documents
             .clone()
             .into_iter()
@@ -101,8 +101,7 @@ impl QueryRoot {
                     DocumentDto::TransactionDocument(TransactionDocumentDto { date, filename, trx })
                 }
             })
-            .collect_vec();
-        vec
+            .collect_vec()
     }
 
     async fn journals(&self, ctx: &Context<'_>) -> Vec<JournalDto> {
