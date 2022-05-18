@@ -68,7 +68,7 @@ export default function NewTransactionButton() {
         const dateDisplay = format(date, dateOnly ? "yyyy-MM-dd" : "yyyy-MM-dd HH:mm:ss");
         const narrationDisplay = narration.trim().length === 0 ? "" : ` ${JSON.stringify(narration.trim())}`;
         const postingDisplay = postings.map(posting => `  ${posting.account?.value} ${posting.amount}`).join("\n");
-        return `${dateDisplay} ${JSON.stringify(payee?.value)}${narrationDisplay}\n${postingDisplay}`
+        return `${dateDisplay} ${JSON.stringify(payee?.value || "")}${narrationDisplay}\n${postingDisplay}`
     }
 
     const valid = (): boolean => {
