@@ -7,10 +7,14 @@ interface Props {
 export default function Amount({ amount, currency, negetive }: Props) {
     const flag = negetive || false ? -1 : 1;
     var formatter = new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 10,
     });
+    const parsedValue = parseFloat(amount || "0");
+    const value = parsedValue === 0 ? parsedValue : flag * parsedValue;
     return (
         <Flex>
-            <Text>{formatter.format(flag * parseFloat(amount || "0"))}</Text>
+            <Text>{formatter.format(value)}</Text>
             <Text mx={1}>{currency}</Text>
         </Flex>
     )
