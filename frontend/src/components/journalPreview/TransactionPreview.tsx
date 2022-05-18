@@ -34,7 +34,7 @@ export default function TransactionPreview(props: Props) {
                 props.data.metas.length > 0 && <Box mx={1} my={4}>
                     <Block title="Metas">
                         <Box>
-                            {props.data.metas.map((meta, idx) => (
+                            {props.data.metas.filter((meta) => meta.key !== "document").map((meta, idx) => (
                                 <Flex key={idx} justifyContent="space-between">
                                     <div>{meta.key}</div>
                                     <div>{meta.value}</div>
