@@ -60,7 +60,7 @@ pub struct CurrencyInfo {
 #[derive(Clone, Debug)]
 pub struct LedgerError {
     pub(crate) span: SpanInfo,
-    pub(crate) error: LedgerErrorType
+    pub(crate) error: LedgerErrorType,
 }
 
 #[derive(Clone, Debug)]
@@ -71,7 +71,9 @@ pub enum LedgerErrorType {
         current: Amount,
         distance: Amount,
     },
-    // AccountDoesNotExist {},
+    AccountDoesNotExist {
+        account_name: String,
+    },
     // AccountClosed {},
     // TransactionDoesNotBalance {},
 }
@@ -204,12 +206,15 @@ impl Ledger {
     }
 
     pub fn apply(mut self, applier: impl Fn(Directive) -> Directive) -> Self {
-        let vec = self.directives.into_iter()
+        let vec = self
+            .directives
+            .into_iter()
             .map(|mut it| {
                 let directive = applier(it.data);
                 it.data = directive;
                 it
-            }).collect_vec();
+            })
+            .collect_vec();
         self.directives = vec;
         self
     }
@@ -271,8 +276,7 @@ mod test {
     use itertools::Itertools;
 
     fn test_parse_zhang(content: &str) -> Vec<Spanned<Directive>> {
-        parse_zhang(content)
-            .expect("cannot parse zhang")
+        parse_zhang(content).expect("cannot parse zhang")
     }
 
     mod sort_directive_datetime {
