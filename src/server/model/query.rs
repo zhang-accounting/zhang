@@ -4,6 +4,7 @@ use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction, Tx
 use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType, LedgerError, LedgerErrorType};
 use crate::core::models::Directive;
 use crate::core::utils::inventory::Inventory;
+use crate::core::utils::lined_data::SpanInfo;
 use crate::core::AccountName;
 use crate::server::LedgerState;
 use async_graphql::{Context, Interface, Object};
@@ -15,7 +16,6 @@ use std::ops::{Add, Sub};
 use std::path::PathBuf;
 use std::str::FromStr;
 use time::Duration;
-use crate::core::utils::lined_data::SpanInfo;
 
 pub struct QueryRoot;
 
@@ -602,8 +602,22 @@ pub struct ErrorDto(LedgerError);
 #[Object]
 impl ErrorDto {
     async fn message(&self) -> String {
-        match self.0.error {
-            LedgerErrorType::AccountBalanceCheckError { .. } => "account not balance".to_string(),
+        match &self.0.error {
+            LedgerErrorType::AccountBalanceCheckError {
+                account_name,
+                distance,
+                target,
+                current,
+            } => format!(
+                "account {} balance to {} {} with distance {} {}(current is {} {})",
+                account_name,
+                &target.number,
+                &target.currency,
+                &distance.number,
+                &distance.currency,
+                &current.number,
+                &current.currency,
+            ),
             // LedgerError::AccountDoesNotExist { .. } => "account does not exist".to_string(),
             // LedgerError::AccountClosed { .. } => "account close".to_string(),
             // LedgerError::TransactionDoesNotBalance { .. } => "trx does not balance".to_string(),
@@ -640,9 +654,9 @@ impl SpanInfoDto {
         self.0.end
     }
     async fn filename(&self) -> Option<&str> {
-        self.0.filename.as_ref().and_then(|it|it.to_str())
+        self.0.filename.as_ref().and_then(|it| it.to_str())
     }
-    async fn content(&self)-> String {
+    async fn content(&self) -> String {
         self.0.content.clone()
     }
 }
