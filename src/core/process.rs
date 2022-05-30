@@ -199,16 +199,6 @@ impl DirectiveProcess for Balance {
                         }
                     });
                     target_account_snapshot.add_amount(distance);
-                    error!(
-                        "balance error: account {} balance to {} {} with distance {} {}(current is {} {})",
-                        balance_check.account.name(),
-                        &balance_check.amount.number,
-                        &balance_check.amount.currency,
-                        (&balance_check.amount.number).sub(&target_account_balance),
-                        &balance_check.amount.currency,
-                        &target_account_balance,
-                        &balance_check.amount.currency
-                    );
                 }
             }
             Balance::BalancePad(balance_pad) => {
