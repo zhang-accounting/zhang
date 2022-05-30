@@ -12,6 +12,7 @@ use crate::core::data::{
     Options, Plugin, Posting, Price, Transaction,
 };
 use crate::core::models::{Directive, Flag, SingleTotalPrice, StringOrAccount, ZhangString};
+use crate::core::utils::lined_data::{SpanInfo, Spanned};
 use crate::core::utils::multi_value_map::MultiValueMap;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
@@ -459,8 +460,12 @@ impl ZhangParser {
         }))
     }
 
-    fn item(input: Node) -> Result<Directive> {
-        let ret = match_nodes!(input.into_children();
+    fn item(input: Node) -> Result<Spanned<Directive>> {
+        let raw_content = input.as_str();
+        let start = input.as_span().start_pos().line_col().0;
+        let end = input.as_span().end_pos().line_col().0;
+
+        let ret: Directive = match_nodes!(input.into_children();
             [option(item)] => item,
             [open(item)] => item,
             [plugin(item)] => item,
@@ -476,9 +481,17 @@ impl ZhangParser {
             [comment(item)] => item,
             [transaction(item)] => item,
         );
-        Ok(ret)
+        Ok(Spanned {
+            data: ret,
+            span: SpanInfo {
+                start,
+                end,
+                content: raw_content.to_string(),
+                filename: None
+            }
+        })
     }
-    fn entry(input: Node) -> Result<Vec<Directive>> {
+    fn entry(input: Node) -> Result<Vec<Spanned<Directive>>> {
         let ret = match_nodes!(input.into_children();
             [item(items).., _] => items.collect(),
         );
@@ -486,7 +499,7 @@ impl ZhangParser {
     }
 }
 
-pub fn parse_zhang(input_str: &str) -> Result<Vec<Directive>> {
+pub fn parse_zhang(input_str: &str) -> Result<Vec<Spanned<Directive>>> {
     let inputs = ZhangParser::parse(Rule::entry, input_str)?;
     let input = inputs.single()?;
     ZhangParser::entry(input)

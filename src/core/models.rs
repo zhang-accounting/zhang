@@ -9,6 +9,25 @@ use crate::core::data::{
     Transaction,
 };
 
+
+#[derive(Debug, PartialEq)]
+pub enum DirectiveType {
+    Open,
+    Close,
+    Commodity,
+    Transaction,
+    Balance,
+    Note,
+    Document,
+    Price,
+    Event,
+    Custom,
+    Option,
+    Plugin,
+    Include,
+    Comment,
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Directive {
     Open(Open),
@@ -47,6 +66,24 @@ impl Directive {
             Directive::Plugin(_) => None,
             Directive::Include(_) => None,
             Directive::Comment(_) => None,
+        }
+    }
+    pub fn directive_type(&self) -> DirectiveType {
+        match &self {
+            Directive::Open(_) => { DirectiveType::Open}
+            Directive::Close(_) => {DirectiveType::Close}
+            Directive::Commodity(_) => {DirectiveType::Commodity}
+            Directive::Transaction(_) => {DirectiveType::Transaction}
+            Directive::Balance(_) => {DirectiveType::Balance}
+            Directive::Note(_) => {DirectiveType::Note}
+            Directive::Document(_) => {DirectiveType::Document}
+            Directive::Price(_) => {DirectiveType::Price}
+            Directive::Event(_) => {DirectiveType::Event}
+            Directive::Custom(_) => {DirectiveType::Custom}
+            Directive::Option(_) => {DirectiveType::Option}
+            Directive::Plugin(_) => {DirectiveType::Plugin}
+            Directive::Include(_) => {DirectiveType::Include}
+            Directive::Comment(_) => {DirectiveType::Comment}
         }
     }
 }
