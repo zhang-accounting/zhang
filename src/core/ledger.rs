@@ -16,7 +16,7 @@ use async_graphql::Enum;
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use itertools::{Either, Itertools};
-use log::debug;
+use log::{debug, error, info};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
@@ -188,6 +188,11 @@ impl Ledger {
         }
         ret_ledger.metas = meta_directives;
         ret_ledger.directives = directives;
+        if !ret_ledger.errors.is_empty() {
+            error!("Ledger loaded with {} error", ret_ledger.errors.len());
+        } else {
+            info!("Ledger loaded");
+        }
         Ok(ret_ledger)
     }
 
