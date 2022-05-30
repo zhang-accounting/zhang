@@ -618,7 +618,7 @@ impl ErrorDto {
                 &current.number,
                 &current.currency,
             ),
-            // LedgerError::AccountDoesNotExist { .. } => "account does not exist".to_string(),
+            LedgerErrorType::AccountDoesNotExist { account_name } => format!("account {} does not exist", account_name),
             // LedgerError::AccountClosed { .. } => "account close".to_string(),
             // LedgerError::TransactionDoesNotBalance { .. } => "trx does not balance".to_string(),
         }
