@@ -276,7 +276,7 @@ impl ZhangTarget<String> for Directive {
 
 impl ZhangTarget<String> for Ledger {
     fn to_target(self) -> String {
-        let vec = self.directives.into_iter().map(|it| it.to_target()).collect_vec();
+        let vec = self.directives.into_iter().map(|it| it.data.to_target()).collect_vec();
         vec.join("\n\n")
     }
 }

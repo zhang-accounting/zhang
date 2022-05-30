@@ -1,7 +1,7 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction, TxnPosting};
-use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType, LedgerError};
+use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType, LedgerError, LedgerErrorType};
 use crate::core::models::Directive;
 use crate::core::utils::inventory::Inventory;
 use crate::core::AccountName;
@@ -15,6 +15,7 @@ use std::ops::{Add, Sub};
 use std::path::PathBuf;
 use std::str::FromStr;
 use time::Duration;
+use crate::core::utils::lined_data::SpanInfo;
 
 pub struct QueryRoot;
 
@@ -109,7 +110,7 @@ impl QueryRoot {
         ledger_stage
             .directives
             .iter()
-            .filter_map(|directive| match directive {
+            .filter_map(|directive| match &directive.data {
                 Directive::Transaction(trx) => Some(JournalDto::Transaction(TransactionDto(trx.clone()))),
                 Directive::Balance(balance) => match balance {
                     Balance::BalanceCheck(check) => Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone()))),
@@ -178,7 +179,7 @@ impl AccountDto {
         ledger_stage
             .directives
             .iter()
-            .filter(|directive| match directive {
+            .filter(|directive| match &directive.data {
                 Directive::Transaction(trx) => trx.has_account(&self.name),
                 Directive::Balance(balance) => match balance {
                     Balance::BalanceCheck(check) => check.account.content.eq(&self.name),
@@ -186,7 +187,7 @@ impl AccountDto {
                 },
                 _ => false,
             })
-            .filter_map(|directive| match directive {
+            .filter_map(|directive| match &directive.data {
                 Directive::Transaction(trx) => Some(JournalDto::Transaction(TransactionDto(trx.clone()))),
                 Directive::Balance(balance) => match balance {
                     Balance::BalanceCheck(check) => Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone()))),
@@ -392,12 +393,12 @@ impl StatisticDto {
         ledger_stage
             .directives
             .iter()
-            .filter(|directive| match directive {
+            .filter(|directive| match &directive.data {
                 Directive::Transaction(_) => true,
                 Directive::Balance(_) => !transaction_only,
                 _ => false,
             })
-            .filter(|directive| match directive {
+            .filter(|directive| match &directive.data {
                 Directive::Transaction(trx) => {
                     trx.date.naive_datetime().ge(&self.start_date) && trx.date.naive_datetime().lt(&self.end_date)
                 }
@@ -412,7 +413,7 @@ impl StatisticDto {
                 },
                 _ => false,
             })
-            .filter_map(|directive| match directive {
+            .filter_map(|directive| match &directive.data {
                 Directive::Transaction(trx) => Some(JournalDto::Transaction(TransactionDto(trx.clone()))),
                 Directive::Balance(balance) => match balance {
                     Balance::BalanceCheck(check) => Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone()))),
@@ -601,12 +602,15 @@ pub struct ErrorDto(LedgerError);
 #[Object]
 impl ErrorDto {
     async fn message(&self) -> String {
-        match self.0 {
-            LedgerError::AccountBalanceCheckError { .. } => "account not balance".to_string(),
+        match self.0.error {
+            LedgerErrorType::AccountBalanceCheckError { .. } => "account not balance".to_string(),
             // LedgerError::AccountDoesNotExist { .. } => "account does not exist".to_string(),
             // LedgerError::AccountClosed { .. } => "account close".to_string(),
             // LedgerError::TransactionDoesNotBalance { .. } => "trx does not balance".to_string(),
         }
+    }
+    async fn span(&self) -> SpanInfoDto {
+        SpanInfoDto(self.0.span.clone())
     }
 }
 
@@ -622,5 +626,23 @@ impl MetaDto {
     }
     async fn value(&self) -> String {
         self.value.clone()
+    }
+}
+
+pub struct SpanInfoDto(SpanInfo);
+
+#[Object]
+impl SpanInfoDto {
+    async fn start(&self) -> usize {
+        self.0.start
+    }
+    async fn end(&self) -> usize {
+        self.0.end
+    }
+    async fn filename(&self) -> Option<&str> {
+        self.0.filename.as_ref().and_then(|it|it.to_str())
+    }
+    async fn content(&self)-> String {
+        self.0.content.clone()
     }
 }

@@ -40,6 +40,7 @@ impl MutationRoot {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
         match parse_zhang(&content) {
             Ok(directives) => {
+                let directives = directives.into_iter().map(|it| it.data).collect_vec();
                 ledger_stage.append_directives(directives, format!("data/{}/{}.zhang", time.year(), time.month()));
                 true
             }

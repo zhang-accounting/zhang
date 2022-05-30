@@ -1,9 +1,10 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Commodity, Date, Include, Transaction};
-use crate::core::models::{Directive, ZhangString};
+use crate::core::models::{Directive, DirectiveType, ZhangString};
 use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
+use crate::core::utils::lined_data::{SpanInfo, Spanned};
 use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::core::{AccountName, Currency};
@@ -57,7 +58,13 @@ pub struct CurrencyInfo {
 }
 
 #[derive(Clone, Debug)]
-pub enum LedgerError {
+pub struct LedgerError {
+    pub(crate) span: SpanInfo,
+    pub(crate) error: LedgerErrorType
+}
+
+#[derive(Clone, Debug)]
+pub enum LedgerErrorType {
     AccountBalanceCheckError {
         account_name: String,
         target: Amount,
@@ -74,8 +81,8 @@ pub struct Ledger {
     pub entry: Either<(PathBuf, String), String>,
     pub(crate) visited_files: Vec<PathBuf>,
 
-    pub(crate) directives: Vec<Directive>,
-    pub metas: Vec<Directive>,
+    pub(crate) directives: Vec<Spanned<Directive>>,
+    pub metas: Vec<Spanned<Directive>>,
     pub accounts: HashMap<AccountName, AccountInfo>,
     pub currencies: HashMap<Currency, CurrencyInfo>,
     pub account_inventory: HashMap<AccountName, Inventory>,
@@ -104,8 +111,8 @@ impl Ledger {
             let entity_directives = Ledger::load_directive_from_file(load_entity)?;
             entity_directives
                 .iter()
-                .filter(|it| matches!(it, Directive::Include(_)))
-                .for_each(|it| match it {
+                .filter(|it| it.directive_type() == DirectiveType::Include)
+                .for_each(|it| match &it.data {
                     Directive::Include(include_directive) => {
                         let buf = PathBuf::from(include_directive.file.clone().to_plain_string());
                         let include_path = path.parent().map(|it| it.join(&buf)).unwrap_or(buf);
@@ -125,15 +132,15 @@ impl Ledger {
         )
     }
 
-    fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Directive>> {
+    fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Spanned<Directive>>> {
         let content = std::fs::read_to_string(entry)?;
         parse_zhang(&content).map_err(|it| ZhangError::PestError(it.to_string()))
     }
 
     fn process(
-        directives: Vec<Directive>, entry: Either<(PathBuf, String), String>, visited_files: Vec<PathBuf>,
+        directives: Vec<Spanned<Directive>>, entry: Either<(PathBuf, String), String>, visited_files: Vec<PathBuf>,
     ) -> ZhangResult<Ledger> {
-        let (mut meta_directives, dated_directive): (Vec<Directive>, Vec<Directive>) =
+        let (mut meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
 
@@ -157,16 +164,16 @@ impl Ledger {
             prices: arc_price,
         };
         for directive in meta_directives.iter_mut().chain(directives.iter_mut()) {
-            match directive {
-                Directive::Option(option) => option.process(&mut ret_ledger, &mut context)?,
-                Directive::Open(open) => open.process(&mut ret_ledger, &mut context)?,
-                Directive::Close(close) => close.process(&mut ret_ledger, &mut context)?,
-                Directive::Commodity(commodity) => commodity.process(&mut ret_ledger, &mut context)?,
-                Directive::Transaction(trx) => trx.process(&mut ret_ledger, &mut context)?,
-                Directive::Balance(balance) => balance.process(&mut ret_ledger, &mut context)?,
+            match &mut directive.data {
+                Directive::Option(option) => option.process(&mut ret_ledger, &mut context, &directive.span)?,
+                Directive::Open(open) => open.process(&mut ret_ledger, &mut context, &directive.span)?,
+                Directive::Close(close) => close.process(&mut ret_ledger, &mut context, &directive.span)?,
+                Directive::Commodity(commodity) => commodity.process(&mut ret_ledger, &mut context, &directive.span)?,
+                Directive::Transaction(trx) => trx.process(&mut ret_ledger, &mut context, &directive.span)?,
+                Directive::Balance(balance) => balance.process(&mut ret_ledger, &mut context, &directive.span)?,
                 Directive::Note(_) => {}
-                Directive::Document(document) => document.process(&mut ret_ledger, &mut context)?,
-                Directive::Price(price) => price.process(&mut ret_ledger, &mut context)?,
+                Directive::Document(document) => document.process(&mut ret_ledger, &mut context, &directive.span)?,
+                Directive::Price(price) => price.process(&mut ret_ledger, &mut context, &directive.span)?,
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
                 _ => {}
@@ -188,7 +195,7 @@ impl Ledger {
         Ledger::process(directives, Either::Right(content.to_string()), vec![])
     }
 
-    fn sort_directives_datetime(mut directives: Vec<Directive>) -> Vec<Directive> {
+    fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
         directives.sort_by(|a, b| match (a.datetime(), b.datetime()) {
             (Some(a_datetime), Some(b_datetime)) => a_datetime.cmp(&b_datetime),
             _ => Ordering::Greater,
@@ -197,7 +204,12 @@ impl Ledger {
     }
 
     pub fn apply(mut self, applier: impl Fn(Directive) -> Directive) -> Self {
-        let vec = self.directives.into_iter().map(applier).collect_vec();
+        let vec = self.directives.into_iter()
+            .map(|mut it| {
+                let directive = applier(it.data);
+                it.data = directive;
+                it
+            }).collect_vec();
         self.directives = vec;
         self
     }
@@ -254,10 +266,13 @@ impl Ledger {
 #[cfg(test)]
 mod test {
     use crate::core::models::Directive;
+    use crate::core::utils::lined_data::Spanned;
     use crate::parse_zhang;
+    use itertools::Itertools;
 
-    fn test_parse_zhang(content: &str) -> Vec<Directive> {
-        parse_zhang(content).expect("cannot parse zhang")
+    fn test_parse_zhang(content: &str) -> Vec<Spanned<Directive>> {
+        parse_zhang(content)
+            .expect("cannot parse zhang")
     }
 
     mod sort_directive_datetime {

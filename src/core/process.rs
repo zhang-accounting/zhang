@@ -1,6 +1,6 @@
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Price, Transaction};
-use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType, Ledger, LedgerError};
+use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType, Ledger, LedgerError, LedgerErrorType};
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
 use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::core::AccountName;
@@ -10,6 +10,7 @@ use log::error;
 use std::collections::HashMap;
 use std::ops::{Neg, Sub};
 use std::sync::{Arc, RwLock as StdRwLock};
+use crate::core::utils::lined_data::SpanInfo;
 
 pub(crate) struct ProcessContext {
     pub(crate) target_day: Option<NaiveDate>,
@@ -26,7 +27,7 @@ impl ProcessContext {
 }
 
 pub(crate) trait DirectiveProcess {
-    fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext) -> ZhangResult<()>;
+    fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()>;
 }
 
 fn record_daily_snapshot(
@@ -44,7 +45,7 @@ fn record_daily_snapshot(
 }
 
 impl DirectiveProcess for Options {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
         ledger
             .configs
             .insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());
@@ -53,7 +54,7 @@ impl DirectiveProcess for Options {
 }
 
 impl DirectiveProcess for Open {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
         let account_info = ledger
             .accounts
             .entry(self.account.content.to_string())
@@ -74,7 +75,7 @@ impl DirectiveProcess for Open {
 }
 
 impl DirectiveProcess for Close {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
         let account_info = ledger
             .accounts
             .entry(self.account.content.to_string())
@@ -92,7 +93,7 @@ impl DirectiveProcess for Close {
 }
 
 impl DirectiveProcess for Commodity {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
         let _target_currency = ledger
             .currencies
             .entry(self.currency.to_string())
@@ -105,7 +106,7 @@ impl DirectiveProcess for Commodity {
 }
 
 impl DirectiveProcess for Transaction {
-    fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
         if !self.is_balance() {
             error!("trx is not balanced");
         }
@@ -142,7 +143,7 @@ impl DirectiveProcess for Transaction {
 }
 
 impl DirectiveProcess for Balance {
-    fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
         match self {
             Balance::BalanceCheck(balance_check) => {
                 record_daily_snapshot(
@@ -169,14 +170,17 @@ impl DirectiveProcess for Balance {
                     );
                     balance_check.distance = Some(distance.clone());
 
-                    ledger.errors.push(LedgerError::AccountBalanceCheckError {
-                        account_name: balance_check.account.name().to_string(),
-                        target: Amount::new(
-                            balance_check.amount.number.clone(),
-                            balance_check.amount.currency.clone(),
-                        ),
-                        current: Amount::new(target_account_balance.clone(), balance_check.amount.currency.clone()),
-                        distance: distance.clone(),
+                    ledger.errors.push(LedgerError {
+                        span: span.clone(),
+                        error: LedgerErrorType::AccountBalanceCheckError {
+                            account_name: balance_check.account.name().to_string(),
+                            target: Amount::new(
+                                balance_check.amount.number.clone(),
+                                balance_check.amount.currency.clone(),
+                            ),
+                            current: Amount::new(target_account_balance.clone(), balance_check.amount.currency.clone()),
+                            distance: distance.clone(),
+                        }
                     });
                     target_account_snapshot.add_amount(distance);
                     error!(
@@ -225,7 +229,7 @@ impl DirectiveProcess for Balance {
 }
 
 impl DirectiveProcess for Document {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
         ledger.documents.push(DocumentType::AccountDocument {
             date: self.date.clone(),
             account: self.account.clone(),
@@ -236,7 +240,7 @@ impl DirectiveProcess for Document {
 }
 
 impl DirectiveProcess for Price {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
         let mut result = ledger.prices.write().unwrap();
         result.insert(
             self.date.naive_datetime(),
