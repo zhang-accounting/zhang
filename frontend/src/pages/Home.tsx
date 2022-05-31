@@ -1,5 +1,5 @@
 import { useQuery } from "@apollo/client";
-import { Box, Flex, Text } from "@chakra-ui/react";
+import { Box, Flex } from "@chakra-ui/react";
 import { format } from "date-fns";
 import React from 'react';
 import { Chart } from 'react-chartjs-2';
