@@ -1,5 +1,5 @@
 import { useQuery } from "@apollo/client";
-import { AddIcon, ChevronLeftIcon, ChevronRightIcon } from "@chakra-ui/icons";
+import { ChevronLeftIcon, ChevronRightIcon } from "@chakra-ui/icons";
 import { Box, Flex, Text, ButtonGroup, Button, IconButton, Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, ModalFooter, useDisclosure } from "@chakra-ui/react";
 import { ErrorEntity, ErrorListQuery, ERROR_LIST } from "../gql/errorList";
 import Block from "./Block";
