@@ -286,9 +286,10 @@ mod test {
     use crate::p::parse_zhang;
     use crate::target::ZhangTarget;
     use indoc::indoc;
+    use std::option::Option::None;
 
     fn parse(from: &str) -> String {
-        let directive = parse_zhang(from).unwrap().into_iter().next().unwrap();
+        let directive = parse_zhang(from, None).unwrap().into_iter().next().unwrap();
         directive.data.to_target()
     }
 

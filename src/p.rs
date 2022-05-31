@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
@@ -499,10 +500,16 @@ impl ZhangParser {
     }
 }
 
-pub fn parse_zhang(input_str: &str) -> Result<Vec<Spanned<Directive>>> {
+pub fn parse_zhang(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<Directive>>> {
+    let file = file.into();
     let inputs = ZhangParser::parse(Rule::entry, input_str)?;
     let input = inputs.single()?;
-    ZhangParser::entry(input)
+    ZhangParser::entry(input).map(|mut directives| {
+        directives
+            .iter_mut()
+            .for_each(|directive| directive.span.filename = file.clone());
+        directives
+    })
 }
 
 #[cfg(test)]
@@ -546,11 +553,12 @@ mod test {
         use crate::parse_zhang;
         use bigdecimal::BigDecimal;
         use chrono::NaiveDate;
+        use std::option::Option::None;
         use std::str::FromStr;
 
         #[test]
         fn should_parse_date_hour() {
-            let mut result = parse_zhang("2101-10-10 10:10 open Assets:Hello").unwrap();
+            let mut result = parse_zhang("2101-10-10 10:10 open Assets:Hello", None).unwrap();
             let directive = result.remove(0);
             assert_eq!(
                 Directive::Open(Open {
@@ -565,7 +573,7 @@ mod test {
 
         #[test]
         fn should_parse_balance_check_and_balance_pad() {
-            let balance = parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY")
+            let balance = parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY", None)
                 .unwrap()
                 .remove(0);
             assert_eq!(
@@ -581,9 +589,12 @@ mod test {
                 balance.data
             );
 
-            let balance = parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY with pad Income:Earnings")
-                .unwrap()
-                .remove(0);
+            let balance = parse_zhang(
+                "2101-10-10 10:10 balance Assets:Hello 123 CNY with pad Income:Earnings",
+                None,
+            )
+            .unwrap()
+            .remove(0);
             assert_eq!(
                 Directive::Balance(Balance::BalancePad(BalancePad {
                     date: Date::DateHour(NaiveDate::from_ymd(2101, 10, 10).and_hms(10, 10, 0)),
@@ -603,12 +614,16 @@ mod test {
         use crate::core::models::Directive;
         use crate::parse_zhang;
         use indoc::indoc;
+        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(indoc! {r#"
-                option "title" "Example"
-            "#})
+            let mut vec = parse_zhang(
+                indoc! {r#"
+                            option "title" "Example"
+                        "#},
+                None,
+            )
             .unwrap();
             assert_eq!(vec.len(), 1);
             assert_eq!(
@@ -625,12 +640,16 @@ mod test {
         use crate::core::models::Directive;
         use crate::parse_zhang;
         use indoc::indoc;
+        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(indoc! {r#"
-                ; comment here
-            "#})
+            let mut vec = parse_zhang(
+                indoc! {r#"
+                            ; comment here
+                        "#},
+                None,
+            )
             .unwrap();
             assert_eq!(vec.len(), 1);
             assert_eq!(
@@ -645,12 +664,16 @@ mod test {
         use crate::core::models::Directive;
         use crate::parse_zhang;
         use indoc::indoc;
+        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(indoc! {r#"
-                1970-01-01 01:01:01 document Assets:Card "abc.jpg"
-            "#})
+            let mut vec = parse_zhang(
+                indoc! {r#"
+                            1970-01-01 01:01:01 document Assets:Card "abc.jpg"
+                        "#},
+                None,
+            )
             .unwrap();
             assert_eq!(vec.len(), 1);
             let directive = vec.pop().unwrap().data;
@@ -667,12 +690,16 @@ mod test {
         use crate::parse_zhang;
         use bigdecimal::BigDecimal;
         use indoc::indoc;
+        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(indoc! {r#"
-                1970-01-01 01:01:01 price USD 7 CNY
-            "#})
+            let mut vec = parse_zhang(
+                indoc! {r#"
+                            1970-01-01 01:01:01 price USD 7 CNY
+                        "#},
+                None,
+            )
             .unwrap();
             assert_eq!(vec.len(), 1);
             let directive = vec.pop().unwrap().data;
@@ -689,12 +716,16 @@ mod test {
         use crate::core::models::Directive;
         use crate::parse_zhang;
         use indoc::indoc;
+        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(indoc! {r#"
-                1970-01-01 01:01:01 event "something" "value"
-            "#})
+            let mut vec = parse_zhang(
+                indoc! {r#"
+                            1970-01-01 01:01:01 event "something" "value"
+                        "#},
+                None,
+            )
             .unwrap();
             assert_eq!(vec.len(), 1);
             let directive = vec.pop().unwrap().data;
@@ -710,12 +741,16 @@ mod test {
         use crate::core::models::Directive;
         use crate::parse_zhang;
         use indoc::indoc;
+        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(indoc! {r#"
-                plugin "module" "123" "345"
-            "#})
+            let mut vec = parse_zhang(
+                indoc! {r#"
+                            plugin "module" "123" "345"
+                        "#},
+                None,
+            )
             .unwrap();
             assert_eq!(vec.len(), 1);
             let directive = vec.pop().unwrap().data;
@@ -731,12 +766,16 @@ mod test {
         use crate::core::models::{Directive, StringOrAccount};
         use crate::parse_zhang;
         use indoc::indoc;
+        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(indoc! {r#"
-                1970-01-01 01:01:01 custom "budget" Assets:Card "100 CNY" "monthly"
-            "#})
+            let mut vec = parse_zhang(
+                indoc! {r#"
+                            1970-01-01 01:01:01 custom "budget" Assets:Card "100 CNY" "monthly"
+                        "#},
+                None,
+            )
             .unwrap();
             assert_eq!(vec.len(), 1);
             let directive = vec.pop().unwrap().data;
@@ -759,14 +798,18 @@ mod test {
     mod transaction {
         use crate::parse_zhang;
         use indoc::indoc;
+        use std::option::Option::None;
 
         #[test]
         fn should_support_trailing_space() {
-            let vec = parse_zhang(indoc! {r#"
-                2022-03-24 11:38:56 ""
-                  Assets:B 1 CNY
-                  Assets:B   
-            "#})
+            let vec = parse_zhang(
+                indoc! {r#"
+                            2022-03-24 11:38:56 ""
+                              Assets:B 1 CNY
+                              Assets:B
+                        "#},
+                None,
+            )
             .unwrap();
             assert_eq!(vec.len(), 1);
         }
