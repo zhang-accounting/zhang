@@ -4,9 +4,9 @@ use crate::core::data::{Commodity, Date, Include, Transaction};
 use crate::core::models::{Directive, DirectiveType, ZhangString};
 use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
-use crate::core::utils::lined_data::{SpanInfo, Spanned};
 use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::core::utils::price_grip::DatedPriceGrip;
+use crate::core::utils::span::{SpanInfo, Spanned};
 use crate::core::{AccountName, Currency};
 use crate::error::{ZhangError, ZhangResult};
 use crate::parse_zhang;
@@ -276,7 +276,7 @@ impl Ledger {
 #[cfg(test)]
 mod test {
     use crate::core::models::Directive;
-    use crate::core::utils::lined_data::Spanned;
+    use crate::core::utils::span::Spanned;
     use crate::parse_zhang;
     use itertools::Itertools;
 
