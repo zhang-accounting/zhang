@@ -8,6 +8,7 @@ export interface ErrorListQuery {
 
 export interface ErrorEntity {
     message: string,
+    span: Span
 }
 
 export interface Span {
@@ -24,6 +25,12 @@ query ERROR_LIST($cursor: String) {
     edges {
       node {
         message
+        span {
+          filename
+          start
+          end
+          content
+        }
       }
     }
     pageInfo {
@@ -34,5 +41,4 @@ query ERROR_LIST($cursor: String) {
     }
   }
 }
-
 `
