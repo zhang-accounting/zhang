@@ -13,11 +13,10 @@ pub struct SpanInfo {
 #[derive(Debug)]
 pub struct Spanned<T: Debug> {
     pub(crate) data: T,
-    pub(crate) span: SpanInfo
+    pub(crate) span: SpanInfo,
 }
 
-
-impl<T:Debug> Deref for Spanned<T> {
+impl<T: Debug> Deref for Spanned<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {

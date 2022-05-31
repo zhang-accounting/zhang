@@ -1,7 +1,10 @@
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Price, Transaction};
-use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType, Ledger, LedgerError, LedgerErrorType};
+use crate::core::ledger::{
+    AccountInfo, AccountStatus, CurrencyInfo, DocumentType, Ledger, LedgerError, LedgerErrorType,
+};
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
+use crate::core::utils::lined_data::SpanInfo;
 use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::core::AccountName;
 use crate::error::ZhangResult;
@@ -10,7 +13,6 @@ use log::error;
 use std::collections::HashMap;
 use std::ops::{Neg, Sub};
 use std::sync::{Arc, RwLock as StdRwLock};
-use crate::core::utils::lined_data::SpanInfo;
 
 pub(crate) struct ProcessContext {
     pub(crate) target_day: Option<NaiveDate>,
@@ -48,12 +50,12 @@ fn check_account_existed(ledger: &mut Ledger, span: &SpanInfo, account_name: &st
     if !ledger.accounts.contains_key(account_name) {
         ledger.errors.push(LedgerError {
             span: span.clone(),
-            error: LedgerErrorType::AccountDoesNotExist { account_name: account_name.to_string() }
+            error: LedgerErrorType::AccountDoesNotExist {
+                account_name: account_name.to_string(),
+            },
         })
     }
 }
-
-
 
 impl DirectiveProcess for Options {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
@@ -87,8 +89,7 @@ impl DirectiveProcess for Open {
 
 impl DirectiveProcess for Close {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
-        
-        // check if account exist  
+        // check if account exist
         check_account_existed(ledger, _span, self.account.name());
         let account_info = ledger
             .accounts
@@ -196,7 +197,7 @@ impl DirectiveProcess for Balance {
                             ),
                             current: Amount::new(target_account_balance.clone(), balance_check.amount.currency.clone()),
                             distance: distance.clone(),
-                        }
+                        },
                     });
                     target_account_snapshot.add_amount(distance);
                 }

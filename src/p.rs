@@ -487,8 +487,8 @@ impl ZhangParser {
                 start,
                 end,
                 content: raw_content.to_string(),
-                filename: None
-            }
+                filename: None,
+            },
         })
     }
     fn entry(input: Node) -> Result<Vec<Spanned<Directive>>> {
