@@ -14,6 +14,7 @@ import StatisticBar from "./components/StatisticBar";
 import { Chart, registerables } from 'chart.js';
 // @ts-ignore
 import {createUploadLink } from 'apollo-upload-client';
+import { relayStylePagination } from "@apollo/client/utilities";
 
 Chart.register(...registerables);
 
@@ -24,7 +25,15 @@ const client = new ApolloClient({
     // eslint-disable-line
     uri: process.env.NODE_ENV !== 'production' ? 'http://127.0.0.1:8000/graphql' : '/graphql'
   }),
-  cache: new InMemoryCache()
+  cache: new InMemoryCache({
+    typePolicies: {
+      Query: {
+        fields: {
+          errors: relayStylePagination()
+        }
+      }
+    }
+  })
 });
 
 interface LinkItemProps {
