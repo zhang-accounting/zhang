@@ -133,14 +133,6 @@ impl QueryRoot {
         };
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
         let error_length = ledger_stage.errors.len();
-        let dto = ledger_stage
-            .errors
-            .iter()
-            .cloned()
-            .map(ErrorDto)
-            .collect_vec()
-            .pop()
-            .unwrap();
         query(after, before, first, last, |after, before, first, last| async move {
             let mut start = after.map(|after| after + 1).unwrap_or(0);
             let mut end = before.unwrap_or(error_length);
