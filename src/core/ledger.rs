@@ -278,7 +278,6 @@ mod test {
     use crate::core::models::Directive;
     use crate::core::utils::span::Spanned;
     use crate::parse_zhang;
-    use itertools::Itertools;
 
     fn test_parse_zhang(content: &str) -> Vec<Spanned<Directive>> {
         parse_zhang(content).expect("cannot parse zhang")
@@ -288,6 +287,7 @@ mod test {
         use crate::core::ledger::test::test_parse_zhang;
         use crate::core::ledger::Ledger;
         use indoc::indoc;
+        use itertools::Itertools;
 
         #[test]
         fn should_keep_order_given_two_none_datetime() {
@@ -345,8 +345,11 @@ mod test {
                 test_parse_zhang(indoc! {r#"
                     1970-01-01 open Assets:Hello
                     1970-02-01 open Assets:Hello
-                "#}),
-                sorted
+                "#})
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
+                sorted.into_iter().map(|it| it.data).collect_vec()
             );
             let original = test_parse_zhang(indoc! {r#"
                     1970-02-01 open Assets:Hello
@@ -357,8 +360,11 @@ mod test {
                 test_parse_zhang(indoc! {r#"
                     1970-01-01 open Assets:Hello
                     1970-02-01 open Assets:Hello
-                "#}),
-                sorted
+                "#})
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
+                sorted.into_iter().map(|it| it.data).collect_vec()
             )
         }
 
@@ -380,8 +386,11 @@ mod test {
                     1970-03-01 open Assets:Hello
                     option "2" "2"
                     1970-01-01 open Assets:Hello
-                "#}),
-                sorted
+                "#})
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
+                sorted.into_iter().map(|it| it.data).collect_vec()
             );
         }
 
@@ -457,6 +466,7 @@ mod test {
         use crate::core::ledger::test::test_parse_zhang;
         use crate::core::ledger::Ledger;
         use indoc::indoc;
+        use itertools::Itertools;
         use tempfile::tempdir;
 
         #[test]
@@ -485,8 +495,11 @@ mod test {
                 option "title" "Example"
                 include "include.zhang"
                 option "description" "Example Description"
-            "#}),
-                ledger.metas
+            "#})
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
+                ledger.metas.into_iter().map(|it| it.data).collect_vec()
             );
             assert_eq!(0, ledger.directives.len());
         }

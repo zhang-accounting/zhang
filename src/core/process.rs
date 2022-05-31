@@ -195,7 +195,7 @@ impl DirectiveProcess for Balance {
                                 balance_check.amount.number.clone(),
                                 balance_check.amount.currency.clone(),
                             ),
-                            current: Amount::new(target_account_balance.clone(), balance_check.amount.currency.clone()),
+                            current: Amount::new(target_account_balance, balance_check.amount.currency.clone()),
                             distance: distance.clone(),
                         },
                     });

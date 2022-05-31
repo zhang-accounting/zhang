@@ -289,7 +289,7 @@ mod test {
 
     fn parse(from: &str) -> String {
         let directive = parse_zhang(from).unwrap().into_iter().next().unwrap();
-        directive.to_target()
+        directive.data.to_target()
     }
 
     macro_rules! assert_parse {

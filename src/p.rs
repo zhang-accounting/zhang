@@ -559,7 +559,7 @@ mod test {
                     commodities: vec![],
                     meta: Default::default()
                 }),
-                directive
+                directive.data
             )
         }
 
@@ -578,7 +578,7 @@ mod test {
                     current_amount: None,
                     meta: Default::default()
                 })),
-                balance
+                balance.data
             );
 
             let balance = parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY with pad Income:Earnings")
@@ -594,7 +594,7 @@ mod test {
                     pad: Account::from_str("Income:Earnings").unwrap(),
                     meta: Default::default()
                 })),
-                balance
+                balance.data
             )
         }
     }
@@ -612,7 +612,7 @@ mod test {
             .unwrap();
             assert_eq!(vec.len(), 1);
             assert_eq!(
-                vec.pop().unwrap(),
+                vec.pop().unwrap().data,
                 Directive::Option(Options {
                     key: quote!("title"),
                     value: quote!("Example")
@@ -634,7 +634,7 @@ mod test {
             .unwrap();
             assert_eq!(vec.len(), 1);
             assert_eq!(
-                vec.pop().unwrap(),
+                vec.pop().unwrap().data,
                 Directive::Comment(Comment {
                     content: "; comment here".to_string(),
                 })
@@ -653,7 +653,7 @@ mod test {
             "#})
             .unwrap();
             assert_eq!(vec.len(), 1);
-            let directive = vec.pop().unwrap();
+            let directive = vec.pop().unwrap().data;
             assert!(matches!(directive, Directive::Document(..)));
             if let Directive::Document(inner) = directive {
                 assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
@@ -675,7 +675,7 @@ mod test {
             "#})
             .unwrap();
             assert_eq!(vec.len(), 1);
-            let directive = vec.pop().unwrap();
+            let directive = vec.pop().unwrap().data;
             assert!(matches!(directive, Directive::Price(..)));
             if let Directive::Price(inner) = directive {
                 assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
@@ -697,7 +697,7 @@ mod test {
             "#})
             .unwrap();
             assert_eq!(vec.len(), 1);
-            let directive = vec.pop().unwrap();
+            let directive = vec.pop().unwrap().data;
             assert!(matches!(directive, Directive::Event(..)));
             if let Directive::Event(inner) = directive {
                 assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
@@ -718,7 +718,7 @@ mod test {
             "#})
             .unwrap();
             assert_eq!(vec.len(), 1);
-            let directive = vec.pop().unwrap();
+            let directive = vec.pop().unwrap().data;
             assert!(matches!(directive, Directive::Plugin(..)));
             if let Directive::Plugin(inner) = directive {
                 assert_eq!(inner.module, quote!("module"));
@@ -739,7 +739,7 @@ mod test {
             "#})
             .unwrap();
             assert_eq!(vec.len(), 1);
-            let directive = vec.pop().unwrap();
+            let directive = vec.pop().unwrap().data;
             assert!(matches!(directive, Directive::Custom(..)));
             if let Directive::Custom(inner) = directive {
                 assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
