@@ -4,8 +4,8 @@ use crate::core::ledger::{
     AccountInfo, AccountStatus, CurrencyInfo, DocumentType, Ledger, LedgerError, LedgerErrorType,
 };
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
-use crate::core::utils::lined_data::SpanInfo;
 use crate::core::utils::price_grip::DatedPriceGrip;
+use crate::core::utils::span::SpanInfo;
 use crate::core::AccountName;
 use crate::error::ZhangResult;
 use chrono::NaiveDate;

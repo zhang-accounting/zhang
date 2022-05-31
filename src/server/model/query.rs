@@ -4,7 +4,7 @@ use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction, Tx
 use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType, LedgerError, LedgerErrorType};
 use crate::core::models::Directive;
 use crate::core::utils::inventory::Inventory;
-use crate::core::utils::lined_data::SpanInfo;
+use crate::core::utils::span::SpanInfo;
 use crate::core::AccountName;
 use crate::server::LedgerState;
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};

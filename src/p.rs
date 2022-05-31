@@ -12,8 +12,8 @@ use crate::core::data::{
     Options, Plugin, Posting, Price, Transaction,
 };
 use crate::core::models::{Directive, Flag, SingleTotalPrice, StringOrAccount, ZhangString};
-use crate::core::utils::lined_data::{SpanInfo, Spanned};
 use crate::core::utils::multi_value_map::MultiValueMap;
+use crate::core::utils::span::{SpanInfo, Spanned};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
