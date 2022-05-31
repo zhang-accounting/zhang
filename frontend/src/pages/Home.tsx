@@ -1,14 +1,11 @@
 import { useQuery } from "@apollo/client";
-import { Box } from "@chakra-ui/react";
+import { Box, Flex, Text } from "@chakra-ui/react";
 import { format } from "date-fns";
 import React from 'react';
 import { Chart } from 'react-chartjs-2';
 import Block from "../components/Block";
+import ErrorBox from "../components/ErrorBox";
 import { STATISTIC, StatisticResponse } from "../gql/statistic";
-
-
-
-
 
 const options = {
   responsive: true,
@@ -95,11 +92,16 @@ function Home() {
 
   return (
     <Box as="section">
-      <Box>
-        <Block title="statistic">
-          <Chart type='bar' data={build_chart_data(data!)} options={options} />
-        </Block>
-      </Box>
+      <Flex>
+        <Box flex={"0 0 70%"} m={1}>
+          <Block title="statistic">
+            <Chart type='bar' data={build_chart_data(data!)} options={options} />
+          </Block>
+        </Box>
+        <Box flex={1} minW={0} m={1}>
+          <ErrorBox></ErrorBox>
+        </Box>
+      </Flex>
     </Box>
   )
 }

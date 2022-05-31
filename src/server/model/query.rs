@@ -7,6 +7,7 @@ use crate::core::utils::inventory::Inventory;
 use crate::core::utils::lined_data::SpanInfo;
 use crate::core::AccountName;
 use crate::server::LedgerState;
+use async_graphql::connection::{query, Connection, Edge, EmptyFields};
 use async_graphql::{Context, Interface, Object};
 use chrono::{NaiveDateTime, Utc};
 use itertools::Itertools;
@@ -122,9 +123,46 @@ impl QueryRoot {
             .collect_vec()
     }
 
-    async fn errors(&self, ctx: &Context<'_>) -> Vec<ErrorDto> {
+    async fn errors(
+        &self, ctx: &Context<'_>, after: Option<String>, before: Option<String>, first: Option<i32>, last: Option<i32>,
+    ) -> Result<Connection<usize, ErrorDto>, async_graphql::Error> {
+        let after = if after.as_ref().map(|i| i.eq("-1")).unwrap_or(false) {
+            None
+        } else {
+            after
+        };
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        ledger_stage.errors.iter().cloned().map(ErrorDto).collect_vec()
+        let error_length = ledger_stage.errors.len();
+        let dto = ledger_stage
+            .errors
+            .iter()
+            .cloned()
+            .map(ErrorDto)
+            .collect_vec()
+            .pop()
+            .unwrap();
+        query(after, before, first, last, |after, before, first, last| async move {
+            let mut start = after.map(|after| after + 1).unwrap_or(0);
+            let mut end = before.unwrap_or(error_length);
+            if let Some(first) = first {
+                end = (start + first).min(end);
+            }
+            if let Some(last) = last {
+                start = if last > end - start { end } else { end - last };
+            }
+            let mut connection = Connection::new(start > 0, end < error_length);
+            let map = ledger_stage
+                .errors
+                .iter()
+                .skip(start)
+                .take(end - start)
+                .cloned()
+                .enumerate()
+                .map(|(idx, e)| Edge::with_additional_fields(idx + start, ErrorDto(e), EmptyFields));
+            connection.append(map);
+            Ok::<_, async_graphql::Error>(connection)
+        })
+        .await
     }
 }
 
