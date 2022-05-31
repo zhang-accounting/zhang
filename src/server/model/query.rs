@@ -10,7 +10,7 @@ use crate::server::LedgerState;
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};
 use async_graphql::{Context, Interface, Object};
 use chrono::{NaiveDateTime, Utc};
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use std::cmp::min;
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
@@ -683,8 +683,20 @@ impl SpanInfoDto {
     async fn end(&self) -> usize {
         self.0.end
     }
-    async fn filename(&self) -> Option<&str> {
-        self.0.filename.as_ref().and_then(|it| it.to_str())
+    async fn filename(&self, ctx: &Context<'_>) -> Option<&str> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+
+        let (entry, _) = match &ledger_stage.entry {
+            Either::Left(path) => path,
+            Either::Right(_) => {
+                return None;
+            }
+        };
+        self.0
+            .filename
+            .as_ref()
+            .map(|p| p.strip_prefix(entry).unwrap_or(p))
+            .and_then(|it| it.to_str())
     }
     async fn content(&self) -> String {
         self.0.content.clone()

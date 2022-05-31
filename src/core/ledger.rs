@@ -21,6 +21,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::option::Option::None;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock as StdRwLock};
 
@@ -135,8 +136,8 @@ impl Ledger {
     }
 
     fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let content = std::fs::read_to_string(entry)?;
-        parse_zhang(&content).map_err(|it| ZhangError::PestError(it.to_string()))
+        let content = std::fs::read_to_string(&entry)?;
+        parse_zhang(&content, entry).map_err(|it| ZhangError::PestError(it.to_string()))
     }
 
     fn process(
@@ -198,7 +199,7 @@ impl Ledger {
 
     pub(crate) fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
         let content = content.as_ref();
-        let directives = parse_zhang(content).map_err(|it| ZhangError::PestError(it.to_string()))?;
+        let directives = parse_zhang(content, None).map_err(|it| ZhangError::PestError(it.to_string()))?;
         Ledger::process(directives, Either::Right(content.to_string()), vec![])
     }
 
@@ -278,9 +279,10 @@ mod test {
     use crate::core::models::Directive;
     use crate::core::utils::span::Spanned;
     use crate::parse_zhang;
+    use std::option::Option::None;
 
     fn test_parse_zhang(content: &str) -> Vec<Spanned<Directive>> {
-        parse_zhang(content).expect("cannot parse zhang")
+        parse_zhang(content, None).expect("cannot parse zhang")
     }
 
     mod sort_directive_datetime {

@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
+use std::option::Option::None;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -38,7 +39,7 @@ impl MutationRoot {
     async fn append_data(&self, ctx: &Context<'_>, date: i64, content: String) -> bool {
         let time = NaiveDateTime::from_timestamp(date, 0);
         let ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
-        match parse_zhang(&content) {
+        match parse_zhang(&content, None) {
             Ok(directives) => {
                 let directives = directives.into_iter().map(|it| it.data).collect_vec();
                 ledger_stage.append_directives(directives, format!("data/{}/{}.zhang", time.year(), time.month()));
