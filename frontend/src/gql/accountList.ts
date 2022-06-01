@@ -28,7 +28,7 @@ export interface AccountDocumentDto {
   date: number,
   filename: string,
   __typename: "AccountDocumentDto"
-  account: AccountItem
+  account?: AccountItem
 }
 
 export interface TransactionDocumentDto {

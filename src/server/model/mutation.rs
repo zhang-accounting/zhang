@@ -48,6 +48,21 @@ impl MutationRoot {
             Err(_) => false,
         }
     }
+    async fn modify_data(&self, ctx: &Context<'_>, file: String, content: String, start: usize, end: usize) -> bool {
+        if parse_zhang(&content, None).is_err() {
+            return false;
+        }
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
+        let (entry, _endpoint) = match &ledger_stage.entry {
+            Either::Left(path) => path,
+            Either::Right(_) => {
+                return false;
+            }
+        };
+        let file_path = entry.join(file);
+        replace_file_via_lines(file_path, &content, start, end);
+        true
+    }
 
     async fn upload_account_document(&self, ctx: &Context<'_>, account_name: String, files: Vec<Upload>) -> bool {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
@@ -99,4 +114,16 @@ impl MutationRoot {
 
 pub(crate) fn create_folder_if_not_exist(filename: &Path) {
     std::fs::create_dir_all(&filename.parent().unwrap()).expect("cannot create folder recursive");
+}
+
+pub(crate) fn replace_file_via_lines(file: PathBuf, content: &str, start: usize, end: usize) {
+    let file_content = std::fs::read_to_string(&file).expect("cannot read file");
+    let mut lines = file_content
+        .lines()
+        .enumerate()
+        .filter(|(idx, _c)| idx < &(start - 1) || idx > &(end - 1))
+        .map(|(_, c)| c)
+        .collect_vec();
+    lines.insert(start - 1, content);
+    std::fs::write(file, lines.join("\n")).expect("cannot write file");
 }
