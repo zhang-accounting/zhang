@@ -52,7 +52,7 @@ impl MutationRoot {
         if parse_zhang(&content, None).is_err() {
             return false;
         }
-        let ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
+        let mut ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
         let (entry, _endpoint) = match &ledger_stage.entry {
             Either::Left(path) => path,
             Either::Right(_) => {
@@ -61,7 +61,7 @@ impl MutationRoot {
         };
         let file_path = entry.join(file);
         replace_file_via_lines(file_path, &content, start, end);
-        true
+        ledger_stage.reload().is_ok()
     }
 
     async fn upload_account_document(&self, ctx: &Context<'_>, account_name: String, files: Vec<Upload>) -> bool {
