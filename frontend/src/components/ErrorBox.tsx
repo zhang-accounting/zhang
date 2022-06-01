@@ -14,8 +14,10 @@ export default function ErrorBox() {
     const [selectErrorContent, setSelectErrorContent] = useState<string>("");
 
     const [modifyFile] = useMutation(MODIFY_FILE, {
-        update: (proxy)=> {
-            proxy.evict({fieldName:`journals`})
+        update: (proxy) => {
+            proxy.evict({ fieldName: `journals` })
+            proxy.evict({ fieldName: `errors` })
+            console.log("proxy", proxy);
         }
     });
 
@@ -25,12 +27,18 @@ export default function ErrorBox() {
         onOpen();
     }
     const saveErrorModfiyData = () => {
-        modifyFile({variables:{
-            file: selectError?.span.filename,
-            content: selectErrorContent,
-            start: selectError?.span.start,
-            end: selectError?.span.end
-        }})
+        modifyFile({
+            variables: {
+                file: selectError?.span.filename,
+                content: selectErrorContent,
+                start: selectError?.span.start,
+                end: selectError?.span.end
+            }
+        })
+        onClose()
+    }
+    const onModalReset = () => {
+        setSelectErrorContent(selectError?.span.content || "")
     }
     const fetchNextPage = () => {
         refetch({
@@ -69,11 +77,11 @@ export default function ErrorBox() {
                     </ModalBody>
 
                     <ModalFooter>
-                    <Button colorScheme='blue' mr={3} onClick={saveErrorModfiyData}>
+                        <Button colorScheme='blue' mr={3} disabled={selectErrorContent === selectError?.span.content} onClick={saveErrorModfiyData}>
                             Modify
                         </Button>
-                       
-                        <Button variant='ghost'>Reset</Button>
+
+                        <Button variant='ghost' onClick={onModalReset}>Reset</Button>
                     </ModalFooter>
                 </ModalContent>
             </Modal>
