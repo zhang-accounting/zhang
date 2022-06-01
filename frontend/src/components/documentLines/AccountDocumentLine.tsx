@@ -4,7 +4,7 @@ import { AccountItem } from "../../gql/accountList";
 
 export interface Props {
     filename: string,
-    account: AccountItem
+    account?: AccountItem
   }
   
 
@@ -18,7 +18,7 @@ export default function AccountDocumentLine({ filename, account }: Props) {
                 <Badge variant='outline'>{extension}</Badge>
                 <Text mx={2}>{filename}</Text>
             </Flex>
-            <Text mx={1} cursor="pointer" onClick={() => navigate(`/accounts/${account.name}`)}>{account.name}</Text>
+            <Text mx={1} cursor="pointer" onClick={() => navigate(`/accounts/${account?.name}`)}>{account?.name}</Text>
         </Flex>
     )
 }

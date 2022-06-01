@@ -1,10 +1,11 @@
-import { useQuery } from "@apollo/client";
+import { useMutation, useQuery } from "@apollo/client";
 import { ChevronLeftIcon, ChevronRightIcon } from "@chakra-ui/icons";
 import { Box, Flex, Text, ButtonGroup, Button, IconButton, Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, ModalFooter, useDisclosure } from "@chakra-ui/react";
 import { ErrorEntity, ErrorListQuery, ERROR_LIST } from "../gql/errorList";
 import Block from "./Block";
 import { useState } from "react";
 import CodeMirror from '@uiw/react-codemirror';
+import { MODIFY_FILE } from "../gql/modifyFile";
 
 export default function ErrorBox() {
     const { isOpen, onOpen, onClose } = useDisclosure();
@@ -12,11 +13,24 @@ export default function ErrorBox() {
     const [selectError, setSelectError] = useState<ErrorEntity | null>(null);
     const [selectErrorContent, setSelectErrorContent] = useState<string>("");
 
+    const [modifyFile] = useMutation(MODIFY_FILE, {
+        update: (proxy)=> {
+            proxy.evict({fieldName:`journals`})
+        }
+    });
 
     const toggleError = (error: ErrorEntity) => {
         setSelectError(error);
         setSelectErrorContent(error.span.content);
         onOpen();
+    }
+    const saveErrorModfiyData = () => {
+        modifyFile({variables:{
+            file: selectError?.span.filename,
+            content: selectErrorContent,
+            start: selectError?.span.start,
+            end: selectError?.span.end
+        }})
     }
     const fetchNextPage = () => {
         refetch({
@@ -55,17 +69,18 @@ export default function ErrorBox() {
                     </ModalBody>
 
                     <ModalFooter>
-                        <Button colorScheme='blue' mr={3} onClick={onClose}>
-                            Close
+                    <Button colorScheme='blue' mr={3} onClick={saveErrorModfiyData}>
+                            Modify
                         </Button>
-                        <Button variant='ghost'>Secondary Action</Button>
+                       
+                        <Button variant='ghost'>Reset</Button>
                     </ModalFooter>
                 </ModalContent>
             </Modal>
             <Block title="errors">
                 <Flex flexDirection={"column"}>
                     {data?.errors.edges.map(edge => edge.node).map(error => (
-                        <Box onClick={() => toggleError(error)} cursor="pointer">
+                        <Box onClick={() => toggleError(error)} cursor="pointer" my={1}>
                             <Text whiteSpace={"nowrap"} textOverflow="ellipsis" overflow="hidden">{error.message}</Text>
                         </Box>
                     ))}
