@@ -75,8 +75,33 @@ pub enum LedgerErrorType {
     AccountDoesNotExist {
         account_name: String,
     },
-    // AccountClosed {},
+    AccountClosed {
+        account_name: String,
+    },
     // TransactionDoesNotBalance {},
+}
+impl LedgerErrorType {
+    pub fn message(&self) -> String {
+        match self {
+            LedgerErrorType::AccountBalanceCheckError {
+                account_name,
+                distance,
+                target,
+                current,
+            } => format!(
+                "account {} balance to {} {} with distance {} {}(current is {} {})",
+                account_name,
+                &target.number,
+                &target.currency,
+                &distance.number,
+                &distance.currency,
+                &current.number,
+                &current.currency,
+            ),
+            LedgerErrorType::AccountDoesNotExist { account_name } => format!("account {} does not exist", account_name),
+            LedgerErrorType::AccountClosed { account_name } => format!("account {} had been closed", account_name),
+        }
+    }
 }
 
 #[derive(Debug)]
