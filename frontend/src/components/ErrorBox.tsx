@@ -85,7 +85,7 @@ export default function ErrorBox() {
                     </ModalFooter>
                 </ModalContent>
             </Modal>
-            <Block title="errors">
+            <Block title={`${data?.errorLength} errors`}>
                 <Flex flexDirection={"column"}>
                     {data?.errors.edges.map(edge => edge.node).map(error => (
                         <Box onClick={() => toggleError(error)} cursor="pointer" my={1}>

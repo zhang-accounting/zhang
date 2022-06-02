@@ -156,6 +156,10 @@ impl QueryRoot {
         })
         .await
     }
+    async fn error_length(&self, ctx: &Context<'_>) -> usize {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage.errors.len()
+    }
 }
 
 pub struct AccountDto {

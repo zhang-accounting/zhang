@@ -3,6 +3,7 @@ import { Connection } from "../models";
 
 
 export interface ErrorListQuery {
+  errorLength: number,
   errors: Connection<ErrorEntity>
 }
 
@@ -21,6 +22,7 @@ export interface Span {
 
 export const ERROR_LIST = gql`
 query ERROR_LIST($cursor: String) {
+  errorLength
   errors(first: 10, after: $cursor) {
     edges {
       node {
