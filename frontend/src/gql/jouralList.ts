@@ -18,6 +18,7 @@ export interface TransactionDto {
   tags: string[]
   links: string[],
   metas: Meta[]
+  isBalanced: boolean,
 }
 
 export interface Posting {
@@ -62,6 +63,7 @@ query JOURNAL_LIST {
       narration
       tags
       links
+      isBalanced
       postings {
         account {
           name

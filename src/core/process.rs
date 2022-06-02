@@ -9,7 +9,6 @@ use crate::core::utils::span::SpanInfo;
 use crate::core::AccountName;
 use crate::error::ZhangResult;
 use chrono::NaiveDate;
-use log::error;
 use std::collections::HashMap;
 use std::ops::{Neg, Sub};
 use std::sync::{Arc, RwLock as StdRwLock};
@@ -137,9 +136,12 @@ impl DirectiveProcess for Commodity {
 }
 
 impl DirectiveProcess for Transaction {
-    fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
         if !self.is_balance() {
-            error!("trx is not balanced");
+            ledger.errors.push(LedgerError {
+                span: span.clone(),
+                error: LedgerErrorType::TransactionDoesNotBalance,
+            });
         }
         let date = self.date.naive_date();
         record_daily_snapshot(
@@ -149,8 +151,8 @@ impl DirectiveProcess for Transaction {
             date,
         );
         for txn_posting in self.txn_postings() {
-            check_account_existed(ledger, _span, txn_posting.posting.account.name());
-            check_account_closed(ledger, _span, txn_posting.posting.account.name());
+            check_account_existed(ledger, span, txn_posting.posting.account.name());
+            check_account_closed(ledger, span, txn_posting.posting.account.name());
             let target_account_snapshot = ledger
                 .account_inventory
                 .entry(txn_posting.account_name())

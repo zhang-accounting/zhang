@@ -11,7 +11,7 @@ export default function TransactionLine({ data }: Props) {
                 <Text>{data.date}</Text>
             </Box>
             <Box mr={2}>
-                <Badge>TN</Badge>
+                <Badge colorScheme={data.isBalanced ? "gray" : "red"}>TN</Badge>
             </Box>
             <Flex flex='1' overflow={"hidden"}>
                 <Text fontWeight={"bold"} mr={2}>{data.payee}</Text>
