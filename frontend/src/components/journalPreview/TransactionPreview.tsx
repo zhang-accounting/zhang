@@ -12,6 +12,9 @@ export default function TransactionPreview(props: Props) {
         <div>
             <Box mb={10}>
                 <Box mx={1} my={2}>{format(new Date(props.data.timestamp * 1000), "yyyy-MM-dd hh:mm:ss")}</Box>
+                {!props.data.isBalanced && 
+                <Box mx={1} my={2}><Text fontWeight={"bold"} color={"red"}>UNBALANCED</Text></Box>
+                }
                 <Box mx={1} my={2}><Text fontWeight={"bold"}>{props.data.payee}</Text></Box>
                 <Box mx={1} my={2}>{props.data.narration}</Box>
                 <Box mx={1} my={2}>
@@ -31,7 +34,7 @@ export default function TransactionPreview(props: Props) {
                 </Block>
             </Box>
             {
-                props.data.metas.length > 0 && <Box mx={1} my={4}>
+                props.data.metas.filter((meta) => meta.key !== "document").length > 0 && <Box mx={1} my={4}>
                     <Block title="Metas">
                         <Box>
                             {props.data.metas.filter((meta) => meta.key !== "document").map((meta, idx) => (

@@ -78,7 +78,7 @@ pub enum LedgerErrorType {
     AccountClosed {
         account_name: String,
     },
-    // TransactionDoesNotBalance {},
+    TransactionDoesNotBalance,
 }
 impl LedgerErrorType {
     pub fn message(&self) -> String {
@@ -100,6 +100,7 @@ impl LedgerErrorType {
             ),
             LedgerErrorType::AccountDoesNotExist { account_name } => format!("account {} does not exist", account_name),
             LedgerErrorType::AccountClosed { account_name } => format!("account {} had been closed", account_name),
+            LedgerErrorType::TransactionDoesNotBalance => "transaction does not balanced".to_string(),
         }
     }
 }
