@@ -1,6 +1,7 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::models::{Flag, StringOrAccount, ZhangString};
+use crate::core::utils::inventory::Inventory;
 use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::core::AccountName;
 use bigdecimal::{BigDecimal, Zero};
@@ -8,6 +9,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
 use std::collections::HashSet;
 use std::ops::{Mul, Neg};
+use std::sync::Arc;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
@@ -116,8 +118,15 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn is_balance(&self) -> bool {
-        // todo: check if transaction is balanced
-        true
+        let mut inventory = Inventory {
+            inner: Default::default(),
+            prices: Arc::new(Default::default()),
+        };
+        self.txn_postings().into_iter().for_each(|tx_posting| {
+            let amount = tx_posting.units();
+            inventory.add_amount(amount);
+        });
+        inventory.is_zero()
     }
 
     pub fn txn_postings(&self) -> Vec<TxnPosting> {
@@ -262,4 +271,115 @@ pub struct Include {
 #[derive(Debug, PartialEq)]
 pub struct Comment {
     pub content: String,
+}
+
+#[cfg(test)]
+mod test {
+    mod transaction {
+        use crate::core::models::Directive;
+        use crate::parse_zhang;
+        use indoc::indoc;
+
+        #[test]
+        fn should_return_true_given_balanced_transaction() {
+            let directive = parse_zhang(
+                indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 CNY
+                  Expenses:Some 100 CNY
+            "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap();
+            match directive.data {
+                Directive::Transaction(trx) => {
+                    assert!(trx.is_balance());
+                }
+                _ => unreachable!(),
+            }
+        }
+        #[test]
+        fn should_return_true_given_two_same_decimal() {
+            let directive = parse_zhang(
+                indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100.00 CNY
+                  Expenses:Some 100 CNY
+            "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap();
+            match directive.data {
+                Directive::Transaction(trx) => {
+                    assert!(trx.is_balance());
+                }
+                _ => unreachable!(),
+            }
+        }
+        #[test]
+        fn should_return_true_given_multiple_posting() {
+            let directive = parse_zhang(
+                indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100.00 CNY
+                  Expenses:Some 50 CNY
+                  Expenses:Others 50 CNY
+            "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap();
+            match directive.data {
+                Directive::Transaction(trx) => {
+                    assert!(trx.is_balance());
+                }
+                _ => unreachable!(),
+            }
+        }
+        #[test]
+        fn should_return_false_given_two_diff_posting_amount() {
+            let directive = parse_zhang(
+                indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 CNY
+                  Expenses:Some 90 CNY
+            "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap();
+            match directive.data {
+                Directive::Transaction(trx) => {
+                    assert!(!trx.is_balance());
+                }
+                _ => unreachable!(),
+            }
+        }
+        #[test]
+        fn should_return_false_given_two_diff_currency() {
+            let directive = parse_zhang(
+                indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 CNY
+                  Expenses:Some 100 CNY2
+            "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap();
+            match directive.data {
+                Directive::Transaction(trx) => {
+                    assert!(!trx.is_balance());
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
 }

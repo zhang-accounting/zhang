@@ -50,6 +50,9 @@ impl Inventory {
         }
         sum
     }
+    pub fn is_zero(&self) -> bool {
+        self.inner.iter().fold(true, |ret, pair| ret && pair.1.is_zero())
+    }
 }
 
 impl Add for &Inventory {
