@@ -32,3 +32,7 @@
 2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
 2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
 2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+
+2022-06-02 "closed account test"
+  Income:PreviousCompanySalary -100 CNY
+  Assets:Card:TestCard 100 CNY

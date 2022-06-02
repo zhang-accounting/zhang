@@ -56,6 +56,21 @@ fn check_account_existed(ledger: &mut Ledger, span: &SpanInfo, account_name: &st
         })
     }
 }
+fn check_account_closed(ledger: &mut Ledger, span: &SpanInfo, account_name: &str) {
+    let has_account_closed = ledger
+        .accounts
+        .get(account_name)
+        .map(|account_info| account_info.status)
+        .map(|status| status == AccountStatus::Close);
+    if let Some(true) = has_account_closed {
+        ledger.errors.push(LedgerError {
+            span: span.clone(),
+            error: LedgerErrorType::AccountClosed {
+                account_name: account_name.to_string(),
+            },
+        })
+    }
+}
 
 impl DirectiveProcess for Options {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
@@ -91,6 +106,7 @@ impl DirectiveProcess for Close {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
         // check if account exist
         check_account_existed(ledger, _span, self.account.name());
+        check_account_closed(ledger, _span, self.account.name());
         let account_info = ledger
             .accounts
             .entry(self.account.content.to_string())
@@ -134,6 +150,7 @@ impl DirectiveProcess for Transaction {
         );
         for txn_posting in self.txn_postings() {
             check_account_existed(ledger, _span, txn_posting.posting.account.name());
+            check_account_closed(ledger, _span, txn_posting.posting.account.name());
             let target_account_snapshot = ledger
                 .account_inventory
                 .entry(txn_posting.account_name())
@@ -163,6 +180,7 @@ impl DirectiveProcess for Balance {
         match self {
             Balance::BalanceCheck(balance_check) => {
                 check_account_existed(ledger, span, balance_check.account.name());
+                check_account_closed(ledger, span, balance_check.account.name());
                 record_daily_snapshot(
                     &mut ledger.account_inventory,
                     &mut ledger.daily_inventory,
@@ -205,6 +223,8 @@ impl DirectiveProcess for Balance {
             Balance::BalancePad(balance_pad) => {
                 check_account_existed(ledger, span, balance_pad.account.name());
                 check_account_existed(ledger, span, balance_pad.pad.name());
+                check_account_closed(ledger, span, balance_pad.account.name());
+                check_account_closed(ledger, span, balance_pad.pad.name());
                 record_daily_snapshot(
                     &mut ledger.account_inventory,
                     &mut ledger.daily_inventory,
@@ -240,6 +260,7 @@ impl DirectiveProcess for Balance {
 impl DirectiveProcess for Document {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
         check_account_existed(ledger, span, self.account.name());
+        check_account_closed(ledger, span, self.account.name());
         ledger.documents.push(DocumentType::AccountDocument {
             date: self.date.clone(),
             account: self.account.clone(),

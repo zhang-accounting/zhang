@@ -1,7 +1,7 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Transaction, TxnPosting};
-use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType, LedgerError, LedgerErrorType};
+use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType, LedgerError};
 use crate::core::models::Directive;
 use crate::core::utils::inventory::Inventory;
 use crate::core::utils::span::SpanInfo;
@@ -636,26 +636,7 @@ pub struct ErrorDto(LedgerError);
 #[Object]
 impl ErrorDto {
     async fn message(&self) -> String {
-        match &self.0.error {
-            LedgerErrorType::AccountBalanceCheckError {
-                account_name,
-                distance,
-                target,
-                current,
-            } => format!(
-                "account {} balance to {} {} with distance {} {}(current is {} {})",
-                account_name,
-                &target.number,
-                &target.currency,
-                &distance.number,
-                &distance.currency,
-                &current.number,
-                &current.currency,
-            ),
-            LedgerErrorType::AccountDoesNotExist { account_name } => format!("account {} does not exist", account_name),
-            // LedgerError::AccountClosed { .. } => "account close".to_string(),
-            // LedgerError::TransactionDoesNotBalance { .. } => "trx does not balance".to_string(),
-        }
+        self.0.error.message()
     }
     async fn span(&self) -> SpanInfoDto {
         SpanInfoDto(self.0.span.clone())
