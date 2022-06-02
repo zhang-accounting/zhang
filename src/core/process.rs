@@ -70,6 +70,30 @@ fn check_account_closed(ledger: &mut Ledger, span: &SpanInfo, account_name: &str
         })
     }
 }
+fn check_commodity_define(ledger: &mut Ledger, span: &SpanInfo, commodity_name: &str) {
+    let has_commodity_defined = !ledger.currencies.contains_key(commodity_name);
+    if has_commodity_defined {
+        ledger.errors.push(LedgerError {
+            span: span.clone(),
+            error: LedgerErrorType::CommodityDoesNotDefine {
+                commodity_name: commodity_name.to_string(),
+            },
+        })
+    }
+}
+fn check_commodity_define_for_amount(ledger: &mut Ledger, span: &SpanInfo, amount: &Option<Amount>) {
+    if let Some(amount) = amount {
+        let has_commodity_defined = !ledger.currencies.contains_key(&amount.currency);
+        if has_commodity_defined {
+            ledger.errors.push(LedgerError {
+                span: span.clone(),
+                error: LedgerErrorType::CommodityDoesNotDefine {
+                    commodity_name: amount.currency.to_string(),
+                },
+            })
+        }
+    }
+}
 
 impl DirectiveProcess for Options {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
@@ -81,7 +105,11 @@ impl DirectiveProcess for Options {
 }
 
 impl DirectiveProcess for Open {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+        for currency in &self.commodities {
+            check_commodity_define(ledger, span, &currency);
+        }
+
         let account_info = ledger
             .accounts
             .entry(self.account.content.to_string())
@@ -153,6 +181,9 @@ impl DirectiveProcess for Transaction {
         for txn_posting in self.txn_postings() {
             check_account_existed(ledger, span, txn_posting.posting.account.name());
             check_account_closed(ledger, span, txn_posting.posting.account.name());
+            check_commodity_define_for_amount(ledger, span, &txn_posting.posting.units);
+            check_commodity_define_for_amount(ledger, span, &txn_posting.posting.price);
+            check_commodity_define_for_amount(ledger, span, &txn_posting.posting.cost);
             let target_account_snapshot = ledger
                 .account_inventory
                 .entry(txn_posting.account_name())
@@ -273,7 +304,9 @@ impl DirectiveProcess for Document {
 }
 
 impl DirectiveProcess for Price {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+        check_commodity_define(ledger, span, &self.currency);
+        check_commodity_define(ledger, span, &&self.amount.currency);
         let mut result = ledger.prices.write().unwrap();
         result.insert(
             self.date.naive_datetime(),
