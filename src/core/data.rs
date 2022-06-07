@@ -1,6 +1,6 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::models::{Flag, StringOrAccount, ZhangString};
+use crate::core::models::{Flag, SingleTotalPrice, StringOrAccount, ZhangString};
 use crate::core::utils::inventory::Inventory;
 use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::core::AccountName;
@@ -8,7 +8,7 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
 use std::collections::HashSet;
-use std::ops::{Mul, Neg};
+use std::ops::Neg;
 use std::sync::Arc;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
@@ -99,8 +99,8 @@ pub struct Posting {
     pub account: Account,
     pub units: Option<Amount>,
     pub cost: Option<Amount>,
-    pub price: Option<Amount>,
-
+    pub cost_date: Option<Date>,
+    pub price: Option<SingleTotalPrice>,
     pub meta: Meta,
 }
 
@@ -178,10 +178,12 @@ impl<'a> TxnPosting<'a> {
         if let Some(cost) = &self.posting.cost {
             cost.clone()
         } else {
-            match (&self.posting.units, &self.posting.price) {
-                (Some(unit), Some(price)) => Amount::new((&unit.number).mul(&price.number), price.currency.clone()),
-                _ => self.units(),
-            }
+            // match (&self.posting.units, &self.posting.single_price) {
+            //     (Some(unit), Some(price)) => Amount::new((&unit.number).mul(&price.number), price.currency.clone()),
+            //     _ => self.units(),
+            // }
+            // todo
+            self.units()
         }
     }
 
@@ -377,6 +379,28 @@ mod test {
             match directive.data {
                 Directive::Transaction(trx) => {
                     assert!(!trx.is_balance());
+                }
+                _ => unreachable!(),
+            }
+        }
+        #[test]
+        #[ignore]
+        fn should_return_true_given_day_price() {
+            let directive = parse_zhang(
+                indoc! {r#"
+                2015-01-05 * "Investing 60% of cash in RGAGX"
+                  Assets:US:Vanguard:RGAGX      4.088 RGAGX {88.07 USD, 2015-01-05}
+                  Assets:US:Vanguard:Cash     -360.03 USD
+            "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap();
+            dbg!(&directive);
+            match directive.data {
+                Directive::Transaction(trx) => {
+                    assert!(trx.is_balance());
                 }
                 _ => unreachable!(),
             }
