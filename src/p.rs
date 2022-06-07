@@ -244,6 +244,7 @@ impl ZhangParser {
             account,
             units: None,
             cost: None,
+            cost_date: None,
             price: None,
             meta: Default::default(),
         };
@@ -253,7 +254,8 @@ impl ZhangParser {
 
             if let Some(meta) = meta {
                 line.cost = meta.0;
-                // line.price = meta.2; // todo
+                line.cost_date = meta.1;
+                line.price = meta.2;
             }
         }
         Ok(line)
@@ -812,6 +814,123 @@ mod test {
             )
             .unwrap();
             assert_eq!(vec.len(), 1);
+        }
+
+        mod posting {
+            use crate::core::amount::Amount;
+            use crate::core::data::{Date, Transaction};
+            use crate::core::models::{Directive, SingleTotalPrice};
+            use crate::parse_zhang;
+            use bigdecimal::{BigDecimal, FromPrimitive};
+            use chrono::NaiveDate;
+            use indoc::indoc;
+
+            fn get_first_posting(content: &str) -> Transaction {
+                let directive = parse_zhang(content, None).unwrap().pop().unwrap();
+                match directive.data {
+                    Directive::Transaction(trx) => trx,
+                    _ => unreachable!(),
+                }
+            }
+
+            #[test]
+            fn should_return_all_none_price() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(None, posting.units);
+                assert_eq!(None, posting.cost);
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(None, posting.price);
+            }
+
+            #[test]
+            fn should_return_unit() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 CNY
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "CNY")), posting.units);
+                assert_eq!(None, posting.cost);
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(None, posting.price);
+            }
+            #[test]
+            fn should_return_unit_and_cost() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD { 7 CNY }
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
+                assert_eq!(Some(Amount::new(BigDecimal::from(7i32), "CNY")), posting.cost);
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(None, posting.price);
+            }
+
+            #[test]
+            fn should_return_unit_and_cost_cost_date() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD { 7 CNY, 2022-06-06 }
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
+                assert_eq!(Some(Amount::new(BigDecimal::from(7i32), "CNY")), posting.cost);
+                assert_eq!(Some(Date::Date(NaiveDate::from_ymd(2022, 6, 6))), posting.cost_date);
+                assert_eq!(None, posting.price);
+            }
+            #[test]
+            fn should_return_unit_and_single_price() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD @ 7 CNY
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
+                assert_eq!(None, posting.cost);
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(
+                    Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))),
+                    posting.price
+                );
+            }
+            #[test]
+            fn should_return_unit_and_total_price() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD @@ 700 CNY
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
+                assert_eq!(None, posting.cost);
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(
+                    Some(SingleTotalPrice::Total(Amount::new(BigDecimal::from(700i32), "CNY"))),
+                    posting.price
+                );
+            }
+            #[test]
+            fn should_return_unit_cost_and_single_price() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD { 6.9 CNY } @ 7 CNY
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
+                assert_eq!(
+                    Some(Amount::new(BigDecimal::from_f32(6.9).unwrap(), "CNY")),
+                    posting.cost
+                );
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(
+                    Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))),
+                    posting.price
+                );
+            }
         }
     }
 }
