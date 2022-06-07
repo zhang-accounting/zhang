@@ -8,7 +8,7 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
 use std::collections::HashSet;
-use std::ops::Neg;
+use std::ops::{Div, Mul, Neg};
 use std::sync::Arc;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
@@ -118,15 +118,16 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn is_balance(&self) -> bool {
-        let mut inventory = Inventory {
-            inner: Default::default(),
-            prices: Arc::new(Default::default()),
-        };
-        self.txn_postings().into_iter().for_each(|tx_posting| {
-            let amount = tx_posting.units();
-            inventory.add_amount(amount);
-        });
-        inventory.is_zero()
+        // let mut inventory = Inventory {
+        //     inner: Default::default(),
+        //     prices: Arc::new(Default::default()),
+        // };
+        // self.txn_postings().into_iter().for_each(|tx_posting| {
+        //     let amount = tx_posting.units();
+        //     inventory.add_amount(amount);
+        // });
+        // inventory.is_zero()
+        todo!()
     }
 
     pub fn txn_postings(&self) -> Vec<TxnPosting> {
@@ -147,43 +148,62 @@ pub struct TxnPosting<'a> {
 }
 
 impl<'a> TxnPosting<'a> {
-    pub fn units(&self) -> Amount {
-        if let Some(unit) = &self.posting.units {
-            unit.clone()
-        } else {
-            let vec = self
-                .txn
-                .txn_postings()
-                .iter()
-                .filter(|it| it.posting.units.is_some())
-                .map(|it| it.costs())
-                .collect_vec();
+    pub fn units(&self) -> Option<Amount> {
+        self.posting.units.clone()
 
-            let mut others = HashSet::new();
-            for x in &vec {
-                others.insert(x.currency.clone());
-            }
-
-            if others.len() > 1 {
-                // todo error
-                Amount::new(BigDecimal::zero(), "CNY")
-            } else {
-                let currency = others.into_iter().take(1).next().unwrap();
-                let number = vec.into_iter().map(|it| it.number).sum();
-                Amount::new(number, currency).neg()
-            }
-        }
+        // if let Some(unit) = &self.posting.units {
+        //     unit.clone()
+        // } else {
+        //     let vec = self
+        //         .txn
+        //         .txn_postings()
+        //         .iter()
+        //         .filter(|it| it.posting.units.is_some())
+        //         .map(|it| it.costs())
+        //         .collect_vec();
+        //
+        //     let mut others = HashSet::new();
+        //     for x in &vec {
+        //         others.insert(x.currency.clone());
+        //     }
+        //
+        //     if others.len() > 1 {
+        //         // todo error
+        //         Amount::new(BigDecimal::zero(), "CNY")
+        //     } else {
+        //         let currency = others.into_iter().take(1).next().unwrap();
+        //         let number = vec.into_iter().map(|it| it.number).sum();
+        //         Amount::new(number, currency).neg()
+        //     }
+        // }
     }
-    pub fn costs(&self) -> Amount {
-        if let Some(cost) = &self.posting.cost {
-            cost.clone()
+    /// if cost is not specified, and it can be indicated from price. e.g.
+    /// `Assets:Card 1 CNY @ 10 AAA` then cost `10 AAA` can be indicated from single price`@ 10 AAA`
+    pub fn costs(&self) -> Option<Amount> {
+        self.posting.cost.clone().or_else(|| {
+            self.posting.price.as_ref().map(|price| match price {
+                SingleTotalPrice::Single(single_price) => single_price.clone(),
+                SingleTotalPrice::Total(total_price) => Amount::new(
+                    (&total_price.number).div(&self.posting.units.as_ref().unwrap().number),
+                    total_price.currency.clone(),
+                ),
+            })
+        })
+    }
+    pub fn trade_amount(&self) -> Option<Amount> {
+        if let Some(unit) = self.posting.units.as_ref() {
+            Some(match (self.posting.cost.as_ref(), self.posting.price.as_ref()) {
+                (Some(cost), _) => Amount::new((&unit.number).mul(&cost.number), cost.currency.clone()),
+                (None, Some(price)) => match price {
+                    SingleTotalPrice::Single(single_price) => {
+                        Amount::new((&unit.number).mul(&single_price.number), single_price.currency.clone())
+                    }
+                    SingleTotalPrice::Total(total_price) => total_price.clone(),
+                },
+                (None, None) => unit.clone(),
+            })
         } else {
-            // match (&self.posting.units, &self.posting.single_price) {
-            //     (Some(unit), Some(price)) => Amount::new((&unit.number).mul(&price.number), price.currency.clone()),
-            //     _ => self.units(),
-            // }
-            // todo
-            self.units()
+            None
         }
     }
 
@@ -403,6 +423,109 @@ mod test {
                     assert!(trx.is_balance());
                 }
                 _ => unreachable!(),
+            }
+        }
+
+        mod txn_posting {
+            use crate::core::amount::Amount;
+            use crate::core::data::{Date, Transaction};
+            use crate::core::models::{Directive, SingleTotalPrice};
+            use crate::parse_zhang;
+            use bigdecimal::{BigDecimal, FromPrimitive};
+            use chrono::NaiveDate;
+            use indoc::indoc;
+
+            fn get_first_posting(content: &str) -> Transaction {
+                let directive = parse_zhang(content, None).unwrap().pop().unwrap();
+                match directive.data {
+                    Directive::Transaction(trx) => trx,
+                    _ => unreachable!(),
+                }
+            }
+
+            #[test]
+            fn should_get_none_unit_given_auto_balanced_posting() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(None, posting.units());
+                assert_eq!(None, posting.costs());
+                assert_eq!(None, posting.trade_amount());
+            }
+            #[test]
+            fn should_get_unit() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 CNY
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
+                assert_eq!(None, posting.costs());
+                assert_eq!(
+                    Some(Amount::new(BigDecimal::from(100i32), "CNY")),
+                    posting.trade_amount()
+                );
+            }
+
+            #[test]
+            fn should_get_unit_given_single_price() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 CNY @ 10 AAA
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
+                assert_eq!(Some(Amount::new(BigDecimal::from(10i32), "AAA")), posting.costs());
+                assert_eq!(
+                    Some(Amount::new(BigDecimal::from(1000i32), "AAA")),
+                    posting.trade_amount()
+                );
+            }
+
+            #[test]
+            fn should_get_unit_given_cost() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 CNY { 10 AAA }
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
+                assert_eq!(Some(Amount::new(BigDecimal::from(10i32), "AAA")), posting.costs());
+                assert_eq!(
+                    Some(Amount::new(BigDecimal::from(1000i32), "AAA")),
+                    posting.trade_amount()
+                );
+            }
+
+            #[test]
+            fn should_get_unit_given_cost_and_single_price() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 CNY { 10 AAA } @ 11 AAA
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
+                assert_eq!(Some(Amount::new(BigDecimal::from(10i32), "AAA")), posting.costs());
+                assert_eq!(
+                    Some(Amount::new(BigDecimal::from(1000i32), "AAA")),
+                    posting.trade_amount()
+                );
+            }
+            #[test]
+            fn should_get_unit_given_total_price() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 CNY @@ 110000 AAA
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
+                assert_eq!(Some(Amount::new(BigDecimal::from(1100i32), "AAA")), posting.costs());
+                assert_eq!(
+                    Some(Amount::new(BigDecimal::from(110000i32), "AAA")),
+                    posting.trade_amount()
+                );
             }
         }
     }
