@@ -388,7 +388,8 @@ impl<'a> PostingDto<'a> {
     }
 
     async fn unit(&self) -> AmountDto {
-        AmountDto(self.0.units())
+        // AmountDto(self.0.units())
+        todo!()
     }
 }
 pub struct AmountDto(Amount);

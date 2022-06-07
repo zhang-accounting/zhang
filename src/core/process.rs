@@ -189,7 +189,7 @@ impl DirectiveProcess for Transaction {
                 .account_inventory
                 .entry(txn_posting.account_name())
                 .or_insert_with(|| context.default_account_snapshot());
-            target_account_snapshot.add_amount(txn_posting.units());
+            // todo target_account_snapshot.add_amount(txn_posting.units());
         }
         for document in self
             .meta
