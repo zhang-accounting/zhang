@@ -98,6 +98,7 @@ fn check_commodity_define_for_amount<'a>(ledger: &mut Ledger, span: &SpanInfo, a
 
 impl DirectiveProcess for Options {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
+        ledger.options.parse(self.key.as_str(), self.value.as_str());
         ledger
             .configs
             .insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());
