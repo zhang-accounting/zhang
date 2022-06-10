@@ -64,7 +64,7 @@ pub struct LedgerError {
     pub(crate) error: LedgerErrorType,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum LedgerErrorType {
     AccountBalanceCheckError {
         account_name: String,
@@ -82,6 +82,7 @@ pub enum LedgerErrorType {
     CommodityDoesNotDefine {
         commodity_name: String,
     },
+    TransactionHasMultipleImplicitPosting,
 }
 impl LedgerErrorType {
     pub fn message(&self) -> String {
@@ -106,6 +107,9 @@ impl LedgerErrorType {
             LedgerErrorType::TransactionDoesNotBalance => "transaction does not balanced".to_string(),
             LedgerErrorType::CommodityDoesNotDefine { commodity_name } => {
                 format!("commodity {commodity_name} does not define")
+            }
+            LedgerErrorType::TransactionHasMultipleImplicitPosting => {
+                "transaction has more than one implicit posting".to_string()
             }
         }
     }

@@ -53,6 +53,9 @@ impl Inventory {
     pub fn is_zero(&self) -> bool {
         self.inner.iter().all(|pair| pair.1.is_zero())
     }
+    pub fn size(&self) -> usize {
+        self.inner.len()
+    }
 }
 
 impl Add for &Inventory {
