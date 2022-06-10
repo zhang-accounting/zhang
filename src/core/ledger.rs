@@ -24,6 +24,7 @@ use std::io::Write;
 use std::option::Option::None;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock as StdRwLock};
+use crate::core::options::Options;
 
 #[derive(Debug, Clone)]
 pub enum DocumentType {
@@ -120,6 +121,8 @@ pub struct Ledger {
     pub entry: Either<(PathBuf, String), String>,
     pub(crate) visited_files: Vec<PathBuf>,
 
+    pub options: Options,
+
     pub(crate) directives: Vec<Spanned<Directive>>,
     pub metas: Vec<Spanned<Directive>>,
     pub accounts: HashMap<AccountName, AccountInfo>,
@@ -185,6 +188,7 @@ impl Ledger {
 
         let arc_price = Arc::new(StdRwLock::new(DatedPriceGrip::default()));
         let mut ret_ledger = Self {
+            options: Options::default(),
             entry,
             visited_files,
             directives: vec![],
