@@ -332,7 +332,7 @@ impl TransactionDto {
             .collect_vec()
     }
     async fn is_balanced(&self) -> bool {
-        self.0.is_balance()
+        self.0.is_balance().unwrap_or(false)
     }
 }
 

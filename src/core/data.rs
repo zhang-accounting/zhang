@@ -118,17 +118,17 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn is_balance(&self) -> bool {
-        // let mut inventory = Inventory {
-        //     inner: Default::default(),
-        //     prices: Arc::new(Default::default()),
-        // };
-        // self.txn_postings().into_iter().for_each(|tx_posting| {
-        //     let amount = tx_posting.units();
-        //     inventory.add_amount(amount);
-        // });
-        // inventory.is_zero()
-        todo!()
+    pub fn is_balance(&self) -> Result<bool, LedgerErrorType> {
+        let mut inventory = Inventory {
+            inner: Default::default(),
+            prices: Arc::new(Default::default()),
+        };
+        for posting in self.txn_postings() {
+            let amount = posting.infer_trade_amount()?;
+            inventory.add_amount(amount);
+        }
+        // todo work with commodity precision
+        Ok(inventory.is_zero())
     }
 
     pub fn txn_postings(&self) -> Vec<TxnPosting> {
@@ -205,7 +205,7 @@ impl<'a> TxnPosting<'a> {
                     if inventory.size() > 1 {
                         return Err(LedgerErrorType::TransactionDoesNotBalance)
                     }else {
-                        Ok(inventory.pop().unwrap())
+                        Ok(inventory.pop().unwrap().neg())
                     }
                 },
                 _ => return Err(LedgerErrorType::TransactionHasMultipleImplicitPosting),
@@ -323,7 +323,7 @@ mod test {
             .unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(trx.is_balance());
+                    assert!(trx.is_balance().unwrap());
                 }
                 _ => unreachable!(),
             }
@@ -343,7 +343,7 @@ mod test {
             .unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(trx.is_balance());
+                    assert!(trx.is_balance().unwrap());
                 }
                 _ => unreachable!(),
             }
@@ -364,7 +364,7 @@ mod test {
             .unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(trx.is_balance());
+                    assert!(trx.is_balance().unwrap());
                 }
                 _ => unreachable!(),
             }
@@ -384,7 +384,7 @@ mod test {
             .unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(!trx.is_balance());
+                    assert!(!trx.is_balance().unwrap());
                 }
                 _ => unreachable!(),
             }
@@ -404,7 +404,7 @@ mod test {
             .unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(!trx.is_balance());
+                    assert!(!trx.is_balance().unwrap());
                 }
                 _ => unreachable!(),
             }
@@ -426,7 +426,7 @@ mod test {
             dbg!(&directive);
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(trx.is_balance());
+                    assert!(trx.is_balance().unwrap());
                 }
                 _ => unreachable!(),
             }
@@ -540,10 +540,11 @@ mod test {
                   Assets:Card 100 CNY
                   Assets:Card2
                 "#});
-                let posting = trx.txn_postings().pop().unwrap();
-                assert_eq!(Ok(Amount::new(BigDecimal::from(100i32), "CNY")), posting.infer_trade_amount());
-                let posting2 = trx.txn_postings().pop().unwrap();
-                assert_eq!(Ok(Amount::new(BigDecimal::from(-100i32), "CNY")), posting2.infer_trade_amount());
+                let mut vec = trx.txn_postings();
+                let posting = vec.remove(0);
+                assert_eq!(Ok(Amount::new(BigDecimal::from(100i32), "CNY")), posting.infer_trade_amount(), "Assets:Card 100 CNY");
+                let posting2 = vec.remove(0);
+                assert_eq!(Ok(Amount::new(BigDecimal::from(-100i32), "CNY")), posting2.infer_trade_amount(), "Assets:Card2");
 
             }
         }
