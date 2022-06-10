@@ -240,7 +240,7 @@ impl AccountDto {
             .iter()
             .filter(|it| match it {
                 DocumentType::AccountDocument { account, .. } => account.content.eq(&self.name),
-                DocumentType::TransactionDocument { .. } => false, // todo transaction documents
+                DocumentType::TransactionDocument { .. } => true,
             })
             .cloned()
             .map(|it| match it {
@@ -387,9 +387,8 @@ impl<'a> PostingDto<'a> {
             })
     }
 
-    async fn unit(&self) -> AmountDto {
-        // AmountDto(self.0.units())
-        todo!()
+    async fn unit(&self) -> Option<AmountDto> {
+        self.0.units().map(AmountDto)
     }
 }
 pub struct AmountDto(Amount);
