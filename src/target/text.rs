@@ -1,3 +1,4 @@
+use std::fmt::format;
 use itertools::Itertools;
 
 use crate::core::account::Account;
@@ -7,7 +8,7 @@ use crate::core::data::{
     Posting, Price, Transaction,
 };
 use crate::core::ledger::Ledger;
-use crate::core::models::{Directive, Flag, StringOrAccount, ZhangString};
+use crate::core::models::{Directive, Flag, SingleTotalPrice, StringOrAccount, ZhangString};
 use crate::target::ZhangTarget;
 use crate::utils::escape_with_quote;
 
@@ -110,11 +111,23 @@ impl ZhangTarget<String> for Posting {
             self.flag.map(|it| format!(" {}", it.to_target())),
             Some(self.account.to_target()),
             self.units.map(|it| it.to_target()),
+            // todo: cost
+            self.price.map(|it|it.to_target())
         ];
 
         vec1.into_iter().flatten().join(" ")
     }
 }
+
+impl ZhangTarget<String> for SingleTotalPrice {
+    fn to_target(self) -> String {
+        match self {
+            SingleTotalPrice::Single(single_price) => {format!("@ {}", single_price.to_target())}
+            SingleTotalPrice::Total(total_price) => {format!("@@ {}", total_price.to_target())}
+        }
+    }
+}
+
 impl ZhangTarget<String> for Open {
     fn to_target(self) -> String {
         let mut line = vec![self.date.to_target(), "open".to_string(), self.account.to_target()];
