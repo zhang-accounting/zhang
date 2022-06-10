@@ -167,7 +167,7 @@ impl DirectiveProcess for Commodity {
 impl DirectiveProcess for Transaction {
     fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
         match self.is_balance() {
-            Ok(true) => {},
+            Ok(true) => {}
             Ok(false) => {
                 ledger.errors.push(LedgerError {
                     span: span.clone(),
@@ -206,7 +206,10 @@ impl DirectiveProcess for Transaction {
                 .account_inventory
                 .entry(txn_posting.account_name())
                 .or_insert_with(|| context.default_account_snapshot());
-            // todo target_account_snapshot.add_amount(txn_posting.units());
+            let amount = txn_posting
+                .units()
+                .unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
+            target_account_snapshot.add_amount(amount);
         }
         for document in self
             .meta
