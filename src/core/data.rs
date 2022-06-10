@@ -10,6 +10,7 @@ use itertools::Itertools;
 use std::collections::HashSet;
 use std::ops::{Div, Mul, Neg};
 use std::sync::Arc;
+use crate::core::ledger::{LedgerError, LedgerErrorType};
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
@@ -150,32 +151,6 @@ pub struct TxnPosting<'a> {
 impl<'a> TxnPosting<'a> {
     pub fn units(&self) -> Option<Amount> {
         self.posting.units.clone()
-
-        // if let Some(unit) = &self.posting.units {
-        //     unit.clone()
-        // } else {
-        //     let vec = self
-        //         .txn
-        //         .txn_postings()
-        //         .iter()
-        //         .filter(|it| it.posting.units.is_some())
-        //         .map(|it| it.costs())
-        //         .collect_vec();
-        //
-        //     let mut others = HashSet::new();
-        //     for x in &vec {
-        //         others.insert(x.currency.clone());
-        //     }
-        //
-        //     if others.len() > 1 {
-        //         // todo error
-        //         Amount::new(BigDecimal::zero(), "CNY")
-        //     } else {
-        //         let currency = others.into_iter().take(1).next().unwrap();
-        //         let number = vec.into_iter().map(|it| it.number).sum();
-        //         Amount::new(number, currency).neg()
-        //     }
-        // }
     }
     /// if cost is not specified, and it can be indicated from price. e.g.
     /// `Assets:Card 1 CNY @ 10 AAA` then cost `10 AAA` can be indicated from single price`@ 10 AAA`
@@ -205,6 +180,37 @@ impl<'a> TxnPosting<'a> {
         } else {
             None
         }
+    }
+    pub fn infer_trade_amount(&self) -> Result<Amount, LedgerErrorType> {
+        self.trade_amount().map(|it|Ok(it)).unwrap_or_else(|| {
+            let (trade_amount_postings, non_trade_amount_postings): (Vec<Option<Amount>>, Vec<Option<Amount>>) = self
+                .txn
+                .txn_postings()
+                .iter()
+                .map(|it| it.trade_amount())
+                .partition(|it| it.is_some());
+
+            match non_trade_amount_postings.len() {
+                0 => unreachable!(),
+                1 => {
+                    let mut inventory = Inventory {
+                        inner: Default::default(),
+                        prices: Arc::new(Default::default())
+                    };
+                    for trade_amount in trade_amount_postings {
+                        if let Some(trade_amount) = trade_amount {
+                            inventory.add_amount(trade_amount);
+                        }
+                    }
+                    if inventory.size() > 1 {
+                        return Err(LedgerErrorType::TransactionDoesNotBalance)
+                    }else {
+                        Ok(inventory.pop().unwrap())
+                    }
+                },
+                _ => return Err(LedgerErrorType::TransactionHasMultipleImplicitPosting),
+            }
+        })
     }
 
     pub fn account_name(&self) -> AccountName {
@@ -526,6 +532,19 @@ mod test {
                     Some(Amount::new(BigDecimal::from(110000i32), "AAA")),
                     posting.trade_amount()
                 );
+            }
+            #[test]
+            fn should_get_infer_trade_amount() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 CNY
+                  Assets:Card2
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(Ok(Amount::new(BigDecimal::from(100i32), "CNY")), posting.infer_trade_amount());
+                let posting2 = trx.txn_postings().pop().unwrap();
+                assert_eq!(Ok(Amount::new(BigDecimal::from(-100i32), "CNY")), posting2.infer_trade_amount());
+
             }
         }
     }

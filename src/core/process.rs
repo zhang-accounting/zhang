@@ -3,6 +3,7 @@ use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Pric
 use crate::core::ledger::{
     AccountInfo, AccountStatus, CurrencyInfo, DocumentType, Ledger, LedgerError, LedgerErrorType,
 };
+use crate::core::models::SingleTotalPrice;
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
 use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::core::utils::span::SpanInfo;
@@ -81,8 +82,8 @@ fn check_commodity_define(ledger: &mut Ledger, span: &SpanInfo, commodity_name: 
         })
     }
 }
-fn check_commodity_define_for_amount(ledger: &mut Ledger, span: &SpanInfo, amount: &Option<Amount>) {
-    if let Some(amount) = amount {
+fn check_commodity_define_for_amount<'a>(ledger: &mut Ledger, span: &SpanInfo, amount: impl Into<Option<&'a Amount>>) {
+    if let Some(amount) = amount.into() {
         let has_commodity_defined = !ledger.currencies.contains_key(&amount.currency);
         if has_commodity_defined {
             ledger.errors.push(LedgerError {
@@ -182,8 +183,14 @@ impl DirectiveProcess for Transaction {
             check_account_existed(ledger, span, txn_posting.posting.account.name());
             check_account_closed(ledger, span, txn_posting.posting.account.name());
             check_commodity_define_for_amount(ledger, span, &txn_posting.posting.units);
-
-            //todo check_commodity_define_for_amount(ledger, span, &txn_posting.posting.single_price);
+            if let Some(price) = txn_posting.posting.price.as_ref() {
+                match price {
+                    SingleTotalPrice::Single(single) => check_commodity_define_for_amount(ledger, span, single),
+                    SingleTotalPrice::Total(total_price) => {
+                        check_commodity_define_for_amount(ledger, span, total_price)
+                    }
+                }
+            }
             check_commodity_define_for_amount(ledger, span, &txn_posting.posting.cost);
             let target_account_snapshot = ledger
                 .account_inventory
