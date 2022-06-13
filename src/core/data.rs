@@ -1,5 +1,6 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
+use crate::core::ledger::{LedgerError, LedgerErrorType};
 use crate::core::models::{Flag, SingleTotalPrice, StringOrAccount, ZhangString};
 use crate::core::utils::inventory::Inventory;
 use crate::core::utils::multi_value_map::MultiValueMap;
@@ -10,7 +11,6 @@ use itertools::Itertools;
 use std::collections::HashSet;
 use std::ops::{Div, Mul, Neg};
 use std::sync::Arc;
-use crate::core::ledger::{LedgerError, LedgerErrorType};
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
@@ -182,7 +182,7 @@ impl<'a> TxnPosting<'a> {
         }
     }
     pub fn infer_trade_amount(&self) -> Result<Amount, LedgerErrorType> {
-        self.trade_amount().map(|it|Ok(it)).unwrap_or_else(|| {
+        self.trade_amount().map(|it| Ok(it)).unwrap_or_else(|| {
             let (trade_amount_postings, non_trade_amount_postings): (Vec<Option<Amount>>, Vec<Option<Amount>>) = self
                 .txn
                 .txn_postings()
@@ -195,7 +195,7 @@ impl<'a> TxnPosting<'a> {
                 1 => {
                     let mut inventory = Inventory {
                         inner: Default::default(),
-                        prices: Arc::new(Default::default())
+                        prices: Arc::new(Default::default()),
                     };
                     for trade_amount in trade_amount_postings {
                         if let Some(trade_amount) = trade_amount {
@@ -203,11 +203,11 @@ impl<'a> TxnPosting<'a> {
                         }
                     }
                     if inventory.size() > 1 {
-                        return Err(LedgerErrorType::TransactionDoesNotBalance)
-                    }else {
+                        return Err(LedgerErrorType::TransactionDoesNotBalance);
+                    } else {
                         Ok(inventory.pop().unwrap().neg())
                     }
-                },
+                }
                 _ => return Err(LedgerErrorType::TransactionHasMultipleImplicitPosting),
             }
         })
@@ -410,7 +410,6 @@ mod test {
             }
         }
         #[test]
-        #[ignore]
         fn should_return_true_given_day_price() {
             let directive = parse_zhang(
                 indoc! {r#"
@@ -542,10 +541,17 @@ mod test {
                 "#});
                 let mut vec = trx.txn_postings();
                 let posting = vec.remove(0);
-                assert_eq!(Ok(Amount::new(BigDecimal::from(100i32), "CNY")), posting.infer_trade_amount(), "Assets:Card 100 CNY");
+                assert_eq!(
+                    Ok(Amount::new(BigDecimal::from(100i32), "CNY")),
+                    posting.infer_trade_amount(),
+                    "Assets:Card 100 CNY"
+                );
                 let posting2 = vec.remove(0);
-                assert_eq!(Ok(Amount::new(BigDecimal::from(-100i32), "CNY")), posting2.infer_trade_amount(), "Assets:Card2");
-
+                assert_eq!(
+                    Ok(Amount::new(BigDecimal::from(-100i32), "CNY")),
+                    posting2.infer_trade_amount(),
+                    "Assets:Card2"
+                );
             }
         }
     }
