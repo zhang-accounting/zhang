@@ -331,8 +331,9 @@ impl TransactionDto {
             })
             .collect_vec()
     }
-    async fn is_balanced(&self) -> bool {
-        self.0.is_balance().unwrap_or(false)
+    async fn is_balanced(&self, ctx: &Context<'_>) -> bool {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage.is_transaction_balanced(&self.0)
     }
 }
 

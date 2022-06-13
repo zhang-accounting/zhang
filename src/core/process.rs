@@ -167,20 +167,11 @@ impl DirectiveProcess for Commodity {
 
 impl DirectiveProcess for Transaction {
     fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
-        match self.is_balance() {
-            Ok(true) => {}
-            Ok(false) => {
-                ledger.errors.push(LedgerError {
-                    span: span.clone(),
-                    error: LedgerErrorType::TransactionDoesNotBalance,
-                });
-            }
-            Err(e) => {
-                ledger.errors.push(LedgerError {
-                    span: span.clone(),
-                    error: e,
-                });
-            }
+        if !ledger.is_transaction_balanced(&self) {
+            ledger.errors.push(LedgerError {
+                span: span.clone(),
+                error: LedgerErrorType::TransactionDoesNotBalance,
+            });
         }
 
         let date = self.date.naive_date();

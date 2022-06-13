@@ -118,7 +118,7 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn is_balance(&self) -> Result<bool, LedgerErrorType> {
+    pub(crate) fn get_postings_inventory(&self) -> Result<Inventory, LedgerErrorType> {
         let mut inventory = Inventory {
             inner: Default::default(),
             prices: Arc::new(Default::default()),
@@ -128,7 +128,7 @@ impl Transaction {
             inventory.add_amount(amount);
         }
         // todo work with commodity precision
-        Ok(inventory.is_zero())
+        Ok(inventory)
     }
 
     pub fn txn_postings(&self) -> Vec<TxnPosting> {
@@ -307,6 +307,7 @@ mod test {
         use crate::core::models::Directive;
         use crate::parse_zhang;
         use indoc::indoc;
+        use crate::core::ledger::Ledger;
 
         #[test]
         fn should_return_true_given_balanced_transaction() {
@@ -321,9 +322,10 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
+            let ledger = Ledger::load_from_str("").unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(trx.is_balance().unwrap());
+                    assert!(ledger.is_transaction_balanced(&trx));
                 }
                 _ => unreachable!(),
             }
@@ -341,9 +343,10 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
+            let ledger = Ledger::load_from_str("").unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(trx.is_balance().unwrap());
+                    assert!(ledger.is_transaction_balanced(&trx));
                 }
                 _ => unreachable!(),
             }
@@ -362,9 +365,10 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
+            let ledger = Ledger::load_from_str("").unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(trx.is_balance().unwrap());
+                    assert!(ledger.is_transaction_balanced(&trx));
                 }
                 _ => unreachable!(),
             }
@@ -382,9 +386,10 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
+            let ledger = Ledger::load_from_str("").unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(!trx.is_balance().unwrap());
+                    assert!(!ledger.is_transaction_balanced(&trx));
                 }
                 _ => unreachable!(),
             }
@@ -402,15 +407,16 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
+            let ledger = Ledger::load_from_str("").unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(!trx.is_balance().unwrap());
+                    assert!(!ledger.is_transaction_balanced(&trx));
                 }
                 _ => unreachable!(),
             }
         }
         #[test]
-        fn should_return_true_given_day_price() {
+        fn  should_return_true_given_day_price() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2015-01-05 * "Investing 60% of cash in RGAGX"
@@ -422,10 +428,10 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            dbg!(&directive);
+            let ledger = Ledger::load_from_str("").unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(trx.is_balance().unwrap());
+                    assert!(ledger.is_transaction_balanced(&trx));
                 }
                 _ => unreachable!(),
             }

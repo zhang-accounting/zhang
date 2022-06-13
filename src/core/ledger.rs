@@ -269,6 +269,18 @@ impl Ledger {
         self.configs.get(key).map(|it| it.to_string())
     }
 
+    pub fn is_transaction_balanced(&self, txn: &Transaction) -> bool     {
+        // 1. get the txn's inventory
+        match txn.get_postings_inventory() {
+            Ok(inventory) => {
+                // 2. check the balance tolerance
+                inventory.is_zero()
+
+            }
+            Err(_) => {false}
+        }
+    }
+
     pub fn reload(&mut self) -> ZhangResult<()> {
         let reload_ledger = match &mut self.entry {
             Either::Left((entry, endpoint)) => Ledger::load(entry.clone(), endpoint.clone()),
