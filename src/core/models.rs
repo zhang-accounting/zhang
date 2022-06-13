@@ -101,11 +101,11 @@ pub enum ZhangString {
 impl ZhangString {
     pub fn as_str(&self) -> &str {
         match self {
-            ZhangString::UnquoteString(s) => {s}
-            ZhangString::QuoteString(s) => {s}
+            ZhangString::UnquoteString(s) => s,
+            ZhangString::QuoteString(s) => s,
         }
     }
-     pub fn to_plain_string(self) -> String {
+    pub fn to_plain_string(self) -> String {
         match self {
             ZhangString::UnquoteString(unquote) => unquote,
             ZhangString::QuoteString(quote) => quote,
@@ -134,7 +134,6 @@ pub enum Rounding {
     #[strum(serialize = "RoundDown", to_string = "RoundDown")]
     RoundDown,
 }
-
 
 //
 // #[cfg(test)]

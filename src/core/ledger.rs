@@ -2,6 +2,7 @@ use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Commodity, Date, Include, Transaction};
 use crate::core::models::{Directive, DirectiveType, ZhangString};
+use crate::core::options::Options;
 use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
 use crate::core::utils::multi_value_map::MultiValueMap;
@@ -24,7 +25,6 @@ use std::io::Write;
 use std::option::Option::None;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock as StdRwLock};
-use crate::core::options::Options;
 
 #[derive(Debug, Clone)]
 pub enum DocumentType {

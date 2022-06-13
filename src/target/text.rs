@@ -1,5 +1,5 @@
-use std::fmt::format;
 use itertools::Itertools;
+use std::fmt::format;
 
 use crate::core::account::Account;
 use crate::core::amount::Amount;
@@ -112,7 +112,7 @@ impl ZhangTarget<String> for Posting {
             Some(self.account.to_target()),
             self.units.map(|it| it.to_target()),
             // todo: cost
-            self.price.map(|it|it.to_target())
+            self.price.map(|it| it.to_target()),
         ];
 
         vec1.into_iter().flatten().join(" ")
@@ -122,8 +122,12 @@ impl ZhangTarget<String> for Posting {
 impl ZhangTarget<String> for SingleTotalPrice {
     fn to_target(self) -> String {
         match self {
-            SingleTotalPrice::Single(single_price) => {format!("@ {}", single_price.to_target())}
-            SingleTotalPrice::Total(total_price) => {format!("@@ {}", total_price.to_target())}
+            SingleTotalPrice::Single(single_price) => {
+                format!("@ {}", single_price.to_target())
+            }
+            SingleTotalPrice::Total(total_price) => {
+                format!("@@ {}", total_price.to_target())
+            }
         }
     }
 }
