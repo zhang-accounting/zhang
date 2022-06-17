@@ -3,7 +3,7 @@ use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Pric
 use crate::core::ledger::{
     AccountInfo, AccountStatus, CurrencyInfo, DocumentType, Ledger, LedgerError, LedgerErrorType,
 };
-use crate::core::models::SingleTotalPrice;
+use crate::core::models::{Rounding, SingleTotalPrice};
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
 use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::core::utils::span::SpanInfo;
@@ -13,6 +13,7 @@ use chrono::NaiveDate;
 use std::collections::HashMap;
 use std::ops::{Neg, Sub};
 use std::sync::{Arc, RwLock as StdRwLock};
+use std::str::FromStr;
 
 pub(crate) struct ProcessContext {
     pub(crate) target_day: Option<NaiveDate>,
@@ -154,11 +155,25 @@ impl DirectiveProcess for Close {
 
 impl DirectiveProcess for Commodity {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
+        let precision = self
+            .meta
+            .get_one(&"precision".to_string())
+            .map(|it| it.as_str().parse::<usize>())
+            .transpose()
+            .unwrap_or(None);
+        let rounding = self
+            .meta
+            .get_one(&"precroundingision".to_string())
+            .map(|it| Rounding::from_str(it.as_str()))
+            .transpose()
+            .unwrap_or(None);
         let _target_currency = ledger
             .currencies
             .entry(self.currency.to_string())
             .or_insert_with(|| CurrencyInfo {
                 commodity: self.clone(),
+                precision,
+                rounding,
                 prices: HashMap::new(),
             });
         Ok(())
