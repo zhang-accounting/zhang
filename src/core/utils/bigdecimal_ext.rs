@@ -1,12 +1,12 @@
 use bigdecimal::num_bigint::BigInt;
 use bigdecimal::{BigDecimal, Signed, ToPrimitive};
 
-trait BigDecimalExt {
-    fn round_with(&self, round_digits: i64, is_up: bool) -> BigDecimal;
+pub trait BigDecimalExt {
+    fn round_with(self, round_digits: i64, is_up: bool) -> BigDecimal;
 }
 
-impl BigDecimalExt for BigDecimal {
-    fn round_with(&self, round_digits: i64, is_up: bool) -> BigDecimal {
+impl BigDecimalExt for &BigDecimal {
+    fn round_with(self, round_digits: i64, is_up: bool) -> BigDecimal {
         let (bigint, decimal_part_digits) = self.as_bigint_and_exponent();
         let need_to_round_digits = decimal_part_digits - round_digits;
         if round_digits >= 0 && need_to_round_digits <= 0 {
@@ -26,12 +26,12 @@ impl BigDecimalExt for BigDecimal {
             self.with_scale(round_digits)
         } else if bigint.is_negative() {
             if is_up {
-                self.with_scale(round_digits) - BigDecimal::new(BigInt::from(1), round_digits)
+                self.with_scale(round_digits) - BigDecimal::new(BigInt::from(1i32), round_digits)
             } else {
                 self.with_scale(round_digits)
             }
         } else if is_up {
-            self.with_scale(round_digits) + BigDecimal::new(BigInt::from(1), round_digits)
+            self.with_scale(round_digits) + BigDecimal::new(BigInt::from(1i32), round_digits)
         } else {
             self.with_scale(round_digits)
         }

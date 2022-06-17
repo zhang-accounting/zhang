@@ -3,9 +3,9 @@ use std::str::FromStr;
 
 #[derive(Debug)]
 pub struct Options {
-    operating_currency: String,
-    default_rounding: Rounding,
-    default_balance_tolerance_precision: usize,
+    pub operating_currency: String,
+    pub default_rounding: Rounding,
+    pub default_balance_tolerance_precision: usize,
 }
 
 impl Options {
