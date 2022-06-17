@@ -1,7 +1,7 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Commodity, Date, Include, Transaction};
-use crate::core::models::{Directive, DirectiveType, ZhangString};
+use crate::core::models::{Directive, DirectiveType, Rounding, ZhangString};
 use crate::core::options::Options;
 use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
@@ -56,6 +56,8 @@ pub struct AccountInfo {
 #[derive(Debug, Clone)]
 pub struct CurrencyInfo {
     pub commodity: Commodity,
+    pub precision: Option<usize>,
+    pub rounding: Option<Rounding>,
     pub prices: HashMap<NaiveDate, BigDecimal>,
 }
 
