@@ -127,12 +127,20 @@ pub enum Flag {
     Warning,
 }
 
-#[derive(EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize, Clone)]
+#[derive(EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize, Clone, Copy)]
 pub enum Rounding {
     #[strum(serialize = "RoundUp", to_string = "RoundUp")]
     RoundUp,
     #[strum(serialize = "RoundDown", to_string = "RoundDown")]
     RoundDown,
+}
+impl Rounding {
+    pub fn is_up(&self) -> bool {
+        match self {
+            Rounding::RoundUp => true,
+            Rounding::RoundDown => false,
+        }
+    }
 }
 
 //

@@ -4,6 +4,7 @@ use crate::core::data::{Commodity, Date, Include, Transaction};
 use crate::core::models::{Directive, DirectiveType, Rounding, ZhangString};
 use crate::core::options::Options;
 use crate::core::process::{DirectiveProcess, ProcessContext};
+use crate::core::utils::bigdecimal_ext::BigDecimalExt;
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
 use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::core::utils::price_grip::DatedPriceGrip;
@@ -14,7 +15,7 @@ use crate::parse_zhang;
 use crate::server::model::mutation::create_folder_if_not_exist;
 use crate::target::ZhangTarget;
 use async_graphql::Enum;
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
 use itertools::{Either, Itertools};
 use log::{debug, error, info};
@@ -271,15 +272,26 @@ impl Ledger {
         self.configs.get(key).map(|it| it.to_string())
     }
 
-    pub fn is_transaction_balanced(&self, txn: &Transaction) -> bool     {
+    pub fn is_transaction_balanced(&self, txn: &Transaction) -> bool {
         // 1. get the txn's inventory
         match txn.get_postings_inventory() {
             Ok(inventory) => {
-                // 2. check the balance tolerance
-                inventory.is_zero()
-
+                for (currency, amount) in inventory.inner.iter() {
+                    let currency_info = self.currencies.get(currency);
+                    let precision = currency_info
+                        .and_then(|info| info.precision)
+                        .unwrap_or(self.options.default_balance_tolerance_precision);
+                    let rounding = currency_info
+                        .and_then(|info| info.rounding)
+                        .unwrap_or(self.options.default_rounding);
+                    let decimal = amount.round_with(precision as i64, rounding.is_up());
+                    if !decimal.is_zero() {
+                        return false;
+                    }
+                }
+                true
             }
-            Err(_) => {false}
+            Err(_) => false,
         }
     }
 
