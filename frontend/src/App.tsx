@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import Accounts from "./pages/Accounts";
+import Commodities from "./pages/Commodities";
 import Documents from "./pages/Documents";
 import Home from "./pages/Home";
 import Journals from "./pages/Journals";
@@ -20,6 +21,7 @@ function App() {
           <Route path="journals" element={<Journals />} />
           <Route path="accounts" element={<Accounts />} />
           <Route path="/accounts/:accountName" element={<SingleAccount />} />
+          <Route path="/commodities" element={<Commodities />} />
           <Route path="documents" element={<Documents />} />
           <Route path="/edit" element={<RawEdit />} />
           <Route path="/report" element={<Report />} />

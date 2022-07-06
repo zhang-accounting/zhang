@@ -4,7 +4,7 @@ use std::hash::Hash;
 
 #[derive(Clone, Debug)]
 pub(crate) struct LatestMap<Key: Eq + Hash + Clone + Ord, Value> {
-    data: HashMap<Key, Value>,
+    pub(crate) data: HashMap<Key, Value>,
     date_index: BTreeSet<Key>,
 }
 
@@ -35,6 +35,15 @@ impl<Key: Eq + Hash + Clone + Ord, Value> LatestMap<Key, Value> {
         };
         self.data.get(target_key)
     }
+    pub fn get_last(&self) -> Option<&Value> {
+        let sorted_keys = self.date_index.iter().collect_vec();
+        sorted_keys.last().and_then(|key| self.data.get(key))
+    }
+    pub fn get_last_with_key(&self) -> Option<(&Key, &Value)> {
+        let sorted_keys = self.date_index.iter().collect_vec();
+        sorted_keys.last().and_then(|&key| self.data.get(key).map(|v| (key, v)))
+    }
+
     pub fn get_mut(&mut self, key: &Key) -> Option<&mut Value> {
         self.data.get_mut(key)
     }

@@ -121,6 +121,8 @@ impl Transaction {
     pub(crate) fn get_postings_inventory(&self) -> Result<Inventory, LedgerErrorType> {
         let mut inventory = Inventory {
             inner: Default::default(),
+            lots: Default::default(),
+            summaries: Default::default(),
             prices: Arc::new(Default::default()),
         };
         for posting in self.txn_postings() {
@@ -195,6 +197,8 @@ impl<'a> TxnPosting<'a> {
                 1 => {
                     let mut inventory = Inventory {
                         inner: Default::default(),
+                        lots: Default::default(),
+                        summaries: Default::default(),
                         prices: Arc::new(Default::default()),
                     };
                     for trade_amount in trade_amount_postings {
@@ -211,6 +215,10 @@ impl<'a> TxnPosting<'a> {
                 _ => return Err(LedgerErrorType::TransactionHasMultipleImplicitPosting),
             }
         })
+    }
+    pub fn lots(&self) -> Result<(), LedgerErrorType> {
+        let infer_trade_amount = self.infer_trade_amount()?;
+        todo!()
     }
 
     pub fn account_name(&self) -> AccountName {
@@ -558,6 +566,23 @@ mod test {
                     posting2.infer_trade_amount(),
                     "Assets:Card2"
                 );
+            }
+
+            #[test]
+            fn should_get_lots_given_only_unit(){
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 USD
+                  Assets:Card2
+                "#});
+                let mut vec = trx.txn_postings();
+                let posting = vec.remove(0);
+                assert_eq!(
+                    Ok(("USD".to_string(), None)),
+                    posting.lots(),
+                    "Assets:Card 100 USD"
+                );
+
             }
         }
     }

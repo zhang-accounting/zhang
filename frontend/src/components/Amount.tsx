@@ -13,7 +13,7 @@ export default function Amount({ amount, currency, negetive }: Props) {
     const parsedValue = parseFloat(amount || "0");
     const value = parsedValue === 0 ? parsedValue : flag * parsedValue;
     return (
-        <Flex>
+        <Flex display={"inline-flex"}>
             <Text>{formatter.format(value)}</Text>
             <Text mx={1}>{currency}</Text>
         </Flex>

@@ -45,7 +45,7 @@ const LinkItems: Array<LinkItemProps> = [
   { name: 'Home', icon: FiHome, uri: "/" },
   { name: 'Journals', icon: FiTrendingUp, uri: "/journals" },
   { name: 'Accounts', icon: FiCompass, uri: "/accounts" },
-  { name: 'Commodities todo', icon: FiStar, uri: "/commodities" },
+  { name: 'Commodities', icon: FiStar, uri: "/commodities" },
   { name: 'Documents', icon: FiSettings, uri: "/documents" },
   { name: 'Report', icon: FiSettings, uri: "/report" },
   { name: 'Liability todo', icon: FiSettings, uri: "/liability" },
