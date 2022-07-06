@@ -8,6 +8,34 @@ use std::collections::HashMap;
 use std::ops::{Add, AddAssign, Sub};
 use std::sync::{Arc, RwLock as StdRwLock};
 
+
+
+pub struct CommodityInventory {
+    total: BigDecimal,
+    lots:HashMap<(Currency, BigDecimal), BigDecimal>
+}
+
+impl CommodityInventory {
+    pub fn new() -> CommodityInventory {
+        Self {
+            total: BigDecimal::zero(),
+            lots: HashMap::new()
+        }
+    }
+    pub fn insert(&mut self, number: &BigDecimal, lot:(Currency, BigDecimal)) {
+        let target_lots = self.lots.entry(lot).or_default();
+        target_lots.add_assign(&number);
+        // todo check if the sign is negative
+
+        self.total.add_assign(&number);
+    }
+}
+
+
+
+/// Inventory likes a warehouse to record how many commodities are used, and how much are they.
+/// And for investment tracing purpose, we need to record more details about how much we brought the commodity, and when.
+/// That's why we need to use `lots` to record the info.
 #[derive(Debug, Clone)]
 pub struct Inventory {
     pub(crate) inner: HashMap<Currency, BigDecimal>,

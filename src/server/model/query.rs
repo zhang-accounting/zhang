@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::ops::{Add, Sub};
 use std::path::PathBuf;
 use std::str::FromStr;
+use bigdecimal::{BigDecimal, Zero};
 use time::Duration;
 
 pub struct QueryRoot;
@@ -285,6 +286,12 @@ impl CurrencyDto {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
         let operating_currency = &ledger_stage.options.operating_currency;
         self.0.commodity.currency.eq(operating_currency)
+    }
+    async fn balance(&self, ctx: &Context<'_>) -> String {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        // ledger_stage.account_inventory
+        // todo implement
+        BigDecimal::zero().to_string()
     }
 
     async fn price_histories(&self) -> Vec<PriceDto> {
