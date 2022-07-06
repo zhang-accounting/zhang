@@ -1,6 +1,6 @@
 import { gql } from "@apollo/client";
 import { Snapshot } from "../models";
-import { JournalItem, TransactionDto } from "./jouralList";
+import { Amount, JournalItem, TransactionDto } from "./jouralList";
 
 
 export interface AccountListQuery {
@@ -19,7 +19,15 @@ export interface AccountItem {
 }
 
 export interface Currency {
-  name: string
+  name: string,
+  precision: number,
+  isOperatingCurrency: boolean,
+  latestPrice: Price,
+}
+
+export interface Price {
+  date: number,
+  amount: Amount
 }
 
 export type Document = AccountDocumentDto | TransactionDocumentDto;

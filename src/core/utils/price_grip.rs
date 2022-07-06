@@ -22,7 +22,7 @@ impl PriceGrip {
 
 #[derive(Debug, Clone, Default)]
 pub struct DatedPriceGrip {
-    inner: LatestMap<NaiveDateTime, PriceGrip>,
+    pub(crate) inner: LatestMap<NaiveDateTime, PriceGrip>,
 }
 
 impl DatedPriceGrip {

@@ -7,7 +7,7 @@ use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::bigdecimal_ext::BigDecimalExt;
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
 use crate::core::utils::multi_value_map::MultiValueMap;
-use crate::core::utils::price_grip::DatedPriceGrip;
+use crate::core::utils::price_grip::{DatedPriceGrip, PriceGrip};
 use crate::core::utils::span::{SpanInfo, Spanned};
 use crate::core::{AccountName, Currency};
 use crate::error::{ZhangError, ZhangResult};
@@ -26,6 +26,7 @@ use std::io::Write;
 use std::option::Option::None;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock as StdRwLock};
+use crate::core::utils::latest_map::LatestMap;
 
 #[derive(Debug, Clone)]
 pub enum DocumentType {
@@ -59,7 +60,7 @@ pub struct CurrencyInfo {
     pub commodity: Commodity,
     pub precision: Option<usize>,
     pub rounding: Option<Rounding>,
-    pub prices: HashMap<NaiveDate, BigDecimal>,
+    pub(crate) prices: LatestMap<NaiveDate, HashMap<Currency, BigDecimal>>,
 }
 
 #[derive(Clone, Debug)]
@@ -306,6 +307,8 @@ impl Ledger {
     pub fn default_account_inventory(&self) -> Inventory {
         Inventory {
             inner: Default::default(),
+            lots: Default::default(),
+            summaries: Default::default(),
             prices: self.prices.clone(),
         }
     }
@@ -584,6 +587,8 @@ mod test {
         fn should_add_to_inner() {
             let mut inventory = Inventory {
                 inner: Default::default(),
+                lots: Default::default(),
+                summaries: Default::default(),
                 prices: Arc::new(StdRwLock::new(DatedPriceGrip::default())),
             };
             inventory.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
@@ -596,6 +601,8 @@ mod test {
         fn should_inventory_be_independent() {
             let mut inventory = Inventory {
                 inner: Default::default(),
+                lots: Default::default(),
+                summaries: Default::default(),
                 prices: Arc::new(StdRwLock::new(DatedPriceGrip::default())),
             };
             inventory.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
@@ -835,6 +842,8 @@ mod test {
                 "AAAAA".to_string(),
                 Inventory {
                     inner: Default::default(),
+                    lots: Default::default(),
+                    summaries: Default::default(),
                     prices: Arc::new(Default::default()),
                 },
             );

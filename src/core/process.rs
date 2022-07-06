@@ -10,10 +10,12 @@ use crate::core::utils::span::SpanInfo;
 use crate::core::AccountName;
 use crate::error::ZhangResult;
 use chrono::NaiveDate;
+use itertools::process_results;
 use std::collections::HashMap;
 use std::ops::{Neg, Sub};
-use std::sync::{Arc, RwLock as StdRwLock};
 use std::str::FromStr;
+use std::sync::{Arc, RwLock as StdRwLock};
+use crate::core::utils::latest_map::LatestMap;
 
 pub(crate) struct ProcessContext {
     pub(crate) target_day: Option<NaiveDate>,
@@ -24,6 +26,8 @@ impl ProcessContext {
     pub fn default_account_snapshot(&self) -> Inventory {
         Inventory {
             inner: Default::default(),
+            lots: Default::default(),
+            summaries: Default::default(),
             prices: self.prices.clone(),
         }
     }
@@ -174,7 +178,7 @@ impl DirectiveProcess for Commodity {
                 commodity: self.clone(),
                 precision,
                 rounding,
-                prices: HashMap::new(),
+                prices: LatestMap::default(),
             });
         Ok(())
     }
@@ -342,6 +346,11 @@ impl DirectiveProcess for Price {
             self.amount.currency.clone(),
             self.amount.number.clone(),
         );
+        let option = ledger.currencies.get_mut(&self.currency);
+        if let Some(currency_info) = option {
+            let price_group = currency_info.prices.data.entry(self.date.naive_date()).or_default();
+            price_group.insert(self.amount.currency.clone(), self.amount.number.clone());
+        }
         Ok(())
     }
 }

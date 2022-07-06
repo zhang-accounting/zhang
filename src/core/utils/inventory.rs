@@ -2,7 +2,7 @@ use crate::core::amount::Amount;
 use crate::core::utils::latest_map::LatestMap;
 use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::core::{AccountName, Currency};
-use bigdecimal::{BigDecimal, Zero};
+use bigdecimal::{BigDecimal, Signed, Zero};
 use chrono::{NaiveDate, NaiveDateTime};
 use std::collections::HashMap;
 use std::ops::{Add, AddAssign, Sub};
@@ -11,10 +11,23 @@ use std::sync::{Arc, RwLock as StdRwLock};
 #[derive(Debug, Clone)]
 pub struct Inventory {
     pub(crate) inner: HashMap<Currency, BigDecimal>,
+    pub(crate) lots: HashMap<Currency, HashMap<(Currency, BigDecimal), BigDecimal>>,
+    pub(crate) summaries: HashMap<Currency, BigDecimal>,
     pub(crate) prices: Arc<StdRwLock<DatedPriceGrip>>,
 }
 
 impl Inventory {
+    pub fn add_lot(&mut self, currency: Currency, lot: (Currency, Option<BigDecimal>), number: BigDecimal) {
+        // add lot into lots
+        // let lot_detail = self.lots.entry(currency).or_insert_with(Default::default);
+        // let lot_balance = lot_detail.entry(lot).or_insert_with(|| BigDecimal::zero());
+        // lot_balance.add_assign(number);
+        // // todo check the lot balance, use for the negative posting operation, once the substitution due to negative balance then will raise a error
+        // if lot_balance.is_negative() {
+        //
+        // }
+    }
+
     pub fn add_amount(&mut self, amount: Amount) {
         let decimal1 = BigDecimal::zero();
         let x = self.inner.get(&amount.currency).unwrap_or(&decimal1);
@@ -64,6 +77,8 @@ impl Add for &Inventory {
     fn add(self, rhs: Self) -> Self::Output {
         let mut new_inventory = Inventory {
             inner: Default::default(),
+            lots: Default::default(),
+            summaries: Default::default(),
             prices: self.prices.clone(),
         };
         for (currency, amount) in &self.inner {
@@ -82,6 +97,8 @@ impl Sub for &Inventory {
     fn sub(self, rhs: Self) -> Self::Output {
         let mut new_inventory = Inventory {
             inner: Default::default(),
+            lots: Default::default(),
+            summaries: Default::default(),
             prices: self.prices.clone(),
         };
         for (currency, amount) in &self.inner {
@@ -122,6 +139,8 @@ mod test {
         fn should_add_amount() {
             let mut inventory = Inventory {
                 inner: Default::default(),
+                lots: Default::default(),
+                summaries: Default::default(),
                 prices: Arc::new(Default::default()),
             };
 
@@ -138,6 +157,8 @@ mod test {
         fn should_sub_amount() {
             let mut inventory = Inventory {
                 inner: Default::default(),
+                lots: Default::default(),
+                summaries: Default::default(),
                 prices: Arc::new(Default::default()),
             };
             inventory.add_amount(Amount::new(BigDecimal::from(3i32), "USD"));
@@ -153,6 +174,8 @@ mod test {
         fn should_get_correct_amount() {
             let mut inventory = Inventory {
                 inner: Default::default(),
+                lots: Default::default(),
+                summaries: Default::default(),
                 prices: Arc::new(Default::default()),
             };
             inventory.add_amount(Amount::new(BigDecimal::from(3i32), "USD"));
@@ -165,6 +188,8 @@ mod test {
         fn should_pin() {
             let mut inventory = Inventory {
                 inner: Default::default(),
+                lots: Default::default(),
+                summaries: Default::default(),
                 prices: Arc::new(Default::default()),
             };
             inventory.add_amount(Amount::new(BigDecimal::from(3i32), "USD"));
