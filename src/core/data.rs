@@ -2,9 +2,9 @@ use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::ledger::{LedgerError, LedgerErrorType};
 use crate::core::models::{Flag, SingleTotalPrice, StringOrAccount, ZhangString};
-use crate::core::utils::inventory::Inventory;
+use crate::core::utils::inventory::{Inventory, LotInfo};
 use crate::core::utils::multi_value_map::MultiValueMap;
-use crate::core::AccountName;
+use crate::core::{AccountName, Currency};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
@@ -123,6 +123,7 @@ impl Transaction {
             inner: Default::default(),
             lots: Default::default(),
             summaries: Default::default(),
+            currencies: Default::default(),
             prices: Arc::new(Default::default()),
         };
         for posting in self.txn_postings() {
@@ -199,6 +200,7 @@ impl<'a> TxnPosting<'a> {
                         inner: Default::default(),
                         lots: Default::default(),
                         summaries: Default::default(),
+                        currencies: Default::default(),
                         prices: Arc::new(Default::default()),
                     };
                     for trade_amount in trade_amount_postings {
@@ -216,9 +218,29 @@ impl<'a> TxnPosting<'a> {
             }
         })
     }
-    pub fn lots(&self) -> Result<(), LedgerErrorType> {
-        let infer_trade_amount = self.infer_trade_amount()?;
-        todo!()
+    pub fn lots(&self) -> Result<Option<LotInfo>, LedgerErrorType> {
+        if let Some(unit) = &self.posting.units {
+            if let Some(cost) = &self.posting.cost {
+                Ok(Some(LotInfo::Lot(cost.currency.clone(), cost.number.clone())))
+            } else {
+                if let Some(price) = &self.posting.price {
+                    match price {
+                        SingleTotalPrice::Single(amount) => {
+                            Ok(Some(LotInfo::Lot(amount.currency.clone(), amount.number.clone())))
+                        }
+                        SingleTotalPrice::Total(amount) => Ok(Some(LotInfo::Lot(
+                            amount.currency.clone(),
+                            (&amount.number).div(&unit.number),
+                        ))),
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+        } else {
+            // should be load account default
+            Ok(None)
+        }
     }
 
     pub fn account_name(&self) -> AccountName {
@@ -312,10 +334,10 @@ pub struct Comment {
 #[cfg(test)]
 mod test {
     mod transaction {
+        use crate::core::ledger::Ledger;
         use crate::core::models::Directive;
         use crate::parse_zhang;
         use indoc::indoc;
-        use crate::core::ledger::Ledger;
 
         #[test]
         fn should_return_true_given_balanced_transaction() {
@@ -424,7 +446,7 @@ mod test {
             }
         }
         #[test]
-        fn  should_return_true_given_day_price() {
+        fn should_return_true_given_day_price() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2015-01-05 * "Investing 60% of cash in RGAGX"
@@ -453,6 +475,7 @@ mod test {
             use bigdecimal::{BigDecimal, FromPrimitive};
             use chrono::NaiveDate;
             use indoc::indoc;
+            use crate::core::utils::inventory::LotInfo;
 
             fn get_first_posting(content: &str) -> Transaction {
                 let directive = parse_zhang(content, None).unwrap().pop().unwrap();
@@ -569,7 +592,7 @@ mod test {
             }
 
             #[test]
-            fn should_get_lots_given_only_unit(){
+            fn should_get_lots_given_only_unit() {
                 let mut trx = get_first_posting(indoc! {r#"
                 2022-06-02 "balanced transaction"
                   Assets:Card 100 USD
@@ -577,12 +600,22 @@ mod test {
                 "#});
                 let mut vec = trx.txn_postings();
                 let posting = vec.remove(0);
-                assert_eq!(
-                    Ok(("USD".to_string(), None)),
-                    posting.lots(),
-                    "Assets:Card 100 USD"
-                );
-
+                assert_eq!(Ok(None), posting.lots(), "Assets:Card 100 USD");
+                let posting = vec.remove(0);
+                assert_eq!(Ok(None), posting.lots(), "Assets:Card2");
+            }
+            #[test]
+            fn should_get_lots_given_unit_and_cost() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 USD { 7 CNY }
+                  Assets:Card2
+                "#});
+                let mut vec = trx.txn_postings();
+                let posting = vec.remove(0);
+                assert_eq!(Ok(Some(LotInfo::Lot("CNY".to_string(), BigDecimal::from(7i32)))), posting.lots(), "Assets:Card 100 USD {{ 7 CNY }}");
+                let posting = vec.remove(0);
+                assert_eq!(Ok(None), posting.lots(), "Assets:Card2");
             }
         }
     }
