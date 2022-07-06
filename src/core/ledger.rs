@@ -129,13 +129,16 @@ pub struct Ledger {
 
     pub(crate) directives: Vec<Spanned<Directive>>,
     pub metas: Vec<Spanned<Directive>>,
+
     pub accounts: HashMap<AccountName, AccountInfo>,
-    pub currencies: HashMap<Currency, CurrencyInfo>,
     pub account_inventory: HashMap<AccountName, Inventory>,
+
+    pub currencies: HashMap<Currency, CurrencyInfo>,
+
     pub daily_inventory: DailyAccountInventory,
+
     pub documents: Vec<DocumentType>,
     pub errors: Vec<LedgerError>,
-
     pub configs: HashMap<String, String>,
     pub prices: Arc<StdRwLock<DatedPriceGrip>>,
 }

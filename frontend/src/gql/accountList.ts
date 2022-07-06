@@ -21,6 +21,7 @@ export interface AccountItem {
 export interface Currency {
   name: string,
   precision: number,
+  balance: string,
   isOperatingCurrency: boolean,
   latestPrice: Price,
 }
