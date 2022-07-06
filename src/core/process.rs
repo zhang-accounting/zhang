@@ -28,6 +28,7 @@ impl ProcessContext {
             inner: Default::default(),
             lots: Default::default(),
             summaries: Default::default(),
+            currencies: Default::default(),
             prices: self.prices.clone(),
         }
     }

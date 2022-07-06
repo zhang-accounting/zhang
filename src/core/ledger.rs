@@ -312,6 +312,7 @@ impl Ledger {
             inner: Default::default(),
             lots: Default::default(),
             summaries: Default::default(),
+            currencies: Default::default(),
             prices: self.prices.clone(),
         }
     }
@@ -592,6 +593,7 @@ mod test {
                 inner: Default::default(),
                 lots: Default::default(),
                 summaries: Default::default(),
+                currencies: Default::default(),
                 prices: Arc::new(StdRwLock::new(DatedPriceGrip::default())),
             };
             inventory.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
@@ -606,6 +608,7 @@ mod test {
                 inner: Default::default(),
                 lots: Default::default(),
                 summaries: Default::default(),
+                currencies: Default::default(),
                 prices: Arc::new(StdRwLock::new(DatedPriceGrip::default())),
             };
             inventory.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
@@ -847,6 +850,7 @@ mod test {
                     inner: Default::default(),
                     lots: Default::default(),
                     summaries: Default::default(),
+                    currencies: Default::default(),
                     prices: Arc::new(Default::default()),
                 },
             );
