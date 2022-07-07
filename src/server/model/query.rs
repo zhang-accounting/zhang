@@ -9,6 +9,7 @@ use crate::core::AccountName;
 use crate::server::LedgerState;
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};
 use async_graphql::{Context, Interface, Object};
+use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveDateTime, Utc};
 use itertools::{Either, Itertools};
 use std::cmp::min;
@@ -16,7 +17,6 @@ use std::collections::HashMap;
 use std::ops::{Add, Sub};
 use std::path::PathBuf;
 use std::str::FromStr;
-use bigdecimal::{BigDecimal, Zero};
 use time::Duration;
 
 pub struct QueryRoot;
@@ -288,7 +288,7 @@ impl CurrencyDto {
         self.0.commodity.currency.eq(operating_currency)
     }
     async fn balance(&self, ctx: &Context<'_>) -> String {
-        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        let _ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
         // todo implement
         BigDecimal::zero().to_string()
     }
@@ -298,7 +298,7 @@ impl CurrencyDto {
         for (date, group) in self.0.prices.data.iter() {
             for (target_currency, amount) in group {
                 ret.push(PriceDto {
-                    date: date.clone(),
+                    date: *date,
                     amount: Amount::new(amount.clone(), target_currency),
                 });
             }
@@ -315,15 +315,11 @@ impl CurrencyDto {
         dbg!(&self.0.commodity.currency);
         dbg!(&operating_currency);
         if let Some((date, price_grip)) = option {
-            let option1 = price_grip.get(&self.0.commodity.currency, &operating_currency);
-            if let Some(price) = option1 {
-                Some(PriceDto {
-                    date: date.date(),
-                    amount: Amount::new(price, operating_currency),
-                })
-            } else {
-                None
-            }
+            let option1 = price_grip.get(&self.0.commodity.currency, operating_currency);
+            option1.map(|price| PriceDto {
+                date: date.date(),
+                amount: Amount::new(price, operating_currency),
+            })
         } else {
             None
         }
@@ -605,9 +601,9 @@ impl SnapshotDto {
             .fold(ledger_stage.default_account_inventory(), |fold, lo| &fold + lo.1);
 
         inventory
-            .inner
+            .currencies
             .into_iter()
-            .map(|(c, n)| Amount::new(n, c))
+            .map(|(c, n)| Amount::new(n.total, c))
             .map(AmountDto)
             .collect_vec()
     }

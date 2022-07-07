@@ -1,11 +1,11 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::ledger::{LedgerError, LedgerErrorType};
+use crate::core::ledger::LedgerErrorType;
 use crate::core::models::{Flag, SingleTotalPrice, StringOrAccount, ZhangString};
-use crate::core::utils::inventory::{Inventory, LotInfo};
+use crate::core::utils::inventory::{AmountLotPair, Inventory, LotInfo};
 use crate::core::utils::multi_value_map::MultiValueMap;
-use crate::core::{AccountName, Currency};
-use bigdecimal::{BigDecimal, Zero};
+use crate::core::AccountName;
+use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
 use std::collections::HashSet;
@@ -120,15 +120,12 @@ pub struct Transaction {
 impl Transaction {
     pub(crate) fn get_postings_inventory(&self) -> Result<Inventory, LedgerErrorType> {
         let mut inventory = Inventory {
-            inner: Default::default(),
-            lots: Default::default(),
-            summaries: Default::default(),
             currencies: Default::default(),
             prices: Arc::new(Default::default()),
         };
         for posting in self.txn_postings() {
             let amount = posting.infer_trade_amount()?;
-            let lot_info = posting.lots().unwrap_or(LotInfo::FIFO);
+            let lot_info = posting.lots().unwrap_or(LotInfo::Fifo);
             inventory.add_lot(amount, lot_info);
         }
         // todo work with commodity precision
@@ -170,8 +167,10 @@ impl<'a> TxnPosting<'a> {
         })
     }
     pub fn trade_amount(&self) -> Option<Amount> {
-        if let Some(unit) = self.posting.units.as_ref() {
-            Some(match (self.posting.cost.as_ref(), self.posting.price.as_ref()) {
+        self.posting
+            .units
+            .as_ref()
+            .map(|unit| match (self.posting.cost.as_ref(), self.posting.price.as_ref()) {
                 (Some(cost), _) => Amount::new((&unit.number).mul(&cost.number), cost.currency.clone()),
                 (None, Some(price)) => match price {
                     SingleTotalPrice::Single(single_price) => {
@@ -181,13 +180,10 @@ impl<'a> TxnPosting<'a> {
                 },
                 (None, None) => unit.clone(),
             })
-        } else {
-            None
-        }
     }
     pub fn infer_trade_amount(&self) -> Result<Amount, LedgerErrorType> {
-        self.trade_amount().map(|it| Ok(it)).unwrap_or_else(|| {
-            let (trade_amount_postings, non_trade_amount_postings): (Vec<(Option<Amount>, Option<LotInfo>)>, Vec<(Option<Amount>, Option<LotInfo>)>) = self
+        self.trade_amount().map(Ok).unwrap_or_else(|| {
+            let (trade_amount_postings, non_trade_amount_postings): (Vec<AmountLotPair>, Vec<AmountLotPair>) = self
                 .txn
                 .txn_postings()
                 .iter()
@@ -200,25 +196,22 @@ impl<'a> TxnPosting<'a> {
                 0 => unreachable!(),
                 1 => {
                     let mut inventory = Inventory {
-                        inner: Default::default(),
-                        lots: Default::default(),
-                        summaries: Default::default(),
                         currencies: Default::default(),
                         prices: Arc::new(Default::default()),
                     };
                     for (trade_amount, lot) in trade_amount_postings {
                         if let Some(trade_amount) = trade_amount {
-                            let info = lot.unwrap_or(LotInfo::FIFO);
+                            let info = lot.unwrap_or(LotInfo::Fifo);
                             inventory.add_lot(trade_amount, info);
                         }
                     }
                     if inventory.size() > 1 {
-                        return Err(LedgerErrorType::TransactionDoesNotBalance);
+                        Err(LedgerErrorType::TransactionDoesNotBalance)
                     } else {
                         Ok(inventory.pop().unwrap().neg())
                     }
                 }
-                _ => return Err(LedgerErrorType::TransactionHasMultipleImplicitPosting),
+                _ => Err(LedgerErrorType::TransactionHasMultipleImplicitPosting),
             }
         })
     }
@@ -226,20 +219,18 @@ impl<'a> TxnPosting<'a> {
         if let Some(unit) = &self.posting.units {
             if let Some(cost) = &self.posting.cost {
                 Some(LotInfo::Lot(cost.currency.clone(), cost.number.clone()))
-            } else {
-                if let Some(price) = &self.posting.price {
-                    match price {
-                        SingleTotalPrice::Single(amount) => {
-                            Some(LotInfo::Lot(amount.currency.clone(), amount.number.clone()))
-                        }
-                        SingleTotalPrice::Total(amount) => Some(LotInfo::Lot(
-                            amount.currency.clone(),
-                            (&amount.number).div(&unit.number),
-                        )),
+            } else if let Some(price) = &self.posting.price {
+                match price {
+                    SingleTotalPrice::Single(amount) => {
+                        Some(LotInfo::Lot(amount.currency.clone(), amount.number.clone()))
                     }
-                } else {
-                    None
+                    SingleTotalPrice::Total(amount) => Some(LotInfo::Lot(
+                        amount.currency.clone(),
+                        (&amount.number).div(&unit.number),
+                    )),
                 }
+            } else {
+                None
             }
         } else {
             // should be load account default
@@ -473,13 +464,12 @@ mod test {
 
         mod txn_posting {
             use crate::core::amount::Amount;
-            use crate::core::data::{Date, Transaction};
-            use crate::core::models::{Directive, SingleTotalPrice};
-            use crate::parse_zhang;
-            use bigdecimal::{BigDecimal, FromPrimitive};
-            use chrono::NaiveDate;
-            use indoc::indoc;
+            use crate::core::data::Transaction;
+            use crate::core::models::Directive;
             use crate::core::utils::inventory::LotInfo;
+            use crate::parse_zhang;
+            use bigdecimal::BigDecimal;
+            use indoc::indoc;
 
             fn get_first_posting(content: &str) -> Transaction {
                 let directive = parse_zhang(content, None).unwrap().pop().unwrap();
@@ -491,7 +481,7 @@ mod test {
 
             #[test]
             fn should_get_none_unit_given_auto_balanced_posting() {
-                let mut trx = get_first_posting(indoc! {r#"
+                let trx = get_first_posting(indoc! {r#"
                 2022-06-02 "balanced transaction"
                   Assets:Card
                 "#});
@@ -502,7 +492,7 @@ mod test {
             }
             #[test]
             fn should_get_unit() {
-                let mut trx = get_first_posting(indoc! {r#"
+                let trx = get_first_posting(indoc! {r#"
                 2022-06-02 "balanced transaction"
                   Assets:Card 100 CNY
                 "#});
@@ -517,7 +507,7 @@ mod test {
 
             #[test]
             fn should_get_unit_given_single_price() {
-                let mut trx = get_first_posting(indoc! {r#"
+                let trx = get_first_posting(indoc! {r#"
                 2022-06-02 "balanced transaction"
                   Assets:Card 100 CNY @ 10 AAA
                 "#});
@@ -532,7 +522,7 @@ mod test {
 
             #[test]
             fn should_get_unit_given_cost() {
-                let mut trx = get_first_posting(indoc! {r#"
+                let trx = get_first_posting(indoc! {r#"
                 2022-06-02 "balanced transaction"
                   Assets:Card 100 CNY { 10 AAA }
                 "#});
@@ -547,7 +537,7 @@ mod test {
 
             #[test]
             fn should_get_unit_given_cost_and_single_price() {
-                let mut trx = get_first_posting(indoc! {r#"
+                let trx = get_first_posting(indoc! {r#"
                 2022-06-02 "balanced transaction"
                   Assets:Card 100 CNY { 10 AAA } @ 11 AAA
                 "#});
@@ -561,7 +551,7 @@ mod test {
             }
             #[test]
             fn should_get_unit_given_total_price() {
-                let mut trx = get_first_posting(indoc! {r#"
+                let trx = get_first_posting(indoc! {r#"
                 2022-06-02 "balanced transaction"
                   Assets:Card 100 CNY @@ 110000 AAA
                 "#});
@@ -575,7 +565,7 @@ mod test {
             }
             #[test]
             fn should_get_infer_trade_amount() {
-                let mut trx = get_first_posting(indoc! {r#"
+                let trx = get_first_posting(indoc! {r#"
                 2022-06-02 "balanced transaction"
                   Assets:Card 100 CNY
                   Assets:Card2
@@ -597,7 +587,7 @@ mod test {
 
             #[test]
             fn should_get_lots_given_only_unit() {
-                let mut trx = get_first_posting(indoc! {r#"
+                let trx = get_first_posting(indoc! {r#"
                 2022-06-02 "balanced transaction"
                   Assets:Card 100 USD
                   Assets:Card2
@@ -610,14 +600,18 @@ mod test {
             }
             #[test]
             fn should_get_lots_given_unit_and_cost() {
-                let mut trx = get_first_posting(indoc! {r#"
+                let trx = get_first_posting(indoc! {r#"
                 2022-06-02 "balanced transaction"
                   Assets:Card 100 USD { 7 CNY }
                   Assets:Card2
                 "#});
                 let mut vec = trx.txn_postings();
                 let posting = vec.remove(0);
-                assert_eq!(Some(LotInfo::Lot("CNY".to_string(), BigDecimal::from(7i32))), posting.lots(), "Assets:Card 100 USD {{ 7 CNY }}");
+                assert_eq!(
+                    Some(LotInfo::Lot("CNY".to_string(), BigDecimal::from(7i32))),
+                    posting.lots(),
+                    "Assets:Card 100 USD {{ 7 CNY }}"
+                );
                 let posting = vec.remove(0);
                 assert_eq!(None, posting.lots(), "Assets:Card2");
             }

@@ -11,7 +11,6 @@ use crate::core::utils::span::SpanInfo;
 use crate::core::AccountName;
 use crate::error::ZhangResult;
 use chrono::NaiveDate;
-use itertools::process_results;
 use std::collections::HashMap;
 use std::ops::{Neg, Sub};
 use std::str::FromStr;
@@ -25,9 +24,6 @@ pub(crate) struct ProcessContext {
 impl ProcessContext {
     pub fn default_account_snapshot(&self) -> Inventory {
         Inventory {
-            inner: Default::default(),
-            lots: Default::default(),
-            summaries: Default::default(),
             currencies: Default::default(),
             prices: self.prices.clone(),
         }
@@ -187,7 +183,7 @@ impl DirectiveProcess for Commodity {
 
 impl DirectiveProcess for Transaction {
     fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
-        if !ledger.is_transaction_balanced(&self) {
+        if !ledger.is_transaction_balanced(self) {
             ledger.errors.push(LedgerError {
                 span: span.clone(),
                 error: LedgerErrorType::TransactionDoesNotBalance,
@@ -221,7 +217,7 @@ impl DirectiveProcess for Transaction {
             let amount = txn_posting
                 .units()
                 .unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
-            let lot_info = txn_posting.lots().unwrap_or(LotInfo::FIFO);
+            let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
             target_account_snapshot.add_lot(amount, lot_info);
         }
         for document in self
@@ -284,7 +280,7 @@ impl DirectiveProcess for Balance {
                             distance: distance.clone(),
                         },
                     });
-                    target_account_snapshot.add_lot(distance, LotInfo::FIFO);
+                    target_account_snapshot.add_lot(distance, LotInfo::Fifo);
                 }
             }
             Balance::BalancePad(balance_pad) => {
@@ -311,7 +307,7 @@ impl DirectiveProcess for Balance {
                 let neg_distance = (&distance).neg();
                 target_account_snapshot.add_lot(
                     Amount::new(distance, balance_pad.amount.currency.clone()),
-                    LotInfo::FIFO,
+                    LotInfo::Fifo,
                 );
 
                 // add to pad
@@ -321,7 +317,7 @@ impl DirectiveProcess for Balance {
                     .or_insert_with(|| context.default_account_snapshot());
                 pad_account_snapshot.add_lot(
                     Amount::new(neg_distance, balance_pad.amount.currency.clone()),
-                    LotInfo::FIFO,
+                    LotInfo::Fifo,
                 );
             }
         }
