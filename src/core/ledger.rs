@@ -6,6 +6,7 @@ use crate::core::options::Options;
 use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::bigdecimal_ext::BigDecimalExt;
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
+use crate::core::utils::latest_map::LatestMap;
 use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::core::utils::price_grip::{DatedPriceGrip, PriceGrip};
 use crate::core::utils::span::{SpanInfo, Spanned};
@@ -26,7 +27,6 @@ use std::io::Write;
 use std::option::Option::None;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock as StdRwLock};
-use crate::core::utils::latest_map::LatestMap;
 
 #[derive(Debug, Clone)]
 pub enum DocumentType {
@@ -280,7 +280,7 @@ impl Ledger {
         // 1. get the txn's inventory
         match txn.get_postings_inventory() {
             Ok(inventory) => {
-                for (currency, amount) in inventory.inner.iter() {
+                for (currency, amount) in inventory.currencies.iter() {
                     let currency_info = self.currencies.get(currency);
                     let precision = currency_info
                         .and_then(|info| info.precision)
@@ -288,7 +288,7 @@ impl Ledger {
                     let rounding = currency_info
                         .and_then(|info| info.rounding)
                         .unwrap_or(self.options.default_rounding);
-                    let decimal = amount.round_with(precision as i64, rounding.is_up());
+                    let decimal = amount.total.round_with(precision as i64, rounding.is_up());
                     if !decimal.is_zero() {
                         return false;
                     }
@@ -580,50 +580,6 @@ mod test {
         }
     }
 
-    mod account_inventory {
-        use crate::core::amount::Amount;
-        use crate::core::utils::inventory::Inventory;
-        use crate::core::utils::price_grip::DatedPriceGrip;
-        use bigdecimal::BigDecimal;
-        use std::sync::{Arc, RwLock as StdRwLock};
-
-        #[test]
-        fn should_add_to_inner() {
-            let mut inventory = Inventory {
-                inner: Default::default(),
-                lots: Default::default(),
-                summaries: Default::default(),
-                currencies: Default::default(),
-                prices: Arc::new(StdRwLock::new(DatedPriceGrip::default())),
-            };
-            inventory.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
-
-            assert_eq!(1, inventory.inner.len());
-            assert_eq!(&BigDecimal::from(1i32), inventory.inner.get("CNY").unwrap())
-        }
-
-        #[test]
-        fn should_inventory_be_independent() {
-            let mut inventory = Inventory {
-                inner: Default::default(),
-                lots: Default::default(),
-                summaries: Default::default(),
-                currencies: Default::default(),
-                prices: Arc::new(StdRwLock::new(DatedPriceGrip::default())),
-            };
-            inventory.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
-
-            let new_inventory = inventory.pin();
-
-            inventory.add_amount(Amount::new(BigDecimal::from(1i32), "CNY"));
-
-            assert_eq!(1, inventory.inner.len());
-            assert_eq!(&BigDecimal::from(2i32), inventory.inner.get("CNY").unwrap());
-
-            assert_eq!(1, new_inventory.inner.len());
-            assert_eq!(&BigDecimal::from(1i32), new_inventory.inner.get("CNY").unwrap())
-        }
-    }
     mod txn {
         use crate::core::ledger::Ledger;
         use bigdecimal::BigDecimal;
@@ -644,23 +600,23 @@ mod test {
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger
+                &ledger
                     .account_inventory
                     .get("Assets:From")
                     .unwrap()
-                    .inner
+                    .currencies
                     .get("CNY")
-                    .unwrap()
+                    .unwrap().total
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                ledger
+                &ledger
                     .account_inventory
                     .get("Expenses:To")
                     .unwrap()
-                    .inner
+                    .currencies
                     .get("CNY")
-                    .unwrap()
+                    .unwrap().total
             );
         }
 
@@ -679,23 +635,23 @@ mod test {
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger
+                &ledger
                     .account_inventory
                     .get("Assets:From")
                     .unwrap()
-                    .inner
+                    .currencies
                     .get("CNY")
-                    .unwrap()
+                    .unwrap().total
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                ledger
+                &ledger
                     .account_inventory
                     .get("Expenses:To")
                     .unwrap()
-                    .inner
+                    .currencies
                     .get("CNY")
-                    .unwrap()
+                    .unwrap().total
             );
         }
 
@@ -715,23 +671,23 @@ mod test {
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger
+                &ledger
                     .account_inventory
                     .get("Assets:From")
                     .unwrap()
-                    .inner
+                    .currencies
                     .get("CNY")
-                    .unwrap()
+                    .unwrap().total
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                ledger
+                &ledger
                     .account_inventory
                     .get("Expenses:To")
                     .unwrap()
-                    .inner
+                    .currencies
                     .get("CNY")
-                    .unwrap()
+                    .unwrap().total
             );
         }
 
@@ -751,23 +707,23 @@ mod test {
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger
+                &ledger
                     .account_inventory
                     .get("Assets:From")
                     .unwrap()
-                    .inner
+                    .currencies
                     .get("CNY")
-                    .unwrap()
+                    .unwrap().total
             );
             assert_eq!(
                 &BigDecimal::from(1i32),
-                ledger
+                &ledger
                     .account_inventory
                     .get("Expenses:To")
                     .unwrap()
-                    .inner
+                    .currencies
                     .get("BTC")
-                    .unwrap()
+                    .unwrap().total
             );
         }
 
@@ -787,23 +743,23 @@ mod test {
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                ledger
+                &ledger
                     .account_inventory
                     .get("Assets:From")
                     .unwrap()
-                    .inner
+                    .currencies
                     .get("CNY")
-                    .unwrap()
+                    .unwrap().total
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                ledger
+                &ledger
                     .account_inventory
                     .get("Expenses:To")
                     .unwrap()
-                    .inner
+                    .currencies
                     .get("CNY2")
-                    .unwrap()
+                    .unwrap().total
             );
         }
     }
@@ -833,11 +789,11 @@ mod test {
                 .get_account_inventory(&NaiveDate::from_ymd(2022, 2, 22));
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                account_inventory.get("Assets:From").unwrap().inner.get("CNY").unwrap()
+                &account_inventory.get("Assets:From").unwrap().currencies.get("CNY").unwrap().total
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                account_inventory.get("Expenses:To").unwrap().inner.get("CNY").unwrap()
+                &account_inventory.get("Expenses:To").unwrap().currencies.get("CNY").unwrap().total
             );
         }
         #[test]

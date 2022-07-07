@@ -128,7 +128,8 @@ impl Transaction {
         };
         for posting in self.txn_postings() {
             let amount = posting.infer_trade_amount()?;
-            inventory.add_amount(amount);
+            let lot_info = posting.lots().unwrap_or(LotInfo::FIFO);
+            inventory.add_lot(amount, lot_info);
         }
         // todo work with commodity precision
         Ok(inventory)
@@ -186,13 +187,15 @@ impl<'a> TxnPosting<'a> {
     }
     pub fn infer_trade_amount(&self) -> Result<Amount, LedgerErrorType> {
         self.trade_amount().map(|it| Ok(it)).unwrap_or_else(|| {
-            let (trade_amount_postings, non_trade_amount_postings): (Vec<Option<Amount>>, Vec<Option<Amount>>) = self
+            let (trade_amount_postings, non_trade_amount_postings): (Vec<(Option<Amount>, Option<LotInfo>)>, Vec<(Option<Amount>, Option<LotInfo>)>) = self
                 .txn
                 .txn_postings()
                 .iter()
-                .map(|it| it.trade_amount())
-                .partition(|it| it.is_some());
+                .map(|it| (it.trade_amount(), it.lots()))
+                .partition(|it| it.0.is_some());
 
+            dbg!(&trade_amount_postings);
+            dbg!(&non_trade_amount_postings);
             match non_trade_amount_postings.len() {
                 0 => unreachable!(),
                 1 => {
@@ -203,9 +206,10 @@ impl<'a> TxnPosting<'a> {
                         currencies: Default::default(),
                         prices: Arc::new(Default::default()),
                     };
-                    for trade_amount in trade_amount_postings {
+                    for (trade_amount, lot) in trade_amount_postings {
                         if let Some(trade_amount) = trade_amount {
-                            inventory.add_amount(trade_amount);
+                            let info = lot.unwrap_or(LotInfo::FIFO);
+                            inventory.add_lot(trade_amount, info);
                         }
                     }
                     if inventory.size() > 1 {
@@ -218,28 +222,28 @@ impl<'a> TxnPosting<'a> {
             }
         })
     }
-    pub fn lots(&self) -> Result<Option<LotInfo>, LedgerErrorType> {
+    pub fn lots(&self) -> Option<LotInfo> {
         if let Some(unit) = &self.posting.units {
             if let Some(cost) = &self.posting.cost {
-                Ok(Some(LotInfo::Lot(cost.currency.clone(), cost.number.clone())))
+                Some(LotInfo::Lot(cost.currency.clone(), cost.number.clone()))
             } else {
                 if let Some(price) = &self.posting.price {
                     match price {
                         SingleTotalPrice::Single(amount) => {
-                            Ok(Some(LotInfo::Lot(amount.currency.clone(), amount.number.clone())))
+                            Some(LotInfo::Lot(amount.currency.clone(), amount.number.clone()))
                         }
-                        SingleTotalPrice::Total(amount) => Ok(Some(LotInfo::Lot(
+                        SingleTotalPrice::Total(amount) => Some(LotInfo::Lot(
                             amount.currency.clone(),
                             (&amount.number).div(&unit.number),
-                        ))),
+                        )),
                     }
                 } else {
-                    Ok(None)
+                    None
                 }
             }
         } else {
             // should be load account default
-            Ok(None)
+            None
         }
     }
 
@@ -600,9 +604,9 @@ mod test {
                 "#});
                 let mut vec = trx.txn_postings();
                 let posting = vec.remove(0);
-                assert_eq!(Ok(None), posting.lots(), "Assets:Card 100 USD");
+                assert_eq!(None, posting.lots(), "Assets:Card 100 USD");
                 let posting = vec.remove(0);
-                assert_eq!(Ok(None), posting.lots(), "Assets:Card2");
+                assert_eq!(None, posting.lots(), "Assets:Card2");
             }
             #[test]
             fn should_get_lots_given_unit_and_cost() {
@@ -613,9 +617,9 @@ mod test {
                 "#});
                 let mut vec = trx.txn_postings();
                 let posting = vec.remove(0);
-                assert_eq!(Ok(Some(LotInfo::Lot("CNY".to_string(), BigDecimal::from(7i32)))), posting.lots(), "Assets:Card 100 USD {{ 7 CNY }}");
+                assert_eq!(Some(LotInfo::Lot("CNY".to_string(), BigDecimal::from(7i32))), posting.lots(), "Assets:Card 100 USD {{ 7 CNY }}");
                 let posting = vec.remove(0);
-                assert_eq!(Ok(None), posting.lots(), "Assets:Card2");
+                assert_eq!(None, posting.lots(), "Assets:Card2");
             }
         }
     }
