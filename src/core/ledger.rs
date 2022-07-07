@@ -8,7 +8,7 @@ use crate::core::utils::bigdecimal_ext::BigDecimalExt;
 use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
 use crate::core::utils::latest_map::LatestMap;
 use crate::core::utils::multi_value_map::MultiValueMap;
-use crate::core::utils::price_grip::{DatedPriceGrip, PriceGrip};
+use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::core::utils::span::{SpanInfo, Spanned};
 use crate::core::{AccountName, Currency};
 use crate::error::{ZhangError, ZhangResult};
@@ -309,9 +309,6 @@ impl Ledger {
     }
     pub fn default_account_inventory(&self) -> Inventory {
         Inventory {
-            inner: Default::default(),
-            lots: Default::default(),
-            summaries: Default::default(),
             currencies: Default::default(),
             prices: self.prices.clone(),
         }
@@ -606,7 +603,8 @@ mod test {
                     .unwrap()
                     .currencies
                     .get("CNY")
-                    .unwrap().total
+                    .unwrap()
+                    .total
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
@@ -616,7 +614,8 @@ mod test {
                     .unwrap()
                     .currencies
                     .get("CNY")
-                    .unwrap().total
+                    .unwrap()
+                    .total
             );
         }
 
@@ -641,7 +640,8 @@ mod test {
                     .unwrap()
                     .currencies
                     .get("CNY")
-                    .unwrap().total
+                    .unwrap()
+                    .total
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
@@ -651,7 +651,8 @@ mod test {
                     .unwrap()
                     .currencies
                     .get("CNY")
-                    .unwrap().total
+                    .unwrap()
+                    .total
             );
         }
 
@@ -677,7 +678,8 @@ mod test {
                     .unwrap()
                     .currencies
                     .get("CNY")
-                    .unwrap().total
+                    .unwrap()
+                    .total
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
@@ -687,7 +689,8 @@ mod test {
                     .unwrap()
                     .currencies
                     .get("CNY")
-                    .unwrap().total
+                    .unwrap()
+                    .total
             );
         }
 
@@ -713,7 +716,8 @@ mod test {
                     .unwrap()
                     .currencies
                     .get("CNY")
-                    .unwrap().total
+                    .unwrap()
+                    .total
             );
             assert_eq!(
                 &BigDecimal::from(1i32),
@@ -723,7 +727,8 @@ mod test {
                     .unwrap()
                     .currencies
                     .get("BTC")
-                    .unwrap().total
+                    .unwrap()
+                    .total
             );
         }
 
@@ -749,7 +754,8 @@ mod test {
                     .unwrap()
                     .currencies
                     .get("CNY")
-                    .unwrap().total
+                    .unwrap()
+                    .total
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
@@ -759,7 +765,8 @@ mod test {
                     .unwrap()
                     .currencies
                     .get("CNY2")
-                    .unwrap().total
+                    .unwrap()
+                    .total
             );
         }
     }
@@ -789,11 +796,23 @@ mod test {
                 .get_account_inventory(&NaiveDate::from_ymd(2022, 2, 22));
             assert_eq!(
                 &BigDecimal::from(-10i32),
-                &account_inventory.get("Assets:From").unwrap().currencies.get("CNY").unwrap().total
+                &account_inventory
+                    .get("Assets:From")
+                    .unwrap()
+                    .currencies
+                    .get("CNY")
+                    .unwrap()
+                    .total
             );
             assert_eq!(
                 &BigDecimal::from(10i32),
-                &account_inventory.get("Expenses:To").unwrap().currencies.get("CNY").unwrap().total
+                &account_inventory
+                    .get("Expenses:To")
+                    .unwrap()
+                    .currencies
+                    .get("CNY")
+                    .unwrap()
+                    .total
             );
         }
         #[test]
@@ -803,9 +822,6 @@ mod test {
             map.insert(
                 "AAAAA".to_string(),
                 Inventory {
-                    inner: Default::default(),
-                    lots: Default::default(),
-                    summaries: Default::default(),
                     currencies: Default::default(),
                     prices: Arc::new(Default::default()),
                 },

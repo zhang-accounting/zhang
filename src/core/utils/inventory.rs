@@ -5,16 +5,16 @@ use crate::core::{AccountName, Currency};
 use bigdecimal::{BigDecimal, One, Signed, Zero};
 use chrono::{NaiveDate, NaiveDateTime};
 use indexmap::IndexMap;
-use std::collections::{BTreeMap, HashMap};
-use std::ops::Neg;
-use std::ops::{Add, AddAssign, Sub};
+use std::collections::HashMap;
+use std::ops::{Add, AddAssign, Neg, Sub};
 use std::sync::{Arc, RwLock as StdRwLock};
 
+pub type AmountLotPair = (Option<Amount>, Option<LotInfo>);
 #[derive(Debug, PartialEq)]
 pub enum LotInfo {
     Lot(Currency, BigDecimal),
-    FIFO,
-    FILO,
+    Fifo,
+    Filo,
 }
 
 #[derive(Clone, Debug)]
@@ -44,14 +44,14 @@ impl CommodityInventory {
 
                 self.total.add_assign(number);
             }
-            LotInfo::FIFO => {
+            LotInfo::Fifo => {
                 let mut number = number.clone();
                 self.total.add_assign(&number);
                 for (_, amount) in self.lots.iter_mut() {
                     if number.is_zero() {
                         break;
                     };
-                    if (&amount as &BigDecimal).add(&number).is_negative() {
+                    if (amount as &BigDecimal).add(&number).is_negative() {
                         number.add_assign(amount as &BigDecimal);
                         *amount = BigDecimal::zero();
                     } else {
@@ -64,14 +64,14 @@ impl CommodityInventory {
                     target_lots.add_assign(number);
                 }
             }
-            LotInfo::FILO => {
+            LotInfo::Filo => {
                 let mut number = number.clone();
                 self.total.add_assign(&number);
                 for (_, amount) in self.lots.iter_mut().rev() {
                     if number.is_zero() {
                         break;
                     };
-                    if (&amount as &BigDecimal).add(&number).is_negative() {
+                    if (amount as &BigDecimal).add(&number).is_negative() {
                         number.add_assign(amount as &BigDecimal);
                         *amount = BigDecimal::zero();
                     } else {
@@ -93,13 +93,6 @@ impl CommodityInventory {
 /// That's why we need to use `lots` to record the info.
 #[derive(Debug, Clone)]
 pub struct Inventory {
-    #[deprecated]
-    pub(crate) inner: HashMap<Currency, BigDecimal>,
-    #[deprecated]
-    pub(crate) lots: HashMap<Currency, HashMap<(Currency, BigDecimal), BigDecimal>>,
-    #[deprecated]
-    pub(crate) summaries: HashMap<Currency, BigDecimal>,
-
     pub(crate) currencies: HashMap<Currency, CommodityInventory>,
     pub(crate) prices: Arc<StdRwLock<DatedPriceGrip>>,
 }
@@ -126,7 +119,10 @@ impl Inventory {
     }
 
     pub fn get_total(&self, currency: &Currency) -> BigDecimal {
-        self.currencies.get(currency).map(|it|it.total.clone()).unwrap_or_else(BigDecimal::zero)
+        self.currencies
+            .get(currency)
+            .map(|it| it.total.clone())
+            .unwrap_or_else(BigDecimal::zero)
     }
 
     pub fn calculate_to_currency(&self, date: NaiveDateTime, currency: &Currency) -> BigDecimal {
@@ -151,9 +147,6 @@ impl Add for &Inventory {
 
     fn add(self, rhs: Self) -> Self::Output {
         let mut new_inventory = Inventory {
-            inner: Default::default(),
-            lots: Default::default(),
-            summaries: Default::default(),
             currencies: Default::default(),
             prices: self.prices.clone(),
         };
@@ -184,9 +177,6 @@ impl Sub for &Inventory {
 
     fn sub(self, rhs: Self) -> Self::Output {
         let mut new_inventory = Inventory {
-            inner: Default::default(),
-            lots: Default::default(),
-            summaries: Default::default(),
             currencies: Default::default(),
             prices: self.prices.clone(),
         };

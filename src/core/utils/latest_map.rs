@@ -35,10 +35,6 @@ impl<Key: Eq + Hash + Clone + Ord, Value> LatestMap<Key, Value> {
         };
         self.data.get(target_key)
     }
-    pub fn get_last(&self) -> Option<&Value> {
-        let sorted_keys = self.date_index.iter().collect_vec();
-        sorted_keys.last().and_then(|key| self.data.get(key))
-    }
     pub fn get_last_with_key(&self) -> Option<(&Key, &Value)> {
         let sorted_keys = self.date_index.iter().collect_vec();
         sorted_keys.last().and_then(|&key| self.data.get(key).map(|v| (key, v)))
