@@ -289,7 +289,6 @@ impl CurrencyDto {
     }
     async fn balance(&self, ctx: &Context<'_>) -> String {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        // ledger_stage.account_inventory
         // todo implement
         BigDecimal::zero().to_string()
     }
