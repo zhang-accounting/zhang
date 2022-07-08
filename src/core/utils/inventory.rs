@@ -104,7 +104,6 @@ impl Inventory {
             .entry(amount.currency)
             .or_insert_with_key(|key| CommodityInventory::new(key));
         commodity_inventory.insert(&amount.number, lot);
-        dbg!(&commodity_inventory);
     }
 
     pub fn pin(&self) -> Inventory {

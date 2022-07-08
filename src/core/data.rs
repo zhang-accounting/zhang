@@ -190,8 +190,6 @@ impl<'a> TxnPosting<'a> {
                 .map(|it| (it.trade_amount(), it.lots()))
                 .partition(|it| it.0.is_some());
 
-            dbg!(&trade_amount_postings);
-            dbg!(&non_trade_amount_postings);
             match non_trade_amount_postings.len() {
                 0 => unreachable!(),
                 1 => {

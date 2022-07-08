@@ -311,9 +311,6 @@ impl CurrencyDto {
         let operating_currency = &ledger_stage.options.operating_currency;
         let result = ledger_stage.prices.read().unwrap();
         let option = result.inner.get_last_with_key();
-        dbg!(&option);
-        dbg!(&self.0.commodity.currency);
-        dbg!(&operating_currency);
         if let Some((date, price_grip)) = option {
             let option1 = price_grip.get(&self.0.commodity.currency, operating_currency);
             option1.map(|price| PriceDto {
