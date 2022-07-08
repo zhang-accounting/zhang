@@ -1,14 +1,15 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
-use crate::core::models::{Flag, StringOrAccount, ZhangString};
-use crate::core::utils::inventory::Inventory;
+use crate::core::ledger::LedgerErrorType;
+use crate::core::models::{Flag, SingleTotalPrice, StringOrAccount, ZhangString};
+use crate::core::utils::inventory::{AmountLotPair, Inventory, LotInfo};
 use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::core::AccountName;
-use bigdecimal::{BigDecimal, Zero};
+use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
 use std::collections::HashSet;
-use std::ops::{Mul, Neg};
+use std::ops::{Div, Mul, Neg};
 use std::sync::Arc;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
@@ -99,8 +100,8 @@ pub struct Posting {
     pub account: Account,
     pub units: Option<Amount>,
     pub cost: Option<Amount>,
-    pub price: Option<Amount>,
-
+    pub cost_date: Option<Date>,
+    pub price: Option<SingleTotalPrice>,
     pub meta: Meta,
 }
 
@@ -117,16 +118,18 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn is_balance(&self) -> bool {
+    pub(crate) fn get_postings_inventory(&self) -> Result<Inventory, LedgerErrorType> {
         let mut inventory = Inventory {
-            inner: Default::default(),
+            currencies: Default::default(),
             prices: Arc::new(Default::default()),
         };
-        self.txn_postings().into_iter().for_each(|tx_posting| {
-            let amount = tx_posting.units();
-            inventory.add_amount(amount);
-        });
-        inventory.is_zero()
+        for posting in self.txn_postings() {
+            let amount = posting.infer_trade_amount()?;
+            let lot_info = posting.lots().unwrap_or(LotInfo::Fifo);
+            inventory.add_lot(amount, lot_info);
+        }
+        // todo work with commodity precision
+        Ok(inventory)
     }
 
     pub fn txn_postings(&self) -> Vec<TxnPosting> {
@@ -147,41 +150,89 @@ pub struct TxnPosting<'a> {
 }
 
 impl<'a> TxnPosting<'a> {
-    pub fn units(&self) -> Amount {
-        if let Some(unit) = &self.posting.units {
-            unit.clone()
-        } else {
-            let vec = self
+    pub fn units(&self) -> Option<Amount> {
+        self.posting.units.clone()
+    }
+    /// if cost is not specified, and it can be indicated from price. e.g.
+    /// `Assets:Card 1 CNY @ 10 AAA` then cost `10 AAA` can be indicated from single price`@ 10 AAA`
+    pub fn costs(&self) -> Option<Amount> {
+        self.posting.cost.clone().or_else(|| {
+            self.posting.price.as_ref().map(|price| match price {
+                SingleTotalPrice::Single(single_price) => single_price.clone(),
+                SingleTotalPrice::Total(total_price) => Amount::new(
+                    (&total_price.number).div(&self.posting.units.as_ref().unwrap().number),
+                    total_price.currency.clone(),
+                ),
+            })
+        })
+    }
+    pub fn trade_amount(&self) -> Option<Amount> {
+        self.posting
+            .units
+            .as_ref()
+            .map(|unit| match (self.posting.cost.as_ref(), self.posting.price.as_ref()) {
+                (Some(cost), _) => Amount::new((&unit.number).mul(&cost.number), cost.currency.clone()),
+                (None, Some(price)) => match price {
+                    SingleTotalPrice::Single(single_price) => {
+                        Amount::new((&unit.number).mul(&single_price.number), single_price.currency.clone())
+                    }
+                    SingleTotalPrice::Total(total_price) => total_price.clone(),
+                },
+                (None, None) => unit.clone(),
+            })
+    }
+    pub fn infer_trade_amount(&self) -> Result<Amount, LedgerErrorType> {
+        self.trade_amount().map(Ok).unwrap_or_else(|| {
+            let (trade_amount_postings, non_trade_amount_postings): (Vec<AmountLotPair>, Vec<AmountLotPair>) = self
                 .txn
                 .txn_postings()
                 .iter()
-                .filter(|it| it.posting.units.is_some())
-                .map(|it| it.costs())
-                .collect_vec();
+                .map(|it| (it.trade_amount(), it.lots()))
+                .partition(|it| it.0.is_some());
 
-            let mut others = HashSet::new();
-            for x in &vec {
-                others.insert(x.currency.clone());
+            match non_trade_amount_postings.len() {
+                0 => unreachable!(),
+                1 => {
+                    let mut inventory = Inventory {
+                        currencies: Default::default(),
+                        prices: Arc::new(Default::default()),
+                    };
+                    for (trade_amount, lot) in trade_amount_postings {
+                        if let Some(trade_amount) = trade_amount {
+                            let info = lot.unwrap_or(LotInfo::Fifo);
+                            inventory.add_lot(trade_amount, info);
+                        }
+                    }
+                    if inventory.size() > 1 {
+                        Err(LedgerErrorType::TransactionDoesNotBalance)
+                    } else {
+                        Ok(inventory.pop().unwrap().neg())
+                    }
+                }
+                _ => Err(LedgerErrorType::TransactionHasMultipleImplicitPosting),
             }
-
-            if others.len() > 1 {
-                // todo error
-                Amount::new(BigDecimal::zero(), "CNY")
-            } else {
-                let currency = others.into_iter().take(1).next().unwrap();
-                let number = vec.into_iter().map(|it| it.number).sum();
-                Amount::new(number, currency).neg()
-            }
-        }
+        })
     }
-    pub fn costs(&self) -> Amount {
-        if let Some(cost) = &self.posting.cost {
-            cost.clone()
-        } else {
-            match (&self.posting.units, &self.posting.price) {
-                (Some(unit), Some(price)) => Amount::new((&unit.number).mul(&price.number), price.currency.clone()),
-                _ => self.units(),
+    pub fn lots(&self) -> Option<LotInfo> {
+        if let Some(unit) = &self.posting.units {
+            if let Some(cost) = &self.posting.cost {
+                Some(LotInfo::Lot(cost.currency.clone(), cost.number.clone()))
+            } else if let Some(price) = &self.posting.price {
+                match price {
+                    SingleTotalPrice::Single(amount) => {
+                        Some(LotInfo::Lot(amount.currency.clone(), amount.number.clone()))
+                    }
+                    SingleTotalPrice::Total(amount) => Some(LotInfo::Lot(
+                        amount.currency.clone(),
+                        (&amount.number).div(&unit.number),
+                    )),
+                }
+            } else {
+                None
             }
+        } else {
+            // should be load account default
+            None
         }
     }
 
@@ -276,6 +327,7 @@ pub struct Comment {
 #[cfg(test)]
 mod test {
     mod transaction {
+        use crate::core::ledger::Ledger;
         use crate::core::models::Directive;
         use crate::parse_zhang;
         use indoc::indoc;
@@ -293,9 +345,10 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
+            let ledger = Ledger::load_from_str("").unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(trx.is_balance());
+                    assert!(ledger.is_transaction_balanced(&trx));
                 }
                 _ => unreachable!(),
             }
@@ -313,9 +366,10 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
+            let ledger = Ledger::load_from_str("").unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(trx.is_balance());
+                    assert!(ledger.is_transaction_balanced(&trx));
                 }
                 _ => unreachable!(),
             }
@@ -334,9 +388,10 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
+            let ledger = Ledger::load_from_str("").unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(trx.is_balance());
+                    assert!(ledger.is_transaction_balanced(&trx));
                 }
                 _ => unreachable!(),
             }
@@ -354,9 +409,10 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
+            let ledger = Ledger::load_from_str("").unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(!trx.is_balance());
+                    assert!(!ledger.is_transaction_balanced(&trx));
                 }
                 _ => unreachable!(),
             }
@@ -374,11 +430,188 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
+            let ledger = Ledger::load_from_str("").unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(!trx.is_balance());
+                    assert!(!ledger.is_transaction_balanced(&trx));
                 }
                 _ => unreachable!(),
+            }
+        }
+        #[test]
+        fn should_return_true_given_day_price() {
+            let directive = parse_zhang(
+                indoc! {r#"
+                2015-01-05 * "Investing 60% of cash in RGAGX"
+                  Assets:US:Vanguard:RGAGX      4.088 RGAGX {88.07 USD, 2015-01-05}
+                  Assets:US:Vanguard:Cash     -360.03 USD
+            "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap();
+            let ledger = Ledger::load_from_str("").unwrap();
+            match directive.data {
+                Directive::Transaction(trx) => {
+                    assert!(ledger.is_transaction_balanced(&trx));
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        mod txn_posting {
+            use crate::core::amount::Amount;
+            use crate::core::data::Transaction;
+            use crate::core::models::Directive;
+            use crate::core::utils::inventory::LotInfo;
+            use crate::parse_zhang;
+            use bigdecimal::BigDecimal;
+            use indoc::indoc;
+
+            fn get_first_posting(content: &str) -> Transaction {
+                let directive = parse_zhang(content, None).unwrap().pop().unwrap();
+                match directive.data {
+                    Directive::Transaction(trx) => trx,
+                    _ => unreachable!(),
+                }
+            }
+
+            #[test]
+            fn should_get_none_unit_given_auto_balanced_posting() {
+                let trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(None, posting.units());
+                assert_eq!(None, posting.costs());
+                assert_eq!(None, posting.trade_amount());
+            }
+            #[test]
+            fn should_get_unit() {
+                let trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 CNY
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
+                assert_eq!(None, posting.costs());
+                assert_eq!(
+                    Some(Amount::new(BigDecimal::from(100i32), "CNY")),
+                    posting.trade_amount()
+                );
+            }
+
+            #[test]
+            fn should_get_unit_given_single_price() {
+                let trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 CNY @ 10 AAA
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
+                assert_eq!(Some(Amount::new(BigDecimal::from(10i32), "AAA")), posting.costs());
+                assert_eq!(
+                    Some(Amount::new(BigDecimal::from(1000i32), "AAA")),
+                    posting.trade_amount()
+                );
+            }
+
+            #[test]
+            fn should_get_unit_given_cost() {
+                let trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 CNY { 10 AAA }
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
+                assert_eq!(Some(Amount::new(BigDecimal::from(10i32), "AAA")), posting.costs());
+                assert_eq!(
+                    Some(Amount::new(BigDecimal::from(1000i32), "AAA")),
+                    posting.trade_amount()
+                );
+            }
+
+            #[test]
+            fn should_get_unit_given_cost_and_single_price() {
+                let trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 CNY { 10 AAA } @ 11 AAA
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
+                assert_eq!(Some(Amount::new(BigDecimal::from(10i32), "AAA")), posting.costs());
+                assert_eq!(
+                    Some(Amount::new(BigDecimal::from(1000i32), "AAA")),
+                    posting.trade_amount()
+                );
+            }
+            #[test]
+            fn should_get_unit_given_total_price() {
+                let trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 CNY @@ 110000 AAA
+                "#});
+                let posting = trx.txn_postings().pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
+                assert_eq!(Some(Amount::new(BigDecimal::from(1100i32), "AAA")), posting.costs());
+                assert_eq!(
+                    Some(Amount::new(BigDecimal::from(110000i32), "AAA")),
+                    posting.trade_amount()
+                );
+            }
+            #[test]
+            fn should_get_infer_trade_amount() {
+                let trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 CNY
+                  Assets:Card2
+                "#});
+                let mut vec = trx.txn_postings();
+                let posting = vec.remove(0);
+                assert_eq!(
+                    Ok(Amount::new(BigDecimal::from(100i32), "CNY")),
+                    posting.infer_trade_amount(),
+                    "Assets:Card 100 CNY"
+                );
+                let posting2 = vec.remove(0);
+                assert_eq!(
+                    Ok(Amount::new(BigDecimal::from(-100i32), "CNY")),
+                    posting2.infer_trade_amount(),
+                    "Assets:Card2"
+                );
+            }
+
+            #[test]
+            fn should_get_lots_given_only_unit() {
+                let trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 USD
+                  Assets:Card2
+                "#});
+                let mut vec = trx.txn_postings();
+                let posting = vec.remove(0);
+                assert_eq!(None, posting.lots(), "Assets:Card 100 USD");
+                let posting = vec.remove(0);
+                assert_eq!(None, posting.lots(), "Assets:Card2");
+            }
+            #[test]
+            fn should_get_lots_given_unit_and_cost() {
+                let trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card 100 USD { 7 CNY }
+                  Assets:Card2
+                "#});
+                let mut vec = trx.txn_postings();
+                let posting = vec.remove(0);
+                assert_eq!(
+                    Some(LotInfo::Lot("CNY".to_string(), BigDecimal::from(7i32))),
+                    posting.lots(),
+                    "Assets:Card 100 USD {{ 7 CNY }}"
+                );
+                let posting = vec.remove(0);
+                assert_eq!(None, posting.lots(), "Assets:Card2");
             }
         }
     }

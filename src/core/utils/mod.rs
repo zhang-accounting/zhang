@@ -1,3 +1,4 @@
+pub(crate) mod bigdecimal_ext;
 pub(crate) mod inventory;
 pub(crate) mod latest_map;
 pub(crate) mod multi_value_map;

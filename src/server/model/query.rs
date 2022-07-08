@@ -5,11 +5,12 @@ use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType
 use crate::core::models::Directive;
 use crate::core::utils::inventory::Inventory;
 use crate::core::utils::span::SpanInfo;
-use crate::core::AccountName;
+use crate::core::{AccountName, Currency};
 use crate::server::LedgerState;
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};
 use async_graphql::{Context, Interface, Object};
-use chrono::{NaiveDateTime, Utc};
+use bigdecimal::{BigDecimal, Zero};
+use chrono::{NaiveDate, NaiveDateTime, Utc};
 use itertools::{Either, Itertools};
 use std::cmp::min;
 use std::collections::HashMap;
@@ -240,7 +241,7 @@ impl AccountDto {
             .iter()
             .filter(|it| match it {
                 DocumentType::AccountDocument { account, .. } => account.content.eq(&self.name),
-                DocumentType::TransactionDocument { .. } => false, // todo transaction documents
+                DocumentType::TransactionDocument { .. } => true,
             })
             .cloned()
             .map(|it| match it {
@@ -275,14 +276,68 @@ impl CurrencyDto {
         self.0.commodity.currency.to_string()
     }
 
-    async fn precision(&self) -> i32 {
+    async fn precision(&self, ctx: &Context<'_>) -> usize {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
         self.0
-            .commodity
-            .meta
-            .get_one(&"precision".to_string())
-            .map(|it| it.clone().to_plain_string())
-            .map(|it| it.parse::<i32>().unwrap_or(2))
-            .unwrap_or(2)
+            .precision
+            .unwrap_or(ledger_stage.options.default_balance_tolerance_precision)
+    }
+    async fn is_operating_currency(&self, ctx: &Context<'_>) -> bool {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        let operating_currency = &ledger_stage.options.operating_currency;
+        self.0.commodity.currency.eq(operating_currency)
+    }
+    async fn balance(&self, ctx: &Context<'_>) -> String {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage.inventory.get_total(&self.0.commodity.currency).to_string()
+    }
+
+    async fn lots(&self, ctx: &Context<'_>) -> Vec<LotInfoDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        let commodity_inventory = ledger_stage.inventory.currencies.get(&self.0.commodity.currency);
+        if let Some(inventory) = commodity_inventory {
+            let mut ret = vec![];
+            for (lot, number) in inventory.lots.iter() {
+                if !number.is_zero() {
+                    ret.push(LotInfoDto {
+                        lot: (lot.0.to_string(), lot.1.clone()),
+                        number: number.clone(),
+                    })
+                }
+            }
+            ret
+        } else {
+            vec![]
+        }
+    }
+
+    async fn price_histories(&self) -> Vec<PriceDto> {
+        let mut ret = vec![];
+        for (date, group) in self.0.prices.data.iter() {
+            for (target_currency, amount) in group {
+                ret.push(PriceDto {
+                    date: *date,
+                    amount: Amount::new(amount.clone(), target_currency),
+                });
+            }
+        }
+        ret
+    }
+
+    async fn latest_price(&self, ctx: &Context<'_>) -> Option<PriceDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        let operating_currency = &ledger_stage.options.operating_currency;
+        let result = ledger_stage.prices.read().unwrap();
+        let option = result.inner.get_last_with_key();
+        if let Some((date, price_grip)) = option {
+            let option1 = price_grip.get(&self.0.commodity.currency, operating_currency);
+            option1.map(|price| PriceDto {
+                date: date.date(),
+                amount: Amount::new(price, operating_currency),
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -331,8 +386,9 @@ impl TransactionDto {
             })
             .collect_vec()
     }
-    async fn is_balanced(&self) -> bool {
-        self.0.is_balance()
+    async fn is_balanced(&self, ctx: &Context<'_>) -> bool {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage.is_transaction_balanced(&self.0)
     }
 }
 
@@ -387,8 +443,8 @@ impl<'a> PostingDto<'a> {
             })
     }
 
-    async fn unit(&self) -> AmountDto {
-        AmountDto(self.0.units())
+    async fn unit(&self) -> Option<AmountDto> {
+        self.0.units().map(AmountDto)
     }
 }
 pub struct AmountDto(Amount);
@@ -560,9 +616,9 @@ impl SnapshotDto {
             .fold(ledger_stage.default_account_inventory(), |fold, lo| &fold + lo.1);
 
         inventory
-            .inner
+            .currencies
             .into_iter()
-            .map(|(c, n)| Amount::new(n, c))
+            .map(|(c, n)| Amount::new(n.total, c))
             .map(AmountDto)
             .collect_vec()
     }
@@ -688,5 +744,38 @@ impl SpanInfoDto {
     }
     async fn content(&self) -> String {
         self.0.content.clone()
+    }
+}
+
+pub struct PriceDto {
+    date: NaiveDate,
+    amount: Amount,
+}
+
+#[Object]
+impl PriceDto {
+    async fn date(&self) -> i64 {
+        self.date.and_hms(0, 0, 0).timestamp()
+    }
+    async fn amount(&self) -> AmountDto {
+        AmountDto(self.amount.clone())
+    }
+}
+
+pub struct LotInfoDto {
+    lot: (Currency, BigDecimal),
+    number: BigDecimal,
+}
+
+#[Object]
+impl LotInfoDto {
+    async fn lot_currency(&self) -> String {
+        self.lot.0.to_string()
+    }
+    async fn lot_price(&self) -> String {
+        self.lot.1.to_string()
+    }
+    async fn number(&self) -> String {
+        self.number.to_string()
     }
 }

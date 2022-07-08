@@ -99,6 +99,12 @@ pub enum ZhangString {
     QuoteString(String),
 }
 impl ZhangString {
+    pub fn as_str(&self) -> &str {
+        match self {
+            ZhangString::UnquoteString(s) => s,
+            ZhangString::QuoteString(s) => s,
+        }
+    }
     pub fn to_plain_string(self) -> String {
         match self {
             ZhangString::UnquoteString(unquote) => unquote,
@@ -120,6 +126,23 @@ pub enum Flag {
     #[strum(serialize = "!", to_string = "!")]
     Warning,
 }
+
+#[derive(EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize, Clone, Copy)]
+pub enum Rounding {
+    #[strum(serialize = "RoundUp", to_string = "RoundUp")]
+    RoundUp,
+    #[strum(serialize = "RoundDown", to_string = "RoundDown")]
+    RoundDown,
+}
+impl Rounding {
+    pub fn is_up(&self) -> bool {
+        match self {
+            Rounding::RoundUp => true,
+            Rounding::RoundDown => false,
+        }
+    }
+}
+
 //
 // #[cfg(test)]
 // mod test {

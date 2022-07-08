@@ -3,7 +3,9 @@ use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Pric
 use crate::core::ledger::{
     AccountInfo, AccountStatus, CurrencyInfo, DocumentType, Ledger, LedgerError, LedgerErrorType,
 };
-use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
+use crate::core::models::{Rounding, SingleTotalPrice};
+use crate::core::utils::inventory::{DailyAccountInventory, Inventory, LotInfo};
+use crate::core::utils::latest_map::LatestMap;
 use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::core::utils::span::SpanInfo;
 use crate::core::AccountName;
@@ -11,6 +13,7 @@ use crate::error::ZhangResult;
 use chrono::NaiveDate;
 use std::collections::HashMap;
 use std::ops::{Neg, Sub};
+use std::str::FromStr;
 use std::sync::{Arc, RwLock as StdRwLock};
 
 pub(crate) struct ProcessContext {
@@ -21,7 +24,7 @@ pub(crate) struct ProcessContext {
 impl ProcessContext {
     pub fn default_account_snapshot(&self) -> Inventory {
         Inventory {
-            inner: Default::default(),
+            currencies: Default::default(),
             prices: self.prices.clone(),
         }
     }
@@ -70,9 +73,34 @@ fn check_account_closed(ledger: &mut Ledger, span: &SpanInfo, account_name: &str
         })
     }
 }
+fn check_commodity_define(ledger: &mut Ledger, span: &SpanInfo, commodity_name: &str) {
+    let has_commodity_defined = !ledger.currencies.contains_key(commodity_name);
+    if has_commodity_defined {
+        ledger.errors.push(LedgerError {
+            span: span.clone(),
+            error: LedgerErrorType::CommodityDoesNotDefine {
+                commodity_name: commodity_name.to_string(),
+            },
+        })
+    }
+}
+fn check_commodity_define_for_amount<'a>(ledger: &mut Ledger, span: &SpanInfo, amount: impl Into<Option<&'a Amount>>) {
+    if let Some(amount) = amount.into() {
+        let has_commodity_defined = !ledger.currencies.contains_key(&amount.currency);
+        if has_commodity_defined {
+            ledger.errors.push(LedgerError {
+                span: span.clone(),
+                error: LedgerErrorType::CommodityDoesNotDefine {
+                    commodity_name: amount.currency.to_string(),
+                },
+            })
+        }
+    }
+}
 
 impl DirectiveProcess for Options {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
+        ledger.options.parse(self.key.as_str(), self.value.as_str());
         ledger
             .configs
             .insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());
@@ -81,7 +109,11 @@ impl DirectiveProcess for Options {
 }
 
 impl DirectiveProcess for Open {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+        for currency in &self.commodities {
+            check_commodity_define(ledger, span, currency);
+        }
+
         let account_info = ledger
             .accounts
             .entry(self.account.content.to_string())
@@ -124,12 +156,26 @@ impl DirectiveProcess for Close {
 
 impl DirectiveProcess for Commodity {
     fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
+        let precision = self
+            .meta
+            .get_one(&"precision".to_string())
+            .map(|it| it.as_str().parse::<usize>())
+            .transpose()
+            .unwrap_or(None);
+        let rounding = self
+            .meta
+            .get_one(&"precroundingision".to_string())
+            .map(|it| Rounding::from_str(it.as_str()))
+            .transpose()
+            .unwrap_or(None);
         let _target_currency = ledger
             .currencies
             .entry(self.currency.to_string())
             .or_insert_with(|| CurrencyInfo {
                 commodity: self.clone(),
-                prices: HashMap::new(),
+                precision,
+                rounding,
+                prices: LatestMap::default(),
             });
         Ok(())
     }
@@ -137,12 +183,13 @@ impl DirectiveProcess for Commodity {
 
 impl DirectiveProcess for Transaction {
     fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
-        if !self.is_balance() {
+        if !ledger.is_transaction_balanced(self) {
             ledger.errors.push(LedgerError {
                 span: span.clone(),
                 error: LedgerErrorType::TransactionDoesNotBalance,
             });
         }
+
         let date = self.date.naive_date();
         record_daily_snapshot(
             &mut ledger.account_inventory,
@@ -153,11 +200,26 @@ impl DirectiveProcess for Transaction {
         for txn_posting in self.txn_postings() {
             check_account_existed(ledger, span, txn_posting.posting.account.name());
             check_account_closed(ledger, span, txn_posting.posting.account.name());
+            check_commodity_define_for_amount(ledger, span, &txn_posting.posting.units);
+            if let Some(price) = txn_posting.posting.price.as_ref() {
+                match price {
+                    SingleTotalPrice::Single(single) => check_commodity_define_for_amount(ledger, span, single),
+                    SingleTotalPrice::Total(total_price) => {
+                        check_commodity_define_for_amount(ledger, span, total_price)
+                    }
+                }
+            }
+            check_commodity_define_for_amount(ledger, span, &txn_posting.posting.cost);
             let target_account_snapshot = ledger
                 .account_inventory
                 .entry(txn_posting.account_name())
                 .or_insert_with(|| context.default_account_snapshot());
-            target_account_snapshot.add_amount(txn_posting.units());
+            let amount = txn_posting
+                .units()
+                .unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
+            let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
+            target_account_snapshot.add_lot(amount.clone(), lot_info.clone());
+            ledger.inventory.add_lot(amount, lot_info);
         }
         for document in self
             .meta
@@ -195,7 +257,7 @@ impl DirectiveProcess for Balance {
                     .entry(balance_check.account.name().to_string())
                     .or_insert_with(|| context.default_account_snapshot());
 
-                let target_account_balance = target_account_snapshot.get(&balance_check.amount.currency);
+                let target_account_balance = target_account_snapshot.get_total(&balance_check.amount.currency);
                 balance_check.current_amount = Some(Amount::new(
                     target_account_balance.clone(),
                     balance_check.amount.currency.clone(),
@@ -219,7 +281,8 @@ impl DirectiveProcess for Balance {
                             distance: distance.clone(),
                         },
                     });
-                    target_account_snapshot.add_amount(distance);
+                    target_account_snapshot.add_lot(distance.clone(), LotInfo::Fifo);
+                    ledger.inventory.add_lot(distance, LotInfo::Fifo);
                 }
             }
             Balance::BalancePad(balance_pad) => {
@@ -239,19 +302,33 @@ impl DirectiveProcess for Balance {
                     .entry(balance_pad.account.name().to_string())
                     .or_insert_with(|| context.default_account_snapshot());
 
-                let source_amount = target_account_snapshot.get(&balance_pad.amount.currency);
+                let source_amount = target_account_snapshot.get_total(&balance_pad.amount.currency);
                 let source_target_amount = &balance_pad.amount.number;
                 // source account
                 let distance = source_target_amount.sub(source_amount);
                 let neg_distance = (&distance).neg();
-                target_account_snapshot.add_amount(Amount::new(distance, balance_pad.amount.currency.clone()));
+                target_account_snapshot.add_lot(
+                    Amount::new(distance.clone(), balance_pad.amount.currency.clone()),
+                    LotInfo::Fifo,
+                );
+                ledger.inventory.add_lot(
+                    Amount::new(distance, balance_pad.amount.currency.clone()),
+                    LotInfo::Fifo,
+                );
 
                 // add to pad
                 let pad_account_snapshot = ledger
                     .account_inventory
                     .entry(balance_pad.pad.name().to_string())
                     .or_insert_with(|| context.default_account_snapshot());
-                pad_account_snapshot.add_amount(Amount::new(neg_distance, balance_pad.amount.currency.clone()));
+                pad_account_snapshot.add_lot(
+                    Amount::new(neg_distance.clone(), balance_pad.amount.currency.clone()),
+                    LotInfo::Fifo,
+                );
+                ledger.inventory.add_lot(
+                    Amount::new(neg_distance, balance_pad.amount.currency.clone()),
+                    LotInfo::Fifo,
+                );
             }
         }
 
@@ -273,7 +350,9 @@ impl DirectiveProcess for Document {
 }
 
 impl DirectiveProcess for Price {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+        check_commodity_define(ledger, span, &self.currency);
+        check_commodity_define(ledger, span, &self.amount.currency);
         let mut result = ledger.prices.write().unwrap();
         result.insert(
             self.date.naive_datetime(),
@@ -281,6 +360,11 @@ impl DirectiveProcess for Price {
             self.amount.currency.clone(),
             self.amount.number.clone(),
         );
+        let option = ledger.currencies.get_mut(&self.currency);
+        if let Some(currency_info) = option {
+            let price_group = currency_info.prices.data.entry(self.date.naive_date()).or_default();
+            price_group.insert(self.amount.currency.clone(), self.amount.number.clone());
+        }
         Ok(())
     }
 }

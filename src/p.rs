@@ -244,6 +244,7 @@ impl ZhangParser {
             account,
             units: None,
             cost: None,
+            cost_date: None,
             price: None,
             meta: Default::default(),
         };
@@ -253,7 +254,8 @@ impl ZhangParser {
 
             if let Some(meta) = meta {
                 line.cost = meta.0;
-                // line.price = meta.2; // todo
+                line.cost_date = meta.1;
+                line.price = meta.2;
             }
         }
         Ok(line)
@@ -461,10 +463,10 @@ impl ZhangParser {
         }))
     }
 
-    fn item(input: Node) -> Result<Spanned<Directive>> {
-        let raw_content = input.as_str();
-        let start = input.as_span().start_pos().line_col().0;
-        let end = input.as_span().end_pos().line_col().0;
+    fn item(input: Node) -> Result<(Directive, (usize, usize))> {
+        let span = input.as_span();
+        let pest_start_pos = span.start_pos().pos();
+        let pest_end_pos = span.end_pos().pos();
 
         let ret: Directive = match_nodes!(input.into_children();
             [option(item)] => item,
@@ -482,22 +484,121 @@ impl ZhangParser {
             [comment(item)] => item,
             [transaction(item)] => item,
         );
-        Ok(Spanned {
-            data: ret,
-            span: SpanInfo {
-                start,
-                end,
-                content: raw_content.to_string(),
-                filename: None,
-            },
-        })
+        Ok((ret, (pest_start_pos, pest_end_pos)))
     }
     fn entry(input: Node) -> Result<Vec<Spanned<Directive>>> {
-        let ret = match_nodes!(input.into_children();
+        let mut cursor = LineCursor::new(input.as_str());
+        let ret: Vec<(Directive, (usize, usize))> = match_nodes!(input.into_children();
             [item(items).., _] => items.collect(),
         );
-        Ok(ret)
+        let mut spanned = vec![];
+        for (directive, (start_pos, end_post)) in ret {
+            let (start_pos, end_pos, r) = cursor.move_from(start_pos, end_post);
+            spanned.push(Spanned {
+                data: directive,
+                span: SpanInfo {
+                    start: start_pos.0,
+                    end: end_pos.0,
+                    content: r.to_string(),
+                    filename: None,
+                },
+            })
+        }
+        Ok(spanned)
     }
+}
+
+pub struct LineCursor<'a> {
+    content: &'a str,
+    line: usize,
+    col: usize,
+    current_pos: usize,
+}
+
+impl<'a> LineCursor<'a> {
+    pub fn new(content: &'a str) -> Self {
+        Self {
+            content,
+            line: 1,
+            col: 1,
+            current_pos: 0,
+        }
+    }
+    pub fn move_from(&mut self, start_pos: usize, end_pos: usize) -> ((usize, usize), (usize, usize), &'a str) {
+        if self.current_pos < start_pos {
+            let x1 = &self.content[self.current_pos..start_pos]; // todo use peekable
+            let (l, c, has_new_line) = line_col(x1);
+            self.line += l;
+            if has_new_line {
+                self.col = c;
+            } else {
+                self.col += c;
+            }
+        }
+
+        // let x = self.move_to(start_pos);
+        let x1 = &self.content[start_pos..end_pos]; // todo use peekable
+        let (l, c, has_new_line) = line_col(x1);
+        let prev_line = self.line;
+        let prev_col = self.col;
+
+        self.line += l;
+        if has_new_line {
+            self.col = c;
+        } else {
+            self.col += c;
+        }
+        self.current_pos = end_pos;
+        ((prev_line, prev_col), (self.line, self.col), x1)
+    }
+
+    pub fn consume(&mut self, input: &str) -> ((usize, usize), (usize, usize)) {
+        let (l, c, has_new_line) = line_col(input);
+        let prev_line = self.line;
+        let prev_col = self.col;
+
+        self.line += l;
+        if has_new_line {
+            self.col = c;
+        } else {
+            self.col += c;
+        }
+        ((prev_line, prev_col), (self.line, self.col))
+    }
+}
+
+fn line_col(part: &str) -> (usize, usize, bool) {
+    let mut chars = part.chars().peekable();
+
+    let mut line_col = (0, 0);
+    let mut has_new_line = false;
+
+    loop {
+        match chars.next() {
+            Some('\r') => {
+                if let Some(&'\n') = chars.peek() {
+                    chars.next();
+
+                    line_col = (line_col.0 + 1, 1);
+                    has_new_line = true;
+                } else {
+                    line_col = (line_col.0, line_col.1 + 1);
+                }
+            }
+            Some('\n') => {
+                line_col = (line_col.0 + 1, 1);
+                has_new_line = true;
+            }
+            Some(_c) => {
+                line_col = (line_col.0, line_col.1 + 1);
+            }
+            None => {
+                break;
+            }
+        }
+    }
+
+    (line_col.0, line_col.1, has_new_line)
 }
 
 pub fn parse_zhang(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<Directive>>> {
@@ -812,6 +913,123 @@ mod test {
             )
             .unwrap();
             assert_eq!(vec.len(), 1);
+        }
+
+        mod posting {
+            use crate::core::amount::Amount;
+            use crate::core::data::{Date, Transaction};
+            use crate::core::models::{Directive, SingleTotalPrice};
+            use crate::parse_zhang;
+            use bigdecimal::{BigDecimal, FromPrimitive};
+            use chrono::NaiveDate;
+            use indoc::indoc;
+
+            fn get_first_posting(content: &str) -> Transaction {
+                let directive = parse_zhang(content, None).unwrap().pop().unwrap();
+                match directive.data {
+                    Directive::Transaction(trx) => trx,
+                    _ => unreachable!(),
+                }
+            }
+
+            #[test]
+            fn should_return_all_none_price() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(None, posting.units);
+                assert_eq!(None, posting.cost);
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(None, posting.price);
+            }
+
+            #[test]
+            fn should_return_unit() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 CNY
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "CNY")), posting.units);
+                assert_eq!(None, posting.cost);
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(None, posting.price);
+            }
+            #[test]
+            fn should_return_unit_and_cost() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD { 7 CNY }
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
+                assert_eq!(Some(Amount::new(BigDecimal::from(7i32), "CNY")), posting.cost);
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(None, posting.price);
+            }
+
+            #[test]
+            fn should_return_unit_and_cost_cost_date() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD { 7 CNY, 2022-06-06 }
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
+                assert_eq!(Some(Amount::new(BigDecimal::from(7i32), "CNY")), posting.cost);
+                assert_eq!(Some(Date::Date(NaiveDate::from_ymd(2022, 6, 6))), posting.cost_date);
+                assert_eq!(None, posting.price);
+            }
+            #[test]
+            fn should_return_unit_and_single_price() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD @ 7 CNY
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
+                assert_eq!(None, posting.cost);
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(
+                    Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))),
+                    posting.price
+                );
+            }
+            #[test]
+            fn should_return_unit_and_total_price() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD @@ 700 CNY
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
+                assert_eq!(None, posting.cost);
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(
+                    Some(SingleTotalPrice::Total(Amount::new(BigDecimal::from(700i32), "CNY"))),
+                    posting.price
+                );
+            }
+            #[test]
+            fn should_return_unit_cost_and_single_price() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD { 6.9 CNY } @ 7 CNY
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
+                assert_eq!(
+                    Some(Amount::new(BigDecimal::from_f32(6.9).unwrap(), "CNY")),
+                    posting.cost
+                );
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(
+                    Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))),
+                    posting.price
+                );
+            }
         }
     }
 }
