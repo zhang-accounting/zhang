@@ -218,7 +218,8 @@ impl DirectiveProcess for Transaction {
                 .units()
                 .unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
             let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
-            target_account_snapshot.add_lot(amount, lot_info);
+            target_account_snapshot.add_lot(amount.clone(), lot_info.clone());
+            ledger.inventory.add_lot(amount, lot_info);
         }
         for document in self
             .meta
@@ -280,7 +281,8 @@ impl DirectiveProcess for Balance {
                             distance: distance.clone(),
                         },
                     });
-                    target_account_snapshot.add_lot(distance, LotInfo::Fifo);
+                    target_account_snapshot.add_lot(distance.clone(), LotInfo::Fifo);
+                    ledger.inventory.add_lot(distance, LotInfo::Fifo);
                 }
             }
             Balance::BalancePad(balance_pad) => {
@@ -306,6 +308,10 @@ impl DirectiveProcess for Balance {
                 let distance = source_target_amount.sub(source_amount);
                 let neg_distance = (&distance).neg();
                 target_account_snapshot.add_lot(
+                    Amount::new(distance.clone(), balance_pad.amount.currency.clone()),
+                    LotInfo::Fifo,
+                );
+                ledger.inventory.add_lot(
                     Amount::new(distance, balance_pad.amount.currency.clone()),
                     LotInfo::Fifo,
                 );
@@ -316,6 +322,10 @@ impl DirectiveProcess for Balance {
                     .entry(balance_pad.pad.name().to_string())
                     .or_insert_with(|| context.default_account_snapshot());
                 pad_account_snapshot.add_lot(
+                    Amount::new(neg_distance.clone(), balance_pad.amount.currency.clone()),
+                    LotInfo::Fifo,
+                );
+                ledger.inventory.add_lot(
                     Amount::new(neg_distance, balance_pad.amount.currency.clone()),
                     LotInfo::Fifo,
                 );
