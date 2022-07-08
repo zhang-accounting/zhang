@@ -10,7 +10,8 @@ use std::ops::{Add, AddAssign, Neg, Sub};
 use std::sync::{Arc, RwLock as StdRwLock};
 
 pub type AmountLotPair = (Option<Amount>, Option<LotInfo>);
-#[derive(Debug, PartialEq)]
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum LotInfo {
     Lot(Currency, BigDecimal),
     Fifo,

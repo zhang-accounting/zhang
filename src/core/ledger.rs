@@ -130,12 +130,15 @@ pub struct Ledger {
     pub(crate) directives: Vec<Spanned<Directive>>,
     pub metas: Vec<Spanned<Directive>>,
 
+    // todo remove account_inventory as field of account info
     pub accounts: HashMap<AccountName, AccountInfo>,
     pub account_inventory: HashMap<AccountName, Inventory>,
 
     pub currencies: HashMap<Currency, CurrencyInfo>,
 
     pub daily_inventory: DailyAccountInventory,
+
+    pub inventory: Inventory,
 
     pub documents: Vec<DocumentType>,
     pub errors: Vec<LedgerError>,
@@ -204,6 +207,10 @@ impl Ledger {
             currencies: HashMap::default(),
             account_inventory: HashMap::default(),
             daily_inventory: DailyAccountInventory::default(),
+            inventory: Inventory {
+                currencies: Default::default(),
+                prices: arc_price.clone()
+            },
             documents: Vec::new(),
             errors: vec![],
             configs: HashMap::default(),
@@ -241,6 +248,7 @@ impl Ledger {
         } else {
             info!("Ledger loaded");
         }
+        dbg!(&ret_ledger.inventory.currencies);
         Ok(ret_ledger)
     }
 
