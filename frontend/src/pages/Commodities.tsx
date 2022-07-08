@@ -20,7 +20,7 @@ export default function Commodities() {
             </Flex>
 
 
-            <Table variant='simple'>
+            <Table>
                 <Thead>
                     <Tr>
                         <Th>Currency</Th>

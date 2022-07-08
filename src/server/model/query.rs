@@ -5,7 +5,7 @@ use crate::core::ledger::{AccountInfo, AccountStatus, CurrencyInfo, DocumentType
 use crate::core::models::Directive;
 use crate::core::utils::inventory::Inventory;
 use crate::core::utils::span::SpanInfo;
-use crate::core::AccountName;
+use crate::core::{AccountName, Currency};
 use crate::server::LedgerState;
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};
 use async_graphql::{Context, Interface, Object};
@@ -288,9 +288,29 @@ impl CurrencyDto {
         self.0.commodity.currency.eq(operating_currency)
     }
     async fn balance(&self, ctx: &Context<'_>) -> String {
-        let _ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        // todo implement
-        BigDecimal::zero().to_string()
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        ledger_stage.inventory.get_total(&self.0.commodity.currency).to_string()
+    }
+
+    async fn lots(&self, ctx: &Context<'_>) -> Vec<LotInfoDto> {
+        let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
+        let commodity_inventory = ledger_stage
+            .inventory
+            .currencies
+            .get(&self.0.commodity.currency);
+        if let Some(inventory) = commodity_inventory {
+            let mut ret = vec![];
+            for (lot, number) in inventory.lots.iter() {
+               ret.push(LotInfoDto {
+                   lot: (lot.0.to_string(), lot.1.clone()),
+                   number: number.clone()
+               })
+            }
+            ret
+        }else {
+            vec![]
+        }
+
     }
 
     async fn price_histories(&self) -> Vec<PriceDto> {
@@ -741,5 +761,24 @@ impl PriceDto {
     }
     async fn amount(&self) -> AmountDto {
         AmountDto(self.amount.clone())
+    }
+}
+
+
+pub struct LotInfoDto {
+    lot: (Currency, BigDecimal),
+    number: BigDecimal
+}
+
+#[Object]
+impl LotInfoDto {
+    async fn lot_currency(&self) -> String {
+        self.lot.0.to_string()
+    }
+    async fn lot_price(&self) -> String {
+        self.lot.1.to_string()
+    }
+    async fn number(&self) -> String {
+        self.number.to_string()
     }
 }
