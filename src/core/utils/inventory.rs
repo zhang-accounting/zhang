@@ -146,19 +146,7 @@ impl Add for &Inventory {
     type Output = Inventory;
 
     fn add(self, rhs: Self) -> Self::Output {
-        let mut new_inventory = Inventory {
-            currencies: Default::default(),
-            prices: self.prices.clone(),
-        };
-
-        for (currency, currency_inventory) in &self.currencies {
-            for (lot_info, number) in currency_inventory.lots.iter() {
-                new_inventory.add_lot(
-                    Amount::new(number.clone(), currency.clone()),
-                    LotInfo::Lot(lot_info.0.clone(), lot_info.1.clone()),
-                )
-            }
-        }
+        let mut new_inventory = self.clone();
         for (currency, currency_inventory) in &rhs.currencies {
             for (lot_info, number) in currency_inventory.lots.iter() {
                 new_inventory.add_lot(
@@ -176,18 +164,7 @@ impl Sub for &Inventory {
     type Output = Inventory;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        let mut new_inventory = Inventory {
-            currencies: Default::default(),
-            prices: self.prices.clone(),
-        };
-        for (currency, currency_inventory) in &self.currencies {
-            for (lot_info, number) in currency_inventory.lots.iter() {
-                new_inventory.add_lot(
-                    Amount::new(number.clone(), currency.clone()),
-                    LotInfo::Lot(lot_info.0.clone(), lot_info.1.clone()),
-                )
-            }
-        }
+        let mut new_inventory = self.clone();
         for (currency, currency_inventory) in &rhs.currencies {
             for (lot_info, number) in currency_inventory.lots.iter() {
                 new_inventory.add_lot(
