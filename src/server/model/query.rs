@@ -294,23 +294,21 @@ impl CurrencyDto {
 
     async fn lots(&self, ctx: &Context<'_>) -> Vec<LotInfoDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        let commodity_inventory = ledger_stage
-            .inventory
-            .currencies
-            .get(&self.0.commodity.currency);
+        let commodity_inventory = ledger_stage.inventory.currencies.get(&self.0.commodity.currency);
         if let Some(inventory) = commodity_inventory {
             let mut ret = vec![];
             for (lot, number) in inventory.lots.iter() {
-               ret.push(LotInfoDto {
-                   lot: (lot.0.to_string(), lot.1.clone()),
-                   number: number.clone()
-               })
+                if !number.is_zero() {
+                    ret.push(LotInfoDto {
+                        lot: (lot.0.to_string(), lot.1.clone()),
+                        number: number.clone(),
+                    })
+                }
             }
             ret
-        }else {
+        } else {
             vec![]
         }
-
     }
 
     async fn price_histories(&self) -> Vec<PriceDto> {
@@ -764,10 +762,9 @@ impl PriceDto {
     }
 }
 
-
 pub struct LotInfoDto {
     lot: (Currency, BigDecimal),
-    number: BigDecimal
+    number: BigDecimal,
 }
 
 #[Object]

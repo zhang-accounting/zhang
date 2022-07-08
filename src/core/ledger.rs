@@ -209,7 +209,7 @@ impl Ledger {
             daily_inventory: DailyAccountInventory::default(),
             inventory: Inventory {
                 currencies: Default::default(),
-                prices: arc_price.clone()
+                prices: arc_price.clone(),
             },
             documents: Vec::new(),
             errors: vec![],
