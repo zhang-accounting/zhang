@@ -25,9 +25,6 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       
-      - name: build musl target release
-        run: docker run -v $PWD:/volume -v "/home/runner/.cargo/registry":/root/.cargo/registry clux/muslrust:stable cargo build --release
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
 
