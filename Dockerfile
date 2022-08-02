@@ -1,13 +1,18 @@
-FROM alpine:latest
+FROM rust:1.60.0 as build-env
+WORKDIR /app
+COPY . /app
+RUN cargo build --release
 
+
+FROM gcr.io/distroless/cc
 LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
 
-COPY  target/x86_64-unknown-linux-musl/release/zhang /application/zhang
+COPY --from=build-env /app/target/release/zhang /application/zhang
 
 RUN mkdir /data
 
 WORKDIR application
 VOLUME "/data"
-EXPOSE 6666
+EXPOSE 8000
 
-ENTRYPOINT ["./zhang", "server", "/data", "--port", "6666"]
+ENTRYPOINT ["./zhang", "server", "/data", "--port", "8000"]

@@ -55,7 +55,7 @@ pub struct ServerOpts {
     pub endpoint: String,
 
     /// serve port
-    #[clap(short, long, default_value_t = 6666)]
+    #[clap(short, long, default_value_t = 8000)]
     pub port: u16,
 }
 
