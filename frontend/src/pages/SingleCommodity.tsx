@@ -1,16 +1,9 @@
 import { useQuery } from '@apollo/client';
-import { Badge, Heading, Tab, Table, TabList, TabPanel, TabPanels, Tabs, Tbody, Td, Th, Thead, Tr } from '@chakra-ui/react';
+import { Heading, Tab, Table, TabList, TabPanel, TabPanels, Tabs, Tbody, Td, Th, Thead, Tr } from '@chakra-ui/react';
+import { format } from 'date-fns';
 import { useParams } from "react-router";
-import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
-import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
-import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
-import Block from '../components/Block';
-import JournalLine from '../components/JournalLine';
-import { AccountItem } from '../gql/accountList';
-import { SingleAccountJournalQuery, SINGLE_ACCONT_JOURNAL } from '../gql/singleAccount';
 import { SingleCommodityQuery, SINGLE_COMMODITIY } from '../gql/singleCommodity';
-import {format} from 'date-fns'
 
 export default function SingleCommodity() {
 
