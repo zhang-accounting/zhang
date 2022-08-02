@@ -1,6 +1,7 @@
 FROM rust:1.60.0 as build-env
 WORKDIR /app
 COPY . /app
+RUN mkdir /data
 RUN cargo build --release
 
 
@@ -8,8 +9,7 @@ FROM gcr.io/distroless/cc
 LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
 
 COPY --from=build-env /app/target/release/zhang /application/zhang
-
-RUN mkdir /data
+COPY --from=build-env /data /data
 
 WORKDIR application
 VOLUME "/data"
