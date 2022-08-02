@@ -248,7 +248,6 @@ impl Ledger {
         } else {
             info!("Ledger loaded");
         }
-        dbg!(&ret_ledger.inventory.currencies);
         Ok(ret_ledger)
     }
 
