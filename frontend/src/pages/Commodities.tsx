@@ -3,10 +3,15 @@ import { Badge, Box, Flex, Heading, Table, Tbody, Td, Text, Th, Thead, Tr } from
 import { format } from "date-fns";
 import Amount from "../components/Amount";
 import { CommoditiesQuery, CURRENCIES } from "../gql/commodities";
-
+import { useNavigate } from "react-router";
 
 export default function Commodities() {
     const { loading, error, data } = useQuery<CommoditiesQuery>(CURRENCIES);
+    let navigate = useNavigate();
+
+    const onCommodityClick = (commodityName: string) => {
+        navigate(commodityName)
+    }
 
     if (loading) return <p>Loading...</p>;
     if (error) return <p>Error :(</p>;
@@ -34,7 +39,7 @@ export default function Commodities() {
                         <Tr key={idx}>
                             <Td >
                                 <Flex alignItems="center">
-                                    {currency.name}
+                                    <Text onClick={()=> onCommodityClick(currency.name)} cursor="pointer">{currency.name}</Text>
                                     {currency.isOperatingCurrency && (<Badge ml={3} variant='outline' colorScheme="green" >Operating Currency</Badge>)}
                                 </Flex>
                             </Td>

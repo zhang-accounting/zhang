@@ -40,8 +40,6 @@ function SingleAccount() {
               {
                 data?.account.journals.map((journal, idx) => <JournalLine key={idx} data={journal} />)
               }
-
-
             </TabPanel>
             <TabPanel >
               <Block title='Document Upload'>
