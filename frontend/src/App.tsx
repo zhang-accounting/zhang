@@ -7,6 +7,7 @@ import Journals from "./pages/Journals";
 import RawEdit from "./pages/RawEdit";
 import Report from "./pages/Report";
 import SingleAccount from "./pages/SingleAccount";
+import SingleCommodity from "./pages/SingleCommodity";
 
 
 
@@ -22,6 +23,7 @@ function App() {
           <Route path="accounts" element={<Accounts />} />
           <Route path="/accounts/:accountName" element={<SingleAccount />} />
           <Route path="/commodities" element={<Commodities />} />
+          <Route path="/commodities/:commodityName" element={<SingleCommodity />} />
           <Route path="documents" element={<Documents />} />
           <Route path="/edit" element={<RawEdit />} />
           <Route path="/report" element={<Report />} />

@@ -24,6 +24,13 @@ export interface Currency {
   balance: string,
   isOperatingCurrency: boolean,
   latestPrice: Price,
+  lots: Lot[]
+}
+
+export interface Lot {
+  lotCurrency: string,
+  lotPrice: string,
+  number: string
 }
 
 export interface Price {
