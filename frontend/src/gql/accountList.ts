@@ -24,7 +24,8 @@ export interface Currency {
   balance: string,
   isOperatingCurrency: boolean,
   latestPrice: Price,
-  lots: Lot[]
+  lots: Lot[],
+  priceHistories: Price[]
 }
 
 export interface Lot {
