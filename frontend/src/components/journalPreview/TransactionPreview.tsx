@@ -28,7 +28,7 @@ export default function TransactionPreview(props: Props) {
                     <>
                         {props.data.postings.map((posting, idx) => <Flex key={idx} justifyContent="space-between">
                             <div>{posting.account.name}</div>
-                            <div><Amount amount={posting.unit.number} currency={posting.unit.currency} /></div>
+                            <div>{posting.unit && <Amount amount={posting.unit?.number} currency={posting.unit?.currency} />}</div>
                         </Flex>)}
                     </>
                 </Block>
