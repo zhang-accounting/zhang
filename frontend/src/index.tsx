@@ -22,8 +22,7 @@ Chart.register(...registerables);
 const client = new ApolloClient({
 
   link: createUploadLink({
-    // eslint-disable-line
-    uri: process.env.NODE_ENV !== 'production' ? 'http://127.0.0.1:8000/graphql' : '/graphql'
+    uri: '/graphql'
   }),
   cache: new InMemoryCache({
     typePolicies: {
