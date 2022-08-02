@@ -52,4 +52,4 @@ jobs:
           push: true
           tags: |
             kilerd/zhang:snapshot
-            ghcr.io/kilerd/zhang:snapshot
+            ghcr.io/zhang-accounting/zhang:snapshot
