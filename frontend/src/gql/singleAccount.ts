@@ -25,6 +25,10 @@ query SINGLE_ACCONT_JOURNAL($name: String) {
           filename
           __typename
         }
+        latestBalanceTimes {
+          commodity
+          date
+        }
         journals {
             date
             type: __typename
