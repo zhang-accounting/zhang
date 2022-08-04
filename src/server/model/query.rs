@@ -266,10 +266,7 @@ impl AccountDto {
         ledger_stage
             .directives
             .iter()
-            .filter(|directive| match &directive.data {
-                Directive::Balance(..) => true,
-                _ => false,
-            })
+            .filter(|directive| matches!(&directive.data, Directive::Balance(..)))
             .filter(|directive| match &directive.data {
                 Directive::Balance(balance_inner) => self.name.eq(balance_inner.account_name()),
                 _ => false,
