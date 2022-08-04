@@ -3,6 +3,7 @@ import { Box, Flex } from "@chakra-ui/react";
 import { format } from "date-fns";
 import React from 'react';
 import { Chart } from 'react-chartjs-2';
+import { useTranslation } from "react-i18next";
 import Block from "../components/Block";
 import ErrorBox from "../components/ErrorBox";
 import { STATISTIC, StatisticResponse } from "../gql/statistic";
@@ -76,6 +77,7 @@ const build_chart_data = (data: StatisticResponse) => {
 }
 
 function Home() {
+  const { t } = useTranslation();
   const now = new Date();
   const begining_time = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 1);
   const end_time = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
@@ -94,7 +96,7 @@ function Home() {
     <Box as="section">
       <Flex>
         <Box flex={"0 0 70%"} m={1}>
-          <Block title="statistic">
+          <Block title={t("statistic")}>
             <Chart type='bar' data={build_chart_data(data!)} options={options} />
           </Block>
         </Box>

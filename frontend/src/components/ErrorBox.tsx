@@ -6,8 +6,10 @@ import Block from "./Block";
 import { useState } from "react";
 import CodeMirror from '@uiw/react-codemirror';
 import { MODIFY_FILE } from "../gql/modifyFile";
+import { useTranslation } from "react-i18next";
 
 export default function ErrorBox() {
+    const { t } = useTranslation();
     const { isOpen, onOpen, onClose } = useDisclosure();
     const { data, loading, refetch } = useQuery<ErrorListQuery>(ERROR_LIST);
     const [selectError, setSelectError] = useState<ErrorEntity | null>(null);
@@ -78,10 +80,10 @@ export default function ErrorBox() {
 
                     <ModalFooter>
                         <Button colorScheme='blue' mr={3} disabled={selectErrorContent === selectError?.span.content} onClick={saveErrorModfiyData}>
-                            Modify
+                            {t("Modify")}
                         </Button>
 
-                        <Button variant='ghost' onClick={onModalReset}>Reset</Button>
+                        <Button variant='ghost' onClick={onModalReset}>{t("Reset")}</Button>
                     </ModalFooter>
                 </ModalContent>
             </Modal>

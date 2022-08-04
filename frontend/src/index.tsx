@@ -15,7 +15,7 @@ import { Chart, registerables } from 'chart.js';
 // @ts-ignore
 import {createUploadLink } from 'apollo-upload-client';
 import { relayStylePagination } from "@apollo/client/utilities";
-
+import './i18n'
 Chart.register(...registerables);
 
 
