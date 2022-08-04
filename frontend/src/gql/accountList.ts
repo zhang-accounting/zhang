@@ -16,6 +16,12 @@ export interface AccountItem {
   documents: Document[],
   journals: JournalItem[]
   currencies: Currency[]
+  latestBalanceTimes: CommodityBalanceTime[]
+}
+
+export interface CommodityBalanceTime {
+  commodity: string,
+  date: number
 }
 
 export interface Currency {
