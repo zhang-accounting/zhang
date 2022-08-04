@@ -67,16 +67,16 @@ pub enum Balance {
 }
 
 impl Balance {
-    pub(crate) fn account_name(&self) ->&str {
+    pub(crate) fn account_name(&self) -> &str {
         match self {
             Balance::BalanceCheck(check) => &check.account.content,
-            Balance::BalancePad(pad) => &pad.account.content
+            Balance::BalancePad(pad) => &pad.account.content,
         }
     }
     pub(crate) fn date(&self) -> NaiveDate {
         match self {
             Balance::BalanceCheck(check) => check.date.naive_date(),
-            Balance::BalancePad(pad) => pad.date.naive_date()
+            Balance::BalancePad(pad) => pad.date.naive_date(),
         }
     }
 }

@@ -263,28 +263,31 @@ impl AccountDto {
 
     async fn latest_balance_times(&self, ctx: &Context<'_>) -> Vec<AccountCommodityBalanceTime> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        ledger_stage.directives.iter().filter(|directive| match &directive.data {
-            Directive::Balance(..) => true,
-            _ => false
-        })
-        .filter(|directive| match &directive.data {
-            Directive::Balance(balance_inner) => self.name.eq(balance_inner.account_name()),
-            _ => false
-        })
-        .map(|directive| match &directive.data {
-            Directive::Balance(balance_inner) => {
-                let commodity = match balance_inner {
-                    Balance::BalanceCheck(check) => check.amount.currency.to_string(),
-                    Balance::BalancePad(pad) => pad.amount.currency.to_string()
-                };
-                AccountCommodityBalanceTime {
-                    commodity, 
-                    date: balance_inner.date()
+        ledger_stage
+            .directives
+            .iter()
+            .filter(|directive| match &directive.data {
+                Directive::Balance(..) => true,
+                _ => false,
+            })
+            .filter(|directive| match &directive.data {
+                Directive::Balance(balance_inner) => self.name.eq(balance_inner.account_name()),
+                _ => false,
+            })
+            .map(|directive| match &directive.data {
+                Directive::Balance(balance_inner) => {
+                    let commodity = match balance_inner {
+                        Balance::BalanceCheck(check) => check.amount.currency.to_string(),
+                        Balance::BalancePad(pad) => pad.amount.currency.to_string(),
+                    };
+                    AccountCommodityBalanceTime {
+                        commodity,
+                        date: balance_inner.date(),
+                    }
                 }
-            },
-            _ => unreachable!()
-        })
-        .collect_vec()
+                _ => unreachable!(),
+            })
+            .collect_vec()
     }
     async fn one_meta(&self, key: String) -> Option<String> {
         self.info.meta.get_one(&key).cloned()
@@ -806,10 +809,9 @@ impl LotInfoDto {
     }
 }
 
-
 pub struct AccountCommodityBalanceTime {
     commodity: String,
-    date: NaiveDate
+    date: NaiveDate,
 }
 
 #[Object]
@@ -818,6 +820,6 @@ impl AccountCommodityBalanceTime {
         self.commodity.to_owned()
     }
     async fn date(&self) -> i64 {
-        self.date.and_hms(0,0, 0).timestamp()
+        self.date.and_hms(0, 0, 0).timestamp()
     }
 }
