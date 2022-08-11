@@ -7,12 +7,22 @@ import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
 import Block from '../components/Block';
 import JournalLine from '../components/JournalLine';
-import { AccountItem } from '../gql/accountList';
+import { AccountItem, CommodityBalanceTime } from '../gql/accountList';
 import { SingleAccountJournalQuery, SINGLE_ACCONT_JOURNAL } from '../gql/singleAccount';
-
+import { maxBy } from 'lodash'
+import { format } from 'date-fns';
 function SingleAccount() {
 
   let { accountName } = useParams();
+
+  const getLatestBalanceTime = (commodity: string, times: CommodityBalanceTime[]) => {
+    const latestTime = maxBy(times.filter(time => time.commodity === commodity), time => time.date)
+    if (latestTime) {
+      return format(new Date(latestTime.date * 1000), "yyyy-MM-dd");
+    } else {
+      return 'N/A'
+    }
+  }
 
   const { loading, error, data } = useQuery<SingleAccountJournalQuery>(SINGLE_ACCONT_JOURNAL, {
     variables: {
@@ -21,6 +31,7 @@ function SingleAccount() {
   });
   if (loading) return <p>Loading...</p>;
   if (error) return <p>Error :(</p>;
+
 
 
   return (
@@ -74,6 +85,7 @@ function SingleAccount() {
                     <Tr>
                       <Th>Currency</Th>
                       <Th>Current Balance</Th>
+                      <Th>Latest Balance Time</Th>
                       <Th isNumeric>Distanation</Th>
                     </Tr>
                   </Thead>
@@ -82,9 +94,9 @@ function SingleAccount() {
                       <Tr key={idx}>
                         <Td>{it.name}</Td>
                         <Td><Amount amount={data.account.snapshot.detail.find(cur => cur.currency === it.name)?.number || "0.00"} currency={it.name} /></Td>
+                        <Td>{getLatestBalanceTime(it.name, data!.account.latestBalanceTimes)}</Td>
                         <Td isNumeric><AccountBalanceCheckLine currency={it.name} accountName={data.account.name} /></Td>
                       </Tr>
-
                     ))}
                   </Tbody>
                 </Table>
