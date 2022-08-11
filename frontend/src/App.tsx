@@ -6,6 +6,7 @@ import Home from "./pages/Home";
 import Journals from "./pages/Journals";
 import RawEdit from "./pages/RawEdit";
 import Report from "./pages/Report";
+import Settings from "./pages/Settings";
 import SingleAccount from "./pages/SingleAccount";
 import SingleCommodity from "./pages/SingleCommodity";
 
@@ -27,6 +28,7 @@ function App() {
           <Route path="documents" element={<Documents />} />
           <Route path="/edit" element={<RawEdit />} />
           <Route path="/report" element={<Report />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </div>
 

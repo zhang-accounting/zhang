@@ -13,6 +13,13 @@ i18n
         interpolation: {
             escapeValue: false, // not needed for react as it escapes by default
         },
+        detection: {
+            order: ['path', 'querystring', 'cookie'],
+            caches: ['cookie'],
+            cookieMinutes: 160,
+            lookupQuerystring: 'lang',
+            lookupFromPathIndex: 0
+        },
         react:{
             useSuspense: false
         }

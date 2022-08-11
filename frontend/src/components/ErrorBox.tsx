@@ -83,7 +83,7 @@ export default function ErrorBox() {
                             {t("Modify")}
                         </Button>
 
-                        <Button variant='ghost' onClick={onModalReset}>{t("Reset")}</Button>
+                        <Button variant='ghost' onClick={onModalReset}>{t("RESET")}</Button>
                     </ModalFooter>
                 </ModalContent>
             </Modal>

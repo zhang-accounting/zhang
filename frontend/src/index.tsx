@@ -49,6 +49,7 @@ const LinkItems: Array<LinkItemProps> = [
   { name: 'Report', icon: FiSettings, uri: "/report" },
   { name: 'Liability todo', icon: FiSettings, uri: "/liability" },
   { name: 'Raw Editing', icon: FiSettings, uri: "/edit" },
+  { name: 'Settings', icon: FiSettings, uri: "/settings" },
 ];
 
 
