@@ -2,12 +2,11 @@ import { Button, ButtonGroup, FormControl, FormLabel, Heading } from '@chakra-ui
 import { useTranslation } from 'react-i18next';
 
 export default function Settings() {
-    const { t, i18n } = useTranslation();
+    const { i18n } = useTranslation();
     const onLanguageChange = (lang: string) => {
         i18n.changeLanguage(lang);
+
     }
-
-
 
     return (
         <div>
@@ -17,8 +16,8 @@ export default function Settings() {
                 <FormControl>
                     <FormLabel>Lanauges</FormLabel>
                     <ButtonGroup size='sm' isAttached variant='outline'>
-                        <Button onClick={() => onLanguageChange("zh")}>中文</Button>
-                        <Button onClick={() => onLanguageChange("en")}>English</Button>
+                        <Button onClick={() => onLanguageChange("zh")} disabled={i18n.language === 'zh'}>中文</Button>
+                        <Button onClick={() => onLanguageChange("en")} disabled={i18n.language === 'en'}>English</Button>
                     </ButtonGroup>
                 </FormControl>
             </div>
