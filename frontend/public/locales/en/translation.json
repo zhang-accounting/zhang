@@ -1,0 +1,18 @@
+{
+    "Modify": "Modify",
+    "ASSET_BLANACE": "Asset Balance",
+    "LIABILITY": "Liability",
+    "CURRENT_MONTH_INCOME":"Montly Income",
+    "CURRENT_MONTH_EXPENSE":"Monthly Expenses",
+    "RESET": "Reset",
+
+    "NAV_HOME": "Home",
+    "NAV_JOURNALS": "Journals",
+    "NAV_ACCOUNTS": "Accounts",
+    "NAV_COMMDOITIES": "Commodities",
+    "NAV_DOCUMENTS": "Documents",
+    "NAV_REPORT": "Report",
+    "NAV_LIABILITY": "Liability",
+    "NAV_RAW_EDITING": "Raw Editing",
+    "NAV_SETTING": "Setting"
+}

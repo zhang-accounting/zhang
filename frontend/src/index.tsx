@@ -15,7 +15,8 @@ import { Chart, registerables } from 'chart.js';
 // @ts-ignore
 import {createUploadLink } from 'apollo-upload-client';
 import { relayStylePagination } from "@apollo/client/utilities";
-
+import './i18n'
+import { useTranslation } from "react-i18next";
 Chart.register(...registerables);
 
 
@@ -41,14 +42,15 @@ interface LinkItemProps {
   uri: string;
 }
 const LinkItems: Array<LinkItemProps> = [
-  { name: 'Home', icon: FiHome, uri: "/" },
-  { name: 'Journals', icon: FiTrendingUp, uri: "/journals" },
-  { name: 'Accounts', icon: FiCompass, uri: "/accounts" },
-  { name: 'Commodities', icon: FiStar, uri: "/commodities" },
-  { name: 'Documents', icon: FiSettings, uri: "/documents" },
-  { name: 'Report', icon: FiSettings, uri: "/report" },
-  { name: 'Liability todo', icon: FiSettings, uri: "/liability" },
-  { name: 'Raw Editing', icon: FiSettings, uri: "/edit" },
+  { name: 'NAV_HOME', icon: FiHome, uri: "/" },
+  { name: 'NAV_JOURNALS', icon: FiTrendingUp, uri: "/journals" },
+  { name: 'NAV_ACCOUNTS', icon: FiCompass, uri: "/accounts" },
+  { name: 'NAV_COMMDOITIES', icon: FiStar, uri: "/commodities" },
+  { name: 'NAV_DOCUMENTS', icon: FiSettings, uri: "/documents" },
+  { name: 'NAV_REPORT', icon: FiSettings, uri: "/report" },
+  { name: 'NAV_LIABILITY', icon: FiSettings, uri: "/liability" },
+  { name: 'NAV_RAW_EDITING', icon: FiSettings, uri: "/edit" },
+  { name: 'NAV_SETTING', icon: FiSettings, uri: "/settings" },
 ];
 
 
@@ -90,6 +92,7 @@ interface SidebarProps extends BoxProps {
 }
 
 const SidebarContent = ({ onClose, ...rest }: SidebarProps) => {
+  const {t} = useTranslation();
   return (
     <Box
       transition="3s ease"
@@ -109,7 +112,7 @@ const SidebarContent = ({ onClose, ...rest }: SidebarProps) => {
         <NewTransactionButton />
       {LinkItems.map((link) => (
         <NavItem key={link.name} icon={link.icon} uri={link.uri}>
-          {link.name}
+          {t(link.name)}
         </NavItem>
       ))}
     </Box>

@@ -1,0 +1,18 @@
+{
+    "Modify": "修改",
+    "ASSET_BLANACE": "账户余额",
+    "LIABILITY": "负债",
+    "CURRENT_MONTH_INCOME":"本月收入",
+    "CURRENT_MONTH_EXPENSE":"本月支出",
+    "RESET": "还原",
+
+    "NAV_HOME": "仪表台",
+    "NAV_JOURNALS": "流水",
+    "NAV_ACCOUNTS": "账户",
+    "NAV_COMMDOITIES": "货币",
+    "NAV_DOCUMENTS": "文档",
+    "NAV_REPORT": "报表",
+    "NAV_LIABILITY": "负债",
+    "NAV_RAW_EDITING": "编辑",
+    "NAV_SETTING": "设置"
+}
