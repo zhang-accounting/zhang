@@ -60,7 +60,7 @@ pub struct Commodity {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Balance {
     BalanceCheck(BalanceCheck),
     BalancePad(BalancePad),
@@ -120,7 +120,7 @@ pub struct Posting {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Transaction {
     pub date: Date,
     pub flag: Option<Flag>,
@@ -308,7 +308,7 @@ pub struct Document {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Custom {
     pub date: Date,
 
