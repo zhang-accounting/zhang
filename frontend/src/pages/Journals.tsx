@@ -1,5 +1,5 @@
 import { useQuery } from "@apollo/client";
-import { Box, Button, CloseButton, Flex, Heading, useColorModeValue } from '@chakra-ui/react';
+import { Box, Button, CloseButton, Flex, Heading } from '@chakra-ui/react';
 import { useState } from "react";
 import JournalLine from "../components/JournalLine";
 import JournalPreview from "../components/journalPreview/JournalPreview";

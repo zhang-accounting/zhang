@@ -3,6 +3,7 @@ import {
   Box, BoxProps, ChakraProvider, CloseButton, Drawer,
   DrawerContent, Flex, FlexProps, Icon, IconButton, Link, Text, useColorModeValue, useDisclosure
 } from '@chakra-ui/react';
+import { Chart, registerables } from 'chart.js';
 import React, { ReactNode, ReactText } from "react";
 import ReactDOM from "react-dom";
 import { IconType } from "react-icons";
@@ -11,12 +12,10 @@ import { BrowserRouter, Link as RouteLink } from "react-router-dom";
 import App from "./App";
 import NewTransactionButton from "./components/NewTransactionButton";
 import StatisticBar from "./components/StatisticBar";
-import { Chart, registerables } from 'chart.js';
 // @ts-ignore
 import { createUploadLink } from 'apollo-upload-client';
-import { offsetLimitPagination } from "@apollo/client/utilities";
-import './i18n'
 import { useTranslation } from "react-i18next";
+import './i18n';
 Chart.register(...registerables);
 
 
