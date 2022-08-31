@@ -61,10 +61,11 @@ export default function StatisticBar() {
       to: Math.round(end_time.getTime() / 1000)
     }
   })
+  const borderColor = useColorModeValue('gray.200', 'gray.700');
   if (loading) return <p>Loading...</p>;
   if (error) return <p>Error :(</p>;
   return (
-    <Flex h="20" marginLeft={"var(--chakra-sizes-60)"} p={4} borderBottom="1px" borderBottomColor={useColorModeValue('gray.200', 'gray.700')}>
+    <Flex h="20" marginLeft={"var(--chakra-sizes-60)"} p={4} borderBottom="1px" borderBottomColor={borderColor}>
       <StatisticBox text={"ASSET_BLANACE"} amount={data.statistic.total.summary.number} currency={data.statistic.total.summary.currency} />
       <StatisticBox text={"LIABILITY"} amount={data.statistic.liability.summary.number} currency={data.statistic.liability.summary.currency} negetive />
       <StatisticBox text={"CURRENT_MONTH_INCOME"} amount={data.statistic.monthIncome.summary.number} currency={data.statistic.monthIncome.summary.currency} negetive />
