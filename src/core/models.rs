@@ -9,7 +9,7 @@ use crate::core::data::{
     Transaction,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum DirectiveType {
     Open,
     Close,
@@ -93,7 +93,7 @@ pub enum StringOrAccount {
     Account(Account),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub enum ZhangString {
     UnquoteString(String),
     QuoteString(String),
@@ -113,13 +113,13 @@ impl ZhangString {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum SingleTotalPrice {
     Single(Amount),
     Total(Amount),
 }
 
-#[derive(EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize, Clone)]
+#[derive(EnumString, Debug, PartialEq, Eq, strum_macros::ToString, Deserialize, Serialize, Clone)]
 pub enum Flag {
     #[strum(serialize = "*", to_string = "*")]
     Okay,
@@ -127,7 +127,7 @@ pub enum Flag {
     Warning,
 }
 
-#[derive(EnumString, Debug, PartialEq, strum_macros::ToString, Deserialize, Serialize, Clone, Copy)]
+#[derive(EnumString, Debug, PartialEq, Eq, strum_macros::ToString, Deserialize, Serialize, Clone, Copy)]
 pub enum Rounding {
     #[strum(serialize = "RoundUp", to_string = "RoundUp")]
     RoundUp,

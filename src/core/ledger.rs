@@ -69,7 +69,7 @@ pub struct LedgerError {
     pub(crate) error: LedgerErrorType,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LedgerErrorType {
     AccountBalanceCheckError {
         account_name: String,

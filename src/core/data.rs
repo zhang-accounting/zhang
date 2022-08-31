@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Date {
     Date(NaiveDate),
     DateHour(NaiveDateTime),
@@ -334,7 +334,7 @@ pub struct Include {
     pub file: ZhangString,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Comment {
     pub content: String,
 }

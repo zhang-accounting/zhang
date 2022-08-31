@@ -11,7 +11,7 @@ use std::sync::{Arc, RwLock as StdRwLock};
 
 pub type AmountLotPair = (Option<Amount>, Option<LotInfo>);
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum LotInfo {
     Lot(Currency, BigDecimal),
     Fifo,
