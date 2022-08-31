@@ -8,7 +8,7 @@ use crate::core::utils::span::SpanInfo;
 use crate::core::{AccountName, Currency};
 use crate::server::LedgerState;
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};
-use async_graphql::{Context, Interface, Object, SimpleObject, OutputType};
+use async_graphql::{Context, Interface, Object, OutputType, SimpleObject};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveDateTime, Utc};
 use itertools::{Either, Itertools};
@@ -21,17 +21,16 @@ use time::Duration;
 
 use super::utils::query_paginable;
 
-
 #[derive(SimpleObject)]
-pub struct Paginable<T:OutputType> {
+pub struct Paginable<T: OutputType> {
     pub data: Vec<T>,
-    pub page_info:  Info
+    pub page_info: Info,
 }
 #[derive(SimpleObject)]
 pub struct Info {
     pub page: usize,
     pub total: usize,
-    pub size: usize
+    pub size: usize,
 }
 
 pub struct QueryRoot;
@@ -839,4 +838,3 @@ impl AccountCommodityBalanceTime {
         self.date.and_hms(0, 0, 0).timestamp()
     }
 }
-
