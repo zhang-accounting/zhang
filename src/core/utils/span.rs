@@ -10,7 +10,7 @@ pub struct SpanInfo {
     pub(crate) filename: Option<PathBuf>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Spanned<T: Debug + PartialEq> {
     pub(crate) data: T,
     pub(crate) span: SpanInfo,

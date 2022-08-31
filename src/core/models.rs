@@ -87,7 +87,7 @@ impl Directive {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum StringOrAccount {
     String(ZhangString),
     Account(Account),

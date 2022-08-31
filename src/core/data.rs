@@ -38,7 +38,7 @@ impl Date {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Open {
     pub date: Date,
     pub account: Account,
@@ -46,14 +46,14 @@ pub struct Open {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Close {
     pub date: Date,
     pub account: Account,
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Commodity {
     pub date: Date,
     pub currency: String,
@@ -81,7 +81,7 @@ impl Balance {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BalanceCheck {
     pub date: Date,
     pub account: Account,
@@ -94,7 +94,7 @@ pub struct BalanceCheck {
     pub current_amount: Option<Amount>,
     pub meta: Meta,
 }
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BalancePad {
     pub date: Date,
     pub account: Account,
@@ -109,7 +109,7 @@ pub struct BalancePad {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Posting {
     pub flag: Option<Flag>,
     pub account: Account,
@@ -256,7 +256,7 @@ impl<'a> TxnPosting<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Note {
     pub date: Date,
     pub account: Account,
@@ -267,7 +267,7 @@ pub struct Note {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Event {
     pub date: Date,
 
@@ -277,7 +277,7 @@ pub struct Event {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Query {
     pub date: Date,
 
@@ -287,7 +287,7 @@ pub struct Query {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Price {
     pub date: Date,
 
@@ -297,7 +297,7 @@ pub struct Price {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Document {
     pub date: Date,
 
@@ -317,19 +317,19 @@ pub struct Custom {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Options {
     pub key: ZhangString,
     pub value: ZhangString,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Plugin {
     pub module: ZhangString,
     pub value: Vec<ZhangString>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Include {
     pub file: ZhangString,
 }
