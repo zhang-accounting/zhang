@@ -1,13 +1,13 @@
 import { ApolloClient, ApolloProvider, InMemoryCache } from "@apollo/client";
 import {
   Box, BoxProps, ChakraProvider, CloseButton, Drawer,
-  DrawerContent, Flex, FlexProps, Icon, IconButton, Link, Text, useColorModeValue, useDisclosure
+  DrawerContent, Flex, FlexProps, Icon, Link, Text, useColorModeValue, useDisclosure
 } from '@chakra-ui/react';
 import { Chart, registerables } from 'chart.js';
 import React, { ReactNode, ReactText } from "react";
 import ReactDOM from "react-dom";
 import { IconType } from "react-icons";
-import { FiCompass, FiHome, FiMenu, FiSettings, FiStar, FiTrendingUp } from 'react-icons/fi';
+import { FiCompass, FiHome, FiSettings, FiStar, FiTrendingUp } from 'react-icons/fi';
 import { BrowserRouter, Link as RouteLink } from "react-router-dom";
 import App from "./App";
 import NewTransactionButton from "./components/NewTransactionButton";
