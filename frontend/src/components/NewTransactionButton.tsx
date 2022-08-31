@@ -21,17 +21,19 @@ interface SelectMap {
 }
 export default function NewTransactionButton() {
 
-    const newTransactionMetaData = useQuery<{ accounts: AccountItem[], journals: { payee: string }[] }>(gql`
+    const newTransactionMetaData = useQuery<{ accounts: AccountItem[], journals: { data: { payee: string }[] } }>(gql`
     query NEW_TRANSACTION_MODAL_DATA {
-        accounts {
-          name
-        }
-        journals {
-            ... on TransactionDto {
+    accounts {
+        name
+    }
+    journals(page: 1, size: 999999999) {
+        data {
+        ... on TransactionDto {
             payee
         }
         }
-      }
+    }
+    }
     `)
 
     const [appendData] = useMutation(gql`
@@ -102,7 +104,7 @@ export default function NewTransactionButton() {
 
     const payeeSelectItems: SelectItem[] = _.uniqBy(
         _.filter(
-            newTransactionMetaData.data!.journals,
+            newTransactionMetaData.data!.journals.data,
             (journal) => !_.isEmpty(journal.payee)
         ),
         (journal) => journal.payee

@@ -1,5 +1,5 @@
 import { gql, useQuery } from "@apollo/client";
-import { Flex } from "@chakra-ui/react";
+import { Flex, useColorModeValue } from "@chakra-ui/react";
 import StatisticBox from "./StatisticBox";
 
 export default function StatisticBar() {
@@ -64,7 +64,7 @@ export default function StatisticBar() {
   if (loading) return <p>Loading...</p>;
   if (error) return <p>Error :(</p>;
   return (
-    <Flex >
+    <Flex h="20" marginLeft={"var(--chakra-sizes-60)"} p={4} borderBottom="1px" borderBottomColor={useColorModeValue('gray.200', 'gray.700')}>
       <StatisticBox text={"ASSET_BLANACE"} amount={data.statistic.total.summary.number} currency={data.statistic.total.summary.currency} />
       <StatisticBox text={"LIABILITY"} amount={data.statistic.liability.summary.number} currency={data.statistic.liability.summary.currency} negetive />
       <StatisticBox text={"CURRENT_MONTH_INCOME"} amount={data.statistic.monthIncome.summary.number} currency={data.statistic.monthIncome.summary.currency} negetive />

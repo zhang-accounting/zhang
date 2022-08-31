@@ -1,9 +1,12 @@
 import { gql } from "@apollo/client";
 import { AccountItem } from "./accountList";
 
+export interface Paginable<T> {
+  data: T[]
+}
 
 export interface JouralListQuery {
-  journals: JournalItem[]
+  journals: Paginable<JournalItem>
 }
 
 export type JournalItem = TransactionDto | BalanceCheckDto | BalancePadDto;
@@ -53,9 +56,15 @@ export interface Meta {
 }
 
 export const JOURNAL_LIST = gql`
-query JOURNAL_LIST {
-  journals {
-    date
+query JOURNAL_LIST($page: Int) {
+  journals(page:$page, size: 100) {
+    pageInfo {
+      page
+      total
+      size
+    }
+    data {
+      date
     type: __typename
     ... on TransactionDto {
       timestamp
@@ -96,7 +105,7 @@ query JOURNAL_LIST {
         currency
       }
     }
+    }
   }
 }
-
 `

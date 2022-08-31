@@ -5,4 +5,5 @@ use async_graphql::{EmptySubscription, Schema};
 pub mod mutation;
 pub mod query;
 
+pub mod utils;
 pub type LedgerSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;

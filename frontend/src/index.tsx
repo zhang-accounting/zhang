@@ -13,8 +13,8 @@ import NewTransactionButton from "./components/NewTransactionButton";
 import StatisticBar from "./components/StatisticBar";
 import { Chart, registerables } from 'chart.js';
 // @ts-ignore
-import {createUploadLink } from 'apollo-upload-client';
-import { relayStylePagination } from "@apollo/client/utilities";
+import { createUploadLink } from 'apollo-upload-client';
+import { offsetLimitPagination } from "@apollo/client/utilities";
 import './i18n'
 import { useTranslation } from "react-i18next";
 Chart.register(...registerables);
@@ -29,7 +29,27 @@ const client = new ApolloClient({
     typePolicies: {
       Query: {
         fields: {
-          errors: relayStylePagination()
+          errors: {
+            read: (existing) => {
+              return existing;
+            },
+            merge: (exists, incoming, options) => {
+              return {
+                ...incoming,
+              }
+            }
+          },
+          journals: {
+            read: (existing) => {
+              return existing;
+            },
+            merge: (exists, incoming, options) => {
+              return {
+                ...incoming,
+                data: [...(exists?.data || []), ...(incoming.data || [])]
+              }
+            }
+          }
         }
       }
     }
@@ -61,7 +81,7 @@ function SidebarWithHeader({
 }) {
   const { isOpen, onOpen, onClose } = useDisclosure();
   return (
-    <Box minH="100vh">
+    <Box h="100vh" maxH="100vh">
       <SidebarContent
         onClose={() => onClose}
         display={{ base: 'none', md: 'block' }}
@@ -79,9 +99,11 @@ function SidebarWithHeader({
         </DrawerContent>
       </Drawer>
       {/* mobilenav */}
-      <MobileNav onOpen={onOpen} />
-      <Box ml={{ base: 0, md: 60 }} p="4">
-        {children}
+      <Box h="100vh" maxH="100vh" overflow="hidden">
+        <StatisticBar />
+        <Box ml={{ base: 0, md: 60 }}>
+          {children}
+        </Box>
       </Box>
     </Box>
   );
@@ -92,7 +114,7 @@ interface SidebarProps extends BoxProps {
 }
 
 const SidebarContent = ({ onClose, ...rest }: SidebarProps) => {
-  const {t} = useTranslation();
+  const { t } = useTranslation();
   return (
     <Box
       transition="3s ease"
@@ -109,7 +131,7 @@ const SidebarContent = ({ onClose, ...rest }: SidebarProps) => {
         </Text>
         <CloseButton display={{ base: 'flex', md: 'none' }} onClick={onClose} />
       </Flex>
-        <NewTransactionButton />
+      <NewTransactionButton />
       {LinkItems.map((link) => (
         <NavItem key={link.name} icon={link.icon} uri={link.uri}>
           {t(link.name)}
@@ -202,9 +224,7 @@ ReactDOM.render(
           <SidebarWithHeader>
             <App></App>
           </SidebarWithHeader>
-
         </ApolloProvider>
-
       </BrowserRouter>
     </ChakraProvider>
 

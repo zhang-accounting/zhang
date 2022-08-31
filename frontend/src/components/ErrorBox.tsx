@@ -59,6 +59,7 @@ export default function ErrorBox() {
     }
 
     if (loading) return (<div> loading</div>);
+    console.log("error", data);
     return (
         <>
             <Modal isOpen={isOpen} size={"4xl"} onClose={onClose}>
@@ -89,8 +90,8 @@ export default function ErrorBox() {
             </Modal>
             <Block title={`${data?.errorLength} errors`}>
                 <Flex flexDirection={"column"}>
-                    {data?.errors.edges.map(edge => edge.node).map(error => (
-                        <Box onClick={() => toggleError(error)} cursor="pointer" my={1}>
+                    {data?.errors.edges.map(edge => edge.node).map((error, idx) => (
+                        <Box key={idx} onClick={() => toggleError(error)} cursor="pointer" my={1}>
                             <Text whiteSpace={"nowrap"} textOverflow="ellipsis" overflow="hidden">{error.message}</Text>
                         </Box>
                     ))}
