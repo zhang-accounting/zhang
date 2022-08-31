@@ -180,10 +180,6 @@ const NavItem = ({ icon, children, uri, ...rest }: NavItemProps) => {
   );
 };
 
-interface MobileProps extends FlexProps {
-  onOpen: () => void;
-}
-
 ReactDOM.render(
   <React.StrictMode>
     <ChakraProvider>
