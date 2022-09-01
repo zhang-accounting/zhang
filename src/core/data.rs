@@ -158,7 +158,7 @@ impl Transaction {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TxnPosting<'a> {
     pub(crate) txn: &'a Transaction,
     pub(crate) posting: &'a Posting,

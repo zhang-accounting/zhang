@@ -27,7 +27,7 @@ pub enum DirectiveType {
     Comment,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Directive {
     Open(Open),
     Close(Close),
