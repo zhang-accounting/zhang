@@ -148,7 +148,8 @@ pub struct Ledger {
 
 impl Ledger {
     pub fn load(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
-        let main_endpoint = entry.join(&endpoint);
+        let entry = entry.canonicalize()?;
+        let main_endpoint = entry.join(&endpoint).canonicalize()?;
         let mut load_queue = VecDeque::new();
         load_queue.push_back(main_endpoint);
 
