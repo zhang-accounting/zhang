@@ -18,18 +18,29 @@ jobs:
       - name: frontend build
         run: yarn run build
         working-directory: ./frontend
-  test-and-coverage:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
       - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
       - name: Cache cargo build
         uses: actions/cache@v1
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+      - name: fake frontend build
+        run: mkdir -p build
+        working-directory: ./frontend
+      - name: Run test
+        run: cargo test
+  coverage:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
       - name: fake frontend build
         run: mkdir -p build
         working-directory: ./frontend
@@ -62,5 +73,17 @@ jobs:
         working-directory: ./frontend
       - name: Format
         run: cargo fmt --all -- --check
+  clippy-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - name: Cache cargo build
+        uses: actions/cache@v1
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+      - name: fake frontend build
+        run: mkdir -p build
+        working-directory: ./frontend
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
