@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Date {
     Date(NaiveDate),
     DateHour(NaiveDateTime),
@@ -38,7 +38,7 @@ impl Date {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Open {
     pub date: Date,
     pub account: Account,
@@ -46,21 +46,21 @@ pub struct Open {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Close {
     pub date: Date,
     pub account: Account,
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Commodity {
     pub date: Date,
     pub currency: String,
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Balance {
     BalanceCheck(BalanceCheck),
     BalancePad(BalancePad),
@@ -81,7 +81,7 @@ impl Balance {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BalanceCheck {
     pub date: Date,
     pub account: Account,
@@ -94,7 +94,7 @@ pub struct BalanceCheck {
     pub current_amount: Option<Amount>,
     pub meta: Meta,
 }
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BalancePad {
     pub date: Date,
     pub account: Account,
@@ -109,7 +109,7 @@ pub struct BalancePad {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Posting {
     pub flag: Option<Flag>,
     pub account: Account,
@@ -120,7 +120,7 @@ pub struct Posting {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Transaction {
     pub date: Date,
     pub flag: Option<Flag>,
@@ -158,7 +158,7 @@ impl Transaction {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TxnPosting<'a> {
     pub(crate) txn: &'a Transaction,
     pub(crate) posting: &'a Posting,
@@ -256,7 +256,7 @@ impl<'a> TxnPosting<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Note {
     pub date: Date,
     pub account: Account,
@@ -267,7 +267,7 @@ pub struct Note {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Event {
     pub date: Date,
 
@@ -277,7 +277,7 @@ pub struct Event {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Query {
     pub date: Date,
 
@@ -287,7 +287,7 @@ pub struct Query {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Price {
     pub date: Date,
 
@@ -297,7 +297,7 @@ pub struct Price {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Document {
     pub date: Date,
 
@@ -308,7 +308,7 @@ pub struct Document {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Custom {
     pub date: Date,
 
@@ -317,24 +317,24 @@ pub struct Custom {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Options {
     pub key: ZhangString,
     pub value: ZhangString,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Plugin {
     pub module: ZhangString,
     pub value: Vec<ZhangString>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Include {
     pub file: ZhangString,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Comment {
     pub content: String,
 }

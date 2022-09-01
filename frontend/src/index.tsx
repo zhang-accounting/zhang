@@ -1,22 +1,21 @@
 import { ApolloClient, ApolloProvider, InMemoryCache } from "@apollo/client";
 import {
   Box, BoxProps, ChakraProvider, CloseButton, Drawer,
-  DrawerContent, Flex, FlexProps, Icon, IconButton, Link, Text, useColorModeValue, useDisclosure
+  DrawerContent, Flex, FlexProps, Icon, Link, Text, useColorModeValue, useDisclosure
 } from '@chakra-ui/react';
+import { Chart, registerables } from 'chart.js';
 import React, { ReactNode, ReactText } from "react";
 import ReactDOM from "react-dom";
 import { IconType } from "react-icons";
-import { FiCompass, FiHome, FiMenu, FiSettings, FiStar, FiTrendingUp } from 'react-icons/fi';
+import { FiCompass, FiHome, FiSettings, FiStar, FiTrendingUp } from 'react-icons/fi';
 import { BrowserRouter, Link as RouteLink } from "react-router-dom";
 import App from "./App";
 import NewTransactionButton from "./components/NewTransactionButton";
 import StatisticBar from "./components/StatisticBar";
-import { Chart, registerables } from 'chart.js';
 // @ts-ignore
-import {createUploadLink } from 'apollo-upload-client';
-import { relayStylePagination } from "@apollo/client/utilities";
-import './i18n'
+import { createUploadLink } from 'apollo-upload-client';
 import { useTranslation } from "react-i18next";
+import './i18n';
 Chart.register(...registerables);
 
 
@@ -29,7 +28,27 @@ const client = new ApolloClient({
     typePolicies: {
       Query: {
         fields: {
-          errors: relayStylePagination()
+          errors: {
+            read: (existing) => {
+              return existing;
+            },
+            merge: (exists, incoming, options) => {
+              return {
+                ...incoming,
+              }
+            }
+          },
+          journals: {
+            read: (existing) => {
+              return existing;
+            },
+            merge: (exists, incoming, options) => {
+              return {
+                ...incoming,
+                data: [...(exists?.data || []), ...(incoming.data || [])]
+              }
+            }
+          }
         }
       }
     }
@@ -59,9 +78,9 @@ function SidebarWithHeader({
 }: {
   children: ReactNode;
 }) {
-  const { isOpen, onOpen, onClose } = useDisclosure();
+  const { isOpen, onClose } = useDisclosure();
   return (
-    <Box minH="100vh">
+    <Box h="100vh" maxH="100vh">
       <SidebarContent
         onClose={() => onClose}
         display={{ base: 'none', md: 'block' }}
@@ -79,9 +98,11 @@ function SidebarWithHeader({
         </DrawerContent>
       </Drawer>
       {/* mobilenav */}
-      <MobileNav onOpen={onOpen} />
-      <Box ml={{ base: 0, md: 60 }} p="4">
-        {children}
+      <Box h="100vh" maxH="100vh" overflow="hidden">
+        <StatisticBar />
+        <Box ml={{ base: 0, md: 60 }}>
+          {children}
+        </Box>
       </Box>
     </Box>
   );
@@ -92,7 +113,7 @@ interface SidebarProps extends BoxProps {
 }
 
 const SidebarContent = ({ onClose, ...rest }: SidebarProps) => {
-  const {t} = useTranslation();
+  const { t } = useTranslation();
   return (
     <Box
       transition="3s ease"
@@ -109,7 +130,7 @@ const SidebarContent = ({ onClose, ...rest }: SidebarProps) => {
         </Text>
         <CloseButton display={{ base: 'flex', md: 'none' }} onClick={onClose} />
       </Flex>
-        <NewTransactionButton />
+      <NewTransactionButton />
       {LinkItems.map((link) => (
         <NavItem key={link.name} icon={link.icon} uri={link.uri}>
           {t(link.name)}
@@ -159,41 +180,6 @@ const NavItem = ({ icon, children, uri, ...rest }: NavItemProps) => {
   );
 };
 
-interface MobileProps extends FlexProps {
-  onOpen: () => void;
-}
-const MobileNav = ({ onOpen, ...rest }: MobileProps) => {
-  return (
-    <Flex
-      ml={{ base: 0, md: 60 }}
-      px={{ base: 4, md: 4 }}
-      height="20"
-      alignItems="center"
-      bg={useColorModeValue('white', 'gray.900')}
-      borderBottomWidth="1px"
-      borderBottomColor={useColorModeValue('gray.200', 'gray.700')}
-      // justifyContent={{ base: 'space-between', md: 'flex-end' }}
-      {...rest}>
-      <IconButton
-        display={{ base: 'flex', md: 'none' }}
-        onClick={onOpen}
-        variant="outline"
-        aria-label="open menu"
-        icon={<FiMenu />}
-      />
-
-      <Text
-        display={{ base: 'flex', md: 'none' }}
-        fontSize="2xl"
-        fontFamily="monospace"
-        fontWeight="bold">
-        账 Zhang
-      </Text>
-      <StatisticBar />
-
-    </Flex>
-  );
-};
 ReactDOM.render(
   <React.StrictMode>
     <ChakraProvider>
@@ -202,9 +188,7 @@ ReactDOM.render(
           <SidebarWithHeader>
             <App></App>
           </SidebarWithHeader>
-
         </ApolloProvider>
-
       </BrowserRouter>
     </ChakraProvider>
 

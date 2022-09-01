@@ -8,7 +8,7 @@ use axum::routing::get;
 use axum::Router;
 use log::{error, info};
 use model::query::QueryRoot;
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::sync::mpsc::{channel, Receiver};
@@ -25,11 +25,14 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
 
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
-    let watcher = RecommendedWatcher::new(move |res| {
-        futures::executor::block_on(async {
-            tx.send(res).await.unwrap();
-        })
-    })?;
+    let watcher = RecommendedWatcher::new(
+        move |res| {
+            futures::executor::block_on(async {
+                tx.send(res).await.unwrap();
+            })
+        },
+        Config::default(),
+    )?;
 
     Ok((watcher, rx))
 }

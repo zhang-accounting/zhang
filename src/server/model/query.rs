@@ -8,7 +8,7 @@ use crate::core::utils::span::SpanInfo;
 use crate::core::{AccountName, Currency};
 use crate::server::LedgerState;
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};
-use async_graphql::{Context, Interface, Object};
+use async_graphql::{Context, Interface, Object, OutputType, SimpleObject};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveDateTime, Utc};
 use itertools::{Either, Itertools};
@@ -18,6 +18,20 @@ use std::ops::{Add, Sub};
 use std::path::PathBuf;
 use std::str::FromStr;
 use time::Duration;
+
+use super::utils::query_paginable;
+
+#[derive(SimpleObject)]
+pub struct Paginable<T: OutputType> {
+    pub data: Vec<T>,
+    pub page_info: Info,
+}
+#[derive(SimpleObject)]
+pub struct Info {
+    pub page: usize,
+    pub total: usize,
+    pub size: usize,
+}
 
 pub struct QueryRoot;
 
@@ -107,9 +121,9 @@ impl QueryRoot {
             .collect_vec()
     }
 
-    async fn journals(&self, ctx: &Context<'_>) -> Vec<JournalDto> {
+    async fn journals(&self, ctx: &Context<'_>, page: usize, size: usize) -> Paginable<JournalDto> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        ledger_stage
+        let data = ledger_stage
             .directives
             .iter()
             .filter_map(|directive| match &directive.data {
@@ -121,7 +135,8 @@ impl QueryRoot {
                 _ => None,
             })
             .rev()
-            .collect_vec()
+            .collect_vec();
+        query_paginable(data, page, size)
     }
 
     async fn errors(
@@ -367,7 +382,7 @@ impl CurrencyDto {
     }
 }
 
-#[derive(Interface)]
+#[derive(Interface, Clone)]
 #[graphql(field(name = "date", type = "String"))]
 pub enum JournalDto {
     Transaction(TransactionDto),
@@ -375,6 +390,7 @@ pub enum JournalDto {
     BalancePad(BalancePadDto),
 }
 
+#[derive(Clone)]
 pub struct TransactionDto(Transaction);
 
 #[Object]
@@ -418,6 +434,7 @@ impl TransactionDto {
     }
 }
 
+#[derive(Clone)]
 pub struct BalanceCheckDto(BalanceCheck);
 
 #[Object]
@@ -446,6 +463,7 @@ impl BalanceCheckDto {
     }
 }
 
+#[derive(Clone)]
 pub struct BalancePadDto(BalancePad);
 
 #[Object]

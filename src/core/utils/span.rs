@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpanInfo {
     pub(crate) start: usize,
     pub(crate) end: usize,
@@ -10,7 +10,7 @@ pub struct SpanInfo {
     pub(crate) filename: Option<PathBuf>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Spanned<T: Debug + PartialEq> {
     pub(crate) data: T,
     pub(crate) span: SpanInfo,

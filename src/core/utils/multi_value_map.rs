@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::iter::FromIterator;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiValueMap<Key: Eq + Hash, Value> {
     inner: HashMap<Key, Vec<Value>>,
 }
