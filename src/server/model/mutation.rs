@@ -21,6 +21,9 @@ pub struct MutationRoot;
 #[Object]
 impl MutationRoot {
     async fn update_file(&self, ctx: &Context<'_>, path: String, content: String) -> bool {
+        if parse_zhang(&content, None).is_err() {
+            return false;
+        }
         let (path_buf, contains_file) = {
             let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
             let path_buf = PathBuf::from_str(&path).expect("cannot be a path");
