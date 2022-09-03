@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use itertools::Itertools;
 
 use crate::core::account::Account;
@@ -106,11 +108,20 @@ impl ZhangTarget<String> for Transaction {
 impl ZhangTarget<String> for Posting {
     fn to_target(self) -> String {
         // todo cost and price
+        let cost_string = if self.cost.is_some() || self.cost_date.is_some() {
+            let vec2 = vec![
+                self.cost.map(|it| it.to_target()),
+                self.cost_date.map(|it| it.to_target()),
+            ];
+            Some(format!("{{ {} }}", vec2.into_iter().flatten().join(", ")))
+        } else {
+            None
+        };
         let vec1 = vec![
             self.flag.map(|it| format!(" {}", it.to_target())),
             Some(self.account.to_target()),
             self.units.map(|it| it.to_target()),
-            // todo: cost
+            cost_string,
             self.price.map(|it| it.to_target()),
         ];
 
@@ -299,10 +310,12 @@ impl ZhangTarget<String> for Ledger {
 
 #[cfg(test)]
 mod test {
+    use std::option::Option::None;
+
+    use indoc::indoc;
+
     use crate::p::parse_zhang;
     use crate::target::ZhangTarget;
-    use indoc::indoc;
-    use std::option::Option::None;
 
     fn parse(from: &str) -> String {
         let directive = parse_zhang(from, None).unwrap().into_iter().next().unwrap();
@@ -403,15 +416,15 @@ mod test {
               Expenses:TestCategory:One 1 CNY
         "#}
         );
-        //
-        // assert_parse!(
-        //     "transaction directive with price",
-        //     indoc! {r#"
-        //     1970-01-01 * "Narration"
-        //       Assets:123 -1 CNY { 0.1 USD, 2111-11-11 }
-        //       Expenses:TestCategory:One 1 CNY { 0.1 USD }
-        // "#}
-        // );
+
+        assert_parse!(
+            "transaction directive with price",
+            indoc! {r#"
+            1970-01-01 * "Narration"
+              Assets:123 -1 CNY { 0.1 USD, 2111-11-11 }
+              Expenses:TestCategory:One 1 CNY { 0.1 USD }
+        "#}
+        );
 
         assert_parse!(
             "transaction directive with multiple postings",
@@ -432,41 +445,41 @@ mod test {
         "#}
         );
 
-        // assert_parse!(
-        //     "transaction directive with price",
-        //     indoc! {r#"
-        //     1970-01-01 * "Payee" "Narration"
-        //       Assets:123 -1 CNY
-        //       Expenses:TestCategory:One 1 CCC @ 1 CNY
-        // "#}
-        // );
+        assert_parse!(
+            "transaction directive with price",
+            indoc! {r#"
+            1970-01-01 * "Payee" "Narration"
+              Assets:123 -1 CNY
+              Expenses:TestCategory:One 1 CCC @ 1 CNY
+        "#}
+        );
 
-        // assert_parse!(
-        //     "transaction directive with total price",
-        //     indoc! {r#"
-        //     1970-01-01 * "Payee" "Narration"
-        //       Assets:123 -1 CNY
-        //       Expenses:TestCategory:One 1 CCC @@ 1 CNY
-        // "#}
-        // );
+        assert_parse!(
+            "transaction directive with total price",
+            indoc! {r#"
+            1970-01-01 * "Payee" "Narration"
+              Assets:123 -1 CNY
+              Expenses:TestCategory:One 1 CCC @@ 1 CNY
+        "#}
+        );
 
-        // assert_parse!(
-        //     "transaction directive with tags",
-        //     indoc! {r#"
-        //     1970-01-01 *  "Narration" #mytag #tag2
-        //       Assets:123 -1 CNY
-        //       Expenses:TestCategory:One 1 CCC @@ 1 CNY
-        // "#}
-        // );
+        assert_parse!(
+            "transaction directive with tags",
+            indoc! {r#"
+            1970-01-01 * "Narration" #mytag #tag2
+              Assets:123 -1 CNY
+              Expenses:TestCategory:One 1 CCC @@ 1 CNY
+        "#}
+        );
 
-        // assert_parse!(
-        //     "transaction directive with tags",
-        //     indoc! {r#"
-        //     1970-01-01 * "Payee" "Narration" ^link1 ^link-2
-        //       Assets:123 -1 CNY
-        //       Expenses:TestCategory:One 1 CCC @@ 1 CNY
-        // "#}
-        // );
+        assert_parse!(
+            "transaction directive with tags",
+            indoc! {r#"
+            1970-01-01 * "Payee" "Narration" ^link1 ^link-2
+              Assets:123 -1 CNY
+              Expenses:TestCategory:One 1 CCC @@ 1 CNY
+        "#}
+        );
     }
 
     #[test]
