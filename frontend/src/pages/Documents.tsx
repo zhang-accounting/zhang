@@ -1,6 +1,6 @@
 import AccountDocumentLine from "../components/documentLines/AccountDocumentLine";
 import { useQuery } from "@apollo/client";
-import { Heading } from "@chakra-ui/react";
+import { Heading, Flex, Box } from "@chakra-ui/react";
 import { DocumentListQuery, DOCUMENT_LIST } from "../gql/documentList";
 import TransactionDocumentLine from "../components/documentLines/TransactionDocumentLine";
 
@@ -12,23 +12,26 @@ export default function Documents() {
 
     return (
 
-        <div>
+        <Box h="calc(100vh - var(--chakra-sizes-20))" maxH="calc(100vh - var(--chakra-sizes-20))" overflow="scroll">
             <Heading>{data?.documents.length} Documents</Heading>
-            {data?.documents.map(document => {
-                switch (document.__typename) {
-                    case "AccountDocumentDto":
-                        return (
-                            <AccountDocumentLine {...document} />
-                        )
-                    case "TransactionDocumentDto":
-                        return (
-                            <TransactionDocumentLine {...document} />
-                        )
-                    default:
-                        return(<div></div>);
-                }
-            })}
-        </div>
+            <Flex flexFlow={"row wrap"} alignContent="flex-start">
+                {data?.documents.map(document => {
+                    switch (document.__typename) {
+                        case "AccountDocumentDto":
+                            return (
+                                <AccountDocumentLine {...document} />
+                            )
+                        case "TransactionDocumentDto":
+                            return (
+                                <TransactionDocumentLine {...document} />
+                            )
+                        default:
+                            return (<div></div>);
+                    }
+                })}
+            </Flex>
+
+        </Box>
     )
 }
 
