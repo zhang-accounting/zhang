@@ -44,6 +44,7 @@ now = "0.1.2"
 time = "0.1"
 async-graphql-axum = "3.0.38"
 uuid = {version="1.0.0", features=["v4"]}
+base64 = "0.13.0"
 
 [dev-dependencies]
 indoc = "1.0.3"

@@ -1,16 +1,16 @@
 import { useQuery } from '@apollo/client';
 import { Badge, Heading, Tab, Table, TabList, TabPanel, TabPanels, Tabs, Tbody, Td, Th, Thead, Tr } from '@chakra-ui/react';
+import { format } from 'date-fns';
+import { maxBy } from 'lodash';
 import { useParams } from "react-router";
 import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
-import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
 import Block from '../components/Block';
+import AccountDocumentLine, { DocumentRenderItem } from '../components/documentLines/AccountDocumentLine';
 import JournalLine from '../components/JournalLine';
-import { AccountItem, CommodityBalanceTime } from '../gql/accountList';
+import { CommodityBalanceTime } from '../gql/accountList';
 import { SingleAccountJournalQuery, SINGLE_ACCONT_JOURNAL } from '../gql/singleAccount';
-import { maxBy } from 'lodash'
-import { format } from 'date-fns';
 function SingleAccount() {
 
   let { accountName } = useParams();
@@ -33,6 +33,29 @@ function SingleAccount() {
   if (error) return <p>Error :(</p>;
 
 
+  const documents: { [filename: string]: DocumentRenderItem } = {};
+
+  for (let document of data!.account.documents) {
+    let filename = document.filename;
+    if (!documents.hasOwnProperty(filename)) {
+      documents[filename] = {
+        filename: filename,
+        accounts: [],
+        transactions: []
+      } as DocumentRenderItem
+    }
+
+    switch (document.__typename) {
+      case "AccountDocumentDto":
+        documents[filename].accounts.push(document.account);
+        break;
+      case "TransactionDocumentDto":
+        documents[filename].transactions.push(document.transaction);
+        break;
+      default:
+
+    }
+  }
 
   return (
     <div>
@@ -57,25 +80,10 @@ function SingleAccount() {
                 <AccountDocumentUpload accountName={data!.account.name} />
               </Block>
               <Block title='Documents'>
-                <div>{data?.account.documents.map((document, idx) => {
-                  switch (document.__typename) {
-                    case "AccountDocumentDto":
-                      return (
-                        <AccountDocumentLine key={idx} filename={document.filename} account={{
-                          name: data.account.name,
-                          status: data.account.status
-                        } as AccountItem} />
-                      )
-                    case "TransactionDocumentDto":
-                      return (
-                        <div key={idx}>todo transaction document dto line</div>
-                      )
-                    default:
-                      return <div></div>
-                  }
-                })}</div>
+                <div>{Object.values(documents).map((document, idx) =>
+                  <AccountDocumentLine key={idx} {...document} />
+                )}</div>
               </Block>
-
             </TabPanel>
             <TabPanel >
               <Block title='Balance Check'>

@@ -1,24 +1,42 @@
-import { Badge, Flex, Text } from "@chakra-ui/react";
-import { useNavigate } from "react-router";
+import { Badge, Box, Flex, Image, Text, useColorModeValue } from "@chakra-ui/react";
+import { Buffer } from "buffer";
 import { AccountItem } from "../../gql/accountList";
+import { TransactionDto } from "../../gql/jouralList";
 
-export interface Props {
-    filename: string,
-    account?: AccountItem
-  }
-  
 
-export default function AccountDocumentLine({ filename, account }: Props) {
-    let navigate = useNavigate();
-    const extension = filename.split(".").pop()?.toUpperCase();
+export interface DocumentRenderItem {
+    filename: string
+    accounts: (AccountItem | undefined)[]
+    transactions: (TransactionDto | undefined)[]
+}
 
+
+export interface Props extends DocumentRenderItem {
+    
+}
+
+export const EXTENSIONS_SUPPORT_PREVIEW = ['PNG', 'JPG', 'GIF']
+
+export default function AccountDocumentLine({ filename }: Props) {
+    const extension = filename.split(".").pop()?.toUpperCase() || "";
+    const simpleFilename = filename.split("/").pop() || "";
+    const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
     return (
-        <Flex m={2} justifyContent="space-between">
-            <Flex alignItems={"center"} alignContent="center">
-                <Badge variant='outline'>{extension}</Badge>
-                <Text mx={2}>{filename}</Text>
+
+        <Flex flexDirection={"column"} flex="0 0 20%" m={4} p={4} border="1px"
+            borderColor={useColorModeValue('gray.200', 'gray.700')}>
+            <Box>
+                {canPreview
+                    ? <Image src={`/files/${Buffer.from(filename).toString("base64")}/preview`} />
+                    : <Box>this file cannot be previewed</Box>}
+            </Box>
+            <Flex flexDirection={"column"} mt={2}>
+                <Flex alignItems={"center"}>
+                    <Badge variant='outline'>{extension}</Badge>
+                    <Text mx={2}>{simpleFilename}</Text>
+                </Flex>
             </Flex>
-            <Text mx={1} cursor="pointer" onClick={() => navigate(`/accounts/${account?.name}`)}>{account?.name}</Text>
+
         </Flex>
     )
 }
