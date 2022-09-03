@@ -7,6 +7,7 @@ use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::core::AccountName;
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
+use indexmap::IndexSet;
 use itertools::Itertools;
 use std::collections::HashSet;
 use std::ops::{Div, Mul, Neg};
@@ -126,8 +127,8 @@ pub struct Transaction {
     pub flag: Option<Flag>,
     pub payee: Option<ZhangString>,
     pub narration: Option<ZhangString>,
-    pub tags: HashSet<String>,
-    pub links: HashSet<String>,
+    pub tags: IndexSet<String>,
+    pub links: IndexSet<String>,
     pub postings: Vec<Posting>,
     pub meta: Meta,
 }

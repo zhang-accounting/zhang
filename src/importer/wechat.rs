@@ -7,6 +7,7 @@ use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
+use indexmap::IndexSet;
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 
@@ -187,8 +188,8 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
             flag: Some(Flag::Okay),
             payee: result.payee().map(|it| ZhangString::QuoteString(it.to_string())),
             narration: result.narration().map(|it| ZhangString::QuoteString(it.to_string())),
-            tags: HashSet::new(),
-            links: HashSet::new(),
+            tags: IndexSet::new(),
+            links: IndexSet::new(),
             postings,
             meta,
         };
