@@ -1,19 +1,23 @@
-use crate::cli::ServerOpts;
-use crate::core::ledger::Ledger;
-use crate::error::ZhangResult;
-use crate::server::model::mutation::MutationRoot;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::sync::Arc;
+
 use async_graphql::{EmptySubscription, Schema};
 use axum::extract::Extension;
 use axum::routing::get;
 use axum::Router;
-use log::{error, info};
-use model::query::QueryRoot;
+use itertools::Either;
+use log::{debug, error, info};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::Arc;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
+
+use model::query::QueryRoot;
+
+use crate::cli::ServerOpts;
+use crate::core::ledger::Ledger;
+use crate::error::ZhangResult;
+use crate::server::model::mutation::MutationRoot;
 
 pub mod model;
 pub mod route;
@@ -45,25 +49,35 @@ pub fn serve(opts: ServerOpts) -> ZhangResult<()> {
     let cloned_ledger = ledger_data.clone();
     runtime.spawn(async move {
         let (mut watcher, mut rx) = async_watcher().unwrap();
-        for x in &cloned_ledger.read().await.visited_files {
-            println!("watching {:?}", &x.to_str());
-            watcher
-                .watch(x, RecursiveMode::NonRecursive)
-                .expect("cannot watch file");
+        match &cloned_ledger.read().await.entry {
+            Either::Left((entry_path, _)) => {
+                info!("watching {}", &entry_path.to_str().unwrap_or(""));
+                watcher
+                    .watch(entry_path, RecursiveMode::Recursive)
+                    .expect("cannot watch entry path")
+            }
+            Either::Right(_) => {
+                error!("zhang running on plain txt does not support watcher");
+            }
         }
         while let Some(res) = rx.recv().await {
             match res {
                 Ok(event) => {
-                    println!("changed: {:?}", event);
+                    debug!("receive file event: {:?}", event);
                     let mut guard = cloned_ledger.write().await;
-                    match guard.reload() {
-                        Ok(_) => {
-                            info!("reloaded")
-                        }
-                        Err(err) => {
-                            error!("error on reload: {}", err)
-                        }
-                    };
+                    let is_visited_file_updated = guard.visited_files.iter().any(|file| event.paths.contains(file));
+                    if is_visited_file_updated {
+                        match guard.reload() {
+                            Ok(_) => {
+                                info!("reloaded")
+                            }
+                            Err(err) => {
+                                error!("error on reload: {}", err)
+                            }
+                        };
+                    } else {
+                        debug!("ignore file event: {:?}", event);
+                    }
                 }
                 Err(e) => println!("watch error: {:?}", e),
             }
