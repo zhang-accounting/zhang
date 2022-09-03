@@ -1,6 +1,5 @@
 option "title" "Example Accounting"
 option "operating_currency" "CNY"
-1970-01-01 commodity CNY
 1970-01-01 commodity CNY2
 1970-01-01 commodity CNY2.222
 1970-01-01 commodity USD
