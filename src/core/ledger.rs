@@ -221,6 +221,22 @@ impl Ledger {
             target_day: None,
             prices: arc_price,
         };
+        let operating_currency = ret_ledger.options.operating_currency.to_string();
+        let default_precision = ret_ledger.options.default_balance_tolerance_precision;
+        let default_rounding = ret_ledger.options.default_rounding;
+        ret_ledger.currencies.insert(
+            operating_currency.clone(),
+            CurrencyInfo {
+                commodity: Commodity {
+                    date: Date::Date(NaiveDate::from_ymd(1970, 01, 01)),
+                    currency: operating_currency,
+                    meta: Default::default(),
+                },
+                precision: Some(default_precision),
+                rounding: Some(default_rounding),
+                prices: LatestMap::default(),
+            },
+        );
         for directive in meta_directives.iter_mut().chain(directives.iter_mut()) {
             match &mut directive.data {
                 Directive::Option(option) => option.process(&mut ret_ledger, &mut context, &directive.span)?,
@@ -864,6 +880,20 @@ mod test {
             "#})
             .unwrap();
             assert_eq!(ledger.option("title").unwrap(), "Example accounting book 2");
+        }
+    }
+    mod default_behavior {
+        use crate::core::ledger::Ledger;
+        use indoc::indoc;
+
+        #[test]
+        fn should_generate_default_commodity_for_operating_commodity() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                option "operating_currency" "CNY"
+            "#})
+            .unwrap();
+            assert_eq!(ledger.options.operating_currency, "CNY");
+            assert_eq!(ledger.currencies.contains_key("CNY"), true);
         }
     }
 }
