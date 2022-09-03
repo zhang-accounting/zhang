@@ -168,9 +168,14 @@ impl DirectiveProcess for Commodity {
             .map(|it| Rounding::from_str(it.as_str()))
             .transpose()
             .unwrap_or(None);
-        let _target_currency = ledger
+        ledger
             .currencies
             .entry(self.currency.to_string())
+            .and_modify(|target| {
+                target.commodity = self.clone();
+                target.precision = precision;
+                target.rounding = rounding;
+            })
             .or_insert_with(|| CurrencyInfo {
                 commodity: self.clone(),
                 precision,
