@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use itertools::Itertools;
 
 use crate::core::account::Account;

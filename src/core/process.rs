@@ -164,7 +164,7 @@ impl DirectiveProcess for Commodity {
             .unwrap_or(None);
         let rounding = self
             .meta
-            .get_one(&"precroundingision".to_string())
+            .get_one(&"rounding".to_string())
             .map(|it| Rounding::from_str(it.as_str()))
             .transpose()
             .unwrap_or(None);
