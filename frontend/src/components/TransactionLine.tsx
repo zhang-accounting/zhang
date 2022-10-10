@@ -1,30 +1,65 @@
-import { Badge, Box, Flex, Text } from "@chakra-ui/react";
-import { TransactionDto } from "../gql/jouralList";
+import { Group, Text, createStyles } from '@mantine/core';
+import { JournalItem, TransactionDto } from '../gql/jouralList';
+import { IconArrowBigDownLines, IconRotateRectangle, IconArrowBigUpLines } from '@tabler/icons';
+import { format } from 'date-fns';
+import { Dispatch, SetStateAction } from 'react';
+import { calculate } from '../utils/trx-calculator';
 interface Props {
-    data: TransactionDto
+  data: TransactionDto;
+  onClick?: Dispatch<SetStateAction<JournalItem | undefined>>;
 }
-export default function TransactionLine({ data }: Props) {
-    return (
-        <Flex mx={'auto'} py={0.5} px={{ base: 2, sm: 12, md: 17 }} borderBottom='1px' borderColor={"gray.200"} _hover={{ backgroundColor: "gray.200" }}
-            alignItems={"center"} fontSize={"smaller"}>
-            <Box mr={2}>
-                <Text>{data.date}</Text>
-            </Box>
-            <Box mr={2}>
-                <Badge colorScheme={data.isBalanced ? "gray" : "red"}>TN</Badge>
-            </Box>
-            <Flex flex='1' overflow={"hidden"}>
-                <Text fontWeight={"bold"} mr={2}>{data.payee}</Text>
-                <Text>{data.narration}</Text>
-            </Flex>
-            <Flex direction={"column"} >
-                {data.postings.map((posting, idx) => (
-                    <Flex alignContent="space-between" justifyContent={"space-between"} key={idx}>
+
+export default function TransactionLine({ data, onClick }: Props) {
+  const date = format(data.timestamp * 1000, 'yyyy-MM-dd');
+  const time = format(data.timestamp * 1000, 'hh:mm:ss');
+  const trClick = () => {
+    console.log('clock');
+    if (onClick) {
+      onClick(data);
+    }
+  };
+  const summary = calculate(data);
+  return (
+    <tr onClick={() => trClick()}>
+      <td>
+        <Text>{date}</Text>
+
+        <Text size="xs" color="dimmed">
+          {time}
+        </Text>
+      </td>
+      <td>
+        <Text lineClamp={1}>{data.narration}</Text>
+        <Group position="apart">
+          <Text mr={2} color="dimmed" size="xs">
+            {data.payee}
+          </Text>
+          <Group position="right">
+            {Array.from(summary.values()).map((each) => (
+              <Group align="center" spacing="xs">
+                {each.number.isPositive() ? <IconArrowBigDownLines stroke={1.5} /> : <IconArrowBigUpLines stroke={1.5} />}
+                <span>
+                  {each.number.abs().toFixed()} {each.currency}
+                </span>
+              </Group>
+            ))}
+          </Group>
+        </Group>
+      </td>
+      <td>
+        <Group spacing="xs" position="right">
+          {/* <div className={classes.mainLinkInner}>
+                        <IconArrowBigUpLines stroke={1.5}></IconArrowBigUpLines>
+                        <Text>100.00 CNY</Text>
+                    </div> */}
+        </Group>
+        {/* {data.postings.map((posting, idx) => (
+                    <Group key={idx}>
                         <Text mx={2}>{posting?.account?.name}</Text>
                         <Text align={"right"} mx={2}>{posting.unit?.number} {posting.unit?.currency}</Text>
-                    </Flex>
-                ))}
-            </Flex>
-        </Flex>
-    )
+                    </Group>
+                ))} */}
+      </td>
+    </tr>
+  );
 }

@@ -1,21 +1,21 @@
-import { gql } from "@apollo/client";
-import { Statistic } from "../models";
-
+import { gql } from '@apollo/client';
+import { Statistic } from '../models';
 
 export interface StatisticResponse {
-    statistic: Statistic
+  statistic: Statistic;
 }
 
-
 export const STATISTIC = gql`
-query STATISTIC($from: Int, $to: Int, $gap: Int) {
+  query STATISTIC($from: Int, $to: Int, $gap: Int) {
     statistic(from: $from, to: $to) {
       start
       end
       journals(transactionOnly: true) {
         type: __typename
+        
         ... on TransactionDto {
           date
+          timestamp
           payee
           narration
           postings {
@@ -70,7 +70,7 @@ query STATISTIC($from: Int, $to: Int, $gap: Int) {
             currency
           }
         }
-  
+
         total: categorySnapshot(categories: ["Assets", "Liabilities"]) {
           summary {
             number
@@ -79,5 +79,5 @@ query STATISTIC($from: Int, $to: Int, $gap: Int) {
         }
       }
     }
-  }  
-`
+  }
+`;

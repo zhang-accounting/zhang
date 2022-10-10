@@ -1,17 +1,15 @@
-import { gql } from "@apollo/client";
-import { FileEntry } from "../models";
-
+import { gql } from '@apollo/client';
+import { FileEntry } from '../models';
 
 export interface SingleFileEntryQuery {
-    entry: FileEntry
+  entry: FileEntry;
 }
 
-
-export const SINGLE_FILE_ENTRY =gql`
-query SINGLE_FILE_ENTRY($name: String) {
+export const SINGLE_FILE_ENTRY = gql`
+  query SINGLE_FILE_ENTRY($name: String) {
     entry(name: $name) {
-        name
-        content
+      name
+      content
     }
-  }    
-`
+  }
+`;

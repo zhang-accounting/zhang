@@ -1,27 +1,31 @@
-import { Button, ButtonGroup, FormControl, FormLabel, Heading } from '@chakra-ui/react';
+import { Container, Title, Button, SegmentedControl } from '@mantine/core';
+import { useLocalStorage } from '@mantine/hooks';
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 export default function Settings() {
-    const { i18n } = useTranslation();
-    const onLanguageChange = (lang: string) => {
-        i18n.changeLanguage(lang);
+  const { i18n } = useTranslation();
+  const [lang, setLang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
+  const onLanguageChange = (lang: string) => {
+    setLang(lang);
+  };
+  useEffect(() => {
+    i18n.changeLanguage(lang);
+  }, [lang]);
 
-    }
+  return (
+    <Container fluid>
+      <Title order={2}>Settings</Title>
 
-    return (
-        <div>
-            <Heading>Settings</Heading>
-
-            <div>
-                <FormControl>
-                    <FormLabel>Lanauges</FormLabel>
-                    <ButtonGroup size='sm' isAttached variant='outline'>
-                        <Button onClick={() => onLanguageChange("zh")} disabled={i18n.language === 'zh'}>中文</Button>
-                        <Button onClick={() => onLanguageChange("en")} disabled={i18n.language === 'en'}>English</Button>
-                    </ButtonGroup>
-                </FormControl>
-            </div>
-        </div>
-
-    );
+      <SegmentedControl
+        value={lang}
+        onChange={onLanguageChange}
+        color="blue"
+        data={[
+          { label: '中文', value: 'zh' },
+          { label: 'English', value: 'en' },
+        ]}
+      />
+    </Container>
+  );
 }
