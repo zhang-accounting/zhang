@@ -1,6 +1,6 @@
-import { Group, Text, createStyles } from '@mantine/core';
+import { Group, Text } from '@mantine/core';
 import { JournalItem, TransactionDto } from '../gql/jouralList';
-import { IconArrowBigDownLines, IconRotateRectangle, IconArrowBigUpLines } from '@tabler/icons';
+import { IconArrowBigDownLines, IconArrowBigUpLines } from '@tabler/icons';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
 import { calculate } from '../utils/trx-calculator';

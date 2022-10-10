@@ -1,4 +1,4 @@
-import { Badge, Box, Container, Grid, Paper, Text, Image } from '@mantine/core';
+import { Badge, Box, Grid, Text, Image } from '@mantine/core';
 import { Buffer } from 'buffer';
 import { AccountItem } from '../../gql/accountList';
 import { TransactionDto } from '../../gql/jouralList';

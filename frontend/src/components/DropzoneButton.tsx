@@ -1,7 +1,6 @@
-import { useRef } from 'react';
-import { Text, Group, Button, createStyles } from '@mantine/core';
-import { Dropzone, MIME_TYPES } from '@mantine/dropzone';
-import { IconCloudUpload, IconX, IconDownload } from '@tabler/icons';
+
+import { Text, createStyles } from '@mantine/core';
+import { Dropzone } from '@mantine/dropzone';
 
 const useStyles = createStyles((theme) => ({
   dropzone: {
@@ -22,7 +21,7 @@ const useStyles = createStyles((theme) => ({
 }));
 
 export function DropzoneButton() {
-  const { classes, theme } = useStyles();
+  const { classes } = useStyles();
 
   return (
     <Dropzone onDrop={() => {}} className={classes.dropzone} radius="sm" maxSize={30 * 1024 ** 2}>

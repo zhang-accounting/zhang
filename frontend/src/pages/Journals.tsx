@@ -1,5 +1,5 @@
 import { useQuery } from '@apollo/client';
-import { Container, Button, Grid, ScrollArea, Table, Title } from '@mantine/core';
+import { Button, Grid, ScrollArea, Table, Title } from '@mantine/core';
 import { useState } from 'react';
 import JournalLine from '../components/JournalLine';
 import JournalPreview from '../components/journalPreview/JournalPreview';

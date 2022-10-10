@@ -1,4 +1,4 @@
-import { Container, Title, Button, SegmentedControl } from '@mantine/core';
+import { Container, Title, SegmentedControl } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';

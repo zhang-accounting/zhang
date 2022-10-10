@@ -76,6 +76,12 @@ export default function ErrorBox() {
             setSelectErrorContent(value);
           }}
         />
+        <Button onClick={onModalReset} variant="default">
+          {t('Reset')}
+        </Button>
+        <Button onClick={saveErrorModfiyData} variant="default">
+          {t('Save')}
+        </Button>
       </Modal>
       <div>
         <Stack>
@@ -88,10 +94,10 @@ export default function ErrorBox() {
 
         <Button.Group>
           <Button disabled={!data?.errors.pageInfo.hasPreviousPage} onClick={fetchPreviousPage} variant="default">
-            Previous
+            {t('Previous')}
           </Button>
           <Button disabled={!data?.errors.pageInfo.hasNextPage} onClick={fetchNextPage} variant="default">
-            Next
+            {t('Next')}
           </Button>
         </Button.Group>
       </div>

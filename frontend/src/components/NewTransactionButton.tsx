@@ -50,7 +50,7 @@ export default function NewTransactionButton() {
   );
 
   const [isOpen, isOpenHandler] = useDisclosure(false);
-  const [dateOnly, setDateOnly] = useState(true);
+  const [dateOnly] = useState(true);
 
   const [date, setDate] = useState<Date | null>(new Date());
   const [payee, setPayee] = useState<string | null>(null);

@@ -1,5 +1,5 @@
 import { BigNumber } from 'bignumber.js';
-import { Amount, TransactionDto } from '../gql/jouralList';
+import { TransactionDto } from '../gql/jouralList';
 
 export interface SummaryItem {
   number: BigNumber;

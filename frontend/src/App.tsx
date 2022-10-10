@@ -10,12 +10,12 @@ import Settings from './pages/Settings';
 import SingleAccount from './pages/SingleAccount';
 import SingleCommodity from './pages/SingleCommodity';
 
-import { BrowserRouter, Link as RouteLink } from 'react-router-dom';
+import { Link as RouteLink } from 'react-router-dom';
 import NewTransactionButton from './components/NewTransactionButton';
 import { createStyles, Navbar, TextInput, Code, UnstyledButton, Badge, Text, Group, ActionIcon, Tooltip } from '@mantine/core';
-import { IconBulb, IconUser, IconCheckbox, IconSearch, IconPlus, IconSelector, IconSwitchHorizontal, IconReceipt2 } from '@tabler/icons';
+import { IconBulb, IconUser, IconCheckbox, IconSearch, IconPlus, IconReceipt2 } from '@tabler/icons';
 
-import { AppShell, Header, Grid } from '@mantine/core';
+import { AppShell, Grid } from '@mantine/core';
 
 const useStyles = createStyles((theme) => ({
   header: {

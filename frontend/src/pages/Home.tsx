@@ -1,5 +1,5 @@
 import { useQuery } from '@apollo/client';
-import { Button, Container, Group, Title, Grid } from '@mantine/core';
+import { Container, Title, Grid } from '@mantine/core';
 import { format } from 'date-fns';
 import { Chart } from 'react-chartjs-2';
 import { useTranslation } from 'react-i18next';
@@ -94,7 +94,7 @@ function Home() {
 
   return (
     <Container fluid>
-      <Title order={2}>Dashboard</Title>
+      <Title order={2}>{t('Dashboard')}</Title>
       <StatisticBar />
       <Grid>
         <Grid.Col span={8}>

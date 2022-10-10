@@ -1,5 +1,5 @@
 import { Group, Stack, Text } from '@mantine/core';
-import { IconCashBanknote, IconCashBanknoteOff, IconCheck } from '@tabler/icons';
+import { IconCashBanknote, IconCashBanknoteOff } from '@tabler/icons';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
 import { BalanceCheckDto, JournalItem } from '../gql/jouralList';
