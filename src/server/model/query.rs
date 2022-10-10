@@ -490,6 +490,9 @@ impl<'a> PostingDto<'a> {
     async fn unit(&self) -> Option<AmountDto> {
         self.0.units().map(AmountDto)
     }
+    async fn inferred_unit(&self) -> AmountDto {
+        AmountDto(self.0.infer_trade_amount().unwrap())
+    }
 }
 pub struct AmountDto(Amount);
 

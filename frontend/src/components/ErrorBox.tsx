@@ -1,110 +1,106 @@
-import { useMutation, useQuery } from "@apollo/client";
-import { ChevronLeftIcon, ChevronRightIcon } from "@chakra-ui/icons";
-import { Box, Flex, Text, ButtonGroup, Button, IconButton, Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, ModalFooter, useDisclosure } from "@chakra-ui/react";
-import { ErrorEntity, ErrorListQuery, ERROR_LIST } from "../gql/errorList";
-import Block from "./Block";
-import { useState } from "react";
+import { useMutation, useQuery } from '@apollo/client';
+import { Text, Button, Modal } from '@mantine/core';
+import { ErrorEntity, ErrorListQuery, ERROR_LIST } from '../gql/errorList';
+import { useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
-import { MODIFY_FILE } from "../gql/modifyFile";
-import { useTranslation } from "react-i18next";
+import { MODIFY_FILE } from '../gql/modifyFile';
+import { useTranslation } from 'react-i18next';
+import { Stack } from '@mantine/core';
 
 export default function ErrorBox() {
-    const { t } = useTranslation();
-    const { isOpen, onOpen, onClose } = useDisclosure();
-    const { data, loading, refetch } = useQuery<ErrorListQuery>(ERROR_LIST);
-    const [selectError, setSelectError] = useState<ErrorEntity | null>(null);
-    const [selectErrorContent, setSelectErrorContent] = useState<string>("");
+  const { t } = useTranslation();
+  const [isOpen, setIsOpen] = useState(false);
+  const { data, loading, refetch } = useQuery<ErrorListQuery>(ERROR_LIST);
+  const [selectError, setSelectError] = useState<ErrorEntity | null>(null);
+  const [selectErrorContent, setSelectErrorContent] = useState<string>('');
 
-    const [modifyFile] = useMutation(MODIFY_FILE, {
-        update: (proxy) => {
-            proxy.evict({ fieldName: `journals` })
-            proxy.evict({ fieldName: `errors` })
-            console.log("proxy", proxy);
-        }
+  const [modifyFile] = useMutation(MODIFY_FILE, {
+    update: (proxy) => {
+      proxy.evict({ fieldName: `journals` });
+      proxy.evict({ fieldName: `errors` });
+      console.log('proxy', proxy);
+    },
+  });
+
+  const toggleError = (error: ErrorEntity) => {
+    setSelectError(error);
+    setSelectErrorContent(error.span.content);
+    setIsOpen(true);
+  };
+  const saveErrorModfiyData = () => {
+    modifyFile({
+      variables: {
+        file: selectError?.span.filename,
+        content: selectErrorContent,
+        start: selectError?.span.start,
+        end: selectError?.span.end,
+      },
     });
-
-    const toggleError = (error: ErrorEntity) => {
-        setSelectError(error);
-        setSelectErrorContent(error.span.content);
-        onOpen();
+    setIsOpen(false);
+  };
+  const onModalReset = () => {
+    setSelectErrorContent(selectError?.span.content || '');
+  };
+  const fetchNextPage = () => {
+    refetch({
+      cursor: data?.errors.pageInfo.endCursor,
+    });
+  };
+  const fetchPreviousPage = () => {
+    const cursor = parseInt(data!.errors.pageInfo.startCursor) - 11;
+    if (cursor > 0) {
+      refetch({
+        cursor: cursor.toString(),
+      });
+    } else {
+      refetch({ cursor: '-1' });
     }
-    const saveErrorModfiyData = () => {
-        modifyFile({
-            variables: {
-                file: selectError?.span.filename,
-                content: selectErrorContent,
-                start: selectError?.span.start,
-                end: selectError?.span.end
-            }
-        })
-        onClose()
-    }
-    const onModalReset = () => {
-        setSelectErrorContent(selectError?.span.content || "")
-    }
-    const fetchNextPage = () => {
-        refetch({
-            cursor: data?.errors.pageInfo.endCursor
-        })
-    }
-    const fetchPreviousPage = () => {
-        const cursor = parseInt(data!.errors.pageInfo.startCursor) - 11;
-        if (cursor > 0) {
-            refetch({
-                cursor: (cursor).toString()
-            })
-        } else {
-            refetch({ cursor: "-1" })
-        }
-    }
+  };
 
-    if (loading) return (<div> loading</div>);
-    console.log("error", data);
-    return (
-        <>
-            <Modal isOpen={isOpen} size={"4xl"} onClose={onClose}>
-                <ModalOverlay />
-                <ModalContent>
-                    <ModalHeader>{selectError?.span.filename}:{selectError?.span.start}:{selectError?.span.end}</ModalHeader>
-                    <ModalCloseButton />
-                    <ModalBody>
-                        <Text>{selectError?.message}</Text>
-                        <CodeMirror
-                            value={selectErrorContent}
-                            height="20vh"
-                            width="100%"
-                            onChange={(value) => {
-                                setSelectErrorContent(value)
-                            }}
-                        />
-                    </ModalBody>
+  if (loading) return <div> loading</div>;
+  console.log('error', data);
+  return (
+    <>
+      <Modal
+        size="lg"
+        centered
+        opened={isOpen}
+        onClose={() => setIsOpen(false)}
+        title={`${selectError?.span.filename}:${selectError?.span.start}:${selectError?.span.end}`}>
+        <Text>{selectError?.message}</Text>
+        <CodeMirror
+          value={selectErrorContent}
+          height="20vh"
+          width="100%"
+          onChange={(value) => {
+            setSelectErrorContent(value);
+          }}
+        />
+        <Button onClick={onModalReset} variant="default">
+          {t('Reset')}
+        </Button>
+        <Button onClick={saveErrorModfiyData} variant="default">
+          {t('Save')}
+        </Button>
+      </Modal>
+      <div>
+        <Stack>
+          {data?.errors.edges
+            .map((edge) => edge.node)
+            .map((error, idx) => (
+              <Text onClick={() => toggleError(error)}>{error.message}</Text>
+            ))}
+        </Stack>
 
-                    <ModalFooter>
-                        <Button colorScheme='blue' mr={3} disabled={selectErrorContent === selectError?.span.content} onClick={saveErrorModfiyData}>
-                            {t("Modify")}
-                        </Button>
-
-                        <Button variant='ghost' onClick={onModalReset}>{t("RESET")}</Button>
-                    </ModalFooter>
-                </ModalContent>
-            </Modal>
-            <Block title={`${data?.errorLength} errors`}>
-                <Flex flexDirection={"column"}>
-                    {data?.errors.edges.map(edge => edge.node).map((error, idx) => (
-                        <Box key={idx} onClick={() => toggleError(error)} cursor="pointer" my={1}>
-                            <Text whiteSpace={"nowrap"} textOverflow="ellipsis" overflow="hidden">{error.message}</Text>
-                        </Box>
-                    ))}
-                </Flex>
-
-                <Flex justifyContent={"end"} mt={3}>
-                    <ButtonGroup size='sm' isAttached variant='outline'>
-                        <IconButton disabled={!data?.errors.pageInfo.hasPreviousPage} onClick={fetchPreviousPage} aria-label='Add to friends' icon={<ChevronLeftIcon />} />
-                        <IconButton disabled={!data?.errors.pageInfo.hasNextPage} onClick={fetchNextPage} aria-label='Add to friends' icon={<ChevronRightIcon />} />
-                    </ButtonGroup>
-                </Flex>
-            </Block>
-        </>
-
-    )
+        <Button.Group>
+          <Button disabled={!data?.errors.pageInfo.hasPreviousPage} onClick={fetchPreviousPage} variant="default">
+            {t('Previous')}
+          </Button>
+          <Button disabled={!data?.errors.pageInfo.hasNextPage} onClick={fetchNextPage} variant="default">
+            {t('Next')}
+          </Button>
+        </Button.Group>
+      </div>
+    </>
+  );
 }

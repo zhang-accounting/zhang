@@ -228,7 +228,7 @@ impl Ledger {
             operating_currency.clone(),
             CurrencyInfo {
                 commodity: Commodity {
-                    date: Date::Date(NaiveDate::from_ymd(1970, 01, 01)),
+                    date: Date::Date(NaiveDate::from_ymd(1970, 1, 1)),
                     currency: operating_currency,
                     meta: Default::default(),
                 },
@@ -893,7 +893,7 @@ mod test {
             "#})
             .unwrap();
             assert_eq!(ledger.options.operating_currency, "CNY");
-            assert_eq!(ledger.currencies.contains_key("CNY"), true);
+            assert!(ledger.currencies.contains_key("CNY"));
         }
     }
 }

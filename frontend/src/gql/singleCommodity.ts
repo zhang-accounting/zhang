@@ -1,15 +1,13 @@
-import { gql } from "@apollo/client";
-import { Currency } from "./accountList";
-
+import { gql } from '@apollo/client';
+import { Currency } from './accountList';
 
 export interface SingleCommodityQuery {
-  currency: Currency
+  currency: Currency;
 }
 
-
 export const SINGLE_COMMODITIY = gql`
-query($name: String) {
-    currency(name:$name) {
+  query ($name: String) {
+    currency(name: $name) {
       name
       precision
       lots {
@@ -26,4 +24,4 @@ query($name: String) {
       }
     }
   }
-`
+`;

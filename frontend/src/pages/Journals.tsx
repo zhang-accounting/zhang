@@ -1,44 +1,50 @@
-import { useQuery } from "@apollo/client";
-import { Box, Button, CloseButton, Flex, Heading } from '@chakra-ui/react';
-import { useState } from "react";
-import JournalLine from "../components/JournalLine";
-import JournalPreview from "../components/journalPreview/JournalPreview";
-import { JouralListQuery, JournalItem, JOURNAL_LIST } from "../gql/jouralList";
+import { useQuery } from '@apollo/client';
+import { Button, Grid, ScrollArea, Table, Title } from '@mantine/core';
+import { useState } from 'react';
+import JournalLine from '../components/JournalLine';
+import JournalPreview from '../components/journalPreview/JournalPreview';
+import { JouralListQuery, JournalItem, JOURNAL_LIST } from '../gql/jouralList';
 function Journals() {
   const [page, setPage] = useState(1);
   const { loading, error, data, fetchMore } = useQuery<JouralListQuery>(JOURNAL_LIST, { variables: { page: 1 } });
-  const [selectedJournal, setSelectedJournal] = useState<JournalItem | null>(null)
+  const [selectedJournal, setSelectedJournal] = useState<JournalItem | undefined>(undefined);
   if (loading) return <p>Loading...</p>;
   if (error) return <p>Error :(</p>;
 
   const onMoreButtonClick = () => {
     fetchMore({
       variables: {
-        page: page + 1
-      }
+        page: page + 1,
+      },
     });
     setPage(page + 1);
-  }
+  };
   return (
-    <Flex>
-      <Box flex="0 0 60%" h="calc(100vh - var(--chakra-sizes-20))" maxH="calc(100vh - var(--chakra-sizes-20))" overflow="scroll" borderRight="1px">
-        <Heading mx={4} my={4}>{data?.journals.data.length} Journals</Heading>
-        <div>
-          {data?.journals.data.map((journal, idx) => <JournalLine key={idx} data={journal} setSelectedJournal={setSelectedJournal} />)}
-        </div>
-        <Button onClick={onMoreButtonClick}>Fetch More</Button>
-      </Box>
-      {selectedJournal ?
-        <Box flex=" 0 0 40%">
-          <div><CloseButton onClick={() => setSelectedJournal(null)} /></div>
-          <JournalPreview data={selectedJournal!} />
-
-        </Box> :
-        <Box>
-          select one directive to show detail
-        </Box>
-      }
-    </Flex>
+    <Grid>
+      <Grid.Col span={6}>
+        <ScrollArea style={{ height: '96vh' }} offsetScrollbars>
+          <Title order={2}>{data?.journals.data.length} Journals</Title>
+          <Table verticalSpacing="xs" highlightOnHover>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th style={{}}>Payee & Narration</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data?.journals.data.map((journal, idx) => (
+                <JournalLine key={idx} data={journal} onClick={setSelectedJournal} />
+              ))}
+            </tbody>
+          </Table>
+          <Button onClick={onMoreButtonClick}>Fetch More</Button>
+        </ScrollArea>
+      </Grid.Col>
+      <Grid.Col span={6}>
+        <JournalPreview data={selectedJournal} />
+      </Grid.Col>
+    </Grid>
   );
 }
 

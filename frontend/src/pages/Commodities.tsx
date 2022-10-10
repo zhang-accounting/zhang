@@ -1,63 +1,62 @@
-import { useQuery } from "@apollo/client";
-import { Badge, Box, Flex, Heading, Table, Tbody, Td, Text, Th, Thead, Tr } from "@chakra-ui/react";
-import { format } from "date-fns";
-import Amount from "../components/Amount";
-import { CommoditiesQuery, CURRENCIES } from "../gql/commodities";
-import { useNavigate } from "react-router";
+import { useQuery } from '@apollo/client';
+import { Badge, Container, Group, Table, Text, Title } from '@mantine/core';
+import { format } from 'date-fns';
+import { useNavigate } from 'react-router';
+import Amount from '../components/Amount';
+import { CommoditiesQuery, CURRENCIES } from '../gql/commodities';
 
 export default function Commodities() {
-    const { loading, error, data } = useQuery<CommoditiesQuery>(CURRENCIES);
-    let navigate = useNavigate();
+  const { loading, error, data } = useQuery<CommoditiesQuery>(CURRENCIES);
+  let navigate = useNavigate();
 
-    const onCommodityClick = (commodityName: string) => {
-        navigate(commodityName)
-    }
+  const onCommodityClick = (commodityName: string) => {
+    navigate(commodityName);
+  };
 
-    if (loading) return <p>Loading...</p>;
-    if (error) return <p>Error :(</p>;
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>Error :(</p>;
 
-    return (
-
-        <div>
-
-            <Flex m={1} mb={3} justifyContent="space-between" alignItems="flex-end">
-                <Box><Heading>Commodities</Heading></Box>
-            </Flex>
-
-
-            <Table>
-                <Thead>
-                    <Tr>
-                        <Th>Currency</Th>
-                        <Th isNumeric>Balance</Th>
-                        <Th isNumeric>Latest Price</Th>
-                    </Tr>
-                </Thead>
-                <Tbody>
-                    {data?.currencies.map((currency, idx) => (
-
-                        <Tr key={idx}>
-                            <Td >
-                                <Flex alignItems="center">
-                                    <Text onClick={()=> onCommodityClick(currency.name)} cursor="pointer">{currency.name}</Text>
-                                    {currency.isOperatingCurrency && (<Badge ml={3} variant='outline' colorScheme="green" >Operating Currency</Badge>)}
-                                </Flex>
-                            </Td>
-                            <Td isNumeric><Amount amount={currency.balance} currency="" /></Td>
-                            <Td isNumeric>{currency.latestPrice && (
-                                <Flex display="inline-flex" flexDirection={"column"} alignItems="end">
-                                    <Amount amount={currency.latestPrice.amount.number} currency={currency.latestPrice.amount.currency} />
-                                    <Text fontSize="xs" color="gray.500" display={"inline"}>{format(new Date(currency.latestPrice.date * 1000), "yyyy-MM-dd")}</Text>
-                                </Flex>
-                            )}</Td>
-                        </Tr>
-                    ))}
-                </Tbody>
-            </Table>
-
-
-        </div>
-    )
+  return (
+    <Container fluid>
+      <Title order={2}>Commodities</Title>
+      <Table verticalSpacing="xs" highlightOnHover>
+        <thead>
+          <tr>
+            <th>Currency</th>
+            <th>Balance</th>
+            <th>Latest Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data?.currencies.map((currency, idx) => (
+            <tr key={currency.name}>
+              <td>
+                <Group>
+                  <Text onClick={() => onCommodityClick(currency.name)}>{currency.name}</Text>
+                  {currency.isOperatingCurrency && (
+                    <Badge ml="xs" size="xs" variant="outline">
+                      Operating Currency
+                    </Badge>
+                  )}
+                </Group>
+              </td>
+              <td>
+                <Amount amount={currency.balance} currency="" />
+              </td>
+              <td>
+                {currency.latestPrice && (
+                  <>
+                    <Amount amount={currency.latestPrice.amount.number} currency={currency.latestPrice.amount.currency} />
+                    <Text color="dimmed" size="xs">
+                      {format(new Date(currency.latestPrice.date * 1000), 'yyyy-MM-dd')}
+                    </Text>
+                  </>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+    </Container>
+  );
 }
-
-

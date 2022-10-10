@@ -1,45 +1,62 @@
 import { useMutation } from '@apollo/client';
-import React, { useEffect } from 'react';
-import { FileWithPath, useDropzone } from 'react-dropzone';
+import { Text } from '@mantine/core';
+import { Dropzone } from '@mantine/dropzone';
+import { useEffect, useState } from 'react';
+import { FileWithPath } from 'react-dropzone';
 import { UPLOAD_ACCOUNT_DOCUMENT } from '../gql/uploadAccountDocument';
 
 interface Props {
-    accountName: string
+  accountName: string;
 }
 export default function AccountDocumentUpload(props: Props) {
-    const { acceptedFiles, getRootProps, getInputProps } = useDropzone();
-    
-    const [uploadAccountDocuments] = useMutation(UPLOAD_ACCOUNT_DOCUMENT, {
-        refetchQueries: [],
-        
-        update: (proxy)=> {
-            proxy.evict({fieldName:`account({"name":"${props.accountName}"})`});
-            proxy.evict({fieldName:`journals`});
-        }
-    });
-    useEffect(() => {
-        console.log("files", acceptedFiles);
-        if(acceptedFiles.length > 0) {
-            uploadAccountDocuments({ variables: { account: props.accountName, files: acceptedFiles } })
-        }
-    }, [acceptedFiles, props.accountName, uploadAccountDocuments]);
+  const [files, setFiles] = useState<FileWithPath[]>([]);
 
-    const files = acceptedFiles.map((file: FileWithPath) => (
-        <li key={file.path}>
-            {file.path} - {file.size} bytes
-        </li>
-    ));
+  const [uploadAccountDocuments] = useMutation(UPLOAD_ACCOUNT_DOCUMENT, {
+    refetchQueries: [],
 
-    return (
-        <section className="container">
-            <div {...getRootProps({ className: 'dropzone' })}>
-                <input {...getInputProps()} />
-                <p>Drag 'n' drop some files here, or click to select files</p>
-            </div>
-            <aside>
-                <h4>Files</h4>
-                <ul>{files}</ul>
-            </aside>
-        </section>
-    );
+    update: (proxy) => {
+      proxy.evict({ fieldName: `account({"name":"${props.accountName}"})` });
+      proxy.evict({ fieldName: `journals` });
+    },
+  });
+
+  useEffect(() => {
+    console.log('files', files);
+    if (files.length > 0) {
+      uploadAccountDocuments({
+        variables: { account: props.accountName, files: files },
+      }).then(() => {
+        setTimeout(() => {
+          setFiles([]);
+        }, 1000);
+      });
+    }
+  }, [files, props.accountName, uploadAccountDocuments]);
+
+  const filesDom = files.map((file: FileWithPath) => (
+    <li key={file.path}>
+      {file.path} - {file.size} bytes
+    </li>
+  ));
+
+  return (
+    <Dropzone onDrop={setFiles} radius="sm" maxSize={30 * 1024 ** 2}>
+      {filesDom.length > 0 ? (
+        <div>
+          <ul>{filesDom}</ul>
+        </div>
+      ) : (
+        <div style={{ pointerEvents: 'none' }}>
+          <Text align="center" weight={700} size="lg" mt="md">
+            <Dropzone.Accept>Drop files here</Dropzone.Accept>
+            <Dropzone.Reject>Pdf file less than 30mb</Dropzone.Reject>
+            <Dropzone.Idle>Upload resume</Dropzone.Idle>
+          </Text>
+          <Text align="center" size="sm" mt="xs" color="dimmed">
+            Drag&apos;n&apos;drop files here to upload. We can accept only <i>.pdf</i> files that are less than 30mb in size.
+          </Text>
+        </div>
+      )}
+    </Dropzone>
+  );
 }

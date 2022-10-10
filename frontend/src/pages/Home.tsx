@@ -1,12 +1,12 @@
-import { useQuery } from "@apollo/client";
-import { Box, Flex } from "@chakra-ui/react";
-import { format } from "date-fns";
-import React from 'react';
+import { useQuery } from '@apollo/client';
+import { Container, Title, Grid } from '@mantine/core';
+import { format } from 'date-fns';
 import { Chart } from 'react-chartjs-2';
-import { useTranslation } from "react-i18next";
-import Block from "../components/Block";
-import ErrorBox from "../components/ErrorBox";
-import { STATISTIC, StatisticResponse } from "../gql/statistic";
+import { useTranslation } from 'react-i18next';
+
+import ErrorBox from '../components/ErrorBox';
+import StatisticBar from '../components/StatisticBar';
+import { STATISTIC, StatisticResponse } from '../gql/statistic';
 
 const options = {
   responsive: true,
@@ -26,7 +26,7 @@ const options = {
       type: 'linear' as const,
       display: true,
       position: 'left' as const,
-      beginAtZero: false
+      beginAtZero: false,
     },
     y1: {
       type: 'linear' as const,
@@ -35,15 +35,15 @@ const options = {
       grid: {
         drawOnChartArea: false,
       },
-      beginAtZero: false
+      beginAtZero: false,
     },
   },
 };
 const build_chart_data = (data: StatisticResponse) => {
-  const labels = data.statistic.frames.map(frame => format(new Date(frame.end * 1000), 'MMM dd'));
-  const total_dataset = data.statistic.frames.map(frame => parseFloat(frame.total.summary.number));
-  const income_dataset = data.statistic.frames.map(frame => -1 * parseFloat(frame.income.summary.number));
-  const expense_dataset = data.statistic.frames.map(frame => parseFloat(frame.expense.summary.number));
+  const labels = data.statistic.frames.map((frame) => format(new Date(frame.end * 1000), 'MMM dd'));
+  const total_dataset = data.statistic.frames.map((frame) => parseFloat(frame.total.summary.number));
+  const income_dataset = data.statistic.frames.map((frame) => -1 * parseFloat(frame.income.summary.number));
+  const expense_dataset = data.statistic.frames.map((frame) => parseFloat(frame.expense.summary.number));
   return {
     labels,
     datasets: [
@@ -73,8 +73,8 @@ const build_chart_data = (data: StatisticResponse) => {
         yAxisID: 'y1',
       },
     ],
-  }
-}
+  };
+};
 
 function Home() {
   const { t } = useTranslation();
@@ -86,26 +86,26 @@ function Home() {
     variables: {
       from: Math.round(begining_time.getTime() / 1000),
       to: Math.round(end_time.getTime() / 1000),
-      gap: 1
-    }
+      gap: 1,
+    },
   });
   if (loading) return <p>Loading...</p>;
   if (error) return <p>Error :(</p>;
 
   return (
-    <Box as="section">
-      <Flex>
-        <Box flex={"0 0 70%"} m={1}>
-          <Block title={t("statistic")}>
-            <Chart type='bar' data={build_chart_data(data!)} options={options} />
-          </Block>
-        </Box>
-        <Box flex={1} minW={0} m={1}>
+    <Container fluid>
+      <Title order={2}>{t('Dashboard')}</Title>
+      <StatisticBar />
+      <Grid>
+        <Grid.Col span={8}>
+          <Chart type="bar" data={build_chart_data(data!)} options={options} />
+        </Grid.Col>
+        <Grid.Col span={4}>
           <ErrorBox></ErrorBox>
-        </Box>
-      </Flex>
-    </Box>
-  )
+        </Grid.Col>
+      </Grid>
+    </Container>
+  );
 }
 
 export default Home;
