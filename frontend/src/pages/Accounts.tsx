@@ -1,6 +1,6 @@
 import { useQuery } from '@apollo/client';
 import { Chip, Container, Group, Table, Title } from '@mantine/core';
-import { useDisclosure, useToggle } from '@mantine/hooks';
+import { useDisclosure } from '@mantine/hooks';
 import { useEffect, useState } from 'react';
 import AccountLine from '../components/AccountLine';
 import { AccountListQuery, ACCOUNT_LIST } from '../gql/accountList';

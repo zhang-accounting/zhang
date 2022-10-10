@@ -11,7 +11,7 @@ export default function Settings() {
   };
   useEffect(() => {
     i18n.changeLanguage(lang);
-  }, [lang]);
+  }, [lang, i18n]);
 
   return (
     <Container fluid>
