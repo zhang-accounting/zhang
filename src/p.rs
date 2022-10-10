@@ -25,6 +25,7 @@ pub struct ZhangParser;
 
 #[pest_consume::parser]
 impl ZhangParser {
+    #[allow(dead_code)]
     fn EOI(_input: Node) -> Result<()> {
         Ok(())
     }
@@ -139,6 +140,7 @@ impl ZhangParser {
         }))
     }
 
+    #[allow(dead_code)]
     fn identation(input: Node) -> Result<()> {
         Ok(())
     }
