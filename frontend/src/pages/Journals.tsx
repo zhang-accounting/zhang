@@ -5,30 +5,33 @@ import JournalLine from '../components/JournalLine';
 import JournalPreview from '../components/journalPreview/JournalPreview';
 import { JouralListQuery, JournalItem, JOURNAL_LIST } from '../gql/jouralList';
 function Journals() {
-  const [existedData, setExistedData] = useState<JournalItem[]>([]);
+  const [existedData, setExistedData] = useState<{ [page: string]: JournalItem[] }>({});
 
   const [page, setPage] = useState(1);
 
   const { loading, error, data } = useQuery<JouralListQuery>(JOURNAL_LIST, { variables: { page: page } });
   const [selectedJournal, setSelectedJournal] = useState<JournalItem | undefined>(undefined);
   useEffect(() => {
-    if (loading) return;
-    if (error) return;
-    setExistedData([...existedData, ...(data?.journals.data || [])]);
-  }, [data]);
-
-  if (loading) return <p>Loading...</p>;
-  if (error) return <p>Error :(</p>;
+    if (data?.journals) {
+      const newExitedData = { ...existedData };
+      newExitedData[data?.journals.pageInfo.page.toString()] = data?.journals.data || [];
+      setExistedData(newExitedData);
+    }
+  }, [data, loading, error]);
 
   const onMoreButtonClick = () => {
     setPage(page + 1);
   };
-  console.log('journal', data);
+  const journals = Object.keys(existedData)
+    .map((page) => parseInt(page))
+    .sort()
+    .flatMap((page: number) => existedData[page]);
+
   return (
     <Grid>
       <Grid.Col span={6}>
-        <ScrollArea style={{ height: '96vh' }} offsetScrollbars>
-          <Title order={2}>{existedData.length} Journals</Title>
+        <Title order={2}>{journals.length} Journals</Title>
+        <ScrollArea style={{ height: '90vh' }} offsetScrollbars type="always">
           <Table verticalSpacing="xs" highlightOnHover>
             <thead>
               <tr>
@@ -38,7 +41,7 @@ function Journals() {
               </tr>
             </thead>
             <tbody>
-              {existedData.map((journal, idx) => (
+              {journals.map((journal, idx) => (
                 <JournalLine key={idx} data={journal} onClick={setSelectedJournal} />
               ))}
             </tbody>
