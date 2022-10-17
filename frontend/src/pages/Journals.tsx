@@ -13,9 +13,11 @@ function Journals() {
   const [selectedJournal, setSelectedJournal] = useState<JournalItem | undefined>(undefined);
   useEffect(() => {
     if (data?.journals) {
-      const newExitedData = { ...existedData };
-      newExitedData[data?.journals.pageInfo.page.toString()] = data?.journals.data || [];
-      setExistedData(newExitedData);
+      setExistedData((olddata) => {
+        const newExitedData = { ...olddata };
+        newExitedData[data?.journals.pageInfo.page.toString()] = data?.journals.data || [];
+        return newExitedData;
+      });
     }
   }, [data, loading, error]);
 
