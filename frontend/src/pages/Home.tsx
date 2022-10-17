@@ -22,14 +22,14 @@ const options = {
     },
   },
   scales: {
-    y: {
+    total: {
       type: 'linear' as const,
       display: true,
       position: 'left' as const,
       beginAtZero: false,
     },
-    y1: {
-      type: 'linear' as const,
+    bar: {
+      type: 'logarithmic' as const,
       display: true,
       position: 'right' as const,
       grid: {
@@ -41,9 +41,11 @@ const options = {
 };
 const build_chart_data = (data: StatisticResponse) => {
   const labels = data.statistic.frames.map((frame) => format(new Date(frame.end * 1000), 'MMM dd'));
-  const total_dataset = data.statistic.frames.map((frame) => parseFloat(frame.total.summary.number));
+  const total_dataset = data.statistic.frames.map((frame) => -1 * parseFloat(frame.total.summary.number));
+  console.log('total_dataset', total_dataset);
   const income_dataset = data.statistic.frames.map((frame) => -1 * parseFloat(frame.income.summary.number));
   const expense_dataset = data.statistic.frames.map((frame) => parseFloat(frame.expense.summary.number));
+  console.log('income_dataset', income_dataset, expense_dataset);
   return {
     labels,
     datasets: [
@@ -52,25 +54,25 @@ const build_chart_data = (data: StatisticResponse) => {
         label: 'total',
         borderColor: 'rgb(255, 99, 132)',
         borderWidth: 2,
-        fill: false,
         data: total_dataset,
-        yAxisID: 'y',
+        yAxisID: 'total',
       },
       {
         type: 'bar' as const,
         label: 'income',
-        backgroundColor: 'rgb(75, 192, 192)',
+        backgroundColor: 'rgb(17, 183, 205)',
         data: income_dataset,
         borderColor: 'white',
-        borderWidth: 2,
-        yAxisID: 'y1',
+        borderRadius: 3,
+        yAxisID: 'bar',
       },
       {
         type: 'bar' as const,
         label: 'expense',
-        backgroundColor: 'rgb(53, 162, 235)',
+        backgroundColor: 'rgb(247, 31, 167)',
+        borderRadius: 3,
         data: expense_dataset,
-        yAxisID: 'y1',
+        yAxisID: 'bar',
       },
     ],
   };
@@ -98,7 +100,7 @@ function Home() {
       <StatisticBar />
       <Grid>
         <Grid.Col span={8}>
-          <Chart type="bar" data={build_chart_data(data!)} options={options} />
+          <Chart type="line" data={build_chart_data(data!)} options={options} />
         </Grid.Col>
         <Grid.Col span={4}>
           <ErrorBox></ErrorBox>

@@ -3,6 +3,10 @@ import { AccountItem } from './accountList';
 
 export interface Paginable<T> {
   data: T[];
+  pageInfo: {
+    page: number;
+    total: number;
+  };
 }
 
 export interface JouralListQuery {

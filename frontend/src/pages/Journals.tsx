@@ -1,29 +1,39 @@
 import { useQuery } from '@apollo/client';
 import { Button, Grid, ScrollArea, Table, Title } from '@mantine/core';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import JournalLine from '../components/JournalLine';
 import JournalPreview from '../components/journalPreview/JournalPreview';
 import { JouralListQuery, JournalItem, JOURNAL_LIST } from '../gql/jouralList';
 function Journals() {
+  const [existedData, setExistedData] = useState<{ [page: string]: JournalItem[] }>({});
+
   const [page, setPage] = useState(1);
-  const { loading, error, data, fetchMore } = useQuery<JouralListQuery>(JOURNAL_LIST, { variables: { page: 1 } });
+
+  const { loading, error, data } = useQuery<JouralListQuery>(JOURNAL_LIST, { variables: { page: page } });
   const [selectedJournal, setSelectedJournal] = useState<JournalItem | undefined>(undefined);
-  if (loading) return <p>Loading...</p>;
-  if (error) return <p>Error :(</p>;
+  useEffect(() => {
+    if (data?.journals) {
+      setExistedData((olddata) => {
+        const newExitedData = { ...olddata };
+        newExitedData[data?.journals.pageInfo.page.toString()] = data?.journals.data || [];
+        return newExitedData;
+      });
+    }
+  }, [data, loading, error]);
 
   const onMoreButtonClick = () => {
-    fetchMore({
-      variables: {
-        page: page + 1,
-      },
-    });
     setPage(page + 1);
   };
+  const journals = Object.keys(existedData)
+    .map((page) => parseInt(page))
+    .sort()
+    .flatMap((page: number) => existedData[page]);
+
   return (
     <Grid>
       <Grid.Col span={6}>
-        <ScrollArea style={{ height: '96vh' }} offsetScrollbars>
-          <Title order={2}>{data?.journals.data.length} Journals</Title>
+        <Title order={2}>{journals.length} Journals</Title>
+        <ScrollArea style={{ height: '90vh' }} offsetScrollbars type="always">
           <Table verticalSpacing="xs" highlightOnHover>
             <thead>
               <tr>
@@ -33,7 +43,7 @@ function Journals() {
               </tr>
             </thead>
             <tbody>
-              {data?.journals.data.map((journal, idx) => (
+              {journals.map((journal, idx) => (
                 <JournalLine key={idx} data={journal} onClick={setSelectedJournal} />
               ))}
             </tbody>

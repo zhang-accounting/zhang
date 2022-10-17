@@ -56,7 +56,5 @@ export function calculate(trx: TransactionDto): Set<SummaryItem> {
       ret.add({ number: targetAmount, currency: currency });
     }
   });
-
-  console.log('temp', trx, counter, internal, ret);
   return ret;
 }

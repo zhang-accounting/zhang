@@ -28,17 +28,6 @@ const client = new ApolloClient({
               };
             },
           },
-          journals: {
-            read: (existing) => {
-              return existing;
-            },
-            merge: (exists, incoming, options) => {
-              return {
-                ...incoming,
-                data: [...(exists?.data || []), ...(incoming.data || [])],
-              };
-            },
-          },
         },
       },
     },
