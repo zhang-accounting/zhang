@@ -75,7 +75,7 @@ const build_chart_data = (data: StatisticResponse) => {
 };
 
 function sumPostings(postings: Posting[]): number {
-  return _.sumBy(postings, (posting) => parseFloat(posting.unit.number));
+  return _.sumBy(postings, (posting) => parseFloat(posting.unit.number || posting.inferredUnit.number));
 }
 export default function Report() {
   const [value, setValue] = useState<DateRangePickerValue>([
