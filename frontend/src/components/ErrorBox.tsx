@@ -58,7 +58,6 @@ export default function ErrorBox() {
   };
 
   if (loading) return <div> loading</div>;
-  console.log('error', data);
   return (
     <>
       <Modal
@@ -88,7 +87,9 @@ export default function ErrorBox() {
           {data?.errors.edges
             .map((edge) => edge.node)
             .map((error, idx) => (
-              <Text onClick={() => toggleError(error)}>{error.message}</Text>
+              <Text key={idx} onClick={() => toggleError(error)}>
+                {error.message}
+              </Text>
             ))}
         </Stack>
 
