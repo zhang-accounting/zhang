@@ -128,53 +128,16 @@ const links = [
   { icon: IconUser, label: 'Settings', uri: '/settings' },
 ];
 
-const collections = [
-  { emoji: '👍', label: 'Sales' },
-  { emoji: '🚚', label: 'Deliveries' },
-  { emoji: '💸', label: 'Discounts' },
-  { emoji: '💰', label: 'Profits' },
-  { emoji: '✨', label: 'Reports' },
-  { emoji: '🛒', label: 'Orders' },
-  { emoji: '📅', label: 'Events' },
-  { emoji: '🙈', label: 'Debts' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-  { emoji: '💁‍♀️', label: 'Customers' },
-];
+// const collections = [
+//   { emoji: '👍', label: 'Sales' },
+//   { emoji: '🚚', label: 'Deliveries' },
+//   { emoji: '💸', label: 'Discounts' },
+//   { emoji: '💰', label: 'Profits' },
+//   { emoji: '✨', label: 'Reports' },
+//   { emoji: '🛒', label: 'Orders' },
+//   { emoji: '📅', label: 'Events' },
+//   { emoji: '🙈', label: 'Debts' },
+// ];
 
 export default function App() {
   const { classes } = useStyles();
@@ -193,11 +156,11 @@ export default function App() {
     </UnstyledButton>
   ));
 
-  const collectionLinks = collections.map((collection) => (
-    <a href="/" onClick={(event) => event.preventDefault()} key={collection.label} className={classes.collectionLink}>
-      <span style={{ marginRight: 9, fontSize: 16 }}>{collection.emoji}</span> {collection.label}
-    </a>
-  ));
+  // const collectionLinks = collections.map((collection) => (
+  //   <a href="/" onClick={(event) => event.preventDefault()} key={collection.label} className={classes.collectionLink}>
+  //     <span style={{ marginRight: 9, fontSize: 16 }}>{collection.emoji}</span> {collection.label}
+  //   </a>
+  // ));
 
   return (
     <AppShell
@@ -227,7 +190,7 @@ export default function App() {
             <div className={classes.mainLinks}>{mainLinks}</div>
           </Navbar.Section>
 
-          <Navbar.Section grow className={classes.section}>
+          {/* <Navbar.Section grow className={classes.section}>
             <Group className={classes.collectionsHeader} position="apart">
               <Text size="xs" weight={500} color="dimmed">
                 Collections
@@ -239,10 +202,9 @@ export default function App() {
               </Tooltip>
             </Group>
             <div className={classes.collections}>{collectionLinks}</div>
-          </Navbar.Section>
+          </Navbar.Section> */}
         </Navbar>
-      }
-    >
+      }>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="journals" element={<Journals />} />
