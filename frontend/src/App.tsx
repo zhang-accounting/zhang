@@ -13,7 +13,7 @@ import SingleCommodity from './pages/SingleCommodity';
 import { Link as RouteLink } from 'react-router-dom';
 import NewTransactionButton from './components/NewTransactionButton';
 import { createStyles, Navbar, TextInput, Code, UnstyledButton, Badge, Text, Group, ActionIcon, Tooltip } from '@mantine/core';
-import { IconBulb, IconUser, IconCheckbox, IconSearch, IconPlus, IconReceipt2 } from '@tabler/icons';
+import { IconBulb, IconUser, IconCheckbox, IconSearch, IconPlus, IconReceipt2, TablerIcon } from '@tabler/icons';
 
 import { AppShell, Grid } from '@mantine/core';
 
@@ -116,9 +116,16 @@ const useStyles = createStyles((theme) => ({
   },
 }));
 
-const links = [
-  { icon: IconBulb, label: 'Home', uri: '/', notifications: 3 },
-  { icon: IconCheckbox, label: 'Journals', uri: '/journals', notifications: 4 },
+interface LinkItem {
+  icon: TablerIcon;
+  label: string;
+  uri: string;
+  notifications?: number;
+}
+
+const links: LinkItem[] = [
+  { icon: IconBulb, label: 'Home', uri: '/' },
+  { icon: IconCheckbox, label: 'Journals', uri: '/journals' },
   { icon: IconUser, label: 'Accounts', uri: '/accounts' },
   { icon: IconUser, label: 'Commodities', uri: '/commodities' },
   { icon: IconUser, label: 'Documents', uri: '/documents' },
