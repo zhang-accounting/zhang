@@ -26,38 +26,35 @@ export default function BalanceCheckLine({ data, onClick }: Props) {
         </Text>
       </td>
       <td>
-        <Group position="apart">
-          <div>
-            <Text lineClamp={1}>{data.account?.name}</Text>
-            <Text mr={2} color="dimmed" size="xs">
-              Balance Check
-            </Text>
-          </div>
-          <Stack align="flex-end" spacing="xs">
-            {data.isBalanced ? (
-              <Group spacing="xs" position="right">
-                <IconCashBanknote stroke={1.5}></IconCashBanknote>
-                <Text lineClamp={1}>
-                  {data.currentAmount.number} {data.currentAmount.currency}
-                </Text>
-              </Group>
-            ) : (
-              <Group>
-                <IconCashBanknoteOff stroke={1.5}></IconCashBanknoteOff>
-                <Text lineClamp={1}>
-                  {data.currentAmount.number} {data.currentAmount.currency}
-                </Text>
-              </Group>
-            )}
-            {!data.isBalanced && (
-              <Text mr={2} color="dimmed" size="xs">
-                {data.balanceAmount.number} {data.balanceAmount.currency}
-              </Text>
-            )}
-          </Stack>
-        </Group>
+        <Text lineClamp={1}>{data.account?.name}</Text>
+        <Text mr={2} color="dimmed" size="xs">
+          Balance Check
+        </Text>
       </td>
-      <td></td>
+      <td>
+        <Stack align="flex-end" spacing="xs">
+          {data.isBalanced ? (
+            <Group spacing="xs" position="right">
+              <IconCashBanknote stroke={1.5}></IconCashBanknote>
+              <Text lineClamp={1}>
+                {data.currentAmount.number} {data.currentAmount.currency}
+              </Text>
+            </Group>
+          ) : (
+            <Group>
+              <IconCashBanknoteOff stroke={1.5}></IconCashBanknoteOff>
+              <Text lineClamp={1}>
+                {data.currentAmount.number} {data.currentAmount.currency}
+              </Text>
+            </Group>
+          )}
+          {!data.isBalanced && (
+            <Text mr={2} color="dimmed" size="xs">
+              {data.balanceAmount.number} {data.balanceAmount.currency}
+            </Text>
+          )}
+        </Stack>
+      </td>
     </tr>
   );
 }
