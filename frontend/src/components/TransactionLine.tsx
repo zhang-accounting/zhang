@@ -30,35 +30,23 @@ export default function TransactionLine({ data, onClick }: Props) {
       </td>
       <td>
         <Text lineClamp={1}>{data.narration}</Text>
-        <Group position="apart">
+        <Group>
           <Text mr={2} color="dimmed" size="xs">
             {data.payee}
           </Text>
-          <Group position="right">
-            {Array.from(summary.values()).map((each) => (
-              <Group align="center" spacing="xs">
-                {each.number.isPositive() ? <IconArrowBigDownLines stroke={1.5} /> : <IconArrowBigUpLines stroke={1.5} />}
-                <span>
-                  {each.number.abs().toFixed()} {each.currency}
-                </span>
-              </Group>
-            ))}
-          </Group>
         </Group>
       </td>
       <td>
         <Group spacing="xs" position="right">
-          {/* <div className={classes.mainLinkInner}>
-                        <IconArrowBigUpLines stroke={1.5}></IconArrowBigUpLines>
-                        <Text>100.00 CNY</Text>
-                    </div> */}
+          {Array.from(summary.values()).map((each) => (
+            <Group align="center" spacing="xs">
+              {each.number.isPositive() ? <IconArrowBigDownLines stroke={1.5} /> : <IconArrowBigUpLines stroke={1.5} />}
+              <span>
+                {each.number.abs().toFixed()} {each.currency}
+              </span>
+            </Group>
+          ))}
         </Group>
-        {/* {data.postings.map((posting, idx) => (
-                    <Group key={idx}>
-                        <Text mx={2}>{posting?.account?.name}</Text>
-                        <Text align={"right"} mx={2}>{posting.unit?.number} {posting.unit?.currency}</Text>
-                    </Group>
-                ))} */}
       </td>
     </tr>
   );
