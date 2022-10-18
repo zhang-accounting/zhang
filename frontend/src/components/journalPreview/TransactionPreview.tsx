@@ -4,6 +4,8 @@ import { TransactionDto } from '../../gql/jouralList';
 import Amount from '../Amount';
 import Block from '../Block';
 import { DropzoneButton } from '../DropzoneButton';
+import { UPLOAD_TRANSACTION_DOCUMENT } from '../../gql/uploadTransactionDocument';
+
 interface Props {
   data: TransactionDto;
 }
@@ -66,7 +68,7 @@ export default function TransactionPreview(props: Props) {
 
       <Box mx={1} my={4}>
         <Block title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
-          <DropzoneButton />
+          <DropzoneButton gql={UPLOAD_TRANSACTION_DOCUMENT} variables={{ file: props.data.spanFile, at: props.data.spanEnd }} />
           <Box>
             {props.data.metas
               .filter((meta) => meta.key === 'document')
