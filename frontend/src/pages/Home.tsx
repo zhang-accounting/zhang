@@ -5,6 +5,7 @@ import { Chart } from 'react-chartjs-2';
 import { useTranslation } from 'react-i18next';
 
 import ErrorBox from '../components/ErrorBox';
+import Section from '../components/Section';
 import StatisticBar from '../components/StatisticBar';
 import { STATISTIC, StatisticResponse } from '../gql/statistic';
 
@@ -15,12 +16,6 @@ const options = {
     intersect: false,
   },
   stacked: false,
-  plugins: {
-    title: {
-      display: true,
-      text: 'Current Month Statistic',
-    },
-  },
   scales: {
     total: {
       type: 'linear' as const,
@@ -100,10 +95,14 @@ function Home() {
       <StatisticBar />
       <Grid>
         <Grid.Col span={8}>
-          <Chart type="line" data={build_chart_data(data!)} options={options} />
+          <Section title="Current Statistics">
+            <Chart type="line" data={build_chart_data(data!)} options={options} />
+          </Section>
         </Grid.Col>
         <Grid.Col span={4}>
-          <ErrorBox></ErrorBox>
+          <Section title="Errors">
+            <ErrorBox></ErrorBox>
+          </Section>
         </Grid.Col>
       </Grid>
     </Container>

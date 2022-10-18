@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@apollo/client';
-import { Text, Button, Modal } from '@mantine/core';
+import { Text, Button, Modal, Group } from '@mantine/core';
 import { ErrorEntity, ErrorListQuery, ERROR_LIST } from '../gql/errorList';
 import { useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
@@ -82,26 +82,27 @@ export default function ErrorBox() {
           {t('Save')}
         </Button>
       </Modal>
-      <div>
+      <Stack>
         <Stack>
           {data?.errors.edges
             .map((edge) => edge.node)
             .map((error, idx) => (
-              <Text key={idx} onClick={() => toggleError(error)}>
+              <Text key={idx} onClick={() => toggleError(error)} lineClamp={1}>
                 {error.message}
               </Text>
             ))}
         </Stack>
-
-        <Button.Group>
-          <Button disabled={!data?.errors.pageInfo.hasPreviousPage} onClick={fetchPreviousPage} variant="default">
-            {t('Previous')}
-          </Button>
-          <Button disabled={!data?.errors.pageInfo.hasNextPage} onClick={fetchNextPage} variant="default">
-            {t('Next')}
-          </Button>
-        </Button.Group>
-      </div>
+        <Group position="right">
+          <Button.Group>
+            <Button disabled={!data?.errors.pageInfo.hasPreviousPage} onClick={fetchPreviousPage} variant="default">
+              {t('Previous')}
+            </Button>
+            <Button disabled={!data?.errors.pageInfo.hasNextPage} onClick={fetchNextPage} variant="default">
+              {t('Next')}
+            </Button>
+          </Button.Group>
+        </Group>
+      </Stack>
     </>
   );
 }

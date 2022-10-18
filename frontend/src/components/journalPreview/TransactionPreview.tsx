@@ -5,6 +5,7 @@ import Amount from '../Amount';
 import Block from '../Block';
 import { DropzoneButton } from '../DropzoneButton';
 import { UPLOAD_TRANSACTION_DOCUMENT } from '../../gql/uploadTransactionDocument';
+import Section from '../Section';
 
 interface Props {
   data: TransactionDto;
@@ -38,7 +39,7 @@ export default function TransactionPreview(props: Props) {
       </Box>
 
       <Box mx={1} my={4}>
-        <Block title="Postings">
+        <Section title="Postings">
           <>
             {props.data.postings.map((posting, idx) => (
               <Group key={idx} position="apart">
@@ -47,27 +48,24 @@ export default function TransactionPreview(props: Props) {
               </Group>
             ))}
           </>
-        </Block>
+        </Section>
       </Box>
+
       {props.data.metas.filter((meta) => meta.key !== 'document').length > 0 && (
-        <Box mx={1} my={4}>
-          <Block title="Metas">
-            <Box>
-              {props.data.metas
-                .filter((meta) => meta.key !== 'document')
-                .map((meta, idx) => (
-                  <Group key={idx} position="apart">
-                    <div>{meta.key}</div>
-                    <div>{meta.value}</div>
-                  </Group>
-                ))}
-            </Box>
-          </Block>
-        </Box>
+        <Section title="Metas">
+          {props.data.metas
+            .filter((meta) => meta.key !== 'document')
+            .map((meta, idx) => (
+              <Group key={idx} position="apart">
+                <div>{meta.key}</div>
+                <div>{meta.value}</div>
+              </Group>
+            ))}
+        </Section>
       )}
 
       <Box mx={1} my={4}>
-        <Block title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
+        <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
           <DropzoneButton gql={UPLOAD_TRANSACTION_DOCUMENT} variables={{ file: props.data.spanFile, at: props.data.spanEnd }} />
           <Box>
             {props.data.metas
@@ -78,7 +76,7 @@ export default function TransactionPreview(props: Props) {
                 </Group>
               ))}
           </Box>
-        </Block>
+        </Section>
       </Box>
     </div>
   );
