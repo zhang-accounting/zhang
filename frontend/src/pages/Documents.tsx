@@ -35,7 +35,7 @@ export default function Documents() {
       <Title order={2}>{Object.keys(documents).length} Documents</Title>
       <Grid gutter="xs" mt="lg">
         {Object.values(documents).map((document, idx) => (
-          <Grid.Col key={idx} span={'content'} style={{ border: '1px solid #000' }}>
+          <Grid.Col key={idx} span={3}>
             <AccountDocumentLine {...document} />
           </Grid.Col>
         ))}

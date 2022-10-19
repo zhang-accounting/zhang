@@ -2,10 +2,10 @@ import { Box, Text, Badge, Group } from '@mantine/core';
 import { format } from 'date-fns';
 import { TransactionDto } from '../../gql/jouralList';
 import Amount from '../Amount';
-import Block from '../Block';
 import { DropzoneButton } from '../DropzoneButton';
 import { UPLOAD_TRANSACTION_DOCUMENT } from '../../gql/uploadTransactionDocument';
 import Section from '../Section';
+import DocumentPreview from './DocumentPreview';
 
 interface Props {
   data: TransactionDto;
@@ -43,8 +43,8 @@ export default function TransactionPreview(props: Props) {
           <>
             {props.data.postings.map((posting, idx) => (
               <Group key={idx} position="apart">
-                <div>{posting.account.name}</div>
-                <div>{posting.unit && <Amount amount={posting.unit?.number} currency={posting.unit?.currency} />}</div>
+                <Text lineClamp={1}>{posting.account.name}</Text>
+                <Text lineClamp={1}>{posting.unit && <Amount amount={posting.unit?.number} currency={posting.unit?.currency} />}</Text>
               </Group>
             ))}
           </>
@@ -57,8 +57,8 @@ export default function TransactionPreview(props: Props) {
             .filter((meta) => meta.key !== 'document')
             .map((meta, idx) => (
               <Group key={idx} position="apart">
-                <div>{meta.key}</div>
-                <div>{meta.value}</div>
+                <Text lineClamp={1}>{meta.key}</Text>
+                <Text lineClamp={1}>{meta.value}</Text>
               </Group>
             ))}
         </Section>
@@ -71,9 +71,7 @@ export default function TransactionPreview(props: Props) {
             {props.data.metas
               .filter((meta) => meta.key === 'document')
               .map((meta, idx) => (
-                <Group key={idx} position="apart">
-                  <div>{meta.value}</div>
-                </Group>
+                <DocumentPreview key={idx} uri={meta.value} filename={meta.value} />
               ))}
           </Box>
         </Section>
