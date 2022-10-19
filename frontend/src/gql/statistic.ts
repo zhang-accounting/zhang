@@ -12,7 +12,7 @@ export const STATISTIC = gql`
       end
       journals(transactionOnly: true) {
         type: __typename
-        
+
         ... on TransactionDto {
           date
           timestamp
@@ -20,6 +20,10 @@ export const STATISTIC = gql`
           narration
           postings {
             unit {
+              currency
+              number
+            }
+            inferredUnit {
               currency
               number
             }

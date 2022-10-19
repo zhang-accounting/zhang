@@ -127,7 +127,10 @@ impl QueryRoot {
             .directives
             .iter()
             .filter_map(|directive| match &directive.data {
-                Directive::Transaction(trx) => Some(JournalDto::Transaction(TransactionDto(trx.clone()))),
+                Directive::Transaction(trx) => Some(JournalDto::Transaction(TransactionDto {
+                    data: trx.clone(),
+                    span_info: Some(directive.span.clone()),
+                })),
                 Directive::Balance(balance) => match balance {
                     Balance::BalanceCheck(check) => Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone()))),
                     Balance::BalancePad(pad) => Some(JournalDto::BalancePad(BalancePadDto(pad.clone()))),
@@ -238,7 +241,10 @@ impl AccountDto {
                 _ => false,
             })
             .filter_map(|directive| match &directive.data {
-                Directive::Transaction(trx) => Some(JournalDto::Transaction(TransactionDto(trx.clone()))),
+                Directive::Transaction(trx) => Some(JournalDto::Transaction(TransactionDto {
+                    data: trx.clone(),
+                    span_info: Some(directive.span.clone()),
+                })),
                 Directive::Balance(balance) => match balance {
                     Balance::BalanceCheck(check) => Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone()))),
                     Balance::BalancePad(pad) => Some(JournalDto::BalancePad(BalancePadDto(pad.clone()))),
@@ -391,33 +397,36 @@ pub enum JournalDto {
 }
 
 #[derive(Clone)]
-pub struct TransactionDto(Transaction);
+pub struct TransactionDto {
+    data: Transaction,
+    span_info: Option<SpanInfo>,
+}
 
 #[Object]
 impl TransactionDto {
     async fn date(&self) -> String {
-        self.0.date.naive_date().to_string()
+        self.data.date.naive_date().to_string()
     }
     async fn timestamp(&self) -> i64 {
-        self.0.date.naive_datetime().timestamp()
+        self.data.date.naive_datetime().timestamp()
     }
     async fn payee(&self) -> Option<String> {
-        self.0.payee.clone().map(|it| it.to_plain_string())
+        self.data.payee.clone().map(|it| it.to_plain_string())
     }
     async fn narration(&self) -> Option<String> {
-        self.0.narration.clone().map(|it| it.to_plain_string())
+        self.data.narration.clone().map(|it| it.to_plain_string())
     }
     async fn postings<'a>(&'a self) -> Vec<PostingDto<'a>> {
-        self.0.txn_postings().into_iter().map(PostingDto).collect_vec()
+        self.data.txn_postings().into_iter().map(PostingDto).collect_vec()
     }
     async fn tags(&self) -> Vec<String> {
-        self.0.tags.iter().cloned().collect_vec()
+        self.data.tags.iter().cloned().collect_vec()
     }
     async fn links(&self) -> Vec<String> {
-        self.0.links.iter().cloned().collect_vec()
+        self.data.links.iter().cloned().collect_vec()
     }
     async fn metas(&self) -> Vec<MetaDto> {
-        self.0
+        self.data
             .meta
             .clone()
             .get_flatten()
@@ -430,7 +439,16 @@ impl TransactionDto {
     }
     async fn is_balanced(&self, ctx: &Context<'_>) -> bool {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
-        ledger_stage.is_transaction_balanced(&self.0)
+        ledger_stage.is_transaction_balanced(&self.data)
+    }
+    async fn span_end(&self) -> Option<usize> {
+        self.span_info.as_ref().map(|info| info.end)
+    }
+    async fn span_file(&self) -> Option<&str> {
+        self.span_info
+            .as_ref()
+            .and_then(|info| info.filename.as_ref())
+            .and_then(|filename| filename.to_str())
     }
 }
 
@@ -554,7 +572,10 @@ impl StatisticDto {
                 _ => false,
             })
             .filter_map(|directive| match &directive.data {
-                Directive::Transaction(trx) => Some(JournalDto::Transaction(TransactionDto(trx.clone()))),
+                Directive::Transaction(trx) => Some(JournalDto::Transaction(TransactionDto {
+                    data: trx.clone(),
+                    span_info: Some(directive.span.clone()),
+                })),
                 Directive::Balance(balance) => match balance {
                     Balance::BalanceCheck(check) => Some(JournalDto::BalanceCheck(BalanceCheckDto(check.clone()))),
                     Balance::BalancePad(pad) => Some(JournalDto::BalancePad(BalancePadDto(pad.clone()))),
@@ -733,7 +754,10 @@ impl TransactionDocumentDto {
         self.filename.clone()
     }
     async fn transaction(&self) -> TransactionDto {
-        TransactionDto(self.trx.clone())
+        TransactionDto {
+            data: self.trx.clone(),
+            span_info: None,
+        }
     }
 }
 

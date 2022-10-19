@@ -16,6 +16,8 @@ function simpleTrx(postings: any): TransactionDto {
     links: [],
     metas: [],
     isBalanced: false,
+    spanEnd: 0,
+    spanFile: '',
   };
 }
 

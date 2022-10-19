@@ -1,6 +1,6 @@
 import { useQuery } from '@apollo/client';
 import { Chip, Container, Group, Table, Title } from '@mantine/core';
-import { useDisclosure } from '@mantine/hooks';
+import { useLocalStorage } from '@mantine/hooks';
 import { useEffect, useState } from 'react';
 import AccountLine from '../components/AccountLine';
 import { AccountListQuery, ACCOUNT_LIST } from '../gql/accountList';
@@ -9,7 +9,8 @@ import AccountTrie from '../utils/AccountTrie';
 export default function Accounts() {
   const { loading, error, data } = useQuery<AccountListQuery>(ACCOUNT_LIST);
 
-  const [hideClosedAccount, hideClosedAccountHandler] = useDisclosure(false);
+  const [hideClosedAccount, setHideClosedAccount] = useLocalStorage({ key: 'hideClosedAccount', defaultValue: false });
+
   const [accountTrie, setAccountTrie] = useState(new AccountTrie());
 
   useEffect(() => {
@@ -32,7 +33,7 @@ export default function Accounts() {
       <Title order={2}>Accounts</Title>
 
       <Group my="lg">
-        <Chip checked={hideClosedAccount} onChange={hideClosedAccountHandler.toggle}>
+        <Chip checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)}>
           Hide closed accounts
         </Chip>
       </Group>

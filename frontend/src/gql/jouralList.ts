@@ -26,6 +26,8 @@ export interface TransactionDto {
   links: string[];
   metas: Meta[];
   isBalanced: boolean;
+  spanEnd: number;
+  spanFile: string;
 }
 
 export interface Posting {
@@ -78,6 +80,8 @@ export const JOURNAL_LIST = gql`
           tags
           links
           isBalanced
+          spanEnd
+          spanFile
           postings {
             account {
               name
