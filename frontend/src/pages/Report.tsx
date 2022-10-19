@@ -157,9 +157,8 @@ export default function Report() {
   return (
     <>
       <Container fluid>
-        <Title order={2}>Report</Title>
-
-        <Group position="right">
+        <Group position="apart" my="lg">
+          <Title order={2}>Report</Title>
           <DateRangePicker placeholder="Pick dates range" value={value} onChange={setValue} />
         </Group>
 

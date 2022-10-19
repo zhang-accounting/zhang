@@ -5,7 +5,7 @@ const useStyles = createStyles((theme) => ({
   root: {
     backgroundImage: `linear-gradient(-60deg, ${theme.colors[theme.primaryColor][4]} 0%, ${theme.colors[theme.primaryColor][7]} 100%)`,
     padding: theme.spacing.xl,
-    borderRadius: theme.radius.md,
+    borderRadius: theme.radius.sm,
 
     [theme.fn.smallerThan('sm')]: {
       flexDirection: 'column',
@@ -31,7 +31,7 @@ const useStyles = createStyles((theme) => ({
   description: {
     color: theme.colors[theme.primaryColor][0],
     fontSize: theme.fontSizes.sm,
-    marginTop: 5,
+    marginTop: 4,
   },
 
   stat: {
