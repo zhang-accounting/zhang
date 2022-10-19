@@ -1,11 +1,12 @@
 import { useQuery } from '@apollo/client';
-import { Container, Grid, Group, Progress, SegmentedControl, Title, Text } from '@mantine/core';
+import { Container, Grid, Group, Progress, SegmentedControl, Title, Text, Table } from '@mantine/core';
 import { DateRangePicker, DateRangePickerValue } from '@mantine/dates';
 import { format } from 'date-fns';
 import * as _ from 'lodash';
 import { useState } from 'react';
 import { Chart } from 'react-chartjs-2';
 import JournalLine from '../components/JournalLine';
+import Section from '../components/Section';
 import StatusGroup from '../components/StatusGroup';
 import { Posting, TransactionDto } from '../gql/jouralList';
 import { STATISTIC, StatisticResponse } from '../gql/statistic';
@@ -75,7 +76,7 @@ const build_chart_data = (data: StatisticResponse) => {
 };
 
 function sumPostings(postings: Posting[]): number {
-  return _.sumBy(postings, (posting) => parseFloat(posting.unit.number || posting.inferredUnit.number));
+  return _.sumBy(postings, (posting) => parseFloat(posting?.unit?.number || posting?.inferredUnit?.number));
 }
 export default function Report() {
   const [value, setValue] = useState<DateRangePickerValue>([
@@ -171,72 +172,102 @@ export default function Report() {
             { title: '交易数', number: data?.statistic.journals.length },
           ]}
         />
-        <Group position="right">
-          <SegmentedControl
-            value={gap.toString()}
-            onChange={(e) => setGap(parseInt(e))}
-            color="blue"
-            data={[
-              { label: 'Daily', value: '1' },
-              { label: 'Weekly', value: '7' },
-              { label: 'Monthly', value: '30' },
-            ]}
-          />
-        </Group>
 
-        <Chart type="bar" data={build_chart_data(data!)} options={options} height={100} />
+        <Section
+          title="Graph"
+          rightSection={
+            <SegmentedControl
+              size="xs"
+              value={gap.toString()}
+              onChange={(e) => setGap(parseInt(e))}
+              color="blue"
+              data={[
+                { label: 'Daily', value: '1' },
+                { label: 'Weekly', value: '7' },
+                { label: 'Monthly', value: '30' },
+              ]}
+            />
+          }>
+          <Chart type="bar" data={build_chart_data(data!)} options={options} height={100} />
+        </Section>
 
-        <Grid>
-          <Grid.Col span={4}>
-            {_.take(incomeRank, 10).map((each_income) => (
-              <div key={each_income.name}>
-                <Text>{each_income.name}</Text>
-                <Progress
-                  sections={[
-                    {
-                      value: Math.round((each_income.total / incomeTotal) * 100),
-                      color: 'pink',
-                      label: `${Math.round((each_income.total / incomeTotal) * 10000) / 100}%`,
-                      tooltip: `${each_income.total}`,
-                    },
-                  ]}
-                  size="md"
-                />
-              </div>
-            ))}
-          </Grid.Col>
-          <Grid.Col span={8}>
-            {_.take(incomeJournalRank, 10).map((journal, idx) => (
-              <JournalLine key={idx} data={journal} />
-            ))}
-          </Grid.Col>
-        </Grid>
+        <Section title="Incomes">
+          <Grid>
+            <Grid.Col span={4}>
+              {_.take(incomeRank, 10).map((each_income) => (
+                <div key={each_income.name}>
+                  <Text>{each_income.name}</Text>
+                  <Progress
+                    sections={[
+                      {
+                        value: Math.round((each_income.total / incomeTotal) * 100),
+                        color: 'pink',
+                        label: `${Math.round((each_income.total / incomeTotal) * 10000) / 100}%`,
+                        tooltip: `${each_income.total}`,
+                      },
+                    ]}
+                    size="md"
+                  />
+                </div>
+              ))}
+            </Grid.Col>
+            <Grid.Col span={8}>
+              <Table verticalSpacing="xs" highlightOnHover>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th style={{}}>Payee & Narration</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {_.take(incomeJournalRank, 10).map((journal, idx) => (
+                    <JournalLine key={idx} data={journal} />
+                  ))}
+                </tbody>
+              </Table>
+            </Grid.Col>
+          </Grid>
+        </Section>
 
-        <Grid>
-          <Grid.Col span={4}>
-            {_.take(expenseRank, 10).map((each_income) => (
-              <div key={each_income.name}>
-                <Text>{each_income.name}</Text>
-                <Progress
-                  sections={[
-                    {
-                      value: Math.round((each_income.total / expenseTotal) * 100),
-                      color: 'pink',
-                      label: `${Math.round((each_income.total / expenseTotal) * 10000) / 100}%`,
-                      tooltip: Math.round((each_income.total / expenseTotal) * 10000) / 100,
-                    },
-                  ]}
-                  size="md"
-                />
-              </div>
-            ))}
-          </Grid.Col>
-          <Grid.Col span={8}>
-            {_.take(expenseJournalRank, 10).map((journal, idx) => (
-              <JournalLine key={idx} data={journal} />
-            ))}
-          </Grid.Col>
-        </Grid>
+        <Section title="Expenses">
+          <Grid>
+            <Grid.Col span={4}>
+              {_.take(expenseRank, 10).map((each_income) => (
+                <div key={each_income.name}>
+                  <Text>{each_income.name}</Text>
+                  <Progress
+                    sections={[
+                      {
+                        value: Math.round((each_income.total / expenseTotal) * 100),
+                        color: 'pink',
+                        label: `${Math.round((each_income.total / expenseTotal) * 10000) / 100}%`,
+                        tooltip: Math.round((each_income.total / expenseTotal) * 10000) / 100,
+                      },
+                    ]}
+                    size="md"
+                  />
+                </div>
+              ))}
+            </Grid.Col>
+            <Grid.Col span={8}>
+              <Table verticalSpacing="xs" highlightOnHover>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th style={{}}>Payee & Narration</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {_.take(expenseJournalRank, 10).map((journal, idx) => (
+                    <JournalLine key={idx} data={journal} />
+                  ))}
+                </tbody>
+              </Table>
+            </Grid.Col>
+          </Grid>
+        </Section>
       </Container>
     </>
   );
