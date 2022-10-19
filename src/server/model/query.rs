@@ -442,12 +442,12 @@ impl TransactionDto {
         ledger_stage.is_transaction_balanced(&self.data)
     }
     async fn span_end(&self) -> Option<usize> {
-        (&self.span_info).as_ref().map(|info| info.end)
+        self.span_info.as_ref().map(|info| info.end)
     }
     async fn span_file(&self) -> Option<&str> {
-        (&self.span_info)
+        self.span_info
             .as_ref()
-            .and_then(|info| (&info.filename).as_ref())
+            .and_then(|info| info.filename.as_ref())
             .and_then(|filename| filename.to_str())
     }
 }
