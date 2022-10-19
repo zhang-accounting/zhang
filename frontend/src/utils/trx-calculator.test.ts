@@ -188,4 +188,66 @@ describe('transaction summary calculator', () => {
       ]),
     );
   });
+
+  it('should return currency info given internal transaction with diff currency 2', () => {
+    const trx: TransactionDto = simpleTrx([
+      {
+        account: {
+          name: 'Assets:US:ETrade:Cash',
+          status: 'OPEN',
+          accountType: 'Assets',
+        } as AccountItem,
+        unit: {
+          number: '-2523.03',
+          currency: 'USD',
+        },
+        infer_unit: {
+          number: '-2523.03',
+          currency: 'USD',
+        },
+      },
+      {
+        account: {
+          name: 'Assets:US:ETrade:VHT',
+          status: 'OPEN',
+          accountType: 'Assets',
+        } as AccountItem,
+        unit: {
+          number: '19',
+          currency: 'VHT',
+        },
+        infer_unit: {
+          number: '2514.08',
+          currency: 'USD',
+        },
+      },
+      {
+        account: {
+          name: 'Expenses:Financial:Commissions',
+          status: 'OPEN',
+          accountType: 'Expenses',
+        } as AccountItem,
+        unit: {
+          number: '8.95',
+          currency: 'USD',
+        },
+        infer_unit: {
+          number: '8.95',
+          currency: 'USD',
+        },
+      },
+    ]);
+    expect(calculate(trx)).toEqual(
+      new Set([
+        {
+          number: new BigNumber('-2523.03'),
+          currency: 'USD',
+        },
+        {
+          number: new BigNumber('19'),
+          currency: 'VHT',
+        },
+      ]),
+    );
+  });
 });

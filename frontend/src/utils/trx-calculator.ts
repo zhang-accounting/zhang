@@ -11,8 +11,10 @@ interface CurrencyCount {
 }
 
 const transfer = (counter: CurrencyCount, amount: BigNumber, currency: string) => {
-  const previousAmount = counter[currency] || new BigNumber(0);
-  counter[currency] = previousAmount.plus(amount);
+  if (!counter.hasOwnProperty(currency)) {
+    counter[currency] = new BigNumber(0);
+  }
+  counter[currency] = counter[currency].plus(amount);
 };
 
 export function calculate(trx: TransactionDto): Set<SummaryItem> {
@@ -46,9 +48,7 @@ export function calculate(trx: TransactionDto): Set<SummaryItem> {
   const ret = new Set<SummaryItem>();
   Object.keys(counter).forEach((currency) => {
     const targetAmount = counter[currency];
-    if (!targetAmount.isZero()) {
-      ret.add({ number: targetAmount.negated(), currency: currency });
-    }
+    transfer(internal, targetAmount.negated(), currency);
   });
   Object.keys(internal).forEach((currency) => {
     const targetAmount = internal[currency];

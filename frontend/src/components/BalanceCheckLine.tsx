@@ -11,7 +11,6 @@ export default function BalanceCheckLine({ data, onClick }: Props) {
   const date = format(0 * 1000, 'yyyy-MM-dd');
   const time = format(0 * 1000, 'hh:mm:ss');
   const trClick = () => {
-    console.log('clock');
     if (onClick) {
       onClick(data);
     }
