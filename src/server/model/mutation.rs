@@ -181,7 +181,7 @@ pub(crate) fn replace_file_via_lines(file: PathBuf, content: &str, start: usize,
 pub(crate) fn insert_line(file: PathBuf, content: &str, at: usize) {
     let file_content = std::fs::read_to_string(&file).expect("cannot read file");
     let mut lines = file_content.lines().collect_vec();
-    let at = min(lines.len(), at + 1);
+    let at = min(lines.len(), at);
     lines.insert(at, content);
     std::fs::write(file, lines.join("\n")).expect("cannot write file");
 }

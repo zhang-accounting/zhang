@@ -1,4 +1,4 @@
-import { Box, Text, Badge, Group } from '@mantine/core';
+import { Box, Text, Badge } from '@mantine/core';
 import { format } from 'date-fns';
 import { TransactionDto } from '../../gql/jouralList';
 import Amount from '../Amount';
@@ -6,6 +6,7 @@ import { DropzoneButton } from '../DropzoneButton';
 import { UPLOAD_TRANSACTION_DOCUMENT } from '../../gql/uploadTransactionDocument';
 import Section from '../Section';
 import DocumentPreview from './DocumentPreview';
+import DashLine from '../DashedLine';
 
 interface Props {
   data: TransactionDto;
@@ -42,10 +43,12 @@ export default function TransactionPreview(props: Props) {
         <Section title="Postings">
           <>
             {props.data.postings.map((posting, idx) => (
-              <Group key={idx} position="apart">
-                <Text lineClamp={1}>{posting.account.name}</Text>
+              <DashLine key={idx}>
+                <Text lineClamp={1} my="xs">
+                  {posting.account.name}
+                </Text>
                 <Text lineClamp={1}>{posting.unit && <Amount amount={posting.unit?.number} currency={posting.unit?.currency} />}</Text>
-              </Group>
+              </DashLine>
             ))}
           </>
         </Section>
@@ -56,10 +59,10 @@ export default function TransactionPreview(props: Props) {
           {props.data.metas
             .filter((meta) => meta.key !== 'document')
             .map((meta, idx) => (
-              <Group key={idx} position="apart">
+              <DashLine key={idx}>
                 <Text lineClamp={1}>{meta.key}</Text>
                 <Text lineClamp={1}>{meta.value}</Text>
-              </Group>
+              </DashLine>
             ))}
         </Section>
       )}

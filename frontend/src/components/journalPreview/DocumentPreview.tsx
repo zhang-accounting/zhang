@@ -1,6 +1,7 @@
 // @ts-ignore
-import { ActionIcon, Button, Text, Group } from '@mantine/core';
+import { ActionIcon, Button, Text } from '@mantine/core';
 import { IconFileDownload, IconZoomInArea } from '@tabler/icons';
+import DashLine from '../DashedLine';
 import { EXTENSIONS_SUPPORT_PREVIEW } from '../documentLines/AccountDocumentLine';
 
 interface Props {
@@ -12,8 +13,10 @@ export default function DocumentPreview({ filename }: Props) {
   const simpleFilename = filename.split('/').pop() || '';
   const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
   return (
-    <Group position="apart" mt="xs">
-      <Text lineClamp={1}>{simpleFilename}</Text>
+    <DashLine>
+      <Text lineClamp={1} my="xs">
+        {simpleFilename}
+      </Text>
 
       <Button.Group>
         {canPreview && (
@@ -25,6 +28,6 @@ export default function DocumentPreview({ filename }: Props) {
           <IconFileDownload size={18} />
         </ActionIcon>
       </Button.Group>
-    </Group>
+    </DashLine>
   );
 }
