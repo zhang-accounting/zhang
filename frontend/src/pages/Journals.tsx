@@ -32,8 +32,8 @@ function Journals() {
   return (
     <Grid>
       <Grid.Col span={6}>
-        <Title order={2}>{journals.length} Journals</Title>
-        <ScrollArea style={{ height: '90vh' }} offsetScrollbars type="always">
+        <ScrollArea style={{ height: 'calc(100vh - 2 * var(--mantine-spacing-xs, 16px))' }} offsetScrollbars type="always">
+          <Title order={2}>{journals.length} Journals</Title>
           <Table verticalSpacing="xs" highlightOnHover>
             <thead>
               <tr>
@@ -52,7 +52,9 @@ function Journals() {
         </ScrollArea>
       </Grid.Col>
       <Grid.Col span={6}>
-        <JournalPreview data={selectedJournal} />
+        <ScrollArea style={{ height: 'calc(100vh - 2 * var(--mantine-spacing-xs, 16px))' }}>
+          <JournalPreview data={selectedJournal} />
+        </ScrollArea>
       </Grid.Col>
     </Grid>
   );
