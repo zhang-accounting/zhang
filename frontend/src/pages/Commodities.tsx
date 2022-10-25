@@ -23,6 +23,7 @@ export default function Commodities() {
         <thead>
           <tr>
             <th>Currency</th>
+            <th>Precision</th>
             <th>Balance</th>
             <th>Latest Price</th>
           </tr>
@@ -40,6 +41,7 @@ export default function Commodities() {
                   )}
                 </Group>
               </td>
+              <td>{currency.precision}</td>
               <td>
                 <Amount amount={currency.balance} currency="" />
               </td>
