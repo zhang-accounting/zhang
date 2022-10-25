@@ -25,9 +25,12 @@ const useStyles = createStyles((theme) => ({
 interface Props {
   gql: DocumentNode;
   variables: any;
+  single?: boolean;
+  onResult?(result: any): void;
 }
 
-export function DropzoneButton({ gql, variables }: Props) {
+export function DropzoneButton({ gql, variables, single, onResult }: Props) {
+  const singleFlag = single || false;
   const { classes } = useStyles();
 
   const [files, setFiles] = useState<FileWithPath[]>([]);
@@ -41,20 +44,28 @@ export function DropzoneButton({ gql, variables }: Props) {
   });
 
   useEffect(() => {
-    console.log('files', files);
     if (files.length > 0) {
+      let fileVariable;
+      if (singleFlag) {
+        fileVariable = { file: files[0] };
+      } else {
+        fileVariable = { files };
+      }
       uploadDocuments({
-        variables: { ...variables, files: files },
-      }).then(() => {
+        variables: { ...variables, ...fileVariable },
+      }).then((result) => {
+        if (onResult) {
+          onResult(result);
+        }
         setTimeout(() => {
           setFiles([]);
         }, 1000);
       });
     }
-  }, [files, variables, uploadDocuments]);
+  }, [files, variables, uploadDocuments, singleFlag, onResult]);
 
   return (
-    <Dropzone onDrop={setFiles} className={classes.dropzone} radius="sm" maxSize={30 * 1024 ** 2}>
+    <Dropzone onDrop={setFiles} className={classes.dropzone} radius="sm" maxSize={30 * 1024 ** 2} multiple={!singleFlag}>
       <div style={{ pointerEvents: 'none' }}>
         <Text align="center" weight={700} size="lg" mt="xl">
           <Dropzone.Accept>Drop files here</Dropzone.Accept>

@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::core::account::Account;
 use crate::core::data::{Date, Document, Meta};
 use crate::core::models::{Directive, ZhangString};
+use crate::importer::wechat::{wechat_extractor, WechatExtractorConfig};
 use crate::parse_zhang;
 use crate::server::LedgerState;
 use crate::target::ZhangTarget;
@@ -159,6 +160,14 @@ impl MutationRoot {
 
         insert_line(PathBuf::from(transaction_file), text.as_str(), transaction_end_line);
         true
+    }
+
+    async fn wechat_extractor(&self, ctx: &Context<'_>, file: Upload, config: String) -> String {
+        let config: WechatExtractorConfig = toml::from_str(&config).unwrap();
+        let file = file.value(ctx).unwrap();
+        let file = file.content;
+        let reader = BufReader::new(file);
+        wechat_extractor(reader, config).unwrap()
     }
 }
 

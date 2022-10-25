@@ -24,11 +24,15 @@ static CURRENCY: &str = "CNY";
 static COMMENT_STR: &str = "收款方备注:二维码收款";
 
 #[derive(Debug, Deserialize, Serialize)]
-struct Config {
+pub struct WechatExtractorConfig {
+    #[serde(default)]
     forbid_unknown_payee: bool,
+    #[serde(default)]
     store_unknown_payee: bool,
     wechat_account: String,
+    #[serde(default)]
     pay_ways: HashMap<String, String>,
+    #[serde(default)]
     payees: HashMap<String, String>,
     #[serde(default)]
     unknown_payees: HashMap<String, String>,
@@ -112,15 +116,21 @@ impl Record {
 
 pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
     let config_content = std::fs::read_to_string(&config)?;
-    let mut loaded_config: Config = toml::from_str(&config_content)?;
+    let loaded_config: WechatExtractorConfig = toml::from_str(&config_content)?;
 
     let file1 = File::open(file)?;
-    let mut reader = BufReader::new(file1);
+    let reader = BufReader::new(file1);
+    let res = wechat_extractor(reader, loaded_config)?;
+    println!("{}\n", res);
+    Ok(())
+}
+
+pub fn wechat_extractor(mut buf_reader: BufReader<File>, config: WechatExtractorConfig) -> ZhangResult<String> {
     let mut string_buffer = String::new();
     for _ in 0..=15 {
-        reader.read_line(&mut string_buffer)?;
+        buf_reader.read_line(&mut string_buffer)?;
     }
-    let mut reader1 = csv::Reader::from_reader(reader);
+    let mut reader1 = csv::Reader::from_reader(buf_reader);
 
     let mut unknown_payees = HashSet::new();
 
@@ -131,7 +141,7 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
         let payee = result.payee().unwrap();
         let pay_way = {
             let pay_type = result.pay_type.as_str();
-            let option = loaded_config.pay_ways.get(pay_type).map(|it| it.to_string());
+            let option = config.pay_ways.get(pay_type).map(|it| it.to_string());
 
             if let Some(value) = option {
                 value
@@ -142,7 +152,7 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
         };
         let pay_way = Account::from_str(&pay_way)?;
         let payee = {
-            let option = loaded_config.payees.get(payee).map(|it| it.to_string());
+            let option = config.payees.get(payee).map(|it| it.to_string());
             if let Some(value) = option {
                 value
             } else {
@@ -196,23 +206,19 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
         ret.push(transaction);
     }
     if !unknown_payees.is_empty() {
-        if loaded_config.forbid_unknown_payee {
+        if config.forbid_unknown_payee {
             error!("payee [{}] is not configurated", unknown_payees.iter().join(","));
         } else {
             warn!("payee [{}] is not configurated", unknown_payees.iter().join(","));
         }
     }
-    if loaded_config.store_unknown_payee {
-        for x in unknown_payees {
-            loaded_config.unknown_payees.insert(x, "Expenses:FixMe".to_string());
-        }
-        let result1 = toml::to_string(&loaded_config)?;
-        std::fs::write(&config, result1)?;
-    }
+    // if loaded_config.store_unknown_payee {
+    //     for x in unknown_payees {
+    //         loaded_config.unknown_payees.insert(x, "Expenses:FixMe".to_string());
+    //     }
+    //     let result1 = toml::to_string(&loaded_config)?;
+    //     std::fs::write(&config, result1)?;
+    // }
     ret.reverse();
-    for trx in ret.into_iter() {
-        println!("{}\n", trx.to_target());
-    }
-
-    Ok(())
+    Ok(ret.into_iter().map(|trx| trx.to_target()).join("\n"))
 }

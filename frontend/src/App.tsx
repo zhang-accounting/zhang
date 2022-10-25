@@ -16,6 +16,8 @@ import { createStyles, Navbar, TextInput, Code, UnstyledButton, Badge, Text, Gro
 import { IconBulb, IconUser, IconCheckbox, IconSearch, IconReceipt2, TablerIcon } from '@tabler/icons';
 
 import { AppShell, Grid } from '@mantine/core';
+import ToolList from './pages/tools/ToolList';
+import WechatExporter from './pages/tools/WechatExporter';
 
 const useStyles = createStyles((theme) => ({
   header: {
@@ -132,6 +134,7 @@ const links: LinkItem[] = [
   { icon: IconUser, label: 'Report', uri: '/report' },
   { icon: IconUser, label: 'Liability', uri: '/liability' },
   { icon: IconUser, label: 'Editor', uri: '/edit' },
+  { icon: IconUser, label: 'Tools', uri: '/tools' },
   { icon: IconUser, label: 'Settings', uri: '/settings' },
 ];
 
@@ -222,6 +225,8 @@ export default function App() {
         <Route path="documents" element={<Documents />} />
         <Route path="/edit" element={<RawEdit />} />
         <Route path="/report" element={<Report />} />
+        <Route path="/tools" element={<ToolList />} />
+        <Route path="/tools/wechat-exporter" element={<WechatExporter />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>
     </AppShell>
