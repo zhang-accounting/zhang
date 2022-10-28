@@ -60,7 +60,7 @@ export default function TransactionPreview(props: Props) {
             .filter((meta) => meta.key !== 'document')
             .map((meta, idx) => (
               <DashLine key={idx}>
-                <Text lineClamp={1}>{meta.key}</Text>
+                <Text lineClamp={1} my="xs">{meta.key}</Text>
                 <Text lineClamp={1}>{meta.value}</Text>
               </DashLine>
             ))}
