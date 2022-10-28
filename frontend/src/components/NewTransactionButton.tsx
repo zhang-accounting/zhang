@@ -1,5 +1,5 @@
 import { gql, useMutation, useQuery } from '@apollo/client';
-import { useDisclosure, useMediaQuery } from '@mantine/hooks';
+import { useDisclosure, useListState, useMediaQuery } from '@mantine/hooks';
 import { format } from 'date-fns';
 import _ from 'lodash';
 import { useState } from 'react';
@@ -8,6 +8,7 @@ import { ActionIcon, Button, Code, Container, Divider, Grid, Group, Modal, Selec
 import { DatePicker } from '@mantine/dates';
 import { IconSquarePlus, IconTextPlus, IconTrashX } from '@tabler/icons';
 import { AccountItem } from '../gql/accountList';
+import DividerWithAction from './basic/DividerWithAction';
 interface Posting {
   account: string | null;
   amount: string;
@@ -62,6 +63,8 @@ export default function NewTransactionButton() {
     { account: null, amount: '' },
   ]);
 
+  const [metas, metaHandler] = useListState<{ key: string, value: string }>([]);
+
   const updatePostingAccount = (idx: number, account: string | null) => {
     const clonedPostings = [...postings];
     clonedPostings[idx].account = account;
@@ -77,7 +80,8 @@ export default function NewTransactionButton() {
     const dateDisplay = format(date || 0, dateOnly ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm:ss');
     const narrationDisplay = narration.trim().length === 0 ? '' : ` ${JSON.stringify(narration.trim())}`;
     const postingDisplay = postings.map((posting) => `  ${posting.account} ${posting.amount}`).join('\n');
-    return `${dateDisplay} ${JSON.stringify(payee || '')}${narrationDisplay}\n${postingDisplay}`;
+    const metaDisplay = metas.filter(meta => meta.key.trim() !== "" && meta.value.trim()!=="").map(meta=> `  ${JSON.stringify(meta.key)}: ${JSON.stringify(meta.value)}`).join("\n");
+    return `${dateDisplay} ${JSON.stringify(payee || '')}${narrationDisplay}\n${postingDisplay}\n${metaDisplay}`;
   };
 
   const valid = (): boolean => {
@@ -107,6 +111,7 @@ export default function NewTransactionButton() {
       { account: null, amount: '' },
       { account: null, amount: '' },
     ]);
+    metaHandler.setState([]);
   };
 
   if (newTransactionMetaData.loading) return <p>Loading...</p>;
@@ -159,7 +164,8 @@ export default function NewTransactionButton() {
             </Grid.Col>
           </Grid>
 
-          <Divider label="Postings" size="xs" my="md"></Divider>
+          <DividerWithAction value="Postings" icon={<IconTextPlus />} onActionClick={newPosting}></DividerWithAction>
+
           {postings.map((posting, idx) => (
             <Grid align="center">
               <Grid.Col span={8}>
@@ -176,12 +182,23 @@ export default function NewTransactionButton() {
             </Grid>
           ))}
 
-          <Group position="left" my="sm">
-            <Button size="xs" leftIcon={<IconTextPlus />} variant="outline" onClick={newPosting}>
-              new posting
-            </Button>
-          </Group>
-
+          <DividerWithAction value="Metas" icon={<IconTextPlus />} onActionClick={() => { metaHandler.append({ key: "", value: "" }) }}></DividerWithAction>
+            
+          {metas.map((meta, idx) => (
+            <Grid align="center">
+              <Grid.Col span={4}>
+              <TextInput placeholder="key" value={meta.key} onChange={(e) => metaHandler.setItemProp(idx, "key", e.target.value)} />
+              </Grid.Col>
+              <Grid.Col span={7}>
+                <TextInput placeholder="value" value={meta.value} onChange={(e) => metaHandler.setItemProp(idx, "value", e.target.value)} />
+              </Grid.Col>
+              <Grid.Col span={1}>
+                <ActionIcon onClick={() => metaHandler.remove(idx)}>
+                  <IconTrashX />
+                </ActionIcon>
+              </Grid.Col>
+            </Grid>
+          ))}
           <Divider label="Preview" size="xs" my="md"></Divider>
           <Code block>{preview()}</Code>
 
