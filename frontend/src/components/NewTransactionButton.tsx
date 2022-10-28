@@ -58,44 +58,25 @@ export default function NewTransactionButton() {
   const [date, setDate] = useState<Date | null>(new Date());
   const [payee, setPayee] = useState<string | null>(null);
   const [narration, setNarration] = useState('');
-  const [postings, setPostings] = useState<Posting[]>([
+  const [postings, postingsHander] = useListState<Posting>([
     { account: null, amount: '' },
     { account: null, amount: '' },
   ]);
 
   const [metas, metaHandler] = useListState<{ key: string, value: string }>([]);
 
-  const updatePostingAccount = (idx: number, account: string | null) => {
-    const clonedPostings = [...postings];
-    clonedPostings[idx].account = account;
-    setPostings(clonedPostings);
-  };
-  const updatePostingAmount = (idx: number, amount: string) => {
-    const clonedPostings = [...postings];
-    clonedPostings[idx].amount = amount;
-    setPostings(clonedPostings);
-  };
-
   const preview = (): string => {
     const dateDisplay = format(date || 0, dateOnly ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm:ss');
     const narrationDisplay = narration.trim().length === 0 ? '' : ` ${JSON.stringify(narration.trim())}`;
     const postingDisplay = postings.map((posting) => `  ${posting.account} ${posting.amount}`).join('\n');
-    const metaDisplay = metas.filter(meta => meta.key.trim() !== "" && meta.value.trim()!=="").map(meta=> `  ${JSON.stringify(meta.key)}: ${JSON.stringify(meta.value)}`).join("\n");
+    const metaDisplay = metas.filter(meta => meta.key.trim() !== "" && meta.value.trim() !== "").map(meta => `  ${JSON.stringify(meta.key)}: ${JSON.stringify(meta.value)}`).join("\n");
     return `${dateDisplay} ${JSON.stringify(payee || '')}${narrationDisplay}\n${postingDisplay}\n${metaDisplay}`;
   };
 
   const valid = (): boolean => {
     return postings.every((posting) => posting.account !== null) && postings.filter((posting) => posting.amount.trim().length === 0).length <= 1;
   };
-  const newPosting = () => {
-    const newPostings = [...postings];
-    newPostings.push({ account: null, amount: '' });
-    setPostings(newPostings);
-  };
 
-  const handleDeletePosting = (targetIdx: number) => {
-    setPostings(postings.filter((_, idx) => idx !== targetIdx));
-  };
   const save = () => {
     appendData({
       variables: {
@@ -107,7 +88,7 @@ export default function NewTransactionButton() {
     setDate(new Date());
     setPayee(null);
     setNarration('');
-    setPostings([
+    postingsHander.setState([
       { account: null, amount: '' },
       { account: null, amount: '' },
     ]);
@@ -164,18 +145,18 @@ export default function NewTransactionButton() {
             </Grid.Col>
           </Grid>
 
-          <DividerWithAction value="Postings" icon={<IconTextPlus />} onActionClick={newPosting}></DividerWithAction>
+          <DividerWithAction value="Postings" icon={<IconTextPlus />} onActionClick={() => postingsHander.append({ account: null, amount: '' })}></DividerWithAction>
 
           {postings.map((posting, idx) => (
             <Grid align="center">
               <Grid.Col span={8}>
-                <Select searchable placeholder="Account" data={accountItems} value={posting.account} onChange={(e) => updatePostingAccount(idx, e)} />
+                <Select searchable placeholder="Account" data={accountItems} value={posting.account} onChange={(e) => postingsHander.setItemProp(idx, "account", e)} />
               </Grid.Col>
               <Grid.Col span={3}>
-                <TextInput placeholder="Amount" value={posting.amount} onChange={(e) => updatePostingAmount(idx, e.target.value)} />
+                <TextInput placeholder="Amount" value={posting.amount} onChange={(e) => postingsHander.setItemProp(idx, "amount", e.target.value)} />
               </Grid.Col>
               <Grid.Col span={1}>
-                <ActionIcon disabled={postings.length <= 2} onClick={() => handleDeletePosting(idx)}>
+                <ActionIcon disabled={postings.length <= 2} onClick={() => postingsHander.remove(idx)}>
                   <IconTrashX />
                 </ActionIcon>
               </Grid.Col>
@@ -183,11 +164,11 @@ export default function NewTransactionButton() {
           ))}
 
           <DividerWithAction value="Metas" icon={<IconTextPlus />} onActionClick={() => { metaHandler.append({ key: "", value: "" }) }}></DividerWithAction>
-            
+
           {metas.map((meta, idx) => (
             <Grid align="center">
               <Grid.Col span={4}>
-              <TextInput placeholder="key" value={meta.key} onChange={(e) => metaHandler.setItemProp(idx, "key", e.target.value)} />
+                <TextInput placeholder="key" value={meta.key} onChange={(e) => metaHandler.setItemProp(idx, "key", e.target.value)} />
               </Grid.Col>
               <Grid.Col span={7}>
                 <TextInput placeholder="value" value={meta.value} onChange={(e) => metaHandler.setItemProp(idx, "value", e.target.value)} />
