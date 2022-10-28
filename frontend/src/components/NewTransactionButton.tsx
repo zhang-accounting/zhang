@@ -1,5 +1,5 @@
 import { gql, useMutation, useQuery } from '@apollo/client';
-import { useDisclosure } from '@mantine/hooks';
+import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import { format } from 'date-fns';
 import _ from 'lodash';
 import { useState } from 'react';
@@ -50,8 +50,10 @@ export default function NewTransactionButton() {
   );
 
   const [isOpen, isOpenHandler] = useDisclosure(false);
-  const [dateOnly] = useState(true);
 
+  const isMobile = useMediaQuery('(max-width: 600px)');
+
+  const [dateOnly] = useState(true);
   const [date, setDate] = useState<Date | null>(new Date());
   const [payee, setPayee] = useState<string | null>(null);
   const [narration, setNarration] = useState('');
@@ -135,15 +137,15 @@ export default function NewTransactionButton() {
         NEW
       </Button>
 
-      <Modal onClose={() => isOpenHandler.close()} opened={isOpen} size="xl" centered closeOnEscape overflow="inside" title="New Transaction">
+      <Modal onClose={() => isOpenHandler.close()} opened={isOpen} size="xl" centered closeOnEscape overflow="inside" title="New Transaction" fullScreen={isMobile}>
         <Container>
           <Grid>
             <Grid.Col sm={12} lg={4}>
-              <DatePicker placeholder="Pick date" value={date} onChange={setDate} withAsterisk />
+              <DatePicker placeholder="Transaction Date" value={date} onChange={setDate} withAsterisk />
             </Grid.Col>
             <Grid.Col sm={12} lg={4}>
               <Select
-                placeholder="Pick one"
+                placeholder="Payee"
                 data={payeeSelectItems}
                 value={payee}
                 searchable
@@ -161,10 +163,10 @@ export default function NewTransactionButton() {
           {postings.map((posting, idx) => (
             <Grid align="center">
               <Grid.Col span={8}>
-                <Select searchable placeholder="Pick one" data={accountItems} value={posting.account} onChange={(e) => updatePostingAccount(idx, e)} />
+                <Select searchable placeholder="Account" data={accountItems} value={posting.account} onChange={(e) => updatePostingAccount(idx, e)} />
               </Grid.Col>
               <Grid.Col span={3}>
-                <TextInput placeholder="Input description" value={posting.amount} onChange={(e) => updatePostingAmount(idx, e.target.value)} />
+                <TextInput placeholder="Amount" value={posting.amount} onChange={(e) => updatePostingAmount(idx, e.target.value)} />
               </Grid.Col>
               <Grid.Col span={1}>
                 <ActionIcon disabled={postings.length <= 2} onClick={() => handleDeletePosting(idx)}>
