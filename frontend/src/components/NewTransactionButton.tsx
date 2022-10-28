@@ -137,19 +137,25 @@ export default function NewTransactionButton() {
 
       <Modal onClose={() => isOpenHandler.close()} opened={isOpen} size="xl" centered closeOnEscape overflow="inside" title="New Transaction">
         <Container>
-          <Group grow>
-            <DatePicker placeholder="Pick date" value={date} onChange={setDate} withAsterisk />
-            <Select
-              placeholder="Pick one"
-              data={payeeSelectItems}
-              value={payee}
-              searchable
-              creatable
-              getCreateLabel={(query) => `+ Create ${query}`}
-              onChange={setPayee}
-            />
-            <TextInput placeholder="Narration" value={narration} onChange={(e) => setNarration(e.target.value)} />
-          </Group>
+          <Grid>
+            <Grid.Col sm={12} lg={4}>
+              <DatePicker placeholder="Pick date" value={date} onChange={setDate} withAsterisk />
+            </Grid.Col>
+            <Grid.Col sm={12} lg={4}>
+              <Select
+                placeholder="Pick one"
+                data={payeeSelectItems}
+                value={payee}
+                searchable
+                creatable
+                getCreateLabel={(query) => `+ Create ${query}`}
+                onChange={setPayee}
+              />
+            </Grid.Col>
+            <Grid.Col sm={12} lg={4}>
+              <TextInput placeholder="Narration" value={narration} onChange={(e) => setNarration(e.target.value)} />
+            </Grid.Col>
+          </Grid>
 
           <Divider label="Postings" size="xs" my="md"></Divider>
           {postings.map((posting, idx) => (
