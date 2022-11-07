@@ -38,7 +38,7 @@ export default function Accounts() {
         <thead>
           <tr>
             <th>Name</th>
-            <th>Balance</th>
+            <th style={{ textAlign: 'end' }}>Balance</th>
           </tr>
         </thead>
         <tbody>

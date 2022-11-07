@@ -44,7 +44,9 @@ export default function AccountLine({ data, spacing }: Props) {
             </div>
           </Group>
         </td>
-        <td>{data?.val?.snapshot && <Amount amount={data!.val!.snapshot.summary.number} currency={data!.val!.snapshot.summary.currency}></Amount>}</td>
+        <td style={{ textAlign: 'end' }}>
+          {data?.val?.snapshot && <Amount amount={data!.val!.snapshot.summary.number} currency={data!.val!.snapshot.summary.currency}></Amount>}
+        </td>
       </tr>
 
       {isShow &&
