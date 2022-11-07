@@ -4,7 +4,8 @@ export default class AccountTrie {
   children: { [layer: string]: AccountTrie } = {};
   val?: AccountItem;
   word?: string;
-  isNode?: boolean | undefined;
+  path: string = '';
+  isLeaf?: boolean | undefined = true;
 
   insert(account: any) {
     let node: AccountTrie = this;
@@ -13,18 +14,16 @@ export default class AccountTrie {
     for (const ch of account.name.split(':')) {
       if (!node.children[ch]) {
         node.children[ch] = new AccountTrie();
-        // word.push(ch);
+
         word = ch;
         node.children[ch].word = word;
-        // word = [];
+        node.children[ch].path = [node.path, ch].filter((item) => item.length > 0).join(':');
+        node.isLeaf = false;
       }
-      // word.push(ch);
-
       node = node.children[ch];
     }
     node.word = word;
     node.val = account;
-    node.isNode = true;
   }
   searchPrefix(prefix: string): AccountTrie | undefined {
     let node: AccountTrie = this;
@@ -38,6 +37,6 @@ export default class AccountTrie {
   }
   search(word: string) {
     const node = this.searchPrefix(word);
-    return node !== undefined && node.isNode !== undefined;
+    return node !== undefined && node.isLeaf !== undefined;
   }
 }
