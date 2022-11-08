@@ -1,4 +1,4 @@
-import { Text, Space, Group, ActionIcon } from '@mantine/core';
+import { Text, Space, Group, ActionIcon, Badge } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons';
 import { useNavigate } from 'react-router';
@@ -35,7 +35,15 @@ export default function AccountLine({ data, spacing }: Props) {
               <Space w={22}></Space>
             )}
             <div onClick={onNavigate} style={{ cursor: 'pointer' }}>
-              <Text>{data.word}</Text>
+              <Group>
+                <Text>{data.word}</Text>
+                {data.val?.status === 'CLOSE' && (
+                  <Badge size="xs" color="red" variant="dot">
+                    {data.val?.status}
+                  </Badge>
+                )}
+              </Group>
+
               {data.val && (
                 <Text color="dimmed" size="xs">
                   {data.val?.name}
