@@ -49,7 +49,7 @@ export default function Commodities() {
                 {currency.latestPrice && (
                   <>
                     <Amount amount={currency.latestPrice.amount.number} currency={currency.latestPrice.amount.currency} />
-                    <Text color="dimmed" size="xs">
+                    <Text color="dimmed" size="xs" align="right">
                       {format(new Date(currency.latestPrice.date * 1000), 'yyyy-MM-dd')}
                     </Text>
                   </>
