@@ -1,4 +1,4 @@
-import { Box, Text, Badge } from '@mantine/core';
+import { Box, Text, Badge, Group } from '@mantine/core';
 import { format } from 'date-fns';
 import { TransactionDto } from '../../gql/jouralList';
 import Amount from '../Amount';
@@ -29,14 +29,18 @@ export default function TransactionPreview(props: Props) {
         <Box mx={1} my={2}>
           {props.data.narration}
         </Box>
-        <Box mx={1} my={2}>
-          {props.data.tags.map((tag) => (
-            <Badge variant="outline">#{tag}</Badge>
-          ))}
+        <Group mx={1} my={2} spacing="sm">
           {props.data.links.map((link) => (
-            <Badge variant="outline">^{link}</Badge>
+            <Badge key={link} size="lg" variant="dot">
+              {link}
+            </Badge>
           ))}
-        </Box>
+          {props.data.tags.map((tag) => (
+            <Badge key={tag} size="lg" color="orange" variant="dot">
+              {tag}
+            </Badge>
+          ))}
+        </Group>
       </Box>
 
       <Box mx={1} my={4}>
@@ -60,7 +64,9 @@ export default function TransactionPreview(props: Props) {
             .filter((meta) => meta.key !== 'document')
             .map((meta, idx) => (
               <DashLine key={idx}>
-                <Text lineClamp={1} my="xs">{meta.key}</Text>
+                <Text lineClamp={1} my="xs">
+                  {meta.key}
+                </Text>
                 <Text lineClamp={1}>{meta.value}</Text>
               </DashLine>
             ))}

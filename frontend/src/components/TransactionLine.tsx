@@ -1,4 +1,4 @@
-import { Group, Text, createStyles } from '@mantine/core';
+import { Group, Text, createStyles, Badge } from '@mantine/core';
 import { JournalItem, TransactionDto } from '../gql/jouralList';
 import { IconArrowBigDownLines, IconArrowBigUpLines } from '@tabler/icons';
 import { format } from 'date-fns';
@@ -47,11 +47,23 @@ export default function TransactionLine({ data, onClick }: Props) {
         </Text>
       </td>
       <td>
-        <Text lineClamp={1}>{data.narration}</Text>
-        <Group>
-          <Text mr={2} color="dimmed" size="xs">
-            {data.payee}
-          </Text>
+        <Text lineClamp={1}>{data.narration || data.payee}</Text>
+        <Group spacing="xs">
+          {!!data.narration && (
+            <Text mr={2} color="dimmed" size="xs">
+              {data.payee}
+            </Text>
+          )}
+          {data.links.map((link) => (
+            <Badge key={link} size="xs" variant="dot">
+              {link}
+            </Badge>
+          ))}
+          {data.tags.map((tag) => (
+            <Badge key={tag} color="orange" size="xs" variant="dot">
+              {tag}
+            </Badge>
+          ))}
         </Group>
       </td>
       <td>
