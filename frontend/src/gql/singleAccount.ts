@@ -34,6 +34,8 @@ export const SINGLE_ACCONT_JOURNAL = gql`
           timestamp
           payee
           narration
+          links
+          tags
           postings {
             account {
               name
