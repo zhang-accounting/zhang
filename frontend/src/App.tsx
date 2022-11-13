@@ -13,7 +13,7 @@ import SingleCommodity from './pages/SingleCommodity';
 import { Link as RouteLink } from 'react-router-dom';
 import NewTransactionButton from './components/NewTransactionButton';
 import { createStyles, Navbar, TextInput, Code, UnstyledButton, Badge, Text, Group } from '@mantine/core';
-import { IconBulb, IconUser, IconCheckbox, IconSearch, IconReceipt2, TablerIcon } from '@tabler/icons';
+import { IconBulb, IconUser, IconCheckbox, IconSearch, IconReceipt2, TablerIcon, IconSettings, IconTools, IconNotebook, IconCreditCard, IconChartAreaLine, IconFiles, IconCurrencyBitcoin, IconCash, IconList, IconSmartHome } from '@tabler/icons';
 
 import { AppShell, Grid } from '@mantine/core';
 import ToolList from './pages/tools/ToolList';
@@ -126,16 +126,16 @@ interface LinkItem {
 }
 
 const links: LinkItem[] = [
-  { icon: IconBulb, label: 'Home', uri: '/' },
-  { icon: IconCheckbox, label: 'Journals', uri: '/journals' },
-  { icon: IconUser, label: 'Accounts', uri: '/accounts' },
-  { icon: IconUser, label: 'Commodities', uri: '/commodities' },
-  { icon: IconUser, label: 'Documents', uri: '/documents' },
-  { icon: IconUser, label: 'Report', uri: '/report' },
-  { icon: IconUser, label: 'Liability', uri: '/liability' },
-  { icon: IconUser, label: 'Editor', uri: '/edit' },
-  { icon: IconUser, label: 'Tools', uri: '/tools' },
-  { icon: IconUser, label: 'Settings', uri: '/settings' },
+  { icon: IconSmartHome, label: 'Home', uri: '/' },
+  { icon: IconList, label: 'Journals', uri: '/journals' },
+  { icon: IconCash, label: 'Accounts', uri: '/accounts' },
+  { icon: IconCurrencyBitcoin, label: 'Commodities', uri: '/commodities' },
+  { icon: IconFiles, label: 'Documents', uri: '/documents' },
+  { icon: IconChartAreaLine, label: 'Report', uri: '/report' },
+  { icon: IconCreditCard, label: 'Liability', uri: '/liability' },
+  { icon: IconNotebook, label: 'Editor', uri: '/edit' },
+  { icon: IconTools, label: 'Tools', uri: '/tools' },
+  { icon: IconSettings, label: 'Settings', uri: '/settings' },
 ];
 
 // const collections = [
