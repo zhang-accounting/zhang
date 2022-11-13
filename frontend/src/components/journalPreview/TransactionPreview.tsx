@@ -30,12 +30,12 @@ export default function TransactionPreview(props: Props) {
           {props.data.narration}
         </Box>
         <Group mx={1} my={2} spacing="sm">
-          {props.data.links.map((link) => (
+          {(props.data.links || []).map((link) => (
             <Badge key={link} size="lg" variant="dot">
               {link}
             </Badge>
           ))}
-          {props.data.tags.map((tag) => (
+          {(props.data.tags || []).map((tag) => (
             <Badge key={tag} size="lg" color="orange" variant="dot">
               {tag}
             </Badge>
