@@ -106,8 +106,8 @@ const build_chart_data = (data: StatisticResponse) => {
 function Home() {
   const { t } = useTranslation();
   const now = new Date();
-  const begining_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDay(), 0, 0, 1);
-  const end_time = new Date(now.getFullYear(), now.getMonth(), now.getDay(), 23, 59, 59);
+  const begining_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 1);
+  const end_time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
   const { loading, error, data } = useQuery<StatisticResponse>(STATISTIC, {
     variables: {
