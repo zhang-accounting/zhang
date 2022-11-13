@@ -361,8 +361,7 @@ impl Ledger {
                 None,
             );
         }
-        let mut directive_content = directives.into_iter().map(|it| it.to_target()).join("\n");
-        directive_content.push('\n');
+        let directive_content = format!("\n{}\n", directives.into_iter().map(|it| it.to_target()).join("\n"));
         let mut ledger_base_file = OpenOptions::new().append(true).create(true).open(&endpoint).unwrap();
         ledger_base_file.write_all(directive_content.as_bytes()).unwrap();
     }
