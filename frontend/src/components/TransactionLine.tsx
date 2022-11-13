@@ -54,12 +54,12 @@ export default function TransactionLine({ data, onClick }: Props) {
               {data.payee}
             </Text>
           )}
-          {data.links.map((link) => (
+          {(data.links || []).map((link) => (
             <Badge key={link} size="xs" variant="dot">
               {link}
             </Badge>
           ))}
-          {data.tags.map((tag) => (
+          {(data.tags || []).map((tag) => (
             <Badge key={tag} color="orange" size="xs" variant="dot">
               {tag}
             </Badge>
