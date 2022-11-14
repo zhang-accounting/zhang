@@ -13,7 +13,7 @@ import SingleCommodity from './pages/SingleCommodity';
 import { Link as RouteLink } from 'react-router-dom';
 import NewTransactionButton from './components/NewTransactionButton';
 import { createStyles, Navbar, TextInput, Code, UnstyledButton, Badge, Text, Group } from '@mantine/core';
-import { IconBulb, IconUser, IconCheckbox, IconSearch, IconReceipt2, TablerIcon, IconSettings, IconTools, IconNotebook, IconCreditCard, IconChartAreaLine, IconFiles, IconCurrencyBitcoin, IconCash, IconList, IconSmartHome } from '@tabler/icons';
+import { IconSearch, IconReceipt2, TablerIcon, IconSettings, IconTools, IconNotebook, IconCreditCard, IconChartAreaLine, IconFiles, IconCurrencyBitcoin, IconCash, IconList, IconSmartHome } from '@tabler/icons';
 
 import { AppShell, Grid } from '@mantine/core';
 import ToolList from './pages/tools/ToolList';
