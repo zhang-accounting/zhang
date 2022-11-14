@@ -10,6 +10,7 @@ use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::core::utils::span::SpanInfo;
 use crate::core::AccountName;
 use crate::error::ZhangResult;
+use async_trait::async_trait;
 use chrono::NaiveDate;
 use std::collections::HashMap;
 use std::ops::{Neg, Sub};
@@ -30,8 +31,9 @@ impl ProcessContext {
     }
 }
 
+#[async_trait]
 pub(crate) trait DirectiveProcess {
-    fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()>;
+    async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()>;
 }
 
 fn record_daily_snapshot(
@@ -98,8 +100,11 @@ fn check_commodity_define_for_amount<'a>(ledger: &mut Ledger, span: &SpanInfo, a
     }
 }
 
+#[async_trait]
 impl DirectiveProcess for Options {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo,
+    ) -> ZhangResult<()> {
         ledger.options.parse(self.key.as_str(), self.value.as_str());
         ledger
             .configs
@@ -108,8 +113,11 @@ impl DirectiveProcess for Options {
     }
 }
 
+#[async_trait]
 impl DirectiveProcess for Open {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo,
+    ) -> ZhangResult<()> {
         for currency in &self.commodities {
             check_commodity_define(ledger, span, currency);
         }
@@ -133,8 +141,11 @@ impl DirectiveProcess for Open {
     }
 }
 
+#[async_trait]
 impl DirectiveProcess for Close {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo,
+    ) -> ZhangResult<()> {
         // check if account exist
         check_account_existed(ledger, _span, self.account.name());
         check_account_closed(ledger, _span, self.account.name());
@@ -153,9 +164,11 @@ impl DirectiveProcess for Close {
         Ok(())
     }
 }
-
+#[async_trait]
 impl DirectiveProcess for Commodity {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo,
+    ) -> ZhangResult<()> {
         let precision = self
             .meta
             .get_one(&"precision".to_string())
@@ -186,8 +199,9 @@ impl DirectiveProcess for Commodity {
     }
 }
 
+#[async_trait]
 impl DirectiveProcess for Transaction {
-    fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
         if !ledger.is_transaction_balanced(self) {
             ledger.errors.push(LedgerError {
                 span: span.clone(),
@@ -244,8 +258,9 @@ impl DirectiveProcess for Transaction {
     }
 }
 
+#[async_trait]
 impl DirectiveProcess for Balance {
-    fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
         match self {
             Balance::BalanceCheck(balance_check) => {
                 check_account_existed(ledger, span, balance_check.account.name());
@@ -341,8 +356,11 @@ impl DirectiveProcess for Balance {
     }
 }
 
+#[async_trait]
 impl DirectiveProcess for Document {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo,
+    ) -> ZhangResult<()> {
         check_account_existed(ledger, span, self.account.name());
         check_account_closed(ledger, span, self.account.name());
         ledger.documents.push(DocumentType::AccountDocument {
@@ -354,8 +372,11 @@ impl DirectiveProcess for Document {
     }
 }
 
+#[async_trait]
 impl DirectiveProcess for Price {
-    fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo,
+    ) -> ZhangResult<()> {
         check_commodity_define(ledger, span, &self.currency);
         check_commodity_define(ledger, span, &self.amount.currency);
         let mut result = ledger.prices.write().unwrap();

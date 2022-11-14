@@ -1,8 +1,9 @@
 use clap::Parser;
 use zhang::cli::Opts;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
     let opts = Opts::parse();
-    opts.run();
+    opts.run().await;
 }

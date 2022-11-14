@@ -36,7 +36,7 @@ impl MutationRoot {
         if contains_file {
             std::fs::write(path_buf, content).expect("cannot read");
             let mut ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
-            ledger_stage.reload().is_ok()
+            ledger_stage.reload().await.is_ok()
         } else {
             false
         }
@@ -67,7 +67,7 @@ impl MutationRoot {
         };
         let file_path = entry.join(file);
         replace_file_via_lines(file_path, &content, start, end);
-        ledger_stage.reload().is_ok()
+        ledger_stage.reload().await.is_ok()
     }
 
     async fn upload_account_document(&self, ctx: &Context<'_>, account_name: String, files: Vec<Upload>) -> bool {

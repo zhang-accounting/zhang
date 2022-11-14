@@ -45,6 +45,7 @@ time = "0.1"
 async-graphql-axum = "3.0.38"
 uuid = {version="1.0.0", features=["v4"]}
 base64 = "0.13.0"
+sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "sqlite", "chrono", "bigdecimal" ] }
 
 [dev-dependencies]
 indoc = "1.0.3"

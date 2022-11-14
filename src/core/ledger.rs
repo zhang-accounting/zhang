@@ -20,12 +20,15 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
 use itertools::{Either, Itertools};
 use log::{debug, error, info};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+use sqlx::ConnectOptions;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::option::Option::None;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::{Arc, RwLock as StdRwLock};
 
 #[derive(Debug, Clone)]
@@ -147,7 +150,7 @@ pub struct Ledger {
 }
 
 impl Ledger {
-    pub fn load(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
+    pub async fn load(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
         let entry = entry.canonicalize()?;
         let main_endpoint = entry.join(&endpoint).canonicalize()?;
         let mut load_queue = VecDeque::new();
@@ -183,6 +186,7 @@ impl Ledger {
             Either::Left((entry, endpoint)),
             visited.into_iter().collect_vec(),
         )
+        .await
     }
 
     fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Spanned<Directive>>> {
@@ -190,9 +194,16 @@ impl Ledger {
         parse_zhang(&content, entry).map_err(|it| ZhangError::PestError(it.to_string()))
     }
 
-    fn process(
+    async fn process(
         directives: Vec<Spanned<Directive>>, entry: Either<(PathBuf, String), String>, visited_files: Vec<PathBuf>,
     ) -> ZhangResult<Ledger> {
+        let connect = SqliteConnectOptions::from_str("sqlite://data.db")
+            .unwrap()
+            .journal_mode(SqliteJournalMode::Wal)
+            .create_if_missing(true)
+            .connect()
+            .await
+            .unwrap();
         let (mut meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
@@ -239,15 +250,21 @@ impl Ledger {
         );
         for directive in meta_directives.iter_mut().chain(directives.iter_mut()) {
             match &mut directive.data {
-                Directive::Option(option) => option.process(&mut ret_ledger, &mut context, &directive.span)?,
-                Directive::Open(open) => open.process(&mut ret_ledger, &mut context, &directive.span)?,
-                Directive::Close(close) => close.process(&mut ret_ledger, &mut context, &directive.span)?,
-                Directive::Commodity(commodity) => commodity.process(&mut ret_ledger, &mut context, &directive.span)?,
-                Directive::Transaction(trx) => trx.process(&mut ret_ledger, &mut context, &directive.span)?,
-                Directive::Balance(balance) => balance.process(&mut ret_ledger, &mut context, &directive.span)?,
+                Directive::Option(option) => option.process(&mut ret_ledger, &mut context, &directive.span).await?,
+                Directive::Open(open) => open.process(&mut ret_ledger, &mut context, &directive.span).await?,
+                Directive::Close(close) => close.process(&mut ret_ledger, &mut context, &directive.span).await?,
+                Directive::Commodity(commodity) => {
+                    commodity
+                        .process(&mut ret_ledger, &mut context, &directive.span)
+                        .await?
+                }
+                Directive::Transaction(trx) => trx.process(&mut ret_ledger, &mut context, &directive.span).await?,
+                Directive::Balance(balance) => balance.process(&mut ret_ledger, &mut context, &directive.span).await?,
                 Directive::Note(_) => {}
-                Directive::Document(document) => document.process(&mut ret_ledger, &mut context, &directive.span)?,
-                Directive::Price(price) => price.process(&mut ret_ledger, &mut context, &directive.span)?,
+                Directive::Document(document) => {
+                    document.process(&mut ret_ledger, &mut context, &directive.span).await?
+                }
+                Directive::Price(price) => price.process(&mut ret_ledger, &mut context, &directive.span).await?,
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
                 _ => {}
@@ -268,10 +285,10 @@ impl Ledger {
         Ok(ret_ledger)
     }
 
-    pub(crate) fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
+    pub(crate) async fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
         let content = content.as_ref();
         let directives = parse_zhang(content, None).map_err(|it| ZhangError::PestError(it.to_string()))?;
-        Ledger::process(directives, Either::Right(content.to_string()), vec![])
+        Ledger::process(directives, Either::Right(content.to_string()), vec![]).await
     }
 
     fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
@@ -323,10 +340,10 @@ impl Ledger {
         }
     }
 
-    pub fn reload(&mut self) -> ZhangResult<()> {
+    pub async fn reload(&mut self) -> ZhangResult<()> {
         let reload_ledger = match &mut self.entry {
-            Either::Left((entry, endpoint)) => Ledger::load(entry.clone(), endpoint.clone()),
-            Either::Right(raw_string) => Ledger::load_from_str(raw_string),
+            Either::Left((entry, endpoint)) => Ledger::load(entry.clone(), endpoint.clone()).await,
+            Either::Right(raw_string) => Ledger::load_from_str(raw_string).await,
         }?;
         *self = reload_ledger;
         Ok(())

@@ -41,13 +41,12 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
     Ok((watcher, rx))
 }
 
-pub fn serve(opts: ServerOpts) -> ZhangResult<()> {
-    let ledger = Ledger::load(opts.path.clone(), opts.endpoint.clone())?;
+pub async fn serve(opts: ServerOpts) -> ZhangResult<()> {
+    let ledger = Ledger::load(opts.path.clone(), opts.endpoint.clone()).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
 
-    let runtime = tokio::runtime::Runtime::new()?;
     let cloned_ledger = ledger_data.clone();
-    runtime.spawn(async move {
+    tokio::spawn(async move {
         let (mut watcher, mut rx) = async_watcher().unwrap();
         match &cloned_ledger.read().await.entry {
             Either::Left((entry_path, _)) => {
@@ -67,7 +66,7 @@ pub fn serve(opts: ServerOpts) -> ZhangResult<()> {
                     let mut guard = cloned_ledger.write().await;
                     let is_visited_file_updated = guard.visited_files.iter().any(|file| event.paths.contains(file));
                     if is_visited_file_updated {
-                        match guard.reload() {
+                        match guard.reload().await {
                             Ok(_) => {
                                 info!("reloaded")
                             }
@@ -83,7 +82,7 @@ pub fn serve(opts: ServerOpts) -> ZhangResult<()> {
             }
         }
     });
-    runtime.block_on(start_server(opts, ledger_data))
+    start_server(opts, ledger_data).await
 }
 async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> ZhangResult<()> {
     let schema = Schema::build(QueryRoot, MutationRoot, EmptySubscription)

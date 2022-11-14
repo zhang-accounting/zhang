@@ -60,14 +60,16 @@ pub struct ServerOpts {
 }
 
 impl Opts {
-    pub fn run(self) {
+    pub async fn run(self) {
         match self {
             Opts::Importer(importer) => importer.run(),
             Opts::Parse(parse_opts) => {
-                Ledger::load(parse_opts.path, parse_opts.endpoint).expect("Cannot load ledger");
+                Ledger::load(parse_opts.path, parse_opts.endpoint)
+                    .await
+                    .expect("Cannot load ledger");
             }
-            Opts::Exporter(opts) => opts.run(),
-            Opts::Server(opts) => crate::server::serve(opts).expect("cannot serve"),
+            Opts::Exporter(opts) => opts.run().await,
+            Opts::Server(opts) => crate::server::serve(opts).await.expect("cannot serve"),
         }
     }
 }
@@ -87,9 +89,9 @@ impl ImportOpts {
 }
 
 impl ExportOpts {
-    pub fn run(self) {
+    pub async fn run(self) {
         let result = match self {
-            ExportOpts::Beancount { file, output } => exporter::beancount::run(file, output),
+            ExportOpts::Beancount { file, output } => exporter::beancount::run(file, output).await,
         };
         match result {
             Ok(_) => {}
