@@ -1,7 +1,7 @@
 [package]
 name = "zhang"
 description = "a plain text double-accounting tool which is compatible with beancount but more powerful"
-license = "MIT"
+license = "Apache-2.0"
 version = "0.0.1-alpha.1"
 authors = ["Kilerd <blove694@gmail.com>"]
 edition = "2018"
