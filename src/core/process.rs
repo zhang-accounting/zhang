@@ -62,6 +62,7 @@ fn check_account_existed(ledger: &mut Ledger, span: &SpanInfo, account_name: &st
         })
     }
 }
+
 fn check_account_closed(ledger: &mut Ledger, span: &SpanInfo, account_name: &str) {
     let has_account_closed = ledger
         .accounts
@@ -77,6 +78,7 @@ fn check_account_closed(ledger: &mut Ledger, span: &SpanInfo, account_name: &str
         })
     }
 }
+
 fn check_commodity_define(ledger: &mut Ledger, span: &SpanInfo, commodity_name: &str) {
     let has_commodity_defined = !ledger.currencies.contains_key(commodity_name);
     if has_commodity_defined {
@@ -88,6 +90,7 @@ fn check_commodity_define(ledger: &mut Ledger, span: &SpanInfo, commodity_name: 
         })
     }
 }
+
 fn check_commodity_define_for_amount<'a>(ledger: &mut Ledger, span: &SpanInfo, amount: impl Into<Option<&'a Amount>>) {
     if let Some(amount) = amount.into() {
         let has_commodity_defined = !ledger.currencies.contains_key(&amount.currency);
@@ -142,7 +145,7 @@ impl DirectiveProcess for Open {
             .bind(self.date.naive_datetime())
             .bind(self.account.name())
             .bind("Open")
-            .bind(self.meta.get_one(&"alias".to_string()).map(|it|it.as_str()))
+            .bind(self.meta.get_one(&"alias".to_string()).map(|it| it.as_str()))
             .execute(&mut _context.connection)
             .await?;
         account_info.status = AccountStatus::Open;
@@ -171,6 +174,11 @@ impl DirectiveProcess for Close {
         // check if account exist
         check_account_existed(ledger, _span, self.account.name());
         check_account_closed(ledger, _span, self.account.name());
+
+        sqlx::query(r#"update accounts set status = 'Close' where name = '$1'"#)
+            .bind(self.account.name())
+            .execute(&mut _context.connection)
+            .await?;
         let account_info = ledger
             .accounts
             .entry(self.account.content.to_string())
@@ -186,6 +194,7 @@ impl DirectiveProcess for Close {
         Ok(())
     }
 }
+
 #[async_trait]
 impl DirectiveProcess for Commodity {
     async fn process(
@@ -194,15 +203,41 @@ impl DirectiveProcess for Commodity {
         let precision = self
             .meta
             .get_one(&"precision".to_string())
-            .map(|it| it.as_str().parse::<usize>())
+            .map(|it| it.as_str().parse::<i32>())
             .transpose()
             .unwrap_or(None);
+        let prefix = self
+            .meta
+            .get_one(&"prefix".to_string()).map(|it| it.as_str());
+        let suffix = self
+            .meta
+            .get_one(&"suffix".to_string()).map(|it| it.as_str());
         let rounding = self
             .meta
             .get_one(&"rounding".to_string())
             .map(|it| Rounding::from_str(it.as_str()))
             .transpose()
             .unwrap_or(None);
+
+        sqlx::query(r#"INSERT INTO commodities (name, precision, prefix, suffix, rounding)
+                        VALUES ($1, $2, $3, $4, $5);"#)
+            .bind(&self.currency)
+            .bind(precision)
+            .bind(prefix)
+            .bind(suffix)
+            .bind(rounding.map(|it|it.to_string()))
+            .execute(&mut _context.connection)
+            .await?;
+
+        for (meta_key, meta_value) in self.meta.clone().get_flatten() {
+            sqlx::query(r#"INSERT OR REPLACE INTO metas VALUES ($1, $2, $3, $4);"#)
+                .bind("CommodityMeta")
+                .bind(self.currency.as_str())
+                .bind(meta_key)
+                .bind(meta_value.as_str())
+                .execute(&mut _context.connection)
+                .await?;
+        }
         ledger
             .currencies
             .entry(self.currency.to_string())

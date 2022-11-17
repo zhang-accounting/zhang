@@ -62,7 +62,7 @@ pub struct AccountInfo {
 #[derive(Debug, Clone)]
 pub struct CurrencyInfo {
     pub commodity: Commodity,
-    pub precision: Option<usize>,
+    pub precision: Option<i32>,
     pub rounding: Option<Rounding>,
     pub(crate) prices: LatestMap<NaiveDate, HashMap<Currency, BigDecimal>>,
 }

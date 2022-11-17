@@ -323,7 +323,7 @@ impl CurrencyDto {
         self.0.commodity.currency.to_string()
     }
 
-    async fn precision(&self, ctx: &Context<'_>) -> usize {
+    async fn precision(&self, ctx: &Context<'_>) -> i32 {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
         self.0
             .precision

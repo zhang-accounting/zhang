@@ -5,7 +5,7 @@ use std::str::FromStr;
 pub struct Options {
     pub operating_currency: String,
     pub default_rounding: Rounding,
-    pub default_balance_tolerance_precision: usize,
+    pub default_balance_tolerance_precision: i32,
 }
 
 impl Options {
@@ -19,7 +19,7 @@ impl Options {
                 self.default_rounding = Rounding::from_str(&value).unwrap();
             }
             "default_balance_tolerance" => {
-                if let Ok(ret) = value.parse::<usize>() {
+                if let Ok(ret) = value.parse::<i32>() {
                     self.default_balance_tolerance_precision = ret
                 }
             }
