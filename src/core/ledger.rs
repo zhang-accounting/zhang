@@ -30,6 +30,7 @@ use std::option::Option::None;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock as StdRwLock};
+use crate::core::database::migrations::Migration;
 
 #[derive(Debug, Clone)]
 pub enum DocumentType {
@@ -197,13 +198,16 @@ impl Ledger {
     async fn process(
         directives: Vec<Spanned<Directive>>, entry: Either<(PathBuf, String), String>, visited_files: Vec<PathBuf>,
     ) -> ZhangResult<Ledger> {
-        let connect = SqliteConnectOptions::from_str("sqlite://data.db")
+        let mut connect = SqliteConnectOptions::from_str("sqlite://data.db")
             .unwrap()
             .journal_mode(SqliteJournalMode::Wal)
             .create_if_missing(true)
             .connect()
             .await
             .unwrap();
+
+        Migration::init_database_if_missing(&mut connect).await?;
+
         let (mut meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
@@ -231,6 +235,7 @@ impl Ledger {
         let mut context = ProcessContext {
             target_day: None,
             prices: arc_price,
+            connection: connect,
         };
         let operating_currency = ret_ledger.options.operating_currency.to_string();
         let default_precision = ret_ledger.options.default_balance_tolerance_precision;

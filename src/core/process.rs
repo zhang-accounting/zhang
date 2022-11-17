@@ -16,10 +16,12 @@ use std::collections::HashMap;
 use std::ops::{Neg, Sub};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock as StdRwLock};
+use sqlx::SqliteConnection;
 
 pub(crate) struct ProcessContext {
     pub(crate) target_day: Option<NaiveDate>,
     pub(crate) prices: Arc<StdRwLock<DatedPriceGrip>>,
+    pub(crate) connection: SqliteConnection,
 }
 
 impl ProcessContext {
@@ -109,6 +111,11 @@ impl DirectiveProcess for Options {
         ledger
             .configs
             .insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());
+        sqlx::query(r#"INSERT OR REPLACE INTO options VALUES ($1, $2);"#)
+            .bind(self.key.as_str())
+            .bind(self.value.as_str())
+            .execute(&mut _context.connection)
+            .await?;
         Ok(())
     }
 }
@@ -130,9 +137,24 @@ impl DirectiveProcess for Open {
                 status: AccountStatus::Open,
                 meta: Default::default(),
             });
+
+        sqlx::query(r#"INSERT OR REPLACE INTO accounts VALUES ($1, $2, $3, $4);"#)
+            .bind(self.date.naive_datetime())
+            .bind(self.account.name())
+            .bind("Open")
+            .bind(self.meta.get_one(&"alias".to_string()).map(|it|it.as_str()))
+            .execute(&mut _context.connection)
+            .await?;
         account_info.status = AccountStatus::Open;
         for (meta_key, meta_value) in self.meta.clone().get_flatten() {
-            account_info.meta.insert(meta_key, meta_value.to_plain_string());
+            account_info.meta.insert(meta_key.clone(), meta_value.as_str().to_string());
+            sqlx::query(r#"INSERT OR REPLACE INTO metas VALUES ($1, $2, $3, $4);"#)
+                .bind("AccountMeta")
+                .bind(self.account.name())
+                .bind(meta_key)
+                .bind(meta_value.as_str())
+                .execute(&mut _context.connection)
+                .await?;
         }
         for currency in &self.commodities {
             account_info.currencies.insert(currency.to_string());

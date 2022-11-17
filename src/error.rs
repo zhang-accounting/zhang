@@ -26,4 +26,7 @@ pub enum ZhangError {
 
     #[error("pest error: {0}")]
     PestError(String),
+
+    #[error("databaseError: {0}")]
+    DatabaseError(#[from] sqlx::Error),
 }
