@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use thiserror::Error;
 
 pub type ZhangResult<T> = Result<T, ZhangError>;
@@ -9,8 +10,8 @@ pub enum ZhangError {
     #[error("account is invalid")]
     InvalidAccount,
 
-    #[error("file error: {0}")]
-    FileError(#[from] std::io::Error),
+    #[error("file error: {e}")]
+    FileError { e: std::io::Error, path: PathBuf },
 
     #[error("csv error: {0}")]
     CsvError(#[from] csv::Error),
@@ -29,4 +30,14 @@ pub enum ZhangError {
 
     #[error("databaseError: {0}")]
     DatabaseError(#[from] sqlx::Error),
+}
+
+pub trait IoErrorIntoZhangError<T> {
+    fn with_path(self, path: &PathBuf) -> Result<T, ZhangError>;
+}
+
+impl<T> IoErrorIntoZhangError<T> for Result<T, std::io::Error> {
+    fn with_path(self, path: &PathBuf) -> Result<T, ZhangError> {
+        self.map_err(|e| ZhangError::FileError { e, path: path.clone() })
+    }
 }

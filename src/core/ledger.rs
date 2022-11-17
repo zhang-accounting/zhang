@@ -11,7 +11,7 @@ use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::core::utils::price_grip::DatedPriceGrip;
 use crate::core::utils::span::{SpanInfo, Spanned};
 use crate::core::{AccountName, Currency};
-use crate::error::{ZhangError, ZhangResult};
+use crate::error::{IoErrorIntoZhangError, ZhangError, ZhangResult};
 use crate::parse_zhang;
 use crate::server::model::mutation::create_folder_if_not_exist;
 use crate::target::ZhangTarget;
@@ -152,15 +152,16 @@ pub struct Ledger {
 
 impl Ledger {
     pub async fn load(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
-        let entry = entry.canonicalize()?;
-        let main_endpoint = entry.join(&endpoint).canonicalize()?;
+        let entry = entry.canonicalize().with_path(&entry)?;
+        let main_endpoint = entry.join(&endpoint);
+        let main_endpoint = main_endpoint.canonicalize().with_path(&main_endpoint)?;
         let mut load_queue = VecDeque::new();
         load_queue.push_back(main_endpoint);
 
         let mut visited = HashSet::new();
         let mut directives = vec![];
         while let Some(load_entity) = load_queue.pop_front() {
-            let path = load_entity.canonicalize()?;
+            let path = load_entity.canonicalize().with_path(&load_entity)?;
             debug!("visited entry file: {}", path.to_str().unwrap());
             if visited.contains(&path) {
                 continue;
@@ -191,7 +192,7 @@ impl Ledger {
     }
 
     fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let content = std::fs::read_to_string(&entry)?;
+        let content = std::fs::read_to_string(&entry).with_path(&entry)?;
         parse_zhang(&content, entry).map_err(|it| ZhangError::PestError(it.to_string()))
     }
 

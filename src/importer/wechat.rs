@@ -16,7 +16,7 @@ use crate::core::amount::Amount;
 use crate::core::data::{Date, Posting, Transaction};
 use crate::core::models::{Flag, ZhangString};
 use crate::core::utils::multi_value_map::MultiValueMap;
-use crate::error::ZhangResult;
+use crate::error::{IoErrorIntoZhangError, ZhangResult};
 use crate::target::ZhangTarget;
 use itertools::Itertools;
 
@@ -115,10 +115,10 @@ impl Record {
 }
 
 pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
-    let config_content = std::fs::read_to_string(&config)?;
+    let config_content = std::fs::read_to_string(&config).with_path(&config)?;
     let loaded_config: WechatExtractorConfig = toml::from_str(&config_content)?;
 
-    let file1 = File::open(file)?;
+    let file1 = File::open(&file).with_path(&file)?;
     let reader = BufReader::new(file1);
     let res = wechat_extractor(reader, loaded_config)?;
     println!("{}\n", res);
@@ -128,7 +128,7 @@ pub fn run(file: PathBuf, config: PathBuf) -> ZhangResult<()> {
 pub fn wechat_extractor(mut buf_reader: BufReader<File>, config: WechatExtractorConfig) -> ZhangResult<String> {
     let mut string_buffer = String::new();
     for _ in 0..=15 {
-        buf_reader.read_line(&mut string_buffer)?;
+        buf_reader.read_line(&mut string_buffer).unwrap();
     }
     let mut reader1 = csv::Reader::from_reader(buf_reader);
 

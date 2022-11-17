@@ -1,6 +1,6 @@
 use crate::core::data::{Balance, Date};
 use crate::core::models::Directive;
-use crate::error::ZhangResult;
+use crate::error::{IoErrorIntoZhangError, ZhangResult};
 
 use crate::core::ledger::Ledger;
 use crate::core::models::ZhangString;
@@ -14,7 +14,7 @@ pub async fn run(file: PathBuf, output: Option<PathBuf>) -> ZhangResult<()> {
     ledger = ledger.apply(convert_datetime_to_date);
     let beancount_content = ledger.to_target();
     if let Some(output_file) = output {
-        std::fs::write(output_file, beancount_content)?;
+        std::fs::write(&output_file, beancount_content).with_path(&output_file)?;
     } else {
         println!("{}", beancount_content);
     };
