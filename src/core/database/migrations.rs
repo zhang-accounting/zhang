@@ -4,7 +4,7 @@ use sqlx::Acquire;
 
 pub struct Migration;
 
-static TABLES: [&'static str; 11] = [
+static TABLES: [&str; 11] = [
     "options",
     "accounts",
     "metas",
@@ -18,7 +18,7 @@ static TABLES: [&'static str; 11] = [
     "commodity_lots",
 ];
 
-static TABLES_SQL: [&'static str; 12] = [
+static TABLES_SQL: [&str; 12] = [
     r#"
     create table if not exists options
     (

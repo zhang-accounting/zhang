@@ -453,8 +453,8 @@ impl DirectiveProcess for Balance {
                             account_name: balance_check.account.name().to_string(),
                             target: balance_check.amount.clone(),
 
-                            current: Amount::new(current_balance_amount.clone(), balance_check.amount.currency.clone()),
-                            distance: distance.clone(),
+                            current: Amount::new(current_balance_amount, balance_check.amount.currency.clone()),
+                            distance,
                         },
                     });
                 }

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 pub type ZhangResult<T> = Result<T, ZhangError>;
@@ -33,11 +33,14 @@ pub enum ZhangError {
 }
 
 pub trait IoErrorIntoZhangError<T> {
-    fn with_path(self, path: &PathBuf) -> Result<T, ZhangError>;
+    fn with_path(self, path: &Path) -> Result<T, ZhangError>;
 }
 
 impl<T> IoErrorIntoZhangError<T> for Result<T, std::io::Error> {
-    fn with_path(self, path: &PathBuf) -> Result<T, ZhangError> {
-        self.map_err(|e| ZhangError::FileError { e, path: path.clone() })
+    fn with_path(self, path: &Path) -> Result<T, ZhangError> {
+        self.map_err(|e| ZhangError::FileError {
+            e,
+            path: path.to_path_buf(),
+        })
     }
 }
