@@ -725,9 +725,6 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
                 .bind(&amount.currency)
                 .fetch_optional(&mut trx)
                 .await?;
-            if account_name.eq("Assets:WeChat") {
-                dbg!(&lot);
-            }
             if let Some(lot) = lot {
                 if let Some(price) = lot.price_amount {
                     // target lot
@@ -748,7 +745,7 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
                     sqlx::query(r#"update commodity_lots
                         set amount = $1
                         where account = $2 and commodity = $3  and price_amount is NULL and price_commodity is NULL"#)
-                        .bind(dbg!(BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number)).to_string())
+                        .bind(BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number).to_string())
                         .bind(&account_name)
                         .bind(&amount.currency)
                         .execute(&mut trx)

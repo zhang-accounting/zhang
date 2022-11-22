@@ -12,7 +12,7 @@ static TABLES: [&'static str; 11] = ["options", "accounts", "metas", "commoditie
 
 static TABLES_SQL: [&'static str; 12] = [
     r#"
-    create table options
+    create table if not exists options
     (
         key   varchar not null
             primary key,
@@ -21,7 +21,7 @@ static TABLES_SQL: [&'static str; 12] = [
     "#,
 
     r#"
-    create table prices
+    create table if not exists prices
     (
         datetime         datetime not null,
         commodity        varchar  not null,
@@ -31,7 +31,7 @@ static TABLES_SQL: [&'static str; 12] = [
     "#,
 
     r#"
-    create table accounts
+    create table if not exists accounts
     (
         date   datetime not null,
         name   varchar  not null
@@ -42,7 +42,7 @@ static TABLES_SQL: [&'static str; 12] = [
     "#,
 
     r#"
-    create table metas
+    create table if not exists metas
     (
         type            varchar not null,
         type_identifier varchar not null,
@@ -52,7 +52,7 @@ static TABLES_SQL: [&'static str; 12] = [
     "#,
 
     r#"
-    create table commodities
+    create table if not exists commodities
     (
         name      varchar not null
             constraint commodities_pk
@@ -65,7 +65,7 @@ static TABLES_SQL: [&'static str; 12] = [
     "#,
 
     r#"
-    create table commodity_lots
+    create table if not exists commodity_lots
     (
         commodity       varchar not null,
         datetime        datetime,
@@ -77,7 +77,7 @@ static TABLES_SQL: [&'static str; 12] = [
     "#,
 
     r#"
-    create table documents
+    create table if not exists documents
     (
         datetime  datetime not null,
         filename  varchar  not null,
@@ -89,7 +89,7 @@ static TABLES_SQL: [&'static str; 12] = [
     "#,
 
     r#"
-    create table transactions
+    create table if not exists transactions
     (
         id        varchar  not null
             primary key
@@ -102,7 +102,7 @@ static TABLES_SQL: [&'static str; 12] = [
     "#,
 
     r#"
-    create table transaction_links
+    create table if not exists transaction_links
     (
         trx_id varchar not null,
         link   varchar not null
@@ -110,7 +110,7 @@ static TABLES_SQL: [&'static str; 12] = [
     "#,
 
     r#"
-    create table transaction_tags
+    create table if not exists transaction_tags
     (
         trx_id varchar not null,
         tag    varchar not null
@@ -118,7 +118,7 @@ static TABLES_SQL: [&'static str; 12] = [
     "#,
 
     r#"
-    create table transaction_postings
+    create table if not exists transaction_postings
     (
         trx_id                   varchar not null,
         account                  varchar not null,
@@ -138,7 +138,7 @@ static TABLES_SQL: [&'static str; 12] = [
     "#,
 
     r#"
-    CREATE VIEW account_balance as
+    CREATE VIEW if not exists account_balance as
     select transactions.datetime,
            account_max_datetime.account,
            account_after_number,
