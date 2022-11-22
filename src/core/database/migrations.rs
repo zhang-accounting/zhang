@@ -1,14 +1,22 @@
-use sqlx::Acquire;
 use crate::error::ZhangResult;
 use sqlx::sqlite::SqliteConnection;
+use sqlx::Acquire;
 
 pub struct Migration;
 
-
-static TABLES: [&'static str; 11] = ["options", "accounts", "metas", "commodities", "documents",
-    "transactions", "transaction_links", "transaction_tags", "transaction_postings",
-    "prices", "commodity_lots"
-    ];
+static TABLES: [&'static str; 11] = [
+    "options",
+    "accounts",
+    "metas",
+    "commodities",
+    "documents",
+    "transactions",
+    "transaction_links",
+    "transaction_tags",
+    "transaction_postings",
+    "prices",
+    "commodity_lots",
+];
 
 static TABLES_SQL: [&'static str; 12] = [
     r#"
@@ -19,7 +27,6 @@ static TABLES_SQL: [&'static str; 12] = [
         value varchar
     );
     "#,
-
     r#"
     create table if not exists prices
     (
@@ -29,7 +36,6 @@ static TABLES_SQL: [&'static str; 12] = [
         target_commodity varchar  not null
     );
     "#,
-
     r#"
     create table if not exists accounts
     (
@@ -40,7 +46,6 @@ static TABLES_SQL: [&'static str; 12] = [
         alias  varchar
     );
     "#,
-
     r#"
     create table if not exists metas
     (
@@ -50,7 +55,6 @@ static TABLES_SQL: [&'static str; 12] = [
         value           varchar
     );
     "#,
-
     r#"
     create table if not exists commodities
     (
@@ -63,7 +67,6 @@ static TABLES_SQL: [&'static str; 12] = [
         rounding  varchar
     );
     "#,
-
     r#"
     create table if not exists commodity_lots
     (
@@ -75,7 +78,6 @@ static TABLES_SQL: [&'static str; 12] = [
         account         varchar
     );
     "#,
-
     r#"
     create table if not exists documents
     (
@@ -87,7 +89,6 @@ static TABLES_SQL: [&'static str; 12] = [
         trx_id    varchar
     );
     "#,
-
     r#"
     create table if not exists transactions
     (
@@ -100,7 +101,6 @@ static TABLES_SQL: [&'static str; 12] = [
         narration varchar
     );
     "#,
-
     r#"
     create table if not exists transaction_links
     (
@@ -108,7 +108,6 @@ static TABLES_SQL: [&'static str; 12] = [
         link   varchar not null
     );
     "#,
-
     r#"
     create table if not exists transaction_tags
     (
@@ -116,7 +115,6 @@ static TABLES_SQL: [&'static str; 12] = [
         tag    varchar not null
     );
     "#,
-
     r#"
     create table if not exists transaction_postings
     (
@@ -136,7 +134,6 @@ static TABLES_SQL: [&'static str; 12] = [
         account_after_commodity  varchar
     );
     "#,
-
     r#"
     CREATE VIEW if not exists account_balance as
     select transactions.datetime,
@@ -156,17 +153,13 @@ static TABLES_SQL: [&'static str; 12] = [
     "#,
 ];
 
-
-
 impl Migration {
     pub async fn init_database_if_missing(conn: &mut SqliteConnection) -> ZhangResult<()> {
         Migration::clear_tables(conn).await?;
 
         let mut trx = conn.begin().await?;
         for sql in TABLES_SQL {
-            sqlx::query(sql)
-                .execute(&mut trx)
-                .await?;
+            sqlx::query(sql).execute(&mut trx).await?;
         }
         trx.commit().await?;
 
@@ -177,7 +170,7 @@ impl Migration {
 
         for table_name in TABLES {
             sqlx::query(&format!("DROP TABLE IF EXISTS {table_name}"))
-            // sqlx::query(&format!("delete from {table_name}"))
+                // sqlx::query(&format!("delete from {table_name}"))
                 .execute(&mut trx)
                 .await?;
         }

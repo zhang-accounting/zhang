@@ -70,9 +70,13 @@ impl Opts {
             Opts::Parse(parse_opts) => {
                 let temp_dir = tempfile::tempdir().unwrap();
                 let temp_db = temp_dir.as_ref().join("data.db");
-                Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, parse_opts.database.unwrap_or(temp_db))
-                    .await
-                    .expect("Cannot load ledger");
+                Ledger::load_with_database(
+                    parse_opts.path,
+                    parse_opts.endpoint,
+                    parse_opts.database.unwrap_or(temp_db),
+                )
+                .await
+                .expect("Cannot load ledger");
             }
             Opts::Exporter(opts) => opts.run().await,
             Opts::Server(opts) => crate::server::serve(opts).await.expect("cannot serve"),

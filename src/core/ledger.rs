@@ -1,6 +1,7 @@
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Commodity, Date, Include, Transaction};
+use crate::core::database::migrations::Migration;
 use crate::core::models::{Directive, DirectiveType, Rounding, ZhangString};
 use crate::core::options::Options;
 use crate::core::process::{DirectiveProcess, ProcessContext};
@@ -28,9 +29,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::option::Option::None;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::{Arc, RwLock as StdRwLock};
-use crate::core::database::migrations::Migration;
 
 #[derive(Debug, Clone)]
 pub enum DocumentType {
@@ -160,7 +159,7 @@ impl Ledger {
         Ledger::load_with_database(entry, endpoint, database).await
     }
 
-    pub async fn load_with_database(entry: PathBuf, endpoint: String, database:PathBuf) -> ZhangResult<Ledger> {
+    pub async fn load_with_database(entry: PathBuf, endpoint: String, database: PathBuf) -> ZhangResult<Ledger> {
         let entry = entry.canonicalize().with_path(&entry)?;
         let main_endpoint = entry.join(&endpoint);
         let main_endpoint = main_endpoint.canonicalize().with_path(&main_endpoint)?;
@@ -193,13 +192,12 @@ impl Ledger {
             directives.extend(entity_directives)
         }
         Ledger::process(
-
             directives,
             Either::Left((entry, endpoint)),
             database,
             visited.into_iter().collect_vec(),
         )
-            .await
+        .await
     }
 
     fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Spanned<Directive>>> {
@@ -208,7 +206,8 @@ impl Ledger {
     }
 
     async fn process(
-        directives: Vec<Spanned<Directive>>, entry: Either<(PathBuf, String), String>, database: PathBuf, visited_files: Vec<PathBuf>,
+        directives: Vec<Spanned<Directive>>, entry: Either<(PathBuf, String), String>, database: PathBuf,
+        visited_files: Vec<PathBuf>,
     ) -> ZhangResult<Ledger> {
         let mut connect = SqliteConnectOptions::default()
             .filename(&database)
@@ -477,9 +476,9 @@ mod test {
                     1970-01-01 open Assets:Hello
                     1970-02-01 open Assets:Hello
                 "#})
-                    .into_iter()
-                    .map(|it| it.data)
-                    .collect_vec(),
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
                 sorted.into_iter().map(|it| it.data).collect_vec()
             );
             let original = test_parse_zhang(indoc! {r#"
@@ -492,9 +491,9 @@ mod test {
                     1970-01-01 open Assets:Hello
                     1970-02-01 open Assets:Hello
                 "#})
-                    .into_iter()
-                    .map(|it| it.data)
-                    .collect_vec(),
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
                 sorted.into_iter().map(|it| it.data).collect_vec()
             )
         }
@@ -518,9 +517,9 @@ mod test {
                     option "2" "2"
                     1970-01-01 open Assets:Hello
                 "#})
-                    .into_iter()
-                    .map(|it| it.data)
-                    .collect_vec(),
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
                 sorted.into_iter().map(|it| it.data).collect_vec()
             );
         }
@@ -548,8 +547,9 @@ mod test {
         async fn should_extract_account_open() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:Hello CNY
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
             assert_eq!(1, ledger.accounts.len());
             let account_info = ledger.accounts.get("Assets:Hello").unwrap();
             assert_eq!(AccountStatus::Open, account_info.status);
@@ -561,8 +561,9 @@ mod test {
         async fn should_extract_account_close() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 close Assets:Hello
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
             assert_eq!(1, ledger.accounts.len());
             let account_info = ledger.accounts.get("Assets:Hello").unwrap();
             assert_eq!(AccountStatus::Close, account_info.status);
@@ -574,8 +575,9 @@ mod test {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:Hello CNY
                 1970-02-01 close Assets:Hello
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
             assert_eq!(1, ledger.accounts.len());
             let account_info = ledger.accounts.get("Assets:Hello").unwrap();
             assert_eq!(AccountStatus::Close, account_info.status);
@@ -588,8 +590,9 @@ mod test {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 commodity CNY
                 1970-02-01 commodity HKD
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
             assert_eq!(2, ledger.currencies.len());
             assert!(ledger.currencies.contains_key("CNY"));
             assert!(ledger.currencies.contains_key("HKD"));
@@ -614,7 +617,7 @@ mod test {
                 include "include.zhang"
             "#},
             )
-                .unwrap();
+            .unwrap();
             let include = temp_dir.join("include.zhang");
             std::fs::write(
                 &include,
@@ -622,7 +625,7 @@ mod test {
                     option "description" "Example Description"
                 "#},
             )
-                .unwrap();
+            .unwrap();
             let ledger = Ledger::load(temp_dir, "example.zhang".to_string()).await.unwrap();
             assert_eq!(
                 test_parse_zhang(indoc! {r#"
@@ -630,9 +633,9 @@ mod test {
                 include "include.zhang"
                 option "description" "Example Description"
             "#})
-                    .into_iter()
-                    .map(|it| it.data)
-                    .collect_vec(),
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
                 ledger.metas.into_iter().map(|it| it.data).collect_vec()
             );
             assert_eq!(0, ledger.directives.len());
@@ -653,8 +656,9 @@ mod test {
                 2022-02-22 "Payee"
                   Assets:From -10 CNY
                   Expenses:To 10 CNY
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
 
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
@@ -690,8 +694,9 @@ mod test {
                 2022-02-22 "Payee"
                   Assets:From -10 CNY
                   Expenses:To
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
 
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
@@ -728,8 +733,9 @@ mod test {
                   Assets:From -5 CNY
                   Assets:From -5 CNY
                   Expenses:To
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
 
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
@@ -766,8 +772,9 @@ mod test {
                   Assets:From -5 CNY
                   Assets:From -5 CNY
                   Expenses:To 1 BTC @@ 10 CNY
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
 
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
@@ -796,7 +803,6 @@ mod test {
 
         #[tokio::test]
         async fn should_record_amount_into_inventory_given_unit_postings_and_single_cost() {
-
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY2
@@ -805,8 +811,9 @@ mod test {
                   Assets:From -5 CNY
                   Assets:From -5 CNY
                   Expenses:To 10 CNY2 @ 1 CNY
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
 
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
@@ -852,8 +859,9 @@ mod test {
                 2022-02-22 "Payee"
                   Assets:From -10 CNY
                   Expenses:To
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
 
             let account_inventory = ledger
                 .daily_inventory
@@ -908,8 +916,9 @@ mod test {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 option "title" "Example accounting book"
                 option "operating_currency" "CNY"
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
             assert_eq!(ledger.option("title").unwrap(), "Example accounting book");
             assert_eq!(ledger.option("operating_currency").unwrap(), "CNY");
         }
@@ -919,8 +928,9 @@ mod test {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 option "title" "Example accounting book"
                 option "title" "Example accounting book 2"
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
             assert_eq!(ledger.option("title").unwrap(), "Example accounting book 2");
         }
     }
@@ -933,8 +943,9 @@ mod test {
         async fn should_generate_default_commodity_for_operating_commodity() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 option "operating_currency" "CNY"
-            "#}).await
-                .unwrap();
+            "#})
+            .await
+            .unwrap();
             assert_eq!(ledger.options.operating_currency, "CNY");
             assert!(ledger.currencies.contains_key("CNY"));
         }
