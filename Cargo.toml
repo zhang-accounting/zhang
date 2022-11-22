@@ -15,7 +15,7 @@ strum = { version = "0.19.5", features = ["derive"] }
 strum_macros = "0.19.4"
 snailquote = "0.3.0"
 indexmap = { version = "1.9.1", features = ["serde-1"] }
-bigdecimal = { version = "0.2.0", features = ["serde"] }
+bigdecimal = { version = "0.3.0", features = ["serde"] }
 itertools = "0.9.0"
 serde = { version = "1.0.136", features = ["derive"] }
 thiserror = "1.0.21"
@@ -46,8 +46,9 @@ async-graphql-axum = "3.0.38"
 uuid = {version="1.0.0", features=["v4"]}
 base64 = "0.13.0"
 sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "sqlite", "chrono", "bigdecimal" ] }
+tempfile = "3.3.0"
 
 [dev-dependencies]
 indoc = "1.0.3"
 rusty-hook = "0.11.2"
-tempfile = "3.3.0"
+

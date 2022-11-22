@@ -348,8 +348,8 @@ mod test {
         use crate::parse_zhang;
         use indoc::indoc;
 
-        #[test]
-        fn should_return_true_given_balanced_transaction() {
+        #[tokio::test]
+        async fn should_return_true_given_balanced_transaction() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2022-06-02 "balanced transaction"
@@ -361,7 +361,7 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            let ledger = Ledger::load_from_str("").unwrap();
+            let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
                     assert!(ledger.is_transaction_balanced(&trx));
@@ -369,8 +369,8 @@ mod test {
                 _ => unreachable!(),
             }
         }
-        #[test]
-        fn should_return_true_given_two_same_decimal() {
+        #[tokio::test]
+        async fn should_return_true_given_two_same_decimal() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2022-06-02 "balanced transaction"
@@ -382,7 +382,7 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            let ledger = Ledger::load_from_str("").unwrap();
+            let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
                     assert!(ledger.is_transaction_balanced(&trx));
@@ -390,8 +390,8 @@ mod test {
                 _ => unreachable!(),
             }
         }
-        #[test]
-        fn should_return_true_given_multiple_posting() {
+        #[tokio::test]
+        async fn should_return_true_given_multiple_posting() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2022-06-02 "balanced transaction"
@@ -404,7 +404,7 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            let ledger = Ledger::load_from_str("").unwrap();
+            let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
                     assert!(ledger.is_transaction_balanced(&trx));
@@ -412,8 +412,8 @@ mod test {
                 _ => unreachable!(),
             }
         }
-        #[test]
-        fn should_return_false_given_two_diff_posting_amount() {
+        #[tokio::test]
+        async fn should_return_false_given_two_diff_posting_amount() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2022-06-02 "balanced transaction"
@@ -425,7 +425,7 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            let ledger = Ledger::load_from_str("").unwrap();
+            let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
                     assert!(!ledger.is_transaction_balanced(&trx));
@@ -433,8 +433,8 @@ mod test {
                 _ => unreachable!(),
             }
         }
-        #[test]
-        fn should_return_false_given_two_diff_currency() {
+        #[tokio::test]
+        async fn should_return_false_given_two_diff_currency() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2022-06-02 "balanced transaction"
@@ -446,7 +446,7 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            let ledger = Ledger::load_from_str("").unwrap();
+            let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
                     assert!(!ledger.is_transaction_balanced(&trx));
@@ -454,8 +454,8 @@ mod test {
                 _ => unreachable!(),
             }
         }
-        #[test]
-        fn should_return_true_given_day_price() {
+        #[tokio::test]
+        async fn should_return_true_given_day_price() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2015-01-05 * "Investing 60% of cash in RGAGX"
@@ -467,7 +467,7 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            let ledger = Ledger::load_from_str("").unwrap();
+            let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
                     assert!(ledger.is_transaction_balanced(&trx));

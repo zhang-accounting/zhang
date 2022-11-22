@@ -10,6 +10,7 @@ use std::path::PathBuf;
 pub async fn run(file: PathBuf, output: Option<PathBuf>) -> ZhangResult<()> {
     let file_parent = file.parent().unwrap().to_path_buf();
     let file_name = file.file_name().unwrap().to_str().unwrap().to_string();
+
     let mut ledger = Ledger::load(file_parent, file_name).await?;
     ledger = ledger.apply(convert_datetime_to_date);
     let beancount_content = ledger.to_target();

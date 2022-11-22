@@ -53,12 +53,14 @@ pub enum AccountStatus {
     /// account is closed
     Close,
 }
+
 #[derive(Debug, Clone)]
 pub struct AccountInfo {
     pub(crate) currencies: HashSet<Currency>,
     pub(crate) status: AccountStatus,
     pub(crate) meta: MultiValueMap<String, String>,
 }
+
 #[derive(Debug, Clone)]
 pub struct CurrencyInfo {
     pub commodity: Commodity,
@@ -93,6 +95,7 @@ pub enum LedgerErrorType {
     },
     TransactionHasMultipleImplicitPosting,
 }
+
 impl LedgerErrorType {
     pub fn message(&self) -> String {
         match self {
@@ -127,6 +130,7 @@ impl LedgerErrorType {
 #[derive(Debug)]
 pub struct Ledger {
     pub entry: Either<(PathBuf, String), String>,
+    pub database: PathBuf,
     pub(crate) visited_files: Vec<PathBuf>,
 
     pub options: Options,
@@ -152,6 +156,11 @@ pub struct Ledger {
 
 impl Ledger {
     pub async fn load(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
+        let database = tempfile::tempdir().unwrap().into_path().join("data.db");
+        Ledger::load_with_database(entry, endpoint, database).await
+    }
+
+    pub async fn load_with_database(entry: PathBuf, endpoint: String, database:PathBuf) -> ZhangResult<Ledger> {
         let entry = entry.canonicalize().with_path(&entry)?;
         let main_endpoint = entry.join(&endpoint);
         let main_endpoint = main_endpoint.canonicalize().with_path(&main_endpoint)?;
@@ -184,11 +193,13 @@ impl Ledger {
             directives.extend(entity_directives)
         }
         Ledger::process(
+
             directives,
             Either::Left((entry, endpoint)),
+            database,
             visited.into_iter().collect_vec(),
         )
-        .await
+            .await
     }
 
     fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Spanned<Directive>>> {
@@ -197,10 +208,10 @@ impl Ledger {
     }
 
     async fn process(
-        directives: Vec<Spanned<Directive>>, entry: Either<(PathBuf, String), String>, visited_files: Vec<PathBuf>,
+        directives: Vec<Spanned<Directive>>, entry: Either<(PathBuf, String), String>, database: PathBuf, visited_files: Vec<PathBuf>,
     ) -> ZhangResult<Ledger> {
-        let mut connect = SqliteConnectOptions::from_str("sqlite://data.db")
-            .unwrap()
+        let mut connect = SqliteConnectOptions::default()
+            .filename(&database)
             .journal_mode(SqliteJournalMode::Wal)
             .create_if_missing(true)
             .connect()
@@ -217,6 +228,7 @@ impl Ledger {
         let mut ret_ledger = Self {
             options: Options::default(),
             entry,
+            database,
             visited_files,
             directives: vec![],
             metas: vec![],
@@ -292,9 +304,10 @@ impl Ledger {
     }
 
     pub(crate) async fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
-        let content = content.as_ref();
-        let directives = parse_zhang(content, None).map_err(|it| ZhangError::PestError(it.to_string()))?;
-        Ledger::process(directives, Either::Right(content.to_string()), vec![]).await
+        let result = tempfile::tempdir().unwrap();
+        let endpoint_path = result.path().join("main.zhang");
+        std::fs::write(&endpoint_path, content.as_ref()).with_path(&endpoint_path)?;
+        Ledger::load(result.into_path(), "main.zhang".to_string()).await
     }
 
     fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
@@ -464,9 +477,9 @@ mod test {
                     1970-01-01 open Assets:Hello
                     1970-02-01 open Assets:Hello
                 "#})
-                .into_iter()
-                .map(|it| it.data)
-                .collect_vec(),
+                    .into_iter()
+                    .map(|it| it.data)
+                    .collect_vec(),
                 sorted.into_iter().map(|it| it.data).collect_vec()
             );
             let original = test_parse_zhang(indoc! {r#"
@@ -479,9 +492,9 @@ mod test {
                     1970-01-01 open Assets:Hello
                     1970-02-01 open Assets:Hello
                 "#})
-                .into_iter()
-                .map(|it| it.data)
-                .collect_vec(),
+                    .into_iter()
+                    .map(|it| it.data)
+                    .collect_vec(),
                 sorted.into_iter().map(|it| it.data).collect_vec()
             )
         }
@@ -505,9 +518,9 @@ mod test {
                     option "2" "2"
                     1970-01-01 open Assets:Hello
                 "#})
-                .into_iter()
-                .map(|it| it.data)
-                .collect_vec(),
+                    .into_iter()
+                    .map(|it| it.data)
+                    .collect_vec(),
                 sorted.into_iter().map(|it| it.data).collect_vec()
             );
         }
@@ -526,16 +539,17 @@ mod test {
             );
         }
     }
+
     mod extract_info {
         use crate::core::ledger::{AccountStatus, Ledger};
         use indoc::indoc;
 
-        #[test]
-        fn should_extract_account_open() {
+        #[tokio::test]
+        async fn should_extract_account_open() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:Hello CNY
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
             assert_eq!(1, ledger.accounts.len());
             let account_info = ledger.accounts.get("Assets:Hello").unwrap();
             assert_eq!(AccountStatus::Open, account_info.status);
@@ -543,43 +557,45 @@ mod test {
             assert!(account_info.currencies.contains("CNY"));
         }
 
-        #[test]
-        fn should_extract_account_close() {
+        #[tokio::test]
+        async fn should_extract_account_close() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 close Assets:Hello
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
             assert_eq!(1, ledger.accounts.len());
             let account_info = ledger.accounts.get("Assets:Hello").unwrap();
             assert_eq!(AccountStatus::Close, account_info.status);
             assert_eq!(0, account_info.currencies.len());
         }
 
-        #[test]
-        fn should_mark_as_close_after_opening_account() {
+        #[tokio::test]
+        async fn should_mark_as_close_after_opening_account() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:Hello CNY
                 1970-02-01 close Assets:Hello
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
             assert_eq!(1, ledger.accounts.len());
             let account_info = ledger.accounts.get("Assets:Hello").unwrap();
             assert_eq!(AccountStatus::Close, account_info.status);
             assert_eq!(1, account_info.currencies.len());
             assert!(account_info.currencies.contains("CNY"));
         }
-        #[test]
-        fn should_extract_commodities() {
+
+        #[tokio::test]
+        async fn should_extract_commodities() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 commodity CNY
                 1970-02-01 commodity HKD
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
             assert_eq!(2, ledger.currencies.len());
             assert!(ledger.currencies.contains_key("CNY"));
             assert!(ledger.currencies.contains_key("HKD"));
         }
     }
+
     mod multiple_file {
         use crate::core::ledger::test::test_parse_zhang;
         use crate::core::ledger::Ledger;
@@ -587,8 +603,8 @@ mod test {
         use itertools::Itertools;
         use tempfile::tempdir;
 
-        #[test]
-        fn should_load_file_from_include_directive() {
+        #[tokio::test]
+        async fn should_load_file_from_include_directive() {
             let temp_dir = tempdir().unwrap().into_path();
             let example = temp_dir.join("example.zhang");
             std::fs::write(
@@ -598,7 +614,7 @@ mod test {
                 include "include.zhang"
             "#},
             )
-            .unwrap();
+                .unwrap();
             let include = temp_dir.join("include.zhang");
             std::fs::write(
                 &include,
@@ -606,17 +622,17 @@ mod test {
                     option "description" "Example Description"
                 "#},
             )
-            .unwrap();
-            let ledger = Ledger::load(temp_dir, "example.zhang".to_string()).unwrap();
+                .unwrap();
+            let ledger = Ledger::load(temp_dir, "example.zhang".to_string()).await.unwrap();
             assert_eq!(
                 test_parse_zhang(indoc! {r#"
                 option "title" "Example"
                 include "include.zhang"
                 option "description" "Example Description"
             "#})
-                .into_iter()
-                .map(|it| it.data)
-                .collect_vec(),
+                    .into_iter()
+                    .map(|it| it.data)
+                    .collect_vec(),
                 ledger.metas.into_iter().map(|it| it.data).collect_vec()
             );
             assert_eq!(0, ledger.directives.len());
@@ -628,8 +644,8 @@ mod test {
         use bigdecimal::BigDecimal;
         use indoc::indoc;
 
-        #[test]
-        fn should_record_amount_into_inventory() {
+        #[tokio::test]
+        async fn should_record_amount_into_inventory() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY
@@ -637,8 +653,8 @@ mod test {
                 2022-02-22 "Payee"
                   Assets:From -10 CNY
                   Expenses:To 10 CNY
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
 
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
@@ -665,8 +681,8 @@ mod test {
             );
         }
 
-        #[test]
-        fn should_record_amount_into_inventory_given_none_unit_posting_and_single_unit_posting() {
+        #[tokio::test]
+        async fn should_record_amount_into_inventory_given_none_unit_posting_and_single_unit_posting() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY
@@ -674,8 +690,8 @@ mod test {
                 2022-02-22 "Payee"
                   Assets:From -10 CNY
                   Expenses:To
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
 
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
@@ -702,8 +718,8 @@ mod test {
             );
         }
 
-        #[test]
-        fn should_record_amount_into_inventory_given_none_unit_posting_and_more_unit_postings() {
+        #[tokio::test]
+        async fn should_record_amount_into_inventory_given_none_unit_posting_and_more_unit_postings() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY
@@ -712,8 +728,8 @@ mod test {
                   Assets:From -5 CNY
                   Assets:From -5 CNY
                   Expenses:To
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
 
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
@@ -740,8 +756,8 @@ mod test {
             );
         }
 
-        #[test]
-        fn should_record_amount_into_inventory_given_unit_postings_and_total_cost() {
+        #[tokio::test]
+        async fn should_record_amount_into_inventory_given_unit_postings_and_total_cost() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY
@@ -750,8 +766,8 @@ mod test {
                   Assets:From -5 CNY
                   Assets:From -5 CNY
                   Expenses:To 1 BTC @@ 10 CNY
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
 
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
@@ -778,8 +794,9 @@ mod test {
             );
         }
 
-        #[test]
-        fn should_record_amount_into_inventory_given_unit_postings_and_single_cost() {
+        #[tokio::test]
+        async fn should_record_amount_into_inventory_given_unit_postings_and_single_cost() {
+
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY2
@@ -788,8 +805,8 @@ mod test {
                   Assets:From -5 CNY
                   Assets:From -5 CNY
                   Expenses:To 10 CNY2 @ 1 CNY
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
 
             assert_eq!(2, ledger.account_inventory.len());
             assert_eq!(
@@ -816,6 +833,7 @@ mod test {
             );
         }
     }
+
     mod daily_inventory {
         use crate::core::ledger::Ledger;
         use crate::core::utils::inventory::{DailyAccountInventory, Inventory};
@@ -825,8 +843,8 @@ mod test {
         use std::collections::HashMap;
         use std::sync::Arc;
 
-        #[test]
-        fn should_record_daily_inventory() {
+        #[tokio::test]
+        async fn should_record_daily_inventory() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 1970-01-01 open Assets:From CNY
                 1970-01-01 open Expenses:To CNY
@@ -834,8 +852,8 @@ mod test {
                 2022-02-22 "Payee"
                   Assets:From -10 CNY
                   Expenses:To
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
 
             let account_inventory = ledger
                 .daily_inventory
@@ -861,6 +879,7 @@ mod test {
                     .total
             );
         }
+
         #[test]
         fn should_get_from_previous_day_given_day_is_not_in_data() {
             let mut daily_inventory = DailyAccountInventory::default();
@@ -884,36 +903,38 @@ mod test {
         use crate::core::ledger::Ledger;
         use indoc::indoc;
 
-        #[test]
-        fn should_read_to_option() {
+        #[tokio::test]
+        async fn should_read_to_option() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 option "title" "Example accounting book"
                 option "operating_currency" "CNY"
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
             assert_eq!(ledger.option("title").unwrap(), "Example accounting book");
             assert_eq!(ledger.option("operating_currency").unwrap(), "CNY");
         }
-        #[test]
-        fn should_store_the_latest_one_given_same_name_option() {
+
+        #[tokio::test]
+        async fn should_store_the_latest_one_given_same_name_option() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 option "title" "Example accounting book"
                 option "title" "Example accounting book 2"
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
             assert_eq!(ledger.option("title").unwrap(), "Example accounting book 2");
         }
     }
+
     mod default_behavior {
         use crate::core::ledger::Ledger;
         use indoc::indoc;
 
-        #[test]
-        fn should_generate_default_commodity_for_operating_commodity() {
+        #[tokio::test]
+        async fn should_generate_default_commodity_for_operating_commodity() {
             let ledger = Ledger::load_from_str(indoc! {r#"
                 option "operating_currency" "CNY"
-            "#})
-            .unwrap();
+            "#}).await
+                .unwrap();
             assert_eq!(ledger.options.operating_currency, "CNY");
             assert!(ledger.currencies.contains_key("CNY"));
         }

@@ -111,6 +111,9 @@ impl ZhangString {
             ZhangString::QuoteString(quote) => quote,
         }
     }
+    pub fn quote(content: impl Into<String>) -> ZhangString {
+        ZhangString::QuoteString(content.into())
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -125,6 +128,9 @@ pub enum Flag {
     Okay,
     #[strum(serialize = "!", to_string = "!")]
     Warning,
+
+    #[strum(serialize = "P", to_string = "BalancePad")]
+    BalancePad,
 }
 
 #[derive(EnumString, Debug, PartialEq, Eq, strum_macros::ToString, Deserialize, Serialize, Clone, Copy)]

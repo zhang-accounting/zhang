@@ -34,6 +34,10 @@ pub struct ParseOpts {
     /// the endpoint of main zhang file.
     #[clap(short, long, default_value = "main.zhang")]
     pub endpoint: String,
+
+    /// indicate cache database file path, using tempfile if not present
+    #[clap(long)]
+    pub database: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -64,7 +68,9 @@ impl Opts {
         match self {
             Opts::Importer(importer) => importer.run(),
             Opts::Parse(parse_opts) => {
-                Ledger::load(parse_opts.path, parse_opts.endpoint)
+                let temp_dir = tempfile::tempdir().unwrap();
+                let temp_db = temp_dir.as_ref().join("data.db");
+                Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, parse_opts.database.unwrap_or(temp_db))
                     .await
                     .expect("Cannot load ledger");
             }
