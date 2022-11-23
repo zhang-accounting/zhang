@@ -17,8 +17,12 @@ static TABLES: [&str; 11] = [
     "prices",
     "commodity_lots",
 ];
+static VIEWS: [&str; 1] = [
+    "account_balance",
 
-static TABLES_SQL: [&str; 12] = [
+];
+
+static TABLES_SQL: [&str; 13] = [
     r#"
     create table if not exists options
     (
@@ -90,16 +94,22 @@ static TABLES_SQL: [&str; 12] = [
     );
     "#,
     r#"
-    create table if not exists transactions
+    create table transactions
     (
+        sequence  integer not null
+        primary key autoincrement
+        unique,
         id        varchar  not null
-            primary key
             unique,
         datetime  datetime not null,
         type      varchar,
         payee     varchar,
         narration varchar
     );
+    "#,
+    r#"
+    create index transactions_id_index
+    on transactions (id);
     "#,
     r#"
     create table if not exists transaction_links
@@ -138,18 +148,19 @@ static TABLES_SQL: [&str; 12] = [
     CREATE VIEW if not exists account_balance as
     select transactions.datetime,
            account_max_datetime.account,
-           account_after_number,
-           transaction_postings.account_after_commodity
+           account_after_number                         as balance_number,
+           transaction_postings.account_after_commodity as balance_commodity
     from transactions
              join transaction_postings on transactions.id = transaction_postings.trx_id
 
-             join (select max(datetime) as max_datetime, account, account_after_commodity
+             join (select datetime, transactions.id, account, account_after_commodity
                    from transaction_postings
                             join transactions on transactions.id = transaction_postings.trx_id
-                   group by account, account_after_commodity) account_max_datetime
-                  on transactions.datetime = account_max_datetime.max_datetime and
+                   group by account, account_after_commodity
+                   having max(sequence)) account_max_datetime
+                  on transactions.id = account_max_datetime.id and
                      transaction_postings.account = account_max_datetime.account
-                      and transaction_postings.account_after_commodity = account_max_datetime.account_after_commodity;
+                      and transaction_postings.account_after_commodity = account_max_datetime.account_after_commodity
     "#,
 ];
 
@@ -170,7 +181,12 @@ impl Migration {
 
         for table_name in TABLES {
             sqlx::query(&format!("DROP TABLE IF EXISTS {table_name}"))
-                // sqlx::query(&format!("delete from {table_name}"))
+                .execute(&mut trx)
+                .await?;
+        }
+
+        for view_name in VIEWS {
+            sqlx::query(&format!("DROP VIEW IF EXISTS {view_name}"))
                 .execute(&mut trx)
                 .await?;
         }

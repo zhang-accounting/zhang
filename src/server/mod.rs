@@ -17,6 +17,7 @@ use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
 use crate::server::model::mutation::MutationRoot;
+use crate::server::route::get_account_list;
 
 pub mod model;
 pub mod route;
@@ -91,6 +92,7 @@ async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> Zha
     let app = Router::new()
         .route("/graphql", get(route::graphql_playground).post(route::graphql_handler))
         .route("/files/:filename/preview", get(route::file_preview))
+        .route("/api/accounts", get(get_account_list))
         .fallback(get(route::serve_frontend))
         .layer(Extension(ledger_data))
         .layer(Extension(schema))

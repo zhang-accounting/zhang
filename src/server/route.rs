@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::core::ledger::Ledger;
 use crate::server::model::LedgerSchema;
 use async_graphql::http::{playground_source, GraphQLPlaygroundConfig};
@@ -11,7 +12,16 @@ use rust_embed::RustEmbed;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use axum::Json;
+use bigdecimal::{BigDecimal, FromPrimitive};
+use itertools::Itertools;
+use serde::Serialize;
+use sqlx::{ConnectOptions, FromRow};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use tokio::sync::RwLock;
+use crate::core::account::Account;
+use crate::core::Currency;
+use crate::server::response::AccountResponse;
 
 pub async fn graphql_playground() -> impl IntoResponse {
     Html(playground_source(GraphQLPlaygroundConfig::new("/graphql")))
@@ -21,7 +31,7 @@ pub async fn graphql_handler(schema: Extension<LedgerSchema>, req: GraphQLReques
     schema.execute(req.0).await.into()
 }
 
-pub async fn file_preview(ledger: Extension<Arc<RwLock<Ledger>>>, Path(params): Path<(String,)>) -> impl IntoResponse {
+pub async fn file_preview(ledger: Extension<Arc<RwLock<Ledger>>>, Path(params): Path<(String, )>) -> impl IntoResponse {
     let filename = String::from_utf8(base64::decode(params.0).unwrap()).unwrap();
     let ledger = ledger.0.read().await;
     let entry = &ledger.entry.0;
@@ -61,7 +71,36 @@ pub async fn serve_frontend(uri: Uri) -> impl IntoResponse {
 
 pub async fn get_account_list(ledger: Extension<Arc<RwLock<Ledger>>>) -> impl IntoResponse {
     let ledger = ledger.read().await;
-    unimplemented!()
+    let mut connection = ledger.connection().await;
+
+    #[derive(FromRow)]
+    struct AccountBalanceRow {
+        name: String,
+        status: String,
+        balance_number: f64,
+        balance_commodity: String,
+    }
+
+    let rows = sqlx::query_as::<_, AccountBalanceRow>(r#"
+    select name, status, balance_number, balance_commodity
+    from account_balance
+             join accounts on accounts.name = account_balance.account
+    "#).fetch_all(&mut connection).await.unwrap();
+    let mut ret = vec![];
+    for (key, group) in &rows.into_iter().group_by(|it| it.name.clone()) {
+        let mut status = "".to_string();
+        let mut commodities = HashMap::new();
+        for row in group {
+            status = row.status;
+            commodities.insert(row.balance_commodity, BigDecimal::from_f64(row.balance_number).unwrap());
+        }
+        ret.push(AccountResponse {
+            name: key,
+            status,
+            commodities,
+        });
+    }
+    Json(ret)
 }
 
 
@@ -72,8 +111,8 @@ struct Asset;
 pub struct StaticFile<T>(pub T);
 
 impl<T> IntoResponse for StaticFile<T>
-where
-    T: Into<String>,
+    where
+        T: Into<String>,
 {
     fn into_response(self) -> Response {
         let path = self.0.into();

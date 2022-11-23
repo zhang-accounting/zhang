@@ -314,7 +314,7 @@ impl DirectiveProcess for Transaction {
                 r#"select account_after_number as number, account_after_commodity as commodity from transaction_postings
                                 join transactions on transactions.id = transaction_postings.trx_id
                                 where account = $1 and "datetime" <=  $2 and account_after_commodity = $3
-                                order by "datetime" desc limit 1"#,
+                                order by "datetime" desc, transactions.sequence desc limit 1"#,
             )
             .bind(txn_posting.posting.account.name())
             .bind(self.date.naive_datetime())

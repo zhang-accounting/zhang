@@ -9,7 +9,8 @@ import { createUploadLink } from 'apollo-upload-client';
 import { MantineProvider } from '@mantine/core';
 import './i18n';
 Chart.register(...registerables);
-
+// @ts-ignore
+export const fetcher = (...args) => fetch(...args).then(res => res.json())
 const client = new ApolloClient({
   link: createUploadLink({
     uri: '/graphql',

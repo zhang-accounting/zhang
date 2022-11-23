@@ -27,7 +27,7 @@ describe('transaction summary calculator', () => {
       {
         account: {
           name: 'Assets:12332',
-          status: 'OPEN',
+          status: 'Open',
           accountType: 'Assets',
         } as AccountItem,
         unit: {
@@ -42,7 +42,7 @@ describe('transaction summary calculator', () => {
       {
         account: {
           name: 'Expenses:12332',
-          status: 'OPEN',
+          status: 'Open',
           accountType: 'Expenses',
         } as AccountItem,
         unit: {
@@ -70,7 +70,7 @@ describe('transaction summary calculator', () => {
       {
         account: {
           name: 'Assets:12332',
-          status: 'OPEN',
+          status: 'Open',
           accountType: 'Assets',
         } as AccountItem,
         unit: {
@@ -85,7 +85,7 @@ describe('transaction summary calculator', () => {
       {
         account: {
           name: 'Income:12332',
-          status: 'OPEN',
+          status: 'Open',
           accountType: 'Income',
         } as AccountItem,
         unit: {
@@ -112,7 +112,7 @@ describe('transaction summary calculator', () => {
       {
         account: {
           name: 'Assets:12332',
-          status: 'OPEN',
+          status: 'Open',
           accountType: 'Assets',
         } as AccountItem,
         unit: {
@@ -127,7 +127,7 @@ describe('transaction summary calculator', () => {
       {
         account: {
           name: 'Assets:12332',
-          status: 'OPEN',
+          status: 'Open',
           accountType: 'Assets',
         } as AccountItem,
         unit: {
@@ -147,7 +147,7 @@ describe('transaction summary calculator', () => {
       {
         account: {
           name: 'Assets:12332',
-          status: 'OPEN',
+          status: 'Open',
           accountType: 'Assets',
         } as AccountItem,
         unit: {
@@ -162,7 +162,7 @@ describe('transaction summary calculator', () => {
       {
         account: {
           name: 'Assets:12332',
-          status: 'OPEN',
+          status: 'Open',
           accountType: 'Assets',
         } as AccountItem,
         unit: {
@@ -194,7 +194,7 @@ describe('transaction summary calculator', () => {
       {
         account: {
           name: 'Assets:US:ETrade:Cash',
-          status: 'OPEN',
+          status: 'Open',
           accountType: 'Assets',
         } as AccountItem,
         unit: {
@@ -209,7 +209,7 @@ describe('transaction summary calculator', () => {
       {
         account: {
           name: 'Assets:US:ETrade:VHT',
-          status: 'OPEN',
+          status: 'Open',
           accountType: 'Assets',
         } as AccountItem,
         unit: {
@@ -224,7 +224,7 @@ describe('transaction summary calculator', () => {
       {
         account: {
           name: 'Expenses:Financial:Commissions',
-          status: 'OPEN',
+          status: 'Open',
           accountType: 'Expenses',
         } as AccountItem,
         unit: {

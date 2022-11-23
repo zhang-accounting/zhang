@@ -1,6 +1,7 @@
 import { gql } from '@apollo/client';
 import { Snapshot } from '../models';
 import { Amount, JournalItem, TransactionDto } from './jouralList';
+import {AccountStatus} from "../rest-model";
 
 export interface AccountListQuery {
   accounts: AccountItem[];
@@ -9,7 +10,7 @@ export type AccountType = 'Liabilities' | 'Expenses' | 'Income' | 'Assets' | 'Eq
 
 export interface AccountItem {
   name: string;
-  status: 'OPEN' | 'CLOSE';
+  status: AccountStatus;
   accountType: AccountType;
   sign: 1 | -1;
   snapshot: Snapshot;

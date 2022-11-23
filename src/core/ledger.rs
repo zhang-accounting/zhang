@@ -22,7 +22,7 @@ use chrono::NaiveDate;
 use itertools::Itertools;
 use log::{debug, error, info};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
-use sqlx::ConnectOptions;
+use sqlx::{ConnectOptions, SqliteConnection};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
@@ -203,6 +203,16 @@ impl Ledger {
     fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Spanned<Directive>>> {
         let content = std::fs::read_to_string(&entry).with_path(&entry)?;
         parse_zhang(&content, entry).map_err(|it| ZhangError::PestError(it.to_string()))
+    }
+
+    pub(crate) async fn connection(&self) -> SqliteConnection {
+         SqliteConnectOptions::default()
+            .filename(&self.database)
+            .journal_mode(SqliteJournalMode::Wal)
+            .create_if_missing(false)
+            .connect()
+            .await
+            .unwrap()
     }
 
     async fn process(
