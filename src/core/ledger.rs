@@ -19,7 +19,7 @@ use crate::target::ZhangTarget;
 use async_graphql::Enum;
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use log::{debug, error, info};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use sqlx::ConnectOptions;
@@ -128,7 +128,7 @@ impl LedgerErrorType {
 
 #[derive(Debug)]
 pub struct Ledger {
-    pub entry: Either<(PathBuf, String), String>,
+    pub entry: (PathBuf, String),
     pub database: PathBuf,
     pub(crate) visited_files: Vec<PathBuf>,
 
@@ -193,7 +193,7 @@ impl Ledger {
         }
         Ledger::process(
             directives,
-            Either::Left((entry, endpoint)),
+            (entry, endpoint),
             database,
             visited.into_iter().collect_vec(),
         )
@@ -206,7 +206,7 @@ impl Ledger {
     }
 
     async fn process(
-        directives: Vec<Spanned<Directive>>, entry: Either<(PathBuf, String), String>, database: PathBuf,
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: PathBuf,
         visited_files: Vec<PathBuf>,
     ) -> ZhangResult<Ledger> {
         let mut connect = SqliteConnectOptions::default()
@@ -302,7 +302,7 @@ impl Ledger {
         Ok(ret_ledger)
     }
 
-    pub(crate) async fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
+    pub async fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
         let result = tempfile::tempdir().unwrap();
         let endpoint_path = result.path().join("main.zhang");
         std::fs::write(&endpoint_path, content.as_ref()).with_path(&endpoint_path)?;
@@ -359,10 +359,10 @@ impl Ledger {
     }
 
     pub async fn reload(&mut self) -> ZhangResult<()> {
-        let reload_ledger = match &mut self.entry {
-            Either::Left((entry, endpoint)) => Ledger::load(entry.clone(), endpoint.clone()).await,
-            Either::Right(raw_string) => Ledger::load_from_str(raw_string).await,
-        }?;
+        let (entry, endpoint) = &mut self.entry;
+        let reload_ledger =
+            Ledger::load(entry.clone(), endpoint.clone()).await
+        ?;
         *self = reload_ledger;
         Ok(())
     }
@@ -374,12 +374,7 @@ impl Ledger {
     }
 
     pub(crate) fn append_directives(&self, directives: Vec<Directive>, target_endpoint: impl Into<Option<String>>) {
-        let (entry, endpoint) = match &self.entry {
-            Either::Left(path) => path,
-            Either::Right(_) => {
-                return;
-            }
-        };
+        let (entry, endpoint) =  &self.entry;
         let endpoint = entry.join(target_endpoint.into().unwrap_or_else(|| endpoint.clone()));
 
         create_folder_if_not_exist(&endpoint);

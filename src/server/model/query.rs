@@ -11,7 +11,7 @@ use async_graphql::connection::{query, Connection, Edge, EmptyFields};
 use async_graphql::{Context, Interface, Object, OutputType, SimpleObject};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveDateTime, Utc};
-use itertools::{Either, Itertools};
+use itertools::{Itertools};
 use std::cmp::min;
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
@@ -801,12 +801,7 @@ impl SpanInfoDto {
     async fn filename(&self, ctx: &Context<'_>) -> Option<&str> {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().read().await;
 
-        let (entry, _) = match &ledger_stage.entry {
-            Either::Left(path) => path,
-            Either::Right(_) => {
-                return None;
-            }
-        };
+        let entry =  &ledger_stage.entry.0;
         self.0
             .filename
             .as_ref()

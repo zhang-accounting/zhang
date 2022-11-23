@@ -6,7 +6,7 @@ use axum::body::{boxed, Full};
 use axum::extract::{Extension, Path};
 use axum::http::{header, StatusCode, Uri};
 use axum::response::{Html, IntoResponse, Response};
-use itertools::Either;
+
 use rust_embed::RustEmbed;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -24,15 +24,7 @@ pub async fn graphql_handler(schema: Extension<LedgerSchema>, req: GraphQLReques
 pub async fn file_preview(ledger: Extension<Arc<RwLock<Ledger>>>, Path(params): Path<(String,)>) -> impl IntoResponse {
     let filename = String::from_utf8(base64::decode(params.0).unwrap()).unwrap();
     let ledger = ledger.0.read().await;
-    let entry = match &ledger.entry {
-        Either::Left((entry, _)) => entry,
-        Either::Right(_) => {
-            return Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(boxed(Full::from("404")))
-                .unwrap();
-        }
-    };
+    let entry = &ledger.entry.0;
     let full_path = entry.join(filename);
     if !full_path.exists() {
         return Response::builder()
@@ -65,6 +57,13 @@ pub async fn serve_frontend(uri: Uri) -> impl IntoResponse {
         StaticFile("index.html".to_string())
     }
 }
+
+
+pub async fn get_account_list(ledger: Extension<Arc<RwLock<Ledger>>>) -> impl IntoResponse {
+    let ledger = ledger.read().await;
+    unimplemented!()
+}
+
 
 #[derive(RustEmbed)]
 #[folder = "frontend/build"]

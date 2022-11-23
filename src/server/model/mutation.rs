@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use async_graphql::{Context, Object, Upload};
 use chrono::{Datelike, Local, NaiveDateTime};
-use itertools::{Either, Itertools};
+use itertools::{Itertools};
 use log::info;
 use uuid::Uuid;
 
@@ -59,12 +59,7 @@ impl MutationRoot {
             return false;
         }
         let mut ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
-        let (entry, _endpoint) = match &ledger_stage.entry {
-            Either::Left(path) => path,
-            Either::Right(_) => {
-                return false;
-            }
-        };
+        let entry = &ledger_stage.entry.0;
         let file_path = entry.join(file);
         replace_file_via_lines(file_path, &content, start, end);
         ledger_stage.reload().await.is_ok()
@@ -72,12 +67,7 @@ impl MutationRoot {
 
     async fn upload_account_document(&self, ctx: &Context<'_>, account_name: String, files: Vec<Upload>) -> bool {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
-        let (entry, _endpoint) = match &ledger_stage.entry {
-            Either::Left(path) => path,
-            Either::Right(_) => {
-                return false;
-            }
-        };
+        let entry = &ledger_stage.entry.0;
         let documents = files
             .into_iter()
             .map(|file| {
@@ -121,12 +111,7 @@ impl MutationRoot {
         &self, ctx: &Context<'_>, transaction_file: String, transaction_end_line: usize, files: Vec<Upload>,
     ) -> bool {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
-        let (entry, _endpoint) = match &ledger_stage.entry {
-            Either::Left(path) => path,
-            Either::Right(_) => {
-                return false;
-            }
-        };
+        let entry =  &ledger_stage.entry.0;
         let mut metas = Meta::default();
         files.into_iter().for_each(|file| {
             let file = file.value(ctx).unwrap();
