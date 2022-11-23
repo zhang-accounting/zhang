@@ -61,6 +61,10 @@ pub struct ServerOpts {
     /// serve port
     #[clap(short, long, default_value_t = 8000)]
     pub port: u16,
+
+    /// indicate cache database file path
+    #[clap(long)]
+    pub database: Option<PathBuf>,
 }
 
 impl Opts {
