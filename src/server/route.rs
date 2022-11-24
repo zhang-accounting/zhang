@@ -175,7 +175,7 @@ pub async fn upload_account_document(
     "OK"
 }
 
-#[get("/api/{account_name}/documents")]
+#[get("/api/accounts/{account_name}/documents")]
 pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>) -> impl Responder {
     let account_name = params.into_inner().0;
     let ledger = ledger.read().await;
@@ -197,6 +197,50 @@ pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: we
 
     Json(rows)
 }
+
+#[get("/api/accounts/{account_name}/journals")]
+pub async fn get_account_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>) -> impl Responder {
+    let account_name = params.into_inner().0;
+    let ledger = ledger.read().await;
+    let mut connection = ledger.connection().await;
+
+    #[derive(FromRow, Serialize)]
+    struct AccountJournalItem {
+        datetime: NaiveDateTime,
+        trx_id: String,
+        payee: String,
+        narration: Option<String>,
+        inferred_unit_number: f64,
+        inferred_unit_commodity: String,
+        account_after_number: f64,
+        account_after_commodity: String,
+    }
+
+    let rows = sqlx::query_as::<_, AccountJournalItem>(
+        r#"
+            select datetime,
+                   trx_id,
+                   payee,
+                   narration,
+                   inferred_unit_number,
+                   inferred_unit_commodity,
+                   account_after_number,
+                   account_after_commodity
+            from transaction_postings
+                     join transactions on transactions.id = transaction_postings.trx_id
+            where account = $1
+            order by datetime desc, transactions.sequence desc
+    "#,
+    )
+        .bind(account_name)
+        .fetch_all(&mut connection)
+        .await
+        .unwrap();
+
+    Json(rows)
+}
+
+
 
 #[post("/api/accounts/{account_name}/balances")]
 pub async fn create_account_balance(
