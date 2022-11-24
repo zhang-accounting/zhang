@@ -1,27 +1,20 @@
-import { Text, Image, Card, Group } from '@mantine/core';
+import { Card, Group, Image, Text } from '@mantine/core';
 import { Buffer } from 'buffer';
-import { AccountItem } from '../../gql/accountList';
-import { TransactionDto } from '../../gql/jouralList';
+import { Document } from '../../rest-model';
 
-export interface DocumentRenderItem {
-  filename: string;
-  accounts: (AccountItem | undefined)[];
-  transactions: (TransactionDto | undefined)[];
-}
+export interface Props extends Document {}
 
-export interface Props extends DocumentRenderItem {}
+export const EXTENSIONS_SUPPORT_PREVIEW = ['PNG', 'JPG', 'JPEG', 'GIF'];
 
-export const EXTENSIONS_SUPPORT_PREVIEW = ['PNG', 'JPG', 'GIF'];
+export default function AccountDocumentLine(props: Props) {
+  const extension = (props.extension ?? '').toUpperCase();
 
-export default function AccountDocumentLine({ filename }: Props) {
-  const extension = filename.split('.').pop()?.toUpperCase() || '';
-  const simpleFilename = filename.split('/').pop() || '';
   const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
   return (
     <Card shadow="sm" p="xs" radius="sm" withBorder>
       <Card.Section>
         {canPreview ? (
-          <Image src={`/files/${Buffer.from(filename).toString('base64')}/preview`} height={160} />
+          <Image src={`/files/${Buffer.from(props.path).toString('base64')}/preview`} height={160} />
         ) : (
           <Text style={{ height: 160 }}>this file cannot be previewed</Text>
         )}
@@ -29,7 +22,7 @@ export default function AccountDocumentLine({ filename }: Props) {
 
       <Group position="apart" mt="md" mb="xs">
         <Text weight={500} lineClamp={1}>
-          {simpleFilename}
+          {props.filename}
         </Text>
         {/* <Badge color="pink" variant="light">
           {extension}

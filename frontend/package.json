@@ -20,6 +20,7 @@
     "@types/react-dom": "^17.0.15",
     "@uiw/react-codemirror": "^4.5.3",
     "apollo-upload-client": "^17.0.0",
+    "axios": "^1.2.0",
     "bignumber.js": "^9.1.0",
     "buffer": "^6.0.3",
     "chart.js": "^3.7.1",

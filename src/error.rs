@@ -9,7 +9,8 @@ pub enum ZhangError {
     InvalidDate,
     #[error("account is invalid")]
     InvalidAccount,
-
+    #[error("io error: {0}")]
+    IoError(#[from] std::io::Error),
     #[error("file error: {e}")]
     FileError { e: std::io::Error, path: PathBuf },
 

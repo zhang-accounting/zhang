@@ -4,6 +4,7 @@ import { Dropzone } from '@mantine/dropzone';
 import { useEffect, useState } from 'react';
 import { FileWithPath } from 'react-dropzone';
 import { UPLOAD_ACCOUNT_DOCUMENT } from '../gql/uploadAccountDocument';
+import { axiosInstance } from '../index';
 
 interface Props {
   accountName: string;
@@ -11,27 +12,33 @@ interface Props {
 export default function AccountDocumentUpload(props: Props) {
   const [files, setFiles] = useState<FileWithPath[]>([]);
 
-  const [uploadAccountDocuments] = useMutation(UPLOAD_ACCOUNT_DOCUMENT, {
-    refetchQueries: [],
-
-    update: (proxy) => {
-      proxy.evict({ fieldName: `account({"name":"${props.accountName}"})` });
-      proxy.evict({ fieldName: `journals` });
-    },
-  });
+  // const [uploadAccountDocuments] = useMutation(UPLOAD_ACCOUNT_DOCUMENT, {
+  //   refetchQueries: [],
+  //
+  //   update: (proxy) => {
+  //     proxy.evict({ fieldName: `account({"name":"${props.accountName}"})` });
+  //     proxy.evict({ fieldName: `journals` });
+  //   },
+  // });
 
   useEffect(() => {
     console.log('files', files);
     if (files.length > 0) {
-      uploadAccountDocuments({
-        variables: { account: props.accountName, files: files },
-      }).then(() => {
-        setTimeout(() => {
+      const formData = new FormData();
+      files.forEach((file) => formData.append('file', file));
+
+      axiosInstance
+        .post(`/api/accounts/${props.accountName}/documents`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+          onUploadProgress: () => {},
+        })
+        .then(() => {
           setFiles([]);
-        }, 1000);
-      });
+        });
     }
-  }, [files, props.accountName, uploadAccountDocuments]);
+  }, [files, props.accountName]);
 
   const filesDom = files.map((file: FileWithPath) => (
     <li key={file.path}>

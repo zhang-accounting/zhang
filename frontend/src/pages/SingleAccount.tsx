@@ -7,10 +7,12 @@ import { useParams } from 'react-router';
 import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
 import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
-import AccountDocumentLine, { DocumentRenderItem } from '../components/documentLines/AccountDocumentLine';
+import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import JournalLine from '../components/JournalLine';
 import { CommodityBalanceTime } from '../gql/accountList';
-import { SingleAccountJournalQuery, SINGLE_ACCONT_JOURNAL } from '../gql/singleAccount';
+import { SINGLE_ACCONT_JOURNAL, SingleAccountJournalQuery } from '../gql/singleAccount';
+import LoadingComponent from '../components/basic/LoadingComponent';
+import { Document } from '../rest-model';
 
 function SingleAccount() {
   let { accountName } = useParams();
@@ -34,29 +36,6 @@ function SingleAccount() {
   });
   if (loading) return <p>Loading...</p>;
   if (error) return <p>Error :(</p>;
-
-  const documents: { [filename: string]: DocumentRenderItem } = {};
-
-  for (let document of data!.account.documents) {
-    let filename = document.filename;
-    if (!documents.hasOwnProperty(filename)) {
-      documents[filename] = {
-        filename: filename,
-        accounts: [],
-        transactions: [],
-      } as DocumentRenderItem;
-    }
-
-    switch (document.__typename) {
-      case 'AccountDocumentDto':
-        documents[filename].accounts.push(document.account);
-        break;
-      case 'TransactionDocumentDto':
-        documents[filename].transactions.push(document.transaction);
-        break;
-      default:
-    }
-  }
 
   return (
     <Container fluid>
@@ -95,10 +74,17 @@ function SingleAccount() {
         </Tabs.Panel>
 
         <Tabs.Panel value="documents" pt="xs">
-          <AccountDocumentUpload accountName={data!.account.name} />
-          {Object.values(documents).map((document, idx) => (
-            <AccountDocumentLine key={idx} {...document} />
-          ))}
+          <LoadingComponent
+            url={`/api/accounts/${accountName}/documents`}
+            skeleton={<div>loading</div>}
+            render={(data: Document[]) => (
+              <>
+                <AccountDocumentUpload accountName={accountName!} />
+                {data.map((document, idx) => (
+                  <AccountDocumentLine key={idx} {...document} />
+                ))}
+              </>
+            )}></LoadingComponent>
         </Tabs.Panel>
 
         <Tabs.Panel value="settings" pt="xs">
