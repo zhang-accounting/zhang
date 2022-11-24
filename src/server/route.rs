@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 
 use crate::core::account::Account;
-use crate::core::data::{Date, Document};
+use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document};
 use crate::core::models::{Directive, ZhangString};
 use crate::server::model::mutation::create_folder_if_not_exist;
 use crate::server::response::{AccountResponse, DocumentResponse};
@@ -15,15 +15,18 @@ use actix_files::NamedFile;
 use actix_multipart::Multipart;
 use actix_web::body::{BoxBody, EitherBody};
 use actix_web::http::Uri;
-use actix_web::web::{Data, Json};
+use actix_web::web::{Data, Json, Path};
 use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
 
+use crate::core::amount::Amount;
+use crate::server::request::AccountBalanceRequest;
 use bigdecimal::{BigDecimal, FromPrimitive};
-use chrono::{Datelike, Local};
+use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
 use futures_util::StreamExt;
 use itertools::Itertools;
 use log::info;
 use rust_embed::RustEmbed;
+use serde::Serialize;
 use sqlx::FromRow;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -119,7 +122,7 @@ pub async fn get_documents(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Responder 
     Json(rows)
 }
 
-#[post("/api/{account_name}/documents")]
+#[post("/api/accounts/{account_name}/documents")]
 pub async fn upload_account_document(
     ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: web::Path<(String,)>,
 ) -> impl Responder {
@@ -193,6 +196,180 @@ pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: we
     .unwrap();
 
     Json(rows)
+}
+
+#[post("/api/accounts/{account_name}/balances")]
+pub async fn create_account_balance(
+    ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>, Json(payload): Json<AccountBalanceRequest>,
+) -> impl Responder {
+    let account_name = params.into_inner().0;
+    let ledger = ledger.read().await;
+    let mut connection = ledger.connection().await;
+
+    let balance = match payload {
+        AccountBalanceRequest::Check { amount, commodity } => Balance::BalanceCheck(BalanceCheck {
+            date: Date::Datetime(Local::now().naive_local()),
+            account: Account::from_str(&account_name).unwrap(),
+            amount: Amount::new(amount, commodity),
+            tolerance: None,
+            distance: None,
+            current_amount: None,
+            meta: Default::default(),
+        }),
+        AccountBalanceRequest::Pad {
+            amount,
+            commodity,
+            pad_account,
+        } => Balance::BalancePad(BalancePad {
+            date: Date::Datetime(Local::now().naive_local()),
+            account: Account::from_str(&account_name).unwrap(),
+            amount: Amount::new(amount, commodity),
+            tolerance: None,
+            diff_amount: None,
+            meta: Default::default(),
+            pad: Account::from_str(&pad_account).unwrap(),
+        }),
+    };
+    let time = Local::now().naive_local();
+    ledger.append_directives(vec![Directive::Balance(balance)], format!("data/{}/{}.zhang", time.year(), time.month()));
+    "OK"
+}
+
+#[get("/api/commodities")]
+pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Responder {
+    let ledger = ledger.read().await;
+    let mut connection = ledger.connection().await;
+    #[derive(FromRow, Serialize)]
+    struct CommodityListItem {
+        name: String,
+        precision: i32,
+        prefix: Option<String>,
+        suffix: Option<String>,
+        rounding: Option<String>,
+        total_amount: f64,
+        latest_price_date: Option<NaiveDateTime>,
+        latest_price_amount: Option<f64>,
+        latest_price_commodity: Option<String>,
+    }
+    let vec = sqlx::query_as::<_, CommodityListItem>(
+        r#"
+            select commodities.*,
+                   commodity_total_amount.total_amount,
+                   latest_price.datetime         latest_price_date,
+                   latest_price.amount           latest_price_amount,
+                   latest_price.target_commodity latest_price_commodity
+            from commodities
+                     left join (select commodity, datetime, amount, target_commodity
+                                from prices
+                                group by commodity
+                                having min(datetime)) latest_price on commodities.name = latest_price.commodity
+                     left join (select commodity, total(amount) as total_amount
+                                from commodity_lots
+                                         join accounts on commodity_lots.account = accounts.name
+                                where accounts.type in ('Assets', 'Liabilities')
+                                group by commodity) commodity_total_amount on commodities.name = commodity_total_amount.commodity
+    "#,
+    )
+    .fetch_all(&mut connection)
+    .await
+    .unwrap();
+    Json(vec)
+}
+
+#[get("/api/commodities/{commodity_name}")]
+pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> impl Responder {
+    let commodity_name = params.into_inner().0;
+    let ledger = ledger.read().await;
+    let mut connection = ledger.connection().await;
+
+    #[derive(FromRow, Serialize)]
+    struct CommodityListItem {
+        name: String,
+        precision: i32,
+        prefix: Option<String>,
+        suffix: Option<String>,
+        rounding: Option<String>,
+        total_amount: f64,
+        latest_price_date: Option<NaiveDateTime>,
+        latest_price_amount: Option<f64>,
+        latest_price_commodity: Option<String>,
+    }
+    let basic_info = sqlx::query_as::<_, CommodityListItem>(
+        r#"
+            select commodities.*,
+                   commodity_total_amount.total_amount,
+                   latest_price.datetime         latest_price_date,
+                   latest_price.amount           latest_price_amount,
+                   latest_price.target_commodity latest_price_commodity
+            from commodities
+                     left join (select commodity, datetime, amount, target_commodity
+                                from prices
+                                group by commodity
+                                having min(datetime)) latest_price on commodities.name = latest_price.commodity
+                     left join (select commodity, total(amount) as total_amount
+                                from commodity_lots
+                                         join accounts on commodity_lots.account = accounts.name
+                                where accounts.type in ('Assets', 'Liabilities')
+                                group by commodity) commodity_total_amount on commodities.name = commodity_total_amount.commodity
+            where commodities.name = $1
+    "#, )
+        .bind(&commodity_name)
+        .fetch_one(&mut connection)
+        .await
+        .unwrap();
+
+    #[derive(FromRow, Serialize)]
+    struct CommodityLot {
+        datetime: Option<NaiveDateTime>,
+        amount: f64,
+        price_amount: Option<f64>,
+        price_commodity: Option<String>,
+        account: String,
+    }
+
+    let lots = sqlx::query_as::<_, CommodityLot>(
+        r#"
+            select datetime, amount, price_amount, price_commodity, account
+            from commodity_lots
+            where commodity = $1
+    "#,
+    )
+    .bind(&commodity_name)
+    .fetch_all(&mut connection)
+    .await
+    .unwrap();
+
+    #[derive(FromRow, Serialize)]
+    struct CommodityPrice {
+        datetime: Option<NaiveDateTime>,
+        amount: f64,
+        target_commodity: Option<String>,
+    }
+
+    let prices = sqlx::query_as::<_, CommodityPrice>(
+        r#"
+            select datetime, amount, target_commodity
+            from prices
+            where commodity = $1
+    "#,
+    )
+    .bind(&commodity_name)
+    .fetch_all(&mut connection)
+    .await
+    .unwrap();
+
+    #[derive(Serialize)]
+    struct CommodityDetail {
+        info: CommodityListItem,
+        lots: Vec<CommodityLot>,
+        prices: Vec<CommodityPrice>,
+    }
+
+    Json(CommodityDetail {
+        info: basic_info,
+        lots,
+        prices,
+    })
 }
 
 #[derive(RustEmbed)]

@@ -14,7 +14,7 @@ use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
 use crate::server::model::mutation::MutationRoot;
-use crate::server::route::{download_document, get_account_documents, get_account_list, get_documents, serve_frontend, upload_account_document};
+use crate::server::route::{create_account_balance, download_document, get_account_documents, get_account_list, get_all_commodities, get_documents, get_single_commodity, serve_frontend, upload_account_document};
 
 pub mod model;
 pub mod request;
@@ -99,9 +99,12 @@ async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> Zha
             .app_data(Data::new(ledger_data.clone()))
             .service(get_account_list)
             .service(get_account_documents)
+            .service(upload_account_document)
+            .service(create_account_balance)
             .service(get_documents)
             .service(download_document)
-            .service(upload_account_document)
+            .service(get_all_commodities)
+            .service(get_single_commodity)
             .default_service(web::to(serve_frontend))
     })
         .bind(addr)?

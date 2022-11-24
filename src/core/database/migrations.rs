@@ -41,12 +41,13 @@ static TABLES_SQL: [&str; 13] = [
     );
     "#,
     r#"
-    create table if not exists accounts
+    create table accounts
     (
-        date   datetime not null,
-        name   varchar  not null
+        date   datetime           not null,
+        type   varchar            not null,
+        name   varchar            not null
             primary key,
-        status varchar  not null,
+        status varchar            not null,
         alias  varchar
     );
     "#,

@@ -150,8 +150,9 @@ impl DirectiveProcess for Open {
                 meta: Default::default(),
             });
 
-        sqlx::query(r#"INSERT OR REPLACE INTO accounts VALUES ($1, $2, $3, $4);"#)
+        sqlx::query(r#"INSERT OR REPLACE INTO accounts VALUES ($1, $2, $3, $4, $5);"#)
             .bind(self.date.naive_datetime())
+            .bind(self.account.account_type.to_string())
             .bind(self.account.name())
             .bind("Open")
             .bind(self.meta.get_one(&"alias".to_string()).map(|it| it.as_str()))
