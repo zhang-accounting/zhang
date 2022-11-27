@@ -232,15 +232,13 @@ pub async fn get_account_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: web
             order by datetime desc, transactions.sequence desc
     "#,
     )
-        .bind(account_name)
-        .fetch_all(&mut connection)
-        .await
-        .unwrap();
+    .bind(account_name)
+    .fetch_all(&mut connection)
+    .await
+    .unwrap();
 
     Json(rows)
 }
-
-
 
 #[post("/api/accounts/{account_name}/balances")]
 pub async fn create_account_balance(
@@ -275,7 +273,10 @@ pub async fn create_account_balance(
         }),
     };
     let time = Local::now().naive_local();
-    ledger.append_directives(vec![Directive::Balance(balance)], format!("data/{}/{}.zhang", time.year(), time.month()));
+    ledger.append_directives(
+        vec![Directive::Balance(balance)],
+        format!("data/{}/{}.zhang", time.year(), time.month()),
+    );
     "OK"
 }
 
@@ -414,6 +415,18 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
         lots,
         prices,
     })
+}
+
+#[get("/api/files")]
+pub async fn get_files(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Responder {
+    let ledger = ledger.read().await;
+    let entry_path = &ledger.entry.0;
+    let vec = ledger
+        .visited_files
+        .iter()
+        .map(|path| path.strip_prefix(entry_path).unwrap().to_str().map(|it| it.to_string()))
+        .collect_vec();
+    Json(vec)
 }
 
 #[derive(RustEmbed)]
