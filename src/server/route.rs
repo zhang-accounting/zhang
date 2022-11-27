@@ -16,10 +16,10 @@ use actix_multipart::Multipart;
 use actix_web::body::{BoxBody, EitherBody};
 use actix_web::http::Uri;
 use actix_web::web::{Data, Json, Path};
-use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{get, post,put, web, HttpRequest, HttpResponse, Responder};
 
 use crate::core::amount::Amount;
-use crate::server::request::AccountBalanceRequest;
+use crate::server::request::{AccountBalanceRequest, FileUpdateRequest, JournalRequest, StatisticRequest};
 use bigdecimal::{BigDecimal, FromPrimitive};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
 use futures_util::StreamExt;
@@ -33,6 +33,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
+use crate::parse_zhang;
 
 // pub async fn graphql_playground() -> impl IntoResponse {
 //     Html(playground_source(GraphQLPlaygroundConfig::new("/graphql")))
@@ -41,6 +42,20 @@ use uuid::Uuid;
 // pub async fn graphql_handler(schema: Extension<LedgerSchema>, req: GraphQLRequest) -> GraphQLResponse {
 //     schema.execute(req.0).await.into()
 // }
+
+
+#[get("/api/statistic")]
+pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, Path(params): Path<StatisticRequest>) -> impl Responder {
+
+}
+
+#[get("/api/journals")]
+pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, Path(params): Path<JournalRequest>) -> impl Responder {
+
+}
+
+
+
 
 #[get("/api/documents/{file_path}")]
 pub async fn download_document(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>) -> impl Responder {
@@ -427,6 +442,38 @@ pub async fn get_files(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Responder {
         .map(|path| path.strip_prefix(entry_path).unwrap().to_str().map(|it| it.to_string()))
         .collect_vec();
     Json(vec)
+}
+
+#[get("/api/files/{file_path}")]
+pub async fn get_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>) -> impl Responder {
+    let encoded_file_path = path.into_inner().0;
+    let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
+    let ledger = ledger.read().await;
+    let entry = &ledger.entry.0;
+    let full_path = entry.join(&filename);
+
+    #[derive(Debug, Serialize)]
+    struct FileDetail {
+        path: String,
+        content: String,
+    }
+    Json(FileDetail {
+        path: filename,
+        content: std::fs::read_to_string(full_path).unwrap(),
+    })
+}
+#[put("/api/files/{file_path}")]
+pub async fn update_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>, Json(payload): Json<FileUpdateRequest>) -> impl Responder {
+    let encoded_file_path = path.into_inner().0;
+    let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
+    let ledger = ledger.read().await;
+    let entry = &ledger.entry.0;
+    let full_path = entry.join(&filename);
+
+    if parse_zhang(&payload.content, None).is_ok() {
+        std::fs::write(full_path, payload.content).unwrap()
+    }
+    "ok"
 }
 
 #[derive(RustEmbed)]
