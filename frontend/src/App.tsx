@@ -13,7 +13,21 @@ import SingleCommodity from './pages/SingleCommodity';
 import { Link as RouteLink } from 'react-router-dom';
 import NewTransactionButton from './components/NewTransactionButton';
 import { createStyles, Navbar, TextInput, Code, UnstyledButton, Badge, Text, Group, MediaQuery, Box } from '@mantine/core';
-import { IconSearch, IconReceipt2, TablerIcon, IconSettings, IconTools, IconNotebook, IconCreditCard, IconChartAreaLine, IconFiles, IconCurrencyBitcoin, IconCash, IconList, IconSmartHome } from '@tabler/icons';
+import {
+  IconSearch,
+  IconReceipt2,
+  TablerIcon,
+  IconSettings,
+  IconTools,
+  IconNotebook,
+  IconCreditCard,
+  IconChartAreaLine,
+  IconFiles,
+  IconCurrencyBitcoin,
+  IconCash,
+  IconList,
+  IconSmartHome,
+} from '@tabler/icons';
 
 import { AppShell, Grid } from '@mantine/core';
 import ToolList from './pages/tools/ToolList';
@@ -179,7 +193,7 @@ export default function App() {
 
   return (
     <AppShell
-      padding="md"
+      padding="xs"
       navbar={
         <>
           <MediaQuery smallerThan="sm" styles={{ display: 'none' }}>
@@ -235,14 +249,13 @@ export default function App() {
                 </Group>
                 <NewTransactionButton />
               </Group>
-              <Group position='apart' mt="xs">
+              <Group position="apart" mt="xs">
                 {mobileMainLinks}
               </Group>
             </Box>
           </MediaQuery>
         </>
-      }
-    >
+      }>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="journals" element={<Journals />} />

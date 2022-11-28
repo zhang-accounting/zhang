@@ -1,4 +1,4 @@
-import { Group, Text, createStyles, Badge } from '@mantine/core';
+import { Group, Text, createStyles, Badge, Box, Grid } from '@mantine/core';
 import { TransactionDto } from '../gql/jouralList';
 import { IconArrowBigDownLines, IconArrowBigUpLines } from '@tabler/icons';
 import { format } from 'date-fns';
@@ -40,37 +40,43 @@ export default function TransactionLine({ data, onClick }: Props) {
   const summary = calculate(data);
   return (
     <tr onClick={() => trClick()}>
-
       <td>
-        <Text lineClamp={1}>{data.payee} {data.narration}</Text>
-        <Group spacing="xs">
+        <Grid align="center">
+          <Grid.Col span={8}>
+            <Box styles={{ maxWidth: '80%' }}>
+              <Text lineClamp={1}>
+                {data.payee} {data.narration}
+              </Text>
+              <Group spacing="xs">
+                <Text mr={2} color="dimmed" size="xs">
+                  {date} {time}
+                </Text>
 
-          <Text mr={2} color="dimmed" size="xs">
-            {date} {time}
-          </Text>
-
-          {(data.links || []).map((link) => (
-            <Badge key={link} size="xs" variant="dot">
-              {link}
-            </Badge>
-          ))}
-          {(data.tags || []).map((tag) => (
-            <Badge key={tag} color="orange" size="xs" variant="dot">
-              {tag}
-            </Badge>
-          ))}
-        </Group>
-      </td>
-      <td>
-        <Group spacing="xs" position="right">
-          {Array.from(summary.values()).map((each) => (
-            <Group align="center" spacing="xs" className={each.number.isPositive() ? classes.positiveAmount : classes.negativeAmount}>
-              <span>
-                {each.number.toFixed()} {each.currency}
-              </span>
+                {(data.links || []).map((link) => (
+                  <Badge key={link} size="xs" variant="dot">
+                    {link}
+                  </Badge>
+                ))}
+                {(data.tags || []).map((tag) => (
+                  <Badge key={tag} color="orange" size="xs" variant="dot">
+                    {tag}
+                  </Badge>
+                ))}
+              </Group>
+            </Box>
+          </Grid.Col>
+          <Grid.Col span={4}>
+            <Group align="center" spacing="xs" position="right">
+              {Array.from(summary.values()).map((each) => (
+                <Group align="center" spacing="xs" className={each.number.isPositive() ? classes.positiveAmount : classes.negativeAmount}>
+                  <span>
+                    {each.number.toFixed()} {each.currency}
+                  </span>
+                </Group>
+              ))}
             </Group>
-          ))}
-        </Group>
+          </Grid.Col>
+        </Grid>
       </td>
     </tr>
   );
