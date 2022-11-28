@@ -39,6 +39,7 @@ pub struct StatisticResponse {
 
 
 #[derive(Serialize)]
+#[serde(tag = "type")]
 pub enum JournalItemResponse {
     Transaction(JournalTransactionItemResponse),
     BalanceCheck(JournalBalanceCheckItemResponse),
@@ -49,20 +50,53 @@ pub enum JournalItemResponse {
 
 #[derive(Serialize)]
 pub struct JournalTransactionItemResponse {
-    datetime: NaiveDateTime,
-    payee:String,
-    narration: Option<String>,
-    tags:Vec<String>,
-    links:Vec<String>,
-    type_: String,
-    is_balanced: bool,
-    // todo postings
+    pub id: String,
+    pub datetime: NaiveDateTime,
+    pub payee:String,
+    pub narration: Option<String>,
+    pub tags:Vec<String>,
+    pub links:Vec<String>,
+    pub flag: String,
+    pub is_balanced: bool,
+    pub postings: Vec<JournalTransactionPostingResponse>
 }
+#[derive(Serialize)]
+pub struct JournalTransactionPostingResponse {
+    pub account: String,
+    pub unit_number: Option<f64>,
+    pub unit_commodity: Option<String>,
+    pub cost_number: Option<f64>,
+    pub cost_commodity: Option<String>,
+    pub price_number: Option<f64>,
+    pub price_commodity: Option<String>,
+    pub inferred_unit_number: f64,
+    pub inferred_unit_commodity: String,
+    pub account_before_number: f64,
+    pub account_before_commodity: String,
+    pub account_after_number: f64,
+    pub account_after_commodity: String,
+}
+
+
 
 #[derive(Serialize)]
 pub struct JournalBalanceCheckItemResponse {
+    pub id: String,
 }
 
 #[derive(Serialize)]
 pub struct JournalBalancePadItemResponse {
+    pub id: String,
+    pub datetime: NaiveDateTime,
+    pub payee:String,
+    pub narration: Option<String>,
+    pub type_: String,
+    pub(crate) postings: Vec<JournalTransactionPostingResponse>
 }
+
+#[derive(Serialize)]
+pub struct InfoForNewTransaction {
+    pub payee: Vec<String>,
+    pub account_name:Vec<String>
+}
+

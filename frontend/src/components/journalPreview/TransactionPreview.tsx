@@ -7,18 +7,19 @@ import { UPLOAD_TRANSACTION_DOCUMENT } from '../../gql/uploadTransactionDocument
 import Section from '../Section';
 import DocumentPreview from './DocumentPreview';
 import DashLine from '../DashedLine';
+import { JournalTransactionItem } from '../../rest-model';
 
 interface Props {
-  data: TransactionDto;
+  data: JournalTransactionItem;
 }
 export default function TransactionPreview(props: Props) {
   return (
     <div>
       <Box mb={10}>
         <Box mx={1} my={2}>
-          {format(new Date(props.data.timestamp * 1000), 'yyyy-MM-dd hh:mm:ss')}
+          {format(new Date(props.data.datetime), 'yyyy-MM-dd hh:mm:ss')}
         </Box>
-        {!props.data.isBalanced && (
+        {!props.data.is_balanced && (
           <Box mx={1} my={2}>
             <Text color={'red'}>UNBALANCED</Text>
           </Box>
@@ -49,16 +50,16 @@ export default function TransactionPreview(props: Props) {
             {props.data.postings.map((posting, idx) => (
               <DashLine key={idx}>
                 <Text lineClamp={1} my="xs">
-                  {posting.account.name}
+                  {posting.account}
                 </Text>
-                <Text lineClamp={1}>{posting.unit && <Amount amount={posting.unit?.number} currency={posting.unit?.currency} />}</Text>
+                <Text lineClamp={1}>{posting.unit_number && <Amount amount={posting.unit_number} currency={posting.unit_commodity} />}</Text>
               </DashLine>
             ))}
           </>
         </Section>
       </Box>
 
-      {props.data.metas.filter((meta) => meta.key !== 'document').length > 0 && (
+      {/* {props.data.metas.filter((meta) => meta.key !== 'document').length > 0 && (
         <Section title="Metas">
           {props.data.metas
             .filter((meta) => meta.key !== 'document')
@@ -71,9 +72,9 @@ export default function TransactionPreview(props: Props) {
               </DashLine>
             ))}
         </Section>
-      )}
+      )} */}
 
-      <Box mx={1} my={4}>
+      {/* <Box mx={1} my={4}>
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
           <DropzoneButton gql={UPLOAD_TRANSACTION_DOCUMENT} variables={{ file: props.data.spanFile, at: props.data.spanEnd }} />
           <Box>
@@ -84,7 +85,7 @@ export default function TransactionPreview(props: Props) {
               ))}
           </Box>
         </Section>
-      </Box>
+      </Box> */}
     </div>
   );
 }

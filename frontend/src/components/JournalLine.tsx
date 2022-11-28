@@ -1,5 +1,5 @@
 import { Dispatch, SetStateAction } from 'react';
-import { JournalItem } from '../gql/jouralList';
+import { JournalItem } from '../rest-model';
 import BalanceCheckLine from './BalanceCheckLine';
 import BalancePadLine from './BalancePadLine';
 import TransactionLine from './TransactionLine';
@@ -10,13 +10,13 @@ interface Props {
 export default function JournalLine({ data, onClick }: Props) {
   let line = null;
   switch (data.type) {
-    case 'BalanceCheckDto':
-      line = <BalanceCheckLine data={data} onClick={onClick} />;
-      break;
-    case 'BalancePadDto':
-      line = <BalancePadLine data={data} onClick={onClick} />;
-      break;
-    case 'TransactionDto':
+    // case 'BalanceCheck':
+    //   line = <BalanceCheckLine data={data} onClick={onClick} />;
+    //   break;
+    // case 'BalancePad':
+    //   line = <BalancePadLine data={data} onClick={onClick} />;
+    //   break;
+    case 'Transaction':
       line = <TransactionLine data={data} onClick={onClick} />;
       break;
   }

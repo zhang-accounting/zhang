@@ -1,6 +1,7 @@
 use bigdecimal::BigDecimal;
 use chrono::NaiveDateTime;
 use serde::Deserialize;
+use std::cmp::{max, min};
 
 #[derive(Deserialize)]
 #[serde(tag = "type")]
@@ -16,30 +17,36 @@ pub enum AccountBalanceRequest {
     },
 }
 
-
 #[derive(Deserialize)]
 pub struct FileUpdateRequest {
-    pub content: String
+    pub content: String,
 }
 
 #[derive(Deserialize)]
 pub enum StatisticInterval {
     Day,
     Week,
-    Month
+    Month,
 }
-
 
 #[derive(Deserialize)]
 pub struct StatisticRequest {
-    from:NaiveDateTime,
-    to:NaiveDateTime,
-    interval: StatisticInterval
+    from: NaiveDateTime,
+    to: NaiveDateTime,
+    interval: StatisticInterval,
 }
 
 #[derive(Deserialize)]
 pub struct JournalRequest {
-    page: u32,
-    size: u32,
-
+    page: Option<u32>,
+    size: Option<u32>,
+}
+impl JournalRequest {
+    pub fn offset(&self) -> u32 {
+        let page = max(dbg!(self.page).unwrap_or(1), 1);
+        dbg!((page - 1) * self.limit())
+    }
+    pub fn limit(&self) -> u32 {
+        self.size.unwrap_or(100)
+    }
 }

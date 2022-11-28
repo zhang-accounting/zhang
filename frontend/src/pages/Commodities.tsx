@@ -2,19 +2,22 @@ import { useQuery } from '@apollo/client';
 import { Badge, Container, Group, Table, Text, Title } from '@mantine/core';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router';
+import useSWR from 'swr';
+import { fetcher } from '..';
 import Amount from '../components/Amount';
 import { CommoditiesQuery, CURRENCIES } from '../gql/commodities';
+import { CommodityListItem } from '../rest-model';
 
 export default function Commodities() {
-  const { loading, error, data } = useQuery<CommoditiesQuery>(CURRENCIES);
+  const { data, error } = useSWR<CommodityListItem[]>("/api/commodities", fetcher)
   let navigate = useNavigate();
 
   const onCommodityClick = (commodityName: string) => {
     navigate(commodityName);
   };
 
-  if (loading) return <p>Loading...</p>;
-  if (error) return <p>Error :(</p>;
+  if (error) return <div>failed to load</div>;
+  if (!data) return <>loading</>;
 
   return (
     <Container fluid>
@@ -29,28 +32,23 @@ export default function Commodities() {
           </tr>
         </thead>
         <tbody>
-          {data?.currencies.map((currency, idx) => (
+          {data.map((currency) => (
             <tr key={currency.name}>
               <td>
                 <Group>
                   <Text onClick={() => onCommodityClick(currency.name)}>{currency.name}</Text>
-                  {currency.isOperatingCurrency && (
-                    <Badge ml="xs" size="xs" variant="outline">
-                      Operating Currency
-                    </Badge>
-                  )}
                 </Group>
               </td>
               <td>{currency.precision}</td>
               <td>
-                <Amount amount={currency.balance} currency="" />
+                <Amount amount={currency.total_amount} currency="" />
               </td>
               <td>
-                {currency.latestPrice && (
+                {currency.latest_price_amount && (
                   <>
-                    <Amount amount={currency.latestPrice.amount.number} currency={currency.latestPrice.amount.currency} />
+                    <Amount amount={currency.latest_price_amount} currency={currency.latest_price_commodity} />
                     <Text color="dimmed" size="xs" align="right">
-                      {format(new Date(currency.latestPrice.date * 1000), 'yyyy-MM-dd')}
+                      {format(new Date(currency.latest_price_date), 'yyyy-MM-dd')}
                     </Text>
                   </>
                 )}

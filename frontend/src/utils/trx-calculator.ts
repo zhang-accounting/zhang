@@ -1,5 +1,6 @@
 import { BigNumber } from 'bignumber.js';
 import { TransactionDto } from '../gql/jouralList';
+import { JournalTransactionItem } from '../rest-model';
 
 export interface SummaryItem {
   number: BigNumber;
@@ -17,30 +18,30 @@ const transfer = (counter: CurrencyCount, amount: BigNumber, currency: string) =
   counter[currency] = counter[currency].plus(amount);
 };
 
-export function calculate(trx: TransactionDto): Set<SummaryItem> {
+export function calculate(trx: JournalTransactionItem): Set<SummaryItem> {
   let counter: CurrencyCount = {};
   let internal: CurrencyCount = {};
 
   trx.postings.forEach((posting) => {
-    const unit = posting.unit || posting.inferredUnit;
-    const amount = new BigNumber(unit.number);
+    const unit_number = posting.unit_number || posting.inferred_unit_number;
+    const unit_commodity = posting.unit_commodity || posting.inferred_unit_commodity;
+    const amount = new BigNumber(unit_number);
 
-    switch (posting.account.accountType) {
-      case 'Assets':
-      case 'Liabilities':
-        transfer(internal, amount, unit.currency);
+    switch (posting.account.split(":")[0].toLocaleLowerCase()) {
+      case 'assets':
+      case 'liabilities':
+        transfer(internal, amount, unit_commodity);
         break;
 
-      case 'Expenses':
-        transfer(counter, amount, unit.currency);
-        transfer(internal, amount, unit.currency);
+      case 'expenses':
+        transfer(counter, amount, unit_commodity);
+        transfer(internal, amount, unit_commodity);
         break;
 
-      case 'Income':
-        transfer(counter, amount, unit.currency);
-        transfer(internal, amount, unit.currency);
+      case 'income':
+        transfer(counter, amount, unit_commodity);
+        transfer(internal, amount, unit_commodity);
         break;
-
       default:
         break;
     }

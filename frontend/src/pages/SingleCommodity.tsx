@@ -1,20 +1,17 @@
-import { useQuery } from '@apollo/client';
-import { Container, Title, Tabs, Table } from '@mantine/core';
+import { Container, Table, Tabs, Title } from '@mantine/core';
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
+import useSWR from 'swr';
+import { fetcher } from '..';
 import Amount from '../components/Amount';
-import { SingleCommodityQuery, SINGLE_COMMODITIY } from '../gql/singleCommodity';
+import { CommodityDetail } from '../rest-model';
 
 export default function SingleCommodity() {
   let { commodityName } = useParams();
-
-  const { loading, error, data } = useQuery<SingleCommodityQuery>(SINGLE_COMMODITIY, {
-    variables: {
-      name: commodityName,
-    },
-  });
-  if (loading) return <p>Loading...</p>;
-  if (error) return <p>Error :(</p>;
+  const {data, error} = useSWR<CommodityDetail>(`/api/commodities/${commodityName}`, fetcher);
+  
+  if (error) return <div>failed to load</div>;
+  if (!data) return <div>loading123</div>;
 
   return (
     <Container fluid>
@@ -30,17 +27,19 @@ export default function SingleCommodity() {
           <Table verticalSpacing="xs" highlightOnHover>
             <thead>
               <tr>
+                <th>Account</th>
                 <th>Lot</th>
                 <th>Balance</th>
               </tr>
             </thead>
             <tbody>
-              {data?.currency.lots.map((it, idx) => (
+              {data.lots.map((it, idx) => (
                 <tr key={idx}>
+                  <td>{it.account}</td>
                   <td>
-                    {it.lotPrice} {it.lotCurrency}
+                    {it.price_amount} {it.price_commodity}
                   </td>
-                  <td>{it.number}</td>
+                  <td>{it.amount}</td>
                 </tr>
               ))}
             </tbody>
@@ -56,11 +55,11 @@ export default function SingleCommodity() {
               </tr>
             </thead>
             <tbody>
-              {data?.currency.priceHistories.map((it, idx) => (
+              {data.prices.map((it, idx) => (
                 <tr key={idx}>
-                  <td>{format(new Date(it.date * 1000), 'yyyy-MM-dd')}</td>
+                  <td>{format(new Date(it.datetime), 'yyyy-MM-dd')}</td>
                   <td>
-                    <Amount amount={it.amount.number} currency={it.amount.currency} />
+                    <Amount amount={it.amount} currency={it.target_commodity} />
                   </td>
                 </tr>
               ))}

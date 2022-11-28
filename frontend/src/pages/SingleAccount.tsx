@@ -12,7 +12,7 @@ import JournalLine from '../components/JournalLine';
 import { CommodityBalanceTime } from '../gql/accountList';
 import { SINGLE_ACCONT_JOURNAL, SingleAccountJournalQuery } from '../gql/singleAccount';
 import LoadingComponent from '../components/basic/LoadingComponent';
-import { Document } from '../rest-model';
+import { AccountJournalItem, Document } from '../rest-model';
 
 function SingleAccount() {
   let { accountName } = useParams();
@@ -29,19 +29,17 @@ function SingleAccount() {
     }
   };
 
-  const { loading, error, data } = useQuery<SingleAccountJournalQuery>(SINGLE_ACCONT_JOURNAL, {
-    variables: {
-      name: accountName,
-    },
-  });
-  if (loading) return <p>Loading...</p>;
-  if (error) return <p>Error :(</p>;
+  // const { loading, error, data } = useQuery<SingleAccountJournalQuery>(SINGLE_ACCONT_JOURNAL, {
+  //   variables: {
+  //     name: accountName,
+  //   },
+  // });
 
   return (
     <Container fluid>
       <Title order={2}>{accountName}</Title>
       <Group>
-        <Badge variant="outline">{data?.account.status}</Badge>
+        {/* <Badge variant="outline">{data?.account.status}</Badge> */}
       </Group>
       <Tabs defaultValue="journals" mt="lg">
         <Tabs.List>
@@ -57,18 +55,32 @@ function SingleAccount() {
         </Tabs.List>
 
         <Tabs.Panel value="journals" pt="xs">
+
           <Table verticalSpacing="xs" highlightOnHover>
             <thead>
               <tr>
                 <th>Date</th>
-                <th style={{}}>Payee & Narration</th>
-                <th></th>
+                <th>Payee & Narration</th>
+                <th>Change Amount</th>
+                <th>After Change Amount</th>
               </tr>
             </thead>
             <tbody>
-              {data?.account.journals.map((journal, idx) => (
-                <JournalLine key={idx} data={journal} />
-              ))}
+              <LoadingComponent
+                url={`/api/accounts/${accountName}/journals`}
+                skeleton={<div>loading</div>}
+                render={(data: AccountJournalItem[]) => (
+                  <>
+                    {data.map(item => (
+                      <tr>
+                        <td>{format(new Date(item.datetime), 'yyyy-MM-dd hh:mm:ss')}</td>
+                        <td>{item.payee} {item.narration}</td>
+                        <td>{item.inferred_unit_number} {item.inferred_unit_commodity}</td>
+                        <td>{item.account_after_number} {item.account_after_commodity}</td>
+                      </tr>
+                    ))}
+                  </>
+                )} />
             </tbody>
           </Table>
         </Tabs.Panel>
@@ -98,7 +110,7 @@ function SingleAccount() {
               </tr>
             </thead>
             <tbody>
-              {data?.account.currencies.map((it, idx) => (
+              {/* {data?.account.currencies.map((it, idx) => (
                 <tr key={idx}>
                   <td>{it.name}</td>
                   <td>
@@ -109,7 +121,7 @@ function SingleAccount() {
                     <AccountBalanceCheckLine currency={it.name} accountName={data.account.name} />
                   </td>
                 </tr>
-              ))}
+              ))} */}
             </tbody>
           </Table>
         </Tabs.Panel>

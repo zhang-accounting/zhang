@@ -221,7 +221,8 @@ export default function Report() {
                 </thead>
                 <tbody>
                   {_.take(incomeJournalRank, 10).map((journal, idx) => (
-                    <JournalLine key={idx} data={journal} />
+                    // <JournalLine key={idx} data={journal} />
+                    <div>line</div>
                   ))}
                 </tbody>
               </Table>
@@ -260,7 +261,8 @@ export default function Report() {
                 </thead>
                 <tbody>
                   {_.take(expenseJournalRank, 10).map((journal, idx) => (
-                    <JournalLine key={idx} data={journal} />
+                    // <JournalLine key={idx} data={journal} />
+                    <div> line</div>
                   ))}
                 </tbody>
               </Table>

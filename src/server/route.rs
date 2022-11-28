@@ -10,15 +10,20 @@ use crate::core::account::Account;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document};
 use crate::core::models::{Directive, ZhangString};
 use crate::server::model::mutation::create_folder_if_not_exist;
-use crate::server::response::{AccountResponse, DocumentResponse};
+use crate::server::response::{
+    AccountResponse, DocumentResponse, InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse,
+    JournalTransactionItemResponse, JournalTransactionPostingResponse,
+};
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
 use actix_web::body::{BoxBody, EitherBody};
 use actix_web::http::Uri;
-use actix_web::web::{Data, Json, Path};
-use actix_web::{get, post,put, web, HttpRequest, HttpResponse, Responder};
+use actix_web::web::{Data, Json, Path, Query};
+use actix_web::{get, post, put, web, HttpRequest, HttpResponse, Responder};
 
 use crate::core::amount::Amount;
+use crate::error::ZhangResult;
+use crate::parse_zhang;
 use crate::server::request::{AccountBalanceRequest, FileUpdateRequest, JournalRequest, StatisticRequest};
 use bigdecimal::{BigDecimal, FromPrimitive};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
@@ -27,13 +32,12 @@ use itertools::Itertools;
 use log::info;
 use rust_embed::RustEmbed;
 use serde::Serialize;
-use sqlx::FromRow;
+use sqlx::{FromRow, SqliteConnection};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-use crate::parse_zhang;
 
 // pub async fn graphql_playground() -> impl IntoResponse {
 //     Html(playground_source(GraphQLPlaygroundConfig::new("/graphql")))
@@ -43,19 +47,206 @@ use crate::parse_zhang;
 //     schema.execute(req.0).await.into()
 // }
 
+pub async fn get_transaction_tags(trx_id: &str, conn: &mut SqliteConnection) -> ZhangResult<Vec<String>> {
+    #[derive(FromRow)]
+    struct ValueRow {
+        value: String,
+    }
+    let rows = sqlx::query_as::<_, ValueRow>(
+        r#"
+        select tag as value from transaction_tags where trx_id = $1
+        "#,
+    )
+    .bind(trx_id)
+    .fetch_all(conn)
+    .await?;
+    Ok(rows.into_iter().map(|it| it.value).collect_vec())
+}
+pub async fn get_transaction_links(trx_id: &str, conn: &mut SqliteConnection) -> ZhangResult<Vec<String>> {
+    #[derive(FromRow)]
+    struct ValueRow {
+        value: String,
+    }
+    let rows = sqlx::query_as::<_, ValueRow>(
+        r#"
+        select link as value from transaction_links where trx_id = $1
+        "#,
+    )
+        .bind(trx_id)
+        .fetch_all(conn)
+        .await?;
+    Ok(rows.into_iter().map(|it| it.value).collect_vec())
+}
+
+// todo rename api
+#[get("/api/for-new-transaction")]
+pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Responder {
+    let guard = ledger.read().await;
+    let mut connection = guard.connection().await;
+
+    #[derive(FromRow)]
+    struct AccountNameRow {
+        name: String,
+    }
+    let account_names = sqlx::query_as::<_, AccountNameRow>(
+        r#"
+        SELECT name FROM accounts WHERE status = 'Open'
+        "#,
+    )
+    .fetch_all(&mut connection)
+    .await
+    .unwrap();
+    #[derive(FromRow)]
+    struct PayeeRow {
+        payee: String,
+    }
+    let payees = sqlx::query_as::<_, PayeeRow>(
+        r#"
+        select distinct payee from transactions
+        "#,
+    )
+    .fetch_all(&mut connection)
+    .await
+    .unwrap();
+
+    Json(InfoForNewTransaction {
+        payee: payees.into_iter().map(|it| it.payee).collect_vec(),
+        account_name: account_names.into_iter().map(|it| it.name).collect_vec(),
+    })
+}
 
 #[get("/api/statistic")]
-pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, Path(params): Path<StatisticRequest>) -> impl Responder {
-
+pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<StatisticRequest>) -> impl Responder {
+    "unimplemented!()"
 }
 
 #[get("/api/journals")]
-pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, Path(params): Path<JournalRequest>) -> impl Responder {
+pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> impl Responder {
+    let ledger = ledger.read().await;
+    let mut connection = ledger.connection().await;
+    let params = params.into_inner();
+    #[derive(Debug, FromRow)]
+    struct JournalHeader {
+        id: String,
+        datetime: NaiveDateTime,
+        journal_type: String,
+        payee: String,
+        narration: Option<String>,
+    }
+    let journal_headers = sqlx::query_as::<_, JournalHeader>(
+        r#"
+        SELECT id, datetime, type as journal_type, payee, narration FROM transactions ORDER BY "sequence" DESC LIMIT $1 OFFSET $2
+        "#,
+    )
+        .bind(params.limit())
+        .bind(params.offset())
+    .fetch_all(&mut connection)
+    .await
+    .unwrap();
 
+    #[derive(Debug, FromRow)]
+    struct JournalArm {
+        trx_id: String,
+        account: String,
+        unit_number: Option<f64>,
+        unit_commodity: Option<String>,
+        cost_number: Option<f64>,
+        cost_commodity: Option<String>,
+        price_number: Option<f64>,
+        price_commodity: Option<String>,
+        inferred_unit_number: f64,
+        inferred_unit_commodity: String,
+        account_before_number: f64,
+        account_before_commodity: String,
+        account_after_number: f64,
+        account_after_commodity: String,
+    }
+    let journal_arms = sqlx::query_as::<_, JournalArm>(
+        r#"
+        select * from transaction_postings where trx_id in ( SELECT id FROM transactions ORDER BY "sequence" DESC LIMIT $1 OFFSET $2 )
+        "#,
+    )
+        .bind(params.limit())
+        .bind(params.offset())
+    .fetch_all(&mut connection)
+    .await
+    .unwrap();
+
+    let mut header_map: HashMap<String, JournalHeader> =
+        journal_headers.into_iter().map(|it| (it.id.to_owned(), it)).collect();
+    let mut ret = vec![];
+    for (trx_id, arms) in &journal_arms.into_iter().group_by(|it| it.trx_id.to_owned()) {
+        let header = header_map.remove(&trx_id);
+        if let Some(header) = header {
+            let item = match header.journal_type.as_str() {
+                "BalancePad" => {
+                    let postings = arms
+                        .map(|arm| JournalTransactionPostingResponse {
+                            account: arm.account,
+                            unit_number: arm.unit_number,
+                            unit_commodity: arm.unit_commodity,
+                            cost_number: arm.cost_number,
+                            cost_commodity: arm.cost_commodity,
+                            price_number: arm.price_number,
+                            price_commodity: arm.price_commodity,
+                            inferred_unit_number: arm.inferred_unit_number,
+                            inferred_unit_commodity: arm.inferred_unit_commodity,
+                            account_before_number: arm.account_before_number,
+                            account_before_commodity: arm.account_before_commodity,
+                            account_after_number: arm.account_after_number,
+                            account_after_commodity: arm.account_after_commodity,
+                        })
+                        .collect_vec();
+                    JournalItemResponse::BalancePad(JournalBalancePadItemResponse {
+                        id: trx_id,
+                        datetime: header.datetime,
+                        payee: header.payee,
+                        narration: header.narration,
+                        type_: header.journal_type,
+                        postings,
+                    })
+                }
+                "BalanceCheck" => {
+                    todo!()
+                }
+                _ => {
+                    let postings = arms
+                        .map(|arm| JournalTransactionPostingResponse {
+                            account: arm.account,
+                            unit_number: arm.unit_number,
+                            unit_commodity: arm.unit_commodity,
+                            cost_number: arm.cost_number,
+                            cost_commodity: arm.cost_commodity,
+                            price_number: arm.price_number,
+                            price_commodity: arm.price_commodity,
+                            inferred_unit_number: arm.inferred_unit_number,
+                            inferred_unit_commodity: arm.inferred_unit_commodity,
+                            account_before_number: arm.account_before_number,
+                            account_before_commodity: arm.account_before_commodity,
+                            account_after_number: arm.account_after_number,
+                            account_after_commodity: arm.account_after_commodity,
+                        })
+                        .collect_vec();
+                    let tags = get_transaction_tags(&trx_id, &mut connection).await.unwrap();
+                    let links = get_transaction_links(&trx_id, &mut connection).await.unwrap();
+                    JournalItemResponse::Transaction(JournalTransactionItemResponse {
+                        id: trx_id,
+                        datetime: header.datetime,
+                        payee: header.payee,
+                        narration: header.narration,
+                        tags,
+                        links,
+                        flag: header.journal_type,
+                        is_balanced: true,
+                        postings,
+                    })
+                }
+            };
+            ret.push(item);
+        }
+    }
+    Json(ret)
 }
-
-
-
 
 #[get("/api/documents/{file_path}")]
 pub async fn download_document(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>) -> impl Responder {
@@ -401,7 +592,7 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
 
     #[derive(FromRow, Serialize)]
     struct CommodityPrice {
-        datetime: Option<NaiveDateTime>,
+        datetime: NaiveDateTime,
         amount: f64,
         target_commodity: Option<String>,
     }
@@ -463,7 +654,9 @@ pub async fn get_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path
     })
 }
 #[put("/api/files/{file_path}")]
-pub async fn update_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>, Json(payload): Json<FileUpdateRequest>) -> impl Responder {
+pub async fn update_file_content(
+    ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>, Json(payload): Json<FileUpdateRequest>,
+) -> impl Responder {
     let encoded_file_path = path.into_inner().0;
     let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;

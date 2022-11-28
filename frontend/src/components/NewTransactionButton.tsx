@@ -1,13 +1,14 @@
-import { gql, useMutation, useQuery } from '@apollo/client';
+import { gql, useMutation } from '@apollo/client';
 import { useDisclosure, useListState, useMediaQuery } from '@mantine/hooks';
 import { format } from 'date-fns';
-import _ from 'lodash';
 import { useState } from 'react';
 // @ts-ignore
 import { ActionIcon, Button, Code, Container, Divider, Grid, Group, Modal, Select, TextInput } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
 import { IconSquarePlus, IconTextPlus, IconTrashX } from '@tabler/icons';
-import { AccountItem } from '../gql/accountList';
+import useSWR from 'swr';
+import { fetcher } from '..';
+import { InfoForNewTransaction } from '../rest-model';
 import DividerWithAction from './basic/DividerWithAction';
 interface Posting {
   account: string | null;
@@ -21,24 +22,8 @@ interface SelectItem {
 }
 
 export default function NewTransactionButton() {
-  const newTransactionMetaData = useQuery<{
-    accounts: AccountItem[];
-    journals: { data: { payee: string }[] };
-  }>(gql`
-    query NEW_TRANSACTION_MODAL_DATA {
-      accounts {
-        name
-      }
-      journals(page: 1, size: 999999999) {
-        data {
-          ... on TransactionDto {
-            payee
-          }
-        }
-      }
-    }
-  `);
-
+  const { data, error } = useSWR<InfoForNewTransaction>("/api/for-new-transaction", fetcher);
+  
   const [appendData] = useMutation(
     gql`
       mutation APPEND_DATA($date: Int, $content: String) {
@@ -95,24 +80,21 @@ export default function NewTransactionButton() {
     metaHandler.setState([]);
   };
 
-  if (newTransactionMetaData.loading) return <p>Loading...</p>;
-  if (newTransactionMetaData.error) return <p>Error :(</p>;
+  if (error) return <div>failed to load</div>
+  if (!data) return <div>loading...</div>
 
-  const payeeSelectItems: SelectItem[] = _.uniqBy(
-    _.filter(newTransactionMetaData.data!.journals.data, (journal) => !_.isEmpty(journal.payee)),
-    (journal) => journal.payee,
-  ).map((journal) => {
+  const payeeSelectItems: SelectItem[] = data.payee.map(item => {
     return {
-      label: journal.payee,
-      value: journal.payee,
+      label: item,
+      value: item,
     };
-  });
+  })
 
-  const accountItems = (newTransactionMetaData.data?.accounts || []).map((singleAccountInfo) => {
-    const type = singleAccountInfo.name.split(':')[0];
+  const accountItems = (data.account_name).map((singleAccountName) => {
+    const type = singleAccountName.split(':')[0];
     return {
-      label: singleAccountInfo.name,
-      value: singleAccountInfo.name,
+      label: singleAccountName,
+      value: singleAccountName,
       group: type,
     };
   });
@@ -148,7 +130,7 @@ export default function NewTransactionButton() {
           <DividerWithAction value="Postings" icon={<IconTextPlus />} onActionClick={() => postingsHander.append({ account: null, amount: '' })}></DividerWithAction>
 
           {postings.map((posting, idx) => (
-            <Grid align="center">
+            <Grid align="center" key={idx}>
               <Grid.Col span={8}>
                 <Select searchable placeholder="Account" data={accountItems} value={posting.account} onChange={(e) => postingsHander.setItemProp(idx, "account", e)} />
               </Grid.Col>
@@ -166,7 +148,7 @@ export default function NewTransactionButton() {
           <DividerWithAction value="Metas" icon={<IconTextPlus />} onActionClick={() => { metaHandler.append({ key: "", value: "" }) }}></DividerWithAction>
 
           {metas.map((meta, idx) => (
-            <Grid align="center">
+            <Grid align="center" key={idx}>
               <Grid.Col span={4}>
                 <TextInput placeholder="key" value={meta.key} onChange={(e) => metaHandler.setItemProp(idx, "key", e.target.value)} />
               </Grid.Col>
