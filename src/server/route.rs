@@ -35,6 +35,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
+use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
 
 // pub async fn graphql_playground() -> impl IntoResponse {
 //     Html(playground_source(GraphQLPlaygroundConfig::new("/graphql")))
@@ -158,17 +159,17 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
     struct JournalArm {
         trx_id: String,
         account: String,
-        unit_number: Option<f64>,
+        unit_number: Option<ZhangBigDecimal>,
         unit_commodity: Option<String>,
-        cost_number: Option<f64>,
+        cost_number: Option<ZhangBigDecimal>,
         cost_commodity: Option<String>,
-        price_number: Option<f64>,
+        price_number: Option<ZhangBigDecimal>,
         price_commodity: Option<String>,
-        inferred_unit_number: f64,
+        inferred_unit_number: ZhangBigDecimal,
         inferred_unit_commodity: String,
-        account_before_number: f64,
+        account_before_number: ZhangBigDecimal,
         account_before_commodity: String,
-        account_after_number: f64,
+        account_after_number: ZhangBigDecimal,
         account_after_commodity: String,
     }
     let journal_arms = sqlx::query_as::<_, JournalArm>(
@@ -291,7 +292,7 @@ pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Respond
     struct AccountBalanceRow {
         name: String,
         status: String,
-        balance_number: f64,
+        balance_number: ZhangBigDecimal,
         balance_commodity: String,
     }
 
@@ -311,7 +312,7 @@ pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Respond
         let mut commodities = HashMap::new();
         for row in group {
             status = row.status;
-            commodities.insert(row.balance_commodity, BigDecimal::from_f64(row.balance_number).unwrap());
+            commodities.insert(row.balance_commodity, row.balance_number);
         }
         ret.push(AccountResponse {
             name: key,
@@ -428,9 +429,9 @@ pub async fn get_account_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: web
         trx_id: String,
         payee: String,
         narration: Option<String>,
-        inferred_unit_number: f64,
+        inferred_unit_number: ZhangBigDecimal,
         inferred_unit_commodity: String,
-        account_after_number: f64,
+        account_after_number: ZhangBigDecimal,
         account_after_commodity: String,
     }
 
@@ -509,9 +510,9 @@ pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Resp
         prefix: Option<String>,
         suffix: Option<String>,
         rounding: Option<String>,
-        total_amount: f64,
+        total_amount: ZhangBigDecimal,
         latest_price_date: Option<NaiveDateTime>,
-        latest_price_amount: Option<f64>,
+        latest_price_amount: Option<ZhangBigDecimal>,
         latest_price_commodity: Option<String>,
     }
     let vec = sqlx::query_as::<_, CommodityListItem>(
@@ -552,9 +553,9 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
         prefix: Option<String>,
         suffix: Option<String>,
         rounding: Option<String>,
-        total_amount: f64,
+        total_amount: ZhangBigDecimal,
         latest_price_date: Option<NaiveDateTime>,
-        latest_price_amount: Option<f64>,
+        latest_price_amount: Option<ZhangBigDecimal>,
         latest_price_commodity: Option<String>,
     }
     let basic_info = sqlx::query_as::<_, CommodityListItem>(
@@ -584,8 +585,8 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
     #[derive(FromRow, Serialize)]
     struct CommodityLot {
         datetime: Option<NaiveDateTime>,
-        amount: f64,
-        price_amount: Option<f64>,
+        amount: ZhangBigDecimal,
+        price_amount: Option<ZhangBigDecimal>,
         price_commodity: Option<String>,
         account: String,
     }
@@ -605,7 +606,7 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
     #[derive(FromRow, Serialize)]
     struct CommodityPrice {
         datetime: NaiveDateTime,
-        amount: f64,
+        amount: ZhangBigDecimal,
         target_commodity: Option<String>,
     }
 

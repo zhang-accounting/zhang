@@ -4,12 +4,13 @@ use chrono::NaiveDateTime;
 use crate::core::Currency;
 use serde::Serialize;
 use sqlx::FromRow;
+use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
 
 #[derive(Serialize)]
 pub struct AccountResponse {
     pub name: String,
     pub status: String,
-    pub commodities: HashMap<Currency, BigDecimal>,
+    pub commodities: HashMap<Currency, ZhangBigDecimal>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -25,7 +26,7 @@ pub struct DocumentResponse {
 #[derive(Serialize)]
 pub struct StatisticFrameResponse {
     datetime: NaiveDateTime,
-    amount: BigDecimal,
+    amount: ZhangBigDecimal,
     commodity: String
 }
 
@@ -71,17 +72,17 @@ pub struct JournalTransactionItemResponse {
 #[derive(Serialize)]
 pub struct JournalTransactionPostingResponse {
     pub account: String,
-    pub unit_number: Option<f64>,
+    pub unit_number: Option<ZhangBigDecimal>,
     pub unit_commodity: Option<String>,
-    pub cost_number: Option<f64>,
+    pub cost_number: Option<ZhangBigDecimal>,
     pub cost_commodity: Option<String>,
-    pub price_number: Option<f64>,
+    pub price_number: Option<ZhangBigDecimal>,
     pub price_commodity: Option<String>,
-    pub inferred_unit_number: f64,
+    pub inferred_unit_number: ZhangBigDecimal,
     pub inferred_unit_commodity: String,
-    pub account_before_number: f64,
+    pub account_before_number: ZhangBigDecimal,
     pub account_before_commodity: String,
-    pub account_after_number: f64,
+    pub account_after_number: ZhangBigDecimal,
     pub account_after_commodity: String,
 }
 
