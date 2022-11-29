@@ -10,10 +10,7 @@ use crate::core::account::Account;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document};
 use crate::core::models::{Directive, ZhangString};
 use crate::server::model::mutation::create_folder_if_not_exist;
-use crate::server::response::{
-    AccountResponse, DocumentResponse, InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse,
-    JournalTransactionItemResponse, JournalTransactionPostingResponse,
-};
+use crate::server::response::{AccountResponse, DocumentResponse, InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse};
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
 use actix_web::body::{BoxBody, EitherBody};
@@ -47,6 +44,19 @@ use uuid::Uuid;
 //     schema.execute(req.0).await.into()
 // }
 
+pub async fn get_metas(type_: &str, type_identifier:&str, conn: &mut SqliteConnection) -> ZhangResult<Vec<MetaResponse>> {
+
+    let rows = sqlx::query_as::<_, MetaResponse>(
+        r#"
+        select key, value from metas where type = $1 and type_identifier = $2
+        "#,
+    )
+        .bind(type_)
+        .bind(type_identifier)
+        .fetch_all(conn)
+        .await?;
+   Ok(rows)
+}
 pub async fn get_transaction_tags(trx_id: &str, conn: &mut SqliteConnection) -> ZhangResult<Vec<String>> {
     #[derive(FromRow)]
     struct ValueRow {
@@ -229,6 +239,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
                         .collect_vec();
                     let tags = get_transaction_tags(&trx_id, &mut connection).await.unwrap();
                     let links = get_transaction_links(&trx_id, &mut connection).await.unwrap();
+                    let metas = get_metas("TransactionMeta", &trx_id, &mut connection).await.unwrap();
                     JournalItemResponse::Transaction(JournalTransactionItemResponse {
                         id: trx_id,
                         datetime: header.datetime,
@@ -239,6 +250,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
                         flag: header.journal_type,
                         is_balanced: true,
                         postings,
+                        metas
                     })
                 }
             };

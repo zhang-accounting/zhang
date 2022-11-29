@@ -59,7 +59,7 @@ export default function TransactionPreview(props: Props) {
         </Section>
       </Box>
 
-      {/* {props.data.metas.filter((meta) => meta.key !== 'document').length > 0 && (
+      {props.data.metas.filter((meta) => meta.key !== 'document').length > 0 && (
         <Section title="Metas">
           {props.data.metas
             .filter((meta) => meta.key !== 'document')
@@ -72,11 +72,11 @@ export default function TransactionPreview(props: Props) {
               </DashLine>
             ))}
         </Section>
-      )} */}
+      )}
 
-      {/* <Box mx={1} my={4}>
+      <Box mx={1} my={4}>
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
-          <DropzoneButton gql={UPLOAD_TRANSACTION_DOCUMENT} variables={{ file: props.data.spanFile, at: props.data.spanEnd }} />
+          {/* <DropzoneButton gql={UPLOAD_TRANSACTION_DOCUMENT} variables={{ file: props.data.spanFile, at: props.data.spanEnd }} /> */}
           <Box>
             {props.data.metas
               .filter((meta) => meta.key === 'document')
@@ -85,7 +85,7 @@ export default function TransactionPreview(props: Props) {
               ))}
           </Box>
         </Section>
-      </Box> */}
+      </Box>
     </div>
   );
 }

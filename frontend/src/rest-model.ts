@@ -80,8 +80,15 @@ export interface JournalBlancePadItem {
   links: any[]
   flag: string
   is_balanced: boolean
-  postings: Posting[]
+  postings: Posting[],
+  metas: Meta[],
 }
+
+export interface Meta {
+  key: string,
+  value: string
+}
+
 export interface JournalTransactionItem {
   type: "Transaction"
   id: string,
@@ -93,6 +100,7 @@ export interface JournalTransactionItem {
   flag: string
   is_balanced: boolean
   postings: Posting[]
+  metas: Meta[],
 }
 
 export interface Posting {
@@ -103,10 +111,10 @@ export interface Posting {
   cost_commodity: string
   price_number: string
   price_commodity: string
-  inferred_unit_number:string
+  inferred_unit_number: string
   inferred_unit_commodity: string
-  account_before_number:string
+  account_before_number: string
   account_before_commodity: string
-  account_after_number:string
+  account_after_number: string
   account_after_commodity: string
 }

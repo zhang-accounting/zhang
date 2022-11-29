@@ -37,6 +37,13 @@ pub struct StatisticResponse {
     // summaries:
 }
 
+#[derive(Serialize, FromRow)]
+pub struct MetaResponse {
+    key: String,
+    value: String
+}
+
+
 
 #[derive(Serialize)]
 #[serde(tag = "type")]
@@ -58,7 +65,8 @@ pub struct JournalTransactionItemResponse {
     pub links:Vec<String>,
     pub flag: String,
     pub is_balanced: bool,
-    pub postings: Vec<JournalTransactionPostingResponse>
+    pub postings: Vec<JournalTransactionPostingResponse>,
+    pub metas:Vec<MetaResponse>
 }
 #[derive(Serialize)]
 pub struct JournalTransactionPostingResponse {

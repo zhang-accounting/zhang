@@ -7,6 +7,18 @@ import { calculate } from '../utils/trx-calculator';
 import { JournalItem, JournalTransactionItem } from '../rest-model';
 
 const useStyles = createStyles((theme) => ({
+  payee: {
+    fontWeight: "bold",
+  },
+  narration: {
+    marginLeft: theme.spacing.xs*0.5,
+    ":before": {
+      content: '"·"',
+      fontWeight: "bold",
+      color: theme.colors.gray[5],
+      marginRight: theme.spacing.xs*0.5,
+    }
+  },
   positiveAmount: {
     color: theme.colors.green[8],
     fontWeight: 'bold',
@@ -45,8 +57,10 @@ export default function TransactionLine({ data, onClick }: Props) {
           <Grid.Col span={8}>
             <Box styles={{ maxWidth: '80%' }}>
               <Text lineClamp={1}>
-                {data.payee} {data.narration}
+                <span className={classes.payee}>{data.payee}</span>
+                <span className={classes.narration}>{data.narration}</span>
               </Text>
+
               <Group spacing="xs">
                 <Text mr={2} color="dimmed" size="xs">
                   {date} {time}
