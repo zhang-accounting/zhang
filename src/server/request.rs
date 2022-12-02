@@ -31,9 +31,9 @@ pub enum StatisticInterval {
 
 #[derive(Deserialize)]
 pub struct StatisticRequest {
-    from: NaiveDateTime,
-    to: NaiveDateTime,
-    interval: StatisticInterval,
+    pub from: NaiveDateTime,
+    pub to: NaiveDateTime,
+    pub interval: StatisticInterval,
 }
 
 #[derive(Deserialize)]

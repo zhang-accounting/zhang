@@ -109,3 +109,10 @@ pub struct InfoForNewTransaction {
     pub account_name:Vec<String>
 }
 
+
+#[derive(Serialize)]
+pub struct AmountResponse {
+    pub number: ZhangBigDecimal,
+    pub commodity: String
+}
+

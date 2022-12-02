@@ -1,4 +1,4 @@
-import { Box, Text, Badge, Group } from '@mantine/core';
+import { Box, Text, Badge, Group, Stack } from '@mantine/core';
 import { format } from 'date-fns';
 import { TransactionDto } from '../../gql/jouralList';
 import Amount from '../Amount';
@@ -52,7 +52,7 @@ export default function TransactionPreview(props: Props) {
                 <Text lineClamp={1} my="xs">
                   {posting.account}
                 </Text>
-                <Text lineClamp={1}>{posting.unit_number && <Amount amount={posting.unit_number} currency={posting.unit_commodity} />}</Text>
+                <Text lineClamp={1}><Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} /></Text>
               </DashLine>
             ))}
           </>

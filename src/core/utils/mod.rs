@@ -4,3 +4,5 @@ pub(crate) mod latest_map;
 pub(crate) mod multi_value_map;
 pub(crate) mod price_grip;
 pub mod span;
+
+pub mod date_range;

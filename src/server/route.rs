@@ -10,7 +10,7 @@ use crate::core::account::Account;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document};
 use crate::core::models::{Directive, ZhangString};
 use crate::server::model::mutation::create_folder_if_not_exist;
-use crate::server::response::{AccountResponse, DocumentResponse, InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse};
+use crate::server::response::{AccountResponse, AmountResponse, DocumentResponse, InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse};
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
 use actix_web::body::{BoxBody, EitherBody};
@@ -36,6 +36,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
+use crate::core::utils::date_range::NaiveDateRange;
 
 // pub async fn graphql_playground() -> impl IntoResponse {
 //     Html(playground_source(GraphQLPlaygroundConfig::new("/graphql")))
@@ -127,8 +128,48 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
 }
 
 #[get("/api/statistic")]
-pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<StatisticRequest>) -> impl Responder {
-    "unimplemented!()"
+pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> impl Responder {
+    let ledger = ledger.read().await;
+    let mut connection = ledger.connection().await;
+    let params = params.into_inner();
+    #[derive(FromRow)]
+    pub struct StaticRow {
+        date: NaiveDate,
+        account_type: String,
+        amount: ZhangBigDecimal,
+        commodity: String,
+    }
+    let rows = sqlx::query_as::<_, StaticRow>(r#"
+        SELECT
+            date(datetime) AS date,
+            accounts.type AS account_type,
+            sum(inferred_unit_number) AS amount,
+            inferred_unit_commodity AS commodity
+        FROM
+            transaction_postings
+            JOIN transactions ON transactions.id = transaction_postings.trx_id
+            JOIN accounts ON accounts.name = transaction_postings.account
+            where transactions.datetime >= $1 and transactions.datetime <= $2
+        GROUP BY
+            date(datetime),
+            accounts.type,
+            inferred_unit_commodity
+    "#)
+        .bind(&params.from)
+        .bind(&params.to)
+        .fetch_all(&mut connection)
+        .await.unwrap();
+    let mut ret :HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
+    for (date, dated_rows) in &rows.into_iter().group_by(|row|row.date) {
+        let date_entry = ret.entry(date).or_insert_with(|| HashMap::new());
+        for row in dated_rows {
+            date_entry.insert(row.account_type, AmountResponse { number: row.amount, commodity: row.commodity });
+        }
+    }
+    for day in NaiveDateRange::new  (params.from.date(), params.to.date()) {
+        ret.entry(day).or_insert_with(|| HashMap::new());
+    }
+    Json(ret)
 }
 
 #[get("/api/journals")]
