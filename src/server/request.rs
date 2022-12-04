@@ -1,5 +1,5 @@
 use bigdecimal::BigDecimal;
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::Deserialize;
 use std::cmp::{max, min};
 
@@ -31,8 +31,8 @@ pub enum StatisticInterval {
 
 #[derive(Deserialize)]
 pub struct StatisticRequest {
-    pub from: NaiveDateTime,
-    pub to: NaiveDateTime,
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
     pub interval: StatisticInterval,
 }
 
@@ -50,3 +50,34 @@ impl JournalRequest {
         self.size.unwrap_or(100)
     }
 }
+
+
+#[derive(Deserialize)]
+pub struct CreateTransactionRequest {
+    pub datetime: DateTime<Utc>,
+    pub payee: String,
+    pub narration: Option<String>,
+    pub postings: Vec<CreateTransactionPostingRequest>,
+    pub metas: Vec<MetaRequest>,
+    pub tags: Vec<String>,
+    pub links: Vec<String>
+}
+
+#[derive(Deserialize)]
+pub struct CreateTransactionPostingRequest {
+    pub account: String,
+    pub unit: Option<AmountRequest>,
+}
+
+#[derive(Deserialize)]
+pub struct AmountRequest {
+    pub number:BigDecimal,
+    pub commodity: String
+}
+
+#[derive(Deserialize)]
+pub struct MetaRequest {
+    pub key:String,
+    pub value: String
+}
+

@@ -10,54 +10,55 @@ import { Stack } from '@mantine/core';
 export default function ErrorBox() {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
-  const { data, loading, refetch } = useQuery<ErrorListQuery>(ERROR_LIST);
+  // const { data, loading, refetch } = useQuery<ErrorListQuery>(ERROR_LIST);
+  const data: ErrorEntity[] = [];
   const [selectError, setSelectError] = useState<ErrorEntity | null>(null);
   const [selectErrorContent, setSelectErrorContent] = useState<string>('');
 
-  const [modifyFile] = useMutation(MODIFY_FILE, {
-    update: (proxy) => {
-      proxy.evict({ fieldName: `journals` });
-      proxy.evict({ fieldName: `errors` });
-      console.log('proxy', proxy);
-    },
-  });
-
+  // const [modifyFile] = useMutation(MODIFY_FILE, {
+  //   update: (proxy) => {
+  //     proxy.evict({ fieldName: `journals` });
+  //     proxy.evict({ fieldName: `errors` });
+  //     console.log('proxy', proxy);
+  //   },
+  // });
+  //
   const toggleError = (error: ErrorEntity) => {
-    setSelectError(error);
-    setSelectErrorContent(error.span.content);
-    setIsOpen(true);
+    // setSelectError(error);
+    // setSelectErrorContent(error.span.content);
+    // setIsOpen(true);
   };
   const saveErrorModfiyData = () => {
-    modifyFile({
-      variables: {
-        file: selectError?.span.filename,
-        content: selectErrorContent,
-        start: selectError?.span.start,
-        end: selectError?.span.end,
-      },
-    });
+  //   modifyFile({
+  //     variables: {
+  //       file: selectError?.span.filename,
+  //       content: selectErrorContent,
+  //       start: selectError?.span.start,
+  //       end: selectError?.span.end,
+  //     },
+  //   });
     setIsOpen(false);
   };
   const onModalReset = () => {
-    setSelectErrorContent(selectError?.span.content || '');
+    // setSelectErrorContent(selectError?.span.content || '');
   };
-  const fetchNextPage = () => {
-    refetch({
-      cursor: data?.errors.pageInfo.endCursor,
-    });
-  };
-  const fetchPreviousPage = () => {
-    const cursor = parseInt(data!.errors.pageInfo.startCursor) - 11;
-    if (cursor > 0) {
-      refetch({
-        cursor: cursor.toString(),
-      });
-    } else {
-      refetch({ cursor: '-1' });
-    }
-  };
+  // const fetchNextPage = () => {
+  //   refetch({
+  //     cursor: data?.errors.pageInfo.endCursor,
+  //   });
+  // };
+  // const fetchPreviousPage = () => {
+  //   const cursor = parseInt(data!.errors.pageInfo.startCursor) - 11;
+  //   if (cursor > 0) {
+  //     refetch({
+  //       cursor: cursor.toString(),
+  //     });
+  //   } else {
+  //     refetch({ cursor: '-1' });
+  //   }
+  // };
 
-  if (loading) return <div> loading</div>;
+
   return (
     <>
       <Modal
@@ -84,8 +85,7 @@ export default function ErrorBox() {
       </Modal>
       <Stack>
         <Stack>
-          {data?.errors.edges
-            .map((edge) => edge.node)
+          {data
             .map((error, idx) => (
               <Text key={idx} onClick={() => toggleError(error)} lineClamp={1}>
                 {error.message}
@@ -94,10 +94,10 @@ export default function ErrorBox() {
         </Stack>
         <Group position="right">
           <Button.Group>
-            <Button disabled={!data?.errors.pageInfo.hasPreviousPage} onClick={fetchPreviousPage} variant="default">
+            <Button  variant="default">
               {t('Previous')}
             </Button>
-            <Button disabled={!data?.errors.pageInfo.hasNextPage} onClick={fetchNextPage} variant="default">
+            <Button  variant="default">
               {t('Next')}
             </Button>
           </Button.Group>

@@ -2,7 +2,8 @@ import { useQuery } from '@apollo/client';
 import { Container, Grid, Group, Progress, SegmentedControl, Title, Text, Table } from '@mantine/core';
 import { DateRangePicker, DateRangePickerValue } from '@mantine/dates';
 import { format } from 'date-fns';
-import * as _ from 'lodash';
+import {} from 'lodash';
+import {groupBy, map, sortBy, sumBy, take } from 'lodash-es';
 import { useState } from 'react';
 import { Chart } from 'react-chartjs-2';
 import JournalLine from '../components/JournalLine';
@@ -76,7 +77,7 @@ const build_chart_data = (data: StatisticResponse) => {
 };
 
 function sumPostings(postings: Posting[]): number {
-  return _.sumBy(postings, (posting) => parseFloat(posting?.unit?.number || posting?.inferredUnit?.number));
+  return sumBy(postings, (posting) => parseFloat(posting?.unit?.number || posting?.inferredUnit?.number));
 }
 export default function Report() {
   const [value, setValue] = useState<DateRangePickerValue>([
@@ -109,15 +110,15 @@ export default function Report() {
 
   const incomeTotal = sumPostings(incomeData);
 
-  const incomeRank = _.sortBy(
-    _.map(
-      _.groupBy(incomeData, (posting) => posting.account.name),
+  const incomeRank = sortBy(
+    map(
+      groupBy(incomeData, (posting) => posting.account.name),
       (postings, name) => ({ name, total: sumPostings(postings) }),
     ),
     (item) => item.total,
   );
   const incomeJournalRank =
-    _.sortBy(
+    sortBy(
       data?.statistic.journals
         .filter((journal) => journal.type === 'TransactionDto')
         .filter((journal) => (journal as TransactionDto).postings.some((posting) => posting.account.accountType === 'Income')),
@@ -138,16 +139,16 @@ export default function Report() {
 
   const expenseTotal = sumPostings(expenseData);
 
-  const expenseRank = _.sortBy(
-    _.map(
-      _.groupBy(expenseData, (posting) => posting.account.name),
+  const expenseRank = sortBy(
+    map(
+      groupBy(expenseData, (posting) => posting.account.name),
       (postings, name) => ({ name, total: sumPostings(postings) }),
     ),
     (item) => item.total,
   );
 
   const expenseJournalRank =
-    _.sortBy(
+    sortBy(
       data?.statistic.journals
         .filter((journal) => journal.type === 'TransactionDto')
         .filter((journal) => (journal as TransactionDto).postings.some((posting) => posting.account.accountType === 'Expenses')),
@@ -193,7 +194,7 @@ export default function Report() {
         <Section title="Incomes">
           <Grid>
             <Grid.Col span={4}>
-              {_.take(incomeRank, 10).map((each_income) => (
+              {take(incomeRank, 10).map((each_income) => (
                 <div key={each_income.name}>
                   <Text>{each_income.name}</Text>
                   <Progress
@@ -220,7 +221,7 @@ export default function Report() {
                   </tr>
                 </thead>
                 <tbody>
-                  {_.take(incomeJournalRank, 10).map((journal, idx) => (
+                  {take(incomeJournalRank, 10).map((journal, idx) => (
                     // <JournalLine key={idx} data={journal} />
                     <div>line</div>
                   ))}
@@ -233,7 +234,7 @@ export default function Report() {
         <Section title="Expenses">
           <Grid>
             <Grid.Col span={4}>
-              {_.take(expenseRank, 10).map((each_income) => (
+              {take(expenseRank, 10).map((each_income) => (
                 <div key={each_income.name}>
                   <Text>{each_income.name}</Text>
                   <Progress
@@ -260,7 +261,7 @@ export default function Report() {
                   </tr>
                 </thead>
                 <tbody>
-                  {_.take(expenseJournalRank, 10).map((journal, idx) => (
+                  {take(expenseJournalRank, 10).map((journal, idx) => (
                     // <JournalLine key={idx} data={journal} />
                     <div> line</div>
                   ))}

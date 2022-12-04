@@ -6,3 +6,5 @@ pub(crate) mod price_grip;
 pub mod span;
 
 pub mod date_range;
+
+pub(crate) mod string_;

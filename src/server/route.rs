@@ -5,12 +5,13 @@ use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::iter::FromIterator;
 
 use crate::core::account::Account;
-use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document};
-use crate::core::models::{Directive, ZhangString};
+use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document, Meta, Posting, Transaction};
+use crate::core::models::{Directive, Flag, ZhangString};
 use crate::server::model::mutation::create_folder_if_not_exist;
-use crate::server::response::{AccountResponse, AmountResponse, DocumentResponse, InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse};
+use crate::server::response::{AccountResponse, AmountResponse, DocumentResponse, InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse, StatisticResponse};
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
 use actix_web::body::{BoxBody, EitherBody};
@@ -21,10 +22,10 @@ use actix_web::{get, post, put, web, HttpRequest, HttpResponse, Responder};
 use crate::core::amount::Amount;
 use crate::error::ZhangResult;
 use crate::parse_zhang;
-use crate::server::request::{AccountBalanceRequest, FileUpdateRequest, JournalRequest, StatisticRequest};
+use crate::server::request::{AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, StatisticRequest};
 use bigdecimal::{BigDecimal, FromPrimitive};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use itertools::Itertools;
 use log::info;
 use rust_embed::RustEmbed;
@@ -33,10 +34,12 @@ use sqlx::{FromRow, SqliteConnection};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use indexmap::IndexSet;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::core::utils::date_range::NaiveDateRange;
+use crate::core::utils::string_::StringExt;
 
 // pub async fn graphql_playground() -> impl IntoResponse {
 //     Html(playground_source(GraphQLPlaygroundConfig::new("/graphql")))
@@ -127,6 +130,7 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
     })
 }
 
+
 #[get("/api/statistic")]
 pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> impl Responder {
     let ledger = ledger.read().await;
@@ -155,8 +159,8 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
             accounts.type,
             inferred_unit_commodity
     "#)
-        .bind(&params.from)
-        .bind(&params.to)
+        .bind(&params.from.naive_local())
+        .bind(&params.to.naive_local())
         .fetch_all(&mut connection)
         .await.unwrap();
     let mut ret :HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
@@ -166,10 +170,12 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
             date_entry.insert(row.account_type, AmountResponse { number: row.amount, commodity: row.commodity });
         }
     }
-    for day in NaiveDateRange::new  (params.from.date(), params.to.date()) {
+    for day in NaiveDateRange::new  (params.from.date().naive_local(), params.to.date().naive_local()) {
         ret.entry(day).or_insert_with(|| HashMap::new());
     }
-    Json(ret)
+    Json(StatisticResponse{
+        detail: ret
+    })
 }
 
 #[get("/api/journals")]
@@ -180,6 +186,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
     #[derive(Debug, FromRow)]
     struct JournalHeader {
         id: String,
+        sequence: i64,
         datetime: NaiveDateTime,
         journal_type: String,
         payee: String,
@@ -187,7 +194,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
     }
     let journal_headers = sqlx::query_as::<_, JournalHeader>(
         r#"
-        SELECT id, datetime, type as journal_type, payee, narration FROM transactions ORDER BY "sequence" DESC LIMIT $1 OFFSET $2
+        SELECT id, sequence, datetime, type as journal_type, payee, narration FROM transactions ORDER BY "sequence" DESC LIMIT $1 OFFSET $2
         "#,
     )
         .bind(params.limit())
@@ -251,6 +258,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
                         .collect_vec();
                     JournalItemResponse::BalancePad(JournalBalancePadItemResponse {
                         id: trx_id,
+                        sequence: header.sequence,
                         datetime: header.datetime,
                         payee: header.payee,
                         narration: header.narration,
@@ -284,6 +292,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
                     let metas = get_metas("TransactionMeta", &trx_id, &mut connection).await.unwrap();
                     JournalItemResponse::Transaction(JournalTransactionItemResponse {
                         id: trx_id,
+                        sequence: header.sequence,
                         datetime: header.datetime,
                         payee: header.payee,
                         narration: header.narration,
@@ -299,7 +308,41 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
             ret.push(item);
         }
     }
+    ret.sort_by_key(|item|item.sequence());
+    ret.reverse();
     Json(ret)
+}
+
+#[post("/api/transactions")]
+pub async fn create_new_transaction(ledger: Data<Arc<RwLock<Ledger>>>, Json(payload): Json<CreateTransactionRequest>) -> impl Responder {
+    let ledger = ledger.read().await;
+
+    let postings  = payload.postings.into_iter().map(|posting| Posting {
+        flag: None,
+        account: Account::from_str(&posting.account).unwrap(),
+        units: posting.unit.map(|unit|Amount::new(unit.number,unit.commodity)),
+        cost: None,
+        cost_date: None,
+        price: None,
+        meta: Default::default(),
+    }).collect_vec();
+    let mut metas = Meta::default();
+    for meta in payload.metas {
+        metas.insert(meta.key, meta.value.to_quote());
+    }
+    let time = payload.datetime.naive_local();
+    let trx = Directive::Transaction(Transaction {
+        date: Date::Datetime(time),
+        flag: Some(Flag::Okay),
+        payee: Some(payload.payee.to_quote()),
+        narration: payload.narration.map(|it|it.to_quote()),
+        tags: IndexSet::from_iter(payload.tags.into_iter()),
+        links: IndexSet::from_iter(payload.links.into_iter()),
+        postings,
+        meta:metas,
+    });
+    ledger.append_directives(vec!(trx), format!("data/{}/{}.zhang", time.year(), time.month()));
+    "OK"
 }
 
 #[get("/api/documents/{file_path}")]

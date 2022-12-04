@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use bigdecimal::BigDecimal;
-use chrono::NaiveDateTime;
+use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::core::Currency;
+use bigdecimal::BigDecimal;
+use chrono::{NaiveDate, NaiveDateTime};
 use serde::Serialize;
 use sqlx::FromRow;
-use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
+use std::collections::HashMap;
 
 #[derive(Serialize)]
 pub struct AccountResponse {
@@ -27,24 +27,19 @@ pub struct DocumentResponse {
 pub struct StatisticFrameResponse {
     datetime: NaiveDateTime,
     amount: ZhangBigDecimal,
-    commodity: String
+    commodity: String,
 }
 
 #[derive(Serialize)]
 pub struct StatisticResponse {
-    total: Vec<StatisticFrameResponse>,
-    income:Vec<StatisticFrameResponse>,
-    expense: Vec<StatisticFrameResponse>,
-    // summaries:
+    pub detail: HashMap<NaiveDate, HashMap<String, AmountResponse>>, // summaries:
 }
 
 #[derive(Serialize, FromRow)]
 pub struct MetaResponse {
     key: String,
-    value: String
+    value: String,
 }
-
-
 
 #[derive(Serialize)]
 #[serde(tag = "type")]
@@ -54,20 +49,29 @@ pub enum JournalItemResponse {
     BalancePad(JournalBalancePadItemResponse),
 }
 
-
+impl JournalItemResponse {
+    pub fn sequence(&self) -> i64 {
+        match self {
+            JournalItemResponse::Transaction(inner) => inner.sequence,
+            JournalItemResponse::BalanceCheck(inner) => inner.sequence,
+            JournalItemResponse::BalancePad(inner) => inner.sequence,
+        }
+    }
+}
 
 #[derive(Serialize)]
 pub struct JournalTransactionItemResponse {
     pub id: String,
+    pub sequence: i64,
     pub datetime: NaiveDateTime,
-    pub payee:String,
+    pub payee: String,
     pub narration: Option<String>,
-    pub tags:Vec<String>,
-    pub links:Vec<String>,
+    pub tags: Vec<String>,
+    pub links: Vec<String>,
     pub flag: String,
     pub is_balanced: bool,
     pub postings: Vec<JournalTransactionPostingResponse>,
-    pub metas:Vec<MetaResponse>
+    pub metas: Vec<MetaResponse>,
 }
 #[derive(Serialize)]
 pub struct JournalTransactionPostingResponse {
@@ -86,33 +90,31 @@ pub struct JournalTransactionPostingResponse {
     pub account_after_commodity: String,
 }
 
-
-
 #[derive(Serialize)]
 pub struct JournalBalanceCheckItemResponse {
     pub id: String,
+    pub sequence: i64,
 }
 
 #[derive(Serialize)]
 pub struct JournalBalancePadItemResponse {
     pub id: String,
+    pub sequence: i64,
     pub datetime: NaiveDateTime,
-    pub payee:String,
+    pub payee: String,
     pub narration: Option<String>,
     pub type_: String,
-    pub(crate) postings: Vec<JournalTransactionPostingResponse>
+    pub(crate) postings: Vec<JournalTransactionPostingResponse>,
 }
 
 #[derive(Serialize)]
 pub struct InfoForNewTransaction {
     pub payee: Vec<String>,
-    pub account_name:Vec<String>
+    pub account_name: Vec<String>,
 }
-
 
 #[derive(Serialize)]
 pub struct AmountResponse {
     pub number: ZhangBigDecimal,
-    pub commodity: String
+    pub commodity: String,
 }
-

@@ -2,7 +2,7 @@ import { useQuery } from '@apollo/client';
 import { Badge, Container, Group, Table, Tabs, Title } from '@mantine/core';
 import { IconMessageCircle, IconPhoto, IconSettings } from '@tabler/icons';
 import { format } from 'date-fns';
-import { maxBy } from 'lodash';
+import { maxBy } from 'lodash-es';
 import { useParams } from 'react-router';
 import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
 import AccountDocumentUpload from '../components/AccountDocumentUpload';
