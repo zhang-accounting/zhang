@@ -1,7 +1,5 @@
 use crate::core::ledger::Ledger;
-use crate::server::model::LedgerSchema;
-use async_graphql::http::{playground_source, GraphQLPlaygroundConfig};
-use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -11,21 +9,31 @@ use crate::core::account::Account;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document, Meta, Posting, Transaction};
 use crate::core::models::{Directive, Flag, ZhangString};
 use crate::server::model::mutation::create_folder_if_not_exist;
-use crate::server::response::{AccountResponse, AmountResponse, DocumentResponse, InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse, StatisticResponse};
+use crate::server::response::{
+    AccountResponse, AmountResponse, DocumentResponse, InfoForNewTransaction, JournalBalancePadItemResponse,
+    JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse,
+    StatisticResponse,
+};
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
-use actix_web::body::{BoxBody, EitherBody};
+use actix_web::body::BoxBody;
 use actix_web::http::Uri;
 use actix_web::web::{Data, Json, Path, Query};
 use actix_web::{get, post, put, web, HttpRequest, HttpResponse, Responder};
 
 use crate::core::amount::Amount;
+use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
+use crate::core::utils::date_range::NaiveDateRange;
+use crate::core::utils::string_::StringExt;
 use crate::error::ZhangResult;
 use crate::parse_zhang;
-use crate::server::request::{AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, StatisticRequest};
-use bigdecimal::{BigDecimal, FromPrimitive};
+use crate::server::request::{
+    AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, StatisticRequest,
+};
+use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
+use indexmap::IndexSet;
 use itertools::Itertools;
 use log::info;
 use rust_embed::RustEmbed;
@@ -34,12 +42,8 @@ use sqlx::{FromRow, SqliteConnection};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
-use indexmap::IndexSet;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
-use crate::core::utils::date_range::NaiveDateRange;
-use crate::core::utils::string_::StringExt;
 
 // pub async fn graphql_playground() -> impl IntoResponse {
 //     Html(playground_source(GraphQLPlaygroundConfig::new("/graphql")))
@@ -49,24 +53,25 @@ use crate::core::utils::string_::StringExt;
 //     schema.execute(req.0).await.into()
 // }
 
-pub async fn get_metas(type_: &str, type_identifier:&str, conn: &mut SqliteConnection) -> ZhangResult<Vec<MetaResponse>> {
-
+#[derive(FromRow)]
+struct ValueRow {
+    value: String,
+}
+pub async fn get_metas(
+    type_: &str, type_identifier: &str, conn: &mut SqliteConnection,
+) -> ZhangResult<Vec<MetaResponse>> {
     let rows = sqlx::query_as::<_, MetaResponse>(
         r#"
         select key, value from metas where type = $1 and type_identifier = $2
         "#,
     )
-        .bind(type_)
-        .bind(type_identifier)
-        .fetch_all(conn)
-        .await?;
-   Ok(rows)
+    .bind(type_)
+    .bind(type_identifier)
+    .fetch_all(conn)
+    .await?;
+    Ok(rows)
 }
 pub async fn get_transaction_tags(trx_id: &str, conn: &mut SqliteConnection) -> ZhangResult<Vec<String>> {
-    #[derive(FromRow)]
-    struct ValueRow {
-        value: String,
-    }
     let rows = sqlx::query_as::<_, ValueRow>(
         r#"
         select tag as value from transaction_tags where trx_id = $1
@@ -87,9 +92,9 @@ pub async fn get_transaction_links(trx_id: &str, conn: &mut SqliteConnection) ->
         select link as value from transaction_links where trx_id = $1
         "#,
     )
-        .bind(trx_id)
-        .fetch_all(conn)
-        .await?;
+    .bind(trx_id)
+    .fetch_all(conn)
+    .await?;
     Ok(rows.into_iter().map(|it| it.value).collect_vec())
 }
 
@@ -130,7 +135,6 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
     })
 }
 
-
 #[get("/api/statistic")]
 pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> impl Responder {
     let ledger = ledger.read().await;
@@ -143,7 +147,8 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
         amount: ZhangBigDecimal,
         commodity: String,
     }
-    let rows = sqlx::query_as::<_, StaticRow>(r#"
+    let rows = sqlx::query_as::<_, StaticRow>(
+        r#"
         SELECT
             date(datetime) AS date,
             accounts.type AS account_type,
@@ -158,23 +163,143 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
             date(datetime),
             accounts.type,
             inferred_unit_commodity
-    "#)
-        .bind(&params.from.naive_local())
-        .bind(&params.to.naive_local())
-        .fetch_all(&mut connection)
-        .await.unwrap();
-    let mut ret :HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
-    for (date, dated_rows) in &rows.into_iter().group_by(|row|row.date) {
+    "#,
+    )
+    .bind(&params.from.naive_local())
+    .bind(&params.to.naive_local())
+    .fetch_all(&mut connection)
+    .await
+    .unwrap();
+    let mut ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
+    for (date, dated_rows) in &rows.into_iter().group_by(|row| row.date) {
         let date_entry = ret.entry(date).or_insert_with(|| HashMap::new());
         for row in dated_rows {
-            date_entry.insert(row.account_type, AmountResponse { number: row.amount, commodity: row.commodity });
+            date_entry.insert(
+                row.account_type,
+                AmountResponse {
+                    number: row.amount,
+                    commodity: row.commodity,
+                },
+            );
         }
     }
-    for day in NaiveDateRange::new  (params.from.date().naive_local(), params.to.date().naive_local()) {
+    for day in NaiveDateRange::new(params.from.date().naive_local(), params.to.date().naive_local()) {
         ret.entry(day).or_insert_with(|| HashMap::new());
     }
-    Json(StatisticResponse{
-        detail: ret
+
+    let accounts = sqlx::query_as::<_, ValueRow>("select name as value from accounts")
+        .fetch_all(&mut connection)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|it| it.value)
+        .collect_vec();
+
+    #[derive(FromRow)]
+    pub struct DetailRow {
+        date: NaiveDate,
+        account: String,
+        balance_number: ZhangBigDecimal,
+        balance_commodity: String,
+    }
+
+    let existing_account_balance = sqlx::query_as::<_, DetailRow>(
+        r#"
+        SELECT
+            date(datetime) AS date,
+            account,
+            balance_number,
+            balance_commodity
+        FROM
+            account_daily_balance
+        WHERE
+            datetime < $1
+        GROUP BY
+            account
+        HAVING
+            max(datetime)
+    "#,
+    )
+    .bind(&params.from.naive_local())
+    .fetch_all(&mut connection)
+    .await
+    .unwrap();
+
+    let mut existing_balances: HashMap<String, AmountResponse> = existing_account_balance
+        .into_iter()
+        .map(|line| {
+            (
+                line.account.to_owned(),
+                AmountResponse {
+                    number: line.balance_number,
+                    commodity: line.balance_commodity,
+                },
+            )
+        })
+        .collect();
+
+    let details = sqlx::query_as::<_, DetailRow>(
+        r#"
+        SELECT
+        date(datetime) AS date,
+        account,
+        balance_number,
+        balance_commodity
+    FROM
+        account_daily_balance
+    where datetime >= $1 and datetime <= $2
+    "#,
+    )
+    .bind(&params.from.naive_local())
+    .bind(&params.to.naive_local())
+    .fetch_all(&mut connection)
+    .await
+    .unwrap();
+
+    let mut detail_map: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
+    for (date, dated_rows) in &details.into_iter().group_by(|row| row.date) {
+        let date_entry = detail_map.entry(date).or_insert_with(|| HashMap::new());
+        for row in dated_rows {
+            date_entry.insert(
+                row.account,
+                AmountResponse {
+                    number: row.balance_number,
+                    commodity: row.balance_commodity,
+                },
+            );
+        }
+    }
+
+    let mut detail_ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
+
+    for target_day in NaiveDateRange::new(params.from.date().naive_local(), params.to.date().naive_local()) {
+        let mut target_day_ret = HashMap::new();
+
+        let mut target_day_map = detail_map.remove(&target_day).unwrap_or_else(|| HashMap::new());
+        for target_account in &accounts {
+            let option = target_day_map.remove(target_account);
+            if let Some(target_account_balance) = option {
+                // has change in date
+                target_day_ret.insert(target_account.to_owned(), target_account_balance.clone());
+                existing_balances.insert(target_account.to_owned(), target_account_balance);
+            } else {
+                // need to get previous day's balance
+                let balance = existing_balances
+                    .get(target_account)
+                    .map(|it| it.clone())
+                    .unwrap_or_else(|| AmountResponse {
+                        number: ZhangBigDecimal(BigDecimal::zero()),
+                        commodity: ledger.options.operating_currency.to_owned(),
+                    });
+                target_day_ret.insert(target_account.to_owned(), balance);
+            }
+        }
+        detail_ret.insert(target_day, target_day_ret);
+    }
+
+    Json(StatisticResponse {
+        changes: ret,
+        details: detail_ret,
     })
 }
 
@@ -301,31 +426,37 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
                         flag: header.journal_type,
                         is_balanced: true,
                         postings,
-                        metas
+                        metas,
                     })
                 }
             };
             ret.push(item);
         }
     }
-    ret.sort_by_key(|item|item.sequence());
+    ret.sort_by_key(|item| item.sequence());
     ret.reverse();
     Json(ret)
 }
 
 #[post("/api/transactions")]
-pub async fn create_new_transaction(ledger: Data<Arc<RwLock<Ledger>>>, Json(payload): Json<CreateTransactionRequest>) -> impl Responder {
+pub async fn create_new_transaction(
+    ledger: Data<Arc<RwLock<Ledger>>>, Json(payload): Json<CreateTransactionRequest>,
+) -> impl Responder {
     let ledger = ledger.read().await;
 
-    let postings  = payload.postings.into_iter().map(|posting| Posting {
-        flag: None,
-        account: Account::from_str(&posting.account).unwrap(),
-        units: posting.unit.map(|unit|Amount::new(unit.number,unit.commodity)),
-        cost: None,
-        cost_date: None,
-        price: None,
-        meta: Default::default(),
-    }).collect_vec();
+    let postings = payload
+        .postings
+        .into_iter()
+        .map(|posting| Posting {
+            flag: None,
+            account: Account::from_str(&posting.account).unwrap(),
+            units: posting.unit.map(|unit| Amount::new(unit.number, unit.commodity)),
+            cost: None,
+            cost_date: None,
+            price: None,
+            meta: Default::default(),
+        })
+        .collect_vec();
     let mut metas = Meta::default();
     for meta in payload.metas {
         metas.insert(meta.key, meta.value.to_quote());
@@ -335,13 +466,13 @@ pub async fn create_new_transaction(ledger: Data<Arc<RwLock<Ledger>>>, Json(payl
         date: Date::Datetime(time),
         flag: Some(Flag::Okay),
         payee: Some(payload.payee.to_quote()),
-        narration: payload.narration.map(|it|it.to_quote()),
+        narration: payload.narration.map(|it| it.to_quote()),
         tags: IndexSet::from_iter(payload.tags.into_iter()),
         links: IndexSet::from_iter(payload.links.into_iter()),
         postings,
-        meta:metas,
+        meta: metas,
     });
-    ledger.append_directives(vec!(trx), format!("data/{}/{}.zhang", time.year(), time.month()));
+    ledger.append_directives(vec![trx], format!("data/{}/{}.zhang", time.year(), time.month()));
     "OK"
 }
 
@@ -357,10 +488,9 @@ pub async fn download_document(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Pat
 }
 
 pub async fn serve_frontend(uri: Uri) -> impl Responder {
-    dbg!(&uri);
     let path = uri.path().trim_start_matches('/').to_string();
-    let buf = PathBuf::from_str(dbg!(&path)).unwrap();
-    if dbg!(dbg!(buf).extension()).is_some() {
+    let buf = PathBuf::from_str(&path).unwrap();
+    if buf.extension().is_some() {
         StaticFile(path)
     } else {
         StaticFile("index.html".to_string())
@@ -436,9 +566,9 @@ pub async fn upload_account_document(
 
     while let Some(item) = multipart.next().await {
         let mut field = item.unwrap();
-        let name = field.name().to_string();
+        let _name = field.name().to_string();
         let file_name = field.content_disposition().get_filename().unwrap().to_string();
-        let content_type = field.content_type().type_().as_str().to_string();
+        let _content_type = field.content_type().type_().as_str().to_string();
 
         while let Some(chunk) = field.next().await {
             let data = chunk.unwrap();
@@ -549,7 +679,7 @@ pub async fn create_account_balance(
 ) -> impl Responder {
     let account_name = params.into_inner().0;
     let ledger = ledger.read().await;
-    let mut connection = ledger.connection().await;
+    let _connection = ledger.connection().await;
 
     let balance = match payload {
         AccountBalanceRequest::Check { amount, commodity } => Balance::BalanceCheck(BalanceCheck {
@@ -777,9 +907,9 @@ where
 {
     type Body = BoxBody;
 
-    fn respond_to(self, req: &HttpRequest) -> HttpResponse<Self::Body> {
+    fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
         let path: String = self.0.into();
-        match Asset::get(dbg!(path.as_str())) {
+        match Asset::get(path.as_str()) {
             Some(content) => {
                 let mime = mime_guess::from_path(path).first_or_octet_stream();
                 HttpResponse::Ok()

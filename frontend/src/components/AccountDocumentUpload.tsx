@@ -1,9 +1,7 @@
-import { useMutation } from '@apollo/client';
 import { Text } from '@mantine/core';
 import { Dropzone } from '@mantine/dropzone';
 import { useEffect, useState } from 'react';
 import { FileWithPath } from 'react-dropzone';
-import { UPLOAD_ACCOUNT_DOCUMENT } from '../gql/uploadAccountDocument';
 import { axiosInstance } from '../index';
 
 interface Props {
@@ -11,15 +9,6 @@ interface Props {
 }
 export default function AccountDocumentUpload(props: Props) {
   const [files, setFiles] = useState<FileWithPath[]>([]);
-
-  // const [uploadAccountDocuments] = useMutation(UPLOAD_ACCOUNT_DOCUMENT, {
-  //   refetchQueries: [],
-  //
-  //   update: (proxy) => {
-  //     proxy.evict({ fieldName: `account({"name":"${props.accountName}"})` });
-  //     proxy.evict({ fieldName: `journals` });
-  //   },
-  // });
 
   useEffect(() => {
     console.log('files', files);

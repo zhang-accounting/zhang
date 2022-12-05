@@ -1,16 +1,15 @@
-import {gql, useMutation} from '@apollo/client';
-import {useDisclosure, useListState, useMediaQuery} from '@mantine/hooks';
-import {format} from 'date-fns';
-import {useState} from 'react';
+import { useDisclosure, useListState, useMediaQuery } from '@mantine/hooks';
+import { format } from 'date-fns';
+import { useState } from 'react';
 // @ts-ignore
-import {ActionIcon, Button, Code, Container, Divider, Grid, Group, Modal, Select, TextInput} from '@mantine/core';
-import {DatePicker} from '@mantine/dates';
-import {IconSquarePlus, IconTextPlus, IconTrashX} from '@tabler/icons';
-import useSWR from 'swr';
-import {fetcher} from '..';
-import {InfoForNewTransaction} from '../rest-model';
-import DividerWithAction from './basic/DividerWithAction';
+import { ActionIcon, Button, Code, Container, Divider, Grid, Group, Modal, Select, TextInput } from '@mantine/core';
+import { DatePicker } from '@mantine/dates';
+import { IconSquarePlus, IconTextPlus, IconTrashX } from '@tabler/icons';
 import axios from "axios";
+import useSWR from 'swr';
+import { fetcher } from '..';
+import { InfoForNewTransaction } from '../rest-model';
+import DividerWithAction from './basic/DividerWithAction';
 
 interface Posting {
     account: string | null;

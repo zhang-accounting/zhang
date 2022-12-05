@@ -7,7 +7,6 @@ pub trait StringExt {
     fn into_unquote(self) -> ZhangString;
 }
 
-
 impl StringExt for String {
     fn to_quote(&self) -> ZhangString {
         ZhangString::QuoteString(self.to_owned())

@@ -1,11 +1,9 @@
-import { useQuery } from '@apollo/client';
-import { Badge, Container, Group, Table, Text, Title } from '@mantine/core';
+import { Container, Group, Table, Text, Title } from '@mantine/core';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router';
 import useSWR from 'swr';
 import { fetcher } from '..';
 import Amount from '../components/Amount';
-import { CommoditiesQuery, CURRENCIES } from '../gql/commodities';
 import { CommodityListItem } from '../rest-model';
 
 export default function Commodities() {

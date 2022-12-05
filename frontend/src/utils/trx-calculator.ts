@@ -1,5 +1,4 @@
 import { BigNumber } from 'bignumber.js';
-import { TransactionDto } from '../gql/jouralList';
 import { JournalTransactionItem } from '../rest-model';
 
 export interface SummaryItem {

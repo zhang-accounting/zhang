@@ -1,13 +1,10 @@
-import { Box, Text, Badge, Group, Stack } from '@mantine/core';
+import { Badge, Box, Group, Text } from '@mantine/core';
 import { format } from 'date-fns';
-import { TransactionDto } from '../../gql/jouralList';
+import { JournalTransactionItem } from '../../rest-model';
 import Amount from '../Amount';
-import { DropzoneButton } from '../DropzoneButton';
-import { UPLOAD_TRANSACTION_DOCUMENT } from '../../gql/uploadTransactionDocument';
+import DashLine from '../DashedLine';
 import Section from '../Section';
 import DocumentPreview from './DocumentPreview';
-import DashLine from '../DashedLine';
-import { JournalTransactionItem } from '../../rest-model';
 
 interface Props {
   data: JournalTransactionItem;

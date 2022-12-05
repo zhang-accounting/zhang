@@ -1,11 +1,11 @@
 import { Badge, Button, Container, Grid, Group, Table, Title } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { IconLayout2, IconListDetails } from '@tabler/icons';
-import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
+import { format } from 'date-fns';
 import useSWR from 'swr';
+import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import { fetcher } from '../index';
 import { Document } from '../rest-model';
-import { format } from 'date-fns';
 
 export default function Documents() {
   const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
@@ -63,7 +63,7 @@ export default function Documents() {
                     </Badge>
                   )}
                 </td>
-                <td>{`format(new Date(document.datetime), 'yyyy-MM-dd hh:mm:ss')`}</td>
+                <td>{format(new Date(document.datetime), 'yyyy-MM-dd hh:mm:ss')}</td>
                 <td></td>
               </tr>
             ))}

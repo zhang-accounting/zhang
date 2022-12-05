@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use async_graphql::{Context, Object, Upload};
 use chrono::{Datelike, Local, NaiveDateTime};
-use itertools::{Itertools};
+use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
 
@@ -111,7 +111,7 @@ impl MutationRoot {
         &self, ctx: &Context<'_>, transaction_file: String, transaction_end_line: usize, files: Vec<Upload>,
     ) -> bool {
         let ledger_stage = ctx.data_unchecked::<LedgerState>().write().await;
-        let entry =  &ledger_stage.entry.0;
+        let entry = &ledger_stage.entry.0;
         let mut metas = Meta::default();
         files.into_iter().for_each(|file| {
             let file = file.value(ctx).unwrap();

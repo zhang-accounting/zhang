@@ -1,4 +1,3 @@
-import {  TransactionDto } from '../../gql/jouralList';
 import { JournalItem, JournalTransactionItem } from '../../rest-model';
 import TransactionPreview from './TransactionPreview';
 interface Props {

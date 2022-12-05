@@ -1,10 +1,8 @@
-import { Group, Text, createStyles, Badge, Box, Grid } from '@mantine/core';
-import { TransactionDto } from '../gql/jouralList';
-import { IconArrowBigDownLines, IconArrowBigUpLines } from '@tabler/icons';
+import { Badge, Box, createStyles, Grid, Group, Text } from '@mantine/core';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
-import { calculate } from '../utils/trx-calculator';
 import { JournalItem, JournalTransactionItem } from '../rest-model';
+import { calculate } from '../utils/trx-calculator';
 
 const useStyles = createStyles((theme) => ({
   payee: {
@@ -58,7 +56,7 @@ export default function TransactionLine({ data, onClick }: Props) {
             <Box styles={{ maxWidth: '80%' }}>
               <Text lineClamp={1}>
                 <span className={classes.payee}>{data.payee}</span>
-                <span className={classes.narration}>{data.narration}</span>
+                {data.narration && <span className={classes.narration}>{data.narration}</span>}
               </Text>
 
               <Group spacing="xs">

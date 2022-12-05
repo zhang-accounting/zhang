@@ -1,11 +1,8 @@
-import { useMutation, useQuery } from '@apollo/client';
-import { Text, Button, Modal, Group } from '@mantine/core';
-import { ErrorEntity, ErrorListQuery, ERROR_LIST } from '../gql/errorList';
-import { useState } from 'react';
+import { Button, Group, Modal, Stack, Text } from '@mantine/core';
 import CodeMirror from '@uiw/react-codemirror';
-import { MODIFY_FILE } from '../gql/modifyFile';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Stack } from '@mantine/core';
+import { ErrorEntity } from '../gql/errorList';
 
 export default function ErrorBox() {
   const { t } = useTranslation();

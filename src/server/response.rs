@@ -1,6 +1,6 @@
 use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::core::Currency;
-use bigdecimal::BigDecimal;
+
 use chrono::{NaiveDate, NaiveDateTime};
 use serde::Serialize;
 use sqlx::FromRow;
@@ -32,7 +32,8 @@ pub struct StatisticFrameResponse {
 
 #[derive(Serialize)]
 pub struct StatisticResponse {
-    pub detail: HashMap<NaiveDate, HashMap<String, AmountResponse>>, // summaries:
+    pub changes: HashMap<NaiveDate, HashMap<String, AmountResponse>>, // summaries:
+    pub details: HashMap<NaiveDate, HashMap<String, AmountResponse>>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -113,7 +114,7 @@ pub struct InfoForNewTransaction {
     pub account_name: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct AmountResponse {
     pub number: ZhangBigDecimal,
     pub commodity: String,

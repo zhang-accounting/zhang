@@ -1,12 +1,11 @@
 import { useQuery } from '@apollo/client';
-import { Container, Grid, Group, Progress, SegmentedControl, Title, Text, Table } from '@mantine/core';
+import { Container, Grid, Group, Progress, SegmentedControl, Table, Text, Title } from '@mantine/core';
 import { DateRangePicker, DateRangePickerValue } from '@mantine/dates';
 import { format } from 'date-fns';
-import {} from 'lodash';
-import {groupBy, map, sortBy, sumBy, take } from 'lodash-es';
+import { } from 'lodash';
+import { groupBy, map, sortBy, sumBy, take } from 'lodash-es';
 import { useState } from 'react';
 import { Chart } from 'react-chartjs-2';
-import JournalLine from '../components/JournalLine';
 import Section from '../components/Section';
 import StatusGroup from '../components/StatusGroup';
 import { Posting, TransactionDto } from '../gql/jouralList';

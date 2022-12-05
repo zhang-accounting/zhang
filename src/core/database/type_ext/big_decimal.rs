@@ -4,13 +4,12 @@ use sqlx::database::{HasArguments, HasValueRef};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::sqlite::SqliteTypeInfo;
-use sqlx::{Database, Decode, Encode, Sqlite, TypeInfo};
-use std::fmt;
-use std::fmt::{Display, Formatter};
+use sqlx::{Database, Decode, Encode, Sqlite};
+
 use std::ops::Deref;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ZhangBigDecimal(BigDecimal);
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ZhangBigDecimal(pub BigDecimal);
 
 impl Deref for ZhangBigDecimal {
     type Target = BigDecimal;

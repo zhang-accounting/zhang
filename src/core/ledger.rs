@@ -206,7 +206,7 @@ impl Ledger {
     }
 
     pub(crate) async fn connection(&self) -> SqliteConnection {
-         SqliteConnectOptions::default()
+        SqliteConnectOptions::default()
             .filename(&self.database)
             .journal_mode(SqliteJournalMode::Wal)
             .create_if_missing(false)
@@ -216,8 +216,7 @@ impl Ledger {
     }
 
     async fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: PathBuf,
-        visited_files: Vec<PathBuf>,
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: PathBuf, visited_files: Vec<PathBuf>,
     ) -> ZhangResult<Ledger> {
         let mut connect = SqliteConnectOptions::default()
             .filename(&database)
@@ -370,9 +369,7 @@ impl Ledger {
 
     pub async fn reload(&mut self) -> ZhangResult<()> {
         let (entry, endpoint) = &mut self.entry;
-        let reload_ledger =
-            Ledger::load(entry.clone(), endpoint.clone()).await
-        ?;
+        let reload_ledger = Ledger::load(entry.clone(), endpoint.clone()).await?;
         *self = reload_ledger;
         Ok(())
     }
@@ -384,7 +381,7 @@ impl Ledger {
     }
 
     pub(crate) fn append_directives(&self, directives: Vec<Directive>, target_endpoint: impl Into<Option<String>>) {
-        let (entry, endpoint) =  &self.entry;
+        let (entry, endpoint) = &self.entry;
         let endpoint = entry.join(target_endpoint.into().unwrap_or_else(|| endpoint.clone()));
 
         create_folder_if_not_exist(&endpoint);

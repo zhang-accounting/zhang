@@ -1,39 +1,14 @@
-import { useQuery } from '@apollo/client';
-import { Badge, Container, Group, Table, Tabs, Title } from '@mantine/core';
+import { Container, Group, Table, Tabs, Title } from '@mantine/core';
 import { IconMessageCircle, IconPhoto, IconSettings } from '@tabler/icons';
 import { format } from 'date-fns';
-import { maxBy } from 'lodash-es';
 import { useParams } from 'react-router';
-import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
 import AccountDocumentUpload from '../components/AccountDocumentUpload';
-import Amount from '../components/Amount';
-import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
-import JournalLine from '../components/JournalLine';
-import { CommodityBalanceTime } from '../gql/accountList';
-import { SINGLE_ACCONT_JOURNAL, SingleAccountJournalQuery } from '../gql/singleAccount';
 import LoadingComponent from '../components/basic/LoadingComponent';
+import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import { AccountJournalItem, Document } from '../rest-model';
 
 function SingleAccount() {
   let { accountName } = useParams();
-
-  const getLatestBalanceTime = (commodity: string, times: CommodityBalanceTime[]) => {
-    const latestTime = maxBy(
-      times.filter((time) => time.commodity === commodity),
-      (time) => time.date,
-    );
-    if (latestTime) {
-      return format(new Date(latestTime.date * 1000), 'yyyy-MM-dd');
-    } else {
-      return 'N/A';
-    }
-  };
-
-  // const { loading, error, data } = useQuery<SingleAccountJournalQuery>(SINGLE_ACCONT_JOURNAL, {
-  //   variables: {
-  //     name: accountName,
-  //   },
-  // });
 
   return (
     <Container fluid>

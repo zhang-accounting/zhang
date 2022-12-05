@@ -1,7 +1,7 @@
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use std::cmp::{max, min};
+use std::cmp::max;
 
 #[derive(Deserialize)]
 #[serde(tag = "type")]
@@ -43,14 +43,13 @@ pub struct JournalRequest {
 }
 impl JournalRequest {
     pub fn offset(&self) -> u32 {
-        let page = max(dbg!(self.page).unwrap_or(1), 1);
-        dbg!((page - 1) * self.limit())
+        let page = max(self.page.unwrap_or(1), 1);
+        (page - 1) * self.limit()
     }
     pub fn limit(&self) -> u32 {
         self.size.unwrap_or(100)
     }
 }
-
 
 #[derive(Deserialize)]
 pub struct CreateTransactionRequest {
@@ -60,7 +59,7 @@ pub struct CreateTransactionRequest {
     pub postings: Vec<CreateTransactionPostingRequest>,
     pub metas: Vec<MetaRequest>,
     pub tags: Vec<String>,
-    pub links: Vec<String>
+    pub links: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -71,13 +70,12 @@ pub struct CreateTransactionPostingRequest {
 
 #[derive(Deserialize)]
 pub struct AmountRequest {
-    pub number:BigDecimal,
-    pub commodity: String
+    pub number: BigDecimal,
+    pub commodity: String,
 }
 
 #[derive(Deserialize)]
 pub struct MetaRequest {
-    pub key:String,
-    pub value: String
+    pub key: String,
+    pub value: String,
 }
-

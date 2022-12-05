@@ -1,10 +1,7 @@
-import SingleFileEdit from '../components/SingleFileEdit';
-import { useQuery } from '@apollo/client';
-import { Tabs } from '@mantine/core';
-import { FileListQuery, FILE_LIST } from '../gql/fileList';
-import { Container } from '@mantine/core';
+import { Container, Tabs } from '@mantine/core';
 import useSWR from 'swr';
 import { fetcher } from '..';
+import SingleFileEdit from '../components/SingleFileEdit';
 
 function RawEdit() {
   const {data, error} = useSWR<string[]>("/api/files", fetcher)
