@@ -97,7 +97,7 @@ pub async fn serve(opts: ServerOpts) -> ZhangResult<()> {
 async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> ZhangResult<()> {
     let addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), opts.port);
     info!("zhang is listening on http://127.0.0.1:{}/", opts.port);
-    HttpServer::new(move || {
+    Ok(HttpServer::new(move || {
         App::new()
             .app_data(Data::new(ledger_data.clone()))
             .service(get_info_for_new_transactions)
@@ -120,7 +120,5 @@ async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> Zha
     })
     .bind(addr)?
     .run()
-    .await;
-
-    Ok(())
+    .await?)
 }
