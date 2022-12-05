@@ -134,7 +134,7 @@ function Home() {
   if (!data) return <>loading</>;
   const chart_info = build_chart_data(data);
   return (
-    <Container fluid>
+    <Container fluid >
       <Title order={2}>{t('Dashboard')}</Title>
       <StatisticBar />
       <Grid>

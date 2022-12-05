@@ -17,6 +17,7 @@ import {tr} from "date-fns/locale";
 import Amount from "../components/Amount";
 
 const options = (isLogarithmic: boolean, offset: number) => ({
+    maintainAspectRatio: false,
     responsive: true,
     interaction: {
         mode: 'index' as const,
@@ -199,6 +200,7 @@ export default function Report() {
                         />
                     }>
                     <Chart type="line" data={chart_info.data}
+                           height={400}
                            options={options(chart_info.isLogarithmic, chart_info.offset)}/>
 
                 </Section>
