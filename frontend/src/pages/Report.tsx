@@ -1,19 +1,15 @@
-import {useQuery} from '@apollo/client';
-import {Container, Grid, Group, Progress, SegmentedControl, Table, Text, Title} from '@mantine/core';
+import {Container, Grid, Group, SegmentedControl, Table, Text, Title} from '@mantine/core';
 import {DateRangePicker, DateRangePickerValue} from '@mantine/dates';
 import {format} from 'date-fns';
-import {} from 'lodash';
-import {groupBy, map, sortBy, sumBy, take} from 'lodash-es';
+import {sortBy} from 'lodash-es';
 import {useEffect, useState} from 'react';
 import {Chart} from 'react-chartjs-2';
 import Section from '../components/Section';
 import StatusGroup from '../components/StatusGroup';
-import {Posting, TransactionDto} from '../gql/jouralList';
 import useSWR from "swr";
 import {fetcher} from "../index";
 import BigNumber from "bignumber.js";
 import {AccountType, ReportResponse, StatisticResponse} from "../rest-model";
-import {tr} from "date-fns/locale";
 import Amount from "../components/Amount";
 
 const options = (isLogarithmic: boolean, offset: number) => ({
@@ -126,10 +122,6 @@ const build_chart_data = (data: StatisticResponse) => {
         }, isLogarithmic, offset: isLogarithmic ? min : 0
     };
 };
-
-function sumPostings(postings: Posting[]): number {
-    return sumBy(postings, (posting) => parseFloat(posting?.unit?.number || posting?.inferredUnit?.number));
-}
 
 export default function Report() {
     const [value, setValue] = useState<DateRangePickerValue>([
