@@ -10,9 +10,10 @@ use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document, Meta,
 use crate::core::models::{Directive, Flag, ZhangString};
 use crate::server::model::mutation::create_folder_if_not_exist;
 use crate::server::response::{
-    AccountResponse, AmountResponse, DocumentResponse, InfoForNewTransaction, JournalBalancePadItemResponse,
-    JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse,
-    StatisticResponse,
+    AccountJournalItem, AccountResponse, AmountResponse, CommodityDetailResponse, CommodityListItemResponse,
+    CommodityLot, CommodityPrice, DocumentResponse, FileDetailResponse, InfoForNewTransaction,
+    JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
+    JournalTransactionPostingResponse, MetaResponse, ResponseWrapper, StatisticResponse,
 };
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
@@ -37,7 +38,7 @@ use indexmap::IndexSet;
 use itertools::Itertools;
 use log::info;
 use rust_embed::RustEmbed;
-use serde::Serialize;
+
 use sqlx::{FromRow, SqliteConnection};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -52,6 +53,8 @@ use uuid::Uuid;
 // pub async fn graphql_handler(schema: Extension<LedgerSchema>, req: GraphQLRequest) -> GraphQLResponse {
 //     schema.execute(req.0).await.into()
 // }
+
+pub type ApiResult<T> = ZhangResult<ResponseWrapper<T>>;
 
 #[derive(FromRow)]
 struct ValueRow {
@@ -100,7 +103,7 @@ pub async fn get_transaction_links(trx_id: &str, conn: &mut SqliteConnection) ->
 
 // todo rename api
 #[get("/api/for-new-transaction")]
-pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Responder {
+pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<InfoForNewTransaction> {
     let guard = ledger.read().await;
     let mut connection = guard.connection().await;
 
@@ -114,8 +117,8 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
         "#,
     )
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
+
     #[derive(FromRow)]
     struct PayeeRow {
         payee: String,
@@ -126,17 +129,18 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
         "#,
     )
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
 
-    Json(InfoForNewTransaction {
+    ResponseWrapper::json(InfoForNewTransaction {
         payee: payees.into_iter().map(|it| it.payee).collect_vec(),
         account_name: account_names.into_iter().map(|it| it.name).collect_vec(),
     })
 }
 
 #[get("/api/statistic")]
-pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> impl Responder {
+pub async fn get_statistic_data(
+    ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>,
+) -> ApiResult<StatisticResponse> {
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
     let params = params.into_inner();
@@ -168,8 +172,7 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
     .bind(&params.from.naive_local())
     .bind(&params.to.naive_local())
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
     let mut ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
     for (date, dated_rows) in &rows.into_iter().group_by(|row| row.date) {
         let date_entry = ret.entry(date).or_insert_with(|| HashMap::new());
@@ -189,8 +192,7 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
 
     let accounts = sqlx::query_as::<_, ValueRow>("select name as value from accounts")
         .fetch_all(&mut connection)
-        .await
-        .unwrap()
+        .await?
         .into_iter()
         .map(|it| it.value)
         .collect_vec();
@@ -222,8 +224,7 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
     )
     .bind(&params.from.naive_local())
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
 
     let mut existing_balances: HashMap<String, AmountResponse> = existing_account_balance
         .into_iter()
@@ -253,8 +254,7 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
     .bind(&params.from.naive_local())
     .bind(&params.to.naive_local())
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
 
     let mut detail_map: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
     for (date, dated_rows) in &details.into_iter().group_by(|row| row.date) {
@@ -297,14 +297,16 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
         detail_ret.insert(target_day, target_day_ret);
     }
 
-    Json(StatisticResponse {
+    ResponseWrapper::json(StatisticResponse {
         changes: ret,
         details: detail_ret,
     })
 }
 
 #[get("/api/journals")]
-pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> impl Responder {
+pub async fn get_journals(
+    ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>,
+) -> ApiResult<Vec<JournalItemResponse>> {
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
     let params = params.into_inner();
@@ -325,8 +327,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
         .bind(params.limit())
         .bind(params.offset())
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
 
     #[derive(Debug, FromRow)]
     struct JournalArm {
@@ -353,8 +354,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
         .bind(params.limit())
         .bind(params.offset())
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
 
     let mut header_map: HashMap<String, JournalHeader> =
         journal_headers.into_iter().map(|it| (it.id.to_owned(), it)).collect();
@@ -435,13 +435,13 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
     }
     ret.sort_by_key(|item| item.sequence());
     ret.reverse();
-    Json(ret)
+    ResponseWrapper::json(ret)
 }
 
 #[post("/api/transactions")]
 pub async fn create_new_transaction(
     ledger: Data<Arc<RwLock<Ledger>>>, Json(payload): Json<CreateTransactionRequest>,
-) -> impl Responder {
+) -> ApiResult<String> {
     let ledger = ledger.read().await;
 
     let postings = payload
@@ -473,11 +473,11 @@ pub async fn create_new_transaction(
         meta: metas,
     });
     ledger.append_directives(vec![trx], format!("data/{}/{}.zhang", time.year(), time.month()));
-    "OK"
+    ResponseWrapper::json("Ok".to_string())
 }
 
 #[get("/api/documents/{file_path}")]
-pub async fn download_document(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>) -> impl Responder {
+pub async fn download_document(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> impl Responder {
     let encoded_file_path = path.into_inner().0;
     let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
@@ -498,7 +498,7 @@ pub async fn serve_frontend(uri: Uri) -> impl Responder {
 }
 
 #[get("/api/accounts")]
-pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Responder {
+pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<AccountResponse>> {
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
 
@@ -518,8 +518,7 @@ pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Respond
     "#,
     )
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
     let mut ret = vec![];
     for (key, group) in &rows.into_iter().group_by(|it| it.name.clone()) {
         let mut status = "".to_string();
@@ -534,11 +533,11 @@ pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Respond
             commodities,
         });
     }
-    Json(ret)
+    ResponseWrapper::json(ret)
 }
 
 #[get("/api/documents")]
-pub async fn get_documents(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Responder {
+pub async fn get_documents(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<DocumentResponse>> {
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
 
@@ -550,15 +549,14 @@ pub async fn get_documents(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Responder 
     "#,
     )
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
-    Json(rows)
+    .await?;
+    ResponseWrapper::json(rows)
 }
 
 #[post("/api/accounts/{account_name}/documents")]
 pub async fn upload_account_document(
     ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: web::Path<(String,)>,
-) -> impl Responder {
+) -> ApiResult<()> {
     let account_name = path.into_inner().0;
     let ledger_stage = ledger.read().await;
     let entry = &ledger_stage.entry.0;
@@ -605,11 +603,13 @@ pub async fn upload_account_document(
     }
     let time = Local::now().naive_local();
     ledger_stage.append_directives(documents, format!("data/{}/{}.zhang", time.year(), time.month()));
-    "OK"
+    ResponseWrapper::<()>::created()
 }
 
 #[get("/api/accounts/{account_name}/documents")]
-pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>) -> impl Responder {
+pub async fn get_account_documents(
+    ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>,
+) -> ApiResult<Vec<DocumentResponse>> {
     let account_name = params.into_inner().0;
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
@@ -628,26 +628,16 @@ pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: we
     .await
     .unwrap();
 
-    Json(rows)
+    ResponseWrapper::json(rows)
 }
 
 #[get("/api/accounts/{account_name}/journals")]
-pub async fn get_account_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>) -> impl Responder {
+pub async fn get_account_journals(
+    ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>,
+) -> ApiResult<Vec<AccountJournalItem>> {
     let account_name = params.into_inner().0;
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
-
-    #[derive(FromRow, Serialize)]
-    struct AccountJournalItem {
-        datetime: NaiveDateTime,
-        trx_id: String,
-        payee: String,
-        narration: Option<String>,
-        inferred_unit_number: ZhangBigDecimal,
-        inferred_unit_commodity: String,
-        account_after_number: ZhangBigDecimal,
-        account_after_commodity: String,
-    }
 
     let rows = sqlx::query_as::<_, AccountJournalItem>(
         r#"
@@ -670,13 +660,13 @@ pub async fn get_account_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: web
     .await
     .unwrap();
 
-    Json(rows)
+    ResponseWrapper::json(rows)
 }
 
 #[post("/api/accounts/{account_name}/balances")]
 pub async fn create_account_balance(
     ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>, Json(payload): Json<AccountBalanceRequest>,
-) -> impl Responder {
+) -> ApiResult<()> {
     let account_name = params.into_inner().0;
     let ledger = ledger.read().await;
     let _connection = ledger.connection().await;
@@ -710,26 +700,15 @@ pub async fn create_account_balance(
         vec![Directive::Balance(balance)],
         format!("data/{}/{}.zhang", time.year(), time.month()),
     );
-    "OK"
+    ResponseWrapper::<()>::created()
 }
 
 #[get("/api/commodities")]
-pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Responder {
+pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<CommodityListItemResponse>> {
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
-    #[derive(FromRow, Serialize)]
-    struct CommodityListItem {
-        name: String,
-        precision: i32,
-        prefix: Option<String>,
-        suffix: Option<String>,
-        rounding: Option<String>,
-        total_amount: ZhangBigDecimal,
-        latest_price_date: Option<NaiveDateTime>,
-        latest_price_amount: Option<ZhangBigDecimal>,
-        latest_price_commodity: Option<String>,
-    }
-    let vec = sqlx::query_as::<_, CommodityListItem>(
+
+    let vec = sqlx::query_as::<_, CommodityListItemResponse>(
         r#"
             select commodities.*,
                    commodity_total_amount.total_amount,
@@ -751,28 +730,18 @@ pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Resp
     .fetch_all(&mut connection)
     .await
     .unwrap();
-    Json(vec)
+    ResponseWrapper::json(vec)
 }
 
 #[get("/api/commodities/{commodity_name}")]
-pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> impl Responder {
+pub async fn get_single_commodity(
+    ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>,
+) -> ApiResult<CommodityDetailResponse> {
     let commodity_name = params.into_inner().0;
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
 
-    #[derive(FromRow, Serialize)]
-    struct CommodityListItem {
-        name: String,
-        precision: i32,
-        prefix: Option<String>,
-        suffix: Option<String>,
-        rounding: Option<String>,
-        total_amount: ZhangBigDecimal,
-        latest_price_date: Option<NaiveDateTime>,
-        latest_price_amount: Option<ZhangBigDecimal>,
-        latest_price_commodity: Option<String>,
-    }
-    let basic_info = sqlx::query_as::<_, CommodityListItem>(
+    let basic_info = sqlx::query_as::<_, CommodityListItemResponse>(
         r#"
             select commodities.*,
                    commodity_total_amount.total_amount,
@@ -796,15 +765,6 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
         .await
         .unwrap();
 
-    #[derive(FromRow, Serialize)]
-    struct CommodityLot {
-        datetime: Option<NaiveDateTime>,
-        amount: ZhangBigDecimal,
-        price_amount: Option<ZhangBigDecimal>,
-        price_commodity: Option<String>,
-        account: String,
-    }
-
     let lots = sqlx::query_as::<_, CommodityLot>(
         r#"
             select datetime, amount, price_amount, price_commodity, account
@@ -816,13 +776,6 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
     .fetch_all(&mut connection)
     .await
     .unwrap();
-
-    #[derive(FromRow, Serialize)]
-    struct CommodityPrice {
-        datetime: NaiveDateTime,
-        amount: ZhangBigDecimal,
-        target_commodity: Option<String>,
-    }
 
     let prices = sqlx::query_as::<_, CommodityPrice>(
         r#"
@@ -836,14 +789,7 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
     .await
     .unwrap();
 
-    #[derive(Serialize)]
-    struct CommodityDetail {
-        info: CommodityListItem,
-        lots: Vec<CommodityLot>,
-        prices: Vec<CommodityPrice>,
-    }
-
-    Json(CommodityDetail {
+    ResponseWrapper::json(CommodityDetailResponse {
         info: basic_info,
         lots,
         prices,
@@ -851,7 +797,7 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
 }
 
 #[get("/api/files")]
-pub async fn get_files(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Responder {
+pub async fn get_files(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Option<String>>> {
     let ledger = ledger.read().await;
     let entry_path = &ledger.entry.0;
     let vec = ledger
@@ -859,23 +805,20 @@ pub async fn get_files(ledger: Data<Arc<RwLock<Ledger>>>) -> impl Responder {
         .iter()
         .map(|path| path.strip_prefix(entry_path).unwrap().to_str().map(|it| it.to_string()))
         .collect_vec();
-    Json(vec)
+    ResponseWrapper::json(vec)
 }
 
 #[get("/api/files/{file_path}")]
-pub async fn get_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>) -> impl Responder {
+pub async fn get_file_content(
+    ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>,
+) -> ApiResult<FileDetailResponse> {
     let encoded_file_path = path.into_inner().0;
     let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
     let entry = &ledger.entry.0;
     let full_path = entry.join(&filename);
 
-    #[derive(Debug, Serialize)]
-    struct FileDetail {
-        path: String,
-        content: String,
-    }
-    Json(FileDetail {
+    ResponseWrapper::json(FileDetailResponse {
         path: filename,
         content: std::fs::read_to_string(full_path).unwrap(),
     })

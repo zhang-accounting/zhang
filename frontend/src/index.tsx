@@ -11,7 +11,7 @@ import './i18n';
 import axios from 'axios';
 Chart.register(...registerables);
 // @ts-ignore
-export const fetcher = (...args) => fetch(...args).then((res) => res.json());
+export const fetcher = (...args) => fetch(...args).then((res) => res.json().then(json => json.data));
 
 export const axiosInstance = axios.create({
   baseURL: 'http://localhost:8000',
