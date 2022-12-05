@@ -219,8 +219,17 @@ pub struct CommodityDetailResponse {
     pub prices: Vec<CommodityPrice>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct FileDetailResponse {
     pub path: String,
     pub content: String,
 }
+
+#[derive(Serialize)]
+pub struct CurrentStatisticResponse {
+  pub  balance: AmountResponse,
+  pub  liability: AmountResponse,
+  pub  income: AmountResponse,
+  pub  expense: AmountResponse
+}
+

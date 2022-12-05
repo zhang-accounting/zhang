@@ -125,10 +125,10 @@ const build_chart_data = (data: StatisticResponse) => {
 function Home() {
   const { t } = useTranslation();
   const now = new Date();
-  const begining_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 1);
+  const beginning_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 1);
   const end_time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-  const { data, error } = useSWR<StatisticResponse>(`/api/statistic?from=${begining_time.toISOString()}&to=${end_time.toISOString()}&interval=Day`, fetcher)
+  const { data, error } = useSWR<StatisticResponse>(`/api/statistic?from=${beginning_time.toISOString()}&to=${end_time.toISOString()}&interval=Day`, fetcher)
 
   if (error) return <div>failed to load</div>;
   if (!data) return <>loading</>;

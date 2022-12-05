@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::iter::FromIterator;
+use std::ops::Add;
 
 use crate::core::account::Account;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document, Meta, Posting, Transaction};
@@ -11,8 +12,8 @@ use crate::core::models::{Directive, Flag, ZhangString};
 use crate::server::model::mutation::create_folder_if_not_exist;
 use crate::server::response::{
     AccountJournalItem, AccountResponse, AmountResponse, CommodityDetailResponse, CommodityListItemResponse,
-    CommodityLot, CommodityPrice, DocumentResponse, FileDetailResponse, InfoForNewTransaction,
-    JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
+    CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse,
+    InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
     JournalTransactionPostingResponse, MetaResponse, ResponseWrapper, StatisticResponse,
 };
 use actix_files::NamedFile;
@@ -39,6 +40,7 @@ use itertools::Itertools;
 use log::info;
 use rust_embed::RustEmbed;
 
+use now::TimeZoneNow;
 use sqlx::{FromRow, SqliteConnection};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -60,6 +62,14 @@ pub type ApiResult<T> = ZhangResult<ResponseWrapper<T>>;
 struct ValueRow {
     value: String,
 }
+#[derive(FromRow)]
+pub struct DetailRow {
+    date: NaiveDate,
+    account: String,
+    balance_number: ZhangBigDecimal,
+    balance_commodity: String,
+}
+
 pub async fn get_metas(
     type_: &str, type_identifier: &str, conn: &mut SqliteConnection,
 ) -> ZhangResult<Vec<MetaResponse>> {
@@ -197,14 +207,6 @@ pub async fn get_statistic_data(
         .map(|it| it.value)
         .collect_vec();
 
-    #[derive(FromRow)]
-    pub struct DetailRow {
-        date: NaiveDate,
-        account: String,
-        balance_number: ZhangBigDecimal,
-        balance_commodity: String,
-    }
-
     let existing_account_balance = sqlx::query_as::<_, DetailRow>(
         r#"
         SELECT
@@ -300,6 +302,103 @@ pub async fn get_statistic_data(
     ResponseWrapper::json(StatisticResponse {
         changes: ret,
         details: detail_ret,
+    })
+}
+
+#[get("/api/statistic/current")]
+pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<CurrentStatisticResponse> {
+    let ledger = ledger.read().await;
+    let mut connection = ledger.connection().await;
+
+    let month_beginning = Local.beginning_of_month().naive_local();
+    let month_end = Local.end_of_month().naive_local();
+    let latest_account_balances = sqlx::query_as::<_, DetailRow>(
+        r#"
+        SELECT
+            date(datetime) AS date,
+            account,
+            balance_number,
+            balance_commodity
+        FROM
+            account_daily_balance
+        GROUP BY
+            account
+        HAVING
+            max(datetime)
+    "#,
+    )
+    .fetch_all(&mut connection)
+    .await?;
+    let balance = latest_account_balances
+        .iter()
+        .filter(|it| it.account.starts_with("Assets") || it.account.starts_with("Liabilities"))
+        .fold(BigDecimal::zero(), |acc, item| acc.add(&*item.balance_number));
+
+    let liability = latest_account_balances
+        .iter()
+        .filter(|it| it.account.starts_with("Liabilities"))
+        .fold(BigDecimal::zero(), |acc, item| acc.add(&*item.balance_number));
+
+    #[derive(FromRow)]
+    struct CurrentMonthBalance {
+        account_type: String,
+        amount: ZhangBigDecimal,
+        commodity: String,
+    }
+
+    let current_month_balance = sqlx::query_as::<_, CurrentMonthBalance>(
+        r#"
+    SELECT accounts.type             AS account_type,
+           sum(inferred_unit_number) AS amount,
+           inferred_unit_commodity   AS commodity
+    FROM transaction_postings
+             JOIN transactions ON transactions.id = transaction_postings.trx_id
+             JOIN accounts ON accounts.name = transaction_postings.account
+    WHERE transactions.datetime >= $1 and transactions.datetime <= $2
+    GROUP BY
+        accounts.type,
+        inferred_unit_commodity
+    "#,
+    )
+        .bind(month_beginning)
+        .bind(month_end)
+    .fetch_all(&mut connection)
+    .await?;
+
+    let income = current_month_balance
+        .iter()
+        .find(|it| it.account_type.eq("Income"))
+        .map(|it| AmountResponse {
+            number: it.amount.clone(),
+            commodity: it.commodity.to_owned(),
+        })
+        .unwrap_or_else(|| AmountResponse {
+            number: ZhangBigDecimal(BigDecimal::zero()),
+            commodity: ledger.options.operating_currency.to_owned(),
+        });
+    let expense = current_month_balance
+        .iter()
+        .find(|it| it.account_type.eq("Expenses"))
+        .map(|it| AmountResponse {
+            number: it.amount.clone(),
+            commodity: it.commodity.to_owned(),
+        })
+        .unwrap_or_else(|| AmountResponse {
+            number: ZhangBigDecimal(BigDecimal::zero()),
+            commodity: ledger.options.operating_currency.to_owned(),
+        });
+
+    ResponseWrapper::json(CurrentStatisticResponse {
+        balance: AmountResponse {
+            number: ZhangBigDecimal(balance),
+            commodity: ledger.options.operating_currency.to_owned(),
+        },
+        liability: AmountResponse {
+            number: ZhangBigDecimal(liability),
+            commodity: ledger.options.operating_currency.to_owned(),
+        },
+        income,
+        expense,
     })
 }
 
@@ -412,8 +511,8 @@ pub async fn get_journals(
                             account_after_commodity: arm.account_after_commodity,
                         })
                         .collect_vec();
-                    let tags = get_transaction_tags(&trx_id, &mut connection).await.unwrap();
-                    let links = get_transaction_links(&trx_id, &mut connection).await.unwrap();
+                    let tags = get_transaction_tags(&trx_id, &mut connection).await?;
+                    let links = get_transaction_links(&trx_id, &mut connection).await?;
                     let metas = get_metas("TransactionMeta", &trx_id, &mut connection).await.unwrap();
                     JournalItemResponse::Transaction(JournalTransactionItemResponse {
                         id: trx_id,
@@ -593,7 +692,7 @@ pub async fn upload_account_document(
 
             documents.push(Directive::Document(Document {
                 date: Date::Datetime(Local::now().naive_local()),
-                account: Account::from_str(&account_name).unwrap(),
+                account: Account::from_str(&account_name)?,
                 filename: ZhangString::QuoteString(path.to_string()),
                 tags: None,
                 links: None,
@@ -625,8 +724,7 @@ pub async fn get_account_documents(
     )
     .bind(account_name)
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
 
     ResponseWrapper::json(rows)
 }
@@ -657,8 +755,7 @@ pub async fn get_account_journals(
     )
     .bind(account_name)
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
 
     ResponseWrapper::json(rows)
 }
@@ -674,7 +771,7 @@ pub async fn create_account_balance(
     let balance = match payload {
         AccountBalanceRequest::Check { amount, commodity } => Balance::BalanceCheck(BalanceCheck {
             date: Date::Datetime(Local::now().naive_local()),
-            account: Account::from_str(&account_name).unwrap(),
+            account: Account::from_str(&account_name)?,
             amount: Amount::new(amount, commodity),
             tolerance: None,
             distance: None,
@@ -687,12 +784,12 @@ pub async fn create_account_balance(
             pad_account,
         } => Balance::BalancePad(BalancePad {
             date: Date::Datetime(Local::now().naive_local()),
-            account: Account::from_str(&account_name).unwrap(),
+            account: Account::from_str(&account_name)?,
             amount: Amount::new(amount, commodity),
             tolerance: None,
             diff_amount: None,
             meta: Default::default(),
-            pad: Account::from_str(&pad_account).unwrap(),
+            pad: Account::from_str(&pad_account)?,
         }),
     };
     let time = Local::now().naive_local();
@@ -728,8 +825,7 @@ pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult
     "#,
     )
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
     ResponseWrapper::json(vec)
 }
 
@@ -762,8 +858,7 @@ pub async fn get_single_commodity(
     "#, )
         .bind(&commodity_name)
         .fetch_one(&mut connection)
-        .await
-        .unwrap();
+        .await?;
 
     let lots = sqlx::query_as::<_, CommodityLot>(
         r#"
@@ -774,8 +869,7 @@ pub async fn get_single_commodity(
     )
     .bind(&commodity_name)
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
 
     let prices = sqlx::query_as::<_, CommodityPrice>(
         r#"
@@ -786,8 +880,7 @@ pub async fn get_single_commodity(
     )
     .bind(&commodity_name)
     .fetch_all(&mut connection)
-    .await
-    .unwrap();
+    .await?;
 
     ResponseWrapper::json(CommodityDetailResponse {
         info: basic_info,
@@ -820,13 +913,13 @@ pub async fn get_file_content(
 
     ResponseWrapper::json(FileDetailResponse {
         path: filename,
-        content: std::fs::read_to_string(full_path).unwrap(),
+        content: std::fs::read_to_string(full_path)?,
     })
 }
 #[put("/api/files/{file_path}")]
 pub async fn update_file_content(
     ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>, Json(payload): Json<FileUpdateRequest>,
-) -> impl Responder {
+) -> ApiResult<()> {
     let encoded_file_path = path.into_inner().0;
     let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
@@ -834,9 +927,9 @@ pub async fn update_file_content(
     let full_path = entry.join(&filename);
 
     if parse_zhang(&payload.content, None).is_ok() {
-        std::fs::write(full_path, payload.content).unwrap()
+        std::fs::write(full_path, payload.content)?;
     }
-    "ok"
+    ResponseWrapper::<()>::created()
 }
 
 #[derive(RustEmbed)]
