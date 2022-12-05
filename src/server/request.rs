@@ -37,6 +37,12 @@ pub struct StatisticRequest {
 }
 
 #[derive(Deserialize)]
+pub struct ReportRequest {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
 pub struct JournalRequest {
     page: Option<u32>,
     size: Option<u32>,

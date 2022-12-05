@@ -12,7 +12,9 @@ import {Posting, TransactionDto} from '../gql/jouralList';
 import useSWR from "swr";
 import {fetcher} from "../index";
 import BigNumber from "bignumber.js";
-import {AccountType, StatisticResponse} from "../rest-model";
+import {AccountType, ReportResponse, StatisticResponse} from "../rest-model";
+import {tr} from "date-fns/locale";
+import Amount from "../components/Amount";
 
 const options = (isLogarithmic: boolean, offset: number) => ({
     responsive: true,
@@ -153,6 +155,12 @@ export default function Report() {
         error
     } = useSWR<StatisticResponse>(`/api/statistic?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}&interval=${gap}`, fetcher)
 
+    const {data: reportData, error: reportError} = useSWR<ReportResponse>(`/api/report?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}`, fetcher);
+
+
+    if (reportError) return <div>failed to load</div>;
+    if (!reportData) return <>loading</>;
+
     if (error) return <div>failed to load</div>;
     if (!data) return <>loading</>;
 
@@ -165,15 +173,15 @@ export default function Report() {
                     <DateRangePicker placeholder="Pick dates range" value={value} onChange={setValue}/>
                 </Group>
 
-                {/*<StatusGroup*/}
-                {/*  data={[*/}
-                {/*    { title: '资产余额', amount: data?.statistic.total.summary.number, currency: data?.statistic.total.summary.currency },*/}
-                {/*    { title: '总收支', amount: data?.statistic.incomeExpense.summary.number, currency: data?.statistic.incomeExpense.summary.currency },*/}
-                {/*    { title: '收入', amount: data?.statistic.income.summary.number, currency: data?.statistic.income.summary.currency },*/}
-                {/*    { title: '支出', amount: data?.statistic.expense.summary.number, currency: data?.statistic.expense.summary.currency },*/}
-                {/*    { title: '交易数', number: data?.statistic.journals.length },*/}
-                {/*  ]}*/}
-                {/*/>*/}
+                <StatusGroup
+                  data={[
+                    { title: '资产余额', amount: reportData.balance.number, currency: reportData.balance.commodity },
+                    // { title: '总收支', amount: data?.statistic.incomeExpense.summary.number, currency: data?.statistic.incomeExpense.summary.currency },
+                    { title: '收入', amount: reportData.income.number, currency: reportData.income.commodity },
+                    { title: '支出', amount: reportData.expense.number, currency: reportData.expense.commodity },
+                    { title: '交易数', number: reportData.transaction_number },
+                  ]}
+                />
 
                 <Section
                     title="Graph"
@@ -195,85 +203,97 @@ export default function Report() {
 
                 </Section>
 
-                {/*<Section title="Incomes">*/}
-                {/*  <Grid>*/}
-                {/*    <Grid.Col span={4}>*/}
-                {/*      {take(incomeRank, 10).map((each_income) => (*/}
-                {/*        <div key={each_income.name}>*/}
-                {/*          <Text>{each_income.name}</Text>*/}
-                {/*          <Progress*/}
-                {/*            sections={[*/}
-                {/*              {*/}
-                {/*                value: Math.round((each_income.total / incomeTotal) * 100),*/}
-                {/*                color: 'pink',*/}
-                {/*                label: `${Math.round((each_income.total / incomeTotal) * 10000) / 100}%`,*/}
-                {/*                tooltip: `${each_income.total}`,*/}
-                {/*              },*/}
-                {/*            ]}*/}
-                {/*            size="md"*/}
-                {/*          />*/}
-                {/*        </div>*/}
-                {/*      ))}*/}
-                {/*    </Grid.Col>*/}
-                {/*    <Grid.Col span={8}>*/}
-                {/*      <Table verticalSpacing="xs" highlightOnHover>*/}
-                {/*        <thead>*/}
-                {/*          <tr>*/}
-                {/*            <th>Date</th>*/}
-                {/*            <th style={{}}>Payee & Narration</th>*/}
-                {/*            <th></th>*/}
-                {/*          </tr>*/}
-                {/*        </thead>*/}
-                {/*        <tbody>*/}
-                {/*          {take(incomeJournalRank, 10).map((journal, idx) => (*/}
-                {/*            // <JournalLine key={idx} data={journal} />*/}
-                {/*            <div>line</div>*/}
-                {/*          ))}*/}
-                {/*        </tbody>*/}
-                {/*      </Table>*/}
-                {/*    </Grid.Col>*/}
-                {/*  </Grid>*/}
-                {/*</Section>*/}
+                <Section title="Incomes">
+                  <Grid>
+                    <Grid.Col span={4}>
+                      {reportData.income_rank.map((each_income) => (
+                        <div key={each_income.account}>
+                          <Text>{each_income.account}</Text>
+                          {/*<Progress*/}
+                          {/*  sections={[*/}
+                          {/*    {*/}
+                          {/*      value: Math.round((each_income.total / incomeTotal) * 100),*/}
+                          {/*      color: 'pink',*/}
+                          {/*      label: `${Math.round((each_income.total / incomeTotal) * 10000) / 100}%`,*/}
+                          {/*      tooltip: `${each_income.total}`,*/}
+                          {/*    },*/}
+                          {/*  ]}*/}
+                          {/*  size="md"*/}
+                          {/*/>*/}
+                        </div>
+                      ))}
+                    </Grid.Col>
+                    <Grid.Col span={8}>
+                      <Table verticalSpacing="xs" highlightOnHover>
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Account</th>
+                            <th style={{}}>Payee & Narration</th>
+                            <th>Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reportData.income_top_transactions.map((journal) => (
+                            // <JournalLine key={idx} data={journal} />
+                            <tr>
+                                <td>{journal.datetime}</td>
+                                <td>{journal.account}</td>
+                                <td>{journal.payee } {journal.narration}</td>
+                                <td><Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                    </Grid.Col>
+                  </Grid>
+                </Section>
 
-                {/*<Section title="Expenses">*/}
-                {/*  <Grid>*/}
-                {/*    <Grid.Col span={4}>*/}
-                {/*      {take(expenseRank, 10).map((each_income) => (*/}
-                {/*        <div key={each_income.name}>*/}
-                {/*          <Text>{each_income.name}</Text>*/}
-                {/*          <Progress*/}
-                {/*            sections={[*/}
-                {/*              {*/}
-                {/*                value: Math.round((each_income.total / expenseTotal) * 100),*/}
-                {/*                color: 'pink',*/}
-                {/*                label: `${Math.round((each_income.total / expenseTotal) * 10000) / 100}%`,*/}
-                {/*                tooltip: Math.round((each_income.total / expenseTotal) * 10000) / 100,*/}
-                {/*              },*/}
-                {/*            ]}*/}
-                {/*            size="md"*/}
-                {/*          />*/}
-                {/*        </div>*/}
-                {/*      ))}*/}
-                {/*    </Grid.Col>*/}
-                {/*    <Grid.Col span={8}>*/}
-                {/*      <Table verticalSpacing="xs" highlightOnHover>*/}
-                {/*        <thead>*/}
-                {/*          <tr>*/}
-                {/*            <th>Date</th>*/}
-                {/*            <th style={{}}>Payee & Narration</th>*/}
-                {/*            <th></th>*/}
-                {/*          </tr>*/}
-                {/*        </thead>*/}
-                {/*        <tbody>*/}
-                {/*          {take(expenseJournalRank, 10).map((journal, idx) => (*/}
-                {/*            // <JournalLine key={idx} data={journal} />*/}
-                {/*            <div> line</div>*/}
-                {/*          ))}*/}
-                {/*        </tbody>*/}
-                {/*      </Table>*/}
-                {/*    </Grid.Col>*/}
-                {/*  </Grid>*/}
-                {/*</Section>*/}
+                <Section title="Expenses">
+                  <Grid>
+                    <Grid.Col span={4}>
+                        {reportData.expense_rank.map((each_expense) => (
+                            <div key={each_expense.account}>
+                                <Text>{each_expense.account}</Text>
+                                {/*<Progress*/}
+                                {/*  sections={[*/}
+                                {/*    {*/}
+                                {/*      value: Math.round((each_income.total / incomeTotal) * 100),*/}
+                                {/*      color: 'pink',*/}
+                                {/*      label: `${Math.round((each_income.total / incomeTotal) * 10000) / 100}%`,*/}
+                                {/*      tooltip: `${each_income.total}`,*/}
+                                {/*    },*/}
+                                {/*  ]}*/}
+                                {/*  size="md"*/}
+                                {/*/>*/}
+                            </div>
+                        ))}
+                    </Grid.Col>
+                    <Grid.Col span={8}>
+                        <Table verticalSpacing="xs" highlightOnHover>
+                            <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Account</th>
+                                <th style={{}}>Payee & Narration</th>
+                                <th>Amount</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {reportData.expense_top_transactions.map((journal) => (
+                                // <JournalLine key={idx} data={journal} />
+                                <tr>
+                                    <td>{journal.datetime}</td>
+                                    <td>{journal.account}</td>
+                                    <td>{journal.payee } {journal.narration}</td>
+                                    <td><Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} /></td>
+                                </tr>
+                            ))}
+                            </tbody>
+                        </Table>
+                    </Grid.Col>
+                  </Grid>
+                </Section>
             </Container>
         </>
     );

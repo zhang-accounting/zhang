@@ -174,6 +174,7 @@ pub struct AmountResponse {
 #[derive(FromRow, Serialize)]
 pub struct AccountJournalItem {
     pub datetime: NaiveDateTime,
+    pub account: String,
     pub trx_id: String,
     pub payee: String,
     pub narration: Option<String>,
@@ -232,4 +233,30 @@ pub struct CurrentStatisticResponse {
   pub  income: AmountResponse,
   pub  expense: AmountResponse
 }
+
+
+#[derive(Serialize)]
+pub struct ReportResponse {
+    pub  from: NaiveDateTime,
+    pub  to: NaiveDateTime,
+
+    pub  balance: AmountResponse,
+    pub  liability: AmountResponse,
+    pub  income: AmountResponse,
+    pub  expense: AmountResponse,
+    pub transaction_number: i64,
+
+    pub income_rank: Vec<ReportRankItemResponse>,
+    pub income_top_transactions: Vec<AccountJournalItem>,
+    pub expense_rank: Vec<ReportRankItemResponse>,
+    pub expense_top_transactions: Vec<AccountJournalItem>
+}
+#[derive(Serialize)]
+pub struct ReportRankItemResponse {
+    pub  account: String,
+    pub percent: ZhangBigDecimal,
+}
+
+
+
 

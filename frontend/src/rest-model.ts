@@ -35,13 +35,14 @@ export interface InfoForNewTransaction {
 
 export interface AccountJournalItem {
     datetime: string,
-    trx_id: String,
-    payee: String,
+    trx_id: string,
+    account: string,
+    payee: string,
     narration?: string,
-    inferred_unit_number: number,
-    inferred_unit_commodity: String,
+    inferred_unit_number: string,
+    inferred_unit_commodity: string,
     account_after_number: number,
-    account_after_commodity: String,
+    account_after_commodity: string,
 }
 
 export interface CommodityListItem {
@@ -64,7 +65,7 @@ export interface CommodityDetail {
 }
 
 export interface CommodityLot {
-    datetime?: String,
+    datetime?: string,
     amount: string,
     price_amount?: string,
     price_commodity?: string,
@@ -144,4 +145,18 @@ export interface CurrentStatisticResponse {
     liability: AmountResponse,
     income: AmountResponse,
     expense: AmountResponse
+}
+
+
+export interface ReportResponse {
+    balance: AmountResponse,
+    liability: AmountResponse,
+    income: AmountResponse,
+    expense: AmountResponse,
+    transaction_number: number,
+
+    income_rank: { account: string, percent: string }[]
+    income_top_transactions: AccountJournalItem[]
+    expense_rank: { account: string, percent: string }[]
+    expense_top_transactions: AccountJournalItem[]
 }

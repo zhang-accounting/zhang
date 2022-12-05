@@ -14,7 +14,7 @@ use crate::server::response::{
     AccountJournalItem, AccountResponse, AmountResponse, CommodityDetailResponse, CommodityListItemResponse,
     CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse,
     InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
-    JournalTransactionPostingResponse, MetaResponse, ResponseWrapper, StatisticResponse,
+    JournalTransactionPostingResponse, MetaResponse, ReportResponse, ResponseWrapper, StatisticResponse,
 };
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
@@ -30,7 +30,7 @@ use crate::core::utils::string_::StringExt;
 use crate::error::ZhangResult;
 use crate::parse_zhang;
 use crate::server::request::{
-    AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, StatisticRequest,
+    AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest,
 };
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
@@ -360,8 +360,8 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
         inferred_unit_commodity
     "#,
     )
-        .bind(month_beginning)
-        .bind(month_end)
+    .bind(month_beginning)
+    .bind(month_end)
     .fetch_all(&mut connection)
     .await?;
 
@@ -741,6 +741,7 @@ pub async fn get_account_journals(
         r#"
             select datetime,
                    trx_id,
+                   account,
                    payee,
                    narration,
                    inferred_unit_number,
@@ -930,6 +931,178 @@ pub async fn update_file_content(
         std::fs::write(full_path, payload.content)?;
     }
     ResponseWrapper::<()>::created()
+}
+
+#[get("/api/report")]
+pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportRequest>) -> ApiResult<ReportResponse> {
+    let ledger = ledger.read().await;
+    let mut connection = ledger.connection().await;
+
+    let latest_account_balances = sqlx::query_as::<_, DetailRow>(
+        r#"
+        SELECT
+            date(datetime) AS date,
+            account,
+            balance_number,
+            balance_commodity
+        FROM
+            account_daily_balance
+        WHERE datetime <= $1
+        GROUP BY
+            account
+        HAVING
+            max(datetime)
+    "#,
+    )
+    .bind(params.to.naive_local())
+    .fetch_all(&mut connection)
+    .await?;
+    let balance = latest_account_balances
+        .iter()
+        .filter(|it| it.account.starts_with("Assets") || it.account.starts_with("Liabilities"))
+        .fold(BigDecimal::zero(), |acc, item| acc.add(&*item.balance_number));
+
+    let liability = latest_account_balances
+        .iter()
+        .filter(|it| it.account.starts_with("Liabilities"))
+        .fold(BigDecimal::zero(), |acc, item| acc.add(&*item.balance_number));
+
+    #[derive(FromRow)]
+    struct DurationBalance {
+        account_type: String,
+        amount: ZhangBigDecimal,
+        commodity: String,
+    }
+
+    let duration_balances = sqlx::query_as::<_, DurationBalance>(
+        r#"
+    SELECT accounts.type             AS account_type,
+           sum(inferred_unit_number) AS amount,
+           inferred_unit_commodity   AS commodity
+    FROM transaction_postings
+             JOIN transactions ON transactions.id = transaction_postings.trx_id
+             JOIN accounts ON accounts.name = transaction_postings.account
+    WHERE transactions.datetime >= $1 and transactions.datetime <= $2
+    GROUP BY
+        accounts.type,
+        inferred_unit_commodity
+    "#,
+    )
+    .bind(params.from.naive_local())
+    .bind(params.to.naive_local())
+    .fetch_all(&mut connection)
+    .await?;
+
+    let income = duration_balances
+        .iter()
+        .find(|it| it.account_type.eq("Income"))
+        .map(|it| AmountResponse {
+            number: it.amount.clone(),
+            commodity: it.commodity.to_owned(),
+        })
+        .unwrap_or_else(|| AmountResponse {
+            number: ZhangBigDecimal(BigDecimal::zero()),
+            commodity: ledger.options.operating_currency.to_owned(),
+        });
+    let expense = duration_balances
+        .iter()
+        .find(|it| it.account_type.eq("Expenses"))
+        .map(|it| AmountResponse {
+            number: it.amount.clone(),
+            commodity: it.commodity.to_owned(),
+        })
+        .unwrap_or_else(|| AmountResponse {
+            number: ZhangBigDecimal(BigDecimal::zero()),
+            commodity: ledger.options.operating_currency.to_owned(),
+        });
+
+    let transaction_total = sqlx::query_as::<_, (i64,)>(
+        r#"
+        select count(1) as total
+        from transactions
+        where transactions."type" != 'BalancePad'
+          and transactions."type" != 'BalanceCheck'
+          and datetime >= ?
+          and datetime <= ?
+    "#,
+    )
+    .bind(params.from.naive_local())
+    .bind(params.to.naive_local())
+    .fetch_one(&mut connection)
+    .await?
+    .0;
+
+    let income_top_transactions = sqlx::query_as::<_, AccountJournalItem>(
+        r#"
+        select datetime,
+               trx_id,
+               account,
+               payee,
+               narration,
+               inferred_unit_number,
+               inferred_unit_commodity,
+               account_after_number,
+               account_after_commodity
+        from transaction_postings
+                 join transactions on transactions.id = transaction_postings.trx_id
+                 join accounts on accounts.name = transaction_postings.account
+        where datetime >= $1
+          and datetime <= $2
+          and accounts.type = 'Income'
+        order by inferred_unit_number asc
+        limit 10
+    "#,
+    )
+    .bind(params.from.naive_local())
+    .bind(params.to.naive_local())
+    .fetch_all(&mut connection)
+    .await?;
+
+    let expense_top_transactions = sqlx::query_as::<_, AccountJournalItem>(
+        r#"
+        select datetime,
+               trx_id,
+               account,
+               payee,
+               narration,
+               inferred_unit_number,
+               inferred_unit_commodity,
+               account_after_number,
+               account_after_commodity
+        from transaction_postings
+                 join transactions on transactions.id = transaction_postings.trx_id
+                 join accounts on accounts.name = transaction_postings.account
+        where datetime >= $1
+          and datetime <= $2
+          and accounts.type = 'Expenses'
+        order by inferred_unit_number desc
+        limit 10
+    "#,
+    )
+    .bind(params.from.naive_local())
+    .bind(params.to.naive_local())
+    .fetch_all(&mut connection)
+    .await?;
+
+    ResponseWrapper::json(ReportResponse {
+        from: params.from.naive_local(),
+        to: params.to.naive_local(),
+        balance: AmountResponse {
+            number: ZhangBigDecimal(balance),
+            commodity: ledger.options.operating_currency.to_owned(),
+        },
+        liability: AmountResponse {
+            number: ZhangBigDecimal(liability),
+            commodity: ledger.options.operating_currency.to_owned(),
+        },
+        income,
+        expense,
+        transaction_number: transaction_total,
+        income_rank: vec![],
+        income_top_transactions,
+        expense_rank: vec![],
+        expense_top_transactions,
+    })
 }
 
 #[derive(RustEmbed)]
