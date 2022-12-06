@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::iter::FromIterator;
-use std::ops::Add;
+use std::ops::{Add, AddAssign, Div};
 
 use crate::core::account::Account;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document, Meta, Posting, Transaction};
@@ -14,7 +14,8 @@ use crate::server::response::{
     AccountJournalItem, AccountResponse, AmountResponse, CommodityDetailResponse, CommodityListItemResponse,
     CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse,
     InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
-    JournalTransactionPostingResponse, MetaResponse, ReportResponse, ResponseWrapper, StatisticResponse,
+    JournalTransactionPostingResponse, MetaResponse, ReportRankItemResponse, ReportResponse, ResponseWrapper,
+    StatisticResponse,
 };
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
@@ -1032,7 +1033,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
     .await?
     .0;
 
-    let income_top_transactions = sqlx::query_as::<_, AccountJournalItem>(
+    let income_transactions = sqlx::query_as::<_, AccountJournalItem>(
         r#"
         select datetime,
                trx_id,
@@ -1048,17 +1049,45 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
                  join accounts on accounts.name = transaction_postings.account
         where datetime >= $1
           and datetime <= $2
-          and accounts.type = 'Income'
-        order by inferred_unit_number asc
-        limit 10
+          and accounts.type = $3
     "#,
     )
     .bind(params.from.naive_local())
     .bind(params.to.naive_local())
+    .bind("Income")
     .fetch_all(&mut connection)
     .await?;
 
-    let expense_top_transactions = sqlx::query_as::<_, AccountJournalItem>(
+    let total_income = income_transactions
+        .iter()
+        .fold(BigDecimal::zero(), |accr, item| accr.add(&*item.inferred_unit_number));
+
+    let mut counter = HashMap::new();
+    for item in &income_transactions {
+        let x = counter
+            .entry(item.account.to_owned())
+            .or_insert_with(|| BigDecimal::zero());
+        x.add_assign(&*item.inferred_unit_number);
+    }
+    let income_rank = counter
+        .into_iter()
+        .sorted_by(|a, b| a.1.cmp(&b.1))
+        .take(10)
+        .map(|(account, account_total)| ReportRankItemResponse {
+            account: account,
+            percent: ZhangBigDecimal(account_total.div(&total_income)),
+        })
+        .collect_vec();
+
+    let income_top_transactions = income_transactions
+        .into_iter()
+        .sorted_by(|a, b| a.inferred_unit_number.cmp(&b.inferred_unit_number))
+        .take(10)
+        .collect_vec();
+
+    // --------
+
+    let expense_transactions = sqlx::query_as::<_, AccountJournalItem>(
         r#"
         select datetime,
                trx_id,
@@ -1074,15 +1103,43 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
                  join accounts on accounts.name = transaction_postings.account
         where datetime >= $1
           and datetime <= $2
-          and accounts.type = 'Expenses'
-        order by inferred_unit_number desc
-        limit 10
+          and accounts.type = $3
     "#,
     )
     .bind(params.from.naive_local())
     .bind(params.to.naive_local())
+    .bind("Expenses")
     .fetch_all(&mut connection)
     .await?;
+
+    let total_expense = expense_transactions
+        .iter()
+        .fold(BigDecimal::zero(), |accr, item| accr.add(&*item.inferred_unit_number));
+
+    let mut counter = HashMap::new();
+    for item in &expense_transactions {
+        let x = counter
+            .entry(item.account.to_owned())
+            .or_insert_with(|| BigDecimal::zero());
+        x.add_assign(&*item.inferred_unit_number);
+    }
+    let expense_rank = counter
+        .into_iter()
+        .sorted_by(|a, b| a.1.cmp(&b.1))
+        .rev()
+        .take(10)
+        .map(|(account, account_total)| ReportRankItemResponse {
+            account: account,
+            percent: ZhangBigDecimal(account_total.div(&total_expense)),
+        })
+        .collect_vec();
+
+    let expense_top_transactions = expense_transactions
+        .into_iter()
+        .sorted_by(|a, b| a.inferred_unit_number.cmp(&b.inferred_unit_number))
+        .rev()
+        .take(10)
+        .collect_vec();
 
     ResponseWrapper::json(ReportResponse {
         from: params.from.naive_local(),
@@ -1098,9 +1155,9 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
         income,
         expense,
         transaction_number: transaction_total,
-        income_rank: vec![],
+        income_rank,
         income_top_transactions,
-        expense_rank: vec![],
+        expense_rank,
         expense_top_transactions,
     })
 }
