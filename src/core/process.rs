@@ -8,13 +8,13 @@ use chrono::NaiveDateTime;
 use serde::Deserialize;
 use sqlx::{Acquire, FromRow, SqliteConnection};
 
-use crate::core::AccountName;
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Posting, Price, Transaction};
 use crate::core::ledger::{Ledger, LedgerError, LedgerErrorType};
 use crate::core::models::{Flag, Rounding, ZhangString};
 use crate::core::utils::inventory::LotInfo;
 use crate::core::utils::span::SpanInfo;
+use crate::core::AccountName;
 use crate::error::ZhangResult;
 
 #[derive(Debug, Deserialize, FromRow)]
@@ -32,63 +32,67 @@ pub(crate) trait DirectiveProcess {
     async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()>;
 }
 
-fn check_account_existed(_ledger: &mut Ledger, _span: &SpanInfo, _account_name: &str) {
-    // todo check_account_existed
-    // if !ledger.accounts.contains_key(account_name) {
-    //     ledger.errors.push(LedgerError {
-    //         span: span.clone(),
-    //         error: LedgerErrorType::AccountDoesNotExist {
-    //             account_name: account_name.to_string(),
-    //         },
-    //     })
-    // }
+async fn check_account_existed(
+    account_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection,
+) -> ZhangResult<()> {
+    let existed = sqlx::query("select 1 from accounts where name = $1")
+        .bind(account_name)
+        .fetch_optional(conn)
+        .await?
+        .is_some();
+
+    if !existed {
+        ledger.errors.push(LedgerError {
+            span: span.clone(),
+            error: LedgerErrorType::AccountDoesNotExist {
+                account_name: account_name.to_string(),
+            },
+        })
+    }
+    Ok(())
 }
 
-fn check_account_closed(_ledger: &mut Ledger, _span: &SpanInfo, _account_name: &str) {
-    // todo check_account_closed
-    // let has_account_closed = ledger
-    //     .accounts
-    //     .get(account_name)
-    //     .map(|account_info| account_info.status)
-    //     .map(|status| status == AccountStatus::Close);
-    // if let Some(true) = has_account_closed {
-    //     ledger.errors.push(LedgerError {
-    //         span: span.clone(),
-    //         error: LedgerErrorType::AccountClosed {
-    //             account_name: account_name.to_string(),
-    //         },
-    //     })
-    // }
+async fn check_account_closed(
+    account_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection,
+) -> ZhangResult<()> {
+    #[derive(FromRow)]
+    struct Row {
+        status: String,
+    }
+    let is_account_closed = sqlx::query_as::<_, Row>(r#"select status from accounts where name = $1"#)
+        .bind(account_name)
+        .fetch_optional(conn)
+        .await?
+        .map(|it| it.status)
+        .map(|status| status.eq("Close"));
+    if let Some(true) = is_account_closed {
+        ledger.errors.push(LedgerError {
+            span: span.clone(),
+            error: LedgerErrorType::AccountClosed {
+                account_name: account_name.to_string(),
+            },
+        })
+    }
+    Ok(())
 }
 
-fn check_commodity_define(_ledger: &mut Ledger, _span: &SpanInfo, _commodity_name: &str) {
-    // todo check_commodity_define
-    // let has_commodity_defined = !ledger.currencies.contains_key(commodity_name);
-    // if has_commodity_defined {
-    //     ledger.errors.push(LedgerError {
-    //         span: span.clone(),
-    //         error: LedgerErrorType::CommodityDoesNotDefine {
-    //             commodity_name: commodity_name.to_string(),
-    //         },
-    //     })
-    // }
-}
-
-fn check_commodity_define_for_amount<'a>(
-    _ledger: &mut Ledger, _span: &SpanInfo, _amount: impl Into<Option<&'a Amount>>,
-) {
-    // todo check_commodity_define_for_amount
-    // if let Some(amount) = amount.into() {
-    //     let has_commodity_defined = !ledger.currencies.contains_key(&amount.currency);
-    //     if has_commodity_defined {
-    //         ledger.errors.push(LedgerError {
-    //             span: span.clone(),
-    //             error: LedgerErrorType::CommodityDoesNotDefine {
-    //                 commodity_name: amount.currency.to_string(),
-    //             },
-    //         })
-    //     }
-    // }
+async fn check_commodity_define(
+    commodity_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection,
+) -> ZhangResult<()> {
+    let existed = sqlx::query("select 1 from commodities where name = $1")
+        .bind(commodity_name)
+        .fetch_optional(conn)
+        .await?
+        .is_some();
+    if !existed {
+        ledger.errors.push(LedgerError {
+            span: span.clone(),
+            error: LedgerErrorType::CommodityDoesNotDefine {
+                commodity_name: commodity_name.to_string(),
+            },
+        })
+    }
+    Ok(())
 }
 
 #[async_trait]
@@ -115,7 +119,7 @@ impl DirectiveProcess for Open {
         &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo,
     ) -> ZhangResult<()> {
         for currency in &self.commodities {
-            check_commodity_define(ledger, span, currency);
+            check_commodity_define(currency, ledger, span, &mut _context.connection).await?;
         }
 
         sqlx::query(r#"INSERT OR REPLACE INTO accounts VALUES ($1, $2, $3, $4, $5);"#)
@@ -144,15 +148,15 @@ impl DirectiveProcess for Open {
 #[async_trait]
 impl DirectiveProcess for Close {
     async fn process(
-        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo,
+        &mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo,
     ) -> ZhangResult<()> {
         // check if account exist
-        check_account_existed(ledger, _span, self.account.name());
-        check_account_closed(ledger, _span, self.account.name());
+        check_account_existed(self.account.name(), ledger, span, &mut context.connection).await?;
+        check_account_closed(self.account.name(), ledger, span, &mut context.connection).await?;
 
         sqlx::query(r#"update accounts set status = 'Close' where name = '$1'"#)
             .bind(self.account.name())
-            .execute(&mut _context.connection)
+            .execute(&mut context.connection)
             .await?;
 
         Ok(())
@@ -366,14 +370,14 @@ impl DirectiveProcess for Balance {
                     });
                 }
 
-                check_account_existed(ledger, span, balance_check.account.name());
-                check_account_closed(ledger, span, balance_check.account.name());
+                check_account_existed(balance_check.account.name(), ledger, span, &mut context.connection).await?;
+                check_account_closed(balance_check.account.name(), ledger, span, &mut context.connection).await?;
             }
             Balance::BalancePad(balance_pad) => {
-                check_account_existed(ledger, span, balance_pad.account.name());
-                check_account_existed(ledger, span, balance_pad.pad.name());
-                check_account_closed(ledger, span, balance_pad.account.name());
-                check_account_closed(ledger, span, balance_pad.pad.name());
+                check_account_existed(balance_pad.account.name(), ledger, span, &mut context.connection).await?;
+                check_account_existed(balance_pad.pad.name(), ledger, span, &mut context.connection).await?;
+                check_account_closed(balance_pad.account.name(), ledger, span, &mut context.connection).await?;
+                check_account_closed(balance_pad.pad.name(), ledger, span, &mut context.connection).await?;
 
                 let option: Option<AccountAmount> = sqlx::query_as(
                     r#"
@@ -444,8 +448,8 @@ impl DirectiveProcess for Balance {
 #[async_trait]
 impl DirectiveProcess for Document {
     async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
-        check_account_existed(ledger, span, self.account.name());
-        check_account_closed(ledger, span, self.account.name());
+        check_account_existed(self.account.name(), ledger, span, &mut context.connection).await?;
+        check_account_closed(self.account.name(), ledger, span, &mut context.connection).await?;
 
         let path = self.filename.clone().to_plain_string();
 
@@ -467,17 +471,15 @@ impl DirectiveProcess for Document {
 
 #[async_trait]
 impl DirectiveProcess for Price {
-    async fn process(
-        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo,
-    ) -> ZhangResult<()> {
-        check_commodity_define(ledger, span, &self.currency);
-        check_commodity_define(ledger, span, &self.amount.currency);
+    async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+        check_commodity_define(&self.currency, ledger, span, &mut context.connection).await?;
+        check_commodity_define(&self.amount.currency, ledger, span, &mut context.connection).await?;
         sqlx::query(r#"INSERT INTO prices (datetime, commodity, amount, target_commodity)VALUES ($1, $2, $3, $4)"#)
             .bind(self.date.naive_datetime())
             .bind(&self.currency)
             .bind(&self.amount.number.to_string())
             .bind(&self.amount.currency)
-            .execute(&mut _context.connection)
+            .execute(&mut context.connection)
             .await?;
 
         Ok(())

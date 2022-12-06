@@ -46,14 +46,6 @@ use crate::server::response::{
     StatisticResponse,
 };
 
-// pub async fn graphql_playground() -> impl IntoResponse {
-//     Html(playground_source(GraphQLPlaygroundConfig::new("/graphql")))
-// }
-//
-// pub async fn graphql_handler(schema: Extension<LedgerSchema>, req: GraphQLRequest) -> GraphQLResponse {
-//     schema.execute(req.0).await.into()
-// }
-
 pub type ApiResult<T> = ZhangResult<ResponseWrapper<T>>;
 
 pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {

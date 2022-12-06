@@ -7,8 +7,8 @@ use std::path::PathBuf;
 
 use itertools::Itertools;
 use log::{debug, error, info};
-use sqlx::{ConnectOptions, SqliteConnection};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+use sqlx::{ConnectOptions, SqliteConnection};
 
 use crate::core::amount::Amount;
 use crate::core::data::{Include, Transaction};
