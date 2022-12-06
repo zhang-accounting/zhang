@@ -101,6 +101,7 @@ impl Ledger {
     }
 
     pub async fn load_with_database(entry: PathBuf, endpoint: String, database: PathBuf) -> ZhangResult<Ledger> {
+        info!("cache store at {}", database.display());
         let entry = entry.canonicalize().with_path(&entry)?;
         let main_endpoint = entry.join(&endpoint);
         let main_endpoint = main_endpoint.canonicalize().with_path(&main_endpoint)?;
