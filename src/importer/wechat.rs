@@ -8,6 +8,7 @@ use std::str::FromStr;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
 use indexmap::IndexSet;
+use itertools::Itertools;
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +19,6 @@ use crate::core::models::{Flag, ZhangString};
 use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::error::{IoErrorIntoZhangError, ZhangResult};
 use crate::target::ZhangTarget;
-use itertools::Itertools;
 
 static CURRENCY: &str = "CNY";
 static COMMENT_STR: &str = "收款方备注:二维码收款";

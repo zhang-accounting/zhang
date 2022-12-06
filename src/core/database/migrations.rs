@@ -1,6 +1,7 @@
-use crate::error::ZhangResult;
-use sqlx::sqlite::SqliteConnection;
 use sqlx::Acquire;
+use sqlx::sqlite::SqliteConnection;
+
+use crate::error::ZhangResult;
 
 pub struct Migration;
 

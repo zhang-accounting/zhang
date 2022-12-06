@@ -1,31 +1,36 @@
-use crate::core::ledger::Ledger;
-
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::iter::FromIterator;
 use std::ops::{Add, AddAssign, Div};
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::sync::Arc;
 
-use crate::core::account::Account;
-use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document, Meta, Posting, Transaction};
-use crate::core::models::{Directive, Flag, ZhangString};
-use crate::server::model::mutation::create_folder_if_not_exist;
-use crate::server::response::{
-    AccountJournalItem, AccountResponse, AmountResponse, CommodityDetailResponse, CommodityListItemResponse,
-    CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse,
-    InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
-    JournalTransactionPostingResponse, MetaResponse, ReportRankItemResponse, ReportResponse, ResponseWrapper,
-    StatisticResponse,
-};
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
+use actix_web::{get, HttpRequest, HttpResponse, post, put, Responder, web};
 use actix_web::body::BoxBody;
 use actix_web::http::Uri;
 use actix_web::web::{Data, Json, Path, Query};
-use actix_web::{get, post, put, web, HttpRequest, HttpResponse, Responder};
+use bigdecimal::{BigDecimal, Zero};
+use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
+use futures_util::StreamExt;
+use indexmap::IndexSet;
+use itertools::Itertools;
+use log::info;
+use now::TimeZoneNow;
+use rust_embed::RustEmbed;
+use sqlx::{FromRow, SqliteConnection};
+use tokio::sync::RwLock;
+use uuid::Uuid;
 
+use crate::core::account::Account;
 use crate::core::amount::Amount;
+use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document, Meta, Posting, Transaction};
 use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
+use crate::core::ledger::Ledger;
+use crate::core::models::{Directive, Flag, ZhangString};
 use crate::core::utils::date_range::NaiveDateRange;
 use crate::core::utils::string_::StringExt;
 use crate::error::ZhangResult;
@@ -33,21 +38,13 @@ use crate::parse_zhang;
 use crate::server::request::{
     AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest,
 };
-use bigdecimal::{BigDecimal, Zero};
-use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
-use futures_util::StreamExt;
-use indexmap::IndexSet;
-use itertools::Itertools;
-use log::info;
-use rust_embed::RustEmbed;
-
-use now::TimeZoneNow;
-use sqlx::{FromRow, SqliteConnection};
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use uuid::Uuid;
+use crate::server::response::{
+    AccountJournalItem, AccountResponse, AmountResponse, CommodityDetailResponse, CommodityListItemResponse,
+    CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse,
+    InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
+    JournalTransactionPostingResponse, MetaResponse, ReportRankItemResponse, ReportResponse, ResponseWrapper,
+    StatisticResponse,
+};
 
 // pub async fn graphql_playground() -> impl IntoResponse {
 //     Html(playground_source(GraphQLPlaygroundConfig::new("/graphql")))
@@ -58,6 +55,10 @@ use uuid::Uuid;
 // }
 
 pub type ApiResult<T> = ZhangResult<ResponseWrapper<T>>;
+
+pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
+    std::fs::create_dir_all(&filename.parent().unwrap()).expect("cannot create folder recursive");
+}
 
 #[derive(FromRow)]
 struct ValueRow {

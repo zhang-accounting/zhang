@@ -1,5 +1,6 @@
-use chrono::{Duration, NaiveDate};
 use std::mem;
+
+use chrono::{Duration, NaiveDate};
 
 pub struct NaiveDateRange(NaiveDate, NaiveDate);
 

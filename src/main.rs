@@ -1,6 +1,7 @@
 use clap::Parser;
 use env_logger::Env;
 use log::LevelFilter;
+
 use zhang::cli::Opts;
 
 #[tokio::main]

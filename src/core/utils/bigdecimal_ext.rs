@@ -1,5 +1,5 @@
-use bigdecimal::num_bigint::BigInt;
 use bigdecimal::{BigDecimal, Signed, ToPrimitive};
+use bigdecimal::num_bigint::BigInt;
 
 pub trait BigDecimalExt {
     fn round_with(self, round_digits: i64, is_up: bool) -> BigDecimal;

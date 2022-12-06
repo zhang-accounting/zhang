@@ -1,6 +1,8 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::Arc;
 
+use actix_web::web::Data;
+use actix_web::{web, App, HttpServer};
 use log::{debug, error, info};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc::{channel, Receiver};
@@ -9,9 +11,6 @@ use tokio::sync::RwLock;
 use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
-use actix_web::web::Data;
-use actix_web::{web, App, HttpServer};
-
 use crate::server::route::{
     create_account_balance, create_new_transaction, current_statistic, download_document, get_account_documents,
     get_account_journals, get_account_list, get_all_commodities, get_documents, get_file_content, get_files,
@@ -19,7 +18,6 @@ use crate::server::route::{
     update_file_content, upload_account_document,
 };
 
-pub mod model;
 pub mod request;
 pub mod response;
 pub mod route;

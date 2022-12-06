@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
-use pest_consume::{match_nodes, Error, Parser};
+use pest_consume::{Error, match_nodes, Parser};
 use snailquote::unescape;
 
 use crate::core::account::{Account, AccountType};
@@ -649,15 +649,17 @@ mod test {
     }
 
     mod date_time_support {
+        use std::option::Option::None;
+        use std::str::FromStr;
+
+        use bigdecimal::BigDecimal;
+        use chrono::NaiveDate;
+
         use crate::core::account::Account;
         use crate::core::amount::Amount;
         use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Open};
         use crate::core::models::Directive;
         use crate::parse_zhang;
-        use bigdecimal::BigDecimal;
-        use chrono::NaiveDate;
-        use std::option::Option::None;
-        use std::str::FromStr;
 
         #[test]
         fn should_parse_date_hour() {
@@ -713,11 +715,13 @@ mod test {
         }
     }
     mod options {
+        use std::option::Option::None;
+
+        use indoc::indoc;
+
         use crate::core::data::Options;
         use crate::core::models::Directive;
         use crate::parse_zhang;
-        use indoc::indoc;
-        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
@@ -739,11 +743,13 @@ mod test {
         }
     }
     mod comment {
+        use std::option::Option::None;
+
+        use indoc::indoc;
+
         use crate::core::data::Comment;
         use crate::core::models::Directive;
         use crate::parse_zhang;
-        use indoc::indoc;
-        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
@@ -764,10 +770,12 @@ mod test {
         }
     }
     mod document {
+        use std::option::Option::None;
+
+        use indoc::indoc;
+
         use crate::core::models::Directive;
         use crate::parse_zhang;
-        use indoc::indoc;
-        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
@@ -789,11 +797,13 @@ mod test {
         }
     }
     mod price {
-        use crate::core::models::Directive;
-        use crate::parse_zhang;
+        use std::option::Option::None;
+
         use bigdecimal::BigDecimal;
         use indoc::indoc;
-        use std::option::Option::None;
+
+        use crate::core::models::Directive;
+        use crate::parse_zhang;
 
         #[test]
         fn should_parse() {
@@ -816,10 +826,12 @@ mod test {
         }
     }
     mod event {
+        use std::option::Option::None;
+
+        use indoc::indoc;
+
         use crate::core::models::Directive;
         use crate::parse_zhang;
-        use indoc::indoc;
-        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
@@ -841,10 +853,12 @@ mod test {
         }
     }
     mod plugin {
+        use std::option::Option::None;
+
+        use indoc::indoc;
+
         use crate::core::models::Directive;
         use crate::parse_zhang;
-        use indoc::indoc;
-        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
@@ -866,10 +880,12 @@ mod test {
     }
 
     mod custom {
+        use std::option::Option::None;
+
+        use indoc::indoc;
+
         use crate::core::models::{Directive, StringOrAccount};
         use crate::parse_zhang;
-        use indoc::indoc;
-        use std::option::Option::None;
 
         #[test]
         fn should_parse() {
@@ -899,9 +915,11 @@ mod test {
     }
 
     mod transaction {
-        use crate::parse_zhang;
-        use indoc::indoc;
         use std::option::Option::None;
+
+        use indoc::indoc;
+
+        use crate::parse_zhang;
 
         #[test]
         fn should_support_trailing_space() {
@@ -918,13 +936,14 @@ mod test {
         }
 
         mod posting {
+            use bigdecimal::{BigDecimal, FromPrimitive};
+            use chrono::NaiveDate;
+            use indoc::indoc;
+
             use crate::core::amount::Amount;
             use crate::core::data::{Date, Transaction};
             use crate::core::models::{Directive, SingleTotalPrice};
             use crate::parse_zhang;
-            use bigdecimal::{BigDecimal, FromPrimitive};
-            use chrono::NaiveDate;
-            use indoc::indoc;
 
             fn get_first_posting(content: &str) -> Transaction {
                 let directive = parse_zhang(content, None).unwrap().pop().unwrap();

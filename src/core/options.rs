@@ -1,5 +1,6 @@
-use crate::core::models::Rounding;
 use std::str::FromStr;
+
+use crate::core::models::Rounding;
 
 #[derive(Debug)]
 pub struct Options {

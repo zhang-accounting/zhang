@@ -1,5 +1,6 @@
-use bigdecimal::{BigDecimal, Zero};
 use std::ops::{Add, Div, Mul, Neg, Sub};
+
+use bigdecimal::{BigDecimal, Zero};
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Amount {

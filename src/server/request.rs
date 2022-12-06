@@ -1,7 +1,8 @@
+use std::cmp::max;
+
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use std::cmp::max;
 
 #[derive(Deserialize)]
 #[serde(tag = "type")]
