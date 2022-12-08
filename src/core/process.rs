@@ -123,7 +123,7 @@ impl DirectiveProcess for Open {
             check_commodity_define(currency, ledger, span, &mut _context.connection).await?;
         }
 
-        sqlx::query(r#"INSERT OR REPLACE INTO accounts VALUES ($1, $2, $3, $4, $5);"#)
+        sqlx::query(r#"INSERT OR REPLACE INTO accounts(date, type, name, status, alias) VALUES ($1, $2, $3, $4, $5);"#)
             .bind(self.date.naive_datetime())
             .bind(self.account.account_type.to_string())
             .bind(self.account.name())
@@ -153,7 +153,7 @@ impl DirectiveProcess for Close {
         check_account_existed(self.account.name(), ledger, span, &mut context.connection).await?;
         check_account_closed(self.account.name(), ledger, span, &mut context.connection).await?;
 
-        sqlx::query(r#"update accounts set status = 'Close' where name = '$1'"#)
+        sqlx::query(r#"update accounts set status = 'Close' where name = $1"#)
             .bind(self.account.name())
             .execute(&mut context.connection)
             .await?;
