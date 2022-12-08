@@ -13,8 +13,9 @@ Chart.register(...registerables);
 // @ts-ignore
 export const fetcher = (...args) => axiosInstance.get(...args).then((res) => res.data.data);
 
+export const serverBaseUrl = 'http://localhost:8000';
 export const axiosInstance = axios.create({
-  baseURL: 'http://localhost:8000',
+  baseURL: serverBaseUrl,
   headers: {
     'Content-type': 'application/json',
   },

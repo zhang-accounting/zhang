@@ -1,6 +1,7 @@
 import { Card, Group, Image, Text } from '@mantine/core';
 import { Buffer } from 'buffer';
 import { Document } from '../../rest-model';
+import {serverBaseUrl} from "../../index";
 
 export interface Props extends Document {}
 
@@ -14,7 +15,7 @@ export default function AccountDocumentLine(props: Props) {
     <Card shadow="sm" p="xs" radius="sm" withBorder>
       <Card.Section>
         {canPreview ? (
-          <Image src={`/files/${Buffer.from(props.path).toString('base64')}/preview`} height={160} />
+          <Image src={`${serverBaseUrl}/api/documents/${Buffer.from(props.path).toString('base64')}`} height={160} />
         ) : (
           <Text style={{ height: 160 }}>this file cannot be previewed</Text>
         )}
