@@ -95,15 +95,18 @@ static TABLES_SQL: [&str; 14] = [
     r#"
     create table transactions
     (
-        sequence  integer not null
-        primary key autoincrement
-        unique,
-        id        varchar  not null
+        sequence    integer            not null
+            primary key autoincrement
             unique,
-        datetime  datetime not null,
-        type      varchar,
-        payee     varchar,
-        narration varchar
+        id          varchar            not null
+            unique,
+        datetime    datetime           not null,
+        type        varchar,
+        payee       varchar,
+        narration   varchar,
+        source_file varchar  not null,
+        span_start  integer  not null,
+        span_end    integer  not null
     );
     "#,
     r#"

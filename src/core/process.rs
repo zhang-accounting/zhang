@@ -147,9 +147,7 @@ impl DirectiveProcess for Open {
 
 #[async_trait]
 impl DirectiveProcess for Close {
-    async fn process(
-        &mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo,
-    ) -> ZhangResult<()> {
+    async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
         // check if account exist
         check_account_existed(self.account.name(), ledger, span, &mut context.connection).await?;
         check_account_closed(self.account.name(), ledger, span, &mut context.connection).await?;
@@ -220,12 +218,15 @@ impl DirectiveProcess for Transaction {
             });
         }
 
-        sqlx::query(r#"INSERT INTO transactions (id, datetime, type, payee, narration)VALUES ($1, $2, $3, $4, $5)"#)
+        sqlx::query(r#"INSERT INTO transactions (id, datetime, type, payee, narration, source_file, span_start, span_end)VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#)
             .bind(&id)
             .bind(self.date.naive_datetime())
             .bind(self.flag.clone().unwrap_or(Flag::Okay).to_string())
             .bind(self.payee.as_ref().map(|it| it.as_str()))
             .bind(self.narration.as_ref().map(|it| it.as_str()))
+            .bind(span.filename.as_ref().and_then(|it|it.to_str()).map(|it|it.to_string()))
+            .bind(span.start as i64)
+            .bind(span.end as i64)
             .execute(&mut context.connection)
             .await?;
 
