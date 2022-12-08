@@ -183,7 +183,7 @@ impl DirectiveProcess for Commodity {
             .unwrap_or(None);
 
         sqlx::query(
-            r#"INSERT INTO commodities (name, precision, prefix, suffix, rounding)
+            r#"INSERT OR REPLACE INTO commodities (name, precision, prefix, suffix, rounding)
                         VALUES ($1, $2, $3, $4, $5);"#,
         )
         .bind(&self.currency)

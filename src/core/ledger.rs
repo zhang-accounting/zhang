@@ -886,21 +886,51 @@ mod test {
     //     }
     // }
     //
-    // mod default_behavior {
-    //     use crate::core::ledger::Ledger;
-    //     use indoc::indoc;
-    //
-    //     // todo(test): should update commodity info given options and commodity directive
-    //
-    //     #[tokio::test]
-    //     async fn should_generate_default_commodity_for_operating_commodity() {
-    //         let ledger = Ledger::load_from_str(indoc! {r#"
-    //                 option "operating_currency" "CNY"
-    //             "#})
-    //         .await
-    //         .unwrap();
-    //         assert_eq!(ledger.options.operating_currency, "CNY");
-    //         assert!(ledger.currencies.contains_key("CNY"));
-    //     }
-    // }
+    mod default_behavior {
+        use crate::core::ledger::Ledger;
+        use indoc::indoc;
+
+
+        #[tokio::test]
+        async fn should_generate_default_commodity_for_operating_commodity() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                    option "operating_currency" "CNY"
+                "#})
+            .await
+            .unwrap();
+            let mut conn = ledger.connection().await;
+            assert_eq!(ledger.options.operating_currency, "CNY");
+
+            count!(
+                "should have commodity record for operating currency",
+                "select * from commodities where name = 'CNY'",
+                &mut conn
+            )
+        }
+
+        // todo(test): should update commodity info given options and commodity directive
+        #[tokio::test]
+        async fn should_update_commodity_info_given_operating_commodity_and_commodity_directive() {
+            let ledger = Ledger::load_from_str(indoc! {r#"
+                    option "operating_currency" "CNY"
+                    1970-01-01 commodity CNY
+                      precision: 3
+                "#})
+                .await
+                .unwrap();
+            let mut conn = ledger.connection().await;
+            assert_eq!(ledger.options.operating_currency, "CNY");
+
+            count!(
+                "should have commodity record for operating currency",
+                "select * from commodities where name = 'CNY'",
+                &mut conn
+            );
+            count!(
+                "should update commodity info",
+                "select * from commodities where name = 'CNY' and precision = 3",
+                &mut conn
+            )
+        }
+    }
 }
