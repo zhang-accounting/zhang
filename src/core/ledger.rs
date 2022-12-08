@@ -550,49 +550,49 @@ mod test {
             );
         }
     }
-    //
-    // mod multiple_file {
-    //     use crate::core::ledger::test::test_parse_zhang;
-    //     use crate::core::ledger::Ledger;
-    //     use indoc::indoc;
-    //     use itertools::Itertools;
-    //     use tempfile::tempdir;
-    //
-    //     #[tokio::test]
-    //     async fn should_load_file_from_include_directive() {
-    //         let temp_dir = tempdir().unwrap().into_path();
-    //         let example = temp_dir.join("example.zhang");
-    //         std::fs::write(
-    //             &example,
-    //             indoc! {r#"
-    //                 option "title" "Example"
-    //                 include "include.zhang"
-    //             "#},
-    //         )
-    //         .unwrap();
-    //         let include = temp_dir.join("include.zhang");
-    //         std::fs::write(
-    //             &include,
-    //             indoc! {r#"
-    //                     option "description" "Example Description"
-    //                 "#},
-    //         )
-    //         .unwrap();
-    //         let ledger = Ledger::load(temp_dir, "example.zhang".to_string()).await.unwrap();
-    //         assert_eq!(
-    //             test_parse_zhang(indoc! {r#"
-    //                 option "title" "Example"
-    //                 include "include.zhang"
-    //                 option "description" "Example Description"
-    //             "#})
-    //             .into_iter()
-    //             .map(|it| it.data)
-    //             .collect_vec(),
-    //             ledger.metas.into_iter().map(|it| it.data).collect_vec()
-    //         );
-    //         assert_eq!(0, ledger.directives.len());
-    //     }
-    // }
+
+    mod multiple_file {
+        use crate::core::ledger::test::test_parse_zhang;
+        use crate::core::ledger::Ledger;
+        use indoc::indoc;
+        use itertools::Itertools;
+        use tempfile::tempdir;
+
+        #[tokio::test]
+        async fn should_load_file_from_include_directive() {
+            let temp_dir = tempdir().unwrap().into_path();
+            let example = temp_dir.join("example.zhang");
+            std::fs::write(
+                &example,
+                indoc! {r#"
+                    option "title" "Example"
+                    include "include.zhang"
+                "#},
+            )
+            .unwrap();
+            let include = temp_dir.join("include.zhang");
+            std::fs::write(
+                &include,
+                indoc! {r#"
+                        option "description" "Example Description"
+                    "#},
+            )
+            .unwrap();
+            let ledger = Ledger::load(temp_dir, "example.zhang".to_string()).await.unwrap();
+            assert_eq!(
+                test_parse_zhang(indoc! {r#"
+                    option "title" "Example"
+                    include "include.zhang"
+                    option "description" "Example Description"
+                "#})
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
+                ledger.metas.into_iter().map(|it| it.data).collect_vec()
+            );
+            assert_eq!(0, ledger.directives.len());
+        }
+    }
     //
     // mod txn {
     //     use crate::core::ledger::Ledger;
