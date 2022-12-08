@@ -1,10 +1,11 @@
-import { Badge, Box, Group, Text } from '@mantine/core';
-import { format } from 'date-fns';
-import { JournalTransactionItem } from '../../rest-model';
+import {Badge, Box, Group, Text} from '@mantine/core';
+import {format} from 'date-fns';
+import {JournalTransactionItem} from '../../rest-model';
 import Amount from '../Amount';
 import DashLine from '../DashedLine';
 import Section from '../Section';
 import DocumentPreview from './DocumentPreview';
+import AccountDocumentUpload from "../AccountDocumentUpload";
 
 interface Props {
   data: JournalTransactionItem;
@@ -73,7 +74,7 @@ export default function TransactionPreview(props: Props) {
 
       <Box mx={1} my={4}>
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
-          {/* <DropzoneButton gql={UPLOAD_TRANSACTION_DOCUMENT} variables={{ file: props.data.spanFile, at: props.data.spanEnd }} /> */}
+            <AccountDocumentUpload url={`/api/transactions/${props.data.id}/documents`} />
           <Box>
             {props.data.metas
               .filter((meta) => meta.key === 'document')

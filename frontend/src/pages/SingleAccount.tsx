@@ -66,7 +66,7 @@ function SingleAccount() {
             skeleton={<div>loading</div>}
             render={(data: Document[]) => (
               <>
-                <AccountDocumentUpload accountName={accountName!} />
+                <AccountDocumentUpload url={`/api/accounts/${accountName}/documents`} />
                 {data.map((document, idx) => (
                   <AccountDocumentLine key={idx} {...document} />
                 ))}

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use actix_web::web::Data;
 use actix_web::{web, App, HttpServer};
+use actix_cors::Cors;
 use log::{debug, error, info};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc::{channel, Receiver};
@@ -11,12 +12,7 @@ use tokio::sync::RwLock;
 use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
-use crate::server::route::{
-    create_account_balance, create_new_transaction, current_statistic, download_document, get_account_documents,
-    get_account_journals, get_account_list, get_all_commodities, get_documents, get_file_content, get_files,
-    get_info_for_new_transactions, get_journals, get_report, get_single_commodity, get_statistic_data, serve_frontend,
-    update_file_content, upload_account_document,
-};
+use crate::server::route::{create_account_balance, create_new_transaction, current_statistic, download_document, get_account_documents, get_account_journals, get_account_list, get_all_commodities, get_documents, get_file_content, get_files, get_info_for_new_transactions, get_journals, get_report, get_single_commodity, get_statistic_data, serve_frontend, update_file_content, upload_account_document, upload_transaction_document};
 
 pub mod request;
 pub mod response;
@@ -97,6 +93,7 @@ async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> Zha
     info!("zhang is listening on http://127.0.0.1:{}/", opts.port);
     Ok(HttpServer::new(move || {
         App::new()
+            .wrap(Cors::permissive())
             .app_data(Data::new(ledger_data.clone()))
             .service(get_info_for_new_transactions)
             .service(get_statistic_data)
@@ -107,6 +104,7 @@ async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> Zha
             .service(get_account_documents)
             .service(get_account_journals)
             .service(upload_account_document)
+            .service(upload_transaction_document)
             .service(create_account_balance)
             .service(get_documents)
             .service(download_document)

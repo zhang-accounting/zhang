@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -9,13 +10,13 @@ use std::sync::Arc;
 
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
-use actix_web::{get, HttpRequest, HttpResponse, post, put, Responder, web};
 use actix_web::body::BoxBody;
 use actix_web::http::Uri;
 use actix_web::web::{Data, Json, Path, Query};
+use actix_web::{get, post, put, web, HttpRequest, HttpResponse, Responder};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
-use futures_util::StreamExt;
+use futures_util::{StreamExt, TryStreamExt};
 use indexmap::IndexSet;
 use itertools::Itertools;
 use log::info;
@@ -33,7 +34,7 @@ use crate::core::ledger::Ledger;
 use crate::core::models::{Directive, Flag, ZhangString};
 use crate::core::utils::date_range::NaiveDateRange;
 use crate::core::utils::string_::StringExt;
-use crate::error::ZhangResult;
+use crate::error::{IoErrorIntoZhangError, ZhangResult};
 use crate::parse_zhang;
 use crate::server::request::{
     AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest,
@@ -45,6 +46,7 @@ use crate::server::response::{
     JournalTransactionPostingResponse, MetaResponse, ReportRankItemResponse, ReportResponse, ResponseWrapper,
     StatisticResponse,
 };
+use crate::target::ZhangTarget;
 
 pub type ApiResult<T> = ZhangResult<ResponseWrapper<T>>;
 
@@ -569,6 +571,65 @@ pub async fn create_new_transaction(
     ResponseWrapper::json("Ok".to_string())
 }
 
+#[post("/api/transactions/{transaction_id}/documents")]
+pub async fn upload_transaction_document(
+    ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: web::Path<(String,)>,
+) -> ApiResult<String> {
+    let transaction_id = path.into_inner().0;
+    let ledger_stage = ledger.read().await;
+    let mut conn = ledger_stage.connection().await;
+    let entry = &ledger_stage.entry.0;
+    let mut documents = vec![];
+
+    while let Some(item) = multipart.next().await {
+        let mut field = item.unwrap();
+        let _name = field.name().to_string();
+        let file_name = field.content_disposition().get_filename().unwrap().to_string();
+        let _content_type = field.content_type().type_().as_str().to_string();
+
+        let v4 = Uuid::new_v4();
+        let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
+        info!(
+            "uploading document `{}`(id={}) to transaction {}",
+            file_name,
+            &v4.to_string(),
+            &transaction_id
+        );
+        create_folder_if_not_exist(&buf);
+        let mut f = File::create(&buf).expect("Unable to create file");
+        while let Some(mut chunk) = field.next().await {
+            let data = chunk.unwrap();
+            f.write_all(&data).expect("cannot wirte content");
+        }
+        let path = match buf.strip_prefix(&entry) {
+            Ok(relative_path) => relative_path.to_str().unwrap(),
+            Err(_) => buf.to_str().unwrap(),
+        };
+
+        documents.push(ZhangString::QuoteString(path.to_string()));
+    }
+    #[derive(FromRow)]
+    struct SpanInfo {
+        pub source_file: String,
+        pub span_end: i64,
+    }
+    let span_info =
+        sqlx::query_as::<_, SpanInfo>(r#"select source_file, span_end from transactions where id = $1"#)
+            .bind(&transaction_id)
+            .fetch_one(&mut conn)
+            .await?;
+    let metas_content = documents
+        .into_iter()
+        .map(|document| format!("  document: {}", document.to_target()))
+        .join("\n");
+    insert_line(
+        PathBuf::from(span_info.source_file),
+        &metas_content,
+        span_info.span_end as usize,
+    )?;
+    ResponseWrapper::json("Ok".to_string())
+}
+
 #[get("/api/documents/{file_path}")]
 pub async fn download_document(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> impl Responder {
     let encoded_file_path = path.into_inner().0;
@@ -655,44 +716,40 @@ pub async fn upload_account_document(
     let entry = &ledger_stage.entry.0;
     let mut documents = vec![];
 
+
     while let Some(item) = multipart.next().await {
         let mut field = item.unwrap();
         let _name = field.name().to_string();
         let file_name = field.content_disposition().get_filename().unwrap().to_string();
         let _content_type = field.content_type().type_().as_str().to_string();
 
-        while let Some(chunk) = field.next().await {
-            let data = chunk.unwrap();
-
-            let v4 = Uuid::new_v4();
-            let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
-
-            info!(
-                "uploading document `{}`({} bytes, id={}) to account {}",
+        let v4 = Uuid::new_v4();
+        let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
+        info!(
+                "uploading document `{}`(id={}) to account {}",
                 file_name,
-                data.len(),
                 &v4.to_string(),
                 &account_name
             );
-            create_folder_if_not_exist(&buf);
-
-            let f = File::create(&buf).expect("Unable to create file");
-            let mut f = BufWriter::new(f);
+        create_folder_if_not_exist(&buf);
+        let mut f = File::create(&buf).expect("Unable to create file");
+        while let Some(mut chunk) = field.next().await {
+            let data = chunk.unwrap();
             f.write_all(&data).expect("cannot wirte content");
-            let path = match buf.strip_prefix(&entry) {
-                Ok(relative_path) => relative_path.to_str().unwrap(),
-                Err(_) => buf.to_str().unwrap(),
-            };
-
-            documents.push(Directive::Document(Document {
-                date: Date::Datetime(Local::now().naive_local()),
-                account: Account::from_str(&account_name)?,
-                filename: ZhangString::QuoteString(path.to_string()),
-                tags: None,
-                links: None,
-                meta: Default::default(),
-            }));
         }
+        let path = match buf.strip_prefix(&entry) {
+            Ok(relative_path) => relative_path.to_str().unwrap(),
+            Err(_) => buf.to_str().unwrap(),
+        };
+
+        documents.push(Directive::Document(Document {
+            date: Date::Datetime(Local::now().naive_local()),
+            account: Account::from_str(&account_name)?,
+            filename: ZhangString::QuoteString(path.to_string()),
+            tags: None,
+            links: None,
+            meta: Default::default(),
+        }));
     }
     let time = Local::now().naive_local();
     ledger_stage.append_directives(documents, format!("data/{}/{}.zhang", time.year(), time.month()));
@@ -1178,4 +1235,12 @@ where
             None => HttpResponse::NotFound().finish(),
         }
     }
+}
+
+pub(crate) fn insert_line(file: PathBuf, content: &str, at: usize) -> ZhangResult<()> {
+    let file_content = std::fs::read_to_string(&file).with_path(&file)?;
+    let mut lines = file_content.lines().collect_vec();
+    let at = min(lines.len(), at);
+    lines.insert(at, content);
+    std::fs::write(&file, lines.join("\n")).with_path(&file)
 }
