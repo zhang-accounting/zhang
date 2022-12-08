@@ -43,7 +43,6 @@ uuid = {version="1.0.0", features=["v4"]}
 base64 = "0.13.0"
 sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "sqlite", "chrono", "bigdecimal" ] }
 tempfile = "3.3.0"
-console-subscriber = "0.1.7"
 actix-web = "4"
 actix-multipart = '0.4'
 actix-files = "0.6.2"
@@ -51,3 +50,4 @@ actix-cors = "0.6.4"
 
 [dev-dependencies]
 indoc = "1.0.3"
+console-subscriber = "0.1.7"

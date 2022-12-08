@@ -211,7 +211,7 @@ impl DirectiveProcess for Commodity {
 impl DirectiveProcess for Transaction {
     async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
         let id = uuid::Uuid::new_v4().to_string();
-        if !ledger.is_transaction_balanced(self) {
+        if !ledger.is_transaction_balanced(self).await? {
             ledger.errors.push(LedgerError {
                 span: span.clone(),
                 error: LedgerErrorType::TransactionDoesNotBalance,

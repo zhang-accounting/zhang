@@ -5,17 +5,20 @@ use std::io::Write;
 use std::option::Option::None;
 use std::path::PathBuf;
 
+use bigdecimal::Zero;
 use itertools::Itertools;
 use log::{debug, error, info};
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use sqlx::{ConnectOptions, SqliteConnection};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 
 use crate::core::amount::Amount;
 use crate::core::data::{Include, Transaction};
 use crate::core::database::migrations::Migration;
 use crate::core::models::{Directive, DirectiveType, ZhangString};
+use crate::core::operations::commodity::CommodityOperation;
 use crate::core::options::Options;
 use crate::core::process::{DirectiveProcess, ProcessContext};
+use crate::core::utils::bigdecimal_ext::BigDecimalExt;
 use crate::core::utils::span::{SpanInfo, Spanned};
 use crate::error::{IoErrorIntoZhangError, ZhangError, ZhangResult};
 use crate::parse_zhang;
@@ -255,28 +258,27 @@ impl Ledger {
         self.configs.get(key).map(|it| it.to_string())
     }
 
-    pub fn is_transaction_balanced(&self, txn: &Transaction) -> bool {
+    pub async fn is_transaction_balanced(&self, txn: &Transaction) -> ZhangResult<bool  > {
         // 1. get the txn's inventory
-        match txn.get_postings_inventory() {
+        Ok(match txn.get_postings_inventory() {
             Ok(inventory) => {
-                for (_currency, _amount) in inventory.currencies.iter() {
+                for (currency, amount) in inventory.currencies.iter() {
                     // todo get currency info
-                    // let currency_info = self.currencies.get(currency);
-                    // let precision = currency_info
-                    //     .and_then(|info| info.precision)
-                    //     .unwrap_or(self.options.default_balance_tolerance_precision);
-                    // let rounding = currency_info
-                    //     .and_then(|info| info.rounding)
-                    //     .unwrap_or(self.options.default_rounding);
-                    // let decimal = amount.total.round_with(precision as i64, rounding.is_up());
-                    // if !decimal.is_zero() {
-                    //     return false;
-                    // }
+                    let mut conn = self.connection().await;
+                    let commodity = CommodityOperation::get_by_name(currency, &mut conn).await?;
+                    let precision = commodity.precision;
+                    let rounding = commodity.rounding
+                        .map(|s|s.eq("RoundUp"))
+                        .unwrap_or(self.options.default_rounding.is_up());
+                    let decimal = amount.total.round_with(precision, rounding);
+                    if !decimal.is_zero() {
+                        return Ok(false);
+                    }
                 }
                 true
             }
             Err(_) => false,
-        }
+        })
     }
 
     pub async fn reload(&mut self) -> ZhangResult<()> {
@@ -310,144 +312,147 @@ impl Ledger {
     }
 }
 //
-// #[cfg(test)]
-// mod test {
-//     use crate::core::models::Directive;
-//     use crate::core::utils::span::Spanned;
-//     use crate::parse_zhang;
-//     use std::option::Option::None;
-//
-//     fn test_parse_zhang(content: &str) -> Vec<Spanned<Directive>> {
-//         parse_zhang(content, None).expect("cannot parse zhang")
-//     }
-//
-//     mod sort_directive_datetime {
-//         use crate::core::ledger::test::test_parse_zhang;
-//         use crate::core::ledger::Ledger;
-//         use indoc::indoc;
-//         use itertools::Itertools;
-//
-//         #[test]
-//         fn should_keep_order_given_two_none_datetime() {
-//             let original = test_parse_zhang(indoc! {r#"
-//                 option "title" "Title"
-//                 option "description" "Description"
-//             "#});
-//             let sorted = Ledger::sort_directives_datetime(original);
-//             assert_eq!(
-//                 test_parse_zhang(indoc! {r#"
-//                     option "title" "Title"
-//                     option "description" "Description"
-//                 "#}),
-//                 sorted
-//             )
-//         }
-//
-//         #[test]
-//         fn should_keep_original_order_given_none_datetime_and_datetime() {
-//             let original = test_parse_zhang(indoc! {r#"
-//                 1970-01-01 open Assets:Hello
-//                 option "description" "Description"
-//             "#});
-//             let sorted = Ledger::sort_directives_datetime(original);
-//             assert_eq!(
-//                 test_parse_zhang(indoc! {r#"
-//                     1970-01-01 open Assets:Hello
-//                     option "description" "Description"
-//                 "#}),
-//                 sorted
-//             );
-//             let original = test_parse_zhang(indoc! {r#"
-//                     option "description" "Description"
-//                     1970-01-01 open Assets:Hello
-//                 "#});
-//             let sorted = Ledger::sort_directives_datetime(original);
-//             assert_eq!(
-//                 test_parse_zhang(indoc! {r#"
-//                     option "description" "Description"
-//                     1970-01-01 open Assets:Hello
-//                 "#}),
-//                 sorted
-//             )
-//         }
-//
-//         #[test]
-//         fn should_order_by_datetime() {
-//             let original = test_parse_zhang(indoc! {r#"
-//                     1970-01-01 open Assets:Hello
-//                     1970-02-01 open Assets:Hello
-//                 "#});
-//
-//             let sorted = Ledger::sort_directives_datetime(original);
-//             assert_eq!(
-//                 test_parse_zhang(indoc! {r#"
-//                     1970-01-01 open Assets:Hello
-//                     1970-02-01 open Assets:Hello
-//                 "#})
-//                 .into_iter()
-//                 .map(|it| it.data)
-//                 .collect_vec(),
-//                 sorted.into_iter().map(|it| it.data).collect_vec()
-//             );
-//             let original = test_parse_zhang(indoc! {r#"
-//                     1970-02-01 open Assets:Hello
-//                     1970-01-01 open Assets:Hello
-//                 "#});
-//             let sorted = Ledger::sort_directives_datetime(original);
-//             assert_eq!(
-//                 test_parse_zhang(indoc! {r#"
-//                     1970-01-01 open Assets:Hello
-//                     1970-02-01 open Assets:Hello
-//                 "#})
-//                 .into_iter()
-//                 .map(|it| it.data)
-//                 .collect_vec(),
-//                 sorted.into_iter().map(|it| it.data).collect_vec()
-//             )
-//         }
-//
-//         #[test]
-//         fn should_sorted_between_none_datatime() {
-//             let original = test_parse_zhang(indoc! {r#"
-//                     option "1" "1"
-//                     1970-03-01 open Assets:Hello
-//                     1970-02-01 open Assets:Hello
-//                     option "2" "2"
-//                     1970-01-01 open Assets:Hello
-//                 "#});
-//
-//             let sorted = Ledger::sort_directives_datetime(original);
-//             assert_eq!(
-//                 test_parse_zhang(indoc! {r#"
-//                     option "1" "1"
-//                     1970-02-01 open Assets:Hello
-//                     1970-03-01 open Assets:Hello
-//                     option "2" "2"
-//                     1970-01-01 open Assets:Hello
-//                 "#})
-//                 .into_iter()
-//                 .map(|it| it.data)
-//                 .collect_vec(),
-//                 sorted.into_iter().map(|it| it.data).collect_vec()
-//             );
-//         }
-//
-//         #[test]
-//         fn should_keep_order_given_same_datetime() {
-//             assert_eq!(
-//                 test_parse_zhang(indoc! {r#"
-//                     1970-01-01 open Assets:Hello
-//                     1970-01-01 close Assets:Hello
-//                 "#}),
-//                 Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
-//                     1970-01-01 open Assets:Hello
-//                     1970-01-01 close Assets:Hello
-//                 "#}))
-//             );
-//         }
-//     }
-//
-//     mod extract_info {
+#[cfg(test)]
+mod test {
+    use std::option::Option::None;
+
+    use crate::core::models::Directive;
+    use crate::core::utils::span::Spanned;
+    use crate::parse_zhang;
+
+    //
+    fn test_parse_zhang(content: &str) -> Vec<Spanned<Directive>> {
+        parse_zhang(content, None).expect("cannot parse zhang")
+    }
+
+    mod sort_directive_datetime {
+        use indoc::indoc;
+        use itertools::Itertools;
+
+        use crate::core::ledger::Ledger;
+        use crate::core::ledger::test::test_parse_zhang;
+
+        #[test]
+        fn should_keep_order_given_two_none_datetime() {
+            let original = test_parse_zhang(indoc! {r#"
+                option "title" "Title"
+                option "description" "Description"
+            "#});
+            let sorted = Ledger::sort_directives_datetime(original);
+            assert_eq!(
+                test_parse_zhang(indoc! {r#"
+                    option "title" "Title"
+                    option "description" "Description"
+                "#}),
+                sorted
+            )
+        }
+
+        #[test]
+        fn should_keep_original_order_given_none_datetime_and_datetime() {
+            let original = test_parse_zhang(indoc! {r#"
+                1970-01-01 open Assets:Hello
+                option "description" "Description"
+            "#});
+            let sorted = Ledger::sort_directives_datetime(original);
+            assert_eq!(
+                test_parse_zhang(indoc! {r#"
+                    1970-01-01 open Assets:Hello
+                    option "description" "Description"
+                "#}),
+                sorted
+            );
+            let original = test_parse_zhang(indoc! {r#"
+                    option "description" "Description"
+                    1970-01-01 open Assets:Hello
+                "#});
+            let sorted = Ledger::sort_directives_datetime(original);
+            assert_eq!(
+                test_parse_zhang(indoc! {r#"
+                    option "description" "Description"
+                    1970-01-01 open Assets:Hello
+                "#}),
+                sorted
+            )
+        }
+
+        #[test]
+        fn should_order_by_datetime() {
+            let original = test_parse_zhang(indoc! {r#"
+                    1970-01-01 open Assets:Hello
+                    1970-02-01 open Assets:Hello
+                "#});
+
+            let sorted = Ledger::sort_directives_datetime(original);
+            assert_eq!(
+                test_parse_zhang(indoc! {r#"
+                    1970-01-01 open Assets:Hello
+                    1970-02-01 open Assets:Hello
+                "#})
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
+                sorted.into_iter().map(|it| it.data).collect_vec()
+            );
+            let original = test_parse_zhang(indoc! {r#"
+                    1970-02-01 open Assets:Hello
+                    1970-01-01 open Assets:Hello
+                "#});
+            let sorted = Ledger::sort_directives_datetime(original);
+            assert_eq!(
+                test_parse_zhang(indoc! {r#"
+                    1970-01-01 open Assets:Hello
+                    1970-02-01 open Assets:Hello
+                "#})
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
+                sorted.into_iter().map(|it| it.data).collect_vec()
+            )
+        }
+
+        #[test]
+        fn should_sorted_between_none_datatime() {
+            let original = test_parse_zhang(indoc! {r#"
+                    option "1" "1"
+                    1970-03-01 open Assets:Hello
+                    1970-02-01 open Assets:Hello
+                    option "2" "2"
+                    1970-01-01 open Assets:Hello
+                "#});
+
+            let sorted = Ledger::sort_directives_datetime(original);
+            assert_eq!(
+                test_parse_zhang(indoc! {r#"
+                    option "1" "1"
+                    1970-02-01 open Assets:Hello
+                    1970-03-01 open Assets:Hello
+                    option "2" "2"
+                    1970-01-01 open Assets:Hello
+                "#})
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
+                sorted.into_iter().map(|it| it.data).collect_vec()
+            );
+        }
+
+        #[test]
+        fn should_keep_order_given_same_datetime() {
+            assert_eq!(
+                test_parse_zhang(indoc! {r#"
+                    1970-01-01 open Assets:Hello
+                    1970-01-01 close Assets:Hello
+                "#}),
+                Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
+                    1970-01-01 open Assets:Hello
+                    1970-01-01 close Assets:Hello
+                "#}))
+            );
+        }
+    }
+
+    // mod extract_info {
 //         use crate::core::ledger::{Ledger};
 //         use indoc::indoc;
 //
@@ -857,4 +862,4 @@ impl Ledger {
 //             assert!(ledger.currencies.contains_key("CNY"));
 //         }
 //     }
-// }
+}

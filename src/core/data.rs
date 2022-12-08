@@ -13,6 +13,7 @@ use crate::core::ledger::LedgerErrorType;
 use crate::core::models::{Flag, SingleTotalPrice, StringOrAccount, ZhangString};
 use crate::core::utils::inventory::{AmountLotPair, Inventory, LotInfo};
 use crate::core::utils::multi_value_map::MultiValueMap;
+use sqlx::FromRow;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
@@ -60,6 +61,14 @@ pub struct Commodity {
     pub date: Date,
     pub currency: String,
     pub meta: Meta,
+}
+#[derive(Debug, Clone, FromRow)]
+pub struct CommodityDetail {
+    pub name: String,
+    pub precision: i64,
+    pub prefix: Option<String>,
+    pub suffix: Option<String>,
+    pub rounding: Option<String>
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -349,7 +358,7 @@ mod test {
             let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(ledger.is_transaction_balanced(&trx));
+                    assert!(ledger.is_transaction_balanced(&trx).await.unwrap());
                 }
                 _ => unreachable!(),
             }
@@ -370,7 +379,7 @@ mod test {
             let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(ledger.is_transaction_balanced(&trx));
+                    assert!(ledger.is_transaction_balanced(&trx).await.unwrap());
                 }
                 _ => unreachable!(),
             }
@@ -392,7 +401,7 @@ mod test {
             let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(ledger.is_transaction_balanced(&trx));
+                    assert!(ledger.is_transaction_balanced(&trx).await.unwrap());
                 }
                 _ => unreachable!(),
             }
@@ -413,7 +422,7 @@ mod test {
             let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(!ledger.is_transaction_balanced(&trx));
+                    assert!(!ledger.is_transaction_balanced(&trx).await.unwrap());
                 }
                 _ => unreachable!(),
             }
@@ -434,7 +443,7 @@ mod test {
             let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(!ledger.is_transaction_balanced(&trx));
+                    assert!(!ledger.is_transaction_balanced(&trx).await.unwrap());
                 }
                 _ => unreachable!(),
             }
@@ -455,7 +464,7 @@ mod test {
             let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(ledger.is_transaction_balanced(&trx));
+                    assert!(ledger.is_transaction_balanced(&trx).await.unwrap());
                 }
                 _ => unreachable!(),
             }
