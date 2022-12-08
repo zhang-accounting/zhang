@@ -1,6 +1,8 @@
+use sqlx::SqliteConnection;
 use std::str::FromStr;
 
 use crate::core::models::Rounding;
+use crate::error::ZhangResult;
 
 #[derive(Debug)]
 pub struct Options {
@@ -10,10 +12,30 @@ pub struct Options {
 }
 
 impl Options {
-    pub fn parse(&mut self, key: impl Into<String>, value: impl Into<String>) {
+    pub async fn parse(
+        &mut self, key: impl Into<String>, value: impl Into<String>, conn: &mut SqliteConnection,
+    ) -> ZhangResult<()> {
         let value = value.into();
-        match key.into().as_str() {
+        let key = key.into();
+        match key.as_str() {
             "operating_currency" => {
+
+                let precision = self.default_balance_tolerance_precision;
+                let prefix: Option<String> = None;
+                let suffix: Option<String> = None;
+                let rounding = Some(self.default_rounding);
+
+                sqlx::query(
+                    r#"INSERT INTO commodities (name, precision, prefix, suffix, rounding)
+                        VALUES ($1, $2, $3, $4, $5);"#,
+                )
+                .bind(&value)
+                .bind(precision)
+                .bind(prefix)
+                .bind(suffix)
+                .bind(rounding.map(|it| it.to_string()))
+                .execute(conn)
+                .await?;
                 self.operating_currency = value;
             }
             "default_rounding" => {
@@ -25,7 +47,8 @@ impl Options {
                 }
             }
             _ => {}
-        }
+        };
+        Ok(())
     }
 }
 

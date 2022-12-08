@@ -98,16 +98,17 @@ async fn check_commodity_define(
 #[async_trait]
 impl DirectiveProcess for Options {
     async fn process(
-        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo,
+        &mut self, ledger: &mut Ledger, context: &mut ProcessContext, _span: &SpanInfo,
     ) -> ZhangResult<()> {
-        ledger.options.parse(self.key.as_str(), self.value.as_str());
+        ledger.options.parse(self.key.as_str(), self.value.as_str(), &mut context.connection).await?;
         ledger
             .configs
             .insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());
+
         sqlx::query(r#"INSERT OR REPLACE INTO options VALUES ($1, $2);"#)
             .bind(self.key.as_str())
             .bind(self.value.as_str())
-            .execute(&mut _context.connection)
+            .execute(&mut context.connection)
             .await?;
         Ok(())
     }

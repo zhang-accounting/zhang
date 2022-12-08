@@ -65,7 +65,7 @@ pub struct Commodity {
 #[derive(Debug, Clone, FromRow)]
 pub struct CommodityDetail {
     pub name: String,
-    pub precision: i64,
+    pub precision: i32,
     pub prefix: Option<String>,
     pub suffix: Option<String>,
     pub rounding: Option<String>
