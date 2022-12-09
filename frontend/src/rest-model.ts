@@ -1,3 +1,11 @@
+export interface Pageable<T> {
+    total_count: number,
+    total_page: number,
+    page_size: number,
+    current_page: number,
+    records: T[]
+}
+
 export enum AccountStatus {
     Open = 'Open',
     Close = 'Close',
@@ -77,7 +85,6 @@ export interface CommodityPrice {
     amount: string,
     target_commodity: string,
 }
-
 
 export type JournalItem = JournalTransactionItem | JournalBlancePadItem
 

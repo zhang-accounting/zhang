@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
-use actix_web::{HttpRequest, HttpResponse, Responder, ResponseError};
 use actix_web::body::EitherBody;
 use actix_web::http::StatusCode;
+use actix_web::{HttpRequest, HttpResponse, Responder, ResponseError};
 use chrono::{NaiveDate, NaiveDateTime};
 use serde::Serialize;
 use sqlx::FromRow;
 
-use crate::core::Currency;
 use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
+use crate::core::Currency;
 use crate::error::{ZhangError, ZhangResult};
 
 pub enum ResponseWrapper<T: Serialize> {
@@ -53,6 +53,28 @@ impl ResponseError for ZhangError {
     fn status_code(&self) -> StatusCode {
         match self {
             _ => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct Pageable<T: Serialize> {
+    pub total_count: u32,
+    pub total_page: u32,
+    pub page_size: u32,
+    pub current_page: u32,
+    pub records: Vec<T>,
+}
+
+impl<T: Serialize> Pageable<T> {
+    pub fn new(total_count: u32, page: u32, size: u32, records: Vec<T>) -> Self {
+        let total_page = total_count / size + u32::from(total_count % size != 0);
+        Self {
+            total_count,
+            total_page,
+            page_size: size,
+            current_page: page,
+            records,
         }
     }
 }

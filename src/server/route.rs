@@ -39,13 +39,7 @@ use crate::parse_zhang;
 use crate::server::request::{
     AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest,
 };
-use crate::server::response::{
-    AccountJournalItem, AccountResponse, AmountResponse, CommodityDetailResponse, CommodityListItemResponse,
-    CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse,
-    InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
-    JournalTransactionPostingResponse, MetaResponse, ReportRankItemResponse, ReportResponse, ResponseWrapper,
-    StatisticResponse,
-};
+use crate::server::response::{AccountJournalItem, AccountResponse, AmountResponse, CommodityDetailResponse, CommodityListItemResponse, CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse, InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse, Pageable, ReportRankItemResponse, ReportResponse, ResponseWrapper, StatisticResponse};
 use crate::target::ZhangTarget;
 
 pub type ApiResult<T> = ZhangResult<ResponseWrapper<T>>;
@@ -401,10 +395,17 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
 #[get("/api/journals")]
 pub async fn get_journals(
     ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>,
-) -> ApiResult<Vec<JournalItemResponse>> {
+) -> ApiResult<Pageable<JournalItemResponse>> {
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
     let params = params.into_inner();
+
+
+    let total_count = sqlx::query_as::<_, (i64, )>(r#"select count(1) from transactions"#)
+        .fetch_one(&mut connection)
+        .await?
+        .0;
+
     #[derive(Debug, FromRow)]
     struct JournalHeader {
         id: String,
@@ -530,7 +531,7 @@ pub async fn get_journals(
     }
     ret.sort_by_key(|item| item.sequence());
     ret.reverse();
-    ResponseWrapper::json(ret)
+    ResponseWrapper::json(Pageable::new(total_count as u32, params.page(), params.limit(), ret))
 }
 
 #[post("/api/transactions")]
