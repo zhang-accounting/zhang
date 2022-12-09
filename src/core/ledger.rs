@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use bigdecimal::Zero;
 use itertools::Itertools;
 use log::{debug, error, info};
+use serde::Serialize;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use sqlx::{ConnectOptions, SqliteConnection};
 
@@ -25,13 +26,14 @@ use crate::parse_zhang;
 use crate::server::route::create_folder_if_not_exist;
 use crate::target::ZhangTarget;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct LedgerError {
     pub(crate) span: SpanInfo,
     pub(crate) error: LedgerErrorType,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "type")]
 pub enum LedgerErrorType {
     AccountBalanceCheckError {
         account_name: String,
@@ -50,37 +52,6 @@ pub enum LedgerErrorType {
         commodity_name: String,
     },
     TransactionHasMultipleImplicitPosting,
-}
-
-impl LedgerErrorType {
-    pub fn message(&self) -> String {
-        match self {
-            LedgerErrorType::AccountBalanceCheckError {
-                account_name,
-                distance,
-                target,
-                current,
-            } => format!(
-                "account {} balance to {} {} with distance {} {}(current is {} {})",
-                account_name,
-                &target.number,
-                &target.currency,
-                &distance.number,
-                &distance.currency,
-                &current.number,
-                &current.currency,
-            ),
-            LedgerErrorType::AccountDoesNotExist { account_name } => format!("account {} does not exist", account_name),
-            LedgerErrorType::AccountClosed { account_name } => format!("account {} had been closed", account_name),
-            LedgerErrorType::TransactionDoesNotBalance => "transaction does not balanced".to_string(),
-            LedgerErrorType::CommodityDoesNotDefine { commodity_name } => {
-                format!("commodity {commodity_name} does not define")
-            }
-            LedgerErrorType::TransactionHasMultipleImplicitPosting => {
-                "transaction has more than one implicit posting".to_string()
-            }
-        }
-    }
 }
 
 #[derive(Debug)]

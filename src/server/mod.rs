@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
-use crate::server::route::{create_account_balance, create_new_transaction, current_statistic, download_document, get_account_documents, get_account_journals, get_account_list, get_all_commodities, get_documents, get_file_content, get_files, get_info_for_new_transactions, get_journals, get_report, get_single_commodity, get_statistic_data, serve_frontend, update_file_content, upload_account_document, upload_transaction_document};
+use crate::server::route::{create_account_balance, create_new_transaction, current_statistic, download_document, get_account_documents, get_account_journals, get_account_list, get_all_commodities, get_documents, get_errors, get_file_content, get_files, get_info_for_new_transactions, get_journals, get_report, get_single_commodity, get_statistic_data, serve_frontend, update_file_content, upload_account_document, upload_transaction_document};
 
 pub mod request;
 pub mod response;
@@ -114,6 +114,7 @@ async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> Zha
             .service(get_file_content)
             .service(update_file_content)
             .service(get_report)
+            .service(get_errors)
             .default_service(web::to(serve_frontend))
     })
     .bind(addr)?

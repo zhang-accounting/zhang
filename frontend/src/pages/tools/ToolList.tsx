@@ -2,7 +2,9 @@ import { Container, Title, SimpleGrid, UnstyledButton, Text, createStyles } from
 import { IconPackgeExport } from '@tabler/icons';
 import { Link as RouteLink } from 'react-router-dom';
 
-const toolItems = [{ title: 'Wechat Exporter', icon: IconPackgeExport, color: 'cyan', uri: '/tools/wechat-exporter' }];
+const toolItems = [
+    { title: 'Wechat Exporter', icon: IconPackgeExport, color: 'cyan', uri: '/tools/wechat-exporter' }
+];
 
 const useStyles = createStyles((theme) => ({
   item: {

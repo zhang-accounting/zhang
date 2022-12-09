@@ -5,7 +5,7 @@ import {useLocalStorage} from '@mantine/hooks';
 
 export default function WechatExporter() {
   const [config, setConfig] = useLocalStorage({ key: 'wechat-extractor-config', defaultValue: '' });
-  const [res, setRes] = useState('');
+  const [res] = useState('');
   return (
     <Container fluid>
       <SimpleGrid cols={2} spacing="md">

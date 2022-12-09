@@ -30,7 +30,7 @@ use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document, Meta, Posting, Transaction};
 use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
-use crate::core::ledger::Ledger;
+use crate::core::ledger::{Ledger, LedgerError};
 use crate::core::models::{Directive, Flag, ZhangString};
 use crate::core::utils::date_range::NaiveDateRange;
 use crate::core::utils::string_::StringExt;
@@ -39,7 +39,13 @@ use crate::parse_zhang;
 use crate::server::request::{
     AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest,
 };
-use crate::server::response::{AccountJournalItem, AccountResponse, AmountResponse, CommodityDetailResponse, CommodityListItemResponse, CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse, InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse, Pageable, ReportRankItemResponse, ReportResponse, ResponseWrapper, StatisticResponse};
+use crate::server::response::{
+    AccountJournalItem, AccountResponse, AmountResponse, CommodityDetailResponse, CommodityListItemResponse,
+    CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse,
+    InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
+    JournalTransactionPostingResponse, MetaResponse, Pageable, ReportRankItemResponse, ReportResponse, ResponseWrapper,
+    StatisticResponse,
+};
 use crate::target::ZhangTarget;
 
 pub type ApiResult<T> = ZhangResult<ResponseWrapper<T>>;
@@ -400,8 +406,7 @@ pub async fn get_journals(
     let mut connection = ledger.connection().await;
     let params = params.into_inner();
 
-
-    let total_count = sqlx::query_as::<_, (i64, )>(r#"select count(1) from transactions"#)
+    let total_count = sqlx::query_as::<_, (i64,)>(r#"select count(1) from transactions"#)
         .fetch_one(&mut connection)
         .await?
         .0;
@@ -614,11 +619,10 @@ pub async fn upload_transaction_document(
         pub source_file: String,
         pub span_end: i64,
     }
-    let span_info =
-        sqlx::query_as::<_, SpanInfo>(r#"select source_file, span_end from transactions where id = $1"#)
-            .bind(&transaction_id)
-            .fetch_one(&mut conn)
-            .await?;
+    let span_info = sqlx::query_as::<_, SpanInfo>(r#"select source_file, span_end from transactions where id = $1"#)
+        .bind(&transaction_id)
+        .fetch_one(&mut conn)
+        .await?;
     let metas_content = documents
         .into_iter()
         .map(|document| format!("  document: {}", document.to_target()))
@@ -717,7 +721,6 @@ pub async fn upload_account_document(
     let entry = &ledger_stage.entry.0;
     let mut documents = vec![];
 
-
     while let Some(item) = multipart.next().await {
         let mut field = item.unwrap();
         let _name = field.name().to_string();
@@ -727,11 +730,11 @@ pub async fn upload_account_document(
         let v4 = Uuid::new_v4();
         let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
         info!(
-                "uploading document `{}`(id={}) to account {}",
-                file_name,
-                &v4.to_string(),
-                &account_name
-            );
+            "uploading document `{}`(id={}) to account {}",
+            file_name,
+            &v4.to_string(),
+            &account_name
+        );
         create_folder_if_not_exist(&buf);
         let mut f = File::create(&buf).expect("Unable to create file");
         while let Some(mut chunk) = field.next().await {
@@ -983,6 +986,20 @@ pub async fn update_file_content(
         std::fs::write(full_path, payload.content)?;
     }
     ResponseWrapper::<()>::created()
+}
+
+#[get("api/errors")]
+pub async fn get_errors(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<LedgerError>> {
+    let ledger = ledger.read().await;
+    let total_count = ledger.errors.len();
+    let ret = ledger
+        .errors
+        .iter()
+        .skip(params.offset() as usize)
+        .take(params.limit() as usize)
+        .cloned()
+        .collect_vec();
+    ResponseWrapper::json(Pageable::new(total_count as u32, params.page(), params.limit(), ret))
 }
 
 #[get("/api/report")]
