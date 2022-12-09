@@ -2,14 +2,13 @@ import { Button, Group, Modal, Stack, Text } from '@mantine/core';
 import CodeMirror from '@uiw/react-codemirror';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ErrorEntity } from '../gql/errorList';
 
 export default function ErrorBox() {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   // const { data, loading, refetch } = useQuery<ErrorListQuery>(ERROR_LIST);
-  const data: ErrorEntity[] = [];
-  const [selectError, setSelectError] = useState<ErrorEntity | null>(null);
+
+  const [selectError, setSelectError] = useState< null>(null);
   const [selectErrorContent, setSelectErrorContent] = useState<string>('');
 
   // const [modifyFile] = useMutation(MODIFY_FILE, {
@@ -20,7 +19,7 @@ export default function ErrorBox() {
   //   },
   // });
   //
-  const toggleError = (error: ErrorEntity) => {
+  const toggleError = (error: any) => {
     // setSelectError(error);
     // setSelectErrorContent(error.span.content);
     // setIsOpen(true);
@@ -58,48 +57,48 @@ export default function ErrorBox() {
 
   return (
     <>
-      <Modal
-        size="lg"
-        centered
-        opened={isOpen}
-        onClose={() => setIsOpen(false)}
-        title={`${selectError?.span.filename}:${selectError?.span.start}:${selectError?.span.end}`}>
-        <Text>{selectError?.message}</Text>
-        <CodeMirror
-          value={selectErrorContent}
-          height="20vh"
-          width="100%"
-          onChange={(value) => {
-            setSelectErrorContent(value);
-          }}
-        />
-        <Button onClick={onModalReset} variant="default">
-          {t('Reset')}
-        </Button>
-        <Button onClick={saveErrorModfiyData} variant="default">
-          {t('Save')}
-        </Button>
-      </Modal>
-      <Stack>
-        <Stack>
-          {data
-            .map((error, idx) => (
-              <Text key={idx} onClick={() => toggleError(error)} lineClamp={1}>
-                {error.message}
-              </Text>
-            ))}
-        </Stack>
-        <Group position="right">
-          <Button.Group>
-            <Button  variant="default">
-              {t('Previous')}
-            </Button>
-            <Button  variant="default">
-              {t('Next')}
-            </Button>
-          </Button.Group>
-        </Group>
-      </Stack>
+      {/*<Modal*/}
+      {/*  size="lg"*/}
+      {/*  centered*/}
+      {/*  opened={isOpen}*/}
+      {/*  onClose={() => setIsOpen(false)}*/}
+      {/*  title={`${selectError?.span.filename}:${selectError?.span.start}:${selectError?.span.end}`}>*/}
+      {/*  <Text>{selectError?.message}</Text>*/}
+      {/*  <CodeMirror*/}
+      {/*    value={selectErrorContent}*/}
+      {/*    height="20vh"*/}
+      {/*    width="100%"*/}
+      {/*    onChange={(value) => {*/}
+      {/*      setSelectErrorContent(value);*/}
+      {/*    }}*/}
+      {/*  />*/}
+      {/*  <Button onClick={onModalReset} variant="default">*/}
+      {/*    {t('Reset')}*/}
+      {/*  </Button>*/}
+      {/*  <Button onClick={saveErrorModfiyData} variant="default">*/}
+      {/*    {t('Save')}*/}
+      {/*  </Button>*/}
+      {/*</Modal>*/}
+      {/*<Stack>*/}
+      {/*  <Stack>*/}
+      {/*    {data*/}
+      {/*      .map((error, idx) => (*/}
+      {/*        <Text key={idx} onClick={() => toggleError(error)} lineClamp={1}>*/}
+      {/*          {error.message}*/}
+      {/*        </Text>*/}
+      {/*      ))}*/}
+      {/*  </Stack>*/}
+      {/*  <Group position="right">*/}
+      {/*    <Button.Group>*/}
+      {/*      <Button  variant="default">*/}
+      {/*        {t('Previous')}*/}
+      {/*      </Button>*/}
+      {/*      <Button  variant="default">*/}
+      {/*        {t('Next')}*/}
+      {/*      </Button>*/}
+      {/*    </Button.Group>*/}
+      {/*  </Group>*/}
+      {/*</Stack>*/}
     </>
   );
 }
