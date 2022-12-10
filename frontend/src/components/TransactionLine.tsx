@@ -3,6 +3,8 @@ import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
 import { JournalItem, JournalTransactionItem } from '../rest-model';
 import { calculate } from '../utils/trx-calculator';
+import {TextBadge} from "./basic/TextBadge";
+import {IconFile, IconFiles} from "@tabler/icons";
 
 const useStyles = createStyles((theme) => ({
   payee: {
@@ -48,6 +50,7 @@ export default function TransactionLine({ data, onClick }: Props) {
     }
   };
   const summary = calculate(data);
+  const hasDocuments = data.metas.some(meta => meta.key === 'document');
   return (
     <tr onClick={() => trClick()}>
       <td>
@@ -55,9 +58,10 @@ export default function TransactionLine({ data, onClick }: Props) {
           <Grid.Col span={8}>
             <Box styles={{ maxWidth: '80%' }}>
               <Text lineClamp={1}>
-                <span className={classes.payee}>{data.payee}</span>
+                <span className={classes.payee}>{data.payee} </span>
                 {data.narration && <span className={classes.narration}>{data.narration}</span>}
               </Text>
+
 
               <Group spacing="xs">
                 <Text mr={2} color="dimmed" size="xs">
@@ -74,6 +78,10 @@ export default function TransactionLine({ data, onClick }: Props) {
                     {tag}
                   </Badge>
                 ))}
+                {hasDocuments &&
+                    <IconFile size={14} color={"gray"} stroke={1.5}></IconFile>
+                    }
+
               </Group>
             </Box>
           </Grid.Col>
