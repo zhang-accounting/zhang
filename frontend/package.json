@@ -10,6 +10,7 @@
     "@mantine/dates": "^5.3.3",
     "@mantine/dropzone": "^5.3.3",
     "@mantine/hooks": "^5.3.0",
+    "@mantine/modals": "^5.9.3",
     "@reduxjs/toolkit": "^1.9.0",
     "@tabler/icons": "^1.95.1",
     "@testing-library/jest-dom": "^5.16.4",

@@ -6,6 +6,8 @@ import App from './App';
 import {MantineProvider} from '@mantine/core';
 import './i18n';
 import axios from 'axios';
+import {ModalsProvider} from "@mantine/modals";
+import {DocumentPreviewModal} from "./components/modals/DocumentPreviewModal";
 
 Chart.register(...registerables);
 // @ts-ignore
@@ -24,9 +26,11 @@ export const axiosInstance = axios.create({
 ReactDOM.render(
     <React.StrictMode>
         <MantineProvider withGlobalStyles withNormalizeCSS>
-            <BrowserRouter>
+            <ModalsProvider modals={{documentPreviewModal: DocumentPreviewModal}}>
+                <BrowserRouter>
                     <App></App>
-            </BrowserRouter>
+                </BrowserRouter>
+            </ModalsProvider>
         </MantineProvider>
     </React.StrictMode>,
     document.getElementById('root'),
