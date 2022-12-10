@@ -37,7 +37,7 @@ export default function AccountDocumentLine(props: Props) {
             </Card.Section>
 
             <Group position="apart" mt="md" mb="xs">
-                <Text weight={500} lineClamp={1} onClick={openPreviewModal}>
+                <Text weight={500} lineClamp={1}>
                     {props.filename}
                 </Text>
                 {/* <Badge color="pink" variant="light">
