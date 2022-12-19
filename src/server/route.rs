@@ -705,6 +705,7 @@ pub async fn get_documents(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<D
     select documents.*
     from documents
              left join transaction_postings tp on documents.trx_id = tp.trx_id
+    group by path, tp.trx_id
     "#,
     )
     .fetch_all(&mut connection)
