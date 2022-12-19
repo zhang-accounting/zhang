@@ -1,7 +1,7 @@
-import {Button, Image, Text} from "@mantine/core";
+import { Image } from "@mantine/core";
 import { ContextModalProps } from "@mantine/modals";
-import {serverBaseUrl} from "../../index";
-import {Buffer} from "buffer";
+import { Buffer } from "buffer";
+import { serverBaseUrl } from "../../index";
 
 export const DocumentPreviewModal = ({ context, id, innerProps }: ContextModalProps<{ path: string, filename: string }>) => (
     <>

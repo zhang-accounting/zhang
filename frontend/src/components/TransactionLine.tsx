@@ -1,10 +1,9 @@
 import { Badge, Box, createStyles, Grid, Group, Text } from '@mantine/core';
+import { IconFile } from "@tabler/icons";
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
 import { JournalItem, JournalTransactionItem } from '../rest-model';
 import { calculate } from '../utils/trx-calculator';
-import {TextBadge} from "./basic/TextBadge";
-import {IconFile, IconFiles} from "@tabler/icons";
 
 const useStyles = createStyles((theme) => ({
   payee: {
