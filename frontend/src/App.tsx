@@ -32,6 +32,7 @@ import {
 import { AppShell, Grid } from '@mantine/core';
 import ToolList from './pages/tools/ToolList';
 import WechatExporter from './pages/tools/WechatExporter';
+import { useTranslation } from 'react-i18next';
 
 const useStyles = createStyles((theme) => ({
   header: {
@@ -139,16 +140,16 @@ interface LinkItem {
 }
 
 const links: LinkItem[] = [
-  { icon: IconSmartHome, label: 'Home', uri: '/' },
-  { icon: IconList, label: 'Journals', uri: '/journals' },
-  { icon: IconCash, label: 'Accounts', uri: '/accounts' },
-  { icon: IconCurrencyBitcoin, label: 'Commodities', uri: '/commodities' },
-  { icon: IconFiles, label: 'Documents', uri: '/documents' },
-  { icon: IconChartAreaLine, label: 'Report', uri: '/report' },
-  { icon: IconCreditCard, label: 'Liability', uri: '/liability' },
-  { icon: IconNotebook, label: 'Editor', uri: '/edit' },
-  { icon: IconTools, label: 'Tools', uri: '/tools' },
-  { icon: IconSettings, label: 'Settings', uri: '/settings' },
+  { icon: IconSmartHome, label: 'NAV_HOME', uri: '/' },
+  { icon: IconList, label: 'NAV_JOURNALS', uri: '/journals' },
+  { icon: IconCash, label: 'NAV_ACCOUNTS', uri: '/accounts' },
+  { icon: IconCurrencyBitcoin, label: 'NAV_COMMDOITIES', uri: '/commodities' },
+  { icon: IconFiles, label: 'NAV_DOCUMENTS', uri: '/documents' },
+  { icon: IconChartAreaLine, label: 'NAV_REPORT', uri: '/report' },
+  { icon: IconCreditCard, label: 'NAV_LIABILITY', uri: '/liability' },
+  { icon: IconNotebook, label: 'NAV_RAW_EDITING', uri: '/edit' },
+  { icon: IconTools, label: 'NAV_TOOLS', uri: '/tools' },
+  { icon: IconSettings, label: 'NAV_SETTING', uri: '/settings' },
 ];
 
 // const collections = [
@@ -164,12 +165,13 @@ const links: LinkItem[] = [
 
 export default function App() {
   const { classes } = useStyles();
+  const { t } = useTranslation();
 
   const mainLinks = links.map((link) => (
     <UnstyledButton component={RouteLink} to={link.uri} key={link.label} className={classes.mainLink}>
       <div className={classes.mainLinkInner}>
         <link.icon size={20} className={classes.mainLinkIcon} stroke={1.5} />
-        <span>{link.label}</span>
+        <span>{t(link.label)}</span>
       </div>
       {link.notifications && (
         <Badge size="sm" variant="filled" className={classes.mainLinkBadge}>
