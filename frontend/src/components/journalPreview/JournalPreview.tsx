@@ -1,4 +1,4 @@
-import { JournalItem, TransactionDto } from '../../gql/jouralList';
+import { JournalItem, JournalTransactionItem } from '../../rest-model';
 import TransactionPreview from './TransactionPreview';
 interface Props {
   data?: JournalItem;
@@ -9,14 +9,14 @@ export default function JournalPreview(props: Props) {
     return <div>preview click</div>;
   }
   switch (props.data.type) {
-    case 'BalanceCheckDto':
-      line = <div>BalanceCheckDto</div>;
-      break;
-    case 'BalancePadDto':
+    // case 'BalanceCheck':
+    //   line = <div>BalanceCheckDto</div>;
+    //   break;
+    case 'BalancePad':
       line = <div>BalancePadDto</div>;
       break;
-    case 'TransactionDto':
-      line = <TransactionPreview data={props.data as TransactionDto} />;
+    case 'Transaction':
+      line = <TransactionPreview data={props.data as JournalTransactionItem} />;
       break;
   }
   return line;

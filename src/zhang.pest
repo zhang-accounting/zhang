@@ -72,7 +72,7 @@ char = {
 }
 
 space = _{ " " | "\t" }
-line = _{ "\n" | "\r" | "\n\r" }
+line = _{ NEWLINE }
 
 
 number = @{

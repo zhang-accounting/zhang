@@ -1,8 +1,10 @@
-use crate::error::ZhangError;
-use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use std::str::FromStr;
+
+use serde::{Deserialize, Serialize};
 use strum_macros::EnumString;
+
+use crate::error::ZhangError;
 
 #[derive(Debug, EnumString, PartialEq, Eq, strum_macros::ToString, Deserialize, Serialize, Copy, Clone, Hash)]
 pub enum AccountType {

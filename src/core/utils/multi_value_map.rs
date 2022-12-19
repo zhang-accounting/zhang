@@ -1,7 +1,8 @@
-use itertools::Itertools;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::iter::FromIterator;
+
+use itertools::Itertools;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiValueMap<Key: Eq + Hash, Value> {

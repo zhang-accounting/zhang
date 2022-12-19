@@ -1,13 +1,14 @@
-import { useQuery } from '@apollo/client';
-import { Chip, Container, Group, Table, Title } from '@mantine/core';
-import { useLocalStorage } from '@mantine/hooks';
-import { useEffect, useState } from 'react';
+import {Chip, Container, Group, Table, Title} from '@mantine/core';
+import {useLocalStorage} from '@mantine/hooks';
+import {useEffect, useState} from 'react';
 import AccountLine from '../components/AccountLine';
-import { AccountListQuery, ACCOUNT_LIST } from '../gql/accountList';
 import AccountTrie from '../utils/AccountTrie';
+import useSWR from 'swr'
+import {fetcher} from "../index";
+import {Account, AccountStatus} from "../rest-model";
 
 export default function Accounts() {
-  const { loading, error, data } = useQuery<AccountListQuery>(ACCOUNT_LIST);
+  const {data, error } =  useSWR<Account[]>("/api/accounts", fetcher);
 
   const [hideClosedAccount, setHideClosedAccount] = useLocalStorage({ key: 'hideClosedAccount', defaultValue: false });
 
@@ -16,15 +17,15 @@ export default function Accounts() {
   useEffect(() => {
     if (data) {
       let trie = new AccountTrie();
-      for (let account of data.accounts.filter((it) => (hideClosedAccount ? it.status === 'OPEN' : true))) {
+      for (let account of data.filter((it) => (hideClosedAccount ? it.status === AccountStatus.Open : true))) {
         trie.insert(account);
       }
       setAccountTrie(trie);
     }
   }, [data, hideClosedAccount]);
 
-  if (loading) return <p>Loading...</p>;
-  if (error) return <p>Error :(</p>;
+  if (error) return <div>failed to load</div>
+  if (!data) return <div>loading...</div>
   return (
     <Container fluid>
       <Title order={2}>Accounts</Title>
@@ -47,8 +48,6 @@ export default function Accounts() {
             .map((item) => (
               <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
             ))}
-          {/* </> */}
-          {/* ))} */}
         </tbody>
       </Table>
     </Container>

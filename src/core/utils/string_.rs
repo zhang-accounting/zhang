@@ -1,5 +1,33 @@
 use std::borrow::Cow;
+
 use unicode_categories::UnicodeCategories;
+
+use crate::core::models::ZhangString;
+
+pub trait StringExt {
+    fn to_quote(&self) -> ZhangString;
+    fn to_unquote(&self) -> ZhangString;
+    fn into_quote(self) -> ZhangString;
+    fn into_unquote(self) -> ZhangString;
+}
+
+impl StringExt for String {
+    fn to_quote(&self) -> ZhangString {
+        ZhangString::QuoteString(self.to_owned())
+    }
+
+    fn to_unquote(&self) -> ZhangString {
+        ZhangString::UnquoteString(self.to_owned())
+    }
+
+    fn into_quote(self) -> ZhangString {
+        ZhangString::QuoteString(self)
+    }
+
+    fn into_unquote(self) -> ZhangString {
+        ZhangString::UnquoteString(self)
+    }
+}
 
 pub fn escape_with_quote(s: &str) -> Cow<str> {
     let mut output = String::with_capacity(s.len());
@@ -44,7 +72,7 @@ fn escape_character(c: char) -> String {
 
 #[cfg(test)]
 mod test {
-    use crate::utils::escape_with_quote;
+    use crate::core::utils::string_::escape_with_quote;
 
     #[test]
     fn test_escapse_with_quote() {

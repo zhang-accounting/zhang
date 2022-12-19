@@ -1,27 +1,25 @@
+import { Container, Tabs } from '@mantine/core';
+import useSWR from 'swr';
+import { fetcher } from '..';
 import SingleFileEdit from '../components/SingleFileEdit';
-import { useQuery } from '@apollo/client';
-import { Tabs } from '@mantine/core';
-import { FileListQuery, FILE_LIST } from '../gql/fileList';
-import { Container } from '@mantine/core';
 
 function RawEdit() {
-  const { loading, error, data } = useQuery<FileListQuery>(FILE_LIST);
+  const {data, error} = useSWR<string[]>("/api/files", fetcher)
 
-  if (loading) return <p>Loading...</p>;
-  if (error) return <p>Error :(</p>;
-
+  if (error) return <div>failed to load</div>;
+  if (!data) return <>loading</>;
   return (
     <Container fluid>
       <Tabs orientation="vertical">
         <Tabs.List>
-          {data?.entries.map((entry) => (
-            <Tabs.Tab value={entry.name}>{entry.name.split('/').pop()}</Tabs.Tab>
+          {data.map((entry) => (
+            <Tabs.Tab value={entry}>{entry}</Tabs.Tab>
           ))}
         </Tabs.List>
 
-        {data?.entries.map((entry) => (
-          <Tabs.Panel value={entry.name} pt="xs">
-            <SingleFileEdit name={entry.name.split('/').pop()} path={entry.name} />
+        {data.map((entry) => (
+          <Tabs.Panel value={entry} pt="xs">
+            <SingleFileEdit name={entry} path={entry} />
           </Tabs.Panel>
         ))}
       </Tabs>

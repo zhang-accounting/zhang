@@ -1,20 +1,20 @@
-use crate::core::data::{Balance, Date};
-use crate::core::models::Directive;
-use crate::error::ZhangResult;
-
-use crate::core::ledger::Ledger;
-use crate::core::models::ZhangString;
-use crate::target::ZhangTarget;
 use std::path::PathBuf;
 
-pub fn run(file: PathBuf, output: Option<PathBuf>) -> ZhangResult<()> {
+use crate::core::data::{Balance, Date};
+use crate::core::ledger::Ledger;
+use crate::core::models::{Directive, ZhangString};
+use crate::error::{IoErrorIntoZhangError, ZhangResult};
+use crate::target::ZhangTarget;
+
+pub async fn run(file: PathBuf, output: Option<PathBuf>) -> ZhangResult<()> {
     let file_parent = file.parent().unwrap().to_path_buf();
     let file_name = file.file_name().unwrap().to_str().unwrap().to_string();
-    let mut ledger = Ledger::load(file_parent, file_name)?;
+
+    let mut ledger = Ledger::load(file_parent, file_name).await?;
     ledger = ledger.apply(convert_datetime_to_date);
     let beancount_content = ledger.to_target();
     if let Some(output_file) = output {
-        std::fs::write(output_file, beancount_content)?;
+        std::fs::write(&output_file, beancount_content).with_path(&output_file)?;
     } else {
         println!("{}", beancount_content);
     };

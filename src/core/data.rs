@@ -1,3 +1,11 @@
+use std::collections::HashSet;
+use std::ops::{Div, Mul, Neg};
+
+use bigdecimal::BigDecimal;
+use chrono::{NaiveDate, NaiveDateTime};
+use indexmap::IndexSet;
+use itertools::Itertools;
+
 use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::ledger::LedgerErrorType;
@@ -5,13 +13,7 @@ use crate::core::models::{Flag, SingleTotalPrice, StringOrAccount, ZhangString};
 use crate::core::utils::inventory::{AmountLotPair, Inventory, LotInfo};
 use crate::core::utils::multi_value_map::MultiValueMap;
 use crate::core::AccountName;
-use bigdecimal::BigDecimal;
-use chrono::{NaiveDate, NaiveDateTime};
-use indexmap::IndexSet;
-use itertools::Itertools;
-use std::collections::HashSet;
-use std::ops::{Div, Mul, Neg};
-use std::sync::Arc;
+use sqlx::FromRow;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
@@ -60,26 +62,19 @@ pub struct Commodity {
     pub currency: String,
     pub meta: Meta,
 }
+#[derive(Debug, Clone, FromRow)]
+pub struct CommodityDetail {
+    pub name: String,
+    pub precision: i32,
+    pub prefix: Option<String>,
+    pub suffix: Option<String>,
+    pub rounding: Option<String>,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Balance {
     BalanceCheck(BalanceCheck),
     BalancePad(BalancePad),
-}
-
-impl Balance {
-    pub(crate) fn account_name(&self) -> &str {
-        match self {
-            Balance::BalanceCheck(check) => &check.account.content,
-            Balance::BalancePad(pad) => &pad.account.content,
-        }
-    }
-    pub(crate) fn date(&self) -> NaiveDate {
-        match self {
-            Balance::BalanceCheck(check) => check.date.naive_date(),
-            Balance::BalancePad(pad) => pad.date.naive_date(),
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -137,7 +132,6 @@ impl Transaction {
     pub(crate) fn get_postings_inventory(&self) -> Result<Inventory, LedgerErrorType> {
         let mut inventory = Inventory {
             currencies: Default::default(),
-            prices: Arc::new(Default::default()),
         };
         for posting in self.txn_postings() {
             let amount = posting.infer_trade_amount()?;
@@ -211,7 +205,6 @@ impl<'a> TxnPosting<'a> {
                 1 => {
                     let mut inventory = Inventory {
                         currencies: Default::default(),
-                        prices: Arc::new(Default::default()),
                     };
                     for (trade_amount, lot) in trade_amount_postings {
                         if let Some(trade_amount) = trade_amount {
@@ -343,13 +336,14 @@ pub struct Comment {
 #[cfg(test)]
 mod test {
     mod transaction {
+        use indoc::indoc;
+
         use crate::core::ledger::Ledger;
         use crate::core::models::Directive;
         use crate::parse_zhang;
-        use indoc::indoc;
 
-        #[test]
-        fn should_return_true_given_balanced_transaction() {
+        #[tokio::test]
+        async fn should_return_true_given_balanced_transaction() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2022-06-02 "balanced transaction"
@@ -361,16 +355,16 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            let ledger = Ledger::load_from_str("").unwrap();
+            let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(ledger.is_transaction_balanced(&trx));
+                    assert!(ledger.is_transaction_balanced(&trx).await.unwrap());
                 }
                 _ => unreachable!(),
             }
         }
-        #[test]
-        fn should_return_true_given_two_same_decimal() {
+        #[tokio::test]
+        async fn should_return_true_given_two_same_decimal() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2022-06-02 "balanced transaction"
@@ -382,16 +376,16 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            let ledger = Ledger::load_from_str("").unwrap();
+            let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(ledger.is_transaction_balanced(&trx));
+                    assert!(ledger.is_transaction_balanced(&trx).await.unwrap());
                 }
                 _ => unreachable!(),
             }
         }
-        #[test]
-        fn should_return_true_given_multiple_posting() {
+        #[tokio::test]
+        async fn should_return_true_given_multiple_posting() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2022-06-02 "balanced transaction"
@@ -404,16 +398,16 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            let ledger = Ledger::load_from_str("").unwrap();
+            let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(ledger.is_transaction_balanced(&trx));
+                    assert!(ledger.is_transaction_balanced(&trx).await.unwrap());
                 }
                 _ => unreachable!(),
             }
         }
-        #[test]
-        fn should_return_false_given_two_diff_posting_amount() {
+        #[tokio::test]
+        async fn should_return_false_given_two_diff_posting_amount() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2022-06-02 "balanced transaction"
@@ -425,16 +419,16 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            let ledger = Ledger::load_from_str("").unwrap();
+            let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(!ledger.is_transaction_balanced(&trx));
+                    assert!(!ledger.is_transaction_balanced(&trx).await.unwrap());
                 }
                 _ => unreachable!(),
             }
         }
-        #[test]
-        fn should_return_false_given_two_diff_currency() {
+        #[tokio::test]
+        async fn should_return_false_given_two_diff_currency() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2022-06-02 "balanced transaction"
@@ -446,16 +440,16 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            let ledger = Ledger::load_from_str("").unwrap();
+            let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(!ledger.is_transaction_balanced(&trx));
+                    assert!(!ledger.is_transaction_balanced(&trx).await.unwrap());
                 }
                 _ => unreachable!(),
             }
         }
-        #[test]
-        fn should_return_true_given_day_price() {
+        #[tokio::test]
+        async fn should_return_true_given_day_price() {
             let directive = parse_zhang(
                 indoc! {r#"
                 2015-01-05 * "Investing 60% of cash in RGAGX"
@@ -467,23 +461,24 @@ mod test {
             .unwrap()
             .pop()
             .unwrap();
-            let ledger = Ledger::load_from_str("").unwrap();
+            let ledger = Ledger::load_from_str("").await.unwrap();
             match directive.data {
                 Directive::Transaction(trx) => {
-                    assert!(ledger.is_transaction_balanced(&trx));
+                    assert!(ledger.is_transaction_balanced(&trx).await.unwrap());
                 }
                 _ => unreachable!(),
             }
         }
 
         mod txn_posting {
+            use bigdecimal::BigDecimal;
+            use indoc::indoc;
+
             use crate::core::amount::Amount;
             use crate::core::data::Transaction;
             use crate::core::models::Directive;
             use crate::core::utils::inventory::LotInfo;
             use crate::parse_zhang;
-            use bigdecimal::BigDecimal;
-            use indoc::indoc;
 
             fn get_first_posting(content: &str) -> Transaction {
                 let directive = parse_zhang(content, None).unwrap().pop().unwrap();

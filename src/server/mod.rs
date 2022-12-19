@@ -1,25 +1,26 @@
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::Arc;
 
-use async_graphql::{EmptySubscription, Schema};
-use axum::extract::Extension;
-use axum::routing::get;
-use axum::Router;
-use itertools::Either;
+use actix_cors::Cors;
+use actix_web::web::Data;
+use actix_web::{web, App, HttpServer};
 use log::{debug, error, info};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
-use tower_http::cors::CorsLayer;
-
-use model::query::QueryRoot;
 
 use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
-use crate::server::model::mutation::MutationRoot;
+use crate::server::route::{
+    create_account_balance, create_new_transaction, current_statistic, download_document, get_account_documents,
+    get_account_journals, get_account_list, get_all_commodities, get_documents, get_errors, get_file_content,
+    get_files, get_info_for_new_transactions, get_journals, get_report, get_single_commodity, get_statistic_data,
+    serve_frontend, update_file_content, upload_account_document, upload_transaction_document,
+};
 
-pub mod model;
+pub mod request;
+pub mod response;
 pub mod route;
 
 pub type LedgerState = Arc<RwLock<Ledger>>;
@@ -41,33 +42,39 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
     Ok((watcher, rx))
 }
 
-pub fn serve(opts: ServerOpts) -> ZhangResult<()> {
-    let ledger = Ledger::load(opts.path.clone(), opts.endpoint.clone())?;
+pub async fn serve(opts: ServerOpts) -> ZhangResult<()> {
+    let database = opts.database.clone().unwrap_or_else(|| opts.path.join("data.db"));
+    let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), database).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
 
-    let runtime = tokio::runtime::Runtime::new()?;
     let cloned_ledger = ledger_data.clone();
-    runtime.spawn(async move {
+    tokio::spawn(async move {
         let (mut watcher, mut rx) = async_watcher().unwrap();
-        match &cloned_ledger.read().await.entry {
-            Either::Left((entry_path, _)) => {
-                info!("watching {}", &entry_path.to_str().unwrap_or(""));
-                watcher
-                    .watch(entry_path, RecursiveMode::Recursive)
-                    .expect("cannot watch entry path")
-            }
-            Either::Right(_) => {
-                error!("zhang running on plain txt does not support watcher");
-            }
-        }
+
+        let entry_path = {
+            let guard1 = cloned_ledger.read().await;
+            guard1.entry.0.clone()
+        };
+        info!("watching {}", &entry_path.to_str().unwrap_or(""));
+        watcher
+            .watch(entry_path.as_path(), RecursiveMode::Recursive)
+            .expect("cannot watch entry path");
+
         while let Some(res) = rx.recv().await {
             match res {
                 Ok(event) => {
                     debug!("receive file event: {:?}", event);
-                    let mut guard = cloned_ledger.write().await;
-                    let is_visited_file_updated = guard.visited_files.iter().any(|file| event.paths.contains(file));
+                    let is_visited_file_updated = {
+                        let guard = cloned_ledger.read().await;
+                        let x = guard.visited_files.iter().any(|file| event.paths.contains(file));
+                        drop(guard);
+                        x
+                    };
                     if is_visited_file_updated {
-                        match guard.reload() {
+                        debug!("gotcha event, start reloading...");
+                        let mut guard = cloned_ledger.write().await;
+                        debug!("watcher: got the lock");
+                        match guard.reload().await {
                             Ok(_) => {
                                 info!("reloaded")
                             }
@@ -83,26 +90,39 @@ pub fn serve(opts: ServerOpts) -> ZhangResult<()> {
             }
         }
     });
-    runtime.block_on(start_server(opts, ledger_data))
+    start_server(opts, ledger_data).await
 }
+
 async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> ZhangResult<()> {
-    let schema = Schema::build(QueryRoot, MutationRoot, EmptySubscription)
-        .data(ledger_data.clone())
-        .finish();
-
-    let app = Router::new()
-        .route("/graphql", get(route::graphql_playground).post(route::graphql_handler))
-        .route("/files/:filename/preview", get(route::file_preview))
-        .fallback(get(route::serve_frontend))
-        .layer(Extension(ledger_data))
-        .layer(Extension(schema))
-        .layer(CorsLayer::permissive());
-
     let addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), opts.port);
     info!("zhang is listening on http://127.0.0.1:{}/", opts.port);
-    axum::Server::bind(&SocketAddr::from(addr))
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
-    Ok(())
+    Ok(HttpServer::new(move || {
+        App::new()
+            .wrap(Cors::permissive())
+            .app_data(Data::new(ledger_data.clone()))
+            .service(get_info_for_new_transactions)
+            .service(get_statistic_data)
+            .service(current_statistic)
+            .service(get_journals)
+            .service(create_new_transaction)
+            .service(get_account_list)
+            .service(get_account_documents)
+            .service(get_account_journals)
+            .service(upload_account_document)
+            .service(upload_transaction_document)
+            .service(create_account_balance)
+            .service(get_documents)
+            .service(download_document)
+            .service(get_all_commodities)
+            .service(get_single_commodity)
+            .service(get_files)
+            .service(get_file_content)
+            .service(update_file_content)
+            .service(get_report)
+            .service(get_errors)
+            .default_service(web::to(serve_frontend))
+    })
+    .bind(addr)?
+    .run()
+    .await?)
 }

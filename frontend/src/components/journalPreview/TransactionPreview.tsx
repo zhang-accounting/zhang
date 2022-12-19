@@ -1,24 +1,23 @@
-import { Box, Text, Badge, Group } from '@mantine/core';
-import { format } from 'date-fns';
-import { TransactionDto } from '../../gql/jouralList';
+import {Badge, Box, Group, Text} from '@mantine/core';
+import {format} from 'date-fns';
+import {JournalTransactionItem} from '../../rest-model';
 import Amount from '../Amount';
-import { DropzoneButton } from '../DropzoneButton';
-import { UPLOAD_TRANSACTION_DOCUMENT } from '../../gql/uploadTransactionDocument';
+import DashLine from '../DashedLine';
 import Section from '../Section';
 import DocumentPreview from './DocumentPreview';
-import DashLine from '../DashedLine';
+import AccountDocumentUpload from "../AccountDocumentUpload";
 
 interface Props {
-  data: TransactionDto;
+  data: JournalTransactionItem;
 }
 export default function TransactionPreview(props: Props) {
   return (
     <div>
       <Box mb={10}>
         <Box mx={1} my={2}>
-          {format(new Date(props.data.timestamp * 1000), 'yyyy-MM-dd hh:mm:ss')}
+          {format(new Date(props.data.datetime), 'yyyy-MM-dd hh:mm:ss')}
         </Box>
-        {!props.data.isBalanced && (
+        {!props.data.is_balanced && (
           <Box mx={1} my={2}>
             <Text color={'red'}>UNBALANCED</Text>
           </Box>
@@ -49,9 +48,9 @@ export default function TransactionPreview(props: Props) {
             {props.data.postings.map((posting, idx) => (
               <DashLine key={idx}>
                 <Text lineClamp={1} my="xs">
-                  {posting.account.name}
+                  {posting.account}
                 </Text>
-                <Text lineClamp={1}>{posting.unit && <Amount amount={posting.unit?.number} currency={posting.unit?.currency} />}</Text>
+                <Text lineClamp={1}><Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} /></Text>
               </DashLine>
             ))}
           </>
@@ -75,7 +74,7 @@ export default function TransactionPreview(props: Props) {
 
       <Box mx={1} my={4}>
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
-          <DropzoneButton gql={UPLOAD_TRANSACTION_DOCUMENT} variables={{ file: props.data.spanFile, at: props.data.spanEnd }} />
+            <AccountDocumentUpload url={`/api/transactions/${props.data.id}/documents`} />
           <Box>
             {props.data.metas
               .filter((meta) => meta.key === 'document')

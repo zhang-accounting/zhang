@@ -42,7 +42,7 @@ option "operating_currency" "CNY"
 2022-06-30 01:01:01 balance Assets:WeChat 142092 CNY with pad Equity:OpenBlancing
 2022-06-30 01:01:01 balance Assets:CitiBank:9999 133858 CNY with pad Equity:OpenBlancing
 
-
+1970-01-01 close Equity:OpenBlancing123
 
 
 2022-07-01 08:00:00 "GrandLordCompany" "Salary"

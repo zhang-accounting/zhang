@@ -1,7 +1,9 @@
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand};
+
 use crate::core::ledger::Ledger;
 use crate::{exporter, importer};
-use clap::{Args, Parser, Subcommand};
-use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
@@ -34,6 +36,10 @@ pub struct ParseOpts {
     /// the endpoint of main zhang file.
     #[clap(short, long, default_value = "main.zhang")]
     pub endpoint: String,
+
+    /// indicate cache database file path, using tempfile if not present
+    #[clap(long)]
+    pub database: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -57,17 +63,29 @@ pub struct ServerOpts {
     /// serve port
     #[clap(short, long, default_value_t = 8000)]
     pub port: u16,
+
+    /// indicate cache database file path
+    #[clap(long)]
+    pub database: Option<PathBuf>,
 }
 
 impl Opts {
-    pub fn run(self) {
+    pub async fn run(self) {
         match self {
             Opts::Importer(importer) => importer.run(),
             Opts::Parse(parse_opts) => {
-                Ledger::load(parse_opts.path, parse_opts.endpoint).expect("Cannot load ledger");
+                let temp_dir = tempfile::tempdir().unwrap();
+                let temp_db = temp_dir.as_ref().join("data.db");
+                Ledger::load_with_database(
+                    parse_opts.path,
+                    parse_opts.endpoint,
+                    parse_opts.database.unwrap_or(temp_db),
+                )
+                .await
+                .expect("Cannot load ledger");
             }
-            Opts::Exporter(opts) => opts.run(),
-            Opts::Server(opts) => crate::server::serve(opts).expect("cannot serve"),
+            Opts::Exporter(opts) => opts.run().await,
+            Opts::Server(opts) => crate::server::serve(opts).await.expect("cannot serve"),
         }
     }
 }
@@ -87,9 +105,9 @@ impl ImportOpts {
 }
 
 impl ExportOpts {
-    pub fn run(self) {
+    pub async fn run(self) {
         let result = match self {
-            ExportOpts::Beancount { file, output } => exporter::beancount::run(file, output),
+            ExportOpts::Beancount { file, output } => exporter::beancount::run(file, output).await,
         };
         match result {
             Ok(_) => {}

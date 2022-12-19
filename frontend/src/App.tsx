@@ -12,12 +12,27 @@ import SingleCommodity from './pages/SingleCommodity';
 
 import { Link as RouteLink } from 'react-router-dom';
 import NewTransactionButton from './components/NewTransactionButton';
-import { createStyles, Navbar, TextInput, Code, UnstyledButton, Badge, Text, Group } from '@mantine/core';
-import { IconSearch, IconReceipt2, TablerIcon, IconSettings, IconTools, IconNotebook, IconCreditCard, IconChartAreaLine, IconFiles, IconCurrencyBitcoin, IconCash, IconList, IconSmartHome } from '@tabler/icons';
+import { createStyles, Navbar, TextInput, Code, UnstyledButton, Badge, Text, Group, MediaQuery, Box } from '@mantine/core';
+import {
+  IconSearch,
+  IconReceipt2,
+  TablerIcon,
+  IconSettings,
+  IconTools,
+  IconNotebook,
+  IconCreditCard,
+  IconChartAreaLine,
+  IconFiles,
+  IconCurrencyBitcoin,
+  IconCash,
+  IconList,
+  IconSmartHome,
+} from '@tabler/icons';
 
 import { AppShell, Grid } from '@mantine/core';
 import ToolList from './pages/tools/ToolList';
 import WechatExporter from './pages/tools/WechatExporter';
+import { useTranslation } from 'react-i18next';
 
 const useStyles = createStyles((theme) => ({
   header: {
@@ -54,7 +69,6 @@ const useStyles = createStyles((theme) => ({
     paddingRight: theme.spacing.md - theme.spacing.xs,
     paddingBottom: theme.spacing.md,
   },
-
   mainLink: {
     display: 'flex',
     alignItems: 'center',
@@ -126,16 +140,16 @@ interface LinkItem {
 }
 
 const links: LinkItem[] = [
-  { icon: IconSmartHome, label: 'Home', uri: '/' },
-  { icon: IconList, label: 'Journals', uri: '/journals' },
-  { icon: IconCash, label: 'Accounts', uri: '/accounts' },
-  { icon: IconCurrencyBitcoin, label: 'Commodities', uri: '/commodities' },
-  { icon: IconFiles, label: 'Documents', uri: '/documents' },
-  { icon: IconChartAreaLine, label: 'Report', uri: '/report' },
-  { icon: IconCreditCard, label: 'Liability', uri: '/liability' },
-  { icon: IconNotebook, label: 'Editor', uri: '/edit' },
-  { icon: IconTools, label: 'Tools', uri: '/tools' },
-  { icon: IconSettings, label: 'Settings', uri: '/settings' },
+  { icon: IconSmartHome, label: 'NAV_HOME', uri: '/' },
+  { icon: IconList, label: 'NAV_JOURNALS', uri: '/journals' },
+  { icon: IconCash, label: 'NAV_ACCOUNTS', uri: '/accounts' },
+  { icon: IconCurrencyBitcoin, label: 'NAV_COMMDOITIES', uri: '/commodities' },
+  { icon: IconFiles, label: 'NAV_DOCUMENTS', uri: '/documents' },
+  { icon: IconChartAreaLine, label: 'NAV_REPORT', uri: '/report' },
+  { icon: IconCreditCard, label: 'NAV_LIABILITY', uri: '/liability' },
+  { icon: IconNotebook, label: 'NAV_RAW_EDITING', uri: '/edit' },
+  { icon: IconTools, label: 'NAV_TOOLS', uri: '/tools' },
+  { icon: IconSettings, label: 'NAV_SETTING', uri: '/settings' },
 ];
 
 // const collections = [
@@ -151,18 +165,25 @@ const links: LinkItem[] = [
 
 export default function App() {
   const { classes } = useStyles();
+  const { t } = useTranslation();
 
   const mainLinks = links.map((link) => (
     <UnstyledButton component={RouteLink} to={link.uri} key={link.label} className={classes.mainLink}>
       <div className={classes.mainLinkInner}>
         <link.icon size={20} className={classes.mainLinkIcon} stroke={1.5} />
-        <span>{link.label}</span>
+        <span>{t(link.label)}</span>
       </div>
       {link.notifications && (
         <Badge size="sm" variant="filled" className={classes.mainLinkBadge}>
           {link.notifications}
         </Badge>
       )}
+    </UnstyledButton>
+  ));
+
+  const mobileMainLinks = links.map((link) => (
+    <UnstyledButton component={RouteLink} to={link.uri} key={link.label}>
+      <link.icon size={20} stroke={1.5} />
     </UnstyledButton>
   ));
 
@@ -174,33 +195,35 @@ export default function App() {
 
   return (
     <AppShell
-      padding="md"
+      padding="xs"
       navbar={
-        <Navbar width={{ sm: 300 }} p="md" className={classes.navbar}>
-          <Navbar.Section className={classes.header}>
-            <Group position="apart">
-              <Group spacing="xs" position="left">
-                <IconReceipt2 stroke={1.5} />
-                <Text>ZHANG</Text>
-              </Group>
-              <Code sx={{ fontWeight: 700 }}>v0.1.1</Code>
-            </Group>
-          </Navbar.Section>
+        <>
+          <MediaQuery smallerThan="sm" styles={{ display: 'none' }}>
+            <Navbar width={{ sm: 300 }} p="md" className={classes.navbar}>
+              <Navbar.Section className={classes.header}>
+                <Group position="apart">
+                  <Group spacing="xs" position="left">
+                    <IconReceipt2 stroke={1.5} />
+                    <Text>ZHANG</Text>
+                  </Group>
+                  <Code sx={{ fontWeight: 700 }}>v0.1.1</Code>
+                </Group>
+              </Navbar.Section>
 
-          <Grid>
-            <Grid.Col span={8} py="md">
-              <TextInput placeholder="Search" size="xs" icon={<IconSearch size={12} stroke={1.5} />} />
-            </Grid.Col>
-            <Grid.Col span={4} py="md">
-              <NewTransactionButton />
-            </Grid.Col>
-          </Grid>
+              <Grid>
+                <Grid.Col span={8} py="md">
+                  <TextInput placeholder="Search" size="xs" icon={<IconSearch size={12} stroke={1.5} />} />
+                </Grid.Col>
+                <Grid.Col span={4} py="md">
+                  <NewTransactionButton />
+                </Grid.Col>
+              </Grid>
 
-          <Navbar.Section className={classes.section}>
-            <div className={classes.mainLinks}>{mainLinks}</div>
-          </Navbar.Section>
+              <Navbar.Section className={classes.section}>
+                <div className={classes.mainLinks}>{mainLinks}</div>
+              </Navbar.Section>
 
-          {/* <Navbar.Section grow className={classes.section}>
+              {/* <Navbar.Section grow className={classes.section}>
             <Group className={classes.collectionsHeader} position="apart">
               <Text size="xs" weight={500} color="dimmed">
                 Collections
@@ -213,7 +236,27 @@ export default function App() {
             </Group>
             <div className={classes.collections}>{collectionLinks}</div>
           </Navbar.Section> */}
-        </Navbar>
+            </Navbar>
+          </MediaQuery>
+        </>
+      }
+      header={
+        <>
+          <MediaQuery largerThan="sm" styles={{ display: 'none' }}>
+            <Box m="xs">
+              <Group position="apart">
+                <Group spacing="xs" position="left">
+                  <IconReceipt2 stroke={1.5} />
+                  <Text>ZHANG</Text>
+                </Group>
+                <NewTransactionButton />
+              </Group>
+              <Group position="apart" mt="xs">
+                {mobileMainLinks}
+              </Group>
+            </Box>
+          </MediaQuery>
+        </>
       }>
       <Routes>
         <Route path="/" element={<Home />} />

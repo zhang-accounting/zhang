@@ -8,8 +8,8 @@ use crate::core::data::{
 };
 use crate::core::ledger::Ledger;
 use crate::core::models::{Directive, Flag, SingleTotalPrice, StringOrAccount, ZhangString};
+use crate::core::utils::string_::escape_with_quote;
 use crate::target::ZhangTarget;
-use crate::utils::escape_with_quote;
 
 fn append_meta(meta: Meta, string: String) -> String {
     let mut metas = meta.to_target().into_iter().map(|it| format!("  {}", it)).collect_vec();

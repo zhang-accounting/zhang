@@ -1,62 +1,66 @@
-import { useQuery } from '@apollo/client';
-import { Button, Grid, ScrollArea, Table, Title } from '@mantine/core';
-import { useEffect, useState } from 'react';
+import {Grid, Pagination, ScrollArea, Table, Title} from '@mantine/core';
+import {useLocalStorage, useMediaQuery} from '@mantine/hooks';
+import {useState} from 'react';
+import useSWR from 'swr';
+import {fetcher} from '..';
 import JournalLine from '../components/JournalLine';
 import JournalPreview from '../components/journalPreview/JournalPreview';
-import { JouralListQuery, JournalItem, JOURNAL_LIST } from '../gql/jouralList';
+import {JournalItem, Pageable} from '../rest-model';
+
 function Journals() {
-  const [existedData, setExistedData] = useState<{ [page: string]: JournalItem[] }>({});
-
+  const [layout] = useLocalStorage({ key: `journal-list-layout`, defaultValue: 'Smart' });
+  const isWeb = useMediaQuery('(min-width: 768px)');
   const [page, setPage] = useState(1);
-
-  const { loading, error, data } = useQuery<JouralListQuery>(JOURNAL_LIST, { variables: { page: page } });
+  const { data, error } = useSWR<Pageable<JournalItem>>(`/api/journals?page=${page}`, fetcher);
   const [selectedJournal, setSelectedJournal] = useState<JournalItem | undefined>(undefined);
-  useEffect(() => {
-    if (data?.journals) {
-      setExistedData((olddata) => {
-        const newExitedData = { ...olddata };
-        newExitedData[data?.journals.pageInfo.page.toString()] = data?.journals.data || [];
-        return newExitedData;
-      });
-    }
-  }, [data, loading, error]);
 
-  const onMoreButtonClick = () => {
-    setPage(page + 1);
-  };
-  const journals = Object.keys(existedData)
-    .map((page) => parseInt(page))
-    .sort()
-    .flatMap((page: number) => existedData[page]);
+  if (error) return <div>failed to load</div>;
+  if (!data) return <>loading</>;
+  const {total_page, records, current_page}  = data;
 
+  const journalItems = (
+    <>
+      <Title order={2}>{records.length} Journals</Title>
+      <Table verticalSpacing="xs" highlightOnHover>
+        <thead>
+          <tr>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((journal) => (
+            <JournalLine key={journal.id} data={journal} onClick={setSelectedJournal} />
+          ))}
+        </tbody>
+      </Table>
+      <Pagination mt="xs" total={total_page} page={current_page} onChange={setPage} position="center" />
+    </>
+  );
   return (
-    <Grid>
-      <Grid.Col span={6}>
-        <ScrollArea style={{ height: 'calc(100vh - 2 * var(--mantine-spacing-xs, 16px))' }} offsetScrollbars type="always">
-          <Title order={2}>{journals.length} Journals</Title>
-          <Table verticalSpacing="xs" highlightOnHover>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th style={{}}>Payee & Narration</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {journals.map((journal, idx) => (
-                <JournalLine key={idx} data={journal} onClick={setSelectedJournal} />
-              ))}
-            </tbody>
-          </Table>
-          <Button onClick={onMoreButtonClick}>Fetch More</Button>
-        </ScrollArea>
-      </Grid.Col>
-      <Grid.Col span={6}>
-        <ScrollArea style={{ height: 'calc(100vh - 2 * var(--mantine-spacing-xs, 16px))' }}>
-          <JournalPreview data={selectedJournal} />
-        </ScrollArea>
-      </Grid.Col>
-    </Grid>
+    <>
+      {layout === 'Smart' ? (
+        <Grid>
+          {isWeb ? (
+            <>
+              <Grid.Col span={6}>
+                <ScrollArea style={{ height: 'calc(100vh - 2 * var(--mantine-spacing-xs, 16px))' }} offsetScrollbars type="always">
+                  {journalItems}
+                </ScrollArea>
+              </Grid.Col>
+              <Grid.Col span={6}>
+                <ScrollArea style={{ height: 'calc(100vh - 2 * var(--mantine-spacing-xs, 16px))' }}>
+                  <JournalPreview data={selectedJournal} />
+                </ScrollArea>
+              </Grid.Col>
+            </>
+          ) : (
+            <>{journalItems}</>
+          )}
+        </Grid>
+      ) : (
+        <div>table view</div>
+      )}
+    </>
   );
 }
 
