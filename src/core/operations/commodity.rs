@@ -1,4 +1,4 @@
-use crate::core::data::{Commodity, CommodityDetail};
+use crate::core::data::CommodityDetail;
 use crate::error::ZhangResult;
 use sqlx::SqliteConnection;
 

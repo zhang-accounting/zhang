@@ -1,7 +1,7 @@
 use std::cmp::min;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::Write;
 use std::iter::FromIterator;
 use std::ops::{Add, AddAssign, Div};
 use std::path::PathBuf;
@@ -16,7 +16,7 @@ use actix_web::web::{Data, Json, Path, Query};
 use actix_web::{get, post, put, web, HttpRequest, HttpResponse, Responder};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
-use futures_util::{StreamExt, TryStreamExt};
+use futures_util::StreamExt;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use log::info;
@@ -603,7 +603,7 @@ pub async fn upload_transaction_document(
         );
         create_folder_if_not_exist(&buf);
         let mut f = File::create(&buf).expect("Unable to create file");
-        while let Some(mut chunk) = field.next().await {
+        while let Some(chunk) = field.next().await {
             let data = chunk.unwrap();
             f.write_all(&data).expect("cannot wirte content");
         }
@@ -737,7 +737,7 @@ pub async fn upload_account_document(
         );
         create_folder_if_not_exist(&buf);
         let mut f = File::create(&buf).expect("Unable to create file");
-        while let Some(mut chunk) = field.next().await {
+        while let Some(chunk) = field.next().await {
             let data = chunk.unwrap();
             f.write_all(&data).expect("cannot wirte content");
         }
