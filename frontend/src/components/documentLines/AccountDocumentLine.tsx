@@ -14,16 +14,18 @@ export default function AccountDocumentLine(props: Props) {
 
     const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
     const openPreviewModal = () => {
-        openContextModal({
-            modal: 'documentPreviewModal',
-            title: props.filename,
-            size:"lg",
-            centered: true,
-            innerProps: {
-                filename: props.filename,
-                path: props.path,
-            },
-        })
+        if (canPreview) {
+            openContextModal({
+                modal: 'documentPreviewModal',
+                title: props.filename,
+                size:"lg",
+                centered: true,
+                innerProps: {
+                    filename: props.filename,
+                    path: props.path,
+                },
+            })
+        }
     }
     return (
         <Card shadow="sm" p="xs" radius="sm" withBorder onClick={openPreviewModal}>
