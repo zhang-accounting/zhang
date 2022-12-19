@@ -256,7 +256,7 @@ impl Ledger {
 
     pub async fn reload(&mut self) -> ZhangResult<()> {
         let (entry, endpoint) = &mut self.entry;
-        let reload_ledger = Ledger::load(entry.clone(), endpoint.clone()).await?;
+        let reload_ledger = Ledger::load_with_database(entry.clone(), endpoint.clone(), self.database.clone()).await?;
         *self = reload_ledger;
         Ok(())
     }

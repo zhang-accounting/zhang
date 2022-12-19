@@ -1,5 +1,6 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::Arc;
+use std::time::Instant;
 
 use actix_cors::Cors;
 use actix_web::web::Data;
@@ -74,9 +75,12 @@ pub async fn serve(opts: ServerOpts) -> ZhangResult<()> {
                         debug!("gotcha event, start reloading...");
                         let mut guard = cloned_ledger.write().await;
                         debug!("watcher: got the lock");
+                        info!("receive file event and reload ledger: {:?}", event);
+                        let start_time = Instant::now();
                         match guard.reload().await {
                             Ok(_) => {
-                                info!("reloaded")
+                                let duration = start_time.elapsed();
+                                info!("ledger is reloaded successfully in {:?}", duration);
                             }
                             Err(err) => {
                                 error!("error on reload: {}", err)
