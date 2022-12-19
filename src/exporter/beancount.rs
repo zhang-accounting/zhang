@@ -2,8 +2,7 @@ use std::path::PathBuf;
 
 use crate::core::data::{Balance, Date};
 use crate::core::ledger::Ledger;
-use crate::core::models::Directive;
-use crate::core::models::ZhangString;
+use crate::core::models::{Directive, ZhangString};
 use crate::error::{IoErrorIntoZhangError, ZhangResult};
 use crate::target::ZhangTarget;
 

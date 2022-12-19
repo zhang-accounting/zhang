@@ -7,12 +7,12 @@ use indexmap::IndexSet;
 use itertools::Itertools;
 
 use crate::core::account::Account;
-use crate::core::AccountName;
 use crate::core::amount::Amount;
 use crate::core::ledger::LedgerErrorType;
 use crate::core::models::{Flag, SingleTotalPrice, StringOrAccount, ZhangString};
 use crate::core::utils::inventory::{AmountLotPair, Inventory, LotInfo};
 use crate::core::utils::multi_value_map::MultiValueMap;
+use crate::core::AccountName;
 use sqlx::FromRow;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
@@ -68,7 +68,7 @@ pub struct CommodityDetail {
     pub precision: i32,
     pub prefix: Option<String>,
     pub suffix: Option<String>,
-    pub rounding: Option<String>
+    pub rounding: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]

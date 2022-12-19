@@ -11,9 +11,9 @@ impl CommodityOperation {
                 select * from commodities where name = $1
                 "#,
         )
-            .bind(name)
-            .fetch_optional(conn)
-            .await?;
+        .bind(name)
+        .fetch_optional(conn)
+        .await?;
         Ok(option)
     }
 }

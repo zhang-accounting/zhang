@@ -861,7 +861,6 @@ mod test {
         use crate::core::ledger::Ledger;
         use indoc::indoc;
 
-
         #[tokio::test]
         async fn should_generate_default_commodity_for_operating_commodity() {
             let ledger = Ledger::load_from_str(indoc! {r#"
@@ -887,8 +886,8 @@ mod test {
                     1970-01-01 commodity CNY
                       precision: 3
                 "#})
-                .await
-                .unwrap();
+            .await
+            .unwrap();
             let mut conn = ledger.connection().await;
             assert_eq!(ledger.options.operating_currency, "CNY");
 

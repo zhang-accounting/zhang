@@ -100,7 +100,10 @@ impl DirectiveProcess for Options {
     async fn process(
         &mut self, ledger: &mut Ledger, context: &mut ProcessContext, _span: &SpanInfo,
     ) -> ZhangResult<()> {
-        ledger.options.parse(self.key.as_str(), self.value.as_str(), &mut context.connection).await?;
+        ledger
+            .options
+            .parse(self.key.as_str(), self.value.as_str(), &mut context.connection)
+            .await?;
         ledger
             .configs
             .insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());

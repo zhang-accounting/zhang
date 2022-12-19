@@ -19,7 +19,6 @@ impl Options {
         let key = key.into();
         match key.as_str() {
             "operating_currency" => {
-
                 let precision = self.default_balance_tolerance_precision;
                 let prefix: Option<String> = None;
                 let suffix: Option<String> = None;

@@ -989,7 +989,9 @@ pub async fn update_file_content(
 }
 
 #[get("api/errors")]
-pub async fn get_errors(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<LedgerError>> {
+pub async fn get_errors(
+    ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>,
+) -> ApiResult<Pageable<LedgerError>> {
     let ledger = ledger.read().await;
     let total_count = ledger.errors.len();
     let ret = ledger

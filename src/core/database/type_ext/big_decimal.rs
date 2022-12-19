@@ -2,11 +2,11 @@ use std::ops::Deref;
 
 use bigdecimal::{BigDecimal, FromPrimitive};
 use serde::{Deserialize, Serialize};
-use sqlx::{Database, Decode, Encode, Sqlite};
 use sqlx::database::{HasArguments, HasValueRef};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::sqlite::SqliteTypeInfo;
+use sqlx::{Database, Decode, Encode, Sqlite};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ZhangBigDecimal(pub BigDecimal);

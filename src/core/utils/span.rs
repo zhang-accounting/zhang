@@ -1,7 +1,7 @@
+use serde::Serialize;
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::path::PathBuf;
-use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SpanInfo {
