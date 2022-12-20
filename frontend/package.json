@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-    "@apollo/client": "^3.5.10",
     "@emotion/react": "^11.9.0",
     "@emotion/styled": "^11.8.1",
     "@mantine/core": "^5.3.0",
@@ -13,14 +12,6 @@
     "@mantine/modals": "^5.9.3",
     "@reduxjs/toolkit": "^1.9.0",
     "@tabler/icons": "^1.95.1",
-    "@testing-library/jest-dom": "^5.16.4",
-    "@testing-library/react": "^12.1.4",
-    "@testing-library/user-event": "^13.5.0",
-    "@types/jest": "^27.4.1",
-    "@types/node": "^16.11.26",
-    "@types/react": "^17.0.44",
-    "@types/react-dom": "^17.0.15",
-    "@uiw/react-codemirror": "^4.5.3",
     "axios": "^1.2.0",
     "bignumber.js": "^9.1.0",
     "buffer": "^6.0.3",
@@ -76,6 +67,13 @@
     "@types/lodash-es": "^4.17.6",
     "eslint-config-prettier": "^8.5.0",
     "prettier": "^2.7.1",
-    "source-map-explorer": "^2.5.3"
+    "source-map-explorer": "^2.5.3",
+    "@testing-library/jest-dom": "^5.16.4",
+    "@testing-library/react": "^12.1.4",
+    "@testing-library/user-event": "^13.5.0",
+    "@types/jest": "^27.4.1",
+    "@types/node": "^16.11.26",
+    "@types/react": "^17.0.44",
+    "@types/react-dom": "^17.0.15"
   }
 }

@@ -1,5 +1,4 @@
-import {Button, Group, Modal, Pagination, Stack, Text} from '@mantine/core';
-import CodeMirror from '@uiw/react-codemirror';
+import {Button, Group, Modal, Pagination, Stack, Text, Textarea} from '@mantine/core';
 import {useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import useSWR from "swr";
@@ -47,12 +46,10 @@ export default function ErrorBox() {
                 onClose={() => setIsOpen(false)}
                 title={`${selectError?.span.filename}:${selectError?.span.start}:${selectError?.span.end}`}>
                 <Text>{t(selectError?.error.type || "")}</Text>
-                <CodeMirror
+                <Textarea
                     value={selectErrorContent}
-                    height="20vh"
-                    width="100%"
-                    onChange={(value) => {
-                        setSelectErrorContent(value);
+                    onChange={event => {
+                        setSelectErrorContent(event.target.value);
                     }}
                 />
                 <Group position="right">
