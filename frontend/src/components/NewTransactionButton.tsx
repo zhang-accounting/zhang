@@ -45,7 +45,6 @@ export default function NewTransactionButton() {
     const [payeeSelectItems, payeeSelectItemsHandler] = useListState<SelectItem>([]);
 
     useEffect(() => {
-        const strings = data?.payee ??[];
         const payeeSelectItems: SelectItem[] = (data?.payee ??[]).map(item => {
             return {
                 label: item,
@@ -53,7 +52,7 @@ export default function NewTransactionButton() {
             };
         });
         payeeSelectItemsHandler.setState(payeeSelectItems);
-    }, [data])
+    }, [data, payeeSelectItemsHandler])
 
     const preview = (): string => {
         const dateDisplay = format(date || 0, dateOnly ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm:ss');
