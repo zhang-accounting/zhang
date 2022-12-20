@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use bigdecimal::{BigDecimal, FromPrimitive};
+use bigdecimal::{BigDecimal, FromPrimitive, Zero};
 use chrono::NaiveDateTime;
 use serde::Deserialize;
 use sqlx::{Acquire, FromRow, SqliteConnection};
@@ -15,11 +15,12 @@ use crate::core::models::{Flag, Rounding, ZhangString};
 use crate::core::utils::inventory::LotInfo;
 use crate::core::utils::span::SpanInfo;
 use crate::core::AccountName;
+use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::error::ZhangResult;
 
 #[derive(Debug, Deserialize, FromRow)]
 struct AccountAmount {
-    number: f64,
+    number: ZhangBigDecimal,
     commodity: String,
 }
 
@@ -264,13 +265,11 @@ impl DirectiveProcess for Transaction {
             .fetch_optional(&mut context.connection)
             .await?;
             let previous = option.unwrap_or(AccountAmount {
-                number: 0f64,
+                number: ZhangBigDecimal(BigDecimal::zero()),
                 commodity: inferred_amount.currency.clone(),
             });
 
-            let after_number = BigDecimal::from_f64(previous.number)
-                .unwrap()
-                .add(&inferred_amount.number);
+            let after_number = (&previous.number.0).add(&inferred_amount.number);
 
             sqlx::query(r#"INSERT INTO transaction_postings
                                (trx_id, account, unit_number, unit_commodity, cost_number, cost_commodity, inferred_unit_number, inferred_unit_commodity,
@@ -354,8 +353,7 @@ impl DirectiveProcess for Balance {
                 .bind(&balance_check.amount.currency)
                 .fetch_optional(&mut context.connection)
                 .await?;
-                let current_balance_amount = option.map(|it| it.number).unwrap_or(0f64);
-                let current_balance_amount = BigDecimal::from_f64(current_balance_amount).unwrap();
+                let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(||BigDecimal::zero());
 
                 if current_balance_amount.ne(&balance_check.amount.number) {
                     let distance = Amount::new(
@@ -399,8 +397,7 @@ impl DirectiveProcess for Balance {
                 .bind(&balance_pad.amount.currency)
                 .fetch_optional(&mut context.connection)
                 .await?;
-                let current_balance_amount = option.map(|it| it.number).unwrap_or(0f64);
-                let current_balance_amount = BigDecimal::from_f64(current_balance_amount).unwrap();
+                let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(||BigDecimal::zero());
 
                 let distance = Amount::new(
                     (&balance_pad.amount.number).sub(&current_balance_amount),
