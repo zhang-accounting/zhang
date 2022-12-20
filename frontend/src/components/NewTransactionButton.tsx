@@ -1,6 +1,6 @@
 import { useDisclosure, useListState, useMediaQuery } from '@mantine/hooks';
 import { format } from 'date-fns';
-import { useState } from 'react';
+import {useEffect, useState} from 'react';
 // @ts-ignore
 import { ActionIcon, Button, Code, Container, Divider, Grid, Group, Modal, Select, TextInput } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
@@ -35,12 +35,25 @@ export default function NewTransactionButton() {
     const [date, setDate] = useState<Date | null>(new Date());
     const [payee, setPayee] = useState<string | null>(null);
     const [narration, setNarration] = useState('');
-    const [postings, postingsHander] = useListState<Posting>([
+    const [postings, postingsHandler] = useListState<Posting>([
         {account: null, amount: ''},
         {account: null, amount: ''},
     ]);
 
     const [metas, metaHandler] = useListState<{ key: string, value: string }>([]);
+
+    const [payeeSelectItems, payeeSelectItemsHandler] = useListState<SelectItem>([]);
+
+    useEffect(() => {
+        const strings = data?.payee ??[];
+        const payeeSelectItems: SelectItem[] = (data?.payee ??[]).map(item => {
+            return {
+                label: item,
+                value: item,
+            };
+        });
+        payeeSelectItemsHandler.setState(payeeSelectItems);
+    }, [data])
 
     const preview = (): string => {
         const dateDisplay = format(date || 0, dateOnly ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm:ss');
@@ -55,6 +68,11 @@ export default function NewTransactionButton() {
             postings.filter((posting) => posting.amount.trim().length === 0).length <= 1;
     };
 
+    const onPayeeCreate = (query: string) => {
+        const newPayee = {label: query, value: query};
+        payeeSelectItemsHandler.append(newPayee);
+        return newPayee
+    }
     const onCreate = () => {
         axios.post(`/api/transactions`, {
             datetime: date?.toISOString(),
@@ -76,7 +94,7 @@ export default function NewTransactionButton() {
                 setDate(new Date());
                 setPayee(null);
                 setNarration('');
-                postingsHander.setState([
+                postingsHandler.setState([
                     {account: null, amount: ''},
                     {account: null, amount: ''},
                 ]);
@@ -89,12 +107,7 @@ export default function NewTransactionButton() {
     if (error) return <div>failed to load</div>
     if (!data) return <div>loading...</div>
 
-    const payeeSelectItems: SelectItem[] = data.payee.map(item => {
-        return {
-            label: item,
-            value: item,
-        };
-    })
+
 
     const accountItems = (data.account_name).map((singleAccountName) => {
         const type = singleAccountName.split(':')[0];
@@ -125,7 +138,8 @@ export default function NewTransactionButton() {
                                 value={payee}
                                 searchable
                                 creatable
-                                getCreateLabel={(query) => `+ Create ${query}`}
+                                getCreateLabel={(query) => `Create ${query}`}
+                                onCreate={onPayeeCreate}
                                 onChange={setPayee}
                             />
                         </Grid.Col>
@@ -136,7 +150,7 @@ export default function NewTransactionButton() {
                     </Grid>
 
                     <DividerWithAction value="Postings" icon={<IconTextPlus/>}
-                                       onActionClick={() => postingsHander.append({
+                                       onActionClick={() => postingsHandler.append({
                                            account: null,
                                            amount: ''
                                        })}></DividerWithAction>
@@ -145,14 +159,14 @@ export default function NewTransactionButton() {
                         <Grid align="center" key={idx}>
                             <Grid.Col span={8}>
                                 <Select searchable placeholder="Account" data={accountItems} value={posting.account}
-                                        onChange={(e) => postingsHander.setItemProp(idx, "account", e)}/>
+                                        onChange={(e) => postingsHandler.setItemProp(idx, "account", e)}/>
                             </Grid.Col>
                             <Grid.Col span={3}>
                                 <TextInput placeholder="Amount" value={posting.amount}
-                                           onChange={(e) => postingsHander.setItemProp(idx, "amount", e.target.value)}/>
+                                           onChange={(e) => postingsHandler.setItemProp(idx, "amount", e.target.value)}/>
                             </Grid.Col>
                             <Grid.Col span={1}>
-                                <ActionIcon disabled={postings.length <= 2} onClick={() => postingsHander.remove(idx)}>
+                                <ActionIcon disabled={postings.length <= 2} onClick={() => postingsHandler.remove(idx)}>
                                     <IconTrashX/>
                                 </ActionIcon>
                             </Grid.Col>
