@@ -1,6 +1,7 @@
 use std::ops::Deref;
+use std::str::FromStr;
 
-use bigdecimal::{BigDecimal, FromPrimitive};
+use bigdecimal::BigDecimal;
 use serde::{Deserialize, Serialize};
 use sqlx::database::{HasArguments, HasValueRef};
 use sqlx::encode::IsNull;
@@ -21,11 +22,11 @@ impl Deref for ZhangBigDecimal {
 
 impl<'r, DB: Database> Decode<'r, DB> for ZhangBigDecimal
 where
-    f64: Decode<'r, DB>,
+    String: Decode<'r, DB>,
 {
     fn decode(value: <DB as HasValueRef<'r>>::ValueRef) -> Result<Self, BoxDynError> {
-        let value = <f64 as Decode<DB>>::decode(value)?;
-        Ok(ZhangBigDecimal(BigDecimal::from_f64(value).unwrap()))
+        let value = <String as Decode<DB>>::decode(value)?;
+        Ok(ZhangBigDecimal(BigDecimal::from_str(&value).unwrap()))
     }
 }
 impl<'q, DB: Database> Encode<'q, DB> for ZhangBigDecimal
