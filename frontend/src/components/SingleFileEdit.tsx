@@ -3,7 +3,7 @@ import axios from 'axios';
 import {Buffer} from 'buffer';
 import {useEffect, useState} from 'react';
 import useSWR, {useSWRConfig} from 'swr';
-import {fetcher} from '..';
+import {fetcher, serverBaseUrl} from '..';
 
 interface Props {
     name?: string;
@@ -17,7 +17,7 @@ export default function SingleFileEdit({path}: Props) {
     const {data, error} = useSWR<{ content: string, path: string }>(`/api/files/${encodedPath}`, fetcher)
 
     const onUpdate = () => {
-        axios.put(`/api/files/${encodedPath}`, {
+        axios.put(`${serverBaseUrl}/api/files/${encodedPath}`, {
             content: content,
         })
             .then(function (response) {
