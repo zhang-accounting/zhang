@@ -42,17 +42,17 @@ export default function NewTransactionButton() {
 
     const [metas, metaHandler] = useListState<{ key: string, value: string }>([]);
 
-    const [payeeSelectItems, payeeSelectItemsHandler] = useListState<SelectItem>([]);
+    const [payeeSelectItems, setPayeeSelectItems] = useState<SelectItem[]>([]);
 
     useEffect(() => {
-        const payeeSelectItems: SelectItem[] = (data?.payee ??[]).map(item => {
+        const newPayeeSelectItems: SelectItem[] = (data?.payee ??[]).map(item => {
             return {
                 label: item,
                 value: item,
             };
         });
-        payeeSelectItemsHandler.setState(payeeSelectItems);
-    }, [data, payeeSelectItemsHandler])
+        setPayeeSelectItems(newPayeeSelectItems);
+    }, [data, setPayeeSelectItems])
 
     const preview = (): string => {
         const dateDisplay = format(date || 0, dateOnly ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm:ss');
@@ -69,7 +69,7 @@ export default function NewTransactionButton() {
 
     const onPayeeCreate = (query: string) => {
         const newPayee = {label: query, value: query};
-        payeeSelectItemsHandler.append(newPayee);
+        setPayeeSelectItems([...payeeSelectItems, newPayee]);
         return newPayee
     }
     const onCreate = () => {
