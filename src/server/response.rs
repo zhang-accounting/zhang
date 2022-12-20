@@ -277,3 +277,9 @@ pub struct ReportRankItemResponse {
     pub account: String,
     pub percent: ZhangBigDecimal,
 }
+
+#[derive(Serialize)]
+pub struct BasicInfo {
+    pub version: String,
+    pub build_date: String,
+}

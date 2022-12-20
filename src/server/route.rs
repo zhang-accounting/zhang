@@ -40,7 +40,7 @@ use crate::server::request::{
     AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest,
 };
 use crate::server::response::{
-    AccountJournalItem, AccountResponse, AmountResponse, CommodityDetailResponse, CommodityListItemResponse,
+    AccountJournalItem, AccountResponse, AmountResponse, BasicInfo, CommodityDetailResponse, CommodityListItemResponse,
     CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse,
     InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
     JournalTransactionPostingResponse, MetaResponse, Pageable, ReportRankItemResponse, ReportResponse, ResponseWrapper,
@@ -107,6 +107,14 @@ pub async fn get_transaction_links(trx_id: &str, conn: &mut SqliteConnection) ->
     Ok(rows.into_iter().map(|it| it.value).collect_vec())
 }
 
+#[get("/api/info")]
+pub async fn get_basic_info() -> ApiResult<BasicInfo> {
+    ResponseWrapper::json(BasicInfo {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        build_date: env!("ZHANG_BUILD_DATE").to_string(),
+    })
+}
+
 // todo rename api
 #[get("/api/for-new-transaction")]
 pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<InfoForNewTransaction> {
@@ -138,7 +146,11 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
     .await?;
 
     ResponseWrapper::json(InfoForNewTransaction {
-        payee: payees.into_iter().map(|it| it.payee).filter(|it| !it.is_empty()).collect_vec(),
+        payee: payees
+            .into_iter()
+            .map(|it| it.payee)
+            .filter(|it| !it.is_empty())
+            .collect_vec(),
         account_name: account_names.into_iter().map(|it| it.name).collect_vec(),
     })
 }
