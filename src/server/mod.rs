@@ -39,6 +39,7 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
 }
 
 pub async fn serve(opts: ServerOpts) -> ZhangResult<()> {
+    info!("version: {}, build date: {}", env!("CARGO_PKG_VERSION"), env!("ZHANG_BUILD_DATE"));
     let database = opts.database.clone().unwrap_or_else(|| opts.path.join("data.db"));
     let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), database).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
