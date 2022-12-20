@@ -138,7 +138,7 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
     .await?;
 
     ResponseWrapper::json(InfoForNewTransaction {
-        payee: payees.into_iter().map(|it| it.payee).collect_vec(),
+        payee: payees.into_iter().map(|it| it.payee).filter(|it| !it.is_empty()).collect_vec(),
         account_name: account_names.into_iter().map(|it| it.name).collect_vec(),
     })
 }
