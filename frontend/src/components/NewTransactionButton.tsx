@@ -10,6 +10,7 @@ import useSWR from 'swr';
 import { fetcher } from '..';
 import { InfoForNewTransaction } from '../rest-model';
 import DividerWithAction from './basic/DividerWithAction';
+import {useTranslation} from "react-i18next";
 
 interface Posting {
     account: string | null;
@@ -23,6 +24,7 @@ interface SelectItem {
 }
 
 export default function NewTransactionButton() {
+    const {t} = useTranslation();
     const {data, error} = useSWR<InfoForNewTransaction>("/api/for-new-transaction", fetcher);
 
 
@@ -137,7 +139,7 @@ export default function NewTransactionButton() {
                                 value={payee}
                                 searchable
                                 creatable
-                                getCreateLabel={(query) => `Create ${query}`}
+                                getCreateLabel={(query) => `${t("NEW_TRANSACTION_PAYEE_CREATE")} ${query}`}
                                 onCreate={onPayeeCreate}
                                 onChange={setPayee}
                             />

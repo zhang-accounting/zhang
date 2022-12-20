@@ -6,6 +6,8 @@
     "CURRENT_MONTH_EXPENSE":"Monthly Expenses",
     "RESET": "Reset",
 
+    "NEW_TRANSACTION_PAYEE_CREATE": "Create",
+
     "NAV_HOME": "Home",
     "NAV_JOURNALS": "Journals",
     "NAV_ACCOUNTS": "Accounts",
