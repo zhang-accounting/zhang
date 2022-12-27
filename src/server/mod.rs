@@ -7,9 +7,9 @@ use actix_web::web::Data;
 use actix_web::{web, App, HttpServer};
 use log::{debug, error, info};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use serde::Serialize;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
-use serde::Serialize;
 
 use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
@@ -101,21 +101,23 @@ pub async fn serve(opts: ServerOpts) -> ZhangResult<()> {
         }
     });
 
-    tokio::spawn(async {
-        let mut report_interval = tokio::time::interval(Duration::from_secs(60 * 60));
-        info!("start zhang's version report task");
-        loop {
-            report_interval.tick().await;
-            match version_report_task().await {
-                Ok(_) => {
-                    debug!("report zhang's version successfully");
-                }
-                Err(e) => {
-                    debug!("fail to report zhang's version: {}", e);
+    if !opts.no_report {
+        tokio::spawn(async {
+            let mut report_interval = tokio::time::interval(Duration::from_secs(60 * 60));
+            info!("start zhang's version report task");
+            loop {
+                report_interval.tick().await;
+                match version_report_task().await {
+                    Ok(_) => {
+                        debug!("report zhang's version successfully");
+                    }
+                    Err(e) => {
+                        debug!("fail to report zhang's version: {}", e);
+                    }
                 }
             }
-        }
-    });
+        });
+    }
     start_server(opts, ledger_data).await
 }
 
@@ -158,16 +160,18 @@ async fn version_report_task() -> ZhangResult<()> {
     #[derive(Serialize)]
     struct VersionReport<'a> {
         version: &'a str,
-        build_date: &'a str
+        build_date: &'a str,
     }
     debug!("reporting zhang's version");
     let client = reqwest::Client::new();
-    client.post("https://zhang.resource.rs")
+    client
+        .post("https://zhang.resource.rs")
         .json(&VersionReport {
             version: env!("CARGO_PKG_VERSION"),
             build_date: env!("ZHANG_BUILD_DATE"),
         })
         .timeout(Duration::from_secs(10))
-        .send().await?;
+        .send()
+        .await?;
     Ok(())
 }

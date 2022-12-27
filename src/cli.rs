@@ -67,6 +67,10 @@ pub struct ServerOpts {
     /// indicate cache database file path
     #[clap(long)]
     pub database: Option<PathBuf>,
+
+    /// whether the server report version info for anonymous statistics
+    #[clap(long)]
+    pub no_report: bool,
 }
 
 impl Opts {
