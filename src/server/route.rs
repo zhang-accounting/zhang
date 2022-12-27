@@ -51,7 +51,7 @@ use crate::target::ZhangTarget;
 pub type ApiResult<T> = ZhangResult<ResponseWrapper<T>>;
 
 pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
-    std::fs::create_dir_all(&filename.parent().unwrap()).expect("cannot create folder recursive");
+    std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
 }
 
 #[derive(FromRow)]
@@ -187,8 +187,8 @@ pub async fn get_statistic_data(
             inferred_unit_commodity
     "#,
     )
-    .bind(&params.from.naive_local())
-    .bind(&params.to.naive_local())
+    .bind(params.from.naive_local())
+    .bind(params.to.naive_local())
     .fetch_all(&mut connection)
     .await?;
     let mut ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
@@ -232,7 +232,7 @@ pub async fn get_statistic_data(
             max(datetime)
     "#,
     )
-    .bind(&params.from.naive_local())
+    .bind(params.from.naive_local())
     .fetch_all(&mut connection)
     .await?;
 
@@ -261,8 +261,8 @@ pub async fn get_statistic_data(
     where datetime >= $1 and datetime <= $2
     "#,
     )
-    .bind(&params.from.naive_local())
-    .bind(&params.to.naive_local())
+    .bind(params.from.naive_local())
+    .bind(params.to.naive_local())
     .fetch_all(&mut connection)
     .await?;
 
@@ -619,7 +619,7 @@ pub async fn upload_transaction_document(
             let data = chunk.unwrap();
             f.write_all(&data).expect("cannot wirte content");
         }
-        let path = match buf.strip_prefix(&entry) {
+        let path = match buf.strip_prefix(entry) {
             Ok(relative_path) => relative_path.to_str().unwrap(),
             Err(_) => buf.to_str().unwrap(),
         };
@@ -754,7 +754,7 @@ pub async fn upload_account_document(
             let data = chunk.unwrap();
             f.write_all(&data).expect("cannot wirte content");
         }
-        let path = match buf.strip_prefix(&entry) {
+        let path = match buf.strip_prefix(entry) {
             Ok(relative_path) => relative_path.to_str().unwrap(),
             Err(_) => buf.to_str().unwrap(),
         };

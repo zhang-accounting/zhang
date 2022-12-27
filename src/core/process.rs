@@ -312,9 +312,9 @@ impl DirectiveProcess for Transaction {
                 r#"INSERT INTO documents (datetime, filename, path, extension, trx_id) VALUES ($1, $2, $3, $4, $5);"#,
             )
             .bind(self.date.naive_datetime())
-            .bind(&document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
+            .bind(document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
             .bind(&document_path)
-            .bind(&extension)
+            .bind(extension)
             .bind(&id)
             .execute(&mut context.connection)
             .await?;
@@ -461,9 +461,9 @@ impl DirectiveProcess for Document {
             r#"INSERT INTO documents (datetime, filename, path, extension, account) VALUES ($1, $2, $3, $4, $5);"#,
         )
         .bind(self.date.naive_datetime())
-        .bind(&document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
+        .bind(document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
         .bind(&path)
-        .bind(&extension)
+        .bind(extension)
         .bind(self.account.name())
         .execute(&mut context.connection)
         .await?;
@@ -579,7 +579,7 @@ async fn lot_add(
                     )
                     .bind(&account_name)
                     .bind(&amount.currency)
-                    .bind(&lot.price_amount)
+                    .bind(lot.price_amount)
                     .bind(&lot.price_commodity)
                     .execute(&mut trx)
                     .await?;
