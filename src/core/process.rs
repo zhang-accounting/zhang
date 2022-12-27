@@ -10,12 +10,12 @@ use sqlx::{Acquire, FromRow, SqliteConnection};
 
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Posting, Price, Transaction};
+use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::core::ledger::{Ledger, LedgerError, LedgerErrorType};
 use crate::core::models::{Flag, Rounding, ZhangString};
 use crate::core::utils::inventory::LotInfo;
 use crate::core::utils::span::SpanInfo;
 use crate::core::AccountName;
-use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::error::ZhangResult;
 
 #[derive(Debug, Deserialize, FromRow)]
@@ -353,7 +353,7 @@ impl DirectiveProcess for Balance {
                 .bind(&balance_check.amount.currency)
                 .fetch_optional(&mut context.connection)
                 .await?;
-                let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(||BigDecimal::zero());
+                let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
 
                 if current_balance_amount.ne(&balance_check.amount.number) {
                     let distance = Amount::new(
@@ -397,7 +397,7 @@ impl DirectiveProcess for Balance {
                 .bind(&balance_pad.amount.currency)
                 .fetch_optional(&mut context.connection)
                 .await?;
-                let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(||BigDecimal::zero());
+                let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
 
                 let distance = Amount::new(
                     (&balance_pad.amount.number).sub(&current_balance_amount),
@@ -439,7 +439,7 @@ impl DirectiveProcess for Balance {
 
                 transformed_trx.process(ledger, context, span).await?;
 
-                let _neg_distance = (&distance).neg();
+                let _neg_distance = distance.neg();
             }
         }
 

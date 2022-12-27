@@ -13,7 +13,12 @@ use tokio::sync::RwLock;
 use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
-use crate::server::route::{create_account_balance, create_new_transaction, current_statistic, download_document, get_account_documents, get_account_journals, get_account_list, get_all_commodities, get_basic_info, get_documents, get_errors, get_file_content, get_files, get_info_for_new_transactions, get_journals, get_report, get_single_commodity, get_statistic_data, serve_frontend, update_file_content, upload_account_document, upload_transaction_document};
+use crate::server::route::{
+    create_account_balance, create_new_transaction, current_statistic, download_document, get_account_documents,
+    get_account_journals, get_account_list, get_all_commodities, get_basic_info, get_documents, get_errors,
+    get_file_content, get_files, get_info_for_new_transactions, get_journals, get_report, get_single_commodity,
+    get_statistic_data, serve_frontend, update_file_content, upload_account_document, upload_transaction_document,
+};
 
 pub mod request;
 pub mod response;
@@ -39,7 +44,11 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
 }
 
 pub async fn serve(opts: ServerOpts) -> ZhangResult<()> {
-    info!("version: {}, build date: {}", env!("CARGO_PKG_VERSION"), env!("ZHANG_BUILD_DATE"));
+    info!(
+        "version: {}, build date: {}",
+        env!("CARGO_PKG_VERSION"),
+        env!("ZHANG_BUILD_DATE")
+    );
     let database = opts.database.clone().unwrap_or_else(|| opts.path.join("data.db"));
     let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), database).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));

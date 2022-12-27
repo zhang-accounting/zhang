@@ -242,7 +242,7 @@ impl Ledger {
                     let rounding = commodity
                         .and_then(|it| it.rounding)
                         .map(|s| s.eq("RoundUp"))
-                        .unwrap_or(self.options.default_rounding.is_up());
+                        .unwrap_or_else(|| self.options.default_rounding.is_up());
                     let decimal = amount.total.round_with(precision as i64, rounding);
                     if !decimal.is_zero() {
                         return Ok(false);
@@ -287,7 +287,6 @@ impl Ledger {
 //
 #[cfg(test)]
 mod test {
-    use sqlx::SqliteConnection;
     use std::option::Option::None;
 
     use crate::core::models::Directive;
@@ -300,14 +299,14 @@ mod test {
                 $times,
                 sqlx::query($sql).fetch_all($conn).await.unwrap().len(),
                 $reason
-            );
+            )
         };
         ($reason:expr, $sql:expr, $conn:expr) => {
             assert_eq!(
                 1,
                 sqlx::query($sql).fetch_all($conn).await.unwrap().len(),
                 $reason
-            );
+            )
         };
     }
 
@@ -765,13 +764,6 @@ mod test {
     // }
 
     mod daily_inventory {
-        use crate::core::ledger::Ledger;
-        use crate::core::utils::inventory::Inventory;
-        use bigdecimal::BigDecimal;
-        use chrono::NaiveDate;
-        use indoc::indoc;
-        use std::collections::HashMap;
-        use std::sync::Arc;
 
         #[tokio::test]
         async fn should_record_daily_inventory() {

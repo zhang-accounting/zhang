@@ -193,7 +193,7 @@ pub async fn get_statistic_data(
     .await?;
     let mut ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
     for (date, dated_rows) in &rows.into_iter().group_by(|row| row.date) {
-        let date_entry = ret.entry(date).or_insert_with(|| HashMap::new());
+        let date_entry = ret.entry(date).or_insert_with(HashMap::new);
         for row in dated_rows {
             date_entry.insert(
                 row.account_type,
@@ -205,7 +205,7 @@ pub async fn get_statistic_data(
         }
     }
     for day in NaiveDateRange::new(params.from.date().naive_local(), params.to.date().naive_local()) {
-        ret.entry(day).or_insert_with(|| HashMap::new());
+        ret.entry(day).or_insert_with(HashMap::new);
     }
 
     let accounts = sqlx::query_as::<_, ValueRow>("select name as value from accounts")
@@ -268,7 +268,7 @@ pub async fn get_statistic_data(
 
     let mut detail_map: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
     for (date, dated_rows) in &details.into_iter().group_by(|row| row.date) {
-        let date_entry = detail_map.entry(date).or_insert_with(|| HashMap::new());
+        let date_entry = detail_map.entry(date).or_insert_with(HashMap::new);
         for row in dated_rows {
             date_entry.insert(
                 row.account,
@@ -285,7 +285,7 @@ pub async fn get_statistic_data(
     for target_day in NaiveDateRange::new(params.from.date().naive_local(), params.to.date().naive_local()) {
         let mut target_day_ret = HashMap::new();
 
-        let mut target_day_map = detail_map.remove(&target_day).unwrap_or_else(|| HashMap::new());
+        let mut target_day_map = detail_map.remove(&target_day).unwrap_or_default();
         for target_account in &accounts {
             let option = target_day_map.remove(target_account);
             if let Some(target_account_balance) = option {
@@ -296,7 +296,7 @@ pub async fn get_statistic_data(
                 // need to get previous day's balance
                 let balance = existing_balances
                     .get(target_account)
-                    .map(|it| it.clone())
+                    .cloned()
                     .unwrap_or_else(|| AmountResponse {
                         number: ZhangBigDecimal(BigDecimal::zero()),
                         commodity: ledger.options.operating_currency.to_owned(),
@@ -1147,9 +1147,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
 
     let mut counter = HashMap::new();
     for item in &income_transactions {
-        let x = counter
-            .entry(item.account.to_owned())
-            .or_insert_with(|| BigDecimal::zero());
+        let x = counter.entry(item.account.to_owned()).or_insert_with(BigDecimal::zero);
         x.add_assign(&*item.inferred_unit_number);
     }
     let income_rank = counter
@@ -1157,7 +1155,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
         .sorted_by(|a, b| a.1.cmp(&b.1))
         .take(10)
         .map(|(account, account_total)| ReportRankItemResponse {
-            account: account,
+            account,
             percent: ZhangBigDecimal(account_total.div(&total_income)),
         })
         .collect_vec();
@@ -1201,9 +1199,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
 
     let mut counter = HashMap::new();
     for item in &expense_transactions {
-        let x = counter
-            .entry(item.account.to_owned())
-            .or_insert_with(|| BigDecimal::zero());
+        let x = counter.entry(item.account.to_owned()).or_insert_with(BigDecimal::zero);
         x.add_assign(&*item.inferred_unit_number);
     }
     let expense_rank = counter
@@ -1212,7 +1208,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
         .rev()
         .take(10)
         .map(|(account, account_total)| ReportRankItemResponse {
-            account: account,
+            account,
             percent: ZhangBigDecimal(account_total.div(&total_expense)),
         })
         .collect_vec();

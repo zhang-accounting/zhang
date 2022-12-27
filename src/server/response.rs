@@ -39,21 +39,16 @@ impl<T: Serialize> Responder for ResponseWrapper<T> {
                 let json = actix_web::web::Json(wrapper);
                 json.respond_to(req)
             }
-            ResponseWrapper::Created => {
-                let response = HttpResponse::Created()
-                    .message_body(EitherBody::new("".to_string()))
-                    .unwrap();
-                response
-            }
+            ResponseWrapper::Created => HttpResponse::Created()
+                .message_body(EitherBody::new("".to_string()))
+                .unwrap(),
         }
     }
 }
 
 impl ResponseError for ZhangError {
     fn status_code(&self) -> StatusCode {
-        match self {
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        }
+        StatusCode::INTERNAL_SERVER_ERROR
     }
 }
 
