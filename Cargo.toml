@@ -6,7 +6,7 @@ version = "0.0.1-alpha.1"
 authors = ["Kilerd <blove694@gmail.com>"]
 edition = "2018"
 
-build="build.rs"
+build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -41,18 +41,19 @@ notify = "5.0.0"
 futures = "0.3.21"
 now = "0.1.2"
 time = "0.1"
-uuid = {version="1.0.0", features=["v4"]}
+uuid = { version = "1.0.0", features = ["v4"] }
 base64 = "0.13.0"
-sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "sqlite", "chrono", "bigdecimal" ] }
+sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "sqlite", "chrono", "bigdecimal"] }
 tempfile = "3.3.0"
 actix-web = "4"
 actix-multipart = '0.4'
 actix-files = "0.6.2"
 actix-cors = "0.6.4"
+reqwest = { version = "0.11.13", features = ["json"] }
 
 [dev-dependencies]
 indoc = "1.0.3"
 console-subscriber = "0.1.7"
 
 [build-dependencies]
-chrono = { version = "0.4.19", features = ["serde"] }
+chrono = { version = "0.4.19" }

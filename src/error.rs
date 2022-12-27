@@ -32,6 +32,9 @@ pub enum ZhangError {
 
     #[error("databaseError: {0}")]
     DatabaseError(#[from] sqlx::Error),
+
+    #[error("http client error: {0}")]
+    HttpClientError(#[from] reqwest::Error),
 }
 
 pub trait IoErrorIntoZhangError<T> {
