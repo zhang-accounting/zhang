@@ -26,7 +26,7 @@ export default function AccountLine({data, spacing}: Props) {
         <>
             <tr>
                 <td>
-                    <Group spacing="xs">
+                    <div style={{display:"flex"}}>
                         <Space w={spacing * 22}></Space>
                         {hasChildren ? (
                             <ActionIcon size="sm" variant="transparent" onClick={() => setCollapse(!isShow)}>
@@ -51,7 +51,7 @@ export default function AccountLine({data, spacing}: Props) {
                                 </Text>
                             )}
                         </div>
-                    </Group>
+                    </div>
                 </td>
                 <td style={{textAlign: 'end'}}>
                     <Stack spacing="xs">
