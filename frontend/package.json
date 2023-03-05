@@ -21,6 +21,7 @@
     "framer-motion": "^6.2.9",
     "i18next": "^21.8.16",
     "i18next-http-backend": "^1.4.1",
+    "jotai": "^2.0.3",
     "lodash-es": "^4.17.21",
     "react": "^18.0.0",
     "react-chartjs-2": "^4.1.0",
@@ -63,17 +64,17 @@
     ]
   },
   "devDependencies": {
-    "@types/lodash": "^4.14.185",
-    "@types/lodash-es": "^4.17.6",
-    "eslint-config-prettier": "^8.5.0",
-    "prettier": "^2.7.1",
-    "source-map-explorer": "^2.5.3",
     "@testing-library/jest-dom": "^5.16.4",
     "@testing-library/react": "^12.1.4",
     "@testing-library/user-event": "^13.5.0",
     "@types/jest": "^27.4.1",
+    "@types/lodash": "^4.14.185",
+    "@types/lodash-es": "^4.17.6",
     "@types/node": "^16.11.26",
     "@types/react": "^17.0.44",
-    "@types/react-dom": "^17.0.15"
+    "@types/react-dom": "^17.0.15",
+    "eslint-config-prettier": "^8.5.0",
+    "prettier": "^2.7.1",
+    "source-map-explorer": "^2.5.3"
   }
 }

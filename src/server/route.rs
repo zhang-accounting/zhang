@@ -877,7 +877,7 @@ pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult
     let vec = sqlx::query_as::<_, CommodityListItemResponse>(
         r#"
             select commodities.*,
-                   commodity_total_amount.total_amount,
+                   IFNULL(commodity_total_amount.total_amount, 0.00) as total_amount,
                    latest_price.datetime         latest_price_date,
                    latest_price.amount           latest_price_amount,
                    latest_price.target_commodity latest_price_commodity
@@ -909,7 +909,7 @@ pub async fn get_single_commodity(
     let basic_info = sqlx::query_as::<_, CommodityListItemResponse>(
         r#"
             select commodities.*,
-                   commodity_total_amount.total_amount,
+                   IFNULL(commodity_total_amount.total_amount, 0.00) as total_amount,
                    latest_price.datetime         latest_price_date,
                    latest_price.amount           latest_price_amount,
                    latest_price.target_commodity latest_price_commodity
