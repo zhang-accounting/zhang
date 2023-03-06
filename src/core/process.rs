@@ -355,12 +355,11 @@ impl DirectiveProcess for Balance {
                 .await?;
                 let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
 
-                    let distance = Amount::new(
-                        (&balance_check.amount.number).sub(&current_balance_amount),
-                        balance_check.amount.currency.clone(),
-                    );
+                let distance = Amount::new(
+                    (&balance_check.amount.number).sub(&current_balance_amount),
+                    balance_check.amount.currency.clone(),
+                );
                 if !distance.is_zero() {
-
                     ledger.errors.push(LedgerError {
                         span: span.clone(),
                         error: LedgerErrorType::AccountBalanceCheckError {
@@ -376,7 +375,6 @@ impl DirectiveProcess for Balance {
                 check_account_existed(balance_check.account.name(), ledger, span, &mut context.connection).await?;
                 check_account_closed(balance_check.account.name(), ledger, span, &mut context.connection).await?;
 
-
                 let mut transformed_trx = Transaction {
                     date: balance_check.date.clone(),
                     flag: Some(Flag::BalancePad),
@@ -387,22 +385,19 @@ impl DirectiveProcess for Balance {
                     ))),
                     tags: Default::default(),
                     links: Default::default(),
-                    postings: vec![
-                        Posting {
-                            flag: None,
-                            account: balance_check.account.clone(),
-                            units: Some(distance),
-                            cost: None,
-                            cost_date: None,
-                            price: None,
-                            meta: Default::default(),
-                        }
-                    ],
+                    postings: vec![Posting {
+                        flag: None,
+                        account: balance_check.account.clone(),
+                        units: Some(distance),
+                        cost: None,
+                        cost_date: None,
+                        price: None,
+                        meta: Default::default(),
+                    }],
                     meta: Default::default(),
                 };
 
                 transformed_trx.process(ledger, context, span).await?;
-
             }
             Balance::BalancePad(balance_pad) => {
                 check_account_existed(balance_pad.account.name(), ledger, span, &mut context.connection).await?;

@@ -163,6 +163,10 @@ pub struct JournalTransactionPostingResponse {
 pub struct JournalBalanceCheckItemResponse {
     pub id: String,
     pub sequence: i64,
+    pub datetime: NaiveDateTime,
+    pub payee: String,
+    pub narration: Option<String>,
+    pub type_: String,
 }
 
 #[derive(Serialize)]
