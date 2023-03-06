@@ -5,6 +5,7 @@ interface Props {
   title: string;
   rightSection?: React.ReactNode;
   children: React.ReactNode;
+  noPadding?:boolean
 }
 export default function Section({ children, title, rightSection }: Props) {
   return (

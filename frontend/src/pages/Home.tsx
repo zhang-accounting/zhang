@@ -12,7 +12,7 @@ import StatisticBar from '../components/StatisticBar';
 import { fetcher } from "../index";
 import { AccountType, StatisticResponse } from '../rest-model';
 
-const options = (isLogarithmic: boolean, offset: number) => ({
+const options = (meta: { isLogarithmic: boolean, offset: number, max: number }) => ({
   responsive: true,
   interaction: {
     mode: 'index' as const,
@@ -24,31 +24,39 @@ const options = (isLogarithmic: boolean, offset: number) => ({
       position: 'nearest' as const,
       callbacks: {
 
-        title: () => {
-          return "tooltip callback"
+        title: (item: any) => {
+          return item[0].label
         },
         label: (item: any) => {
 
           if (item.dataset.label === 'total') {
-            const valueWithOffset = parseFloat(item.formattedValue) + offset;
-            return `${item.dataset.label}: ${valueWithOffset}`
+            const valueWithOffset = parseFloat(item.formattedValue) + meta.offset;
+            return `${item.dataset.label}: ${valueWithOffset} CNY`
           }
-          return `${item.dataset.label}: ${item.formattedValue}`
+          return `${item.dataset.label}: ${item.formattedValue} CNY`
         }
       }
     }
   },
   scales: {
+    x: {
+      display: true,
+      grid: {
+        display: false
+      }
+    },
     total: {
-      type: isLogarithmic ? 'logarithmic' as const : 'linear' as const,
+      type: meta.isLogarithmic ? 'logarithmic' as const : 'linear' as const,
       display: false,
       position: 'left' as const,
       beginAtZero: false,
+      suggestedMax: meta.max,
       ticks: {
         callback: function (value: any, _index: any, _ticks: any) {
-          return parseFloat(value) + offset;
+          return parseFloat(value) + meta.offset;
         }
       }
+
     },
     bar: {
       type: 'linear' as const,
@@ -80,10 +88,16 @@ const build_chart_data = (data: StatisticResponse) => {
 
   // let total_dataset = data.statistic.frames.map((frame) => parseFloat(frame.total.summary.number));
   const isLogarithmic = total_dataset.every(item => item >= 0);
-  const min = Math.min.apply(null, total_dataset) - 50;
+  let min = 0;
+  let max = Math.max.apply(0, total_dataset) + 50;
+
   if (isLogarithmic) {
+    min = Math.min.apply(0, total_dataset) - 50;
+    max = max - min;
     total_dataset = total_dataset.map(item => item - min);
   }
+  console.log("max", max);
+
   const income_dataset = sequencedDate.map(date => -1 * parseFloat(data.changes[date]?.[AccountType.Income]?.number ?? 0))
   const expense_dataset = sequencedDate.map(date => parseFloat(data.changes[date]?.[AccountType.Expenses]?.number ?? 0))
   console.log("incom", income_dataset, expense_dataset);
@@ -95,30 +109,34 @@ const build_chart_data = (data: StatisticResponse) => {
         {
           type: 'line' as const,
           label: 'total',
-          borderColor: 'rgb(255, 99, 132)',
+          borderColor: '#2E94B9',
           borderWidth: 2,
           data: total_dataset,
+          pointRadius: 0,
+          hoverBackgroundColor: "#2E94B9",
           yAxisID: 'total',
         },
         {
           type: 'bar' as const,
           label: 'income',
-          backgroundColor: 'rgb(17, 183, 205)',
+          backgroundColor: 'rgba(46,148,185,0.5)',
+          hoverBackgroundColor: "rgba(46,148,185,0.85)",
           data: income_dataset,
           borderColor: 'white',
-          borderRadius: 3,
+          borderRadius: 2,
           yAxisID: 'bar',
         },
         {
           type: 'bar' as const,
           label: 'expense',
-          backgroundColor: 'rgb(247, 31, 167)',
-          borderRadius: 3,
+          backgroundColor: 'rgba(210,85,101,0.5)',
+          hoverBackgroundColor: "rgba(210,85,101,0.85)",
+          borderRadius: 2,
           data: expense_dataset,
           yAxisID: 'bar',
         },
       ],
-    }, isLogarithmic, offset: isLogarithmic ? min : 0
+    }, meta: { isLogarithmic, offset: min, max }
   };
 };
 
@@ -140,7 +158,7 @@ function Home() {
       <Grid>
         <Grid.Col span={8}>
           <Section title="Current Statistics">
-            <Chart type="line" data={chart_info.data} options={options(chart_info.isLogarithmic, chart_info.offset)} />
+            <Chart type="line" data={chart_info.data} options={options(chart_info.meta)} />
           </Section>
         </Grid.Col>
         <Grid.Col span={4}>

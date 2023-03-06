@@ -1,9 +1,6 @@
-import { Dispatch, SetStateAction } from 'react';
 import { JournalItem } from '../../../rest-model';
 import TableViewBalancePadLine from './TableViewBalancePadLine';
-import BalancePadLine from './TableViewBalancePadLine';
 import TableViewTransactionLine from './TableViewTransactionLine';
-import TransactionLine from './TableViewTransactionLine';
 interface Props {
   data: JournalItem;
 }

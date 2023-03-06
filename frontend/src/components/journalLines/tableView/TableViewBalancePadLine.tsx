@@ -3,6 +3,7 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
 import { JournalBlancePadItem, JournalItem } from '../../../rest-model';
+import Amount from '../../Amount';
 
 
 const useStyles = createStyles((theme) => ({
@@ -12,12 +13,13 @@ const useStyles = createStyles((theme) => ({
   narration: {
   },
   positiveAmount: {
-    color: theme.colors.gray[8],
+    color: theme.colors.gray[7],
+    fontWeight: 'bold',
     fontFeatureSettings: 'tnum',
     fontSize: theme.fontSizes.sm * 0.95,
   },
   negativeAmount: {
-    color: theme.colors.red[8],
+    color: theme.colors.red[5],
     fontWeight: 'bold',
     fontFeatureSettings: 'tnum',
     fontSize: theme.fontSizes.sm,
@@ -51,16 +53,20 @@ export default function TableViewBalancePadLine({ data, onClick }: Props) {
       <td>Pad</td>
       <td>{data.payee}</td>
       <td>{data.narration}</td>
-      <td><Stack align="right" spacing="xs">
-        <span className={isBalanced ? classes.positiveAmount : classes.negativeAmount}>
-          {data.postings[0].account_after_number} {data.postings[0].account_after_commodity}
+      <td>
+      <Group align="center" position='right' spacing="xs" className={classes.positiveAmount }>
+      <Amount amount={data.postings[0].account_after_number} currency={data.postings[0].account_after_commodity} />
+        
+        </Group>
+        {/* <span className={isBalanced ? classes.positiveAmount : classes.negativeAmount}>
+          <Amount amount={data.postings[0].account_after_number} currency={data.postings[0].account_after_commodity} />
         </span>
         {!isBalanced &&
-          <span className={classes.positiveAmount}>
-            current: {data.postings[0].account_before_number} {data.postings[0].account_before_commodity}
-          </span>
-        }
-      </Stack></td>
+          <div className={classes.positiveAmount}>
+            current: <Amount amount={data.postings[0].account_before_number} currency={data.postings[0].account_before_commodity} />
+          </div>
+        } */}
+      </td>
       <td></td>
     </tr>
   );

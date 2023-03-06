@@ -1,9 +1,9 @@
-import { Badge, Box, createStyles, Grid, Group, Text } from '@mantine/core';
+import { createStyles, Group } from '@mantine/core';
 import { IconFile } from "@tabler/icons";
 import { format } from 'date-fns';
-import { Dispatch, SetStateAction } from 'react';
 import { JournalTransactionItem } from '../../../rest-model';
 import { calculate } from '../../../utils/trx-calculator';
+import Amount from '../../Amount';
 
 const useStyles = createStyles((theme) => ({
   payee: {
@@ -19,7 +19,7 @@ const useStyles = createStyles((theme) => ({
     fontSize: theme.fontSizes.sm,
   },
   negativeAmount: {
-    color: theme.colors.red[8],
+    color: theme.colors.red[5],
     fontWeight: 'bold',
     fontFeatureSettings: 'tnum',
     fontSize: theme.fontSizes.sm,
@@ -55,10 +55,8 @@ export default function TableViewTransactionLine({ data }: Props) {
         </Group>
       </td>
       <td>{Array.from(summary.values()).map((each) => (
-        <Group align="center" spacing="xs" className={each.number.isPositive() ? classes.positiveAmount : classes.negativeAmount}>
-          <span>
-            {each.number.toFixed()} {each.currency}
-          </span>
+        <Group align="center" position='right' spacing="xs" className={each.number.isPositive() ? classes.positiveAmount : classes.negativeAmount}>
+          <Amount amount={each.number} currency={each.currency} />
         </Group>
       ))}</td>
       <td></td>

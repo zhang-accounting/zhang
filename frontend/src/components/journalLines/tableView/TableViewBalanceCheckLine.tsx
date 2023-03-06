@@ -1,7 +1,4 @@
-import { Group, Stack, Text } from '@mantine/core';
-import { IconCashBanknote, IconCashBanknoteOff } from '@tabler/icons';
 import { format } from 'date-fns';
-import { Dispatch, SetStateAction } from 'react';
 interface Props {
 
 }

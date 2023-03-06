@@ -5,9 +5,8 @@ import {useEffect, useState} from 'react';
 import { ActionIcon, Button, Code, Container, Divider, Grid, Group, Modal, Select, TextInput } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
 import { IconSquarePlus, IconTextPlus, IconTrashX } from '@tabler/icons';
-import axios from "axios";
 import useSWR from 'swr';
-import { fetcher } from '..';
+import { axiosInstance, fetcher } from '..';
 import { InfoForNewTransaction } from '../rest-model';
 import DividerWithAction from './basic/DividerWithAction';
 import {useTranslation} from "react-i18next";
@@ -75,7 +74,7 @@ export default function NewTransactionButton() {
         return newPayee
     }
     const onCreate = () => {
-        axios.post(`/api/transactions`, {
+        axiosInstance.post(`/api/transactions`, {
             datetime: date?.toISOString(),
             payee: payee,
             narration: narration,
