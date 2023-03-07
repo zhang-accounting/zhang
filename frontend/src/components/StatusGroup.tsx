@@ -1,4 +1,4 @@
-import { createStyles, Group, Text } from '@mantine/core';
+import {createStyles, Group, Text} from '@mantine/core';
 import Amount from './Amount';
 
 const useStyles = createStyles((theme) => ({
@@ -36,20 +36,6 @@ const useStyles = createStyles((theme) => ({
 
   stat: {
     flex: 1,
-
-    '& + &': {
-      paddingLeft: theme.spacing.xl,
-      borderLeft: `1px solid ${theme.colors[theme.primaryColor][3]}`,
-
-      [theme.fn.smallerThan('sm')]: {
-        paddingLeft: 0,
-        marginLeft: 0,
-        borderLeft: 0,
-        paddingTop: theme.spacing.xl,
-        marginTop: theme.spacing.xl,
-        borderTop: `1px solid ${theme.colors[theme.primaryColor][3]}`,
-      },
-    },
   },
 }));
 
