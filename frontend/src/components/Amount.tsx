@@ -40,7 +40,7 @@ export default function Amount({ amount, currency, negetive }: Props) {
     const shouldDisplayCurrencyName = !!!commodity?.prefix && !!!commodity?.suffix;
 
     return (
-        <div className={classes.wrapper}>
+        <span className={classes.wrapper}>
             {commodity?.prefix &&
                 <Text mx={1} className={classes.postfix}>
                     {commodity?.prefix}
@@ -57,6 +57,6 @@ export default function Amount({ amount, currency, negetive }: Props) {
                     {currency}
                 </Text>
             }
-        </div>
+        </span>
     );
 }

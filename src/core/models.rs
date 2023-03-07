@@ -131,6 +131,9 @@ pub enum Flag {
 
     #[strum(serialize = "P", to_string = "BalancePad")]
     BalancePad,
+
+    #[strum(serialize = "C", to_string = "BalanceCheck")]
+    BalanceCheck,
 }
 
 #[derive(EnumString, Debug, PartialEq, Eq, strum_macros::ToString, Deserialize, Serialize, Clone, Copy)]

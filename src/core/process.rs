@@ -377,7 +377,7 @@ impl DirectiveProcess for Balance {
 
                 let mut transformed_trx = Transaction {
                     date: balance_check.date.clone(),
-                    flag: Some(Flag::BalancePad),
+                    flag: Some(Flag::BalanceCheck),
                     payee: Some(ZhangString::quote("Balance Check")),
                     narration: Some(ZhangString::quote(format!(
                         "Check balance of {}",

@@ -37,7 +37,7 @@ export default function TableViewTransactionLine({ data }: Props) {
   const { classes } = useStyles();
 
   const date = format(new Date(data.datetime), 'yyyy-MM-dd');
-  const time = format(new Date(data.datetime), 'hh:mm');
+  const time = format(new Date(data.datetime), 'hh:mm:ss');
 
   const summary = calculate(data);
   const hasDocuments = data.metas.some(meta => meta.key === 'document');

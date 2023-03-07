@@ -1,8 +1,7 @@
 import {Badge, createStyles, Group} from '@mantine/core';
-import BigNumber from 'bignumber.js';
-import { format } from 'date-fns';
-import { Dispatch, SetStateAction } from 'react';
-import { JournalBlancePadItem, JournalItem } from '../../../rest-model';
+import {format} from 'date-fns';
+import {Dispatch, SetStateAction} from 'react';
+import {JournalBlancePadItem, JournalItem} from '../../../rest-model';
 import Amount from '../../Amount';
 
 
@@ -41,9 +40,9 @@ export default function TableViewBalancePadLine({ data, onClick }: Props) {
   const time = format(new Date(data.datetime), 'hh:mm:ss');
   
 
-  const isBalanced = new BigNumber(data.postings[0].account_after_number) === new BigNumber(data.postings[0].account_before_number)
+  // const isBalanced = new BigNumber(data.postings[0].account_after_number) === new BigNumber(data.postings[0].account_before_number)
   return (
-    <tr className={!isBalanced ? classes.notBalance : ""}>
+    <tr>
       <td>{date} {time}</td>
       <td><Badge size="xs" variant="outline">Pad</Badge></td>
       <td>{data.payee}</td>

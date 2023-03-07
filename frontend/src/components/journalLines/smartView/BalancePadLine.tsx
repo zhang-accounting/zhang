@@ -1,8 +1,8 @@
-import { Box, createStyles, Grid, Group, Text } from '@mantine/core';
-import BigNumber from 'bignumber.js';
-import { format } from 'date-fns';
-import { Dispatch, SetStateAction } from 'react';
-import { JournalBlancePadItem, JournalItem } from '../../../rest-model';
+import {Box, createStyles, Grid, Group, Text} from '@mantine/core';
+import {format} from 'date-fns';
+import {Dispatch, SetStateAction} from 'react';
+import {JournalBlancePadItem, JournalItem} from '../../../rest-model';
+import Amount from "../../Amount";
 
 
 const useStyles = createStyles((theme) => ({
@@ -13,6 +13,7 @@ const useStyles = createStyles((theme) => ({
   },
   positiveAmount: {
     color: theme.colors.gray[8],
+    fontWeight: 'bold',
     fontFeatureSettings: 'tnum',
     fontSize: theme.fontSizes.sm * 0.95,
   },
@@ -36,16 +37,16 @@ export default function BalancePadLine({ data, onClick }: Props) {
   const { classes } = useStyles();
 
   // const date = format(new Date(data.datetime), 'yyyy-MM-dd');
-  const time = format(new Date(data.datetime), 'hh:mm:ss');
+  const time = format(new Date(data.datetime), 'hh:mm');
   const trClick = () => {
     if (onClick) {
       onClick(data);
     }
   };
 
-  const isBalanced = new BigNumber(data.postings[0].account_after_number) === new BigNumber(data.postings[0].account_before_number)
+  // const isBalanced = new BigNumber(data.postings[0].account_after_number) === new BigNumber(data.postings[0].account_before_number)
   return (
-    <tr onClick={() => trClick()} className={!isBalanced ? classes.notBalance : ""}>
+    <tr onClick={() => trClick()}>
       <td>
         <Grid align="center">
           <Grid.Col span={8}>
@@ -64,14 +65,9 @@ export default function BalancePadLine({ data, onClick }: Props) {
           </Grid.Col>
           <Grid.Col span={4}>
             <Group align="center" spacing="xs" position="right">
-              <span className={isBalanced ? classes.positiveAmount : classes.negativeAmount}>
-                {data.postings[0].account_after_number} {data.postings[0].account_after_commodity}
+              <span className={classes.positiveAmount}>
+                <Amount amount={data.postings[0].account_after_number} currency={data.postings[0].account_after_commodity} />
               </span>
-              {!isBalanced &&
-                <span className={classes.positiveAmount}>
-                  current: {data.postings[0].account_before_number} {data.postings[0].account_before_commodity}
-                </span>
-              }
             </Group>
           </Grid.Col>
         </Grid>

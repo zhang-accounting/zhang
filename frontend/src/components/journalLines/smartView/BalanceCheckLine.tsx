@@ -1,9 +1,10 @@
-import { Group, Stack, Text } from '@mantine/core';
-import { IconCashBanknote, IconCashBanknoteOff } from '@tabler/icons';
-import { format } from 'date-fns';
-import { Dispatch, SetStateAction } from 'react';
-interface Props {
+import {format} from 'date-fns';
+import {Dispatch, SetStateAction} from 'react';
+import {JournalBalanceCheckItem, JournalItem} from "../../../rest-model";
 
+interface Props {
+  data: JournalBalanceCheckItem;
+  onClick?: Dispatch<SetStateAction<JournalItem | undefined>>;
 }
 export default function BalanceCheckLine({  }: Props) {
   const date = format(0 * 1000, 'yyyy-MM-dd');

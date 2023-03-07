@@ -39,13 +39,7 @@ use crate::parse_zhang;
 use crate::server::request::{
     AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest,
 };
-use crate::server::response::{
-    AccountJournalItem, AccountResponse, AmountResponse, BasicInfo, CommodityDetailResponse, CommodityListItemResponse,
-    CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse,
-    InfoForNewTransaction, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
-    JournalTransactionPostingResponse, MetaResponse, Pageable, ReportRankItemResponse, ReportResponse, ResponseWrapper,
-    StatisticResponse,
-};
+use crate::server::response::{AccountJournalItem, AccountResponse, AmountResponse, BasicInfo, CommodityDetailResponse, CommodityListItemResponse, CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse, InfoForNewTransaction, JournalBalanceCheckItemResponse, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse, Pageable, ReportRankItemResponse, ReportResponse, ResponseWrapper, StatisticResponse};
 use crate::target::ZhangTarget;
 
 pub type ApiResult<T> = ZhangResult<ResponseWrapper<T>>;
@@ -505,7 +499,32 @@ pub async fn get_journals(
                     })
                 }
                 "BalanceCheck" => {
-                    todo!()
+                    let postings = arms
+                        .map(|arm| JournalTransactionPostingResponse {
+                            account: arm.account,
+                            unit_number: arm.unit_number,
+                            unit_commodity: arm.unit_commodity,
+                            cost_number: arm.cost_number,
+                            cost_commodity: arm.cost_commodity,
+                            price_number: arm.price_number,
+                            price_commodity: arm.price_commodity,
+                            inferred_unit_number: arm.inferred_unit_number,
+                            inferred_unit_commodity: arm.inferred_unit_commodity,
+                            account_before_number: arm.account_before_number,
+                            account_before_commodity: arm.account_before_commodity,
+                            account_after_number: arm.account_after_number,
+                            account_after_commodity: arm.account_after_commodity,
+                        })
+                        .collect_vec();
+                    JournalItemResponse::BalanceCheck(JournalBalanceCheckItemResponse {
+                        id: trx_id,
+                        sequence: header.sequence,
+                        datetime: header.datetime,
+                        payee: header.payee,
+                        narration: header.narration,
+                        type_: header.journal_type,
+                        postings,
+                    })
                 }
                 _ => {
                     let postings = arms

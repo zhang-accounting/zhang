@@ -167,6 +167,7 @@ pub struct JournalBalanceCheckItemResponse {
     pub payee: String,
     pub narration: Option<String>,
     pub type_: String,
+    pub(crate) postings: Vec<JournalTransactionPostingResponse>,
 }
 
 #[derive(Serialize)]

@@ -93,7 +93,7 @@ export interface CommodityPrice {
     target_commodity: string,
 }
 
-export type JournalItem = JournalTransactionItem | JournalBlancePadItem
+export type JournalItem = JournalTransactionItem | JournalBlancePadItem | JournalBalanceCheckItem
 
 export interface JournalBlancePadItem {
     type: "BalancePad"
@@ -104,10 +104,24 @@ export interface JournalBlancePadItem {
     tags: any[]
     links: any[]
     flag: string
-    is_balanced: boolean
     postings: Posting[],
     metas: Meta[],
 }
+
+
+export interface JournalBalanceCheckItem {
+    type: "BalanceCheck"
+    id: string,
+    datetime: string
+    payee: string
+    narration?: string
+    tags: any[]
+    links: any[]
+    flag: string
+    postings: Posting[],
+    metas: Meta[],
+}
+
 
 export interface Meta {
     key: string,
