@@ -1,4 +1,4 @@
-import { Badge, Box, createStyles, Grid, Group, Text } from '@mantine/core';
+import { Box, createStyles, Grid, Group, Text } from '@mantine/core';
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
@@ -35,7 +35,7 @@ interface Props {
 export default function BalancePadLine({ data, onClick }: Props) {
   const { classes } = useStyles();
 
-  const date = format(new Date(data.datetime), 'yyyy-MM-dd');
+  // const date = format(new Date(data.datetime), 'yyyy-MM-dd');
   const time = format(new Date(data.datetime), 'hh:mm:ss');
   const trClick = () => {
     if (onClick) {
