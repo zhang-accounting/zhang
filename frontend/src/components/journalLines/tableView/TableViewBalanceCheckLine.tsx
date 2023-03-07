@@ -1,10 +1,12 @@
 import {JournalBalanceCheckItem} from "../../../rest-model";
-import {Badge, createStyles} from "@mantine/core";
+import {ActionIcon, Badge, createStyles} from "@mantine/core";
 import {format} from "date-fns";
 import Amount from "../../Amount";
 import BigNumber from "bignumber.js";
+import {IconZoomExclamation} from "@tabler/icons";
+import {openContextModal} from "@mantine/modals";
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _params, getRef) => ({
     payee: {
         fontWeight: "bold",
     },
@@ -28,6 +30,19 @@ const useStyles = createStyles((theme) => ({
         display: "flex",
         flexDirection: "column",
         alignItems: "end",
+    },
+    actionHider: {
+        "&:hover": {
+            [`& .${getRef('actions')}`]: {
+                display: "flex",
+                alignItems: "end",
+                justifyContent: "end",
+            }
+        }
+    },
+    actions: {
+        ref: getRef('actions'),
+        display: "none",
     }
 }));
 
@@ -42,9 +57,21 @@ export default function TableViewBalanceCheckLine({data}: Props) {
     const time = format(new Date(data.datetime), 'hh:mm:ss');
 
 
+    const openPreviewModal = (e: any) => {
+
+        openContextModal({
+            modal: 'transactionPreviewModal',
+            title: "transaction preview",
+            size: "lg",
+            centered: true,
+            innerProps: {
+                data: data,
+            },
+        })
+    }
     const isBalanced = new BigNumber(data.postings[0].account_after_number).eq(new BigNumber(data.postings[0].account_before_number))
     return (
-        <tr className={!isBalanced ? classes.notBalance : ""}>
+        <tr className={`${classes.actionHider} ${!isBalanced ? classes.notBalance : ""}`}>
             <td>{date} {time}</td>
             <td><Badge size="xs" variant="outline">Check</Badge></td>
             <td>{data.payee}</td>
@@ -64,7 +91,13 @@ export default function TableViewBalanceCheckLine({data}: Props) {
                 </div>
 
             </td>
-            <td></td>
+            <td>
+                <div className={classes.actions}>
+                    <ActionIcon size="sm" onClick={openPreviewModal}>
+                        <IconZoomExclamation size="1.125rem"/>
+                    </ActionIcon>
+                </div>
+            </td>
         </tr>
     );
 }

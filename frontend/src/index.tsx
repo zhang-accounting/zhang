@@ -11,6 +11,7 @@ import { DocumentPreviewModal } from "./components/modals/DocumentPreviewModal";
 import { Provider } from 'react-redux';
 import { store } from './states';
 import { themeConfig } from './theme';
+import {TransactionPreviewModal} from "./components/modals/TransactionPreviewModal";
 
 Chart.register(...registerables);
 // @ts-ignore
@@ -33,7 +34,7 @@ ReactDOM.render(
     <React.StrictMode>
         <Provider store={store}>
             <MantineProvider withGlobalStyles withNormalizeCSS theme={themeConfig}>
-                <ModalsProvider modals={{ documentPreviewModal: DocumentPreviewModal }}>
+                <ModalsProvider modals={{ documentPreviewModal: DocumentPreviewModal, transactionPreviewModal: TransactionPreviewModal }}>
                     <BrowserRouter>
                         <App></App>
                     </BrowserRouter>
