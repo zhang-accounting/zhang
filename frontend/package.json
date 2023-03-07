@@ -21,7 +21,6 @@
     "framer-motion": "^6.2.9",
     "i18next": "^21.8.16",
     "i18next-http-backend": "^1.4.1",
-    "jotai": "^2.0.3",
     "lodash-es": "^4.17.21",
     "react": "^18.0.0",
     "react-chartjs-2": "^4.1.0",

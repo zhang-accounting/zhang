@@ -1,4 +1,4 @@
-import { Badge, Box, createStyles, Grid, Group, Stack, Text } from '@mantine/core';
+import { createStyles, Group } from '@mantine/core';
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
@@ -39,12 +39,7 @@ export default function TableViewBalancePadLine({ data, onClick }: Props) {
 
   const date = format(new Date(data.datetime), 'yyyy-MM-dd');
   const time = format(new Date(data.datetime), 'hh:mm:ss');
-  const trClick = () => {
-    console.log('clock');
-    if (onClick) {
-      onClick(data);
-    }
-  };
+  
 
   const isBalanced = new BigNumber(data.postings[0].account_after_number) === new BigNumber(data.postings[0].account_before_number)
   return (

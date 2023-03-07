@@ -1,21 +1,21 @@
 import { Container, Group, Table, Text, Title } from '@mantine/core';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router';
-import useSWR from 'swr';
-import { fetcher } from '..';
 import Amount from '../components/Amount';
-import { CommodityListItem } from '../rest-model';
+import { LoadingState } from '../rest-model';
+import { useAppSelector } from '../states';
 
 export default function Commodities() {
-  const { data, error } = useSWR<CommodityListItem[]>("/api/commodities", fetcher)
   let navigate = useNavigate();
 
   const onCommodityClick = (commodityName: string) => {
     navigate(commodityName);
   };
 
-  if (error) return <div>failed to load</div>;
-  if (!data) return <>loading</>;
+  const {value:commodities, status} = useAppSelector(state=> state.commodities);
+
+
+  if (status === LoadingState.Loading || status === LoadingState.NotReady) return <>loading</>;
 
   return (
     <Container fluid>
@@ -30,7 +30,7 @@ export default function Commodities() {
           </tr>
         </thead>
         <tbody>
-          {data.map((currency) => (
+          {Object.entries(commodities).map(([_, currency]) => (
             <tr key={currency.name}>
               <td>
                 <Group>

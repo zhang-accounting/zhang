@@ -37,7 +37,7 @@ interface Props {
 export default function TransactionLine({ data, onClick }: Props) {
   const { classes } = useStyles();
 
-  const date = format(new Date(data.datetime), 'yyyy-MM-dd');
+  // const date = format(new Date(data.datetime), 'yyyy-MM-dd');
   const time = format(new Date(data.datetime), 'hh:mm');
   const trClick = () => {
     console.log('clock');

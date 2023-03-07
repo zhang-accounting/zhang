@@ -1,7 +1,7 @@
 import { createStyles, Text } from '@mantine/core';
 import BigNumber from 'bignumber.js';
-import { useAtom } from 'jotai';
-import { commoditiesAtom } from "../states/commodity";
+import { useAppSelector } from '../states';
+import { getCommodityByName } from '../states/commodity';
 
 const useStyles = createStyles((theme) => ({
     wrapper: {
@@ -24,8 +24,7 @@ interface Props {
 
 export default function Amount({ amount, currency, negetive }: Props) {
     const { classes } = useStyles();
-    const [commodities] = useAtom(commoditiesAtom);
-    const commodity = commodities[currency];
+    const commodity = useAppSelector(getCommodityByName(currency));
 
     const flag = negetive || false ? -1 : 1;
 
