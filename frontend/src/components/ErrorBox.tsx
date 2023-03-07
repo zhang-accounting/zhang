@@ -1,28 +1,42 @@
-import {Button, Group, Modal, Pagination, Stack, Text, Textarea} from '@mantine/core';
-import {useState} from 'react';
-import {useTranslation} from 'react-i18next';
-import useSWR from "swr";
-import {fetcher} from "../index";
-import {LedgerError, Pageable} from "../rest-model";
+import { Button, Group, Modal, Pagination, Skeleton, Stack, Text, Textarea } from '@mantine/core';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { LedgerError, LoadingState } from "../rest-model";
+import { useAppDispatch, useAppSelector } from '../states';
+import { fetch } from '../states/errors';
 
 export default function ErrorBox() {
-    const {t} = useTranslation();
+    const { t } = useTranslation();
     const [isOpen, setIsOpen] = useState(false);
+
+    const dispatch = useAppDispatch()
+    const { items, total_page, status } = useAppSelector((state) => state.errors);
+
     const [page, setPage] = useState(1);
-    const {data, error} = useSWR<Pageable<LedgerError>>(`/api/errors?page=${page}`, fetcher);
 
     const [selectError, setSelectError] = useState<LedgerError | null>(null);
     const [selectErrorContent, setSelectErrorContent] = useState<string>('');
 
-    if (error) return <div>failed to load</div>;
-    if (!data) return <>loading</>;
-    const {total_page, records, current_page} = data;
+
+    if (status === LoadingState.Loading || status === LoadingState.NotReady) {
+        return <>
+            <Skeleton height={20} radius="xs" />
+            <Skeleton height={20} mt={10} radius="xs" />
+            <Skeleton height={20} mt={10} radius="xs" />
+            <Skeleton height={20} mt={10} radius="xs" />
+        </>
+    }
+    const handlePageChange = (newPage: number) => {
+        setPage(newPage);
+        dispatch(fetch(newPage));
+    }
 
     const toggleError = (error: LedgerError) => {
         setSelectError(error);
         setSelectErrorContent(error.span.content);
         setIsOpen(true);
     };
+
     const saveErrorModfiyData = () => {
         //   modifyFile({
         //     variables: {
@@ -63,15 +77,14 @@ export default function ErrorBox() {
                 </Group>
             </Modal>
             <Stack>
-
-                {records
+                {items
                     .map((error, idx) => (
                         <Text key={idx} onClick={() => toggleError(error)}>
                             {t(error.error.type)}
                         </Text>
                     ))}
 
-                <Pagination mt="xs" total={total_page} page={current_page} onChange={setPage} position="center"/>
+                <Pagination mt="xs" total={total_page} page={page} onChange={handlePageChange} position="center" />
 
             </Stack>
         </>

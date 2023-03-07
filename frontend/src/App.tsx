@@ -33,6 +33,10 @@ import { AppShell, Grid } from '@mantine/core';
 import ToolList from './pages/tools/ToolList';
 import WechatExporter from './pages/tools/WechatExporter';
 import { useTranslation } from 'react-i18next';
+import { useAppDispatch, useAppSelector } from './states';
+import { useEffect } from 'react';
+import { fetch } from './states/errors';
+import { fetchCommodities } from './states/commodity';
 
 const useStyles = createStyles((theme) => ({
   header: {
@@ -140,7 +144,6 @@ interface LinkItem {
 }
 
 const links: LinkItem[] = [
-  { icon: IconSmartHome, label: 'NAV_HOME', uri: '/' },
   { icon: IconList, label: 'NAV_JOURNALS', uri: '/journals' },
   { icon: IconCash, label: 'NAV_ACCOUNTS', uri: '/accounts' },
   { icon: IconCurrencyBitcoin, label: 'NAV_COMMDOITIES', uri: '/commodities' },
@@ -166,6 +169,15 @@ const links: LinkItem[] = [
 export default function App() {
   const { classes } = useStyles();
   const { t } = useTranslation();
+  const dispatch = useAppDispatch()
+
+  useEffect(() => {
+    console.log("hello init");
+    dispatch(fetch(1))
+    dispatch(fetchCommodities())
+  }, [dispatch])
+
+  const { total_number } = useAppSelector((state) => state.errors);
 
   const mainLinks = links.map((link) => (
     <UnstyledButton component={RouteLink} to={link.uri} key={link.label} className={classes.mainLink}>
@@ -220,7 +232,20 @@ export default function App() {
               </Grid>
 
               <Navbar.Section className={classes.section}>
-                <div className={classes.mainLinks}>{mainLinks}</div>
+                <div className={classes.mainLinks}>
+                  <UnstyledButton component={RouteLink} to={"/"} key={"NAV_HOME"} className={classes.mainLink}>
+                    <div className={classes.mainLinkInner}>
+                      <IconSmartHome size={20} className={classes.mainLinkIcon} stroke={1.5} />
+                      <span>{t("NAV_HOME")}</span>
+                    </div>
+                    {((total_number ?? 0) > 0) && (
+                      <Badge size="sm" color="pink" variant="filled" className={classes.mainLinkBadge}>
+                        {total_number ?? 0}
+                      </Badge>
+                    )}
+                  </UnstyledButton>
+                  {mainLinks}
+                </div>
               </Navbar.Section>
 
               {/* <Navbar.Section grow className={classes.section}>

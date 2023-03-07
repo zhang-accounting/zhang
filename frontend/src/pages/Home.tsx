@@ -11,6 +11,7 @@ import Section from '../components/Section';
 import StatisticBar from '../components/StatisticBar';
 import { fetcher } from "../index";
 import { AccountType, StatisticResponse } from '../rest-model';
+import { useAppSelector } from '../states';
 
 const options = (meta: { isLogarithmic: boolean, offset: number, max: number }) => ({
   responsive: true,
@@ -96,12 +97,9 @@ const build_chart_data = (data: StatisticResponse) => {
     max = max - min;
     total_dataset = total_dataset.map(item => item - min);
   }
-  console.log("max", max);
 
   const income_dataset = sequencedDate.map(date => -1 * parseFloat(data.changes[date]?.[AccountType.Income]?.number ?? 0))
   const expense_dataset = sequencedDate.map(date => parseFloat(data.changes[date]?.[AccountType.Expenses]?.number ?? 0))
-  console.log("incom", income_dataset, expense_dataset);
-  console.log('income_dataset', income_dataset, expense_dataset);
   return {
     data: {
       labels,
@@ -142,11 +140,14 @@ const build_chart_data = (data: StatisticResponse) => {
 
 function Home() {
   const { t } = useTranslation();
+  const error_total_number = useAppSelector(state => state.errors.total_number)
   const now = new Date();
   const beginning_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 1);
   const end_time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
   const { data, error } = useSWR<StatisticResponse>(`/api/statistic?from=${beginning_time.toISOString()}&to=${end_time.toISOString()}&interval=Day`, fetcher)
+
+ 
 
   if (error) return <div>failed to load</div>;
   if (!data) return <>loading</>;
@@ -162,7 +163,7 @@ function Home() {
           </Section>
         </Grid.Col>
         <Grid.Col span={4}>
-          <Section title="Errors">
+          <Section title={`${error_total_number} Errors`}>
             <ErrorBox></ErrorBox>
           </Section>
         </Grid.Col>

@@ -1,3 +1,10 @@
+
+export enum LoadingState {
+    NotReady = "NotReady",
+    Loading = "Loading",
+    Success = "Success",
+    Refreshing = "Refreshing"
+}
 export interface Pageable<T> {
     total_count: number,
     total_page: number,
@@ -189,11 +196,11 @@ export interface SpanInfo {
 export interface LedgerError {
     span: SpanInfo,
     error: AccountBalanceCheckError
-        | AccountDoesNotExist
-        | AccountClosed
-        | TransactionDoesNotBalance
-        | CommodityDoesNotDefine
-        | TransactionHasMultipleImplicitPosting
+    | AccountDoesNotExist
+    | AccountClosed
+    | TransactionDoesNotBalance
+    | CommodityDoesNotDefine
+    | TransactionHasMultipleImplicitPosting
 }
 
 
