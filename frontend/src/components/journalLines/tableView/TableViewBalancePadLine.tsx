@@ -1,4 +1,4 @@
-import { createStyles, Group } from '@mantine/core';
+import {Badge, createStyles, Group} from '@mantine/core';
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
@@ -45,7 +45,7 @@ export default function TableViewBalancePadLine({ data, onClick }: Props) {
   return (
     <tr className={!isBalanced ? classes.notBalance : ""}>
       <td>{date} {time}</td>
-      <td>Pad</td>
+      <td><Badge size="xs" variant="outline">Pad</Badge></td>
       <td>{data.payee}</td>
       <td>{data.narration}</td>
       <td>

@@ -1,4 +1,4 @@
-import { createStyles, Group } from '@mantine/core';
+import {Badge, createStyles, Group} from '@mantine/core';
 import { IconFile } from "@tabler/icons";
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../../rest-model';
@@ -44,7 +44,7 @@ export default function TableViewTransactionLine({ data }: Props) {
   return (
     <tr className={!data.is_balanced ? classes.notBalance : ""}>
       <td>{date} {time}</td>
-      <td>TRX</td>
+      <td><Badge color="gray" size="xs" variant="outline">TRX</Badge></td>
       <td>{data.payee}</td>
       <td>
         <Group align="center" spacing="xs">
