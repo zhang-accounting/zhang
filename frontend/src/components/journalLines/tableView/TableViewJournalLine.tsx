@@ -2,7 +2,7 @@ import { JournalItem } from '../../../rest-model';
 import TableViewBalancePadLine from './TableViewBalancePadLine';
 import TableViewTransactionLine from './TableViewTransactionLine';
 import TableViewBalanceCheckLine from "./TableViewBalanceCheckLine";
-import {openContextModal} from "@mantine/modals";
+
 interface Props {
   data: JournalItem;
 }
