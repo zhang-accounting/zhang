@@ -83,3 +83,8 @@ then compile the backend service:
 $ cd ..
 $ cargo build --release
 ```
+
+## Development
+
+### Flamegraph
+command is `CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --root  -- parse ./example-accounting`
