@@ -5,9 +5,10 @@ use std::time::{Duration, Instant};
 use actix_cors::Cors;
 use actix_web::web::Data;
 use actix_web::{web, App, HttpServer};
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
+use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
 
@@ -65,38 +66,53 @@ pub async fn serve(opts: ServerOpts) -> ZhangResult<()> {
         watcher
             .watch(entry_path.as_path(), RecursiveMode::Recursive)
             .expect("cannot watch entry path");
-
-        while let Some(res) = rx.recv().await {
-            match res {
-                Ok(event) => {
-                    debug!("receive file event: {:?}", event);
-                    let is_visited_file_updated = {
-                        let guard = cloned_ledger.read().await;
-                        let x = guard.visited_files.iter().any(|file| event.paths.contains(file));
-                        drop(guard);
-                        x
-                    };
-                    if is_visited_file_updated {
-                        debug!("gotcha event, start reloading...");
-                        let mut guard = cloned_ledger.write().await;
-                        debug!("watcher: got the lock");
-                        info!("receive file event and reload ledger: {:?}", event);
-                        let start_time = Instant::now();
-                        match guard.reload().await {
-                            Ok(_) => {
-                                let duration = start_time.elapsed();
-                                info!("ledger is reloaded successfully in {:?}", duration);
-                                cloned_broadcaster.broadcast("reloaded").await;
-                            }
-                            Err(err) => {
-                                error!("error on reload: {}", err)
-                            }
-                        };
-                    } else {
-                        debug!("ignore file event: {:?}", event);
+        'looper: loop {
+            let mut all = vec![];
+            match rx.recv().await {
+                Some(event) => all.push(event),
+                None => break 'looper,
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            'each_time: loop {
+                let result = rx.try_recv();
+                match result {
+                    Ok(event) => {
+                        all.push(event);
+                        tokio::time::sleep(Duration::from_millis(100)).await;
                     }
+                    Err(TryRecvError::Empty) => break 'each_time,
+                    Err(TryRecvError::Disconnected) => break 'looper,
                 }
-                Err(e) => println!("watch error: {:?}", e),
+            }
+            trace!("receive all file changes: {:?}", all);
+            let guard = cloned_ledger.read().await;
+            let is_visited_file_updated = all
+                .into_iter()
+                .filter_map(|event| event.ok())
+                .filter(|event| {
+                    let x = guard.visited_files.iter().any(|file| event.paths.contains(file));
+                    x && event.kind.is_modify()
+                })
+                .count()
+                > 0;
+
+            drop(guard);
+
+            if is_visited_file_updated {
+                debug!("gotcha event, start reloading...");
+                let mut guard = cloned_ledger.write().await;
+                debug!("watcher: got the lock");
+                info!("receive file event and reload ledger");
+                let start_time = Instant::now();
+                match guard.reload().await {
+                    Ok(_) => {
+                        let duration = start_time.elapsed();
+                        info!("ledger is reloaded successfully in {:?}", duration);
+                    cloned_broadcaster.broadcast("reloaded").await;}
+                    Err(err) => {
+                        error!("error on reload: {}", err)
+                    }
+                };
             }
         }
     });
