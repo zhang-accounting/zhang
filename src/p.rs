@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
+use itertools::Itertools;
 use pest_consume::{match_nodes, Error, Parser};
 use snailquote::unescape;
 
@@ -465,11 +466,14 @@ impl ZhangParser {
         }))
     }
 
-    fn item(input: Node) -> Result<(Directive, (usize, usize))> {
+    fn item(input: Node) -> Result<(Directive, SpanInfo)> {
         let span = input.as_span();
-        let pest_start_pos = span.start_pos().pos();
-        let pest_end_pos = span.end_pos().pos();
-
+        let span_info = SpanInfo {
+            start: span.start_pos().pos(),
+            end: span.end_pos().pos(),
+            content: span.as_str().to_string(),
+            filename: None,
+        };
         let ret: Directive = match_nodes!(input.into_children();
             [option(item)] => item,
             [open(item)] => item,
@@ -486,121 +490,20 @@ impl ZhangParser {
             [comment(item)] => item,
             [transaction(item)] => item,
         );
-        Ok((ret, (pest_start_pos, pest_end_pos)))
+        Ok((ret, span_info))
     }
     fn entry(input: Node) -> Result<Vec<Spanned<Directive>>> {
-        let mut cursor = LineCursor::new(input.as_str());
-        let ret: Vec<(Directive, (usize, usize))> = match_nodes!(input.into_children();
+        let ret: Vec<(Directive, SpanInfo)> = match_nodes!(input.into_children();
             [item(items).., _] => items.collect(),
         );
-        let mut spanned = vec![];
-        for (directive, (start_pos, end_post)) in ret {
-            let (start_pos, end_pos, r) = cursor.move_from(start_pos, end_post);
-            spanned.push(Spanned {
+        Ok(ret
+            .into_iter()
+            .map(|(directive, span_info)| Spanned {
                 data: directive,
-                span: SpanInfo {
-                    start: start_pos.0,
-                    end: end_pos.0,
-                    content: r.to_string(),
-                    filename: None,
-                },
+                span: span_info,
             })
-        }
-        Ok(spanned)
+            .collect_vec())
     }
-}
-
-pub struct LineCursor<'a> {
-    content: &'a str,
-    line: usize,
-    col: usize,
-    current_pos: usize,
-}
-
-impl<'a> LineCursor<'a> {
-    pub fn new(content: &'a str) -> Self {
-        Self {
-            content,
-            line: 1,
-            col: 1,
-            current_pos: 0,
-        }
-    }
-    pub fn move_from(&mut self, start_pos: usize, end_pos: usize) -> ((usize, usize), (usize, usize), &'a str) {
-        if self.current_pos < start_pos {
-            let x1 = &self.content[self.current_pos..start_pos]; // todo use peekable
-            let (l, c, has_new_line) = line_col(x1);
-            self.line += l;
-            if has_new_line {
-                self.col = c;
-            } else {
-                self.col += c;
-            }
-        }
-
-        // let x = self.move_to(start_pos);
-        let x1 = &self.content[start_pos..end_pos]; // todo use peekable
-        let (l, c, has_new_line) = line_col(x1);
-        let prev_line = self.line;
-        let prev_col = self.col;
-
-        self.line += l;
-        if has_new_line {
-            self.col = c;
-        } else {
-            self.col += c;
-        }
-        self.current_pos = end_pos;
-        ((prev_line, prev_col), (self.line, self.col), x1)
-    }
-
-    pub fn consume(&mut self, input: &str) -> ((usize, usize), (usize, usize)) {
-        let (l, c, has_new_line) = line_col(input);
-        let prev_line = self.line;
-        let prev_col = self.col;
-
-        self.line += l;
-        if has_new_line {
-            self.col = c;
-        } else {
-            self.col += c;
-        }
-        ((prev_line, prev_col), (self.line, self.col))
-    }
-}
-
-fn line_col(part: &str) -> (usize, usize, bool) {
-    let mut chars = part.chars().peekable();
-
-    let mut line_col = (0, 0);
-    let mut has_new_line = false;
-
-    loop {
-        match chars.next() {
-            Some('\r') => {
-                if let Some(&'\n') = chars.peek() {
-                    chars.next();
-
-                    line_col = (line_col.0 + 1, 1);
-                    has_new_line = true;
-                } else {
-                    line_col = (line_col.0, line_col.1 + 1);
-                }
-            }
-            Some('\n') => {
-                line_col = (line_col.0 + 1, 1);
-                has_new_line = true;
-            }
-            Some(_c) => {
-                line_col = (line_col.0, line_col.1 + 1);
-            }
-            None => {
-                break;
-            }
-        }
-    }
-
-    (line_col.0, line_col.1, has_new_line)
 }
 
 pub fn parse_zhang(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<Directive>>> {
