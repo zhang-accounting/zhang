@@ -4,7 +4,7 @@ pub mod data;
 pub mod database;
 pub mod ledger;
 pub mod models;
-pub mod operations;
+pub mod domains;
 pub mod options;
 pub(crate) mod process;
 pub mod utils;

@@ -18,7 +18,7 @@ use crate::core::amount::Amount;
 use crate::core::data::{Include, Transaction};
 use crate::core::database::migrations::Migration;
 use crate::core::models::{Directive, DirectiveType, ZhangString};
-use crate::core::operations::commodity::CommodityOperation;
+use crate::core::domains::commodity::CommodityDomain;
 use crate::core::options::Options;
 use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::bigdecimal_ext::BigDecimalExt;
@@ -249,7 +249,7 @@ impl Ledger {
                 for (currency, amount) in inventory.currencies.iter() {
                     // todo get currency info
                     let mut conn = self.connection().await;
-                    let commodity = CommodityOperation::get_by_name(currency, &mut conn).await?;
+                    let commodity = CommodityDomain::get_by_name(currency, &mut conn).await?;
                     let precision = commodity
                         .as_ref()
                         .map(|it| it.precision)

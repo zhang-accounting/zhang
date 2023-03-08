@@ -32,7 +32,7 @@ use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document, Meta,
 use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::core::ledger::{Ledger, LedgerError};
 use crate::core::models::{Directive, Flag, ZhangString};
-use crate::core::operations::options::OptionDomain;
+use crate::core::domains::options::OptionDomain;
 use crate::core::utils::date_range::NaiveDateRange;
 use crate::core::utils::string_::StringExt;
 use crate::error::{IoErrorIntoZhangError, ZhangResult};

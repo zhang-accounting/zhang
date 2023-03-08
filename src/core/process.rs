@@ -18,6 +18,9 @@ use crate::core::models::{Flag, Rounding, ZhangString};
 use crate::core::utils::inventory::LotInfo;
 use crate::core::utils::span::SpanInfo;
 use crate::core::{AccountName, DEFAULT_COMMODITY_PRECISION};
+use crate::core::domains::account::AccountDomain;
+use crate::core::domains::commodity::CommodityDomain;
+use crate::core::domains::options::OptionDomain;
 use crate::error::ZhangResult;
 
 #[derive(Debug, Deserialize, FromRow)]
@@ -45,11 +48,7 @@ pub(crate) trait DirectiveProcess {
 async fn check_account_existed(
     account_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection,
 ) -> ZhangResult<()> {
-    let existed = sqlx::query("select 1 from accounts where name = $1")
-        .bind(account_name)
-        .fetch_optional(conn)
-        .await?
-        .is_some();
+    let existed = AccountDomain::exists(account_name, conn).await?;
 
     if !existed {
         ledger.errors.push(LedgerError {
@@ -89,11 +88,7 @@ async fn check_account_closed(
 async fn check_commodity_define(
     commodity_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection,
 ) -> ZhangResult<()> {
-    let existed = sqlx::query("select 1 from commodities where name = $1")
-        .bind(commodity_name)
-        .fetch_optional(conn)
-        .await?
-        .is_some();
+    let existed = CommodityDomain::exists(commodity_name, conn).await?;
     if !existed {
         ledger.errors.push(LedgerError {
             span: span.clone(),
@@ -119,11 +114,8 @@ impl DirectiveProcess for Options {
             .configs
             .insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());
 
-        sqlx::query(r#"INSERT OR REPLACE INTO options VALUES ($1, $2);"#)
-            .bind(self.key.as_str())
-            .bind(self.value.as_str())
-            .execute(&mut conn)
-            .await?;
+        OptionDomain::insert_or_update(self.key.as_str(), self.value.as_str(), &mut conn).await?;
+
         Ok(())
     }
 }
