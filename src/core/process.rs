@@ -15,7 +15,7 @@ use crate::core::ledger::{Ledger, LedgerError, LedgerErrorType};
 use crate::core::models::{Flag, Rounding, ZhangString};
 use crate::core::utils::inventory::LotInfo;
 use crate::core::utils::span::SpanInfo;
-use crate::core::AccountName;
+use crate::core::{AccountName, DEFAULT_COMMODITY_PRECISION};
 use crate::error::ZhangResult;
 
 #[derive(Debug, Deserialize, FromRow)]
@@ -176,7 +176,8 @@ impl DirectiveProcess for Commodity {
             .get_one(&"precision".to_string())
             .map(|it| it.as_str().parse::<i32>())
             .transpose()
-            .unwrap_or(None);
+            .unwrap_or(None)
+            .unwrap_or(DEFAULT_COMMODITY_PRECISION);
         let prefix = self.meta.get_one(&"prefix".to_string()).map(|it| it.as_str());
         let suffix = self.meta.get_one(&"suffix".to_string()).map(|it| it.as_str());
         let rounding = self

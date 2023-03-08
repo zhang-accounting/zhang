@@ -11,3 +11,5 @@ pub mod utils;
 
 pub type Currency = String;
 pub type AccountName = String;
+
+pub const DEFAULT_COMMODITY_PRECISION: i32 = 2;
