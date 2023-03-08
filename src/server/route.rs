@@ -32,6 +32,7 @@ use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document, Meta,
 use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::core::ledger::{Ledger, LedgerError};
 use crate::core::models::{Directive, Flag, ZhangString};
+use crate::core::operations::options::OptionDomain;
 use crate::core::utils::date_range::NaiveDateRange;
 use crate::core::utils::string_::StringExt;
 use crate::error::{IoErrorIntoZhangError, ZhangResult};
@@ -108,8 +109,12 @@ pub async fn get_transaction_links(trx_id: &str, conn: &mut SqliteConnection) ->
 }
 
 #[get("/api/info")]
-pub async fn get_basic_info() -> ApiResult<BasicInfo> {
+pub async fn get_basic_info(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<BasicInfo> {
+    let guard = ledger.read().await;
+    let mut connection = guard.connection().await;
+
     ResponseWrapper::json(BasicInfo {
+        title: OptionDomain::get("title", &mut connection).await?,
         version: env!("CARGO_PKG_VERSION").to_string(),
         build_date: env!("ZHANG_BUILD_DATE").to_string(),
     })

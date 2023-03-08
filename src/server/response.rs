@@ -280,6 +280,7 @@ pub struct ReportRankItemResponse {
 
 #[derive(Serialize)]
 pub struct BasicInfo {
+    pub title: Option<String>,
     pub version: String,
     pub build_date: String,
 }
