@@ -141,7 +141,10 @@ impl Ledger {
 
         }else {
             info!("using in memory database");
-            SqlitePool::connect_with(SqliteConnectOptions::from_str("sqlite::memory:").unwrap()
+            SqlitePool::connect_with(SqliteConnectOptions::from_str("sqlite::memory:")
+                .max_lifetime(None)
+                .idle_timeout(None)
+                .unwrap()
                 .journal_mode(SqliteJournalMode::Wal)
             )
                 .await.unwrap()
