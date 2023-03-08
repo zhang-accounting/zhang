@@ -64,7 +64,7 @@ pub struct ServerOpts {
     #[clap(short, long, default_value_t = 8000)]
     pub port: u16,
 
-    /// indicate cache database file path
+    /// indicate cache database file path, use memory database if not present
     #[clap(long)]
     pub database: Option<PathBuf>,
 
@@ -78,12 +78,10 @@ impl Opts {
         match self {
             Opts::Importer(importer) => importer.run(),
             Opts::Parse(parse_opts) => {
-                let temp_dir = tempfile::tempdir().unwrap();
-                let temp_db = temp_dir.as_ref().join("data.db");
                 Ledger::load_with_database(
                     parse_opts.path,
                     parse_opts.endpoint,
-                    parse_opts.database.unwrap_or(temp_db),
+                    parse_opts.database,
                 )
                 .await
                 .expect("Cannot load ledger");

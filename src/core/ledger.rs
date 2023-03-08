@@ -4,13 +4,15 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::option::Option::None;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use bigdecimal::Zero;
 use itertools::Itertools;
 use log::{debug, error, info};
 use serde::Serialize;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
-use sqlx::{ConnectOptions, SqliteConnection};
+use sqlx::{ Sqlite, SqlitePool};
+use sqlx::pool::PoolConnection;
 
 use crate::core::amount::Amount;
 use crate::core::data::{Include, Transaction};
@@ -57,7 +59,8 @@ pub enum LedgerErrorType {
 #[derive(Debug)]
 pub struct Ledger {
     pub entry: (PathBuf, String),
-    pub database: PathBuf,
+    pub database: Option<PathBuf>,
+    pub pool_connection: SqlitePool,
     pub(crate) visited_files: Vec<PathBuf>,
 
     pub options: Options,
@@ -70,12 +73,11 @@ pub struct Ledger {
 
 impl Ledger {
     pub async fn load(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
-        let database = tempfile::tempdir().unwrap().into_path().join("data.db");
-        Ledger::load_with_database(entry, endpoint, database).await
+
+        Ledger::load_with_database(entry, endpoint, None).await
     }
 
-    pub async fn load_with_database(entry: PathBuf, endpoint: String, database: PathBuf) -> ZhangResult<Ledger> {
-        info!("cache store at {}", database.display());
+    pub async fn load_with_database(entry: PathBuf, endpoint: String, database: Option<PathBuf>) -> ZhangResult<Ledger> {
         let entry = entry.canonicalize().with_path(&entry)?;
         let main_endpoint = entry.join(&endpoint);
         let main_endpoint = main_endpoint.canonicalize().with_path(&main_endpoint)?;
@@ -121,28 +123,34 @@ impl Ledger {
         parse_zhang(&content, entry).map_err(|it| ZhangError::PestError(it.to_string()))
     }
 
-    pub(crate) async fn connection(&self) -> SqliteConnection {
-        SqliteConnectOptions::default()
-            .filename(&self.database)
-            .journal_mode(SqliteJournalMode::Wal)
-            .create_if_missing(false)
-            .connect()
-            .await
-            .unwrap()
+    pub(crate) async fn connection(&self) -> PoolConnection<Sqlite> {
+        self.pool_connection.acquire().await.unwrap()
     }
 
     async fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: PathBuf, visited_files: Vec<PathBuf>,
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: Option<PathBuf>, visited_files: Vec<PathBuf>,
     ) -> ZhangResult<Ledger> {
-        let mut connect = SqliteConnectOptions::default()
-            .filename(&database)
-            .journal_mode(SqliteJournalMode::Wal)
-            .create_if_missing(true)
-            .connect()
-            .await
-            .unwrap();
+        let sqlite_pool = if let Some(ref path) = database {
+            info!("database store at {}", path.display());
+            SqlitePool::connect_with(SqliteConnectOptions::default()
+                .filename(&path)
+                .journal_mode(SqliteJournalMode::Wal)
+                .create_if_missing(true)
+                )
+                .await.unwrap()
 
-        Migration::init_database_if_missing(&mut connect).await?;
+        }else {
+            info!("using in memory database");
+            SqlitePool::connect_with(SqliteConnectOptions::from_str("sqlite::memory:").unwrap()
+                .journal_mode(SqliteJournalMode::Wal)
+            )
+                .await.unwrap()
+
+        };
+        let mut connection = sqlite_pool.acquire().await.unwrap();
+
+
+        Migration::init_database_if_missing(&mut connection).await?;
 
         let (mut meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
@@ -152,6 +160,7 @@ impl Ledger {
             options: Options::default(),
             entry,
             database,
+            pool_connection: sqlite_pool,
             visited_files,
             directives: vec![],
             metas: vec![],
@@ -159,7 +168,9 @@ impl Ledger {
             errors: vec![],
             configs: HashMap::default(),
         };
-        let mut context = ProcessContext { connection: connect };
+
+        // todo: remove process context
+        let mut context = ProcessContext {};
 
         for directive in meta_directives.iter_mut().chain(directives.iter_mut()) {
             match &mut directive.data {

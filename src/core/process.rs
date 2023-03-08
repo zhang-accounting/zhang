@@ -27,19 +27,19 @@ struct AccountAmount {
 }
 
 pub(crate) struct ProcessContext {
-    pub(crate) connection: SqliteConnection,
+
 }
 
 #[async_trait]
 pub(crate) trait DirectiveProcess {
-    async fn handler(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn handler(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
         let start_time = Instant::now();
-        let result = DirectiveProcess::process(self, ledger, context, span).await;
+        let result = DirectiveProcess::process(self, ledger, _context, span).await;
         let duration = start_time.elapsed();
         debug!("directive process is done in {:?}", duration);
         result
     }
-    async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()>;
+    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()>;
 }
 
 async fn check_account_existed(
@@ -108,11 +108,12 @@ async fn check_commodity_define(
 #[async_trait]
 impl DirectiveProcess for Options {
     async fn process(
-        &mut self, ledger: &mut Ledger, context: &mut ProcessContext, _span: &SpanInfo,
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo,
     ) -> ZhangResult<()> {
+        let mut conn = ledger.connection().await;
         ledger
             .options
-            .parse(self.key.as_str(), self.value.as_str(), &mut context.connection)
+            .parse(self.key.as_str(), self.value.as_str(), &mut conn)
             .await?;
         ledger
             .configs
@@ -121,7 +122,7 @@ impl DirectiveProcess for Options {
         sqlx::query(r#"INSERT OR REPLACE INTO options VALUES ($1, $2);"#)
             .bind(self.key.as_str())
             .bind(self.value.as_str())
-            .execute(&mut context.connection)
+            .execute(&mut conn)
             .await?;
         Ok(())
     }
@@ -132,8 +133,9 @@ impl DirectiveProcess for Open {
     async fn process(
         &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo,
     ) -> ZhangResult<()> {
+        let mut conn = ledger.connection().await;
         for currency in &self.commodities {
-            check_commodity_define(currency, ledger, span, &mut _context.connection).await?;
+            check_commodity_define(currency, ledger, span, &mut conn).await?;
         }
 
         sqlx::query(r#"INSERT OR REPLACE INTO accounts(date, type, name, status, alias) VALUES ($1, $2, $3, $4, $5);"#)
@@ -142,7 +144,7 @@ impl DirectiveProcess for Open {
             .bind(self.account.name())
             .bind("Open")
             .bind(self.meta.get_one("alias").map(|it| it.as_str()))
-            .execute(&mut _context.connection)
+            .execute(&mut conn)
             .await?;
 
         for (meta_key, meta_value) in self.meta.clone().get_flatten() {
@@ -151,7 +153,7 @@ impl DirectiveProcess for Open {
                 .bind(self.account.name())
                 .bind(meta_key)
                 .bind(meta_value.as_str())
-                .execute(&mut _context.connection)
+                .execute(&mut conn)
                 .await?;
         }
 
@@ -161,14 +163,15 @@ impl DirectiveProcess for Open {
 
 #[async_trait]
 impl DirectiveProcess for Close {
-    async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+        let mut conn = ledger.connection().await;
         // check if account exist
-        check_account_existed(self.account.name(), ledger, span, &mut context.connection).await?;
-        check_account_closed(self.account.name(), ledger, span, &mut context.connection).await?;
+        check_account_existed(self.account.name(), ledger, span, &mut conn).await?;
+        check_account_closed(self.account.name(), ledger, span, &mut conn).await?;
 
         sqlx::query(r#"update accounts set status = 'Close' where name = $1"#)
             .bind(self.account.name())
-            .execute(&mut context.connection)
+            .execute(&mut conn)
             .await?;
 
         Ok(())
@@ -178,8 +181,9 @@ impl DirectiveProcess for Close {
 #[async_trait]
 impl DirectiveProcess for Commodity {
     async fn process(
-        &mut self, _ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo,
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, _span: &SpanInfo,
     ) -> ZhangResult<()> {
+        let mut conn = ledger.connection().await;
         let precision = self
             .meta
             .get_one("precision")
@@ -205,7 +209,7 @@ impl DirectiveProcess for Commodity {
         .bind(prefix)
         .bind(suffix)
         .bind(rounding.map(|it| it.to_string()))
-        .execute(&mut _context.connection)
+        .execute(&mut conn)
         .await?;
 
         for (meta_key, meta_value) in self.meta.clone().get_flatten() {
@@ -214,7 +218,7 @@ impl DirectiveProcess for Commodity {
                 .bind(self.currency.as_str())
                 .bind(meta_key)
                 .bind(meta_value.as_str())
-                .execute(&mut _context.connection)
+                .execute(&mut conn)
                 .await?;
         }
 
@@ -224,7 +228,8 @@ impl DirectiveProcess for Commodity {
 
 #[async_trait]
 impl DirectiveProcess for Transaction {
-    async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+        let mut conn = ledger.connection().await;
         let id = uuid::Uuid::new_v4().to_string();
         if !ledger.is_transaction_balanced(self).await? {
             ledger.errors.push(LedgerError {
@@ -242,21 +247,21 @@ impl DirectiveProcess for Transaction {
             .bind(span.filename.as_ref().and_then(|it|it.to_str()).map(|it|it.to_string()))
             .bind(span.start as i64)
             .bind(span.end as i64)
-            .execute(&mut context.connection)
+            .execute(&mut conn)
             .await?;
 
         for tag in self.tags.iter() {
             sqlx::query(r#"INSERT INTO transaction_tags (trx_id, tag)VALUES ($1, $2)"#)
                 .bind(&id)
                 .bind(tag)
-                .execute(&mut context.connection)
+                .execute(&mut conn)
                 .await?;
         }
         for link in self.links.iter() {
             sqlx::query(r#"INSERT INTO transaction_links (trx_id, link)VALUES ($1, $2)"#)
                 .bind(&id)
                 .bind(link)
-                .execute(&mut context.connection)
+                .execute(&mut conn)
                 .await?;
         }
 
@@ -272,7 +277,7 @@ impl DirectiveProcess for Transaction {
             .bind(txn_posting.posting.account.name())
             .bind(self.date.naive_datetime())
             .bind(&inferred_amount.currency)
-            .fetch_optional(&mut context.connection)
+            .fetch_optional(&mut conn)
             .await?;
             let previous = option.unwrap_or(AccountAmount {
                 number: ZhangBigDecimal(BigDecimal::zero()),
@@ -299,13 +304,13 @@ impl DirectiveProcess for Transaction {
                 .bind(after_number.to_string())
                 .bind(&previous.commodity)
 
-                .execute(&mut context.connection)
+                .execute(&mut conn)
                 .await?;
             let amount = txn_posting
                 .units()
                 .unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
             let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
-            lot_add(txn_posting.account_name(), amount, lot_info, &mut context.connection).await?;
+            lot_add(txn_posting.account_name(), amount, lot_info, &mut conn).await?;
         }
         for document in self
             .meta
@@ -326,7 +331,7 @@ impl DirectiveProcess for Transaction {
             .bind(&document_path)
             .bind(extension)
             .bind(&id)
-            .execute(&mut context.connection)
+            .execute(&mut conn)
             .await?;
         }
 
@@ -336,7 +341,7 @@ impl DirectiveProcess for Transaction {
                 .bind(&id)
                 .bind(meta_key)
                 .bind(meta_value.as_str())
-                .execute(&mut context.connection)
+                .execute(&mut conn)
                 .await?;
         }
         Ok(())
@@ -345,7 +350,8 @@ impl DirectiveProcess for Transaction {
 
 #[async_trait]
 impl DirectiveProcess for Balance {
-    async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+        let mut conn = ledger.connection().await;
         match self {
             Balance::BalanceCheck(balance_check) => {
                 let option: Option<AccountAmount> = sqlx::query_as(
@@ -361,7 +367,7 @@ impl DirectiveProcess for Balance {
                 .bind(balance_check.account.name())
                 .bind(balance_check.date.naive_datetime())
                 .bind(&balance_check.amount.currency)
-                .fetch_optional(&mut context.connection)
+                .fetch_optional(&mut conn)
                 .await?;
                 let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
 
@@ -382,8 +388,8 @@ impl DirectiveProcess for Balance {
                     });
                 }
 
-                check_account_existed(balance_check.account.name(), ledger, span, &mut context.connection).await?;
-                check_account_closed(balance_check.account.name(), ledger, span, &mut context.connection).await?;
+                check_account_existed(balance_check.account.name(), ledger, span, &mut conn).await?;
+                check_account_closed(balance_check.account.name(), ledger, span, &mut conn).await?;
 
                 let mut transformed_trx = Transaction {
                     date: balance_check.date.clone(),
@@ -407,13 +413,13 @@ impl DirectiveProcess for Balance {
                     meta: Default::default(),
                 };
 
-                transformed_trx.process(ledger, context, span).await?;
+                transformed_trx.process(ledger, _context, span).await?;
             }
             Balance::BalancePad(balance_pad) => {
-                check_account_existed(balance_pad.account.name(), ledger, span, &mut context.connection).await?;
-                check_account_existed(balance_pad.pad.name(), ledger, span, &mut context.connection).await?;
-                check_account_closed(balance_pad.account.name(), ledger, span, &mut context.connection).await?;
-                check_account_closed(balance_pad.pad.name(), ledger, span, &mut context.connection).await?;
+                check_account_existed(balance_pad.account.name(), ledger, span, &mut conn).await?;
+                check_account_existed(balance_pad.pad.name(), ledger, span, &mut conn).await?;
+                check_account_closed(balance_pad.account.name(), ledger, span, &mut conn).await?;
+                check_account_closed(balance_pad.pad.name(), ledger, span, &mut conn).await?;
 
                 let option: Option<AccountAmount> = sqlx::query_as(
                     r#"
@@ -428,7 +434,7 @@ impl DirectiveProcess for Balance {
                 .bind(balance_pad.account.name())
                 .bind(balance_pad.date.naive_datetime())
                 .bind(&balance_pad.amount.currency)
-                .fetch_optional(&mut context.connection)
+                .fetch_optional(&mut conn)
                 .await?;
                 let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
 
@@ -470,7 +476,7 @@ impl DirectiveProcess for Balance {
                     meta: Default::default(),
                 };
 
-                transformed_trx.process(ledger, context, span).await?;
+                transformed_trx.process(ledger, _context, span).await?;
 
                 let _neg_distance = distance.neg();
             }
@@ -482,9 +488,10 @@ impl DirectiveProcess for Balance {
 
 #[async_trait]
 impl DirectiveProcess for Document {
-    async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
-        check_account_existed(self.account.name(), ledger, span, &mut context.connection).await?;
-        check_account_closed(self.account.name(), ledger, span, &mut context.connection).await?;
+    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+        let mut conn = ledger.connection().await;
+        check_account_existed(self.account.name(), ledger, span, &mut conn).await?;
+        check_account_closed(self.account.name(), ledger, span, &mut conn).await?;
 
         let path = self.filename.clone().to_plain_string();
 
@@ -498,7 +505,7 @@ impl DirectiveProcess for Document {
         .bind(&path)
         .bind(extension)
         .bind(self.account.name())
-        .execute(&mut context.connection)
+        .execute(&mut conn)
         .await?;
         Ok(())
     }
@@ -506,15 +513,16 @@ impl DirectiveProcess for Document {
 
 #[async_trait]
 impl DirectiveProcess for Price {
-    async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
-        check_commodity_define(&self.currency, ledger, span, &mut context.connection).await?;
-        check_commodity_define(&self.amount.currency, ledger, span, &mut context.connection).await?;
+    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+        let mut conn = ledger.connection().await;
+        check_commodity_define(&self.currency, ledger, span, &mut conn).await?;
+        check_commodity_define(&self.amount.currency, ledger, span, &mut conn).await?;
         sqlx::query(r#"INSERT INTO prices (datetime, commodity, amount, target_commodity)VALUES ($1, $2, $3, $4)"#)
             .bind(self.date.naive_datetime())
             .bind(&self.currency)
             .bind(&self.amount.number.to_string())
             .bind(&self.amount.currency)
-            .execute(&mut context.connection)
+            .execute(&mut conn)
             .await?;
 
         Ok(())
