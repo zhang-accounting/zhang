@@ -163,21 +163,21 @@ impl Ledger {
 
         for directive in meta_directives.iter_mut().chain(directives.iter_mut()) {
             match &mut directive.data {
-                Directive::Option(option) => option.process(&mut ret_ledger, &mut context, &directive.span).await?,
-                Directive::Open(open) => open.process(&mut ret_ledger, &mut context, &directive.span).await?,
-                Directive::Close(close) => close.process(&mut ret_ledger, &mut context, &directive.span).await?,
+                Directive::Option(option) => option.handler(&mut ret_ledger, &mut context, &directive.span).await?,
+                Directive::Open(open) => open.handler(&mut ret_ledger, &mut context, &directive.span).await?,
+                Directive::Close(close) => close.handler(&mut ret_ledger, &mut context, &directive.span).await?,
                 Directive::Commodity(commodity) => {
                     commodity
-                        .process(&mut ret_ledger, &mut context, &directive.span)
+                        .handler(&mut ret_ledger, &mut context, &directive.span)
                         .await?
                 }
-                Directive::Transaction(trx) => trx.process(&mut ret_ledger, &mut context, &directive.span).await?,
-                Directive::Balance(balance) => balance.process(&mut ret_ledger, &mut context, &directive.span).await?,
+                Directive::Transaction(trx) => trx.handler(&mut ret_ledger, &mut context, &directive.span).await?,
+                Directive::Balance(balance) => balance.handler(&mut ret_ledger, &mut context, &directive.span).await?,
                 Directive::Note(_) => {}
                 Directive::Document(document) => {
-                    document.process(&mut ret_ledger, &mut context, &directive.span).await?
+                    document.handler(&mut ret_ledger, &mut context, &directive.span).await?
                 }
-                Directive::Price(price) => price.process(&mut ret_ledger, &mut context, &directive.span).await?,
+                Directive::Price(price) => price.handler(&mut ret_ledger, &mut context, &directive.span).await?,
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
                 _ => {}

@@ -1,10 +1,12 @@
 use std::ops::{Add, Sub};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use bigdecimal::{BigDecimal, FromPrimitive, Zero};
 use chrono::NaiveDateTime;
+use log::debug;
 use serde::Deserialize;
 use sqlx::{Acquire, FromRow, SqliteConnection};
 
@@ -30,6 +32,13 @@ pub(crate) struct ProcessContext {
 
 #[async_trait]
 pub(crate) trait DirectiveProcess {
+    async fn handler(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+        let start_time = Instant::now();
+        let result = DirectiveProcess::process(self, ledger, context, span).await;
+        let duration = start_time.elapsed();
+        debug!("directive process is done in {:?}", duration);
+        result
+    }
     async fn process(&mut self, ledger: &mut Ledger, context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()>;
 }
 
