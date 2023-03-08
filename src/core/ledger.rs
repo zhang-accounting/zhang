@@ -10,7 +10,7 @@ use bigdecimal::Zero;
 use itertools::Itertools;
 use log::{debug, error, info};
 use serde::Serialize;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{ Sqlite, SqlitePool};
 use sqlx::pool::PoolConnection;
 
@@ -141,12 +141,13 @@ impl Ledger {
 
         }else {
             info!("using in memory database");
-            SqlitePool::connect_with(SqliteConnectOptions::from_str("sqlite::memory:")
+            SqlitePoolOptions::new()
                 .max_lifetime(None)
                 .idle_timeout(None)
-                .unwrap()
-                .journal_mode(SqliteJournalMode::Wal)
-            )
+                .connect_with(SqliteConnectOptions::from_str("sqlite::memory:")
+                    .unwrap()
+                    .journal_mode(SqliteJournalMode::Wal)
+                )
                 .await.unwrap()
 
         };
