@@ -132,7 +132,7 @@ impl DirectiveProcess for Open {
             .bind(self.account.account_type.to_string())
             .bind(self.account.name())
             .bind("Open")
-            .bind(self.meta.get_one(&"alias".to_string()).map(|it| it.as_str()))
+            .bind(self.meta.get_one("alias").map(|it| it.as_str()))
             .execute(&mut _context.connection)
             .await?;
 
@@ -173,16 +173,16 @@ impl DirectiveProcess for Commodity {
     ) -> ZhangResult<()> {
         let precision = self
             .meta
-            .get_one(&"precision".to_string())
+            .get_one("precision")
             .map(|it| it.as_str().parse::<i32>())
             .transpose()
             .unwrap_or(None)
             .unwrap_or(DEFAULT_COMMODITY_PRECISION);
-        let prefix = self.meta.get_one(&"prefix".to_string()).map(|it| it.as_str());
-        let suffix = self.meta.get_one(&"suffix".to_string()).map(|it| it.as_str());
+        let prefix = self.meta.get_one("prefix").map(|it| it.as_str());
+        let suffix = self.meta.get_one("suffix").map(|it| it.as_str());
         let rounding = self
             .meta
-            .get_one(&"rounding".to_string())
+            .get_one("rounding")
             .map(|it| Rounding::from_str(it.as_str()))
             .transpose()
             .unwrap_or(None);

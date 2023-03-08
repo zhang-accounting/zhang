@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::iter::FromIterator;
@@ -21,13 +22,21 @@ impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
         key_store.push(value);
     }
 
-    pub fn get_one(&self, key: &Key) -> Option<&Value> {
-        self.inner.get(key).and_then(|store| store.get(0))
+    pub fn get_one<Q>(&self, key: &Q) -> Option<&Value>
+    where
+        Key: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        self.inner.get(key.borrow()).and_then(|store| store.get(0))
     }
 
-    pub fn get_all(&self, key: &Key) -> Vec<&Value> {
+    pub fn get_all<Q>(&self, key: &Q) -> Vec<&Value>
+    where
+        Key: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.inner
-            .get(key)
+            .get(key.borrow())
             .map(|it| it.iter().collect_vec())
             .unwrap_or_default()
     }
