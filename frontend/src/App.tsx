@@ -37,6 +37,7 @@ import { useAppDispatch, useAppSelector } from './states';
 import { useEffect } from 'react';
 import { fetch } from './states/errors';
 import { fetchCommodities } from './states/commodity';
+import {serverBaseUrl} from "./index";
 
 const useStyles = createStyles((theme) => ({
   header: {
@@ -175,7 +176,13 @@ export default function App() {
     console.log("hello init");
     dispatch(fetch(1))
     dispatch(fetchCommodities())
+
+    let events = new EventSource(serverBaseUrl+ "/api/sse");
+    events.onmessage = (event) => {
+      console.log(event);
+    }
   }, [dispatch])
+
 
   const { total_number } = useAppSelector((state) => state.errors);
 

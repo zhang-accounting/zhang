@@ -14,16 +14,13 @@ use tokio::sync::RwLock;
 use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
-use crate::server::route::{
-    create_account_balance, create_new_transaction, current_statistic, download_document, get_account_documents,
-    get_account_journals, get_account_list, get_all_commodities, get_basic_info, get_documents, get_errors,
-    get_file_content, get_files, get_info_for_new_transactions, get_journals, get_report, get_single_commodity,
-    get_statistic_data, serve_frontend, update_file_content, upload_account_document, upload_transaction_document,
-};
+use crate::server::broadcast::Broadcaster;
+use crate::server::route::{create_account_balance, create_new_transaction, current_statistic, download_document, get_account_documents, get_account_journals, get_account_list, get_all_commodities, get_basic_info, get_documents, get_errors, get_file_content, get_files, get_info_for_new_transactions, get_journals, get_report, get_single_commodity, get_statistic_data, serve_frontend, sse, update_file_content, upload_account_document, upload_transaction_document};
 
 pub mod request;
 pub mod response;
 pub mod route;
+pub mod broadcast;
 
 pub type LedgerState = Arc<RwLock<Ledger>>;
 
@@ -55,6 +52,8 @@ pub async fn serve(opts: ServerOpts) -> ZhangResult<()> {
     let ledger_data = Arc::new(RwLock::new(ledger));
 
     let cloned_ledger = ledger_data.clone();
+    let broadcaster = Broadcaster::create();
+    let cloned_broadcaster = broadcaster.clone();
     tokio::spawn(async move {
         let (mut watcher, mut rx) = async_watcher().unwrap();
 
@@ -87,6 +86,7 @@ pub async fn serve(opts: ServerOpts) -> ZhangResult<()> {
                             Ok(_) => {
                                 let duration = start_time.elapsed();
                                 info!("ledger is reloaded successfully in {:?}", duration);
+                                cloned_broadcaster.broadcast("reloaded").await;
                             }
                             Err(err) => {
                                 error!("error on reload: {}", err)
@@ -118,15 +118,16 @@ pub async fn serve(opts: ServerOpts) -> ZhangResult<()> {
             }
         });
     }
-    start_server(opts, ledger_data).await
+    start_server(opts, ledger_data, broadcaster).await
 }
 
-async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> ZhangResult<()> {
+async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>) -> ZhangResult<()> {
     let addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), opts.port);
     info!("zhang is listening on http://127.0.0.1:{}/", opts.port);
     Ok(HttpServer::new(move || {
         App::new()
             .wrap(Cors::permissive())
+            .app_data(Data::from(broadcaster.clone()))
             .app_data(Data::new(ledger_data.clone()))
             .service(get_basic_info)
             .service(get_info_for_new_transactions)
@@ -149,6 +150,7 @@ async fn start_server(opts: ServerOpts, ledger_data: Arc<RwLock<Ledger>>) -> Zha
             .service(update_file_content)
             .service(get_report)
             .service(get_errors)
+            .service(sse)
             .default_service(web::to(serve_frontend))
     })
     .bind(addr)?

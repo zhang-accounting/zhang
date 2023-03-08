@@ -37,6 +37,7 @@ use crate::core::utils::date_range::NaiveDateRange;
 use crate::core::utils::string_::StringExt;
 use crate::error::{IoErrorIntoZhangError, ZhangResult};
 use crate::parse_zhang;
+use crate::server::broadcast::Broadcaster;
 use crate::server::request::{
     AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest,
 };
@@ -106,6 +107,13 @@ pub async fn get_transaction_links(trx_id: &str, conn: &mut SqliteConnection) ->
     .fetch_all(conn)
     .await?;
     Ok(rows.into_iter().map(|it| it.value).collect_vec())
+}
+
+
+
+#[get("/api/sse")]
+pub async fn sse(broadcaster: Data<Broadcaster>) -> impl Responder {
+    broadcaster.new_client().await
 }
 
 #[get("/api/info")]
