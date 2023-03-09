@@ -10,31 +10,19 @@ import Settings from './pages/Settings';
 import SingleAccount from './pages/SingleAccount';
 import SingleCommodity from './pages/SingleCommodity';
 
+import { Badge, Box, Code, createStyles, Group, MediaQuery, Navbar, Text, TextInput, UnstyledButton } from '@mantine/core';
+import {
+  IconCash, IconChartAreaLine, IconCreditCard, IconCurrencyBitcoin, IconFiles, IconList, IconNotebook, IconReceipt2, IconSearch, IconSettings, IconSmartHome, IconTools, TablerIcon
+} from '@tabler/icons';
 import { Link as RouteLink } from 'react-router-dom';
 import NewTransactionButton from './components/NewTransactionButton';
-import { createStyles, Navbar, TextInput, Code, UnstyledButton, Badge, Text, Group, MediaQuery, Box } from '@mantine/core';
-import {
-  IconSearch,
-  IconReceipt2,
-  TablerIcon,
-  IconSettings,
-  IconTools,
-  IconNotebook,
-  IconCreditCard,
-  IconChartAreaLine,
-  IconFiles,
-  IconCurrencyBitcoin,
-  IconCash,
-  IconList,
-  IconSmartHome,
-} from '@tabler/icons';
 
 import { AppShell, Grid } from '@mantine/core';
+import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import ToolList from './pages/tools/ToolList';
 import WechatExporter from './pages/tools/WechatExporter';
-import { useTranslation } from 'react-i18next';
 import { useAppDispatch, useAppSelector } from './states';
-import { useEffect } from 'react';
 import { fetch } from './states/errors';
 import { fetchCommodities } from './states/commodity';
 import {serverBaseUrl} from "./index";
@@ -211,7 +199,7 @@ export default function App() {
   //     <span style={{ marginRight: 9, fontSize: 16 }}>{collection.emoji}</span> {collection.label}
   //   </a>
   // ));
-
+    // return <Loader />
   return (
     <AppShell
       padding="xs"
