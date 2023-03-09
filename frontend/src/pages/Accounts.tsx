@@ -1,11 +1,8 @@
-import {Chip, Container, Group, Table, Title} from '@mantine/core';
-import {useLocalStorage} from '@mantine/hooks';
-import {useEffect, useState} from 'react';
+import { Chip, Container, Group, Table, Title } from '@mantine/core';
+import { useLocalStorage } from '@mantine/hooks';
+import { useEffect } from 'react';
 import AccountLine from '../components/AccountLine';
-import AccountTrie from '../utils/AccountTrie';
-import useSWR from 'swr'
-import {fetcher} from "../index";
-import {Account, AccountStatus, LoadingState} from "../rest-model";
+import { LoadingState } from "../rest-model";
 import { useAppDispatch, useAppSelector } from '../states';
 import { fetchAccounts, getAccountsTrie } from '../states/account';
 

@@ -12,24 +12,32 @@ import SingleCommodity from './pages/SingleCommodity';
 
 import { Badge, Box, Code, createStyles, Group, MediaQuery, Navbar, Text, TextInput, UnstyledButton } from '@mantine/core';
 import {
-  IconCash, IconChartAreaLine, IconCreditCard, IconCurrencyBitcoin, IconFiles, IconList, IconNotebook, IconReceipt2, IconSearch, IconSettings, IconSmartHome, IconTools, TablerIcon
+  IconBroadcast, IconCash, IconChartAreaLine, IconCreditCard, IconCurrencyBitcoin, IconFiles, IconList, IconNotebook, IconReceipt2, IconSearch, IconSettings, IconSmartHome, IconTools, TablerIcon
 } from '@tabler/icons';
 import { Link as RouteLink } from 'react-router-dom';
 import NewTransactionButton from './components/NewTransactionButton';
 
 import { AppShell, Grid } from '@mantine/core';
+import { showNotification } from '@mantine/notifications';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { serverBaseUrl } from "./index";
 import ToolList from './pages/tools/ToolList';
 import WechatExporter from './pages/tools/WechatExporter';
 import { useAppDispatch, useAppSelector } from './states';
-import { fetchError } from './states/errors';
-import { fetchCommodities } from './states/commodity';
-import { serverBaseUrl } from "./index";
-import { showNotification } from '@mantine/notifications';
 import { accountsSlice } from './states/account';
+import { basicInfoSlice, fetchBasicInfo } from './states/basic';
+import { fetchCommodities } from './states/commodity';
+import { fetchError } from './states/errors';
 
 const useStyles = createStyles((theme) => ({
+  onlineIcon: {
+    color: theme.colors.blue[6],
+  },
+  offlineIcon: {
+    color: theme.colors.red[4],
+  },
+
   header: {
     padding: theme.spacing.md,
     paddingTop: 0,
@@ -161,11 +169,12 @@ export default function App() {
   const { classes } = useStyles();
   const { t } = useTranslation();
   const dispatch = useAppDispatch()
+  const basicInfo = useAppSelector(state => state.basic);
 
   useEffect(() => {
-    console.log("hello init");
     dispatch(fetchError(1))
     dispatch(fetchCommodities())
+    dispatch(fetchBasicInfo())
 
     let events = new EventSource(serverBaseUrl + "/api/sse");
     events.onmessage = (event) => {
@@ -178,6 +187,7 @@ export default function App() {
             title: 'Change Detected',
             message: 'trigger ledger info reload',
           });
+          dispatch(fetchBasicInfo())
           dispatch(fetchError(1))
           dispatch(fetchCommodities())
           dispatch(accountsSlice.actions.clear())
@@ -185,14 +195,24 @@ export default function App() {
         case "Connected":
           showNotification({
             title: 'Connected to server',
+            icon: <IconBroadcast />,
             message: ""
           });
+          dispatch(fetchBasicInfo())
           break;
         default:
           break
       }
-
-
+    }
+    events.onerror = () => {
+      dispatch(basicInfoSlice.actions.offline());
+      showNotification({
+        id: "offline",
+        title: 'Server Offline',
+        icon: <IconBroadcast />,
+        color: "red",
+        message: 'Client can not connect to server',
+      });
     }
   }, [dispatch])
 
@@ -235,10 +255,10 @@ export default function App() {
               <Navbar.Section className={classes.header}>
                 <Group position="apart">
                   <Group spacing="xs" position="left">
-                    <IconReceipt2 stroke={1.5} />
-                    <Text>ZHANG</Text>
+                    <IconBroadcast stroke={3} className={basicInfo.isOnline ? classes.onlineIcon : classes.offlineIcon} />
+                    <Text>{basicInfo.title ?? "Zhang Accounting"}</Text>
                   </Group>
-                  <Code sx={{ fontWeight: 700 }}>v0.1.1</Code>
+                  <Code sx={{ fontWeight: 700 }}>{basicInfo.version}</Code>
                 </Group>
               </Navbar.Section>
 

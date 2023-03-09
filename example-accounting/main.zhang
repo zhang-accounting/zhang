@@ -1,4 +1,4 @@
-option "title" "My Accounting"
+option "title" "Example Ledger2"
 option "operating_currency" "CNY"
 
 
