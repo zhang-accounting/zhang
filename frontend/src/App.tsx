@@ -256,7 +256,7 @@ export default function App() {
                 <Group position="apart">
                   <Group spacing="xs" position="left">
                     <IconBroadcast stroke={3} className={basicInfo.isOnline ? classes.onlineIcon : classes.offlineIcon} />
-                    <Text>{basicInfo.title ?? "Zhang Accounting"}</Text>
+                    <Text lineClamp={1}>{basicInfo.title ?? "Zhang Accounting"}</Text>
                   </Group>
                 </Group>
               </Navbar.Section>
