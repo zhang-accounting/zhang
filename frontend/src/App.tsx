@@ -10,7 +10,7 @@ import Settings from './pages/Settings';
 import SingleAccount from './pages/SingleAccount';
 import SingleCommodity from './pages/SingleCommodity';
 
-import { Badge, Box, Code, createStyles, Group, MediaQuery, Navbar, Text, TextInput, UnstyledButton } from '@mantine/core';
+import { Badge, Box, createStyles, Group, MediaQuery, Navbar, Text, TextInput, UnstyledButton } from '@mantine/core';
 import {
   IconBroadcast, IconCash, IconChartAreaLine, IconCreditCard, IconCurrencyBitcoin, IconFiles, IconList, IconNotebook, IconReceipt2, IconSearch, IconSettings, IconSmartHome, IconTools, TablerIcon
 } from '@tabler/icons';
@@ -258,7 +258,6 @@ export default function App() {
                     <IconBroadcast stroke={3} className={basicInfo.isOnline ? classes.onlineIcon : classes.offlineIcon} />
                     <Text>{basicInfo.title ?? "Zhang Accounting"}</Text>
                   </Group>
-                  <Code sx={{ fontWeight: 700 }}>{basicInfo.version}</Code>
                 </Group>
               </Navbar.Section>
 
@@ -287,20 +286,6 @@ export default function App() {
                   {mainLinks}
                 </div>
               </Navbar.Section>
-
-              {/* <Navbar.Section grow className={classes.section}>
-            <Group className={classes.collectionsHeader} position="apart">
-              <Text size="xs" weight={500} color="dimmed">
-                Collections
-              </Text>
-              <Tooltip label="Create collection" withArrow position="right">
-                <ActionIcon variant="default" size={18}>
-                  <IconPlus size={12} stroke={1.5} />
-                </ActionIcon>
-              </Tooltip>
-            </Group>
-            <div className={classes.collections}>{collectionLinks}</div>
-          </Navbar.Section> */}
             </Navbar>
           </MediaQuery>
         </>
