@@ -5,27 +5,23 @@ import AccountLine from '../components/AccountLine';
 import AccountTrie from '../utils/AccountTrie';
 import useSWR from 'swr'
 import {fetcher} from "../index";
-import {Account, AccountStatus} from "../rest-model";
+import {Account, AccountStatus, LoadingState} from "../rest-model";
+import { useAppDispatch, useAppSelector } from '../states';
+import { fetchAccounts, getAccountsTrie } from '../states/account';
 
 export default function Accounts() {
-  const {data, error } =  useSWR<Account[]>("/api/accounts", fetcher);
 
   const [hideClosedAccount, setHideClosedAccount] = useLocalStorage({ key: 'hideClosedAccount', defaultValue: false });
-
-  const [accountTrie, setAccountTrie] = useState(new AccountTrie());
+  const dispatch = useAppDispatch();
+  const accountStatus = useAppSelector(state => state.accounts.status);
+  const accountTrie = useAppSelector(getAccountsTrie(hideClosedAccount));
 
   useEffect(() => {
-    if (data) {
-      let trie = new AccountTrie();
-      for (let account of data.filter((it) => (hideClosedAccount ? it.status === AccountStatus.Open : true))) {
-        trie.insert(account);
-      }
-      setAccountTrie(trie);
+    if(accountStatus === LoadingState.NotReady) {
+      dispatch(fetchAccounts());
     }
-  }, [data, hideClosedAccount]);
+  }, [dispatch, accountStatus]);
 
-  if (error) return <div>failed to load</div>
-  if (!data) return <div>loading...</div>
   return (
     <Container fluid>
       <Title order={2}>Accounts</Title>

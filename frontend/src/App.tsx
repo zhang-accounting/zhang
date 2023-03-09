@@ -27,6 +27,7 @@ import { fetchError } from './states/errors';
 import { fetchCommodities } from './states/commodity';
 import { serverBaseUrl } from "./index";
 import { showNotification } from '@mantine/notifications';
+import { accountsSlice } from './states/account';
 
 const useStyles = createStyles((theme) => ({
   header: {
@@ -179,6 +180,7 @@ export default function App() {
           });
           dispatch(fetchError(1))
           dispatch(fetchCommodities())
+          dispatch(accountsSlice.actions.clear())
           break;
         case "Connected":
           showNotification({
