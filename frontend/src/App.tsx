@@ -23,9 +23,10 @@ import { useTranslation } from 'react-i18next';
 import ToolList from './pages/tools/ToolList';
 import WechatExporter from './pages/tools/WechatExporter';
 import { useAppDispatch, useAppSelector } from './states';
-import { fetch } from './states/errors';
+import { fetchError } from './states/errors';
 import { fetchCommodities } from './states/commodity';
-import {serverBaseUrl} from "./index";
+import { serverBaseUrl } from "./index";
+import { showNotification } from '@mantine/notifications';
 
 const useStyles = createStyles((theme) => ({
   header: {
@@ -162,12 +163,34 @@ export default function App() {
 
   useEffect(() => {
     console.log("hello init");
-    dispatch(fetch(1))
+    dispatch(fetchError(1))
     dispatch(fetchCommodities())
 
-    let events = new EventSource(serverBaseUrl+ "/api/sse");
+    let events = new EventSource(serverBaseUrl + "/api/sse");
     events.onmessage = (event) => {
       console.log(event);
+      const data = JSON.parse(event.data);
+      switch (data?.type) {
+        case "Reload":
+          showNotification({
+            id: "reload",
+            title: 'Change Detected',
+            message: 'trigger ledger info reload',
+          });
+          dispatch(fetchError(1))
+          dispatch(fetchCommodities())
+          break;
+        case "Connected":
+          showNotification({
+            title: 'Connected to server',
+            message: ""
+          });
+          break;
+        default:
+          break
+      }
+
+
     }
   }, [dispatch])
 
@@ -199,7 +222,7 @@ export default function App() {
   //     <span style={{ marginRight: 9, fontSize: 16 }}>{collection.emoji}</span> {collection.label}
   //   </a>
   // ));
-    // return <Loader />
+  // return <Loader />
   return (
     <AppShell
       padding="xs"

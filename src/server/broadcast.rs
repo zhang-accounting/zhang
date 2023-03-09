@@ -4,6 +4,19 @@ use actix_web_lab::sse::{self, ChannelStream, Sse};
 use futures_util::future;
 use tokio::sync::Mutex;
 use tokio::time::interval;
+use serde::Serialize;
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+pub enum BroadcastEvent {
+    Reload,
+    Connected
+}
+
+impl BroadcastEvent {
+    pub fn to_data(&self) -> sse::Data {
+        sse::Data::new_json(&self).unwrap()
+    }
+}
 
 
 pub struct Broadcaster {
@@ -63,7 +76,7 @@ impl Broadcaster {
     pub async fn new_client(&self) -> Sse<ChannelStream> {
         let (tx, rx) = sse::channel(10);
 
-        tx.send(sse::Data::new("connected")).await.unwrap();
+        tx.send(BroadcastEvent::Connected.to_data()).await.unwrap();
 
         self.inner.lock().await.clients.push(tx);
 
@@ -71,11 +84,11 @@ impl Broadcaster {
     }
 
     /// Broadcasts `msg` to all clients.
-    pub async fn broadcast(&self, msg: &str) {
+    pub async fn broadcast(&self, msg: BroadcastEvent) {
         let clients = self.inner.lock().await.clients.clone();
         let send_futures = clients
             .iter()
-            .map(|client| client.send(sse::Data::new(msg)));
+            .map(|client| client.send(msg.to_data()));
 
         // try to send to all clients, ignoring failures
         // disconnected clients will get swept up by `remove_stale_clients`

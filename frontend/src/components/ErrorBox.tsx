@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LedgerError, LoadingState } from "../rest-model";
 import { useAppDispatch, useAppSelector } from '../states';
-import { fetch } from '../states/errors';
+import { fetchError } from '../states/errors';
 
 export default function ErrorBox() {
     const { t } = useTranslation();
@@ -28,7 +28,7 @@ export default function ErrorBox() {
     }
     const handlePageChange = (newPage: number) => {
         setPage(newPage);
-        dispatch(fetch(newPage));
+        dispatch(fetchError(newPage));
     }
 
     const toggleError = (error: LedgerError) => {

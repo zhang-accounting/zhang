@@ -3,7 +3,7 @@ import { fetcher } from ".."
 import { LoadingState } from "../rest-model";
 
 
-export const fetch = createAsyncThunk(
+export const fetchError = createAsyncThunk(
     "errors/fetch",
     async (page: number, thunkApi) => {
         const ret = await fetcher(`/api/errors?page=${page}`);
@@ -32,11 +32,11 @@ export const errorsSlice = createSlice({
     reducers: {
     },
     extraReducers: (builder) => {
-        builder.addCase(fetch.pending, (state, action) => {
+        builder.addCase(fetchError.pending, (state, action) => {
             state.status = LoadingState.Loading
         })
 
-        builder.addCase(fetch.fulfilled, (state, action) => {
+        builder.addCase(fetchError.fulfilled, (state, action) => {
             state.status = LoadingState.Success
             state.total_number = action.payload.total_count;
             state.total_page = action.payload.total_page;

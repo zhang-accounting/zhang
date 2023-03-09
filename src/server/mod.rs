@@ -15,7 +15,7 @@ use tokio::sync::RwLock;
 use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
-use crate::server::broadcast::Broadcaster;
+use crate::server::broadcast::{Broadcaster, BroadcastEvent};
 use crate::server::route::{create_account_balance, create_new_transaction, current_statistic, download_document, get_account_documents, get_account_journals, get_account_list, get_all_commodities, get_basic_info, get_documents, get_errors, get_file_content, get_files, get_info_for_new_transactions, get_journals, get_report, get_single_commodity, get_statistic_data, serve_frontend, sse, update_file_content, upload_account_document, upload_transaction_document};
 
 pub mod request;
@@ -108,7 +108,7 @@ pub async fn serve(opts: ServerOpts) -> ZhangResult<()> {
                     Ok(_) => {
                         let duration = start_time.elapsed();
                         info!("ledger is reloaded successfully in {:?}", duration);
-                    cloned_broadcaster.broadcast("reloaded").await;}
+                    cloned_broadcaster.broadcast(BroadcastEvent::Reload).await;}
                     Err(err) => {
                         error!("error on reload: {}", err)
                     }
