@@ -19,7 +19,7 @@ LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
 COPY --from=python-build /data /data
 COPY --from=build-env /application /application
 COPY --from=build-env /app/target/release/zhang /application/zhang
-RUN chmod -R 444 /data
+RUN chmod -R go+r /data
 RUN chmod -R 777 /application/zhang
 
 RUN useradd -u 8877 zhang
