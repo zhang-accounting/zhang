@@ -10,7 +10,8 @@
     <img src="https://raw.githubusercontent.com/zhang-accounting/zhang/main/assets/screenshot.png">
 </div>
 
-Online Demo Web: [zhang example](https://zhang-example.kilerd.me)
+Online Demo Web: [zhang online demo](https://zhang.resource.rs)
+> due to security concern, we only provide the readonly file system, so some operation may not be supported in the demo.
 
 ## Features
  - **Independent Direcitve**: all directives in zhang are independent, you can write them in any file with any order.
