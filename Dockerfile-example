@@ -5,6 +5,8 @@ RUN mkdir /data
 RUN python3 main.py run > /data/main.zhang
 
 FROM rust:1.68.0 as build-env
+
+RUN mkdir /application
 WORKDIR /app
 COPY . /app
 
@@ -13,11 +15,9 @@ RUN cargo build --release
 FROM gcr.io/distroless/cc
 LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
 
-RUN mkdir /data
-RUN mkdir /application
-
-COPY --from=build-env /app/target/release/zhang /application/zhang
 COPY --from=python-build /data /data
+COPY --from=build-env /application /application
+COPY --from=build-env /app/target/release/zhang /application/zhang
 
 WORKDIR application
 EXPOSE 8000
