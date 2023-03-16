@@ -1,4 +1,4 @@
-FROM python:3.10 AS python-build
+FROM python:3.10.10-bullseye AS python-build
 RUN pip install fire arrow
 RUN curl -LJO https://raw.githubusercontent.com/zhang-accounting/zhang-example-cli/main/main.py
 RUN mkdir /data
