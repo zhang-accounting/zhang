@@ -14,6 +14,7 @@ FROM gcr.io/distroless/cc
 LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
 
 RUN mkdir /data
+RUN mkdir /application
 
 COPY --from=build-env /app/target/release/zhang /application/zhang
 COPY --from=python-build /data /data
