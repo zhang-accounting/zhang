@@ -5,14 +5,19 @@ COPY . /app
 RUN mkdir /data
 RUN cargo build --release
 
-FROM gcr.io/distroless/cc
+FROM gcr.io/distroless/python3
 LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
 
 COPY --from=build-env /app/target/release/zhang /application/zhang
 COPY --from=build-env /data /data
 
+RUN pip3 install fire arrow
+RUN curl -LJO https://raw.githubusercontent.com/zhang-accounting/zhang-example-cli/main/main.py
+
+RUN python3 main.py run > /data/main.zhang
+RUN chmod -R 444 /data/
+
 WORKDIR application
-VOLUME "/data"
 EXPOSE 8000
 
 ENTRYPOINT ["./zhang", "server", "/data", "--port", "8000"]
