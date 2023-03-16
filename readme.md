@@ -10,7 +10,7 @@
     <img src="https://raw.githubusercontent.com/zhang-accounting/zhang/main/assets/screenshot.png">
 </div>
 
-Online Demo Web: [zhang online demo](https://zhang.resource.rs)
+Online Demo Web: [zhang online demo](https://zhang-example.kilerd.me)
 > due to security concern, we only provide the readonly file system, so some operation may not be supported in the demo.
 
 ## Features
