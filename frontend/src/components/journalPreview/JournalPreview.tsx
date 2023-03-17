@@ -1,4 +1,5 @@
-import { JournalItem, JournalTransactionItem } from '../../rest-model';
+import { JournalBalanceCheckItem, JournalItem, JournalTransactionItem } from '../../rest-model';
+import BalanceCheckPreview from './BalanceCheckPreview';
 import TransactionPreview from './TransactionPreview';
 interface Props {
   data?: JournalItem;
@@ -9,9 +10,9 @@ export default function JournalPreview(props: Props) {
     return <div>preview click</div>;
   }
   switch (props.data.type) {
-    // case 'BalanceCheck':
-    //   line = <div>BalanceCheckDto</div>;
-    //   break;
+    case 'BalanceCheck':
+      line = <BalanceCheckPreview data={props.data as JournalBalanceCheckItem} />;
+      break;
     case 'BalancePad':
       line = <div>BalancePadDto</div>;
       break;
