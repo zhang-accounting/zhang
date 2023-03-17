@@ -29,6 +29,7 @@ import { accountsSlice } from './states/account';
 import { basicInfoSlice, fetchBasicInfo } from './states/basic';
 import { fetchCommodities } from './states/commodity';
 import { fetchError } from './states/errors';
+import { journalsSlice } from './states/journals';
 
 const useStyles = createStyles((theme) => ({
   onlineIcon: {
@@ -191,6 +192,7 @@ export default function App() {
           dispatch(fetchError(1))
           dispatch(fetchCommodities())
           dispatch(accountsSlice.actions.clear())
+          dispatch(journalsSlice.actions.clear())
           break;
         case "Connected":
           showNotification({

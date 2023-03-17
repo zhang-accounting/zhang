@@ -1,47 +1,55 @@
-import {Pagination, Table, Title} from '@mantine/core';
-import {useState} from 'react';
-import useSWR from 'swr';
-import {fetcher} from '..';
-import {JournalItem, Pageable} from '../rest-model';
-import {groupBy} from 'lodash';
-import {format} from 'date-fns'
+import { Pagination, Table, Title } from '@mantine/core';
+import { format } from 'date-fns';
+import { groupBy } from 'lodash';
+import { useEffect } from 'react';
 import TableViewJournalLine from '../components/journalLines/tableView/TableViewJournalLine';
+import { LoadingState } from '../rest-model';
+import { useAppDispatch, useAppSelector } from '../states';
+import { fetchJournals, journalsSlice } from '../states/journals';
 
 function Journals() {
+    const { current_page, status: journalStatus, items, total_number, total_page } = useAppSelector(state => state.journals);
+    const dispatch = useAppDispatch();
+    useEffect(() => {
+        if (journalStatus === LoadingState.NotReady) {
+            dispatch(fetchJournals());
+        }
+    }, [dispatch, journalStatus]);
 
-    const [page, setPage] = useState(1);
-    const {data, error} = useSWR<Pageable<JournalItem>>(`/api/journals?page=${page}`, fetcher);
+    const onPage = (page: number) => {
+        dispatch(journalsSlice.actions.setPage({ current_page: page }));
+        dispatch(fetchJournals())
+    }
 
-    if (error) return <div>failed to load</div>;
-    if (!data) return <>loading</>;
-    const {total_page, records, current_page} = data;
-    const groupedRecords = groupBy(records, record => format(new Date(record.datetime), 'yyyy-MM-dd'));
+    if (journalStatus === LoadingState.Loading || journalStatus === LoadingState.NotReady) return <>loading</>;
+
+    const groupedRecords = groupBy(items, record => format(new Date(record.datetime), 'yyyy-MM-dd'));
 
     return (
         <>
-            <Title order={2}>{records.length} Journals</Title>
+            <Title order={2}>{total_number} Journals</Title>
             <Table verticalSpacing="xs" highlightOnHover>
                 <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th>Payee</th>
-                    <th>Narration</th>
-                    <th>Amount</th>
-                    <th>Operation</th>
-                </tr>
+                    <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Payee</th>
+                        <th>Narration</th>
+                        <th>Amount</th>
+                        <th>Operation</th>
+                    </tr>
                 </thead>
                 <tbody>
-                {Object.entries(groupedRecords).map((entry) => {
-                    return <>
-                        {entry[1].map((journal) => (
-                            <TableViewJournalLine key={journal.id} data={journal}/>
-                        ))}
-                    </>
-                })}
+                    {Object.entries(groupedRecords).map((entry) => {
+                        return <>
+                            {entry[1].map((journal) => (
+                                <TableViewJournalLine key={journal.id} data={journal} />
+                            ))}
+                        </>
+                    })}
                 </tbody>
             </Table>
-            <Pagination my="xs" total={total_page} page={current_page} onChange={setPage} position="center"/>
+            <Pagination my="xs" total={total_page} page={current_page} onChange={onPage} position="center" />
 
         </>
     );

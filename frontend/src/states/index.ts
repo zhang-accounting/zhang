@@ -4,16 +4,15 @@ import { accountsSlice } from "./account";
 import { basicInfoSlice } from "./basic";
 import { commoditiesSlice } from "./commodity";
 import { errorsSlice } from './errors';
-
-
-
+import { journalsSlice } from "./journals";
 
 export const store = configureStore({
     reducer: {
         basic: basicInfoSlice.reducer,
         errors: errorsSlice.reducer,
         commodities: commoditiesSlice.reducer,
-        accounts: accountsSlice.reducer
+        accounts: accountsSlice.reducer,
+        journals: journalsSlice.reducer,
     },
 })
 
