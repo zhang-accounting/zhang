@@ -1,6 +1,6 @@
-import { createAsyncThunk, createListenerMiddleware, createSlice, PayloadAction } from "@reduxjs/toolkit"
+import { createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { RootState } from ".";
-import { fetcher } from ".."
+import { fetcher } from "..";
 import { LoadingState } from "../rest-model";
 
 export const fetchJournals = createAsyncThunk(
