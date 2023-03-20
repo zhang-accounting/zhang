@@ -1,15 +1,16 @@
-import { useDisclosure, useListState, useMediaQuery } from '@mantine/hooks';
-import { format } from 'date-fns';
+import {useDisclosure, useListState, useMediaQuery} from '@mantine/hooks';
+import {format} from 'date-fns';
 import {useEffect, useState} from 'react';
 // @ts-ignore
-import { ActionIcon, Button, Code, Container, Divider, Grid, Group, Modal, Select, TextInput } from '@mantine/core';
-import { DatePicker } from '@mantine/dates';
-import { IconSquarePlus, IconTextPlus, IconTrashX } from '@tabler/icons';
+import {ActionIcon, Button, Code, Container, Divider, Grid, Group, Modal, Select, TextInput} from '@mantine/core';
+import {DatePicker} from '@mantine/dates';
+import {IconSquarePlus, IconTextPlus, IconTrashX} from '@tabler/icons';
 import useSWR from 'swr';
-import { axiosInstance, fetcher } from '..';
-import { InfoForNewTransaction } from '../rest-model';
+import {axiosInstance, fetcher} from '..';
+import {InfoForNewTransaction} from '../rest-model';
 import DividerWithAction from './basic/DividerWithAction';
 import {useTranslation} from "react-i18next";
+import {showNotification} from "@mantine/notifications";
 
 interface Posting {
     account: string | null;
@@ -25,8 +26,6 @@ interface SelectItem {
 export default function NewTransactionButton() {
     const {t} = useTranslation();
     const {data, error} = useSWR<InfoForNewTransaction>("/api/for-new-transaction", fetcher);
-
-
 
     const [isOpen, isOpenHandler] = useDisclosure(false);
 
@@ -99,6 +98,10 @@ export default function NewTransactionButton() {
                     {account: null, amount: ''},
                 ]);
                 metaHandler.setState([]);
+                showNotification({
+                    title: 'New transaction is created',
+                    message: ""
+                });
             })
             .catch(function (error) {
                 console.log(error);
