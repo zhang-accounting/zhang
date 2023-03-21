@@ -1,5 +1,5 @@
 import { Badge, Box, createStyles, Grid, Group, Text } from '@mantine/core';
-import { IconFile } from "@tabler/icons";
+import { IconFile } from '@tabler/icons';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
 import { JournalItem, JournalTransactionItem } from '../../../rest-model';
@@ -7,7 +7,7 @@ import { calculate } from '../../../utils/trx-calculator';
 
 const useStyles = createStyles((theme) => ({
   payee: {
-    fontWeight: "bold",
+    fontWeight: 'bold',
   },
   narration: {
     // marginLeft: theme.spacing.xs*0.5,
@@ -25,8 +25,8 @@ const useStyles = createStyles((theme) => ({
     fontSize: theme.fontSizes.sm,
   },
   notBalance: {
-    borderLeft: "3px solid red"
-  }
+    borderLeft: '3px solid red',
+  },
 }));
 
 interface Props {
@@ -46,9 +46,9 @@ export default function TransactionLine({ data, onClick }: Props) {
     }
   };
   const summary = calculate(data);
-  const hasDocuments = data.metas.some(meta => meta.key === 'document');
+  const hasDocuments = data.metas.some((meta) => meta.key === 'document');
   return (
-    <tr onClick={() => trClick()} className={!data.is_balanced ? classes.notBalance : ""}>
+    <tr onClick={() => trClick()} className={!data.is_balanced ? classes.notBalance : ''}>
       <td>
         <Grid align="center">
           <Grid.Col span={8}>
@@ -57,7 +57,6 @@ export default function TransactionLine({ data, onClick }: Props) {
                 {/* <span className={classes.payee}>{data.payee} </span> */}
                 {data.narration && <span className={classes.narration}>{data.narration}</span>}
               </Text>
-
 
               <Group spacing="xs">
                 <Text mr={2} color="dimmed" size="xs">
@@ -74,10 +73,7 @@ export default function TransactionLine({ data, onClick }: Props) {
                     {tag}
                   </Badge>
                 ))}
-                {hasDocuments &&
-                  <IconFile size={14} color={"gray"} stroke={1.5}></IconFile>
-                }
-
+                {hasDocuments && <IconFile size={14} color={'gray'} stroke={1.5}></IconFile>}
               </Group>
             </Box>
           </Grid.Col>

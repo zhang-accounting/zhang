@@ -4,7 +4,7 @@ import { fetcher } from '..';
 import SingleFileEdit from '../components/SingleFileEdit';
 
 function RawEdit() {
-  const {data, error} = useSWR<string[]>("/api/files", fetcher)
+  const { data, error } = useSWR<string[]>('/api/files', fetcher);
 
   if (error) return <div>failed to load</div>;
   if (!data) return <>loading</>;

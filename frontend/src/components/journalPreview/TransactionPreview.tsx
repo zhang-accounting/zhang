@@ -1,11 +1,11 @@
-import {Badge, Box, Group, Text} from '@mantine/core';
-import {format} from 'date-fns';
-import {JournalTransactionItem} from '../../rest-model';
+import { Badge, Box, Group, Text } from '@mantine/core';
+import { format } from 'date-fns';
+import { JournalTransactionItem } from '../../rest-model';
 import Amount from '../Amount';
 import DashLine from '../DashedLine';
 import Section from '../Section';
 import DocumentPreview from './DocumentPreview';
-import AccountDocumentUpload from "../AccountDocumentUpload";
+import AccountDocumentUpload from '../AccountDocumentUpload';
 
 interface Props {
   data: JournalTransactionItem;
@@ -50,7 +50,9 @@ export default function TransactionPreview(props: Props) {
                 <Text lineClamp={1} my="xs">
                   {posting.account}
                 </Text>
-                <Text lineClamp={1}><Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} /></Text>
+                <Text lineClamp={1}>
+                  <Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} />
+                </Text>
               </DashLine>
             ))}
           </>
@@ -74,7 +76,7 @@ export default function TransactionPreview(props: Props) {
 
       <Box mx={1} my={4}>
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
-            <AccountDocumentUpload url={`/api/transactions/${props.data.id}/documents`} />
+          <AccountDocumentUpload url={`/api/transactions/${props.data.id}/documents`} />
           <Box>
             {props.data.metas
               .filter((meta) => meta.key === 'document')

@@ -6,11 +6,11 @@ import { useEffect, useState } from 'react';
 import { Chart } from 'react-chartjs-2';
 import Section from '../components/Section';
 import StatusGroup from '../components/StatusGroup';
-import useSWR from "swr";
-import { fetcher } from "../index";
-import BigNumber from "bignumber.js";
-import { AccountType, ReportResponse, StatisticResponse } from "../rest-model";
-import Amount from "../components/Amount";
+import useSWR from 'swr';
+import { fetcher } from '../index';
+import BigNumber from 'bignumber.js';
+import { AccountType, ReportResponse, StatisticResponse } from '../rest-model';
+import Amount from '../components/Amount';
 
 const options = (isLogarithmic: boolean, offset: number) => ({
   maintainAspectRatio: false,
@@ -24,32 +24,30 @@ const options = (isLogarithmic: boolean, offset: number) => ({
     tooltip: {
       position: 'nearest' as const,
       callbacks: {
-
         title: () => {
-          return "tooltip callback"
+          return 'tooltip callback';
         },
         label: (item: any) => {
-
           if (item.dataset.label === 'total') {
             const valueWithOffset = parseFloat(item.formattedValue) + offset;
-            return `${item.dataset.label}: ${valueWithOffset}`
+            return `${item.dataset.label}: ${valueWithOffset}`;
           }
-          return `${item.dataset.label}: ${item.formattedValue}`
-        }
-      }
-    }
+          return `${item.dataset.label}: ${item.formattedValue}`;
+        },
+      },
+    },
   },
   scales: {
     total: {
-      type: isLogarithmic ? 'logarithmic' as const : 'linear' as const,
+      type: isLogarithmic ? ('logarithmic' as const) : ('linear' as const),
       display: false,
       position: 'left' as const,
       beginAtZero: false,
       ticks: {
         callback: function (value: any, _index: any, _ticks: any) {
           return parseFloat(value) + offset;
-        }
-      }
+        },
+      },
     },
     bar: {
       type: 'linear' as const,
@@ -62,32 +60,35 @@ const options = (isLogarithmic: boolean, offset: number) => ({
   },
 });
 const build_chart_data = (data: StatisticResponse) => {
-  const dates = sortBy(Object.keys(data.changes).map(date => [date, new Date(date)]), item => item[1]);
+  const dates = sortBy(
+    Object.keys(data.changes).map((date) => [date, new Date(date)]),
+    (item) => item[1],
+  );
 
-  const sequencedDate = dates.map(date => date[0] as string);
+  const sequencedDate = dates.map((date) => date[0] as string);
 
   const labels = dates.map((date) => format(date[1] as Date, 'MMM dd'));
 
-  let total_dataset = sequencedDate.map(date => {
+  let total_dataset = sequencedDate.map((date) => {
     const target_day = data.details[date] ?? {};
     let total = new BigNumber(0);
-    Object.entries(target_day).filter(it =>
-      it[0].startsWith(AccountType.Assets) || it[0].startsWith(AccountType.Liabilities)
-    ).forEach(it => {
-      total = total.plus(new BigNumber(it[1].number))
-    })
+    Object.entries(target_day)
+      .filter((it) => it[0].startsWith(AccountType.Assets) || it[0].startsWith(AccountType.Liabilities))
+      .forEach((it) => {
+        total = total.plus(new BigNumber(it[1].number));
+      });
     return total.toNumber();
   });
 
   // let total_dataset = data.statistic.frames.map((frame) => parseFloat(frame.total.summary.number));
-  const isLogarithmic = total_dataset.every(item => item >= 0);
+  const isLogarithmic = total_dataset.every((item) => item >= 0);
   const min = Math.min.apply(null, total_dataset) - 50;
   if (isLogarithmic) {
-    total_dataset = total_dataset.map(item => item - min);
+    total_dataset = total_dataset.map((item) => item - min);
   }
-  const income_dataset = sequencedDate.map(date => -1 * parseFloat(data.changes[date]?.[AccountType.Income]?.number ?? 0))
-  const expense_dataset = sequencedDate.map(date => parseFloat(data.changes[date]?.[AccountType.Expenses]?.number ?? 0))
-  console.log("incom", income_dataset, expense_dataset);
+  const income_dataset = sequencedDate.map((date) => -1 * parseFloat(data.changes[date]?.[AccountType.Income]?.number ?? 0));
+  const expense_dataset = sequencedDate.map((date) => parseFloat(data.changes[date]?.[AccountType.Expenses]?.number ?? 0));
+  console.log('incom', income_dataset, expense_dataset);
   console.log('income_dataset', income_dataset, expense_dataset);
   return {
     data: {
@@ -119,7 +120,9 @@ const build_chart_data = (data: StatisticResponse) => {
           yAxisID: 'bar',
         },
       ],
-    }, isLogarithmic, offset: isLogarithmic ? min : 0
+    },
+    isLogarithmic,
+    offset: isLogarithmic ? min : 0,
   };
 };
 
@@ -136,20 +139,22 @@ export default function Report() {
 
   useEffect(() => {
     if (value[0] !== null && value[1] !== null) {
-      console.log("update value", value);
+      console.log('update value', value);
       setDateRange([value[0], value[1]]);
     }
-  }, [value])
+  }, [value]);
 
-  const [gap, setGap] = useState("Day");
+  const [gap, setGap] = useState('Day');
 
-  const {
-    data,
-    error
-  } = useSWR<StatisticResponse>(`/api/statistic?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}&interval=${gap}`, fetcher)
+  const { data, error } = useSWR<StatisticResponse>(
+    `/api/statistic?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}&interval=${gap}`,
+    fetcher,
+  );
 
-  const { data: reportData, error: reportError } = useSWR<ReportResponse>(`/api/report?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}`, fetcher);
-
+  const { data: reportData, error: reportError } = useSWR<ReportResponse>(
+    `/api/report?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}`,
+    fetcher,
+  );
 
   if (reportError) return <div>failed to load</div>;
   if (!reportData) return <>loading</>;
@@ -190,11 +195,9 @@ export default function Report() {
                 { label: 'Monthly', value: 'Month' },
               ]}
             />
-          }>
-          <Chart type="line" data={chart_info.data}
-            height={400}
-            options={options(chart_info.isLogarithmic, chart_info.offset)} />
-
+          }
+        >
+          <Chart type="line" data={chart_info.data} height={400} options={options(chart_info.isLogarithmic, chart_info.offset)} />
         </Section>
 
         <Section title="Incomes">
@@ -203,19 +206,12 @@ export default function Report() {
               {reportData.income_rank.map((each_income) => (
                 <Box mt="sm" key={each_income.account}>
                   <Group position="apart">
-                    <Text>
-                      {each_income.account}
-                    </Text>
+                    <Text>{each_income.account}</Text>
                     <Text size="xs" color="teal" weight={700}>
                       {(parseFloat(each_income.percent) * 100).toFixed(2)}%
                     </Text>
                   </Group>
-                  <Progress
-                  radius="xs"
-                  size="lg"
-                  color="teal"
-                  value={parseFloat(each_income.percent) * 100}
-                />
+                  <Progress radius="xs" size="lg" color="teal" value={parseFloat(each_income.percent) * 100} />
                 </Box>
               ))}
             </Grid.Col>
@@ -234,8 +230,12 @@ export default function Report() {
                     <tr>
                       <td>{journal.datetime}</td>
                       <td>{journal.account}</td>
-                      <td>{journal.payee} {journal.narration}</td>
-                      <td><Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} /></td>
+                      <td>
+                        {journal.payee} {journal.narration}
+                      </td>
+                      <td>
+                        <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -249,22 +249,15 @@ export default function Report() {
             <Grid.Col span={4}>
               {reportData.expense_rank.map((each_expense) => (
                 <Box mt="sm" key={each_expense.account}>
-                <Group position="apart">
-                  <Text>
-                    {each_expense.account}
-                  </Text>
-                  <Text size="xs" color="red" weight={700}>
-                    {(parseFloat(each_expense.percent) * 100).toFixed(2)}%
-                  </Text>
-                </Group>
+                  <Group position="apart">
+                    <Text>{each_expense.account}</Text>
+                    <Text size="xs" color="red" weight={700}>
+                      {(parseFloat(each_expense.percent) * 100).toFixed(2)}%
+                    </Text>
+                  </Group>
 
-                <Progress
-                  radius="xs"
-                  size="lg"
-                  color="red"
-                  value={parseFloat(each_expense.percent) * 100}
-                />
-              </Box>
+                  <Progress radius="xs" size="lg" color="red" value={parseFloat(each_expense.percent) * 100} />
+                </Box>
               ))}
             </Grid.Col>
             <Grid.Col span={8}>
@@ -283,8 +276,12 @@ export default function Report() {
                     <tr>
                       <td>{journal.datetime}</td>
                       <td>{journal.account}</td>
-                      <td>{journal.payee} {journal.narration}</td>
-                      <td><Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} /></td>
+                      <td>
+                        {journal.payee} {journal.narration}
+                      </td>
+                      <td>
+                        <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>

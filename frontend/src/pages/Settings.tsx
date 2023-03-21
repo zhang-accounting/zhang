@@ -14,7 +14,7 @@ export default function Settings() {
     i18n.changeLanguage(lang);
   }, [lang, i18n]);
 
-  const basicInfo = useAppSelector(state => state.basic);
+  const basicInfo = useAppSelector((state) => state.basic);
 
   return (
     <Container fluid>
@@ -38,7 +38,6 @@ export default function Settings() {
           />
         </Grid.Col>
       </Grid>
-
     </Container>
   );
 }

@@ -2,19 +2,18 @@ import { Chip, Container, Group, Table, Title } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import AccountLine from '../components/AccountLine';
-import { LoadingState } from "../rest-model";
+import { LoadingState } from '../rest-model';
 import { useAppDispatch, useAppSelector } from '../states';
 import { fetchAccounts, getAccountsTrie } from '../states/account';
 
 export default function Accounts() {
-
   const [hideClosedAccount, setHideClosedAccount] = useLocalStorage({ key: 'hideClosedAccount', defaultValue: false });
   const dispatch = useAppDispatch();
-  const accountStatus = useAppSelector(state => state.accounts.status);
+  const accountStatus = useAppSelector((state) => state.accounts.status);
   const accountTrie = useAppSelector(getAccountsTrie(hideClosedAccount));
 
   useEffect(() => {
-    if(accountStatus === LoadingState.NotReady) {
+    if (accountStatus === LoadingState.NotReady) {
       dispatch(fetchAccounts());
     }
   }, [dispatch, accountStatus]);

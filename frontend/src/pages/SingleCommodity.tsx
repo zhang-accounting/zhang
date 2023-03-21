@@ -8,8 +8,8 @@ import { CommodityDetail } from '../rest-model';
 
 export default function SingleCommodity() {
   let { commodityName } = useParams();
-  const {data, error} = useSWR<CommodityDetail>(`/api/commodities/${commodityName}`, fetcher);
-  
+  const { data, error } = useSWR<CommodityDetail>(`/api/commodities/${commodityName}`, fetcher);
+
   if (error) return <div>failed to load</div>;
   if (!data) return <div>loading123</div>;
 

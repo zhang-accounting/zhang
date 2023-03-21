@@ -6,7 +6,7 @@ import useSWR from 'swr';
 import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import { fetcher } from '../index';
 import { Document } from '../rest-model';
-import {openContextModal} from "@mantine/modals";
+import { openContextModal } from '@mantine/modals';
 
 export default function Documents() {
   const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
@@ -15,18 +15,18 @@ export default function Documents() {
 
   if (error) return <div>failed to load</div>;
   if (!documents) return <div>loading...</div>;
-  const openDocumentPreviewModal = (filename:string ,path:string) => {
+  const openDocumentPreviewModal = (filename: string, path: string) => {
     openContextModal({
       modal: 'documentPreviewModal',
       title: filename,
-      size:"lg",
+      size: 'lg',
       centered: true,
       innerProps: {
         filename: filename,
         path: path,
       },
-    })
-  }
+    });
+  };
   return (
     <Container fluid>
       <Group position="apart">
@@ -66,7 +66,7 @@ export default function Documents() {
                 <td>
                   <Badge color="dark">{document.filename.split('.').pop()}</Badge>
                 </td>
-                <td onClick={()=> openDocumentPreviewModal(document.filename, document.path)}>{document.filename}</td>
+                <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>{document.filename}</td>
                 <td>
                   {document.account && <Badge variant="dot">{document.account}</Badge>}
                   {document.trx_id && (

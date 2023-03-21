@@ -12,8 +12,7 @@ export default function Commodities() {
     navigate(commodityName);
   };
 
-  const {value:commodities, status} = useAppSelector(state=> state.commodities);
-
+  const { value: commodities, status } = useAppSelector((state) => state.commodities);
 
   if (status === LoadingState.Loading || status === LoadingState.NotReady) return <>loading</>;
 

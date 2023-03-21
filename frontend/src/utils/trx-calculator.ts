@@ -26,7 +26,7 @@ export function calculate(trx: JournalTransactionItem): Set<SummaryItem> {
     const unit_commodity = posting.unit_commodity || posting.inferred_unit_commodity;
     const amount = new BigNumber(unit_number);
 
-    switch (posting.account.split(":")[0].toLocaleLowerCase()) {
+    switch (posting.account.split(':')[0].toLocaleLowerCase()) {
       case 'assets':
       case 'liabilities':
         transfer(internal, amount, unit_commodity);

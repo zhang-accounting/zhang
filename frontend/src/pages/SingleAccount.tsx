@@ -13,9 +13,7 @@ function SingleAccount() {
   return (
     <Container fluid>
       <Title order={2}>{accountName}</Title>
-      <Group>
-        {/* <Badge variant="outline">{data?.account.status}</Badge> */}
-      </Group>
+      <Group>{/* <Badge variant="outline">{data?.account.status}</Badge> */}</Group>
       <Tabs defaultValue="journals" mt="lg">
         <Tabs.List>
           <Tabs.Tab value="journals" icon={<IconPhoto size={14} />}>
@@ -30,7 +28,6 @@ function SingleAccount() {
         </Tabs.List>
 
         <Tabs.Panel value="journals" pt="xs">
-
           <Table verticalSpacing="xs" highlightOnHover>
             <thead>
               <tr>
@@ -46,16 +43,23 @@ function SingleAccount() {
                 skeleton={<div>loading</div>}
                 render={(data: AccountJournalItem[]) => (
                   <>
-                    {data.map(item => (
+                    {data.map((item) => (
                       <tr>
                         <td>{format(new Date(item.datetime), 'yyyy-MM-dd hh:mm:ss')}</td>
-                        <td>{item.payee} {item.narration}</td>
-                        <td>{item.inferred_unit_number} {item.inferred_unit_commodity}</td>
-                        <td>{item.account_after_number} {item.account_after_commodity}</td>
+                        <td>
+                          {item.payee} {item.narration}
+                        </td>
+                        <td>
+                          {item.inferred_unit_number} {item.inferred_unit_commodity}
+                        </td>
+                        <td>
+                          {item.account_after_number} {item.account_after_commodity}
+                        </td>
                       </tr>
                     ))}
                   </>
-                )} />
+                )}
+              />
             </tbody>
           </Table>
         </Tabs.Panel>
@@ -71,7 +75,8 @@ function SingleAccount() {
                   <AccountDocumentLine key={idx} {...document} />
                 ))}
               </>
-            )}></LoadingComponent>
+            )}
+          ></LoadingComponent>
         </Tabs.Panel>
 
         <Tabs.Panel value="settings" pt="xs">

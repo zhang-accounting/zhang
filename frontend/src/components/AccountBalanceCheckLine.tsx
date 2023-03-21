@@ -10,7 +10,7 @@ export default function AccountBalanceCheckLine({ currency, accountName }: Props
 
   const onSave = () => {
     // todo
-  }
+  };
 
   const submitCheck = () => {
     const date = new Date();
@@ -30,7 +30,8 @@ export default function AccountBalanceCheckLine({ currency, accountName }: Props
           <Button size="xs" onClick={submitCheck} disabled={amount.length === 0}>
             Check
           </Button>
-        }></TextInput>
+        }
+      ></TextInput>
     </>
   );
 }

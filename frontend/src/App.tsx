@@ -12,7 +12,20 @@ import SingleCommodity from './pages/SingleCommodity';
 
 import { Badge, Box, createStyles, Group, MediaQuery, Navbar, Text, TextInput, UnstyledButton } from '@mantine/core';
 import {
-  IconBroadcast, IconCash, IconChartAreaLine, IconCreditCard, IconCurrencyBitcoin, IconFiles, IconList, IconNotebook, IconReceipt2, IconSearch, IconSettings, IconSmartHome, IconTools, TablerIcon
+  IconBroadcast,
+  IconCash,
+  IconChartAreaLine,
+  IconCreditCard,
+  IconCurrencyBitcoin,
+  IconFiles,
+  IconList,
+  IconNotebook,
+  IconReceipt2,
+  IconSearch,
+  IconSettings,
+  IconSmartHome,
+  IconTools,
+  TablerIcon,
 } from '@tabler/icons';
 import { Link as RouteLink } from 'react-router-dom';
 import NewTransactionButton from './components/NewTransactionButton';
@@ -21,7 +34,7 @@ import { AppShell, Grid } from '@mantine/core';
 import { showNotification } from '@mantine/notifications';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { serverBaseUrl } from "./index";
+import { serverBaseUrl } from './index';
 import ToolList from './pages/tools/ToolList';
 import WechatExporter from './pages/tools/WechatExporter';
 import { useAppDispatch, useAppSelector } from './states';
@@ -169,55 +182,54 @@ const links: LinkItem[] = [
 export default function App() {
   const { classes } = useStyles();
   const { t } = useTranslation();
-  const dispatch = useAppDispatch()
-  const basicInfo = useAppSelector(state => state.basic);
+  const dispatch = useAppDispatch();
+  const basicInfo = useAppSelector((state) => state.basic);
 
   useEffect(() => {
-    dispatch(fetchError(1))
-    dispatch(fetchCommodities())
-    dispatch(fetchBasicInfo())
+    dispatch(fetchError(1));
+    dispatch(fetchCommodities());
+    dispatch(fetchBasicInfo());
 
-    let events = new EventSource(serverBaseUrl + "/api/sse");
+    let events = new EventSource(serverBaseUrl + '/api/sse');
     events.onmessage = (event) => {
       console.log(event);
       const data = JSON.parse(event.data);
       switch (data?.type) {
-        case "Reload":
+        case 'Reload':
           showNotification({
-            id: "reload",
+            id: 'reload',
             title: 'Change Detected',
             message: 'trigger ledger info reload',
           });
-          dispatch(fetchBasicInfo())
-          dispatch(fetchError(1))
-          dispatch(fetchCommodities())
-          dispatch(accountsSlice.actions.clear())
-          dispatch(journalsSlice.actions.clear())
+          dispatch(fetchBasicInfo());
+          dispatch(fetchError(1));
+          dispatch(fetchCommodities());
+          dispatch(accountsSlice.actions.clear());
+          dispatch(journalsSlice.actions.clear());
           break;
-        case "Connected":
+        case 'Connected':
           showNotification({
             title: 'Connected to server',
             icon: <IconBroadcast />,
-            message: ""
+            message: '',
           });
-          dispatch(fetchBasicInfo())
+          dispatch(fetchBasicInfo());
           break;
         default:
-          break
+          break;
       }
-    }
+    };
     events.onerror = () => {
       dispatch(basicInfoSlice.actions.offline());
       showNotification({
-        id: "offline",
+        id: 'offline',
         title: 'Server Offline',
         icon: <IconBroadcast />,
-        color: "red",
+        color: 'red',
         message: 'Client can not connect to server',
       });
-    }
-  }, [dispatch])
-
+    };
+  }, [dispatch]);
 
   const { total_number } = useAppSelector((state) => state.errors);
 
@@ -258,7 +270,7 @@ export default function App() {
                 <Group position="apart">
                   <Group spacing="xs" position="left">
                     <IconBroadcast stroke={3} className={basicInfo.isOnline ? classes.onlineIcon : classes.offlineIcon} />
-                    <Text lineClamp={1}>{basicInfo.title ?? "Zhang Accounting"}</Text>
+                    <Text lineClamp={1}>{basicInfo.title ?? 'Zhang Accounting'}</Text>
                   </Group>
                 </Group>
               </Navbar.Section>
@@ -274,12 +286,12 @@ export default function App() {
 
               <Navbar.Section className={classes.section}>
                 <div className={classes.mainLinks}>
-                  <UnstyledButton component={RouteLink} to={"/"} key={"NAV_HOME"} className={classes.mainLink}>
+                  <UnstyledButton component={RouteLink} to={'/'} key={'NAV_HOME'} className={classes.mainLink}>
                     <div className={classes.mainLinkInner}>
                       <IconSmartHome size={20} className={classes.mainLinkIcon} stroke={1.5} />
-                      <span>{t("NAV_HOME")}</span>
+                      <span>{t('NAV_HOME')}</span>
                     </div>
-                    {((total_number ?? 0) > 0) && (
+                    {(total_number ?? 0) > 0 && (
                       <Badge size="sm" color="pink" variant="filled" className={classes.mainLinkBadge}>
                         {total_number ?? 0}
                       </Badge>
@@ -309,7 +321,8 @@ export default function App() {
             </Box>
           </MediaQuery>
         </>
-      }>
+      }
+    >
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="journals" element={<Journals />} />

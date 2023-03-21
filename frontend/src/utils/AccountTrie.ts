@@ -1,4 +1,4 @@
-import {Account} from "../rest-model";
+import { Account } from '../rest-model';
 
 export default class AccountTrie {
   children: { [layer: string]: AccountTrie } = {};

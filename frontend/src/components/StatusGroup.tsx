@@ -1,4 +1,4 @@
-import {createStyles, Group, Text} from '@mantine/core';
+import { createStyles, Group, Text } from '@mantine/core';
 import Amount from './Amount';
 
 const useStyles = createStyles((theme) => ({
@@ -47,7 +47,9 @@ export default function StatsGroup({ data }: StatsGroupProps) {
   const { classes } = useStyles();
   const stats = data.map((stat) => (
     <div key={stat.title} className={classes.stat}>
-      <Text className={classes.count}>{stat.number !== undefined ? <Text>{stat.number}</Text> : <Amount amount={stat.amount!} currency={stat.currency!} />}</Text>
+      <Text className={classes.count}>
+        {stat.number !== undefined ? <Text>{stat.number}</Text> : <Amount amount={stat.amount!} currency={stat.currency!} />}
+      </Text>
       <Text className={classes.title}>{stat.title}</Text>
     </div>
   ));

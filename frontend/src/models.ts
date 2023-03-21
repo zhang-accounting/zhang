@@ -1,5 +1,3 @@
-
-
 export interface Connection<T> {
   pageInfo: Pagination;
   edges: Edge<T>[];

@@ -1,16 +1,14 @@
-import {Box, createStyles, Grid, Group, Text} from '@mantine/core';
-import {format} from 'date-fns';
-import {Dispatch, SetStateAction} from 'react';
-import {JournalBlancePadItem, JournalItem} from '../../../rest-model';
-import Amount from "../../Amount";
-
+import { Box, createStyles, Grid, Group, Text } from '@mantine/core';
+import { format } from 'date-fns';
+import { Dispatch, SetStateAction } from 'react';
+import { JournalBlancePadItem, JournalItem } from '../../../rest-model';
+import Amount from '../../Amount';
 
 const useStyles = createStyles((theme) => ({
   payee: {
-    fontWeight: "bold",
+    fontWeight: 'bold',
   },
-  narration: {
-  },
+  narration: {},
   positiveAmount: {
     color: theme.colors.gray[8],
     fontWeight: 'bold',
@@ -24,8 +22,8 @@ const useStyles = createStyles((theme) => ({
     fontSize: theme.fontSizes.sm,
   },
   notBalance: {
-    borderLeft: "3px solid red"
-  }
+    borderLeft: '3px solid red',
+  },
 }));
 
 interface Props {
@@ -55,7 +53,6 @@ export default function BalancePadLine({ data, onClick }: Props) {
                 <span className={classes.narration}>{data.postings[0].account}</span>
               </Text>
 
-
               <Group spacing="xs">
                 <Text mr={2} color="dimmed" size="xs">
                   {time} Balance Pad
@@ -75,4 +72,3 @@ export default function BalancePadLine({ data, onClick }: Props) {
     </tr>
   );
 }
-

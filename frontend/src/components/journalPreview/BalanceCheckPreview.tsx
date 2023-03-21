@@ -10,8 +10,8 @@ interface Props {
   data: JournalBalanceCheckItem;
 }
 export default function BalanceCheckPreview(props: Props) {
-  const isBalanced = new BigNumber(props.data.postings[0].account_after_number).eq(new BigNumber(props.data.postings[0].account_before_number))
-    
+  const isBalanced = new BigNumber(props.data.postings[0].account_after_number).eq(new BigNumber(props.data.postings[0].account_before_number));
+
   return (
     <div>
       <Box mb={10}>
@@ -51,7 +51,9 @@ export default function BalanceCheckPreview(props: Props) {
                 <Text lineClamp={1} my="xs">
                   {posting.account}
                 </Text>
-                <Text lineClamp={1}><Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} /></Text>
+                <Text lineClamp={1}>
+                  <Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} />
+                </Text>
               </DashLine>
             ))}
           </>
