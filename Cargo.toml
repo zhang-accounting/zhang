@@ -1,60 +1,64 @@
 [package]
-name = "zhang"
-description = "a plain text double-accounting tool which is compatible with beancount but more powerful"
-license = "Apache-2.0"
-version = "0.0.1-alpha.1"
 authors = ["Kilerd <blove694@gmail.com>"]
+description = "a plain text double-accounting tool which is compatible with beancount but more powerful"
 edition = "2018"
+license = "Apache-2.0"
+name = "zhang"
+version = "0.0.1-alpha.1"
 
 build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-regex = "1.4.1"
-chrono = { version = "0.4.19", features = ["serde"] }
-strum = { version = "0.19.5", features = ["derive"] }
-strum_macros = "0.19.4"
-snailquote = "0.3.0"
-indexmap = { version = "1.9.1", features = ["serde-1"] }
-bigdecimal = { version = "0.3.0", features = ["serde"] }
-itertools = "0.9.0"
-serde = { version = "1.0.136", features = ["derive"] }
-thiserror = "1.0.21"
-unicode_categories = "0.1.1"
-pest = "2.1.3"
-pest_derive = "2.1.0"
-pest_consume = "1.1.1"
-clap = { version = "3.0.0", features = ["derive"] }
-csv = "1.1.6"
-toml = "0.5.8"
-log = "0.4.14"
-env_logger = "0.9.0"
-tokio = { version = "1.21.2", features = ['full', "tracing"] }
-rust-embed = "6.3.0"
-mime_guess = "2.0.4"
-tokio-util = { version = "0.6.7", features = ["io", "compat"] }
-async-trait = "0.1.52"
-futures-util = "0.3.21"
-crossbeam-channel = "0.5.2"
-notify = "5.0.0"
-futures = "0.3.21"
-now = "0.1.2"
-time = "0.1"
-uuid = { version = "1.0.0", features = ["v4"] }
-base64 = "0.13.0"
-sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "sqlite", "chrono", "bigdecimal"] }
-tempfile = "3.3.0"
-actix-web = "4"
-actix-multipart = '0.4'
-actix-files = "0.6.2"
 actix-cors = "0.6.4"
-reqwest = { version = "0.11.13", features = ["json"] }
+actix-files = "0.6.2"
+actix-multipart = '0.4'
+actix-web = "4"
 actix-web-lab = "0.19.1"
+async-trait = "0.1.52"
+base64 = "0.13.0"
+bigdecimal = {version = "0.3.0", features = ["serde"]}
+chrono = {version = "0.4.19", features = ["serde"]}
+clap = {version = "3.0.0", features = ["derive"]}
+crossbeam-channel = "0.5.2"
+csv = "1.1.6"
+env_logger = "0.9.0"
+futures = "0.3.21"
+futures-util = "0.3.21"
+indexmap = {version = "1.9.1", features = ["serde-1"]}
+itertools = "0.9.0"
+log = "0.4.14"
+mime_guess = "2.0.4"
+notify = "5.0.0"
+now = "0.1.2"
+pest = "2.1.3"
+pest_consume = "1.1.1"
+pest_derive = "2.1.0"
+regex = "1.4.1"
+reqwest = {version = "0.11.13", features = ["json"]}
+rust-embed = "6.3.0"
+serde = {version = "1.0.136", features = ["derive"]}
+snailquote = "0.3.0"
+sqlx = {version = "0.6", features = ["runtime-tokio-native-tls", "sqlite", "chrono", "bigdecimal"]}
+strum = {version = "0.19.5", features = ["derive"]}
+strum_macros = "0.19.4"
+tempfile = "3.3.0"
+thiserror = "1.0.21"
+time = "0.1"
+tokio = {version = "1.21.2", features = ['full', "tracing"]}
+tokio-util = {version = "0.6.7", features = ["io", "compat"]}
+toml = "0.5.8"
+unicode_categories = "0.1.1"
+uuid = {version = "1.0.0", features = ["v4"]}
 
 [dev-dependencies]
-indoc = "1.0.3"
 console-subscriber = "0.1.7"
+indoc = "1.0.3"
 
 [build-dependencies]
-chrono = { version = "0.4.19" }
+chrono = {version = "0.4.19"}
+
+[profile.dev]
+opt-level = 3
+split-debuginfo = "unpacked"
