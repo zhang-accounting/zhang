@@ -74,7 +74,19 @@
     "@types/react": "^17.0.44",
     "@types/react-dom": "^17.0.15",
     "eslint-config-prettier": "^8.5.0",
-    "prettier": "^2.7.1",
+    "husky": "^8.0.3",
+    "lint-staged": "^13.2.0",
+    "prettier": "^2.8.5",
     "source-map-explorer": "^2.5.3"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged"
+    }
+  },
+  "lint-staged": {
+    "src/**/*.{js,jsx,ts,tsx,json,css,scss,md}": [
+      "prettier --write"
+    ]
   }
 }
