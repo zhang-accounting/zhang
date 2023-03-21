@@ -60,5 +60,4 @@ indoc = "1.0.3"
 chrono = {version = "0.4.19"}
 
 [profile.dev]
-opt-level = 3
 split-debuginfo = "unpacked"

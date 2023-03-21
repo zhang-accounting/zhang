@@ -8,8 +8,8 @@ export const fetchBasicInfo = createAsyncThunk('basic/fetch', async (thunkApi) =
 });
 
 interface BasicInfoState {
-  title?: String;
-  version?: String;
+  title?: string;
+  version?: string;
   isOnline: boolean;
   status: LoadingState;
 }
