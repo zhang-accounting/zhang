@@ -1,8 +1,7 @@
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::marker::PhantomData;
 use std::option::Option::None;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -10,7 +9,7 @@ use std::sync::Arc;
 
 use bigdecimal::Zero;
 use itertools::Itertools;
-use log::{debug, error, info};
+use log::{error, info};
 use serde::Serialize;
 use sqlx::pool::PoolConnection;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
@@ -20,14 +19,13 @@ use crate::core::amount::Amount;
 use crate::core::data::{Include, Transaction};
 use crate::core::database::migrations::Migration;
 use crate::core::domains::commodity::CommodityDomain;
-use crate::core::models::{Directive, DirectiveType, ZhangString};
+use crate::core::models::{Directive, ZhangString};
 use crate::core::options::Options;
 use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::bigdecimal_ext::BigDecimalExt;
 use crate::core::utils::span::{SpanInfo, Spanned};
 use crate::core::Transformer;
-use crate::error::{IoErrorIntoZhangError, ZhangError, ZhangResult};
-use crate::parse_zhang;
+use crate::error::{IoErrorIntoZhangError, ZhangResult};
 use crate::server::route::create_folder_if_not_exist;
 use crate::target::ZhangTarget;
 use crate::transformers::zhang::ZhangTransformer;
@@ -108,7 +106,7 @@ impl Ledger {
             info!("database store at {}", path.display());
             SqlitePool::connect_with(
                 SqliteConnectOptions::default()
-                    .filename(&path)
+                    .filename(path)
                     .journal_mode(SqliteJournalMode::Wal)
                     .create_if_missing(true),
             )
@@ -146,7 +144,7 @@ impl Ledger {
 
             errors: vec![],
             configs: HashMap::default(),
-            transformer: transformer,
+            transformer,
         };
 
         // todo: remove process context

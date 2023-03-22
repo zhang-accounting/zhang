@@ -15,7 +15,7 @@ pub enum BroadcastEvent {
 
 impl BroadcastEvent {
     pub fn to_data(&self) -> sse::Data {
-        sse::Data::new_json(&self).unwrap()
+        sse::Data::new_json(self).unwrap()
     }
 }
 

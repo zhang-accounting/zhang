@@ -14,7 +14,6 @@ use tokio::sync::RwLock;
 
 use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
-use crate::core::Transformer;
 use crate::error::ZhangResult;
 use crate::server::broadcast::{BroadcastEvent, Broadcaster};
 use crate::server::route::{

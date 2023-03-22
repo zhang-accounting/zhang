@@ -1,6 +1,6 @@
 use crate::core::models::{Directive, DirectiveType};
 use crate::core::utils::span::Spanned;
-use crate::core::{Transformer, TransformResult};
+use crate::core::{TransformResult, Transformer};
 use crate::error::{IoErrorIntoZhangError, ZhangError, ZhangResult};
 use crate::parse_zhang;
 use itertools::Itertools;
@@ -8,7 +8,7 @@ use log::debug;
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ZhangTransformer {}
 
 impl ZhangTransformer {
@@ -18,16 +18,10 @@ impl ZhangTransformer {
     }
 }
 
-impl Default for ZhangTransformer {
-    fn default() -> Self {
-        Self {}
-    }
-}
-
 impl Transformer for ZhangTransformer {
     fn load(&self, entry: PathBuf, endpoint: String) -> ZhangResult<TransformResult> {
         let entry = entry.canonicalize().with_path(&entry)?;
-        let main_endpoint = entry.join(&endpoint);
+        let main_endpoint = entry.join(endpoint);
         let main_endpoint = main_endpoint.canonicalize().with_path(&main_endpoint)?;
         let mut load_queue = VecDeque::new();
         load_queue.push_back(main_endpoint);
