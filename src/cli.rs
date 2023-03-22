@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 
 use crate::core::ledger::Ledger;
+use crate::transformers::zhang::ZhangTransformer;
 use crate::{exporter, importer};
 
 #[derive(Parser, Debug)]
@@ -78,7 +79,7 @@ impl Opts {
         match self {
             Opts::Importer(importer) => importer.run(),
             Opts::Parse(parse_opts) => {
-                Ledger::load_with_database(
+                Ledger::load_with_database::<ZhangTransformer>(
                     parse_opts.path,
                     parse_opts.endpoint,
                     parse_opts.database,

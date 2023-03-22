@@ -30,9 +30,9 @@ use crate::core::account::Account;
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, BalanceCheck, BalancePad, Date, Document, Meta, Posting, Transaction};
 use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
+use crate::core::domains::options::OptionDomain;
 use crate::core::ledger::{Ledger, LedgerError};
 use crate::core::models::{Directive, Flag, ZhangString};
-use crate::core::domains::options::OptionDomain;
 use crate::core::utils::date_range::NaiveDateRange;
 use crate::core::utils::string_::StringExt;
 use crate::error::{IoErrorIntoZhangError, ZhangResult};
@@ -108,8 +108,6 @@ pub async fn get_transaction_links(trx_id: &str, conn: &mut SqliteConnection) ->
     .await?;
     Ok(rows.into_iter().map(|it| it.value).collect_vec())
 }
-
-
 
 #[get("/api/sse")]
 pub async fn sse(broadcaster: Data<Broadcaster>) -> impl Responder {

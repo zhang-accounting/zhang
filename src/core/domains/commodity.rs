@@ -16,7 +16,7 @@ impl CommodityDomain {
         .await?;
         Ok(option)
     }
-    pub async fn exists(name:&str, conn: &mut SqliteConnection) -> ZhangResult<bool> {
+    pub async fn exists(name: &str, conn: &mut SqliteConnection) -> ZhangResult<bool> {
         Ok(sqlx::query("select 1 from commodities where name = $1")
             .bind(name)
             .fetch_optional(conn)

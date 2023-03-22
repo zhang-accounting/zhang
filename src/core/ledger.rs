@@ -2,31 +2,35 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::marker::PhantomData;
 use std::option::Option::None;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use bigdecimal::Zero;
 use itertools::Itertools;
 use log::{debug, error, info};
 use serde::Serialize;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
-use sqlx::{ Sqlite, SqlitePool};
 use sqlx::pool::PoolConnection;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+use sqlx::{Sqlite, SqlitePool};
 
 use crate::core::amount::Amount;
 use crate::core::data::{Include, Transaction};
 use crate::core::database::migrations::Migration;
-use crate::core::models::{Directive, DirectiveType, ZhangString};
 use crate::core::domains::commodity::CommodityDomain;
+use crate::core::models::{Directive, DirectiveType, ZhangString};
 use crate::core::options::Options;
 use crate::core::process::{DirectiveProcess, ProcessContext};
 use crate::core::utils::bigdecimal_ext::BigDecimalExt;
 use crate::core::utils::span::{SpanInfo, Spanned};
+use crate::core::Transformer;
 use crate::error::{IoErrorIntoZhangError, ZhangError, ZhangResult};
 use crate::parse_zhang;
 use crate::server::route::create_folder_if_not_exist;
 use crate::target::ZhangTarget;
+use crate::transformers::zhang::ZhangTransformer;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct LedgerError {
@@ -56,7 +60,6 @@ pub enum LedgerErrorType {
     TransactionHasMultipleImplicitPosting,
 }
 
-#[derive(Debug)]
 pub struct Ledger {
     pub entry: (PathBuf, String),
     pub database: Option<PathBuf>,
@@ -69,58 +72,28 @@ pub struct Ledger {
 
     pub(crate) directives: Vec<Spanned<Directive>>,
     pub metas: Vec<Spanned<Directive>>,
+
+    transformer: Arc<dyn Transformer>,
 }
 
 impl Ledger {
-    pub async fn load(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
-
-        Ledger::load_with_database(entry, endpoint, None).await
+    pub async fn load<T: Transformer + Default + 'static>(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
+        Ledger::load_with_database::<T>(entry, endpoint, None).await
     }
 
-    pub async fn load_with_database(entry: PathBuf, endpoint: String, database: Option<PathBuf>) -> ZhangResult<Ledger> {
-        let entry = entry.canonicalize().with_path(&entry)?;
-        let main_endpoint = entry.join(&endpoint);
-        let main_endpoint = main_endpoint.canonicalize().with_path(&main_endpoint)?;
-        let mut load_queue = VecDeque::new();
-        load_queue.push_back(main_endpoint);
-
-        let mut visited = HashSet::new();
-        let mut directives = vec![];
-        while let Some(load_entity) = load_queue.pop_front() {
-            let path = load_entity.canonicalize().with_path(&load_entity)?;
-            debug!("visited entry file: {}", path.to_str().unwrap());
-            if visited.contains(&path) {
-                continue;
-            }
-            let entity_directives = Ledger::load_directive_from_file(load_entity)?;
-            entity_directives
-                .iter()
-                .filter(|it| it.directive_type() == DirectiveType::Include)
-                .for_each(|it| match &it.data {
-                    Directive::Include(include_directive) => {
-                        let buf = PathBuf::from(include_directive.file.clone().to_plain_string());
-                        let include_path = path.parent().map(|it| it.join(&buf)).unwrap_or(buf);
-                        load_queue.push_back(include_path)
-                    }
-                    _ => {
-                        unreachable!()
-                    }
-                });
-            visited.insert(path);
-            directives.extend(entity_directives)
-        }
+    pub async fn load_with_database<T: Transformer + Default + 'static>(
+        entry: PathBuf, endpoint: String, database: Option<PathBuf>,
+    ) -> ZhangResult<Ledger> {
+        let transformer = T::default();
+        let transform_result = transformer.load(entry.clone(), endpoint.clone())?;
         Ledger::process(
-            directives,
+            transform_result.directives,
             (entry, endpoint),
             database,
-            visited.into_iter().collect_vec(),
+            transform_result.visited_files,
+            Arc::new(transformer),
         )
         .await
-    }
-
-    fn load_directive_from_file(entry: PathBuf) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let content = std::fs::read_to_string(&entry).with_path(&entry)?;
-        parse_zhang(&content, entry).map_err(|it| ZhangError::PestError(it.to_string()))
     }
 
     pub(crate) async fn connection(&self) -> PoolConnection<Sqlite> {
@@ -128,31 +101,33 @@ impl Ledger {
     }
 
     async fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: Option<PathBuf>, visited_files: Vec<PathBuf>,
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: Option<PathBuf>,
+        visited_files: Vec<PathBuf>, transformer: Arc<dyn Transformer>,
     ) -> ZhangResult<Ledger> {
         let sqlite_pool = if let Some(ref path) = database {
             info!("database store at {}", path.display());
-            SqlitePool::connect_with(SqliteConnectOptions::default()
-                .filename(&path)
-                .journal_mode(SqliteJournalMode::Wal)
-                .create_if_missing(true)
-                )
-                .await.unwrap()
-
-        }else {
+            SqlitePool::connect_with(
+                SqliteConnectOptions::default()
+                    .filename(&path)
+                    .journal_mode(SqliteJournalMode::Wal)
+                    .create_if_missing(true),
+            )
+            .await
+            .unwrap()
+        } else {
             info!("using in memory database");
             SqlitePoolOptions::new()
                 .max_lifetime(None)
                 .idle_timeout(None)
-                .connect_with(SqliteConnectOptions::from_str("sqlite::memory:")
-                    .unwrap()
-                    .journal_mode(SqliteJournalMode::Wal)
+                .connect_with(
+                    SqliteConnectOptions::from_str("sqlite::memory:")
+                        .unwrap()
+                        .journal_mode(SqliteJournalMode::Wal),
                 )
-                .await.unwrap()
-
+                .await
+                .unwrap()
         };
         let mut connection = sqlite_pool.acquire().await.unwrap();
-
 
         Migration::init_database_if_missing(&mut connection).await?;
 
@@ -171,6 +146,7 @@ impl Ledger {
 
             errors: vec![],
             configs: HashMap::default(),
+            transformer: transformer,
         };
 
         // todo: remove process context
@@ -209,11 +185,12 @@ impl Ledger {
         Ok(ret_ledger)
     }
 
+    // todo should remove from ledger, mark it as test only
     pub async fn load_from_str(content: impl AsRef<str>) -> ZhangResult<Ledger> {
         let result = tempfile::tempdir().unwrap();
         let endpoint_path = result.path().join("main.zhang");
         std::fs::write(&endpoint_path, content.as_ref()).with_path(&endpoint_path)?;
-        Ledger::load(result.into_path(), "main.zhang".to_string()).await
+        Ledger::load::<ZhangTransformer>(result.into_path(), "main.zhang".to_string()).await
     }
 
     fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
@@ -224,6 +201,7 @@ impl Ledger {
         directives
     }
 
+    // todo move to beancount exporter
     pub fn apply(mut self, applier: impl Fn(Directive) -> Directive) -> Self {
         let vec = self
             .directives
@@ -271,7 +249,15 @@ impl Ledger {
 
     pub async fn reload(&mut self) -> ZhangResult<()> {
         let (entry, endpoint) = &mut self.entry;
-        let reload_ledger = Ledger::load_with_database(entry.clone(), endpoint.clone(), self.database.clone()).await?;
+        let transform_result = self.transformer.load(entry.clone(), endpoint.clone())?;
+        let reload_ledger = Ledger::process(
+            transform_result.directives,
+            (entry.clone(), endpoint.clone()),
+            self.database.clone(),
+            transform_result.visited_files,
+            self.transformer.clone(),
+        )
+        .await?;
         *self = reload_ledger;
         Ok(())
     }
@@ -299,7 +285,7 @@ impl Ledger {
         ledger_base_file.write_all(directive_content.as_bytes()).unwrap();
     }
 }
-//
+
 #[cfg(test)]
 mod test {
     use std::option::Option::None;
@@ -539,6 +525,7 @@ mod test {
     mod multiple_file {
         use crate::core::ledger::test::test_parse_zhang;
         use crate::core::ledger::Ledger;
+        use crate::transformers::zhang::ZhangTransformer;
         use indoc::indoc;
         use itertools::Itertools;
         use tempfile::tempdir;
@@ -563,7 +550,9 @@ mod test {
                     "#},
             )
             .unwrap();
-            let ledger = Ledger::load(temp_dir, "example.zhang".to_string()).await.unwrap();
+            let ledger = Ledger::load::<ZhangTransformer>(temp_dir, "example.zhang".to_string())
+                .await
+                .unwrap();
             assert_eq!(
                 test_parse_zhang(indoc! {r#"
                     option "title" "Example"

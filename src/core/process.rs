@@ -13,14 +13,14 @@ use sqlx::{Acquire, FromRow, SqliteConnection};
 use crate::core::amount::Amount;
 use crate::core::data::{Balance, Close, Commodity, Document, Open, Options, Posting, Price, Transaction};
 use crate::core::database::type_ext::big_decimal::ZhangBigDecimal;
+use crate::core::domains::account::AccountDomain;
+use crate::core::domains::commodity::CommodityDomain;
+use crate::core::domains::options::OptionDomain;
 use crate::core::ledger::{Ledger, LedgerError, LedgerErrorType};
 use crate::core::models::{Flag, Rounding, ZhangString};
 use crate::core::utils::inventory::LotInfo;
 use crate::core::utils::span::SpanInfo;
 use crate::core::{AccountName, DEFAULT_COMMODITY_PRECISION};
-use crate::core::domains::account::AccountDomain;
-use crate::core::domains::commodity::CommodityDomain;
-use crate::core::domains::options::OptionDomain;
 use crate::error::ZhangResult;
 
 #[derive(Debug, Deserialize, FromRow)]
@@ -29,20 +29,21 @@ struct AccountAmount {
     commodity: String,
 }
 
-pub(crate) struct ProcessContext {
-
-}
+pub(crate) struct ProcessContext {}
 
 #[async_trait]
 pub(crate) trait DirectiveProcess {
-    async fn handler(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn handler(
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo,
+    ) -> ZhangResult<()> {
         let start_time = Instant::now();
         let result = DirectiveProcess::process(self, ledger, _context, span).await;
         let duration = start_time.elapsed();
         debug!("directive process is done in {:?}", duration);
         result
     }
-    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()>;
+    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo)
+        -> ZhangResult<()>;
 }
 
 async fn check_account_existed(
@@ -155,7 +156,9 @@ impl DirectiveProcess for Open {
 
 #[async_trait]
 impl DirectiveProcess for Close {
-    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo,
+    ) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
         // check if account exist
         check_account_existed(self.account.name(), ledger, span, &mut conn).await?;
@@ -220,7 +223,9 @@ impl DirectiveProcess for Commodity {
 
 #[async_trait]
 impl DirectiveProcess for Transaction {
-    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo,
+    ) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
         let id = uuid::Uuid::new_v4().to_string();
         if !ledger.is_transaction_balanced(self).await? {
@@ -342,7 +347,9 @@ impl DirectiveProcess for Transaction {
 
 #[async_trait]
 impl DirectiveProcess for Balance {
-    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo,
+    ) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
         match self {
             Balance::BalanceCheck(balance_check) => {
@@ -480,7 +487,9 @@ impl DirectiveProcess for Balance {
 
 #[async_trait]
 impl DirectiveProcess for Document {
-    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo,
+    ) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
         check_account_existed(self.account.name(), ledger, span, &mut conn).await?;
         check_account_closed(self.account.name(), ledger, span, &mut conn).await?;
@@ -505,7 +514,9 @@ impl DirectiveProcess for Document {
 
 #[async_trait]
 impl DirectiveProcess for Price {
-    async fn process(&mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo) -> ZhangResult<()> {
+    async fn process(
+        &mut self, ledger: &mut Ledger, _context: &mut ProcessContext, span: &SpanInfo,
+    ) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
         check_commodity_define(&self.currency, ledger, span, &mut conn).await?;
         check_commodity_define(&self.amount.currency, ledger, span, &mut conn).await?;

@@ -1,5 +1,5 @@
-use sqlx::SqliteConnection;
 use crate::error::ZhangResult;
+use sqlx::SqliteConnection;
 
 pub struct AccountDomain;
 

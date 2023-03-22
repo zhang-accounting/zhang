@@ -1,15 +1,16 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
 
 use actix_web_lab::sse::{self, ChannelStream, Sse};
 use futures_util::future;
+use serde::Serialize;
 use tokio::sync::Mutex;
 use tokio::time::interval;
-use serde::Serialize;
 #[derive(Debug, Serialize)]
 #[serde(tag = "type")]
 pub enum BroadcastEvent {
     Reload,
-    Connected
+    Connected,
 }
 
 impl BroadcastEvent {
@@ -17,7 +18,6 @@ impl BroadcastEvent {
         sse::Data::new_json(&self).unwrap()
     }
 }
-
 
 pub struct Broadcaster {
     inner: Mutex<BroadcasterInner>,
@@ -60,11 +60,7 @@ impl Broadcaster {
         let mut ok_clients = Vec::new();
 
         for client in clients {
-            if client
-                .send(sse::Event::Comment("ping".into()))
-                .await
-                .is_ok()
-            {
+            if client.send(sse::Event::Comment("ping".into())).await.is_ok() {
                 ok_clients.push(client.clone());
             }
         }
@@ -86,9 +82,7 @@ impl Broadcaster {
     /// Broadcasts `msg` to all clients.
     pub async fn broadcast(&self, msg: BroadcastEvent) {
         let clients = self.inner.lock().await.clients.clone();
-        let send_futures = clients
-            .iter()
-            .map(|client| client.send(msg.to_data()));
+        let send_futures = clients.iter().map(|client| client.send(msg.to_data()));
 
         // try to send to all clients, ignoring failures
         // disconnected clients will get swept up by `remove_stale_clients`
