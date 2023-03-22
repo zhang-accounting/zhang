@@ -1,6 +1,6 @@
 entry = { SOI ~ line* ~ (item ~ NEWLINE+)* ~ item? ~ EOI }
 
-item = { option | plugin | commodity | open | close | include | note | balance | document | price | event | custom | transaction | comment }
+item = { option | plugin | commodity | open | close | include | note | balance | pad | document | price | event | custom | transaction | comment }
 
 option      = { "option" ~ space+ ~ string ~ space+ ~ string }
 plugin      = { "plugin" ~ space+ ~ string ~ (space+ ~ string)* }
@@ -9,6 +9,7 @@ commodity   = { date ~ space+ ~ "commodity" ~ space+ ~ commodity_name ~ commodit
 open        = { date ~ space+ ~ "open" ~ space+ ~ account_name ~ (space+ ~ commodity_name ~ (space* ~ "," ~ space* ~ commodity_name)*)? ~ commodity_meta? }
 close       = { date ~ space+ ~ "close" ~ space+ ~ account_name }
 note        = { date ~ space+ ~ "note" ~ space+ ~ account_name ~ space+ ~ string }
+pad         = { date ~ space+ ~ "pad" ~ space+ ~ account_name ~ space+ ~ account_name }
 balance     = { date ~ space+ ~ "balance" ~ space+ ~ account_name ~ space+ ~ number ~ space+ ~ commodity_name ~ (space+ ~ "with" ~ space+ ~ "pad" ~ space+ ~ account_name)? }
 document    = { date ~ space+ ~ "document" ~ space+ ~ account_name ~ space+ ~ string }
 price       = { date ~ space+ ~ "price" ~ space+ ~ commodity_name ~ space+ ~ number ~ space+ ~ commodity_name }
