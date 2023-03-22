@@ -10,10 +10,8 @@ use std::sync::Arc;
 
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
-use actix_web::body::BoxBody;
-use actix_web::http::Uri;
 use actix_web::web::{Data, Json, Path, Query};
-use actix_web::{get, post, put, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{get, post, put, web, Responder};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
 use futures_util::StreamExt;
@@ -21,7 +19,6 @@ use indexmap::IndexSet;
 use itertools::Itertools;
 use log::info;
 use now::TimeZoneNow;
-use rust_embed::RustEmbed;
 use sqlx::{FromRow, SqliteConnection};
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -694,7 +691,8 @@ pub async fn download_document(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(St
     NamedFile::open_async(full_path).await
 }
 
-pub async fn serve_frontend(uri: Uri) -> impl Responder {
+#[cfg(feature = "frontend")]
+pub async fn serve_frontend(uri: actix_web::http::Uri) -> impl Responder {
     let path = uri.path().trim_start_matches('/').to_string();
     let buf = PathBuf::from_str(&path).unwrap();
     if buf.extension().is_some() {
@@ -1277,16 +1275,23 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
     })
 }
 
-#[derive(RustEmbed)]
+#[cfg(feature = "frontend")]
+#[derive(rust_embed::RustEmbed)]
 #[folder = "frontend/build"]
 struct Asset;
 
+#[cfg(feature = "frontend")]
 pub struct StaticFile<T>(pub T);
+
+#[cfg(feature = "frontend")]
+use actix_web::{HttpRequest, HttpResponse};
+
+#[cfg(feature = "frontend")]
 impl<T> Responder for StaticFile<T>
 where
     T: Into<String>,
 {
-    type Body = BoxBody;
+    type Body = actix_web::body::BoxBody;
 
     fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
         let path: String = self.0.into();
@@ -1295,7 +1300,7 @@ where
                 let mime = mime_guess::from_path(path).first_or_octet_stream();
                 HttpResponse::Ok()
                     .content_type(mime)
-                    .body(BoxBody::new(content.data.into_owned()))
+                    .body(actix_web::body::BoxBody::new(content.data.into_owned()))
             }
             None => HttpResponse::NotFound().finish(),
         }

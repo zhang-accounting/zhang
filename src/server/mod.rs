@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use actix_cors::Cors;
 use actix_web::web::Data;
-use actix_web::{web, App, HttpServer};
+use actix_web::{App, HttpServer};
 use log::{debug, error, info, trace};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
@@ -16,12 +16,7 @@ use crate::cli::ServerOpts;
 use crate::core::ledger::Ledger;
 use crate::error::ZhangResult;
 use crate::server::broadcast::{BroadcastEvent, Broadcaster};
-use crate::server::route::{
-    create_account_balance, create_new_transaction, current_statistic, download_document, get_account_documents,
-    get_account_journals, get_account_list, get_all_commodities, get_basic_info, get_documents, get_errors,
-    get_file_content, get_files, get_info_for_new_transactions, get_journals, get_report, get_single_commodity,
-    get_statistic_data, serve_frontend, sse, update_file_content, upload_account_document, upload_transaction_document,
-};
+use crate::server::route::*;
 use crate::transformers::zhang::ZhangTransformer;
 
 pub mod broadcast;
@@ -151,7 +146,7 @@ async fn start_server(
     let addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), opts.port);
     info!("zhang is listening on http://127.0.0.1:{}/", opts.port);
     Ok(HttpServer::new(move || {
-        App::new()
+        let app = App::new()
             .wrap(Cors::permissive())
             .app_data(Data::from(broadcaster.clone()))
             .app_data(Data::new(ledger_data.clone()))
@@ -176,8 +171,17 @@ async fn start_server(
             .service(update_file_content)
             .service(get_report)
             .service(get_errors)
-            .service(sse)
-            .default_service(web::to(serve_frontend))
+            .service(sse);
+
+        #[cfg(feature = "frontend")]
+        {
+            app.default_service(actix_web::web::to(serve_frontend))
+        }
+
+        #[cfg(not(feature = "frontend"))]
+        {
+            app
+        }
     })
     .bind(addr)?
     .run()
