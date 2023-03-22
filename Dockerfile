@@ -3,7 +3,7 @@ WORKDIR /app
 COPY . /app
 
 RUN mkdir /data
-RUN cargo build --release
+RUN cargo build --release --features frontend
 
 FROM gcr.io/distroless/cc
 LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
