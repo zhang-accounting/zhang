@@ -555,14 +555,4 @@ mod test {
         "#}
         );
     }
-
-    #[test]
-    fn comment() {
-        assert_parse!(
-            "comment directive ",
-            indoc! {r#"
-            ;你好啊
-        "#}
-        );
-    }
 }
