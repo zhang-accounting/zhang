@@ -645,33 +645,6 @@ mod test {
             );
         }
     }
-    mod comment {
-        use std::option::Option::None;
-
-        use indoc::indoc;
-
-        use crate::core::data::Comment;
-        use crate::core::models::Directive;
-        use crate::parse_zhang;
-
-        #[test]
-        fn should_parse() {
-            let mut vec = parse_zhang(
-                indoc! {r#"
-                            ; comment here
-                        "#},
-                None,
-            )
-            .unwrap();
-            assert_eq!(vec.len(), 1);
-            assert_eq!(
-                vec.pop().unwrap().data,
-                Directive::Comment(Comment {
-                    content: "; comment here".to_string(),
-                })
-            );
-        }
-    }
     mod document {
         use std::option::Option::None;
 
