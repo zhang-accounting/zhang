@@ -25,9 +25,14 @@ export default function Settings() {
 
       <Section title="Basic Setting">
         <Grid>
-          <Grid.Col sm={12} md={6} lg={4}><Setting title="title" uppercase value={basicInfo.title} /></Grid.Col>
-          <Grid.Col sm={12} md={6} lg={4}><Setting title="version" uppercase value={basicInfo.version} /></Grid.Col>
-          <Grid.Col sm={12} md={6} lg={4}><Setting title="language" uppercase />
+          <Grid.Col sm={12} md={6} lg={4}>
+            <Setting title="title" uppercase value={basicInfo.title} />
+          </Grid.Col>
+          <Grid.Col sm={12} md={6} lg={4}>
+            <Setting title="version" uppercase value={basicInfo.version} />
+          </Grid.Col>
+          <Grid.Col sm={12} md={6} lg={4}>
+            <Setting title="language" uppercase />
             <SegmentedControl
               value={lang}
               onChange={onLanguageChange}
@@ -35,7 +40,8 @@ export default function Settings() {
               data={[
                 { label: '中文', value: 'zh' },
                 { label: 'English', value: 'en' },
-              ]} />
+              ]}
+            />
           </Grid.Col>
         </Grid>
       </Section>

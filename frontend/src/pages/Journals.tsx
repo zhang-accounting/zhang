@@ -35,7 +35,7 @@ function Journals() {
             <th>Type</th>
             <th>Payee</th>
             <th>Narration</th>
-            <th style={{textAlign:"right"}}>Amount</th>
+            <th style={{ textAlign: 'right' }}>Amount</th>
             <th>Operation</th>
           </tr>
         </thead>
