@@ -177,14 +177,6 @@ impl Ledger {
         Ok(ret_ledger)
     }
 
-    #[cfg(test)]
-    // todo should remove from ledger, mark it as test only
-    pub async fn load_from_str<T: Transformer + Default + 'static>(content: impl AsRef<str>) -> ZhangResult<Ledger> {
-        let result = tempfile::tempdir().unwrap();
-        let endpoint_path = result.path().join("main.zhang");
-        std::fs::write(&endpoint_path, content.as_ref()).with_path(&endpoint_path)?;
-        Ledger::load::<T>(result.into_path(), "main.zhang".to_string()).await
-    }
 
     fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
         directives.sort_by(|a, b| match (a.datetime(), b.datetime()) {
