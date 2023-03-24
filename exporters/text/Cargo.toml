@@ -1,0 +1,12 @@
+[package]
+name = "text-exporter"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+itertools = "0.9.0"
+zhang-core = { version = "0.1", path = "../../core" }
+zhang-ast = { version = "0.1", path = "../../ast" }
+text-transformer = {version = "0.1", path="../../transformers/text"}
