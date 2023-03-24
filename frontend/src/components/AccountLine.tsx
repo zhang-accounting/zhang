@@ -53,12 +53,14 @@ export default function AccountLine({ data, spacing }: Props) {
             </div>
           </div>
         </td>
-        <td style={{ textAlign: 'end' }}>
-          <Stack spacing="xs">
-            {Object.entries(data.val?.commodities ?? {}).map(([key, value]) => (
-              <Amount amount={value} currency={key}></Amount>
-            ))}
-          </Stack>
+        <td>
+          <Group position="right">
+            <Stack spacing="xs">
+              {Object.entries(data.val?.commodities ?? {}).map(([key, value]) => (
+                <Amount amount={value} currency={key}></Amount>
+              ))}
+            </Stack>
+          </Group>
         </td>
       </tr>
 
