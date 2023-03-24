@@ -228,8 +228,11 @@ impl Account {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct InvalidAccountError;
+
 impl FromStr for Account {
-    type Err = ();
+    type Err = InvalidAccountError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split(':').collect();
@@ -237,12 +240,12 @@ impl FromStr for Account {
         let split = parts.split_first();
         if let Some((account_type, rest)) = split {
             Ok(Account {
-                account_type: AccountType::from_str(account_type).unwrap(),
+                account_type: AccountType::from_str(account_type).map_err(|_|InvalidAccountError)?,
                 content: s.to_string(),
                 components: rest.iter().map(|it| it.to_string()).collect(),
             })
         } else {
-            Err(())
+            Err(InvalidAccountError)
         }
     }
 }

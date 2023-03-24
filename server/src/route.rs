@@ -11,7 +11,7 @@ use std::sync::Arc;
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
 use actix_web::web::{Data, Json, Path, Query};
-use actix_web::{get, post, put, web, Responder};
+use actix_web::{get, post, put, Responder, web};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
 use futures_util::StreamExt;
@@ -39,7 +39,7 @@ use crate::response::{
     JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse, Pageable, ReportRankItemResponse,
     ReportResponse, ResponseWrapper, StatisticResponse,
 };
-use crate::ServerResult;
+use crate::{ApiResult, ServerResult};
 use zhang_ast::amount::Amount;
 use zhang_ast::{
     Account, Balance, BalanceCheck, BalancePad, Date, Directive, Document, Flag, Meta, Posting, Transaction,
@@ -47,8 +47,6 @@ use zhang_ast::{
 };
 use zhang_core::domains::options::OptionDomain;
 use zhang_core::utils::date_range::NaiveDateRange;
-
-pub type ApiResult<T> = ServerResult<ResponseWrapper<T>>;
 
 pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
     std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
@@ -591,19 +589,19 @@ pub async fn create_new_transaction(
 ) -> ApiResult<String> {
     let ledger = ledger.read().await;
 
-    let postings = payload
-        .postings
-        .into_iter()
-        .map(|posting| Posting {
+    let mut postings = vec![];
+    for posting in payload.postings.into_iter() {
+        postings.push(Posting {
             flag: None,
-            account: Account::from_str(&posting.account).unwrap(),
+            account: Account::from_str(&posting.account)?,
             units: posting.unit.map(|unit| Amount::new(unit.number, unit.commodity)),
             cost: None,
             cost_date: None,
             price: None,
             meta: Default::default(),
-        })
-        .collect_vec();
+        });
+    }
+
     let mut metas = Meta::default();
     for meta in payload.metas {
         metas.insert(meta.key, meta.value.to_quote());
@@ -800,7 +798,7 @@ pub async fn upload_account_document(
 
         documents.push(Directive::Document(Document {
             date: Date::Datetime(Local::now().naive_local()),
-            account: Account::from_str(&account_name).expect("invalid account name"),
+            account: Account::from_str(&account_name)?,
             filename: ZhangString::QuoteString(path.to_string()),
             tags: None,
             links: None,
@@ -883,7 +881,7 @@ pub async fn create_account_balance(
     let balance = match payload {
         AccountBalanceRequest::Check { amount, commodity } => Balance::BalanceCheck(BalanceCheck {
             date: Date::Datetime(Local::now().naive_local()),
-            account: Account::from_str(&account_name).expect("invalid account name"),
+            account: Account::from_str(&account_name)?,
             amount: Amount::new(amount, commodity),
             tolerance: None,
             distance: None,
@@ -896,12 +894,12 @@ pub async fn create_account_balance(
             pad_account,
         } => Balance::BalancePad(BalancePad {
             date: Date::Datetime(Local::now().naive_local()),
-            account: Account::from_str(&account_name).expect("invalid account name"),
+            account: Account::from_str(&account_name)?,
             amount: Amount::new(amount, commodity),
             tolerance: None,
             diff_amount: None,
             meta: Default::default(),
-            pad: Account::from_str(&pad_account).expect("invalid account name"),
+            pad: Account::from_str(&pad_account)?,
         }),
     };
     let time = Local::now().naive_local();

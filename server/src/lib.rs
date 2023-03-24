@@ -16,8 +16,9 @@ use zhang_core::ledger::Ledger;
 use zhang_core::transform::Transformer;
 use zhang_core::ZhangResult;
 
-use crate::broadcast::{BroadcastEvent, Broadcaster};
+use crate::broadcast::{Broadcaster, BroadcastEvent};
 use crate::error::ServerError;
+use crate::response::ResponseWrapper;
 use crate::route::*;
 
 pub mod broadcast;
@@ -219,3 +220,5 @@ async fn version_report_task() -> ServerResult<()> {
         .await?;
     Ok(())
 }
+
+pub type ApiResult<T> = ServerResult<ResponseWrapper<T>>;
