@@ -12,6 +12,7 @@ use serde::Serialize;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
+use zhang_core::exporter::Exporter;
 use zhang_core::ledger::Ledger;
 use zhang_core::transform::Transformer;
 use zhang_core::ZhangResult;
@@ -49,15 +50,16 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
     Ok((watcher, rx))
 }
 
-pub struct ServeConfig {
+pub struct ServeConfig<E:Exporter> {
     pub path: PathBuf,
     pub endpoint: String,
     pub port: u16,
     pub database: Option<PathBuf>,
     pub no_report: bool,
+    pub exporter: Arc<E>,
 }
 
-pub async fn serve<T: Transformer + Default + 'static>(opts: ServeConfig) -> ZhangResult<()> {
+pub async fn serve<T: Transformer + Default + 'static, E: Exporter>(opts: ServeConfig<E>) -> ZhangResult<()> {
     info!(
         "version: {}, build date: {}",
         env!("CARGO_PKG_VERSION"),
@@ -153,8 +155,8 @@ pub async fn serve<T: Transformer + Default + 'static>(opts: ServeConfig) -> Zha
     start_server(opts, ledger_data, broadcaster).await
 }
 
-async fn start_server(
-    opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>,
+async fn start_server<E:Exporter>(
+    opts: ServeConfig<E>, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>,
 ) -> ZhangResult<()> {
     let addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), opts.port);
     info!("zhang is listening on http://127.0.0.1:{}/", opts.port);
