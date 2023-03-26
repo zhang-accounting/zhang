@@ -107,8 +107,7 @@ impl Ledger {
                     .journal_mode(SqliteJournalMode::Wal)
                     .create_if_missing(true),
             )
-            .await
-            .unwrap()
+            .await?
         } else {
             info!("using in memory database");
             SqlitePoolOptions::new()
@@ -119,10 +118,9 @@ impl Ledger {
                         .unwrap()
                         .journal_mode(SqliteJournalMode::Wal),
                 )
-                .await
-                .unwrap()
+                .await?
         };
-        let mut connection = sqlite_pool.acquire().await.unwrap();
+        let mut connection = sqlite_pool.acquire().await?;
 
         Migration::init_database_if_missing(&mut connection).await?;
 
@@ -149,17 +147,11 @@ impl Ledger {
                 Directive::Option(option) => option.handler(&mut ret_ledger, &directive.span).await?,
                 Directive::Open(open) => open.handler(&mut ret_ledger, &directive.span).await?,
                 Directive::Close(close) => close.handler(&mut ret_ledger, &directive.span).await?,
-                Directive::Commodity(commodity) => {
-                    commodity
-                        .handler(&mut ret_ledger, &directive.span)
-                        .await?
-                }
+                Directive::Commodity(commodity) => commodity.handler(&mut ret_ledger, &directive.span).await?,
                 Directive::Transaction(trx) => trx.handler(&mut ret_ledger, &directive.span).await?,
                 Directive::Balance(balance) => balance.handler(&mut ret_ledger, &directive.span).await?,
                 Directive::Note(_) => {}
-                Directive::Document(document) => {
-                    document.handler(&mut ret_ledger, &directive.span).await?
-                }
+                Directive::Document(document) => document.handler(&mut ret_ledger, &directive.span).await?,
                 Directive::Price(price) => price.handler(&mut ret_ledger, &directive.span).await?,
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
@@ -176,7 +168,6 @@ impl Ledger {
         }
         Ok(ret_ledger)
     }
-
 
     fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
         directives.sort_by(|a, b| match (a.datetime(), b.datetime()) {
