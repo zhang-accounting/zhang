@@ -166,7 +166,7 @@ async fn start_server(
             .wrap(Cors::permissive())
             .app_data(Data::from(broadcaster.clone()))
             .app_data(Data::new(ledger_data.clone()))
-            .app_data(Data::new(exporter.clone()))
+            .app_data(exporter.clone())
             .service(get_basic_info)
             .service(get_info_for_new_transactions)
             .service(get_statistic_data)
