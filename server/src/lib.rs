@@ -12,7 +12,7 @@ use serde::Serialize;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
-use zhang_core::exporter::Exporter;
+use zhang_core::exporter::{AppendableExporter, Exporter};
 use zhang_core::ledger::Ledger;
 use zhang_core::transform::Transformer;
 use zhang_core::ZhangResult;
@@ -50,16 +50,16 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
     Ok((watcher, rx))
 }
 
-pub struct ServeConfig<E:Exporter> {
+pub struct ServeConfig {
     pub path: PathBuf,
     pub endpoint: String,
     pub port: u16,
     pub database: Option<PathBuf>,
     pub no_report: bool,
-    pub exporter: Arc<E>,
+    pub exporter: Arc<dyn AppendableExporter>,
 }
 
-pub async fn serve<T: Transformer + Default + 'static, E: Exporter>(opts: ServeConfig<E>) -> ZhangResult<()> {
+pub async fn serve<T: Transformer + Default + 'static>(opts: ServeConfig) -> ZhangResult<()> {
     info!(
         "version: {}, build date: {}",
         env!("CARGO_PKG_VERSION"),
@@ -155,16 +155,18 @@ pub async fn serve<T: Transformer + Default + 'static, E: Exporter>(opts: ServeC
     start_server(opts, ledger_data, broadcaster).await
 }
 
-async fn start_server<E:Exporter>(
-    opts: ServeConfig<E>, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>,
+async fn start_server(
+    opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>,
 ) -> ZhangResult<()> {
     let addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), opts.port);
     info!("zhang is listening on http://127.0.0.1:{}/", opts.port);
+    let exporter:Data<dyn AppendableExporter> = Data::from(opts.exporter);
     Ok(HttpServer::new(move || {
         let app = App::new()
             .wrap(Cors::permissive())
             .app_data(Data::from(broadcaster.clone()))
             .app_data(Data::new(ledger_data.clone()))
+            .app_data(Data::new(exporter.clone()))
             .service(get_basic_info)
             .service(get_info_for_new_transactions)
             .service(get_statistic_data)

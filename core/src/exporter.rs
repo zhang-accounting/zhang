@@ -1,27 +1,36 @@
-use std::path::PathBuf;
-use log::debug;
-use zhang_ast::Directive;
 use crate::ZhangResult;
+use log::debug;
+use std::path::{Path, PathBuf};
+use zhang_ast::Directive;
+use crate::ledger::Ledger;
 
-pub trait Exporter {
+pub trait Exporter: AppendableExporter {
     type Output;
-    fn to_target(self) -> Self::Output;
-
-    /// define how the exporter append a directive to target file
-    fn append_directive(file: PathBuf, directive:Directive) -> ZhangResult<()>;
+    fn export_directive(&self, directive: Directive) -> Self::Output;
 }
 
+pub trait AppendableExporter: Send + Sync {
+    /// define how the exporter append a directive to target file
+    fn append_directive(&self, ledger: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()>;
+}
+
+
+
 pub struct DebugExporter;
+
+
+impl AppendableExporter for DebugExporter {
+    fn append_directive(&self, _: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()> {
+        debug!("append directive [{:?}] to path [{:?}]", directives, file);
+        Ok(())
+    }
+}
 
 impl Exporter for DebugExporter {
     type Output = ();
 
-    fn to_target(self) -> Self::Output {
+    fn export_directive(&self, directive: Directive) -> Self::Output {
+        debug!("export directive: {:?}", directive);
         ()
-    }
-
-    fn append_directive(file: PathBuf, directive: Directive) -> ZhangResult<()> {
-        debug!("append directive [{:?}] to path [{:?}]", directive, file);
-        Ok(())
     }
 }

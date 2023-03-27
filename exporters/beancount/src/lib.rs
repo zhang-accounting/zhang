@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use text_exporter::TextExporter;
+use text_exporter::TextExportable;
 use text_transformer::TextTransformer;
 use zhang_ast::{Balance, Date, Directive, ZhangString};
 use zhang_core::error::IoErrorIntoZhangError;
@@ -12,7 +12,7 @@ pub async fn run(file: PathBuf, output: Option<PathBuf>) -> ZhangResult<()> {
 
     let mut ledger = Ledger::load::<TextTransformer>(file_parent, file_name).await?;
     ledger = ledger.apply(convert_datetime_to_date);
-    let beancount_content = ledger.to_target();
+    let beancount_content = ledger.export();
     if let Some(output_file) = output {
         std::fs::write(&output_file, beancount_content).with_path(&output_file)?;
     } else {

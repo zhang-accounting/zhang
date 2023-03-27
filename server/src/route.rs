@@ -11,7 +11,7 @@ use std::sync::Arc;
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
 use actix_web::web::{Data, Json, Path, Query};
-use actix_web::{get, post, put, Responder, web};
+use actix_web::{get, post, put, web, Responder};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
 use futures_util::StreamExt;
@@ -586,6 +586,7 @@ pub async fn get_journals(
 #[post("/api/transactions")]
 pub async fn create_new_transaction(
     ledger: Data<Arc<RwLock<Ledger>>>, Json(payload): Json<CreateTransactionRequest>,
+    exporter: Data<dyn AppendableExporter>,
 ) -> ApiResult<String> {
     let ledger = ledger.read().await;
 
@@ -617,11 +618,12 @@ pub async fn create_new_transaction(
         postings,
         meta: metas,
     });
-    append_directives(
+    exporter.as_ref().append_directive(
         &ledger,
+        PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
         vec![trx],
-        format!("data/{}/{}.zhang", time.year(), time.month()),
-    );
+    )?;
+
     ResponseWrapper::json("Ok".to_string())
 }
 
@@ -765,6 +767,7 @@ pub async fn get_documents(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<D
 #[post("/api/accounts/{account_name}/documents")]
 pub async fn upload_account_document(
     ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: web::Path<(String,)>,
+    exporter: Data<dyn AppendableExporter>,
 ) -> ApiResult<()> {
     let account_name = path.into_inner().0;
     let ledger_stage = ledger.read().await;
@@ -806,11 +809,13 @@ pub async fn upload_account_document(
         }));
     }
     let time = Local::now().naive_local();
-    append_directives(
+
+    exporter.as_ref().append_directive(
         &ledger_stage,
-        documents,
-        format!("data/{}/{}.zhang", time.year(), time.month()),
-    );
+        PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
+        documents
+    )?;
+
     ResponseWrapper::<()>::created()
 }
 
@@ -873,6 +878,7 @@ pub async fn get_account_journals(
 #[post("/api/accounts/{account_name}/balances")]
 pub async fn create_account_balance(
     ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>, Json(payload): Json<AccountBalanceRequest>,
+    exporter: Data<dyn AppendableExporter>,
 ) -> ApiResult<()> {
     let account_name = params.into_inner().0;
     let ledger = ledger.read().await;
@@ -903,11 +909,12 @@ pub async fn create_account_balance(
         }),
     };
     let time = Local::now().naive_local();
-    append_directives(
+
+    exporter.as_ref().append_directive(
         &ledger,
+        PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
         vec![Directive::Balance(balance)],
-        format!("data/{}/{}.zhang", time.year(), time.month()),
-    );
+    )?;
     ResponseWrapper::<()>::created()
 }
 
@@ -1292,9 +1299,9 @@ struct Asset;
 #[cfg(feature = "frontend")]
 pub struct StaticFile<T>(pub T);
 
-use crate::utils::append_directives;
 #[cfg(feature = "frontend")]
 use actix_web::{HttpRequest, HttpResponse};
+use zhang_core::exporter::AppendableExporter;
 
 #[cfg(feature = "frontend")]
 impl<T> Responder for StaticFile<T>
