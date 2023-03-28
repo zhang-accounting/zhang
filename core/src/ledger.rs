@@ -79,6 +79,7 @@ impl Ledger {
     pub async fn load_with_database<T: Transformer + Default + 'static>(
         entry: PathBuf, endpoint: String, database: Option<PathBuf>,
     ) -> ZhangResult<Ledger> {
+        let entry = entry.canonicalize().with_path(&entry)?;
         let transformer = T::default();
         let transform_result = transformer.load(entry.clone(), endpoint.clone())?;
         Ledger::process(

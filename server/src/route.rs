@@ -1014,7 +1014,8 @@ pub async fn get_files(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Optio
     let vec = ledger
         .visited_files
         .iter()
-        .map(|path| path.strip_prefix(entry_path).unwrap().to_str().map(|it| it.to_string()))
+        .map(|path|
+            path.strip_prefix(entry_path).unwrap().to_str().map(|it| it.to_string()) )
         .collect_vec();
     ResponseWrapper::json(vec)
 }

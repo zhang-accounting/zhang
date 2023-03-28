@@ -5,6 +5,7 @@ use std::sync::Arc;
 use clap::{Args, Parser, Subcommand};
 use env_logger::Env;
 use log::LevelFilter;
+use text_exporter::TextExporter;
 use text_transformer::TextTransformer;
 use zhang_core::exporter::{AppendableExporter, DebugExporter};
 use zhang_core::ledger::Ledger;
@@ -93,7 +94,7 @@ impl Opts {
             Opts::Export(opts) => todo!(),
             Opts::Serve(opts) => {
                 // todo(feat): detect transformer and exporter based on file extension
-                let exporter: Arc<dyn AppendableExporter> = Arc::new(DebugExporter {});
+                let exporter: Arc<dyn AppendableExporter> = Arc::new(TextExporter {});
                 zhang_server::serve::<TextTransformer>(ServeConfig {
                     path: opts.path,
                     endpoint: opts.endpoint,

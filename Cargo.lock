@@ -2465,6 +2465,7 @@ name = "text-exporter"
 version = "0.1.0"
 dependencies = [
  "itertools 0.9.0",
+ "log",
  "text-transformer",
  "zhang-ast",
  "zhang-core",
@@ -3083,6 +3084,7 @@ dependencies = [
  "clap",
  "env_logger",
  "log",
+ "text-exporter",
  "text-transformer",
  "tokio",
  "tokio-util 0.6.9",
