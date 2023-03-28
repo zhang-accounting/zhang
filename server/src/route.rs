@@ -618,7 +618,7 @@ pub async fn create_new_transaction(
         postings,
         meta: metas,
     });
-    exporter.as_ref().append_directive(
+    exporter.as_ref().append_directives(
         &ledger,
         PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
         vec![trx],
@@ -810,7 +810,7 @@ pub async fn upload_account_document(
     }
     let time = Local::now().naive_local();
 
-    exporter.as_ref().append_directive(
+    exporter.as_ref().append_directives(
         &ledger_stage,
         PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
         documents
@@ -910,7 +910,7 @@ pub async fn create_account_balance(
     };
     let time = Local::now().naive_local();
 
-    exporter.as_ref().append_directive(
+    exporter.as_ref().append_directives(
         &ledger,
         PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
         vec![Directive::Balance(balance)],

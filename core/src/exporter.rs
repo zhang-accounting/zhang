@@ -11,7 +11,7 @@ pub trait Exporter: AppendableExporter {
 
 pub trait AppendableExporter: Send + Sync {
     /// define how the exporter append a directive to target file
-    fn append_directive(&self, ledger: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()>;
+    fn append_directives(&self, ledger: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()>;
 }
 
 
@@ -20,7 +20,7 @@ pub struct DebugExporter;
 
 
 impl AppendableExporter for DebugExporter {
-    fn append_directive(&self, _: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()> {
+    fn append_directives(&self, _: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()> {
         debug!("append directive [{:?}] to path [{:?}]", directives, file);
         Ok(())
     }

@@ -1,24 +1,72 @@
+use std::fs::OpenOptions;
+use std::io::Write;
 use itertools::Itertools;
+use std::path::{Path, PathBuf};
+use log::info;
 
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
+use zhang_core::exporter::{AppendableExporter, Exporter};
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::string_::escape_with_quote;
+use zhang_core::ZhangResult;
 
-pub trait TextExporter {
+pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
+    std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
+}
+
+pub struct TextExporter {}
+
+
+impl AppendableExporter for TextExporter {
+    fn append_directives(&self, ledger: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()> {
+        let (entry, main_file_endpoint) = &ledger.entry;
+        let endpoint = entry.join(file);
+
+        create_folder_if_not_exist(&endpoint);
+
+        if !ledger.visited_files.contains(&endpoint) {
+            let path = match endpoint.strip_prefix(entry) {
+                Ok(relative_path) => relative_path.to_str().unwrap(),
+                Err(_) => endpoint.to_str().unwrap(),
+            };
+            self.append_directives(
+                &ledger,
+                entry.join(main_file_endpoint),
+                vec![Directive::Include(Include {
+                    file: ZhangString::QuoteString(path.to_string()),
+                })],
+            )?;
+        }
+        let directive_content = format!("\n{}\n", directives.into_iter().map(|it| it.export()).join("\n"));
+        let mut ledger_base_file = OpenOptions::new().append(true).create(true).open(&endpoint).unwrap();
+        Ok(ledger_base_file.write_all(directive_content.as_bytes())?)
+    }
+}
+
+impl Exporter for TextExporter {
+    type Output = String;
+
+    fn export_directive(&self, directive: Directive) -> Self::Output {
+        directive.export()
+    }
+
+}
+
+pub trait TextExportable {
     type Output;
-    fn to_target(self) -> Self::Output;
+    fn export(self) -> Self::Output;
 }
 
 fn append_meta(meta: Meta, string: String) -> String {
-    let mut metas = meta.to_target().into_iter().map(|it| format!("  {}", it)).collect_vec();
+    let mut metas = meta.export().into_iter().map(|it| format!("  {}", it)).collect_vec();
     metas.insert(0, string);
     metas.join("\n")
 }
 
-impl TextExporter for Date {
+impl TextExportable for Date {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         match self {
             Date::Date(date) => date.format("%Y-%m-%d").to_string(),
             Date::Datetime(datetime) => datetime.format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -27,40 +75,40 @@ impl TextExporter for Date {
     }
 }
 
-impl TextExporter for Flag {
+impl TextExportable for Flag {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         self.to_string()
     }
 }
 
-impl TextExporter for Account {
+impl TextExportable for Account {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         self.content
     }
 }
-impl TextExporter for Amount {
+impl TextExportable for Amount {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         format!("{} {}", self.number, self.currency)
     }
 }
 
-impl TextExporter for Meta {
+impl TextExportable for Meta {
     type Output = Vec<String>;
-    fn to_target(self) -> Vec<String> {
+    fn export(self) -> Vec<String> {
         self.get_flatten()
             .into_iter()
             .sorted_by(|entry_a, entry_b| entry_a.0.cmp(&entry_b.0))
-            .map(|(k, v)| format!("{}: {}", k, v.to_target()))
+            .map(|(k, v)| format!("{}: {}", k, v.export()))
             .collect_vec()
     }
 }
 
-impl TextExporter for ZhangString {
+impl TextExportable for ZhangString {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         match self {
             ZhangString::UnquoteString(unquote) => unquote,
             ZhangString::QuoteString(quote) => escape_with_quote(&quote).to_string(),
@@ -68,24 +116,24 @@ impl TextExporter for ZhangString {
     }
 }
 
-impl TextExporter for StringOrAccount {
+impl TextExportable for StringOrAccount {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         match self {
-            StringOrAccount::String(s) => s.to_target(),
-            StringOrAccount::Account(account) => account.to_target(),
+            StringOrAccount::String(s) => s.export(),
+            StringOrAccount::Account(account) => account.export(),
         }
     }
 }
 
-impl TextExporter for Transaction {
+impl TextExportable for Transaction {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         let mut vec1 = vec![
-            Some(self.date.to_target()),
-            self.flag.map(|it| it.to_target()),
-            self.payee.map(|it| it.to_target()),
-            self.narration.map(|it| it.to_target()),
+            Some(self.date.export()),
+            self.flag.map(|it| it.export()),
+            self.payee.map(|it| it.export()),
+            self.narration.map(|it| it.export()),
         ];
         let mut tags = self.tags.into_iter().map(|it| Some(format!("#{}", it))).collect_vec();
         let mut links = self.links.into_iter().map(|it| Some(format!("^{}", it))).collect_vec();
@@ -95,12 +143,12 @@ impl TextExporter for Transaction {
         let mut transaction = self
             .postings
             .into_iter()
-            .map(|it| format!("  {}", it.to_target()))
+            .map(|it| format!("  {}", it.export()))
             .collect_vec();
         transaction.insert(0, vec1.into_iter().flatten().join(" "));
         let mut vec2 = self
             .meta
-            .to_target()
+            .export()
             .into_iter()
             .map(|it| format!("  {}", it))
             .collect_vec();
@@ -110,92 +158,89 @@ impl TextExporter for Transaction {
     }
 }
 
-impl TextExporter for Posting {
+impl TextExportable for Posting {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         // todo cost and price
         let cost_string = if self.cost.is_some() || self.cost_date.is_some() {
-            let vec2 = vec![
-                self.cost.map(|it| it.to_target()),
-                self.cost_date.map(|it| it.to_target()),
-            ];
+            let vec2 = vec![self.cost.map(|it| it.export()), self.cost_date.map(|it| it.export())];
             Some(format!("{{ {} }}", vec2.into_iter().flatten().join(", ")))
         } else {
             None
         };
         let vec1 = vec![
-            self.flag.map(|it| format!(" {}", it.to_target())),
-            Some(self.account.to_target()),
-            self.units.map(|it| it.to_target()),
+            self.flag.map(|it| format!(" {}", it.export())),
+            Some(self.account.export()),
+            self.units.map(|it| it.export()),
             cost_string,
-            self.price.map(|it| it.to_target()),
+            self.price.map(|it| it.export()),
         ];
 
         vec1.into_iter().flatten().join(" ")
     }
 }
 
-impl TextExporter for SingleTotalPrice {
+impl TextExportable for SingleTotalPrice {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         match self {
             SingleTotalPrice::Single(single_price) => {
-                format!("@ {}", single_price.to_target())
+                format!("@ {}", single_price.export())
             }
             SingleTotalPrice::Total(total_price) => {
-                format!("@@ {}", total_price.to_target())
+                format!("@@ {}", total_price.export())
             }
         }
     }
 }
 
-impl TextExporter for Open {
+impl TextExportable for Open {
     type Output = String;
-    fn to_target(self) -> String {
-        let mut line = vec![self.date.to_target(), "open".to_string(), self.account.to_target()];
+    fn export(self) -> String {
+        let mut line = vec![self.date.export(), "open".to_string(), self.account.export()];
         let commodities = self.commodities.iter().join(", ");
         line.push(commodities);
         append_meta(self.meta, line.join(" "))
     }
 }
 
-impl TextExporter for Close {
+impl TextExportable for Close {
     type Output = String;
-    fn to_target(self) -> String {
-        let line = vec![self.date.to_target(), "close".to_string(), self.account.to_target()];
+    fn export(self) -> String {
+        let line = vec![self.date.export(), "close".to_string(), self.account.export()];
         append_meta(self.meta, line.join(" "))
     }
 }
 
-impl TextExporter for Commodity {
+impl TextExportable for Commodity {
     type Output = String;
-    fn to_target(self) -> String {
-        let line = vec![self.date.to_target(), "commodity".to_string(), self.currency];
+    fn export(self) -> String {
+        let line = vec![self.date.export(), "commodity".to_string(), self.currency];
         append_meta(self.meta, line.join(" "))
     }
 }
 
-impl TextExporter for Balance {
+impl TextExportable for Balance {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         match self {
             Balance::BalanceCheck(check) => {
                 let line = vec![
-                    check.date.to_target(),
+                    check.date.export(),
                     "balance".to_string(),
-                    check.account.to_target(),
-                    check.amount.to_target(),
+                    check.account.export(),
+                    check.amount.export(),
                 ];
                 append_meta(check.meta, line.join(" "))
             }
             Balance::BalancePad(pad) => {
                 let line = vec![
-                    pad.date.to_target(),
+                    pad.date.export(),
                     "balance".to_string(),
-                    pad.account.to_target(),
-                    pad.amount.to_target(),
+                    pad.account.export(),
+                    pad.amount.export(),
                     "with pad".to_string(),
-                    pad.pad.to_target(),
+                    pad.pad.export(),
                 ];
                 append_meta(pad.meta, line.join(" "))
             }
@@ -203,129 +248,125 @@ impl TextExporter for Balance {
     }
 }
 
-impl TextExporter for Note {
+impl TextExportable for Note {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         let line = vec![
-            self.date.to_target(),
+            self.date.export(),
             "note".to_string(),
-            self.account.to_target(),
-            self.comment.to_target(),
+            self.account.export(),
+            self.comment.export(),
         ];
         append_meta(self.meta, line.join(" "))
     }
 }
 
-impl TextExporter for Document {
+impl TextExportable for Document {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         let line = vec![
-            self.date.to_target(),
+            self.date.export(),
             "document".to_string(),
-            self.account.to_target(),
-            self.filename.to_target(),
+            self.account.export(),
+            self.filename.export(),
         ];
         append_meta(self.meta, line.join(" "))
     }
 }
 
-impl TextExporter for Price {
+impl TextExportable for Price {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         let line = vec![
-            self.date.to_target(),
+            self.date.export(),
             "price".to_string(),
             self.currency,
-            self.amount.to_target(),
+            self.amount.export(),
         ];
         append_meta(self.meta, line.join(" "))
     }
 }
 
-impl TextExporter for Event {
+impl TextExportable for Event {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         let line = vec![
-            self.date.to_target(),
+            self.date.export(),
             "event".to_string(),
-            self.event_type.to_target(),
-            self.description.to_target(),
+            self.event_type.export(),
+            self.description.export(),
         ];
         append_meta(self.meta, line.join(" "))
     }
 }
 
-impl TextExporter for Custom {
+impl TextExportable for Custom {
     type Output = String;
-    fn to_target(self) -> String {
-        let mut line = vec![
-            self.date.to_target(),
-            "custom".to_string(),
-            self.custom_type.to_target(),
-        ];
-        let mut values = self.values.into_iter().map(|it| it.to_target()).collect_vec();
+    fn export(self) -> String {
+        let mut line = vec![self.date.export(), "custom".to_string(), self.custom_type.export()];
+        let mut values = self.values.into_iter().map(|it| it.export()).collect_vec();
         line.append(&mut values);
         append_meta(self.meta, line.join(" "))
     }
 }
 
-impl TextExporter for Options {
+impl TextExportable for Options {
     type Output = String;
-    fn to_target(self) -> String {
-        let line = vec!["option".to_string(), self.key.to_target(), self.value.to_target()];
+    fn export(self) -> String {
+        let line = vec!["option".to_string(), self.key.export(), self.value.export()];
         line.join(" ")
     }
 }
-impl TextExporter for Plugin {
+impl TextExportable for Plugin {
     type Output = String;
-    fn to_target(self) -> String {
-        let mut line = vec!["plugin".to_string(), self.module.to_target()];
-        let mut values = self.value.into_iter().map(|it| it.to_target()).collect_vec();
+    fn export(self) -> String {
+        let mut line = vec!["plugin".to_string(), self.module.export()];
+        let mut values = self.value.into_iter().map(|it| it.export()).collect_vec();
         line.append(&mut values);
         line.join(" ")
     }
 }
-impl TextExporter for Include {
+impl TextExportable for Include {
     type Output = String;
-    fn to_target(self) -> String {
-        let line = vec!["include".to_string(), self.file.to_target()];
+    fn export(self) -> String {
+        let line = vec!["include".to_string(), self.file.export()];
         line.join(" ")
     }
 }
 
-impl TextExporter for Comment {
+impl TextExportable for Comment {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         self.content
     }
 }
 
-impl TextExporter for Directive {
+impl TextExportable for Directive {
     type Output = String;
-    fn to_target(self) -> String {
+    fn export(self) -> String {
         match self {
-            Directive::Open(open) => open.to_target(),
-            Directive::Close(close) => close.to_target(),
-            Directive::Commodity(commodity) => commodity.to_target(),
-            Directive::Transaction(txn) => txn.to_target(),
-            Directive::Balance(balance) => balance.to_target(),
-            Directive::Note(note) => note.to_target(),
-            Directive::Document(document) => document.to_target(),
-            Directive::Price(price) => price.to_target(),
-            Directive::Event(event) => event.to_target(),
-            Directive::Custom(custom) => custom.to_target(),
-            Directive::Option(options) => options.to_target(),
-            Directive::Plugin(plugin) => plugin.to_target(),
-            Directive::Include(include) => include.to_target(),
-            Directive::Comment(comment) => comment.to_target(),
+            Directive::Open(open) => open.export(),
+            Directive::Close(close) => close.export(),
+            Directive::Commodity(commodity) => commodity.export(),
+            Directive::Transaction(txn) => txn.export(),
+            Directive::Balance(balance) => balance.export(),
+            Directive::Note(note) => note.export(),
+            Directive::Document(document) => document.export(),
+            Directive::Price(price) => price.export(),
+            Directive::Event(event) => event.export(),
+            Directive::Custom(custom) => custom.export(),
+            Directive::Option(options) => options.export(),
+            Directive::Plugin(plugin) => plugin.export(),
+            Directive::Include(include) => include.export(),
+            Directive::Comment(comment) => comment.export(),
         }
     }
 }
 
-impl TextExporter for Ledger {
+impl TextExportable for Ledger {
     type Output = String;
-    fn to_target(self) -> String {
-        let vec = self.directives.into_iter().map(|it| it.data.to_target()).collect_vec();
+    fn export(self) -> String {
+        let vec = self.directives.into_iter().map(|it| it.data.export()).collect_vec();
         vec.join("\n\n")
     }
 }
@@ -338,11 +379,11 @@ mod test {
     use text_transformer::parse_zhang;
 
     use crate::p::parse_zhang;
-    use crate::TextExporter;
+    use crate::TextExportable;
 
     fn parse(from: &str) -> String {
         let directive = parse_zhang(from, None).unwrap().into_iter().next().unwrap();
-        directive.data.to_target()
+        directive.data.export()
     }
 
     macro_rules! assert_parse {
