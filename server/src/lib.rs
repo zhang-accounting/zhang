@@ -12,7 +12,7 @@ use serde::Serialize;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
-use zhang_core::exporter::{AppendableExporter, Exporter};
+use zhang_core::exporter::{AppendableExporter};
 use zhang_core::ledger::Ledger;
 use zhang_core::transform::Transformer;
 use zhang_core::ZhangResult;
@@ -27,7 +27,6 @@ pub mod error;
 pub mod request;
 pub mod response;
 pub mod route;
-pub mod utils;
 
 pub type ServerResult<T> = Result<T, ServerError>;
 

@@ -3155,7 +3155,6 @@ dependencies = [
  "rust-embed",
  "serde",
  "sqlx",
- "text-exporter",
  "thiserror",
  "tokio",
  "tokio-util 0.6.9",

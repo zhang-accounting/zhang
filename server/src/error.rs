@@ -19,7 +19,7 @@ pub enum ServerError {
 
 
 impl From<InvalidAccountError> for ServerError {
-    fn from(value: InvalidAccountError) -> Self {
+    fn from(_value: InvalidAccountError) -> Self {
         Self::CoreError(ZhangError::InvalidAccount)
     }
 }

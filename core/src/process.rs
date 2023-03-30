@@ -26,7 +26,6 @@ struct AccountAmount {
     commodity: String,
 }
 
-pub(crate) struct ProcessContext {}
 
 #[async_trait]
 pub(crate) trait DirectiveProcess {
@@ -101,7 +100,7 @@ async fn check_commodity_define(
 #[async_trait]
 impl DirectiveProcess for Options {
     async fn process(
-        &mut self, ledger: &mut Ledger, span: &SpanInfo,
+        &mut self, ledger: &mut Ledger, _span: &SpanInfo,
     ) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
         ledger
@@ -173,7 +172,7 @@ impl DirectiveProcess for Close {
 #[async_trait]
 impl DirectiveProcess for Commodity {
     async fn process(
-        &mut self, ledger: &mut Ledger, span: &SpanInfo,
+        &mut self, ledger: &mut Ledger, _span: &SpanInfo,
     ) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
         let precision = self

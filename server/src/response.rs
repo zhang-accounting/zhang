@@ -8,7 +8,6 @@ use serde::Serialize;
 use sqlx::FromRow;
 use zhang_ast::Currency;
 use zhang_core::database::type_ext::big_decimal::ZhangBigDecimal;
-use zhang_core::ZhangError;
 
 use crate::{ServerError, ServerResult};
 
