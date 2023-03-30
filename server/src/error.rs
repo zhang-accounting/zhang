@@ -17,7 +17,6 @@ pub enum ServerError {
     IoError(#[from] std::io::Error),
 }
 
-
 impl From<InvalidAccountError> for ServerError {
     fn from(_value: InvalidAccountError) -> Self {
         Self::CoreError(ZhangError::InvalidAccount)

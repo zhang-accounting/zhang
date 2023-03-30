@@ -23,7 +23,7 @@ pub enum Date {
 impl Date {
     pub fn naive_datetime(&self) -> NaiveDateTime {
         match self {
-            Date::Date(date) => date.and_hms(0, 0, 0),
+            Date::Date(date) => date.and_hms_opt(0, 0, 0).unwrap(),
             Date::DateHour(date_hour) => *date_hour,
             Date::Datetime(datetime) => *datetime,
         }

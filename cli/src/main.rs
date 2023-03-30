@@ -1,13 +1,12 @@
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser};
 use env_logger::Env;
 use log::LevelFilter;
 use text_exporter::TextExporter;
 use text_transformer::TextTransformer;
-use zhang_core::exporter::{AppendableExporter, DebugExporter};
+use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
 use zhang_server::ServeConfig;
 
@@ -91,7 +90,7 @@ impl Opts {
                 .await
                 .expect("Cannot load ledger");
             }
-            Opts::Export(opts) => todo!(),
+            Opts::Export(_) => todo!(),
             Opts::Serve(opts) => {
                 // todo(feat): detect transformer and exporter based on file extension
                 let exporter: Arc<dyn AppendableExporter> = Arc::new(TextExporter {});
@@ -101,11 +100,11 @@ impl Opts {
                     port: opts.port,
                     database: opts.database,
                     no_report: opts.no_report,
-                    exporter
+                    exporter,
                 })
-                    .await
-                    .expect("cannot serve")
-            },
+                .await
+                .expect("cannot serve")
+            }
         }
     }
 }

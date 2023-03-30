@@ -12,12 +12,12 @@ use serde::Serialize;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
-use zhang_core::exporter::{AppendableExporter};
+use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
 use zhang_core::transform::Transformer;
 use zhang_core::ZhangResult;
 
-use crate::broadcast::{Broadcaster, BroadcastEvent};
+use crate::broadcast::{BroadcastEvent, Broadcaster};
 use crate::error::ServerError;
 use crate::response::ResponseWrapper;
 use crate::route::*;
@@ -159,7 +159,7 @@ async fn start_server(
 ) -> ZhangResult<()> {
     let addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), opts.port);
     info!("zhang is listening on http://127.0.0.1:{}/", opts.port);
-    let exporter:Data<dyn AppendableExporter> = Data::from(opts.exporter);
+    let exporter: Data<dyn AppendableExporter> = Data::from(opts.exporter);
     Ok(HttpServer::new(move || {
         let app = App::new()
             .wrap(Cors::permissive())

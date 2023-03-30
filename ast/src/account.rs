@@ -240,7 +240,7 @@ impl FromStr for Account {
         let split = parts.split_first();
         if let Some((account_type, rest)) = split {
             Ok(Account {
-                account_type: AccountType::from_str(account_type).map_err(|_|InvalidAccountError)?,
+                account_type: AccountType::from_str(account_type).map_err(|_| InvalidAccountError)?,
                 content: s.to_string(),
                 components: rest.iter().map(|it| it.to_string()).collect(),
             })

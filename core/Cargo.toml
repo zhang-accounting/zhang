@@ -22,4 +22,4 @@ unicode_categories = "0.1"
 indoc = "1.0.3"
 tempfile = "3.3.0"
 tokio = { version = "1.21.2", features = ['full', "tracing"] }
-text-transformer = { path="../transformers/text"}
+text-transformer = { version = "0.1", path = "../transformers/text" }

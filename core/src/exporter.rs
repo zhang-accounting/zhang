@@ -1,8 +1,8 @@
+use crate::ledger::Ledger;
 use crate::ZhangResult;
 use log::debug;
-use std::path::{ PathBuf};
+use std::path::PathBuf;
 use zhang_ast::Directive;
-use crate::ledger::Ledger;
 
 pub trait Exporter: AppendableExporter {
     type Output;
@@ -14,10 +14,7 @@ pub trait AppendableExporter: Send + Sync {
     fn append_directives(&self, ledger: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()>;
 }
 
-
-
 pub struct DebugExporter;
-
 
 impl AppendableExporter for DebugExporter {
     fn append_directives(&self, _: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()> {
@@ -31,6 +28,5 @@ impl Exporter for DebugExporter {
 
     fn export_directive(&self, directive: Directive) -> Self::Output {
         debug!("export directive: {:?}", directive);
-        ()
     }
 }

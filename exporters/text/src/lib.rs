@@ -1,8 +1,7 @@
 use itertools::Itertools;
-use log::info;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
@@ -30,7 +29,7 @@ impl AppendableExporter for TextExporter {
                 Err(_) => endpoint.to_str().unwrap(),
             };
             self.append_directives(
-                &ledger,
+                ledger,
                 entry.join(main_file_endpoint),
                 vec![Directive::Include(Include {
                     file: ZhangString::QuoteString(path.to_string()),

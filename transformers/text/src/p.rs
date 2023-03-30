@@ -526,13 +526,23 @@ mod test {
     // }
     macro_rules! date {
         ($year: expr,$month: expr, $day: expr) => {
-            zhang_ast::Date::Date(chrono::NaiveDate::from_ymd($year, $month, $day))
+            zhang_ast::Date::Date(chrono::NaiveDate::from_ymd_opt($year, $month, $day).unwrap())
         };
         ($year: expr,$month: expr, $day: expr,$hour: expr,$min: expr) => {
-            zhang_ast::Date::DateHour(chrono::NaiveDate::from_ymd($year, $month, $day).and_hms($hour, $min, 0))
+            zhang_ast::Date::DateHour(
+                chrono::NaiveDate::from_ymd_opt($year, $month, $day)
+                    .unwrap()
+                    .and_hms_opt($hour, $min, 0)
+                    .unwrap(),
+            )
         };
         ($year: expr,$month: expr, $day: expr,$hour: expr,$min: expr,$sec: expr) => {
-            zhang_ast::Date::Datetime(chrono::NaiveDate::from_ymd($year, $month, $day).and_hms($hour, $min, $sec))
+            zhang_ast::Date::Datetime(
+                chrono::NaiveDate::from_ymd_opt($year, $month, $day)
+                    .unwrap()
+                    .and_hms_opt($hour, $min, $sec)
+                    .unwrap(),
+            )
         };
     }
     macro_rules! account {
@@ -575,7 +585,12 @@ mod test {
                 .remove(0);
             assert_eq!(
                 Directive::Balance(Balance::BalanceCheck(BalanceCheck {
-                    date: Date::DateHour(NaiveDate::from_ymd(2101, 10, 10).and_hms(10, 10, 0)),
+                    date: Date::DateHour(
+                        NaiveDate::from_ymd_opt(2101, 10, 10)
+                            .unwrap()
+                            .and_hms_opt(10, 10, 0)
+                            .unwrap()
+                    ),
                     account: Account::from_str("Assets:Hello").unwrap(),
                     amount: Amount::new(BigDecimal::from(123i32), "CNY"),
                     tolerance: None,
@@ -594,7 +609,12 @@ mod test {
             .remove(0);
             assert_eq!(
                 Directive::Balance(Balance::BalancePad(BalancePad {
-                    date: Date::DateHour(NaiveDate::from_ymd(2101, 10, 10).and_hms(10, 10, 0)),
+                    date: Date::DateHour(
+                        NaiveDate::from_ymd_opt(2101, 10, 10)
+                            .unwrap()
+                            .and_hms_opt(10, 10, 0)
+                            .unwrap()
+                    ),
                     account: Account::from_str("Assets:Hello").unwrap(),
                     amount: Amount::new(BigDecimal::from(123i32), "CNY"),
                     tolerance: None,
@@ -862,7 +882,10 @@ mod test {
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
                 assert_eq!(Some(Amount::new(BigDecimal::from(7i32), "CNY")), posting.cost);
-                assert_eq!(Some(Date::Date(NaiveDate::from_ymd(2022, 6, 6))), posting.cost_date);
+                assert_eq!(
+                    Some(Date::Date(NaiveDate::from_ymd_opt(2022, 6, 6).unwrap())),
+                    posting.cost_date
+                );
                 assert_eq!(None, posting.price);
             }
             #[test]

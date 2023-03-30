@@ -211,7 +211,7 @@ pub async fn get_statistic_data(
             );
         }
     }
-    for day in NaiveDateRange::new(params.from.date().naive_local(), params.to.date().naive_local()) {
+    for day in NaiveDateRange::new(params.from.date_naive(), params.to.date_naive()) {
         ret.entry(day).or_insert_with(HashMap::new);
     }
 
@@ -289,7 +289,7 @@ pub async fn get_statistic_data(
 
     let mut detail_ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
 
-    for target_day in NaiveDateRange::new(params.from.date().naive_local(), params.to.date().naive_local()) {
+    for target_day in NaiveDateRange::new(params.from.date_naive(), params.to.date_naive()) {
         let mut target_day_ret = HashMap::new();
 
         let mut target_day_map = detail_map.remove(&target_day).unwrap_or_default();
@@ -814,7 +814,7 @@ pub async fn upload_account_document(
     exporter.as_ref().append_directives(
         &ledger_stage,
         PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
-        documents
+        documents,
     )?;
 
     ResponseWrapper::<()>::created()
@@ -1015,8 +1015,7 @@ pub async fn get_files(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Optio
     let vec = ledger
         .visited_files
         .iter()
-        .map(|path|
-            path.strip_prefix(entry_path).unwrap().to_str().map(|it| it.to_string()) )
+        .map(|path| path.strip_prefix(entry_path).unwrap().to_str().map(|it| it.to_string()))
         .collect_vec();
     ResponseWrapper::json(vec)
 }
