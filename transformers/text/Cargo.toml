@@ -19,4 +19,4 @@ snailquote = "0.3"
 
 
 [dev-dependencies]
-indoc = "1.0.3"
+indoc = "1"

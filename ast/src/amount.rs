@@ -20,7 +20,7 @@ impl Amount {
     ///
     /// ```rust
     /// use bigdecimal::BigDecimal;
-    /// use zhang::core::amount::Amount;
+    /// use zhang_ast::amount::Amount;
     /// assert!(Amount::new(BigDecimal::from(0i32), "CNY").is_zero());
     /// assert!(Amount::new(BigDecimal::from(-0i32), "CNY").is_zero());
     /// assert!(!Amount::new(BigDecimal::from(100i32), "CNY").is_zero());
@@ -32,7 +32,7 @@ impl Amount {
 
     /// ```rust
     /// use bigdecimal::BigDecimal;
-    /// use zhang::core::amount::Amount;
+    /// use zhang_ast::amount::Amount;
     /// assert_eq!(
     ///     Amount::new(BigDecimal::from(0i32), "CNY").abs(),
     ///     Amount::new(BigDecimal::from(0i32), "CNY")
@@ -58,7 +58,7 @@ impl Amount {
     }
     /// ```rust
     /// use bigdecimal::BigDecimal;
-    /// use zhang::core::amount::Amount;
+    /// use zhang_ast::amount::Amount;
     /// assert_eq!(
     ///     Amount::new(BigDecimal::from(0i32), "CNY").neg(),
     ///     Amount::new(BigDecimal::from(0i32), "CNY")
@@ -84,7 +84,7 @@ impl Amount {
 ///
 /// ```rust
 /// use bigdecimal::BigDecimal;
-/// use zhang::core::amount::Amount;
+/// use zhang_ast::amount::Amount;
 /// assert_eq!(Amount::new(BigDecimal::from(-100i32), "CNY").to_string(), "-100 CNY");
 /// assert_eq!(Amount::new(BigDecimal::from(100i32), "CNY").to_string(), "100 CNY");
 /// ```
@@ -98,7 +98,7 @@ impl ToString for Amount {
 /// ```rust
 /// use std::ops::Add;
 /// use bigdecimal::BigDecimal;
-/// use zhang::core::amount::Amount;
+/// use zhang_ast::amount::Amount;
 /// let a = Amount::new(BigDecimal::from(1i32), "CNY");
 /// let b = BigDecimal::from(2i32);
 /// let ret = Amount::new(BigDecimal::from(3i32), "CNY");
@@ -119,7 +119,7 @@ impl Add<BigDecimal> for &Amount {
 /// ```rust
 /// use std::ops::Sub;
 /// use bigdecimal::BigDecimal;
-/// use zhang::core::amount::Amount;
+/// use zhang_ast::amount::Amount;
 /// let a = BigDecimal::from(1i32);
 /// let b = Amount::new(BigDecimal::from(2i32), "CNY");
 /// let ret = Amount::new(BigDecimal::from(1i32), "CNY");
@@ -140,7 +140,7 @@ impl Sub<BigDecimal> for &Amount {
 /// ```rust
 /// use std::ops::Mul;
 /// use bigdecimal::BigDecimal;
-/// use zhang::core::amount::Amount;
+/// use zhang_ast::amount::Amount;
 /// let a = Amount::new(BigDecimal::from(3i32), "CNY");
 /// let b = BigDecimal::from(2i32);
 /// let ret = Amount::new(BigDecimal::from(6i32), "CNY");
@@ -161,7 +161,7 @@ impl Mul<BigDecimal> for &Amount {
 /// ```rust
 /// use std::ops::Div;
 /// use bigdecimal::BigDecimal;
-/// use zhang::core::amount::Amount;
+/// use zhang_ast::amount::Amount;
 /// let a = Amount::new(BigDecimal::from(4i32), "CNY");
 /// let b = BigDecimal::from(2i32);
 /// let ret = Amount::new(BigDecimal::from(2i32), "CNY");
@@ -180,7 +180,7 @@ impl Div<BigDecimal> for &Amount {
 ///
 /// ```rust
 /// use bigdecimal::BigDecimal;
-/// use zhang::core::amount::Amount;
+/// use zhang_ast::amount::Amount;
 /// let a = Amount::new(BigDecimal::from(4i32), "CNY");
 /// let ret = Amount::new(BigDecimal::from(-4i32), "CNY");
 /// assert_eq!(a.neg(), ret);

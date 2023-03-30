@@ -516,7 +516,7 @@ mod test {
 
     macro_rules! quote {
         ($s: expr) => {
-            ast::ZhangString::QuoteString($s.to_string())
+            zhang_ast::ZhangString::QuoteString($s.to_string())
         };
     }
     // macro_rules! unquote {
@@ -526,19 +526,19 @@ mod test {
     // }
     macro_rules! date {
         ($year: expr,$month: expr, $day: expr) => {
-            ast::Date::Date(chrono::NaiveDate::from_ymd($year, $month, $day))
+            zhang_ast::Date::Date(chrono::NaiveDate::from_ymd($year, $month, $day))
         };
         ($year: expr,$month: expr, $day: expr,$hour: expr,$min: expr) => {
-            ast::Date::DateHour(chrono::NaiveDate::from_ymd($year, $month, $day).and_hms($hour, $min, 0))
+            zhang_ast::Date::DateHour(chrono::NaiveDate::from_ymd($year, $month, $day).and_hms($hour, $min, 0))
         };
         ($year: expr,$month: expr, $day: expr,$hour: expr,$min: expr,$sec: expr) => {
-            ast::Date::Datetime(chrono::NaiveDate::from_ymd($year, $month, $day).and_hms($hour, $min, $sec))
+            zhang_ast::Date::Datetime(chrono::NaiveDate::from_ymd($year, $month, $day).and_hms($hour, $min, $sec))
         };
     }
     macro_rules! account {
         ($account: expr) => {{
             use std::str::FromStr;
-            ast::account::Account::from_str($account).unwrap()
+            zhang_ast::account::Account::from_str($account).unwrap()
         }};
     }
 

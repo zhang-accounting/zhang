@@ -11,3 +11,6 @@ zhang-core = { version = "0.1", path = "../../core" }
 zhang-ast = { version = "0.1", path = "../../ast" }
 text-transformer = {version = "0.1", path="../../transformers/text"}
 log = "0.4"
+
+[dev-dependencies]
+indoc = "1"

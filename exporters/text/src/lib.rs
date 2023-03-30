@@ -1,8 +1,8 @@
+use itertools::Itertools;
+use log::info;
 use std::fs::OpenOptions;
 use std::io::Write;
-use itertools::Itertools;
 use std::path::{Path, PathBuf};
-use log::info;
 
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
@@ -16,7 +16,6 @@ pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
 }
 
 pub struct TextExporter {}
-
 
 impl AppendableExporter for TextExporter {
     fn append_directives(&self, ledger: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()> {
@@ -50,7 +49,6 @@ impl Exporter for TextExporter {
     fn export_directive(&self, directive: Directive) -> Self::Output {
         directive.export()
     }
-
 }
 
 pub trait TextExportable {
@@ -378,7 +376,6 @@ mod test {
     use indoc::indoc;
     use text_transformer::parse_zhang;
 
-    use crate::p::parse_zhang;
     use crate::TextExportable;
 
     fn parse(from: &str) -> String {
