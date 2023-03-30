@@ -178,7 +178,6 @@ impl Ledger {
         directives
     }
 
-    // todo move to beancount exporter
     pub fn apply(mut self, applier: impl Fn(Directive) -> Directive) -> Self {
         let vec = self
             .directives
