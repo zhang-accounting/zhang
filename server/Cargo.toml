@@ -39,7 +39,7 @@ bigdecimal = { version = "0.3.0", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 indexmap = { version = "1.9", features = ["serde-1"] }
-
+mime_guess = "2"
 
 # todo(refact): should pass the experter as parameter
 text-exporter = {version="0.1", path="../exporters/text"}

@@ -627,6 +627,7 @@ pub async fn create_new_transaction(
     ResponseWrapper::json("Ok".to_string())
 }
 
+// todo(refact): use exporter to update transaction
 #[post("/api/transactions/{transaction_id}/documents")]
 pub async fn upload_transaction_document(
     ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: web::Path<(String,)>,
@@ -675,7 +676,7 @@ pub async fn upload_transaction_document(
         .await?;
     let metas_content = documents
         .into_iter()
-        .map(|document| format!("  document: {}", document.to_plain_string())) // todo(use exporter)
+        .map(|document| format!("  document: {}", document.to_plain_string()))
         .join("\n");
     insert_line(
         PathBuf::from(span_info.source_file),
@@ -1294,7 +1295,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
 
 #[cfg(feature = "frontend")]
 #[derive(rust_embed::RustEmbed)]
-#[folder = "frontend/build"]
+#[folder = "../frontend/build"]
 struct Asset;
 
 #[cfg(feature = "frontend")]
