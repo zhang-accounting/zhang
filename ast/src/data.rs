@@ -10,6 +10,7 @@ use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use indexmap::IndexSet;
 use itertools::Itertools;
+use crate::error::ErrorKind;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
@@ -118,7 +119,7 @@ pub struct Transaction {
 
 impl Transaction {
     // todo(refact): add self error lib
-    pub fn get_postings_inventory(&self) -> Result<Inventory, &'static str> {
+    pub fn get_postings_inventory(&self) -> Result<Inventory, ErrorKind> {
         let mut inventory = Inventory {
             currencies: Default::default(),
         };
@@ -181,7 +182,7 @@ impl<'a> TxnPosting<'a> {
             })
     }
 
-    pub fn infer_trade_amount(&self) -> Result<Amount, &'static str> {
+    pub fn infer_trade_amount(&self) -> Result<Amount, ErrorKind> {
         self.trade_amount().map(Ok).unwrap_or_else(|| {
             let (trade_amount_postings, non_trade_amount_postings): (Vec<AmountLotPair>, Vec<AmountLotPair>) = self
                 .txn
@@ -203,12 +204,12 @@ impl<'a> TxnPosting<'a> {
                         }
                     }
                     if inventory.size() > 1 {
-                        Err("TransactionDoesNotBalance")
+                        Err(ErrorKind::TransactionCannotInferTradeAmount)
                     } else {
                         Ok(inventory.pop().unwrap().neg())
                     }
                 }
-                _ => Err("TransactionHasMultipleImplicitPosting"),
+                _ => Err(ErrorKind::TransactionHasMultipleImplicitPosting),
             }
         })
     }
