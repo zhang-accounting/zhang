@@ -45,7 +45,7 @@ strum = {version = "0.19.5", features = ["derive"]}
 strum_macros = "0.19.4"
 tempfile = "3.3.0"
 thiserror = "1.0.21"
-time = "0.1"
+time = "0.3"
 tokio = {version = "1.21.2", features = ['full', "tracing"]}
 tokio-util = {version = "0.6.7", features = ["io", "compat"]}
 toml = "0.5.8"
