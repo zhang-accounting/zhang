@@ -1,14 +1,62 @@
-import { createStyles, Image, Text } from '@mantine/core';
+import { Box, createStyles } from '@mantine/core';
 import { openContextModal } from '@mantine/modals';
 import { Buffer } from 'buffer';
 import { serverBaseUrl } from '../..';
 import { EXTENSIONS_SUPPORT_PREVIEW } from '../documentLines/AccountDocumentLine';
 
 const useStyles = createStyles((theme, _params, getRef) => ({
+  imgBox: {
+    overflow: "hidden",
+    position: "relative",
+    borderRadius: "4px",
+    '&:after': {
+      content: '" "',
+      display: "block",
+      paddingBottom: "100%",
+    },
+  },
   img: {
     '&:hover': {
       cursor: 'pointer',
     },
+    position: "absolute",
+    // top: theme.spacing.xs,
+    // left: theme.spacing.xs,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+  },
+
+  empty: {
+    '&:hover': {
+      cursor: 'pointer',
+    },
+    position: "absolute",
+    // top: theme.spacing.xs,
+    // left: theme.spacing.xs,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#f8f9fa",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
+  },
+
+  title: {
+    '&:hover': {
+      cursor: 'pointer',
+    },
+    fontSize: theme.fontSizes.sm,
+    marginTop: theme.spacing.sm
   },
 
 }));
@@ -17,7 +65,7 @@ interface Props {
   filename: string;
 }
 export default function DocumentPreview({ filename }: Props) {
-  const {classes} = useStyles();
+  const { classes } = useStyles();
   const extension = filename.split('.').pop()?.toUpperCase() || '';
   const simpleFilename = filename.split('/').pop() || '';
   const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
@@ -35,17 +83,17 @@ export default function DocumentPreview({ filename }: Props) {
     });
   };
   return (
-    <Image
-      className={classes.img}
-      height={"121px"}
-      width={"121px"}
-      radius={"sm"}
-      onClick={openDocumentModal}
-      src={canPreview ? `${serverBaseUrl}/api/documents/${Buffer.from(filename).toString('base64')}`: ""}
-      fit='cover'
-      alt="With custom placeholder"
-      withPlaceholder
-      placeholder={<Text align="center">This document cannot be previewed</Text>}
-    />
+
+    <Box className={classes.imgBox} onClick={openDocumentModal}>
+      {canPreview
+        ? <img
+          className={classes.img}
+          alt={filename}
+          src={canPreview ? `${serverBaseUrl}/api/documents/${Buffer.from(filename).toString('base64')}` : ""}
+        />
+        : <Box className={classes.empty}>This document cannot be previewed</Box>
+      }
+    </Box>
+
   );
 }

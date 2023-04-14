@@ -36,7 +36,7 @@ export default function AccountDocumentUpload(props: Props) {
   ));
 
   return (
-      <Dropzone style={{height:"121px", width:"121px"}} onDrop={setFiles} radius="sm" maxSize={30 * 1024 ** 2}>
+      <Dropzone  onDrop={setFiles} radius="sm" maxSize={30 * 1024 ** 2}>
         {filesDom.length > 0 ? (
           <div>
             <ul>{filesDom}</ul>

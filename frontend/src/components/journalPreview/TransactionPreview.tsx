@@ -78,7 +78,7 @@ export default function TransactionPreview(props: Props) {
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
           <SimpleGrid
             cols={4}
-            spacing="lg"
+            spacing="sm"
             breakpoints={[
               { maxWidth: 'md', cols: 3, spacing: 'md' },
               { maxWidth: 'sm', cols: 2, spacing: 'sm' },
