@@ -118,7 +118,6 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    // todo(refact): add self error lib
     pub fn get_postings_inventory(&self) -> Result<Inventory, ErrorKind> {
         let mut inventory = Inventory {
             currencies: Default::default(),

@@ -199,7 +199,6 @@ impl Ledger {
         Ok(match txn.get_postings_inventory() {
             Ok(inventory) => {
                 for (currency, amount) in inventory.currencies.iter() {
-                    // todo get currency info
                     let mut conn = self.connection().await;
                     let commodity = CommodityDomain::get_by_name(currency, &mut conn).await?;
                     let precision = commodity
