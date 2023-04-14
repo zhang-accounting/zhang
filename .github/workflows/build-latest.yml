@@ -38,7 +38,7 @@ jobs:
         run: mkdir -p build
         working-directory: ./frontend
       - name: Run test
-        run: cargo test
+        run: cargo test --all-features
   coverage:
     runs-on: ubuntu-latest
     needs: test

@@ -1,0 +1,46 @@
+[package]
+name = "zhang-server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+build = "build.rs"
+
+[features]
+frontend = ["rust-embed"]
+
+[dependencies]
+zhang-core = {version="0.1", path="../core"}
+zhang-ast = {version="0.1", path="../ast"}
+
+actix-cors = "0.6"
+actix-files = "0.6"
+actix-multipart = '0.4'
+actix-web = "4"
+actix-web-lab = "0.19"
+async-trait = "0.1"
+base64 = "0.13.0"
+crossbeam-channel = "0.5.2"
+rust-embed = { version = "6.3", optional = true }
+serde = { version = "1", features = ["derive"] }
+sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "sqlite", "chrono", "bigdecimal"] }
+thiserror = "1"
+tokio = { version = "1", features = ['full', "tracing"] }
+tokio-util = { version = "0.6", features = ["io", "compat"] }
+log = "0.4"
+futures = "0.3"
+futures-util = "0.3"
+notify = "5"
+now = "0.1"
+reqwest = { version = "0.11", features = ["json"] }
+itertools = "0.9"
+bigdecimal = { version = "0.3.0", features = ["serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+indexmap = { version = "1.9", features = ["serde-1"] }
+mime_guess = "2"
+
+
+[build-dependencies]
+chrono = { version = "0.4" }
