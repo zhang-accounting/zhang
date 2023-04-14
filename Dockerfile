@@ -15,4 +15,4 @@ WORKDIR application
 VOLUME "/data"
 EXPOSE 8000
 
-ENTRYPOINT ["./zhang", "server", "/data", "--port", "8000"]
+ENTRYPOINT ["./zhang", "serve", "/data", "--port", "8000"]
