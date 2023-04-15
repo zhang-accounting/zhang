@@ -9,12 +9,12 @@ use bigdecimal::Zero;
 use itertools::Itertools;
 use log::{error, info};
 use serde::Serialize;
-use sqlx::{Sqlite, SqlitePool};
 use sqlx::pool::PoolConnection;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+use sqlx::{Sqlite, SqlitePool};
 
-use zhang_ast::{Directive, SpanInfo, Spanned, Transaction};
 use zhang_ast::amount::Amount;
+use zhang_ast::{Directive, SpanInfo, Spanned, Transaction};
 
 use crate::database::migrations::Migration;
 use crate::domains::commodity::CommodityDomain;
@@ -244,11 +244,11 @@ mod test {
 
     use tempfile::tempdir;
 
-    use text_transformer::{parse_zhang, TextTransformer};
+    use text_transformer::parse_zhang;
     use zhang_ast::{Directive, SpanInfo, Spanned};
 
     use crate::ledger::Ledger;
-    use crate::transform::{Transformer, TransformResult};
+    use crate::transform::{TransformResult, Transformer};
     use crate::ZhangResult;
 
     macro_rules! count {
@@ -283,7 +283,7 @@ mod test {
     struct TestTransformer {}
 
     impl Transformer for TestTransformer {
-        fn load(&self, entry: PathBuf, endpoint: String) -> ZhangResult<TransformResult> {
+        fn load(&self, _entry: PathBuf, _endpoint: String) -> ZhangResult<TransformResult> {
             todo!()
         }
     }
@@ -308,8 +308,8 @@ mod test {
 
         use zhang_ast::{Directive, Options, Spanned, ZhangString};
 
-        use crate::ledger::Ledger;
         use crate::ledger::test::{fake_span_info, test_parse_zhang};
+        use crate::ledger::Ledger;
 
         #[test]
         fn should_keep_order_given_two_none_datetime() {
@@ -457,11 +457,7 @@ mod test {
     mod extract_info {
         use indoc::indoc;
 
-        use text_transformer::TextTransformer;
-
-        use crate::ledger::Ledger;
         use crate::ledger::test::load_from_temp_str;
-        use crate::transform::Transformer;
 
         #[tokio::test]
         async fn should_extract_account_open() {

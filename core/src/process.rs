@@ -9,6 +9,7 @@ use crate::domains::account::AccountDomain;
 use crate::domains::commodity::CommodityDomain;
 use crate::domains::options::OptionDomain;
 use crate::ledger::{Ledger, LedgerError, LedgerErrorType};
+use crate::utils::id::FromSpan;
 use crate::ZhangResult;
 use async_trait::async_trait;
 use bigdecimal::{BigDecimal, FromPrimitive, Zero};
@@ -16,10 +17,10 @@ use chrono::NaiveDateTime;
 use log::debug;
 use serde::Deserialize;
 use sqlx::{Acquire, FromRow, SqliteConnection};
+use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::utils::inventory::LotInfo;
 use zhang_ast::*;
-use crate::utils::id::generate_uuid_from_span_info;
 
 #[derive(Debug, Deserialize, FromRow)]
 struct AccountAmount {
@@ -210,7 +211,7 @@ impl DirectiveProcess for Commodity {
 impl DirectiveProcess for Transaction {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
-        let id = generate_uuid_from_span_info(span).to_string();
+        let id = Uuid::from_span(span).to_string();
         if !ledger.is_transaction_balanced(self).await? {
             ledger.errors.push(LedgerError {
                 span: span.clone(),

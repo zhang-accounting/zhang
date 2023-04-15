@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::ops::{Div, Mul, Neg};
 
 use crate::amount::Amount;
+use crate::error::ErrorKind;
 use crate::models::*;
 use crate::utils::inventory::{AmountLotPair, Inventory, LotInfo};
 use crate::utils::multi_value_map::MultiValueMap;
@@ -10,7 +11,6 @@ use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use indexmap::IndexSet;
 use itertools::Itertools;
-use crate::error::ErrorKind;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
