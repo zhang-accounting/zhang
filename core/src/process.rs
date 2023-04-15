@@ -19,6 +19,7 @@ use sqlx::{Acquire, FromRow, SqliteConnection};
 use zhang_ast::amount::Amount;
 use zhang_ast::utils::inventory::LotInfo;
 use zhang_ast::*;
+use crate::utils::id::generate_uuid_from_span_info;
 
 #[derive(Debug, Deserialize, FromRow)]
 struct AccountAmount {
@@ -209,7 +210,7 @@ impl DirectiveProcess for Commodity {
 impl DirectiveProcess for Transaction {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = generate_uuid_from_span_info(span).to_string();
         if !ledger.is_transaction_balanced(self).await? {
             ledger.errors.push(LedgerError {
                 span: span.clone(),

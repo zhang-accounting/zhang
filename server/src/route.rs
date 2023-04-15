@@ -1326,9 +1326,8 @@ where
 }
 
 pub(crate) fn insert_line(file: PathBuf, content: &str, at: usize) -> ServerResult<()> {
-    let file_content = std::fs::read_to_string(&file).with_path(&file)?;
-    let mut lines = file_content.lines().collect_vec();
-    let at = min(lines.len(), at);
-    lines.insert(at, content);
-    Ok(std::fs::write(&file, lines.join("\n")).with_path(&file)?)
+    let mut file_content = std::fs::read_to_string(&file).with_path(&file)?;
+    file_content.insert(at, '\n');
+    file_content.insert_str(at + 1, content);
+    Ok(std::fs::write(&file, file_content).with_path(&file)?)
 }
