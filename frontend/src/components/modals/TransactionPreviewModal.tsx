@@ -1,6 +1,5 @@
-import { ContextModalProps } from '@mantine/modals';
+import {ContextModalProps} from '@mantine/modals';
 import JournalPreview from '../journalPreview/JournalPreview';
-import { JournalItem } from '../../rest-model';
 import {useAppSelector} from "../../states";
 
 export const TransactionPreviewModal = ({ context, id, innerProps }: ContextModalProps<{ journalId: string }>) => {
