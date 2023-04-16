@@ -6,9 +6,14 @@ import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import LoadingComponent from '../components/basic/LoadingComponent';
 import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import { AccountJournalItem, Document } from '../rest-model';
+import {useAppSelector} from "../states";
+import {getAccountByName} from "../states/account";
+import Amount from "../components/Amount";
+import AccountBalanceCheckLine from "../components/AccountBalanceCheckLine";
 
 function SingleAccount() {
   let { accountName } = useParams();
+  const account = useAppSelector(getAccountByName(accountName!));
 
   return (
     <Container fluid>
@@ -90,18 +95,18 @@ function SingleAccount() {
               </tr>
             </thead>
             <tbody>
-              {/* {data?.account.currencies.map((it, idx) => (
+              {Object.entries(account.commodities).map(([key, value], idx) => (
                 <tr key={idx}>
-                  <td>{it.name}</td>
+                  <td>{key}</td>
                   <td>
-                    <Amount amount={data.account.snapshot.detail.find((cur) => cur.currency === it.name)?.number || '0.00'} currency={it.name} />
+                    <Amount amount={value} currency={key} />
                   </td>
-                  <td>{getLatestBalanceTime(it.name, data!.account.latestBalanceTimes)}</td>
+                  <td>{}</td>
                   <td>
-                    <AccountBalanceCheckLine currency={it.name} accountName={data.account.name} />
+                    <AccountBalanceCheckLine currency={key} accountName={account.name} />
                   </td>
                 </tr>
-              ))} */}
+              ))}
             </tbody>
           </Table>
         </Tabs.Panel>

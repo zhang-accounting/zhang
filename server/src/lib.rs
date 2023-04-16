@@ -175,6 +175,7 @@ async fn start_server(
             .service(get_account_list)
             .service(get_account_documents)
             .service(get_account_journals)
+            .service(add_account_balance)
             .service(upload_account_document)
             .service(upload_transaction_document)
             .service(create_account_balance)

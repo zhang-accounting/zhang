@@ -3,6 +3,8 @@ use std::cmp::max;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use zhang_ast::Account;
+use zhang_ast::amount::Amount;
 
 #[derive(Deserialize)]
 #[serde(tag = "type")]
@@ -88,4 +90,18 @@ pub struct AmountRequest {
 pub struct MetaRequest {
     pub key: String,
     pub value: String,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+pub enum CreateAccountRequest {
+    Balance {
+        account_name: String,
+        amount: AmountRequest,
+    },
+    Pad {
+        account_name: String,
+        amount: AmountRequest,
+        pad: String,
+    },
 }

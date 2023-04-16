@@ -28,9 +28,7 @@ use zhang_core::ledger::{Ledger, LedgerError};
 use zhang_core::utils::string_::StringExt;
 
 use crate::broadcast::Broadcaster;
-use crate::request::{
-    AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest,
-};
+use crate::request::{AccountBalanceRequest, CreateAccountRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest};
 use crate::response::{
     AccountJournalItem, AccountResponse, AmountResponse, BasicInfo, CommodityDetailResponse, CommodityListItemResponse,
     CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse,
@@ -819,6 +817,45 @@ pub async fn upload_account_document(
     ResponseWrapper::<()>::created()
 }
 
+#[post("/api/accounts/{account_name}/balances")]
+pub async fn add_account_balance(
+    ledger: Data<Arc<RwLock<Ledger>>>,  path: web::Path<(String,)>,
+    Json(request): Json<CreateAccountRequest>,
+    exporter: Data<dyn AppendableExporter>,
+) -> ApiResult<()> {
+    let ledger_stage = ledger.read().await;
+    let balance = match request {
+        CreateAccountRequest::Balance {account_name, amount } => {
+            Balance::BalanceCheck(BalanceCheck {
+                date: Date::now_datetime(),
+                account: Account::from_str(&account_name)?,
+                amount: Amount { number: amount.number, currency: amount.commodity },
+                meta: Default::default(),
+            })
+        },
+        CreateAccountRequest::Pad {account_name, amount, pad} => {
+            Balance::BalancePad(BalancePad {
+                date: Date::now_datetime(),
+                account: Account::from_str(&account_name)?,
+                amount: Amount { number: amount.number, currency: amount.commodity },
+                pad: Account::from_str(&pad)?,
+                meta: Default::default(),
+            })
+        }
+    };
+    let directive = Directive::Balance(balance);
+
+
+    let time = Local::now().naive_local();
+    exporter.as_ref().append_directives(
+        &ledger_stage,
+        PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
+        vec![directive],
+    )?;
+
+    ResponseWrapper::<()>::created()
+}
+
 #[get("/api/accounts/{account_name}/documents")]
 pub async fn get_account_documents(
     ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>,
@@ -889,9 +926,6 @@ pub async fn create_account_balance(
             date: Date::Datetime(Local::now().naive_local()),
             account: Account::from_str(&account_name)?,
             amount: Amount::new(amount, commodity),
-            tolerance: None,
-            distance: None,
-            current_amount: None,
             meta: Default::default(),
         }),
         AccountBalanceRequest::Pad {
@@ -902,8 +936,6 @@ pub async fn create_account_balance(
             date: Date::Datetime(Local::now().naive_local()),
             account: Account::from_str(&account_name)?,
             amount: Amount::new(amount, commodity),
-            tolerance: None,
-            diff_amount: None,
             meta: Default::default(),
             pad: Account::from_str(&pad_account)?,
         }),
