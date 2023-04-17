@@ -19,11 +19,15 @@ jobs:
         run: yarn run build
         working-directory: ./frontend
 
-      - name: Cache cargo build
-        uses: actions/cache@v1
+      - uses: actions/cache@v3
         with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
