@@ -1,5 +1,5 @@
-import { Button, Container, Select, Table, TextInput, Title } from '@mantine/core';
-import { useListState } from '@mantine/hooks';
+import { Button, Chip, Container, Group, Select, Table, TextInput, Title } from '@mantine/core';
+import { useListState, useLocalStorage } from '@mantine/hooks';
 import { createSelector } from '@reduxjs/toolkit';
 import { cloneDeep, sortBy } from 'lodash';
 import { useEffect } from 'react';
@@ -39,6 +39,10 @@ export default function BatchBalance() {
   const accountSelectItems = [...useAppSelector(getAccountSelectItems())];
   const [accounts, acoountsHandler] = useListState<BalanceLineItem>(stateItems);
 
+  const [maskCurrentAmount, setMaskCurrentAmount] = useLocalStorage({ key: 'tool/maskCurrentAmount', defaultValue: false });
+  const [reflectOnUnbalancedAmount, setReflectOnUnbalancedAmount] = useLocalStorage({ key: 'tool/reflectOnUnbalancedAmount', defaultValue: true });
+  
+
   useEffect(() => {
     if (accountStatus === LoadingState.NotReady) {
       dispatch(fetchAccounts());
@@ -46,12 +50,19 @@ export default function BatchBalance() {
   }, [accountStatus, dispatch]);
   useEffect(() => {
     acoountsHandler.setState(stateItems);
-  }, [stateItems, acoountsHandler])
-
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateItems])
   return (
     <Container fluid>
       <Title order={2}>Batch Balance</Title>
-
+      <Group my="lg">
+        <Chip checked={maskCurrentAmount} onChange={() => setMaskCurrentAmount(!maskCurrentAmount)}>
+          Mask Current Amount
+        </Chip>
+        <Chip checked={reflectOnUnbalancedAmount} onChange={() => setReflectOnUnbalancedAmount(!reflectOnUnbalancedAmount)}>
+          Reflect on unbalanced amount
+        </Chip>
+      </Group>
       <Table verticalSpacing="xs" highlightOnHover>
         <thead>
           <tr>
@@ -66,7 +77,7 @@ export default function BatchBalance() {
           {accounts.map((account, idx) => <tr key={`${account.accountName}-${account.commodity}`}>
             <td>{account.accountName}</td>
             <td>{account.commodity}</td>
-            <td><Amount amount={account.currentAmount} currency={account.commodity} ></Amount></td>
+            <td><Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity} ></Amount></td>
             <td><Select
               searchable
               clearable
