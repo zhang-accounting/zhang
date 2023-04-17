@@ -53,18 +53,15 @@ jobs:
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: '--doc --tests --ignore-tests --ciserver github-ci --out Lcov'
-      - name: Archive code coverage report
-        uses: actions/upload-artifact@v3
+          version: '0.25.2'
+          args: '-- --test-threads 1'
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
+      - name: Archive code coverage results
+        uses: actions/upload-artifact@v1
         with:
-          name: code-coverage
-          path: |
-            ./lcov.info
-      - name: upload to Coveralls
-        uses: coverallsapp/github-action@master
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: './lcov.info'
+          name: code-coverage-report
+          path: cobertura.xml
   formatter:
     runs-on: ubuntu-latest
     needs: test
