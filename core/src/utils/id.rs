@@ -3,7 +3,7 @@ use std::str::FromStr;
 use uuid::Uuid;
 use zhang_ast::SpanInfo;
 
-const DEFAULT_PATH: &'static str = "default_path";
+const DEFAULT_PATH: &str = "default_path";
 
 pub trait FromSpan {
     fn from_span(span: &SpanInfo) -> Uuid;
