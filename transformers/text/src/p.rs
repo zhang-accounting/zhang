@@ -415,8 +415,6 @@ impl ZhangParser {
                 date: ret.0,
                 account: ret.1,
                 amount: Amount::new(ret.2, ret.3),
-                tolerance: None,
-                diff_amount: None,
                 pad,
                 meta: Default::default(),
             })))
@@ -425,9 +423,6 @@ impl ZhangParser {
                 date: ret.0,
                 account: ret.1,
                 amount: Amount::new(ret.2, ret.3),
-                tolerance: None,
-                distance: None,
-                current_amount: None,
                 meta: Default::default(),
             })))
         }
@@ -593,9 +588,6 @@ mod test {
                     ),
                     account: Account::from_str("Assets:Hello").unwrap(),
                     amount: Amount::new(BigDecimal::from(123i32), "CNY"),
-                    tolerance: None,
-                    distance: None,
-                    current_amount: None,
                     meta: Default::default()
                 })),
                 balance.data
@@ -617,8 +609,6 @@ mod test {
                     ),
                     account: Account::from_str("Assets:Hello").unwrap(),
                     amount: Amount::new(BigDecimal::from(123i32), "CNY"),
-                    tolerance: None,
-                    diff_amount: None,
                     pad: Account::from_str("Income:Earnings").unwrap(),
                     meta: Default::default()
                 })),

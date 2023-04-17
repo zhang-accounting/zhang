@@ -2,15 +2,14 @@ use std::collections::HashSet;
 use std::ops::{Div, Mul, Neg};
 
 use crate::amount::Amount;
+use crate::error::ErrorKind;
 use crate::models::*;
 use crate::utils::inventory::{AmountLotPair, Inventory, LotInfo};
 use crate::utils::multi_value_map::MultiValueMap;
 use crate::Account;
-use bigdecimal::BigDecimal;
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{NaiveDate, NaiveDateTime, Utc};
 use indexmap::IndexSet;
 use itertools::Itertools;
-use crate::error::ErrorKind;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
@@ -22,6 +21,9 @@ pub enum Date {
 }
 
 impl Date {
+    pub fn now_datetime() -> Date {
+        Date::Datetime(Utc::now().naive_utc())
+    }
     pub fn naive_datetime(&self) -> NaiveDateTime {
         match self {
             Date::Date(date) => date.and_hms_opt(0, 0, 0).unwrap(),
@@ -71,12 +73,6 @@ pub struct BalanceCheck {
     pub date: Date,
     pub account: Account,
     pub amount: Amount,
-    /// the amount of tolerance to use in the verification.
-    pub tolerance: Option<BigDecimal>,
-    /// None if the balance check succeeds. This value is set to
-    /// an Amount instance if the balance fails, the amount of the difference.
-    pub distance: Option<Amount>,
-    pub current_amount: Option<Amount>,
     pub meta: Meta,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -84,11 +80,6 @@ pub struct BalancePad {
     pub date: Date,
     pub account: Account,
     pub amount: Amount,
-    /// the amount of tolerance to use in the verification.
-    pub tolerance: Option<BigDecimal>,
-    /// None if the balance check succeeds. This value is set to
-    /// an Amount instance if the balance fails, the amount of the difference.
-    pub diff_amount: Option<Amount>,
     pub pad: Account,
 
     pub meta: Meta,

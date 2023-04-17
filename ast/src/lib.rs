@@ -1,8 +1,8 @@
 pub mod account;
 pub mod amount;
 pub mod data;
-pub mod models;
 pub mod error;
+pub mod models;
 pub mod utils;
 
 pub type Currency = String;

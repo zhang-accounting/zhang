@@ -178,6 +178,7 @@ async fn start_server(
             .service(upload_account_document)
             .service(upload_transaction_document)
             .service(create_account_balance)
+            .service(create_batch_account_balances)
             .service(get_documents)
             .service(download_document)
             .service(get_all_commodities)

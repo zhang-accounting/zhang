@@ -8,13 +8,13 @@ use serde::Deserialize;
 #[serde(tag = "type")]
 pub enum AccountBalanceRequest {
     Check {
-        amount: BigDecimal,
-        commodity: String,
+        account_name: String,
+        amount: AmountRequest,
     },
     Pad {
-        amount: BigDecimal,
-        commodity: String,
-        pad_account: String,
+        account_name: String,
+        amount: AmountRequest,
+        pad: String,
     },
 }
 

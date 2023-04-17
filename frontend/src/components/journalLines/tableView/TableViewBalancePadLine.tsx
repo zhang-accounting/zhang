@@ -59,7 +59,7 @@ export default function TableViewBalancePadLine({ data, onClick }: Props) {
       size: 'lg',
       centered: true,
       innerProps: {
-        data: data,
+        journalId: data.id,
       },
     });
   };

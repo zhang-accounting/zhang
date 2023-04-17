@@ -1,4 +1,3 @@
-use std::cmp::min;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
@@ -881,32 +880,29 @@ pub async fn create_account_balance(
     ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>, Json(payload): Json<AccountBalanceRequest>,
     exporter: Data<dyn AppendableExporter>,
 ) -> ApiResult<()> {
-    let account_name = params.into_inner().0;
+    let target_account = params.into_inner().0;
     let ledger = ledger.read().await;
     let _connection = ledger.connection().await;
 
     let balance = match payload {
-        AccountBalanceRequest::Check { amount, commodity } => Balance::BalanceCheck(BalanceCheck {
+        AccountBalanceRequest::Check { amount, .. } => Balance::BalanceCheck(BalanceCheck {
             date: Date::Datetime(Local::now().naive_local()),
-            account: Account::from_str(&account_name)?,
-            amount: Amount::new(amount, commodity),
-            tolerance: None,
-            distance: None,
-            current_amount: None,
+            account: Account::from_str(&target_account)?,
+            amount: Amount {
+                number: amount.number,
+                currency: amount.commodity,
+            },
             meta: Default::default(),
         }),
-        AccountBalanceRequest::Pad {
-            amount,
-            commodity,
-            pad_account,
-        } => Balance::BalancePad(BalancePad {
+        AccountBalanceRequest::Pad { amount, pad, .. } => Balance::BalancePad(BalancePad {
             date: Date::Datetime(Local::now().naive_local()),
-            account: Account::from_str(&account_name)?,
-            amount: Amount::new(amount, commodity),
-            tolerance: None,
-            diff_amount: None,
+            account: Account::from_str(&target_account)?,
+            amount: Amount {
+                number: amount.number,
+                currency: amount.commodity,
+            },
             meta: Default::default(),
-            pad: Account::from_str(&pad_account)?,
+            pad: Account::from_str(&pad)?,
         }),
     };
     let time = Local::now().naive_local();
@@ -915,6 +911,50 @@ pub async fn create_account_balance(
         &ledger,
         PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
         vec![Directive::Balance(balance)],
+    )?;
+    ResponseWrapper::<()>::created()
+}
+#[post("/api/accounts/batch-balances")]
+pub async fn create_batch_account_balances(
+    ledger: Data<Arc<RwLock<Ledger>>>, Json(payload): Json<Vec<AccountBalanceRequest>>,
+    exporter: Data<dyn AppendableExporter>,
+) -> ApiResult<()> {
+    let ledger = ledger.read().await;
+    let mut directives = vec![];
+    for balance in payload {
+        let balance = match balance {
+            AccountBalanceRequest::Check { account_name, amount } => Balance::BalanceCheck(BalanceCheck {
+                date: Date::Datetime(Local::now().naive_local()),
+                account: Account::from_str(&account_name)?,
+                amount: Amount {
+                    number: amount.number,
+                    currency: amount.commodity,
+                },
+                meta: Default::default(),
+            }),
+            AccountBalanceRequest::Pad {
+                account_name,
+                amount,
+                pad,
+            } => Balance::BalancePad(BalancePad {
+                date: Date::Datetime(Local::now().naive_local()),
+                account: Account::from_str(&account_name)?,
+                amount: Amount {
+                    number: amount.number,
+                    currency: amount.commodity,
+                },
+                meta: Default::default(),
+                pad: Account::from_str(&pad)?,
+            }),
+        };
+        directives.push(Directive::Balance(balance));
+    }
+
+    let time = Local::now().naive_local();
+    exporter.as_ref().append_directives(
+        &ledger,
+        PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
+        directives,
     )?;
     ResponseWrapper::<()>::created()
 }
@@ -1326,9 +1366,8 @@ where
 }
 
 pub(crate) fn insert_line(file: PathBuf, content: &str, at: usize) -> ServerResult<()> {
-    let file_content = std::fs::read_to_string(&file).with_path(&file)?;
-    let mut lines = file_content.lines().collect_vec();
-    let at = min(lines.len(), at);
-    lines.insert(at, content);
-    Ok(std::fs::write(&file, lines.join("\n")).with_path(&file)?)
+    let mut file_content = std::fs::read_to_string(&file).with_path(&file)?;
+    file_content.insert(at, '\n');
+    file_content.insert_str(at + 1, content);
+    Ok(std::fs::write(&file, file_content).with_path(&file)?)
 }

@@ -1,10 +1,6 @@
-use itertools::Itertools;
-use log::debug;
-use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
-use zhang_ast::{Directive, DirectiveType, Spanned};
-use zhang_core::error::IoErrorIntoZhangError;
-use zhang_core::transform::{TextFileBasedTransformer, TransformResult, Transformer};
+use zhang_ast::{Directive, Spanned};
+use zhang_core::transform::TextFileBasedTransformer;
 use zhang_core::{ZhangError, ZhangResult};
 
 #[allow(clippy::upper_case_acronyms)]
