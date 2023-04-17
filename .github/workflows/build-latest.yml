@@ -29,11 +29,15 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-      - name: Cache cargo build
-        uses: actions/cache@v1
+      - uses: actions/cache@v3
         with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: fake frontend build
         run: mkdir -p build
         working-directory: ./frontend
@@ -50,31 +54,41 @@ jobs:
       - name: fake frontend build
         run: mkdir -p build
         working-directory: ./frontend
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: '--doc --tests --ignore-tests --ciserver github-ci --out Lcov'
-      - name: Archive code coverage report
-        uses: actions/upload-artifact@v3
+          version: '0.22.0'
+          args: '--all-features --workspace --ignore-tests --out Lcov'
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
+      - name: Archive code coverage results
+        uses: actions/upload-artifact@v1
         with:
-          name: code-coverage
-          path: |
-            ./lcov.info
-      - name: upload to Coveralls
-        uses: coverallsapp/github-action@master
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: './lcov.info'
+          name: code-coverage-report
+          path: cobertura.xml
   formatter:
     runs-on: ubuntu-latest
     needs: test
     steps:
       - uses: actions/checkout@v1
-      - name: Cache cargo build
-        uses: actions/cache@v1
+      - uses: actions/cache@v3
         with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: fake frontend build
         run: mkdir -p build
         working-directory: ./frontend
@@ -85,11 +99,15 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v1
-      - name: Cache cargo build
-        uses: actions/cache@v1
+      - uses: actions/cache@v3
         with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: fake frontend build
         run: mkdir -p build
         working-directory: ./frontend
