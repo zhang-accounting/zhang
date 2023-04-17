@@ -22,7 +22,7 @@ export default function AccountBalanceCheckLine({currentAmount, commodity, accou
   const onSave = async () => {
     try {
       await axiosInstance.post(`/api/accounts/${accountName}/balances`, {
-        type: padAccount ? 'Pad' : "Balance",
+        type: padAccount ? 'Pad' : "Check",
         account_name: accountName,
         amount: {
           number: amount,
