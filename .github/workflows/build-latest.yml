@@ -54,10 +54,18 @@ jobs:
       - name: fake frontend build
         run: mkdir -p build
         working-directory: ./frontend
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          version: '0.25.2'
           args: '-- --test-threads 1'
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
@@ -71,11 +79,15 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v1
-      - name: Cache cargo build
-        uses: actions/cache@v1
+      - uses: actions/cache@v3
         with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: fake frontend build
         run: mkdir -p build
         working-directory: ./frontend
@@ -86,11 +98,15 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v1
-      - name: Cache cargo build
-        uses: actions/cache@v1
+      - uses: actions/cache@v3
         with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: fake frontend build
         run: mkdir -p build
         working-directory: ./frontend
