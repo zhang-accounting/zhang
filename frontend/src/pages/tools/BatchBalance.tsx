@@ -6,8 +6,10 @@ import { useEffect } from 'react';
 import Amount from '../../components/Amount';
 import { Account, LoadingState } from '../../rest-model';
 import { useAppDispatch, useAppSelector } from "../../states";
-import { fetchAccounts, getAccountSelectItems } from "../../states/account";
-
+import { accountsSlice, fetchAccounts, getAccountSelectItems } from "../../states/account";
+import BigNumber from 'bignumber.js';
+import { showNotification } from '@mantine/notifications';
+import { axiosInstance } from '../..';
 
 interface BalanceLineItem {
   commodity: string,
@@ -15,7 +17,8 @@ interface BalanceLineItem {
   accountName: string,
 
   balanceAmount: string,
-  pad?: string
+  pad?: string,
+  error: boolean,
 }
 
 const getFilteredItems = createSelector(
@@ -26,7 +29,8 @@ const getFilteredItems = createSelector(
       currentAmount: value,
       accountName: account.name,
       balanceAmount: "",
-      pad: undefined
+      pad: undefined,
+      error: false,
     })));
     return sortBy(cloneDeep(items), item => item.accountName);
   }
@@ -37,11 +41,11 @@ export default function BatchBalance() {
   const accountStatus = useAppSelector((state) => state.accounts.status);
   const stateItems = useAppSelector(getFilteredItems);
   const accountSelectItems = [...useAppSelector(getAccountSelectItems())];
-  const [accounts, acoountsHandler] = useListState<BalanceLineItem>(stateItems);
+  const [accounts, accountsHandler] = useListState<BalanceLineItem>(stateItems);
 
   const [maskCurrentAmount, setMaskCurrentAmount] = useLocalStorage({ key: 'tool/maskCurrentAmount', defaultValue: false });
   const [reflectOnUnbalancedAmount, setReflectOnUnbalancedAmount] = useLocalStorage({ key: 'tool/reflectOnUnbalancedAmount', defaultValue: true });
-  
+
 
   useEffect(() => {
     if (accountStatus === LoadingState.NotReady) {
@@ -49,9 +53,59 @@ export default function BatchBalance() {
     }
   }, [accountStatus, dispatch]);
   useEffect(() => {
-    acoountsHandler.setState(stateItems);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    accountsHandler.setState(stateItems);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stateItems])
+
+  const updateBalanceLineItem = (idx: number, padAccount: string | undefined, balanceAmount: string) => {
+    const targetAccount = accounts[idx];
+    accountsHandler.setItemProp(idx, 'pad', padAccount);
+    accountsHandler.setItemProp(idx, 'balanceAmount', balanceAmount);
+
+    if (reflectOnUnbalancedAmount) {
+      if (padAccount === undefined) {
+        if (balanceAmount.trim() !== '') {
+          const isBlanced = new BigNumber(targetAccount.currentAmount).eq(new BigNumber(balanceAmount))
+          accountsHandler.setItemProp(idx, 'error', !isBlanced);
+          return;
+        }
+      }
+    }
+    accountsHandler.setItemProp(idx, 'error', false);
+  }
+
+  const onSave = async () => {
+    const accountsToBlance = accounts.filter(account => account.balanceAmount.trim() !== '')
+      .map(account => ({
+        type: account.pad ? 'Pad' : "Check",
+        account_name: account.accountName,
+        amount: {
+          number: account.balanceAmount,
+          commodity: account.commodity,
+        },
+        pad: account.pad
+      }));
+    showNotification({
+      title: `Start balance ${accountsToBlance.length} Accounts`,
+      message: ""
+    });
+    try {
+      await axiosInstance.post("/api/accounts/batch-balances", accountsToBlance)
+      showNotification({
+        title: 'Balance account successfully',
+        message: "waiting page to refetch latest data"
+      });
+      dispatch(accountsSlice.actions.clear());
+    } catch (e: any) {
+      showNotification({
+        title: 'Fail to Balance Account',
+        color: 'red',
+        message: e?.response?.data ?? "",
+        autoClose: false
+      });
+    }
+
+  }
   return (
     <Container fluid>
       <Title order={2}>Batch Balance</Title>
@@ -84,18 +138,19 @@ export default function BatchBalance() {
               placeholder="Pad to"
               data={accountSelectItems}
               value={account.pad}
-              onChange={(e) => acoountsHandler.setItemProp(idx, 'pad', e ?? undefined)}
+              onChange={(e) => { updateBalanceLineItem(idx, e ?? undefined, account.balanceAmount) }}
             /></td>
             <td>
               <TextInput
+                error={account.error}
                 value={account.balanceAmount}
-                onChange={(e) => acoountsHandler.setItemProp(idx, 'balanceAmount', e.target.value)}
+                onChange={(e) => { updateBalanceLineItem(idx, account.pad ?? undefined, e.target.value) }}
               ></TextInput>
             </td>
           </tr>)}
         </tbody>
       </Table>
-      <Button>Submit</Button>
+      <Button disabled={accounts.filter(account => account.balanceAmount.trim() !== '').length===0} onClick={onSave}>Submit</Button>
     </Container>
 
   );
