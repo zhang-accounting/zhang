@@ -1,5 +1,9 @@
 /target
-Cargo.lock
 .idea
 personal.zhang
 wechat_config.toml
+zhang-frontend/node_modules
+zhang-frontend/dist
+zhang-frontend/.parcel-cache
+zhang-frontend/.DS_Store
+.DS_Store

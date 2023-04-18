@@ -1,0 +1,2 @@
+enum-variant-size-threshold = 500
+large-error-threshold = 256

@@ -1,0 +1,38 @@
+2022-05-17 18:17:35 document Assets:Card:TestCard "attachments/12371263-b182-4544-9542-f9feb44e708b/5.zhang"
+2022-05-17 18:18:08 document Assets:Card:TestCard "attachments/6180fae5-2415-458b-b6bb-0355357b272b/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:31:17 document Assets:Card:TestCard "attachments/0fa3a189-27c9-462b-933a-fa0c1fdde968/image_2022-05-12_14-35-45.png"
+2022-05-17 18:28:40 "商家" "成功测试"
+  Liabilities:CreditCard -100 CNY
+  Expenses:Shopping
+2022-05-18 17:40:22 "这是什么鬼啊\""
+  Assets:Card:TestCard -1 CNY
+  Expenses:Shopping
+  document: "attachments/0fa3a189-27c9-462b-933a-fa0c1fdde968/image_2022-05-12_14-35-45.png"
+
+
+
+2022-05-17 18:19:34 document Assets:Card:TestCard765443 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard11111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+2022-05-17 18:19:34 document Assets:Card:TestCard1111 "attachments/75c7c1ac-6d6f-4ede-8a21-b7d7ba7720f3/5.zhang"
+
+2022-06-02 "closed account test"
+  Income:PreviousCompanySalary -100 CNY
+  Assets:Card:TestCard 100 CNY
