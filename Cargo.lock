@@ -421,6 +421,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "beancount-transformer"
+version = "0.1.0"
+dependencies = [
+ "bigdecimal",
+ "chrono",
+ "indoc",
+ "itertools 0.9.0",
+ "log",
+ "pest",
+ "pest_consume",
+ "pest_derive",
+ "snailquote",
+ "zhang-ast",
+ "zhang-core",
+]
+
+[[package]]
 name = "bigdecimal"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

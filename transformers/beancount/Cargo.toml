@@ -1,0 +1,22 @@
+[package]
+name = "beancount-transformer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+zhang-ast = { version = "0.1", path = "../../ast" }
+zhang-core = { version = "0.1", path = "../../core" }
+pest = "2.1"
+pest_consume = "1.1"
+pest_derive = "2.1"
+itertools = "0.9"
+log = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+bigdecimal = { version = "0.3", features = ["serde"] }
+snailquote = "0.3"
+
+
+[dev-dependencies]
+indoc = "1"
