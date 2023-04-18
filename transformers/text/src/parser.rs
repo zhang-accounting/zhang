@@ -494,7 +494,7 @@ impl ZhangParser {
     }
 }
 
-pub fn parse_zhang(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<Directive>>> {
+pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<Directive>>> {
     let file = file.into();
     let inputs = ZhangParser::parse(Rule::entry, input_str)?;
     let input = inputs.single()?;
@@ -556,11 +556,11 @@ mod test {
         use zhang_ast::amount::Amount;
         use zhang_ast::*;
 
-        use crate::parse_zhang;
+        use crate::parse;
 
         #[test]
         fn should_parse_date_hour() {
-            let mut result = parse_zhang("2101-10-10 10:10 open Assets:Hello", None).unwrap();
+            let mut result = parse("2101-10-10 10:10 open Assets:Hello", None).unwrap();
             let directive = result.remove(0);
             assert_eq!(
                 Directive::Open(Open {
@@ -575,7 +575,7 @@ mod test {
 
         #[test]
         fn should_parse_balance_check_and_balance_pad() {
-            let balance = parse_zhang("2101-10-10 10:10 balance Assets:Hello 123 CNY", None)
+            let balance = parse("2101-10-10 10:10 balance Assets:Hello 123 CNY", None)
                 .unwrap()
                 .remove(0);
             assert_eq!(
@@ -593,7 +593,7 @@ mod test {
                 balance.data
             );
 
-            let balance = parse_zhang(
+            let balance = parse(
                 "2101-10-10 10:10 balance Assets:Hello 123 CNY with pad Income:Earnings",
                 None,
             )
@@ -619,13 +619,13 @@ mod test {
     mod options {
         use std::option::Option::None;
 
-        use crate::parse_zhang;
+        use crate::parse;
         use indoc::indoc;
         use zhang_ast::*;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(
+            let mut vec = parse(
                 indoc! {r#"
                             option "title" "Example"
                         "#},
@@ -648,11 +648,11 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::parse_zhang;
+        use crate::parse;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(
+            let mut vec = parse(
                 indoc! {r#"
                             1970-01-01 01:01:01 document Assets:Card "abc.jpg"
                         "#},
@@ -676,11 +676,11 @@ mod test {
         use indoc::indoc;
         use zhang_ast::Directive;
 
-        use crate::parse_zhang;
+        use crate::parse;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(
+            let mut vec = parse(
                 indoc! {r#"
                             1970-01-01 01:01:01 price USD 7 CNY
                         "#},
@@ -704,11 +704,11 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::parse_zhang;
+        use crate::parse;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(
+            let mut vec = parse(
                 indoc! {r#"
                             1970-01-01 01:01:01 event "something" "value"
                         "#},
@@ -731,11 +731,11 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::parse_zhang;
+        use crate::parse;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(
+            let mut vec = parse(
                 indoc! {r#"
                             plugin "module" "123" "345"
                         "#},
@@ -758,11 +758,11 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::parse_zhang;
+        use crate::parse;
 
         #[test]
         fn should_parse() {
-            let mut vec = parse_zhang(
+            let mut vec = parse(
                 indoc! {r#"
                             1970-01-01 01:01:01 custom "budget" Assets:Card "100 CNY" "monthly"
                         "#},
@@ -792,11 +792,11 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::parse_zhang;
+        use crate::parse;
 
         #[test]
         fn should_support_trailing_space() {
-            let vec = parse_zhang(
+            let vec = parse(
                 indoc! {r#"
                             2022-03-24 11:38:56 ""
                               Assets:B 1 CNY
@@ -815,10 +815,10 @@ mod test {
             use zhang_ast::amount::Amount;
             use zhang_ast::{Date, Directive, SingleTotalPrice, Transaction};
 
-            use crate::parse_zhang;
+            use crate::parse;
 
             fn get_first_posting(content: &str) -> Transaction {
-                let directive = parse_zhang(content, None).unwrap().pop().unwrap();
+                let directive = parse(content, None).unwrap().pop().unwrap();
                 match directive.data {
                     Directive::Transaction(trx) => trx,
                     _ => unreachable!(),

@@ -374,12 +374,12 @@ mod test {
     use std::option::Option::None;
 
     use indoc::indoc;
-    use text_transformer::parse_zhang;
+    use text_transformer::parse;
 
     use crate::TextExportable;
 
     fn parse(from: &str) -> String {
-        let directive = parse_zhang(from, None).unwrap().into_iter().next().unwrap();
+        let directive = parse(from, None).unwrap().into_iter().next().unwrap();
         directive.data.export()
     }
 
