@@ -1,5 +1,5 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -107,15 +107,10 @@ pub async fn serve<T: Transformer + Default + 'static>(opts: ServeConfig) -> Zha
                 .into_iter()
                 .filter_map(|event| event.ok())
                 .filter(|event| {
-                    let include_visited_files = event.paths.iter().any(|path| {
-                        has_path_visited(&guard
-                            .visited_files, path)
-                        // guard
-                        //     .visited_files
-                        //     .iter()
-                        //     .find(|pattern| pattern.matches_path(path))
-                        //     .is_some()
-                    });
+                    let include_visited_files = event
+                        .paths
+                        .iter()
+                        .any(|path| has_path_visited(&guard.visited_files, path));
                     include_visited_files && event.kind.is_modify()
                 })
                 .count()

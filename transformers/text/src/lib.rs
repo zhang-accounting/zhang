@@ -21,9 +21,7 @@ impl TextFileBasedTransformer for TextTransformer {
 
     fn go_next(&self, directive: &Self::FileOutput) -> Option<String> {
         match &directive.data {
-            Directive::Include(include) => {
-                Some(include.file.clone().to_plain_string())
-            }
+            Directive::Include(include) => Some(include.file.clone().to_plain_string()),
             _ => None,
         }
     }

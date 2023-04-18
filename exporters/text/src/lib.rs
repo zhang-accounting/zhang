@@ -24,7 +24,6 @@ impl AppendableExporter for TextExporter {
 
         create_folder_if_not_exist(&endpoint);
 
-
         if !has_path_visited(&ledger.visited_files, &endpoint) {
             let path = match endpoint.strip_prefix(entry) {
                 Ok(relative_path) => relative_path.to_str().unwrap(),
