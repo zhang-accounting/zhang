@@ -239,6 +239,7 @@ impl Ledger {
 
 #[cfg(test)]
 mod test {
+    use glob::Pattern;
     use std::option::Option::None;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -296,7 +297,7 @@ mod test {
             test_parse_zhang(content),
             (temp_dir.clone(), "example.zhang".to_string()),
             None,
-            vec![temp_dir.join("example.zhang")],
+            vec![Pattern::new(temp_dir.join("example.zhang").as_path().to_str().unwrap()).unwrap()],
             Arc::new(TestTransformer {}),
         )
         .await
