@@ -16,11 +16,12 @@ use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
 use futures_util::StreamExt;
 use indexmap::IndexSet;
 use itertools::Itertools;
-use log::info;
+use log::{error, info};
 use now::TimeZoneNow;
 use sqlx::{FromRow, SqliteConnection};
 use tokio::sync::RwLock;
 use uuid::Uuid;
+use glob::glob;
 
 use zhang_core::database::type_ext::big_decimal::ZhangBigDecimal;
 use zhang_core::error::IoErrorIntoZhangError;
@@ -1052,12 +1053,21 @@ pub async fn get_single_commodity(
 pub async fn get_files(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Option<String>>> {
     let ledger = ledger.read().await;
     let entry_path = &ledger.entry.0;
-    let vec = ledger
-        .visited_files
-        .iter()
-        .map(|path| path.strip_prefix(entry_path).unwrap().to_str().map(|it| it.to_string()))
-        .collect_vec();
-    ResponseWrapper::json(vec)
+
+    let mut ret = vec![];
+    for patten in &ledger.visited_files {
+        for entry in glob(patten.as_str()).unwrap() {
+            match entry {
+                Ok(path) => {
+                    let p = path.strip_prefix(entry_path).unwrap().to_str().map(|it| it.to_string());
+                    ret.push(p);
+                }
+                Err(e) => error!("{:?}", e),
+            }
+        }
+
+    }
+    ResponseWrapper::json(ret)
 }
 
 #[get("/api/files/{file_path}")]

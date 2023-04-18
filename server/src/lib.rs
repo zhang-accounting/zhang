@@ -1,5 +1,5 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
-use std::path::PathBuf;
+use std::path::{PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -15,6 +15,7 @@ use tokio::sync::RwLock;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
 use zhang_core::transform::Transformer;
+use zhang_core::utils::has_path_visited;
 use zhang_core::ZhangResult;
 
 use crate::broadcast::{BroadcastEvent, Broadcaster};
@@ -106,8 +107,16 @@ pub async fn serve<T: Transformer + Default + 'static>(opts: ServeConfig) -> Zha
                 .into_iter()
                 .filter_map(|event| event.ok())
                 .filter(|event| {
-                    let x = guard.visited_files.iter().any(|file| event.paths.contains(file));
-                    x && event.kind.is_modify()
+                    let include_visited_files = event.paths.iter().any(|path| {
+                        has_path_visited(&guard
+                            .visited_files, path)
+                        // guard
+                        //     .visited_files
+                        //     .iter()
+                        //     .find(|pattern| pattern.matches_path(path))
+                        //     .is_some()
+                    });
+                    include_visited_files && event.kind.is_modify()
                 })
                 .count()
                 > 0;

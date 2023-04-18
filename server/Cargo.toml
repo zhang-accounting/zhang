@@ -40,6 +40,7 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 indexmap = { version = "1.9", features = ["serde-1"] }
 mime_guess = "2"
+glob = "0.3.1"
 
 
 [build-dependencies]
