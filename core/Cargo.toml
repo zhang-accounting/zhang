@@ -18,6 +18,7 @@ chrono = { version = "0.4.19", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 unicode_categories = "0.1"
 sha256 = "1.1.2"
+glob = "0.3.1"
 
 [dev-dependencies]
 indoc = "1.0.3"

@@ -7,6 +7,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::exporter::{AppendableExporter, Exporter};
 use zhang_core::ledger::Ledger;
+use zhang_core::utils::has_path_visited;
 use zhang_core::utils::string_::escape_with_quote;
 use zhang_core::ZhangResult;
 
@@ -23,7 +24,7 @@ impl AppendableExporter for TextExporter {
 
         create_folder_if_not_exist(&endpoint);
 
-        if !ledger.visited_files.contains(&endpoint) {
+        if !has_path_visited(&ledger.visited_files, &endpoint) {
             let path = match endpoint.strip_prefix(entry) {
                 Ok(relative_path) => relative_path.to_str().unwrap(),
                 Err(_) => endpoint.to_str().unwrap(),

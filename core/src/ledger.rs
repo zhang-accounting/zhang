@@ -6,6 +6,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use bigdecimal::Zero;
+use glob::Pattern;
 use itertools::Itertools;
 use log::{error, info};
 use serde::Serialize;
@@ -57,7 +58,7 @@ pub struct Ledger {
     pub entry: (PathBuf, String),
     pub database: Option<PathBuf>,
     pub pool_connection: SqlitePool,
-    pub visited_files: Vec<PathBuf>,
+    pub visited_files: Vec<Pattern>,
 
     pub options: Options,
     pub errors: Vec<LedgerError>,
@@ -96,7 +97,7 @@ impl Ledger {
 
     async fn process(
         directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: Option<PathBuf>,
-        visited_files: Vec<PathBuf>, transformer: Arc<dyn Transformer>,
+        visited_files: Vec<Pattern>, transformer: Arc<dyn Transformer>,
     ) -> ZhangResult<Ledger> {
         let sqlite_pool = if let Some(ref path) = database {
             info!("database store at {}", path.display());
@@ -238,6 +239,7 @@ impl Ledger {
 
 #[cfg(test)]
 mod test {
+    use glob::Pattern;
     use std::option::Option::None;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -295,7 +297,7 @@ mod test {
             test_parse_zhang(content),
             (temp_dir.clone(), "example.zhang".to_string()),
             None,
-            vec![temp_dir.join("example.zhang")],
+            vec![Pattern::new(temp_dir.join("example.zhang").as_path().to_str().unwrap()).unwrap()],
             Arc::new(TestTransformer {}),
         )
         .await

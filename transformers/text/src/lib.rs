@@ -19,12 +19,9 @@ impl TextFileBasedTransformer for TextTransformer {
         parse_zhang(content, path).map_err(|it| ZhangError::PestError(it.to_string()))
     }
 
-    fn go_next(&self, directive: &Self::FileOutput) -> Option<PathBuf> {
+    fn go_next(&self, directive: &Self::FileOutput) -> Option<String> {
         match &directive.data {
-            Directive::Include(include) => {
-                let buf = PathBuf::from(include.file.clone().to_plain_string());
-                Some(buf)
-            }
+            Directive::Include(include) => Some(include.file.clone().to_plain_string()),
             _ => None,
         }
     }
