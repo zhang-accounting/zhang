@@ -3,12 +3,13 @@ use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use pest_consume::{match_nodes, Error, Parser};
 use snailquote::unescape;
 use zhang_ast::amount::Amount;
 use zhang_ast::utils::multi_value_map::MultiValueMap;
 use zhang_ast::*;
+use crate::directives::BeancountDirective;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -65,8 +66,6 @@ impl BeancountParer {
     fn date(input: Node) -> Result<Date> {
         let datetime: Date = match_nodes!(input.into_children();
             [date_only(d)] => d,
-            [datetime(d)] => d,
-            [date_hour(d)] => d
         );
         Ok(datetime)
     }
@@ -74,16 +73,6 @@ impl BeancountParer {
     fn date_only(input: Node) -> Result<Date> {
         let date = NaiveDate::parse_from_str(input.as_str(), "%Y-%m-%d").unwrap();
         Ok(Date::Date(date))
-    }
-    fn datetime(input: Node) -> Result<Date> {
-        Ok(Date::Datetime(
-            NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M:%S").unwrap(),
-        ))
-    }
-    fn date_hour(input: Node) -> Result<Date> {
-        Ok(Date::DateHour(
-            NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M").unwrap(),
-        ))
     }
 
     fn plugin(input: Node) -> Result<Directive> {
@@ -454,7 +443,7 @@ impl BeancountParer {
         }))
     }
 
-    fn item(input: Node) -> Result<(Directive, SpanInfo)> {
+    fn item(input: Node) -> Result<(Either<Directive, BeancountDirective>, SpanInfo)> {
         let span = input.as_span();
         let span_info = SpanInfo {
             start: span.start_pos().pos(),
@@ -462,26 +451,29 @@ impl BeancountParer {
             content: span.as_str().to_string(),
             filename: None,
         };
-        let ret: Directive = match_nodes!(input.into_children();
-            [option(item)] => item,
-            [open(item)] => item,
-            [plugin(item)] => item,
-            [close(item)] => item,
-            [include(item)] => item,
-            [note(item)] => item,
-            [event(item)] => item,
-            [document(item)] => item,
-            [balance(item)] => item,
-            [price(item)] => item,
-            [commodity(item)] => item,
-            [custom(item)] => item,
-            [comment(item)] => item,
-            [transaction(item)] => item,
+        let ret: Either<Directive, BeancountDirective> = match_nodes!(input.into_children();
+            [option(item)]      => Either::Left(item),
+            [open(item)]        => Either::Left(item),
+            [plugin(item)]      => Either::Left(item),
+            [close(item)]       => Either::Left(item),
+            [include(item)]     => Either::Left(item),
+            [note(item)]        => Either::Left(item),
+            [event(item)]       => Either::Left(item),
+            [document(item)]    => Either::Left(item),
+            [balance(item)]     => Either::Left(item), // balance
+            [balance(item)]     => Either::Left(item), // pad
+            [push_tag(item)]    => Either::Right(item),
+            [pop_tag(item)]     => Either::Right(item),
+            [price(item)]       => Either::Left(item),
+            [commodity(item)]   => Either::Left(item),
+            [custom(item)]      => Either::Left(item),
+            [comment(item)]     => Either::Left(item),
+            [transaction(item)] => Either::Left(item),
         );
         Ok((ret, span_info))
     }
-    fn entry(input: Node) -> Result<Vec<Spanned<Directive>>> {
-        let ret: Vec<(Directive, SpanInfo)> = match_nodes!(input.into_children();
+    fn entry(input: Node) -> Result<Vec<Spanned<Either<Directive, BeancountDirective>>>> {
+        let ret: Vec<(Either<Directive, BeancountDirective>, SpanInfo)> = match_nodes!(input.into_children();
             [item(items).., _] => items.collect(),
         );
         Ok(ret
@@ -494,7 +486,7 @@ impl BeancountParer {
     }
 }
 
-pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<Directive>>> {
+pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<Either<Directive, BeancountDirective>>>> {
     let file = file.into();
     let inputs = BeancountParer::parse(Rule::entry, input_str)?;
     let input = inputs.single()?;

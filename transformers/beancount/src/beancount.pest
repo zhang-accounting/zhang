@@ -55,11 +55,8 @@ commodity_lines     = _{ commodity_line ~ (commodity_next_line)* }
 commodity_next_line = _{ identation ~ commodity_line }
 commodity_line      =  { string ~ space* ~ ":" ~ space* ~ string ~ space* }
 
-date = { datetime | date_hour | date_only }
-
+date = { date_only }
 date_only = { ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{1, 2} ~ "-" ~ ASCII_DIGIT{1, 2} }
-datetime  = { ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{1, 2} ~ "-" ~ ASCII_DIGIT{1, 2} ~ " " ~ ASCII_DIGIT{1, 2} ~ ":" ~ ASCII_DIGIT{1, 2} ~ ":" ~ ASCII_DIGIT{1, 2} }
-date_hour = { ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{1, 2} ~ "-" ~ ASCII_DIGIT{1, 2} ~ " " ~ ASCII_DIGIT{1, 2} ~ ":" ~ ASCII_DIGIT{1, 2} }
 
 account_name   =  { account_type ~ (":" ~ unquote_string)+ }
 account_type   =  { "Assets" | "Liabilities" | "Equity" | "Income" | "Expenses" }

@@ -7,6 +7,8 @@ use zhang_core::{ZhangError, ZhangResult};
 #[allow(clippy::type_complexity)]
 pub mod parser;
 
+pub mod directives;
+
 pub use parser::parse;
 
 #[derive(Clone, Default)]
