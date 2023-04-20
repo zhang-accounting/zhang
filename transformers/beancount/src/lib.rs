@@ -31,7 +31,7 @@ impl TextFileBasedTransformer for BeancountTransformer {
     }
     fn transform(&self, directives: Vec<Self::FileOutput>) -> ZhangResult<Vec<Spanned<Directive>>> {
         let mut ret = vec![];
-        let mut tags_stack = vec![];
+        let mut tags_stack:Vec<String> = vec![];
         for directives in directives {
             let Spanned { span, data } = directives;
             match data {
