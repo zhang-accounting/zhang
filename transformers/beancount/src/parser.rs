@@ -442,6 +442,18 @@ impl BeancountParer {
             meta: Default::default(),
         }))
     }
+    fn push_tag(input:Node) -> Result<BeancountDirective> {
+        let ret: String = match_nodes!(input.into_children();
+            [tag(tag)] => tag
+        );
+        Ok(BeancountDirective::PushTag(ret))
+    }
+    fn pop_tag(input:Node) -> Result<BeancountDirective> {
+        let ret: String = match_nodes!(input.into_children();
+            [tag(tag)] => tag
+        );
+        Ok(BeancountDirective::PopTag(ret))
+    }
 
     fn item(input: Node) -> Result<(Either<Directive, BeancountDirective>, SpanInfo)> {
         let span = input.as_span();

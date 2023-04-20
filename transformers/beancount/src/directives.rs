@@ -1,6 +1,7 @@
 use zhang_ast::{Account, Date, Meta};
 use zhang_ast::amount::Amount;
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum BeancountDirective {
     PushTag(String),
     PopTag(String),
@@ -25,4 +26,3 @@ pub struct BalanceDirective {
 
     pub meta: Meta,
 }
-

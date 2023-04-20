@@ -378,7 +378,7 @@ mod test {
 
     use crate::TextExportable;
 
-    fn parse(from: &str) -> String {
+    fn parse_and_export(from: &str) -> String {
         let directive = parse(from, None).unwrap().into_iter().next().unwrap();
         directive.data.export()
     }
