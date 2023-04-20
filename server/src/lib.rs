@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -59,7 +60,7 @@ pub struct ServeConfig {
     pub exporter: Arc<dyn AppendableExporter>,
 }
 
-pub async fn serve<T: Transformer + Default + 'static>(opts: ServeConfig) -> ZhangResult<()> {
+pub async fn serve<T: Transformer + Default + 'static>(transformer: T, opts: ServeConfig) -> ZhangResult<()> {
     info!(
         "version: {}, build date: {}",
         env!("CARGO_PKG_VERSION"),

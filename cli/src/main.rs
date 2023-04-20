@@ -1,6 +1,8 @@
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use beancount_transformer::BeancountTransformer;
 use clap::{Args, Parser};
 use env_logger::Env;
 use log::LevelFilter;
@@ -8,6 +10,7 @@ use text_exporter::TextExporter;
 use text_transformer::TextTransformer;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
+use zhang_core::transform::Transformer;
 use zhang_server::ServeConfig;
 
 #[derive(Parser, Debug)]
@@ -78,6 +81,11 @@ pub struct ServerOpts {
     pub no_report: bool,
 }
 
+enum SupportedFormat {
+    Zhang,
+    Beancount,
+}
+
 impl Opts {
     pub async fn run(self) {
         match self {
@@ -92,20 +100,34 @@ impl Opts {
             }
             Opts::Export(_) => todo!(),
             Opts::Serve(opts) => {
-                // todo(feat): detect transformer and exporter based on file extension
+                let format = match opts.endpoint.rsplit_once(".") {
+                    Some((_, "bc")) => SupportedFormat::Beancount,
+                    _ => SupportedFormat::Zhang,
+                };
+
                 let exporter: Arc<dyn AppendableExporter> = Arc::new(TextExporter {});
-                zhang_server::serve::<TextTransformer>(ServeConfig {
-                    path: opts.path,
-                    endpoint: opts.endpoint,
-                    port: opts.port,
-                    database: opts.database,
-                    no_report: opts.no_report,
-                    exporter,
-                })
+                zhang_server::serve(
+                    infer_transformer(&format),
+                    ServeConfig {
+                        path: opts.path,
+                        endpoint: opts.endpoint,
+                        port: opts.port,
+                        database: opts.database,
+                        no_report: opts.no_report,
+                        exporter,
+                    },
+                )
                 .await
                 .expect("cannot serve")
             }
         }
+    }
+}
+
+fn infer_transformer(format: &SupportedFormat) -> Box<dyn Transformer  + 'static> {
+    match format {
+        SupportedFormat::Zhang => Box::new(TextTransformer::default()),
+        SupportedFormat::Beancount => Box::new(BeancountTransformer::default()),
     }
 }
 
