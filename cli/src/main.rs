@@ -1,4 +1,3 @@
-use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -86,6 +85,18 @@ enum SupportedFormat {
     Beancount,
 }
 
+impl SupportedFormat {
+    fn transformer(&self) -> Arc<dyn Transformer + 'static> {
+        match self {
+            SupportedFormat::Zhang => Arc::new(TextTransformer::default()),
+            SupportedFormat::Beancount => Arc::new(BeancountTransformer::default()),
+        }
+    }
+    fn exporter(&self) -> Arc<dyn AppendableExporter> {
+        Arc::new(TextExporter {})
+    }
+}
+
 impl Opts {
     pub async fn run(self) {
         match self {
@@ -94,12 +105,12 @@ impl Opts {
                     Some((_, "bc")) | Some((_, "bean")) => SupportedFormat::Beancount,
                     _ => SupportedFormat::Zhang,
                 };
-                let transformer = infer_transformer(&format);
+
                 Ledger::load_with_database(
                     parse_opts.path,
                     parse_opts.endpoint,
                     parse_opts.database,
-                    transformer
+                    format.transformer()
                 )
                 .await
                 .expect("Cannot load ledger");
@@ -111,8 +122,6 @@ impl Opts {
                     _ => SupportedFormat::Zhang,
                 };
 
-                let exporter: Arc<dyn AppendableExporter> = Arc::new(TextExporter {});
-                let transformer = infer_transformer(&format);
                 zhang_server::serve(
                     ServeConfig {
                         path: opts.path,
@@ -120,21 +129,14 @@ impl Opts {
                         port: opts.port,
                         database: opts.database,
                         no_report: opts.no_report,
-                        exporter,
-                        transformer
+                        exporter: format.exporter(),
+                        transformer: format.transformer()
                     },
                 )
                 .await
                 .expect("cannot serve")
             }
         }
-    }
-}
-
-fn infer_transformer(format: &SupportedFormat) -> Arc<dyn Transformer  + 'static> {
-    match format {
-        SupportedFormat::Zhang => Arc::new(TextTransformer::default()),
-        SupportedFormat::Beancount => Arc::new(BeancountTransformer::default()),
     }
 }
 
