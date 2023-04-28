@@ -10,14 +10,14 @@ pub mod parser;
 
 pub mod directives;
 
-use crate::directives::BeancountDirective;
+use crate::directives::{BeancountDirective, BeancountOnlyDirective};
 pub use parser::parse;
 
 #[derive(Clone, Default)]
 pub struct BeancountTransformer {}
 
 impl TextFileBasedTransformer for BeancountTransformer {
-    type FileOutput = Spanned<Either<Directive, BeancountDirective>>;
+    type FileOutput = Spanned<BeancountDirective>;
 
     fn parse(&self, content: &str, path: PathBuf) -> ZhangResult<Vec<Self::FileOutput>> {
         parse(content, path).map_err(|it| ZhangError::PestError(it.to_string()))
@@ -51,12 +51,12 @@ impl TextFileBasedTransformer for BeancountTransformer {
                     }),
                 },
                 Either::Right(beancount_directive) => match beancount_directive {
-                    BeancountDirective::PushTag(tag) => tags_stack.push(tag),
-                    BeancountDirective::PopTag(tag) => {
+                    BeancountOnlyDirective::PushTag(tag) => tags_stack.push(tag),
+                    BeancountOnlyDirective::PopTag(tag) => {
                         tags_stack = tags_stack.into_iter().filter(|it| it.ne(&tag)).collect_vec()
                     }
-                    BeancountDirective::Pad(_) => {}
-                    BeancountDirective::Balance(_) => {}
+                    BeancountOnlyDirective::Pad(_) => {}
+                    BeancountOnlyDirective::Balance(_) => {}
                 },
             }
         }

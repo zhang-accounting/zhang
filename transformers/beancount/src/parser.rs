@@ -9,7 +9,7 @@ use snailquote::unescape;
 use zhang_ast::amount::Amount;
 use zhang_ast::utils::multi_value_map::MultiValueMap;
 use zhang_ast::*;
-use crate::directives::BeancountDirective;
+use crate::directives::{BeancountDirective, BeancountOnlyDirective};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -442,20 +442,20 @@ impl BeancountParer {
             meta: Default::default(),
         }))
     }
-    fn push_tag(input:Node) -> Result<BeancountDirective> {
+    fn push_tag(input:Node) -> Result<BeancountOnlyDirective> {
         let ret: String = match_nodes!(input.into_children();
             [tag(tag)] => tag
         );
-        Ok(BeancountDirective::PushTag(ret))
+        Ok(BeancountOnlyDirective::PushTag(ret))
     }
-    fn pop_tag(input:Node) -> Result<BeancountDirective> {
+    fn pop_tag(input:Node) -> Result<BeancountOnlyDirective> {
         let ret: String = match_nodes!(input.into_children();
             [tag(tag)] => tag
         );
-        Ok(BeancountDirective::PopTag(ret))
+        Ok(BeancountOnlyDirective::PopTag(ret))
     }
 
-    fn item(input: Node) -> Result<(Either<Directive, BeancountDirective>, SpanInfo)> {
+    fn item(input: Node) -> Result<(BeancountDirective, SpanInfo)> {
         let span = input.as_span();
         let span_info = SpanInfo {
             start: span.start_pos().pos(),
@@ -463,7 +463,7 @@ impl BeancountParer {
             content: span.as_str().to_string(),
             filename: None,
         };
-        let ret: Either<Directive, BeancountDirective> = match_nodes!(input.into_children();
+        let ret: BeancountDirective = match_nodes!(input.into_children();
             [option(item)]      => Either::Left(item),
             [open(item)]        => Either::Left(item),
             [plugin(item)]      => Either::Left(item),
@@ -484,8 +484,8 @@ impl BeancountParer {
         );
         Ok((ret, span_info))
     }
-    fn entry(input: Node) -> Result<Vec<Spanned<Either<Directive, BeancountDirective>>>> {
-        let ret: Vec<(Either<Directive, BeancountDirective>, SpanInfo)> = match_nodes!(input.into_children();
+    fn entry(input: Node) -> Result<Vec<Spanned<BeancountDirective>>> {
+        let ret: Vec<(BeancountDirective, SpanInfo)> = match_nodes!(input.into_children();
             [item(items).., _] => items.collect(),
         );
         Ok(ret
@@ -498,7 +498,7 @@ impl BeancountParer {
     }
 }
 
-pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<Either<Directive, BeancountDirective>>>> {
+pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<BeancountDirective>>> {
     let file = file.into();
     let inputs = BeancountParer::parse(Rule::entry, input_str)?;
     let input = inputs.single()?;
