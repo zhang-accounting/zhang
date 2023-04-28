@@ -101,7 +101,7 @@ impl Opts {
             Opts::Export(_) => todo!(),
             Opts::Serve(opts) => {
                 let format = match opts.endpoint.rsplit_once(".") {
-                    Some((_, "bc")) => SupportedFormat::Beancount,
+                    Some((_, "bc")) | Some((_, "bean")) => SupportedFormat::Beancount,
                     _ => SupportedFormat::Zhang,
                 };
 
