@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use crate::directives::{BeancountDirective, BeancountOnlyDirective};
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use itertools::{Either, Itertools};
@@ -9,7 +10,6 @@ use snailquote::unescape;
 use zhang_ast::amount::Amount;
 use zhang_ast::utils::multi_value_map::MultiValueMap;
 use zhang_ast::*;
-use crate::directives::{BeancountDirective, BeancountOnlyDirective};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -442,13 +442,13 @@ impl BeancountParer {
             meta: Default::default(),
         }))
     }
-    fn push_tag(input:Node) -> Result<BeancountOnlyDirective> {
+    fn push_tag(input: Node) -> Result<BeancountOnlyDirective> {
         let ret: String = match_nodes!(input.into_children();
             [tag(tag)] => tag
         );
         Ok(BeancountOnlyDirective::PushTag(ret))
     }
-    fn pop_tag(input:Node) -> Result<BeancountOnlyDirective> {
+    fn pop_tag(input: Node) -> Result<BeancountOnlyDirective> {
         let ret: String = match_nodes!(input.into_children();
             [tag(tag)] => tag
         );
@@ -550,386 +550,30 @@ mod test {
             zhang_ast::account::Account::from_str($account).unwrap()
         }};
     }
-
-    mod date_time_support {
-        use std::option::Option::None;
-        use std::str::FromStr;
-
-        use bigdecimal::BigDecimal;
-        use chrono::NaiveDate;
-        use zhang_ast::amount::Amount;
-        use zhang_ast::*;
-
-        use crate::parse;
+    mod tag {
+        use crate::directives::BeancountOnlyDirective;
+        use crate::parser::parse;
 
         #[test]
-        fn should_parse_date_hour() {
-            let mut result = parse("2101-10-10 10:10 open Assets:Hello", None).unwrap();
-            let directive = result.remove(0);
-            assert_eq!(
-                Directive::Open(Open {
-                    date: date!(2101, 10, 10, 10, 10),
-                    account: account!("Assets:Hello"),
-                    commodities: vec![],
-                    meta: Default::default()
-                }),
-                directive.data
-            )
-        }
-
-        #[test]
-        fn should_parse_balance_check_and_balance_pad() {
-            let balance = parse("2101-10-10 10:10 balance Assets:Hello 123 CNY", None)
+        fn should_support_push_tag() {
+            let directive = parse("pushtag #mytag", None)
                 .unwrap()
-                .remove(0);
-            assert_eq!(
-                Directive::Balance(Balance::BalanceCheck(BalanceCheck {
-                    date: Date::DateHour(
-                        NaiveDate::from_ymd_opt(2101, 10, 10)
-                            .unwrap()
-                            .and_hms_opt(10, 10, 0)
-                            .unwrap()
-                    ),
-                    account: Account::from_str("Assets:Hello").unwrap(),
-                    amount: Amount::new(BigDecimal::from(123i32), "CNY"),
-                    meta: Default::default()
-                })),
-                balance.data
-            );
-
-            let balance = parse(
-                "2101-10-10 10:10 balance Assets:Hello 123 CNY with pad Income:Earnings",
-                None,
-            )
-            .unwrap()
-            .remove(0);
-            assert_eq!(
-                Directive::Balance(Balance::BalancePad(BalancePad {
-                    date: Date::DateHour(
-                        NaiveDate::from_ymd_opt(2101, 10, 10)
-                            .unwrap()
-                            .and_hms_opt(10, 10, 0)
-                            .unwrap()
-                    ),
-                    account: Account::from_str("Assets:Hello").unwrap(),
-                    amount: Amount::new(BigDecimal::from(123i32), "CNY"),
-                    pad: Account::from_str("Income:Earnings").unwrap(),
-                    meta: Default::default()
-                })),
-                balance.data
-            )
+                .pop()
+                .unwrap()
+                .data
+                .right()
+                .unwrap();
+            assert_eq!(BeancountOnlyDirective::PushTag("mytag".to_string()), directive);
         }
-    }
-    mod options {
-        use std::option::Option::None;
-
-        use crate::parse;
-        use indoc::indoc;
-        use zhang_ast::*;
-
         #[test]
-        fn should_parse() {
-            let mut vec = parse(
-                indoc! {r#"
-                            option "title" "Example"
-                        "#},
-                None,
-            )
-            .unwrap();
-            assert_eq!(vec.len(), 1);
-            assert_eq!(
-                vec.pop().unwrap().data,
-                Directive::Option(Options {
-                    key: quote!("title"),
-                    value: quote!("Example")
-                })
-            );
-        }
-    }
-    mod document {
-        use std::option::Option::None;
-        use zhang_ast::Directive;
-
-        use indoc::indoc;
-
-        use crate::parse;
-
-        #[test]
-        fn should_parse() {
-            let mut vec = parse(
-                indoc! {r#"
-                            1970-01-01 01:01:01 document Assets:Card "abc.jpg"
-                        "#},
-                None,
-            )
-            .unwrap();
-            assert_eq!(vec.len(), 1);
-            let directive = vec.pop().unwrap().data;
-            assert!(matches!(directive, Directive::Document(..)));
-            if let Directive::Document(inner) = directive {
-                assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
-                assert_eq!(inner.account, account!("Assets:Card"));
-                assert_eq!(inner.filename, quote!("abc.jpg"));
-            }
-        }
-    }
-    mod price {
-        use std::option::Option::None;
-
-        use bigdecimal::BigDecimal;
-        use indoc::indoc;
-        use zhang_ast::Directive;
-
-        use crate::parse;
-
-        #[test]
-        fn should_parse() {
-            let mut vec = parse(
-                indoc! {r#"
-                            1970-01-01 01:01:01 price USD 7 CNY
-                        "#},
-                None,
-            )
-            .unwrap();
-            assert_eq!(vec.len(), 1);
-            let directive = vec.pop().unwrap().data;
-            assert!(matches!(directive, Directive::Price(..)));
-            if let Directive::Price(inner) = directive {
-                assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
-                assert_eq!(inner.currency, "USD");
-                assert_eq!(inner.amount.currency, "CNY");
-                assert_eq!(inner.amount.number, BigDecimal::from(7i32));
-            }
-        }
-    }
-    mod event {
-        use std::option::Option::None;
-        use zhang_ast::Directive;
-
-        use indoc::indoc;
-
-        use crate::parse;
-
-        #[test]
-        fn should_parse() {
-            let mut vec = parse(
-                indoc! {r#"
-                            1970-01-01 01:01:01 event "something" "value"
-                        "#},
-                None,
-            )
-            .unwrap();
-            assert_eq!(vec.len(), 1);
-            let directive = vec.pop().unwrap().data;
-            assert!(matches!(directive, Directive::Event(..)));
-            if let Directive::Event(inner) = directive {
-                assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
-                assert_eq!(inner.event_type, quote!("something"));
-                assert_eq!(inner.description, quote!("value"));
-            }
-        }
-    }
-    mod plugin {
-        use std::option::Option::None;
-        use zhang_ast::Directive;
-
-        use indoc::indoc;
-
-        use crate::parse;
-
-        #[test]
-        fn should_parse() {
-            let mut vec = parse(
-                indoc! {r#"
-                            plugin "module" "123" "345"
-                        "#},
-                None,
-            )
-            .unwrap();
-            assert_eq!(vec.len(), 1);
-            let directive = vec.pop().unwrap().data;
-            assert!(matches!(directive, Directive::Plugin(..)));
-            if let Directive::Plugin(inner) = directive {
-                assert_eq!(inner.module, quote!("module"));
-                assert_eq!(inner.value, vec![quote!("123"), quote!("345")]);
-            }
-        }
-    }
-
-    mod custom {
-        use std::option::Option::None;
-        use zhang_ast::{Directive, StringOrAccount};
-
-        use indoc::indoc;
-
-        use crate::parse;
-
-        #[test]
-        fn should_parse() {
-            let mut vec = parse(
-                indoc! {r#"
-                            1970-01-01 01:01:01 custom "budget" Assets:Card "100 CNY" "monthly"
-                        "#},
-                None,
-            )
-            .unwrap();
-            assert_eq!(vec.len(), 1);
-            let directive = vec.pop().unwrap().data;
-            assert!(matches!(directive, Directive::Custom(..)));
-            if let Directive::Custom(inner) = directive {
-                assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
-                assert_eq!(inner.custom_type, quote!("budget"));
-                assert_eq!(
-                    inner.values,
-                    vec![
-                        StringOrAccount::Account(account!("Assets:Card")),
-                        StringOrAccount::String(quote!("100 CNY")),
-                        StringOrAccount::String(quote!("monthly"))
-                    ]
-                );
-            }
-        }
-    }
-
-    mod transaction {
-        use std::option::Option::None;
-
-        use indoc::indoc;
-
-        use crate::parse;
-
-        #[test]
-        fn should_support_trailing_space() {
-            let vec = parse(
-                indoc! {r#"
-                            2022-03-24 11:38:56 ""
-                              Assets:B 1 CNY
-                              Assets:B
-                        "#},
-                None,
-            )
-            .unwrap();
-            assert_eq!(vec.len(), 1);
-        }
-
-        mod posting {
-            use bigdecimal::{BigDecimal, FromPrimitive};
-            use chrono::NaiveDate;
-            use indoc::indoc;
-            use zhang_ast::amount::Amount;
-            use zhang_ast::{Date, Directive, SingleTotalPrice, Transaction};
-
-            use crate::parse;
-
-            fn get_first_posting(content: &str) -> Transaction {
-                let directive = parse(content, None).unwrap().pop().unwrap();
-                match directive.data {
-                    Directive::Transaction(trx) => trx,
-                    _ => unreachable!(),
-                }
-            }
-
-            #[test]
-            fn should_return_all_none_price() {
-                let mut trx = get_first_posting(indoc! {r#"
-                2022-06-02 "balanced transaction"
-                  Assets:Card
-                "#});
-                let posting = trx.postings.pop().unwrap();
-                assert_eq!(None, posting.units);
-                assert_eq!(None, posting.cost);
-                assert_eq!(None, posting.cost_date);
-                assert_eq!(None, posting.price);
-            }
-
-            #[test]
-            fn should_return_unit() {
-                let mut trx = get_first_posting(indoc! {r#"
-                2022-06-02 "balanced transaction"
-                  Assets:Card -100 CNY
-                "#});
-                let posting = trx.postings.pop().unwrap();
-                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "CNY")), posting.units);
-                assert_eq!(None, posting.cost);
-                assert_eq!(None, posting.cost_date);
-                assert_eq!(None, posting.price);
-            }
-            #[test]
-            fn should_return_unit_and_cost() {
-                let mut trx = get_first_posting(indoc! {r#"
-                2022-06-02 "balanced transaction"
-                  Assets:Card -100 USD { 7 CNY }
-                "#});
-                let posting = trx.postings.pop().unwrap();
-                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(Some(Amount::new(BigDecimal::from(7i32), "CNY")), posting.cost);
-                assert_eq!(None, posting.cost_date);
-                assert_eq!(None, posting.price);
-            }
-
-            #[test]
-            fn should_return_unit_and_cost_cost_date() {
-                let mut trx = get_first_posting(indoc! {r#"
-                2022-06-02 "balanced transaction"
-                  Assets:Card -100 USD { 7 CNY, 2022-06-06 }
-                "#});
-                let posting = trx.postings.pop().unwrap();
-                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(Some(Amount::new(BigDecimal::from(7i32), "CNY")), posting.cost);
-                assert_eq!(
-                    Some(Date::Date(NaiveDate::from_ymd_opt(2022, 6, 6).unwrap())),
-                    posting.cost_date
-                );
-                assert_eq!(None, posting.price);
-            }
-            #[test]
-            fn should_return_unit_and_single_price() {
-                let mut trx = get_first_posting(indoc! {r#"
-                2022-06-02 "balanced transaction"
-                  Assets:Card -100 USD @ 7 CNY
-                "#});
-                let posting = trx.postings.pop().unwrap();
-                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(None, posting.cost);
-                assert_eq!(None, posting.cost_date);
-                assert_eq!(
-                    Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))),
-                    posting.price
-                );
-            }
-            #[test]
-            fn should_return_unit_and_total_price() {
-                let mut trx = get_first_posting(indoc! {r#"
-                2022-06-02 "balanced transaction"
-                  Assets:Card -100 USD @@ 700 CNY
-                "#});
-                let posting = trx.postings.pop().unwrap();
-                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(None, posting.cost);
-                assert_eq!(None, posting.cost_date);
-                assert_eq!(
-                    Some(SingleTotalPrice::Total(Amount::new(BigDecimal::from(700i32), "CNY"))),
-                    posting.price
-                );
-            }
-            #[test]
-            fn should_return_unit_cost_and_single_price() {
-                let mut trx = get_first_posting(indoc! {r#"
-                2022-06-02 "balanced transaction"
-                  Assets:Card -100 USD { 6.9 CNY } @ 7 CNY
-                "#});
-                let posting = trx.postings.pop().unwrap();
-                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(
-                    Some(Amount::new(BigDecimal::from_f32(6.9).unwrap(), "CNY")),
-                    posting.cost
-                );
-                assert_eq!(None, posting.cost_date);
-                assert_eq!(
-                    Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))),
-                    posting.price
-                );
-            }
+        fn should_support_pop_tag() {
+            let directive = parse("poptag #mytag", None) .unwrap()
+                .pop()
+                .unwrap()
+                .data
+                .right()
+                .unwrap();
+            assert_eq!(BeancountOnlyDirective::PopTag("mytag".to_string()), directive);
         }
     }
 }

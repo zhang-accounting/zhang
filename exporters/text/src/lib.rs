@@ -385,7 +385,7 @@ mod test {
 
     macro_rules! assert_parse {
         ($msg: expr, $content: expr) => {
-            assert_eq!($content.trim(), parse($content).trim(), $msg);
+            assert_eq!($content.trim(), parse_and_export($content.trim()), $msg);
         };
     }
 

@@ -247,7 +247,7 @@ mod test {
 
     use tempfile::tempdir;
 
-    use text_transformer::parse_zhang;
+    use text_transformer::parse as parse_zhang;
     use zhang_ast::{Directive, SpanInfo, Spanned};
 
     use crate::ledger::Ledger;
