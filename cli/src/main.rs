@@ -90,10 +90,16 @@ impl Opts {
     pub async fn run(self) {
         match self {
             Opts::Parse(parse_opts) => {
-                Ledger::load_with_database::<TextTransformer>(
+                let format = match parse_opts.endpoint.rsplit_once(".") {
+                    Some((_, "bc")) | Some((_, "bean")) => SupportedFormat::Beancount,
+                    _ => SupportedFormat::Zhang,
+                };
+                let transformer = infer_transformer(&format);
+                Ledger::load_with_database(
                     parse_opts.path,
                     parse_opts.endpoint,
                     parse_opts.database,
+                    transformer
                 )
                 .await
                 .expect("Cannot load ledger");
@@ -106,8 +112,8 @@ impl Opts {
                 };
 
                 let exporter: Arc<dyn AppendableExporter> = Arc::new(TextExporter {});
+                let transformer = infer_transformer(&format);
                 zhang_server::serve(
-                    infer_transformer(&format),
                     ServeConfig {
                         path: opts.path,
                         endpoint: opts.endpoint,
@@ -115,6 +121,7 @@ impl Opts {
                         database: opts.database,
                         no_report: opts.no_report,
                         exporter,
+                        transformer
                     },
                 )
                 .await
@@ -124,10 +131,10 @@ impl Opts {
     }
 }
 
-fn infer_transformer(format: &SupportedFormat) -> Box<dyn Transformer  + 'static> {
+fn infer_transformer(format: &SupportedFormat) -> Arc<dyn Transformer  + 'static> {
     match format {
-        SupportedFormat::Zhang => Box::new(TextTransformer::default()),
-        SupportedFormat::Beancount => Box::new(BeancountTransformer::default()),
+        SupportedFormat::Zhang => Arc::new(TextTransformer::default()),
+        SupportedFormat::Beancount => Arc::new(BeancountTransformer::default()),
     }
 }
 

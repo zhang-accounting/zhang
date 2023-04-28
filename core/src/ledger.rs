@@ -72,21 +72,22 @@ pub struct Ledger {
 
 impl Ledger {
     pub async fn load<T: Transformer + Default + 'static>(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
-        Ledger::load_with_database::<T>(entry, endpoint, None).await
+        let transformer = Arc::new(T::default());
+        Ledger::load_with_database(entry, endpoint, None, transformer).await
     }
 
-    pub async fn load_with_database<T: Transformer + Default + 'static>(
-        entry: PathBuf, endpoint: String, database: Option<PathBuf>,
+    pub async fn load_with_database(
+        entry: PathBuf, endpoint: String, database: Option<PathBuf>, transformer: Arc<dyn Transformer>
     ) -> ZhangResult<Ledger> {
         let entry = entry.canonicalize().with_path(&entry)?;
-        let transformer = T::default();
+
         let transform_result = transformer.load(entry.clone(), endpoint.clone())?;
         Ledger::process(
             transform_result.directives,
             (entry, endpoint),
             database,
             transform_result.visited_files,
-            Arc::new(transformer),
+            transformer,
         )
         .await
     }

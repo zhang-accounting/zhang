@@ -58,16 +58,17 @@ pub struct ServeConfig {
     pub database: Option<PathBuf>,
     pub no_report: bool,
     pub exporter: Arc<dyn AppendableExporter>,
+    pub transformer: Arc<dyn Transformer>
 }
 
-pub async fn serve<T: Transformer + Default + 'static>(transformer: T, opts: ServeConfig) -> ZhangResult<()> {
+pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     info!(
         "version: {}, build date: {}",
         env!("CARGO_PKG_VERSION"),
         env!("ZHANG_BUILD_DATE")
     );
     let database = opts.database.clone();
-    let ledger = Ledger::load_with_database::<T>(opts.path.clone(), opts.endpoint.clone(), database).await?;
+    let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), database, opts.transformer.clone()).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
 
     let cloned_ledger = ledger_data.clone();
