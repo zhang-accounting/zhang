@@ -196,3 +196,61 @@ fn convert_datetime_to_date(directive: Directive) -> Directive {
         _ => directive,
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::BeancountExporter;
+    use beancount_transformer::parse;
+    use indoc::indoc;
+    use zhang_ast::{Date, Directive};
+    use zhang_core::exporter::Exporter;
+
+    macro_rules! test_parse {
+        ($content: expr) => {{
+            let directive = parse($content, None).unwrap().into_iter().next().unwrap().data;
+            directive.left().unwrap()
+        }};
+    }
+
+    macro_rules! assert_parse {
+        ($msg: expr, $content: expr, $expected: expr) => {
+            let beancount_exporter = BeancountExporter {};
+            let directive = test_parse! {$content};
+            assert_eq!(
+                $expected.trim(),
+                beancount_exporter.export_directive(directive),
+                $msg
+            );
+        };
+    }
+
+    #[test]
+    fn should_keep_given_balance_directive() {
+        assert_parse!(
+            "should keep balance check directive",
+            "1970-01-01 balance Assets:BankAccount 2 CNY",
+            "1970-01-01 balance Assets:BankAccount 2 CNY"
+        );
+    }
+    #[test]
+    fn should_keep_time_into_meta_for_open_directive() {
+        let mut directive = test_parse! {"1970-01-01 open Assets:BankAccount"};
+        match &mut directive {
+            Directive::Open(ref mut open) => {
+                open.date = Date::Datetime(open.date.naive_date().and_hms_nano_opt(1, 1, 1, 0).unwrap())
+            }
+            _ => unreachable!(),
+        }
+
+        let beancount_exporter = BeancountExporter {};
+        assert_eq!(
+            indoc! {r#"
+                1970-01-01 open Assets:BankAccount
+                  time: "01:01:01"
+            "#}
+            .trim(),
+            beancount_exporter.export_directive(directive),
+            "should persist time into meta"
+        );
+    }
+}

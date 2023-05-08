@@ -12,3 +12,7 @@ zhang-ast = { version = "0.1", path = "../../ast" }
 
 text-exporter = {version="0.1", path="../text"}
 beancount-transformer = {version = "0.1", path="../../transformers/beancount"}
+
+
+[dev-dependencies]
+indoc = "1"

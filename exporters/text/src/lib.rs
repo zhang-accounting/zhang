@@ -199,8 +199,11 @@ impl TextExportable for Open {
     type Output = String;
     fn export(self) -> String {
         let mut line = vec![self.date.export(), "open".to_string(), self.account.export()];
-        let commodities = self.commodities.iter().join(", ");
-        line.push(commodities);
+        if !self.commodities.is_empty() {
+            let commodities = self.commodities.iter().join(", ");
+            line.push(commodities);
+        }
+
         append_meta(self.meta, line.join(" "))
     }
 }
