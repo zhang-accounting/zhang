@@ -200,41 +200,29 @@ fn convert_datetime_to_date(directive: Directive) -> Directive {
 #[cfg(test)]
 mod test {
     use crate::BeancountExporter;
-    use beancount_transformer::parse;
+    use beancount_transformer::{parse, BeancountOnlyDirective};
     use indoc::indoc;
-    use zhang_ast::{Date, Directive};
+    use std::str::FromStr;
+    use zhang_ast::{Account, Balance, BalancePad, Date, Directive};
     use zhang_core::exporter::Exporter;
 
-    macro_rules! test_parse {
+    macro_rules! test_parse_zhang {
         ($content: expr) => {{
             let directive = parse($content, None).unwrap().into_iter().next().unwrap().data;
             directive.left().unwrap()
         }};
     }
-
-    macro_rules! assert_parse {
-        ($msg: expr, $content: expr, $expected: expr) => {
-            let beancount_exporter = BeancountExporter {};
-            let directive = test_parse! {$content};
-            assert_eq!(
-                $expected.trim(),
-                beancount_exporter.export_directive(directive),
-                $msg
-            );
-        };
+    macro_rules! test_parse_bc {
+        ($content: expr) => {{
+            let directive = parse($content, None).unwrap().into_iter().next().unwrap().data;
+            dbg!(&directive);
+            directive.right().unwrap()
+        }};
     }
 
-    #[test]
-    fn should_keep_given_balance_directive() {
-        assert_parse!(
-            "should keep balance check directive",
-            "1970-01-01 balance Assets:BankAccount 2 CNY",
-            "1970-01-01 balance Assets:BankAccount 2 CNY"
-        );
-    }
     #[test]
     fn should_keep_time_into_meta_for_open_directive() {
-        let mut directive = test_parse! {"1970-01-01 open Assets:BankAccount"};
+        let mut directive = test_parse_zhang! {"1970-01-01 open Assets:BankAccount"};
         match &mut directive {
             Directive::Open(ref mut open) => {
                 open.date = Date::Datetime(open.date.naive_date().and_hms_nano_opt(1, 1, 1, 0).unwrap())
@@ -251,6 +239,31 @@ mod test {
             .trim(),
             beancount_exporter.export_directive(directive),
             "should persist time into meta"
+        );
+    }
+
+    #[test]
+    fn should_convert_to_pad_and_balance_directive_given_balance_pad_directive() {
+        let directive = test_parse_bc! {"1970-01-02 balance Assets:BankAccount 2 CNY"};
+        let directive = match directive {
+            BeancountOnlyDirective::Balance(check) => Directive::Balance(Balance::BalancePad(BalancePad {
+                date: check.date,
+                account: check.account,
+                amount: check.amount,
+                pad: Account::from_str("Equity:Open-Balances").unwrap(),
+                meta: Default::default(),
+            })),
+            _ => unreachable!(),
+        };
+
+        let beancount_exporter = BeancountExporter {};
+        assert_eq!(
+            indoc! {r#"
+                1970-01-01 pad Assets:BankAccount Equity:Open-Balances
+                1970-01-02 balance Assets:BankAccount 2 CNY
+            "#}
+            .trim(),
+            beancount_exporter.export_directive(directive),
         );
     }
 }

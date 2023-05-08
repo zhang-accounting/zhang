@@ -13,7 +13,7 @@ pub mod parser;
 
 pub mod directives;
 
-use crate::directives::{BeancountDirective, BeancountOnlyDirective};
+pub use crate::directives::{BeancountDirective, BeancountOnlyDirective};
 pub use parser::parse;
 
 #[derive(Clone, Default)]

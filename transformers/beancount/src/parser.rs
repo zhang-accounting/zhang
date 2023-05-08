@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use crate::directives::{BeancountDirective, BeancountOnlyDirective};
+use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use itertools::{Either, Itertools};
@@ -394,27 +394,27 @@ impl BeancountParer {
         }))
     }
 
-    fn balance(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, BigDecimal, String, Option<Account>) = match_nodes!(input.into_children();
-            [date(date), account_name(name), number(amount), commodity_name(commodity)] => (date, name, amount, commodity, None),
-            [date(date), account_name(name), number(amount), commodity_name(commodity), account_name(pad)] => (date, name, amount, commodity, Some(pad)),
+    fn balance(input: Node) -> Result<BeancountOnlyDirective> {
+        let (date, account, amount, commodity): (Date, Account, BigDecimal, String) = match_nodes!(input.into_children();
+            [date(date), account_name(name), number(amount), commodity_name(commodity)] => (date, name, amount, commodity),
         );
-        if let Some(pad) = ret.4 {
-            Ok(Directive::Balance(Balance::BalancePad(BalancePad {
-                date: ret.0,
-                account: ret.1,
-                amount: Amount::new(ret.2, ret.3),
-                pad,
-                meta: Default::default(),
-            })))
-        } else {
-            Ok(Directive::Balance(Balance::BalanceCheck(BalanceCheck {
-                date: ret.0,
-                account: ret.1,
-                amount: Amount::new(ret.2, ret.3),
-                meta: Default::default(),
-            })))
-        }
+        Ok(BeancountOnlyDirective::Balance(BalanceDirective {
+            date,
+            account,
+            amount: Amount::new(amount, commodity),
+            meta: Default::default(),
+        }))
+    }
+    fn pad(input: Node) -> Result<BeancountOnlyDirective> {
+        let (date, name, pad): (Date, Account, Account) = match_nodes!(input.into_children();
+            [date(date), account_name(name), account_name(pad)] => (date, name, pad),
+        );
+        Ok(BeancountOnlyDirective::Pad(PadDirective {
+            date,
+            account: name,
+            pad,
+            meta: Default::default(),
+        }))
     }
 
     fn document(input: Node) -> Result<Directive> {
@@ -472,8 +472,8 @@ impl BeancountParer {
             [note(item)]        => Either::Left(item),
             [event(item)]       => Either::Left(item),
             [document(item)]    => Either::Left(item),
-            [balance(item)]     => Either::Left(item), // balance
-            [balance(item)]     => Either::Left(item), // pad
+            [balance(item)]     => Either::Right(item), // balance
+            [pad(item)]         => Either::Right(item), // pad
             [push_tag(item)]    => Either::Right(item),
             [pop_tag(item)]     => Either::Right(item),
             [price(item)]       => Either::Left(item),
@@ -514,8 +514,13 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
 mod test {
 
     mod tag {
-        use crate::directives::BeancountOnlyDirective;
+        use crate::directives::{BalanceDirective, BeancountOnlyDirective, PadDirective};
         use crate::parser::parse;
+        use bigdecimal::BigDecimal;
+        use chrono::NaiveDate;
+        use std::str::FromStr;
+        use zhang_ast::amount::Amount;
+        use zhang_ast::{Account, Date};
 
         #[test]
         fn should_support_push_tag() {
@@ -538,6 +543,45 @@ mod test {
                 .right()
                 .unwrap();
             assert_eq!(BeancountOnlyDirective::PopTag("mytag".to_string()), directive);
+        }
+
+        #[test]
+        fn should_parse_balance() {
+            let directive = parse("1970-01-01 balance Assets:BankAccount 2 CNY", None)
+                .unwrap()
+                .pop()
+                .unwrap()
+                .data
+                .right()
+                .unwrap();
+            assert_eq!(
+                BeancountOnlyDirective::Balance(BalanceDirective {
+                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
+                    account: Account::from_str("Assets:BankAccount").unwrap(),
+                    amount: Amount::new(BigDecimal::from(2i32), "CNY"),
+                    meta: Default::default(),
+                }),
+                directive
+            );
+        }
+        #[test]
+        fn should_parse_pad() {
+            let directive = parse("1970-01-01 pad Assets:BankAccount Assets:BankAccount2", None)
+                .unwrap()
+                .pop()
+                .unwrap()
+                .data
+                .right()
+                .unwrap();
+            assert_eq!(
+                BeancountOnlyDirective::Pad(PadDirective {
+                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
+                    account: Account::from_str("Assets:BankAccount").unwrap(),
+                    pad: Account::from_str("Assets:BankAccount2").unwrap(),
+                    meta: Default::default(),
+                }),
+                directive
+            );
         }
     }
 }
