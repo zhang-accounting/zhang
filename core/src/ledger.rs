@@ -15,7 +15,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Sqlite, SqlitePool};
 
 use zhang_ast::amount::Amount;
-use zhang_ast::{Directive, SpanInfo, Spanned, Transaction};
+use zhang_ast::{Directive, DirectiveType, SpanInfo, Spanned, Transaction};
 
 use crate::database::migrations::Migration;
 use crate::domains::commodity::CommodityDomain;
@@ -128,7 +128,6 @@ impl Ledger {
         let (mut meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
-
         let mut ret_ledger = Self {
             options: Options::default(),
             entry,
@@ -144,7 +143,6 @@ impl Ledger {
         };
 
         for directive in meta_directives.iter_mut().chain(directives.iter_mut()) {
-            dbg!(&directive);
             match &mut directive.data {
                 Directive::Option(option) => option.handler(&mut ret_ledger, &directive.span).await?,
                 Directive::Open(open) => open.handler(&mut ret_ledger, &directive.span).await?,
@@ -173,7 +171,15 @@ impl Ledger {
 
     fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
         directives.sort_by(|a, b| match (a.datetime(), b.datetime()) {
-            (Some(a_datetime), Some(b_datetime)) => a_datetime.cmp(&b_datetime),
+            (Some(a_datetime), Some(b_datetime)) => match a_datetime.cmp(&b_datetime) {
+                Ordering::Equal => match (a.directive_type(), b.directive_type()) {
+                    (DirectiveType::Balance, DirectiveType::Balance) => Ordering::Equal,
+                    (DirectiveType::Balance, _) => Ordering::Less,
+                    (_, DirectiveType::Balance) => Ordering::Greater,
+                    (_, _) => Ordering::Equal,
+                },
+                other => other,
+            },
             _ => Ordering::Greater,
         });
         directives
@@ -453,6 +459,39 @@ mod test {
                 Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
                     1970-01-01 open Assets:Hello
                     1970-01-01 close Assets:Hello
+                "#}))
+            );
+        }
+
+        #[test]
+        fn should_move_balance_to_the_top() {
+            assert_eq!(
+                test_parse_zhang(indoc! {r#"
+                    1970-01-01 balance Assets:Hello 2 CNY
+                    1970-01-01 open Assets:Hello
+                "#})
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec(),
+                Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
+                    1970-01-01 open Assets:Hello
+                    1970-01-01 balance Assets:Hello 2 CNY
+                "#}))
+                .into_iter()
+                .map(|it| it.data)
+                .collect_vec()
+            );
+        }
+        #[test]
+        fn should_keep_balance_order() {
+            assert_eq!(
+                test_parse_zhang(indoc! {r#"
+                    1970-01-01 balance Assets:Hello 2 CNY
+                    1970-01-01 balance Assets:Hello2 2 CNY
+                "#}),
+                Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
+                    1970-01-01 balance Assets:Hello 2 CNY
+                    1970-01-01 balance Assets:Hello2 2 CNY
                 "#}))
             );
         }

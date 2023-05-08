@@ -333,7 +333,6 @@ impl DirectiveProcess for Transaction {
 impl DirectiveProcess for Balance {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
-        dbg!(&self);
         match self {
             Balance::BalanceCheck(balance_check) => {
                 let option: Option<AccountAmount> = sqlx::query_as(
@@ -353,7 +352,6 @@ impl DirectiveProcess for Balance {
                 .await?;
                 let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
 
-                dbg!(&current_balance_amount);
                 let distance = Amount::new(
                     (&balance_check.amount.number).sub(&current_balance_amount),
                     balance_check.amount.currency.clone(),
