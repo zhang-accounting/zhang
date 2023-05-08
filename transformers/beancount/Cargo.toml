@@ -16,6 +16,7 @@ log = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 bigdecimal = { version = "0.3", features = ["serde"] }
 snailquote = "0.3"
+latestmap = "0.1"
 
 
 [dev-dependencies]

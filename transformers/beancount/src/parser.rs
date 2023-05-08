@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use crate::directives::{BeancountDirective, BeancountOnlyDirective};
 use bigdecimal::BigDecimal;
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDate;
 use itertools::{Either, Itertools};
 use pest_consume::{match_nodes, Error, Parser};
 use snailquote::unescape;
@@ -513,43 +513,6 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
 #[cfg(test)]
 mod test {
 
-    macro_rules! quote {
-        ($s: expr) => {
-            zhang_ast::ZhangString::QuoteString($s.to_string())
-        };
-    }
-    // macro_rules! unquote {
-    //     ($s: expr) => {
-    //         crate::core::models::ZhangString::UnquoteString($s.to_string())
-    //     };
-    // }
-    macro_rules! date {
-        ($year: expr,$month: expr, $day: expr) => {
-            zhang_ast::Date::Date(chrono::NaiveDate::from_ymd_opt($year, $month, $day).unwrap())
-        };
-        ($year: expr,$month: expr, $day: expr,$hour: expr,$min: expr) => {
-            zhang_ast::Date::DateHour(
-                chrono::NaiveDate::from_ymd_opt($year, $month, $day)
-                    .unwrap()
-                    .and_hms_opt($hour, $min, 0)
-                    .unwrap(),
-            )
-        };
-        ($year: expr,$month: expr, $day: expr,$hour: expr,$min: expr,$sec: expr) => {
-            zhang_ast::Date::Datetime(
-                chrono::NaiveDate::from_ymd_opt($year, $month, $day)
-                    .unwrap()
-                    .and_hms_opt($hour, $min, $sec)
-                    .unwrap(),
-            )
-        };
-    }
-    macro_rules! account {
-        ($account: expr) => {{
-            use std::str::FromStr;
-            zhang_ast::account::Account::from_str($account).unwrap()
-        }};
-    }
     mod tag {
         use crate::directives::BeancountOnlyDirective;
         use crate::parser::parse;
@@ -567,7 +530,8 @@ mod test {
         }
         #[test]
         fn should_support_pop_tag() {
-            let directive = parse("poptag #mytag", None) .unwrap()
+            let directive = parse("poptag #mytag", None)
+                .unwrap()
                 .pop()
                 .unwrap()
                 .data

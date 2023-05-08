@@ -428,6 +428,7 @@ dependencies = [
  "chrono",
  "indoc",
  "itertools 0.9.0",
+ "latestmap",
  "log",
  "pest",
  "pest_consume",
@@ -1469,6 +1470,12 @@ name = "language-tags"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4345964bb142484797b161f473a503a434de77149dd8c7427788c6e13379388"
+
+[[package]]
+name = "latestmap"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d4b66051ad858040146bbcf6734e84724f04d7522ca2152775d6af858fd1da7"
 
 [[package]]
 name = "lazy_static"

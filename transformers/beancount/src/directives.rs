@@ -1,7 +1,6 @@
 use itertools::Either;
-use zhang_ast::{Account, Date, Directive, Meta};
 use zhang_ast::amount::Amount;
-
+use zhang_ast::{Account, Date, Directive, Meta};
 
 pub type BeancountDirective = Either<Directive, BeancountOnlyDirective>;
 
@@ -10,7 +9,7 @@ pub enum BeancountOnlyDirective {
     PushTag(String),
     PopTag(String),
     Pad(PadDirective),
-    Balance(BalanceDirective)
+    Balance(BalanceDirective),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
