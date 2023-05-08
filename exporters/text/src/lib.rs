@@ -400,6 +400,12 @@ mod test {
         assert_parse!(
             "open with single commodity",
             indoc! {r#"
+            1970-01-01 open Equity:hello
+        "#}
+        );
+        assert_parse!(
+            "open with single commodity",
+            indoc! {r#"
             1970-01-01 open Equity:hello CNY
         "#}
         );
