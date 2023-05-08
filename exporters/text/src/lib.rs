@@ -37,7 +37,10 @@ impl AppendableExporter for TextExporter {
                 })],
             )?;
         }
-        let directive_content = format!("\n{}\n", directives.into_iter().map(|it| it.export()).join("\n"));
+        let directive_content = format!(
+            "\n{}\n",
+            directives.into_iter().map(|it| self.export_directive(it)).join("\n")
+        );
         let mut ledger_base_file = OpenOptions::new().append(true).create(true).open(&endpoint).unwrap();
         Ok(ledger_base_file.write_all(directive_content.as_bytes())?)
     }
@@ -56,7 +59,7 @@ pub trait TextExportable {
     fn export(self) -> Self::Output;
 }
 
-fn append_meta(meta: Meta, string: String) -> String {
+pub fn append_meta(meta: Meta, string: String) -> String {
     let mut metas = meta.export().into_iter().map(|it| format!("  {}", it)).collect_vec();
     metas.insert(0, string);
     metas.join("\n")

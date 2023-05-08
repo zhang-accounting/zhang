@@ -77,7 +77,7 @@ impl Ledger {
     }
 
     pub async fn load_with_database(
-        entry: PathBuf, endpoint: String, database: Option<PathBuf>, transformer: Arc<dyn Transformer>
+        entry: PathBuf, endpoint: String, database: Option<PathBuf>, transformer: Arc<dyn Transformer>,
     ) -> ZhangResult<Ledger> {
         let entry = entry.canonicalize().with_path(&entry)?;
 

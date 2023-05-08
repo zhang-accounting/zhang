@@ -110,7 +110,7 @@ impl Opts {
                     parse_opts.path,
                     parse_opts.endpoint,
                     parse_opts.database,
-                    format.transformer()
+                    format.transformer(),
                 )
                 .await
                 .expect("Cannot load ledger");
@@ -122,17 +122,15 @@ impl Opts {
                     _ => SupportedFormat::Zhang,
                 };
 
-                zhang_server::serve(
-                    ServeConfig {
-                        path: opts.path,
-                        endpoint: opts.endpoint,
-                        port: opts.port,
-                        database: opts.database,
-                        no_report: opts.no_report,
-                        exporter: format.exporter(),
-                        transformer: format.transformer()
-                    },
-                )
+                zhang_server::serve(ServeConfig {
+                    path: opts.path,
+                    endpoint: opts.endpoint,
+                    port: opts.port,
+                    database: opts.database,
+                    no_report: opts.no_report,
+                    exporter: format.exporter(),
+                    transformer: format.transformer(),
+                })
                 .await
                 .expect("cannot serve")
             }
