@@ -138,7 +138,7 @@ mod test {
                 ),
                 Spanned::new(
                     BeancountDirective::Left(Directive::Transaction(Transaction {
-                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 01, 01).unwrap()),
+                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
                         flag: None,
                         payee: None,
                         narration: None,
@@ -175,7 +175,7 @@ mod test {
                 ),
                 Spanned::new(
                     BeancountDirective::Left(Directive::Transaction(Transaction {
-                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 01, 01).unwrap()),
+                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
                         flag: None,
                         payee: None,
                         narration: None,
@@ -203,7 +203,7 @@ mod test {
         let directives = transformer
             .transform(vec![Spanned::new(
                 BeancountDirective::Right(BeancountOnlyDirective::Pad(PadDirective {
-                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 01, 01).unwrap()),
+                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
                     account: Account::from_str("Assets::BankAccount").unwrap(),
                     pad: Account::from_str("Equity::Open-Balances").unwrap(),
                     meta: Default::default(),
@@ -221,7 +221,7 @@ mod test {
         let mut directives = transformer
             .transform(vec![Spanned::new(
                 BeancountDirective::Right(BeancountOnlyDirective::Balance(BalanceDirective {
-                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 01, 02).unwrap()),
+                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
                     account: Account::from_str("Assets::BankAccount").unwrap(),
                     meta: Default::default(),
                     amount: Amount::new(BigDecimal::from(100i32), "CNY"),
@@ -237,7 +237,7 @@ mod test {
         assert_eq!(
             balance_pad_directive,
             Directive::Balance(Balance::BalanceCheck(BalanceCheck {
-                date: Date::Date(NaiveDate::from_ymd_opt(1970, 01, 02).unwrap()),
+                date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
                 account: Account::from_str("Assets::BankAccount").unwrap(),
                 amount: Amount::new(BigDecimal::from(100i32), "CNY"),
                 meta: Default::default(),
@@ -252,7 +252,7 @@ mod test {
             .transform(vec![
                 Spanned::new(
                     BeancountDirective::Right(BeancountOnlyDirective::Pad(PadDirective {
-                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 01, 01).unwrap()),
+                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
                         account: Account::from_str("Assets::BankAccount").unwrap(),
                         pad: Account::from_str("Equity::Open-Balances").unwrap(),
                         meta: Default::default(),
@@ -261,7 +261,7 @@ mod test {
                 ),
                 Spanned::new(
                     BeancountDirective::Right(BeancountOnlyDirective::Balance(BalanceDirective {
-                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 01, 02).unwrap()),
+                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
                         account: Account::from_str("Assets::BankAccount").unwrap(),
                         meta: Default::default(),
                         amount: Amount::new(BigDecimal::from(100i32), "CNY"),
@@ -278,7 +278,7 @@ mod test {
         assert_eq!(
             balance_pad_directive,
             Directive::Balance(Balance::BalancePad(BalancePad {
-                date: Date::Date(NaiveDate::from_ymd_opt(1970, 01, 02).unwrap()),
+                date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
                 account: Account::from_str("Assets::BankAccount").unwrap(),
                 amount: Amount::new(BigDecimal::from(100i32), "CNY"),
                 pad: Account::from_str("Equity::Open-Balances").unwrap(),

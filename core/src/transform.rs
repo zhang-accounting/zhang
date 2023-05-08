@@ -62,7 +62,7 @@ where
                             .iter()
                             .filter_map(|directive| self.go_next(directive))
                             .for_each(|buf| {
-                                let fullpath = if buf.starts_with("/") {
+                                let fullpath = if buf.starts_with('/') {
                                     buf
                                 } else {
                                     path.parent()

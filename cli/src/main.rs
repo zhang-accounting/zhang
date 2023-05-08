@@ -101,7 +101,7 @@ impl Opts {
     pub async fn run(self) {
         match self {
             Opts::Parse(parse_opts) => {
-                let format = match parse_opts.endpoint.rsplit_once(".") {
+                let format = match parse_opts.endpoint.rsplit_once('.') {
                     Some((_, "bc")) | Some((_, "bean")) => SupportedFormat::Beancount,
                     _ => SupportedFormat::Zhang,
                 };
@@ -117,7 +117,7 @@ impl Opts {
             }
             Opts::Export(_) => todo!(),
             Opts::Serve(opts) => {
-                let format = match opts.endpoint.rsplit_once(".") {
+                let format = match opts.endpoint.rsplit_once('.') {
                     Some((_, "bc")) | Some((_, "bean")) => SupportedFormat::Beancount,
                     _ => SupportedFormat::Zhang,
                 };
