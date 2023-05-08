@@ -1,10 +1,12 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use beancount_transformer::BeancountTransformer;
 use clap::{Args, Parser};
 use env_logger::Env;
 use log::LevelFilter;
+
+use beancount_exporter::BeancountExporter;
+use beancount_transformer::BeancountTransformer;
 use text_exporter::TextExporter;
 use text_transformer::TextTransformer;
 use zhang_core::exporter::AppendableExporter;
@@ -86,6 +88,16 @@ enum SupportedFormat {
 }
 
 impl SupportedFormat {
+    fn from_path(path: impl AsRef<Path>) -> Option<SupportedFormat> {
+        path.as_ref()
+            .extension()
+            .and_then(|it| it.to_str())
+            .and_then(|ext| match ext {
+                "bc" | "bean" => Some(SupportedFormat::Beancount),
+                "zhang" => Some(SupportedFormat::Zhang),
+                _ => None,
+            })
+    }
     fn transformer(&self) -> Arc<dyn Transformer + 'static> {
         match self {
             SupportedFormat::Zhang => Arc::new(TextTransformer::default()),
@@ -93,7 +105,10 @@ impl SupportedFormat {
         }
     }
     fn exporter(&self) -> Arc<dyn AppendableExporter> {
-        Arc::new(TextExporter {})
+        match self {
+            SupportedFormat::Zhang => Arc::new(TextExporter {}),
+            SupportedFormat::Beancount => Arc::new(BeancountExporter {}),
+        }
     }
 }
 
@@ -101,11 +116,7 @@ impl Opts {
     pub async fn run(self) {
         match self {
             Opts::Parse(parse_opts) => {
-                let format = match parse_opts.endpoint.rsplit_once('.') {
-                    Some((_, "bc")) | Some((_, "bean")) => SupportedFormat::Beancount,
-                    _ => SupportedFormat::Zhang,
-                };
-
+                let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");
                 Ledger::load_with_database(
                     parse_opts.path,
                     parse_opts.endpoint,
@@ -117,11 +128,7 @@ impl Opts {
             }
             Opts::Export(_) => todo!(),
             Opts::Serve(opts) => {
-                let format = match opts.endpoint.rsplit_once('.') {
-                    Some((_, "bc")) | Some((_, "bean")) => SupportedFormat::Beancount,
-                    _ => SupportedFormat::Zhang,
-                };
-
+                let format = SupportedFormat::from_path(&opts.endpoint).expect("unsupported file type");
                 zhang_server::serve(ServeConfig {
                     path: opts.path,
                     endpoint: opts.endpoint,

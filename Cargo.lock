@@ -3159,6 +3159,7 @@ dependencies = [
 name = "zhang"
 version = "0.0.1-alpha.1"
 dependencies = [
+ "beancount-exporter",
  "beancount-transformer",
  "clap",
  "env_logger",

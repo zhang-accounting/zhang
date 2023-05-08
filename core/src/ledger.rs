@@ -144,6 +144,7 @@ impl Ledger {
         };
 
         for directive in meta_directives.iter_mut().chain(directives.iter_mut()) {
+            dbg!(&directive);
             match &mut directive.data {
                 Directive::Option(option) => option.handler(&mut ret_ledger, &directive.span).await?,
                 Directive::Open(open) => open.handler(&mut ret_ledger, &directive.span).await?,
