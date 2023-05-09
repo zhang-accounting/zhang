@@ -1,6 +1,6 @@
 entry = { SOI ~ line* ~ (item ~ NEWLINE+)* ~ item? ~ EOI }
 
-item = { option | plugin | commodity | open | close | include | note | balance | document | price | event | custom | transaction | comment }
+item = { option | plugin | commodity | open | close | include | note | balance | pad | document | price | event | custom | transaction | comment | push_tag | pop_tag }
 
 option      = { "option" ~ space+ ~ string ~ space+ ~ string }
 plugin      = { "plugin" ~ space+ ~ string ~ (space+ ~ string)* }
@@ -9,12 +9,15 @@ commodity   = { date ~ space+ ~ "commodity" ~ space+ ~ commodity_name ~ commodit
 open        = { date ~ space+ ~ "open" ~ space+ ~ account_name ~ (space+ ~ commodity_name ~ (space* ~ "," ~ space* ~ commodity_name)*)? ~ commodity_meta? }
 close       = { date ~ space+ ~ "close" ~ space+ ~ account_name }
 note        = { date ~ space+ ~ "note" ~ space+ ~ account_name ~ space+ ~ string }
-balance     = { date ~ space+ ~ "balance" ~ space+ ~ account_name ~ space+ ~ number ~ space+ ~ commodity_name ~ (space+ ~ "with" ~ space+ ~ "pad" ~ space+ ~ account_name)? }
+pad         = { date ~ space+ ~ "pad" ~ space+ ~ account_name ~ space+ ~ account_name }
+balance     = { date ~ space+ ~ "balance" ~ space+ ~ account_name ~ space+ ~ number ~ space+ ~ commodity_name }
 document    = { date ~ space+ ~ "document" ~ space+ ~ account_name ~ space+ ~ string }
 price       = { date ~ space+ ~ "price" ~ space+ ~ commodity_name ~ space+ ~ number ~ space+ ~ commodity_name }
 event       = { date ~ space+ ~ "event" ~ space+ ~ string ~ space+ ~ string }
 custom      = { date ~ space+ ~ "custom" ~ space+ ~ string ~ (space+ ~ string_or_account)+ }
 transaction = { date ~ transaction_flag? ~ (space+ ~ quote_string){0, 2} ~ tags? ~ links? ~ transaction_detail }
+push_tag     = { "pushtag" ~ space+ ~ tag }
+pop_tag      = { "poptag" ~ space+ ~ tag }
 
 comment = { (";" | "*" | "#" | "//") ~ (!line ~ ANY)* }
 
@@ -52,11 +55,11 @@ commodity_lines     = _{ commodity_line ~ (commodity_next_line)* }
 commodity_next_line = _{ identation ~ commodity_line }
 commodity_line      =  { string ~ space* ~ ":" ~ space* ~ string ~ space* }
 
-date = { datetime | date_hour | date_only }
-
+date = { date_only }
 date_only = { ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{1, 2} ~ "-" ~ ASCII_DIGIT{1, 2} }
-datetime  = { ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{1, 2} ~ "-" ~ ASCII_DIGIT{1, 2} ~ " " ~ ASCII_DIGIT{1, 2} ~ ":" ~ ASCII_DIGIT{1, 2} ~ ":" ~ ASCII_DIGIT{1, 2} }
-date_hour = { ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{1, 2} ~ "-" ~ ASCII_DIGIT{1, 2} ~ " " ~ ASCII_DIGIT{1, 2} ~ ":" ~ ASCII_DIGIT{1, 2} }
+
+time      = { time_part ~ ":" ~ time_part ~ ":" ~ time_part }
+time_part = { ASCII_DIGIT{1, 2} }
 
 account_name   =  { account_type ~ (":" ~ unquote_string)+ }
 account_type   =  { "Assets" | "Liabilities" | "Equity" | "Income" | "Expenses" }

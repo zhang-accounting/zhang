@@ -37,7 +37,10 @@ impl AppendableExporter for TextExporter {
                 })],
             )?;
         }
-        let directive_content = format!("\n{}\n", directives.into_iter().map(|it| it.export()).join("\n"));
+        let directive_content = format!(
+            "\n{}\n",
+            directives.into_iter().map(|it| self.export_directive(it)).join("\n")
+        );
         let mut ledger_base_file = OpenOptions::new().append(true).create(true).open(&endpoint).unwrap();
         Ok(ledger_base_file.write_all(directive_content.as_bytes())?)
     }
@@ -56,7 +59,7 @@ pub trait TextExportable {
     fn export(self) -> Self::Output;
 }
 
-fn append_meta(meta: Meta, string: String) -> String {
+pub fn append_meta(meta: Meta, string: String) -> String {
     let mut metas = meta.export().into_iter().map(|it| format!("  {}", it)).collect_vec();
     metas.insert(0, string);
     metas.join("\n")
@@ -196,8 +199,11 @@ impl TextExportable for Open {
     type Output = String;
     fn export(self) -> String {
         let mut line = vec![self.date.export(), "open".to_string(), self.account.export()];
-        let commodities = self.commodities.iter().join(", ");
-        line.push(commodities);
+        if !self.commodities.is_empty() {
+            let commodities = self.commodities.iter().join(", ");
+            line.push(commodities);
+        }
+
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -374,23 +380,29 @@ mod test {
     use std::option::Option::None;
 
     use indoc::indoc;
-    use text_transformer::parse_zhang;
+    use text_transformer::parse;
 
     use crate::TextExportable;
 
-    fn parse(from: &str) -> String {
-        let directive = parse_zhang(from, None).unwrap().into_iter().next().unwrap();
+    fn parse_and_export(from: &str) -> String {
+        let directive = parse(from, None).unwrap().into_iter().next().unwrap();
         directive.data.export()
     }
 
     macro_rules! assert_parse {
         ($msg: expr, $content: expr) => {
-            assert_eq!($content.trim(), parse($content).trim(), $msg);
+            assert_eq!($content.trim(), parse_and_export($content.trim()), $msg);
         };
     }
 
     #[test]
     fn open_to_text() {
+        assert_parse!(
+            "open with single commodity",
+            indoc! {r#"
+            1970-01-01 open Equity:hello
+        "#}
+        );
         assert_parse!(
             "open with single commodity",
             indoc! {r#"

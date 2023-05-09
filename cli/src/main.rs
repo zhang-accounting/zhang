@@ -1,13 +1,17 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::{Args, Parser};
 use env_logger::Env;
 use log::LevelFilter;
+
+use beancount_exporter::BeancountExporter;
+use beancount_transformer::BeancountTransformer;
 use text_exporter::TextExporter;
 use text_transformer::TextTransformer;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
+use zhang_core::transform::Transformer;
 use zhang_server::ServeConfig;
 
 #[derive(Parser, Debug)]
@@ -78,29 +82,61 @@ pub struct ServerOpts {
     pub no_report: bool,
 }
 
+enum SupportedFormat {
+    Zhang,
+    Beancount,
+}
+
+impl SupportedFormat {
+    fn from_path(path: impl AsRef<Path>) -> Option<SupportedFormat> {
+        path.as_ref()
+            .extension()
+            .and_then(|it| it.to_str())
+            .and_then(|ext| match ext {
+                "bc" | "bean" => Some(SupportedFormat::Beancount),
+                "zhang" => Some(SupportedFormat::Zhang),
+                _ => None,
+            })
+    }
+    fn transformer(&self) -> Arc<dyn Transformer + 'static> {
+        match self {
+            SupportedFormat::Zhang => Arc::new(TextTransformer::default()),
+            SupportedFormat::Beancount => Arc::new(BeancountTransformer::default()),
+        }
+    }
+    fn exporter(&self) -> Arc<dyn AppendableExporter> {
+        match self {
+            SupportedFormat::Zhang => Arc::new(TextExporter {}),
+            SupportedFormat::Beancount => Arc::new(BeancountExporter {}),
+        }
+    }
+}
+
 impl Opts {
     pub async fn run(self) {
         match self {
             Opts::Parse(parse_opts) => {
-                Ledger::load_with_database::<TextTransformer>(
+                let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");
+                Ledger::load_with_database(
                     parse_opts.path,
                     parse_opts.endpoint,
                     parse_opts.database,
+                    format.transformer(),
                 )
                 .await
                 .expect("Cannot load ledger");
             }
             Opts::Export(_) => todo!(),
             Opts::Serve(opts) => {
-                // todo(feat): detect transformer and exporter based on file extension
-                let exporter: Arc<dyn AppendableExporter> = Arc::new(TextExporter {});
-                zhang_server::serve::<TextTransformer>(ServeConfig {
+                let format = SupportedFormat::from_path(&opts.endpoint).expect("unsupported file type");
+                zhang_server::serve(ServeConfig {
                     path: opts.path,
                     endpoint: opts.endpoint,
                     port: opts.port,
                     database: opts.database,
                     no_report: opts.no_report,
-                    exporter,
+                    exporter: format.exporter(),
+                    transformer: format.transformer(),
                 })
                 .await
                 .expect("cannot serve")

@@ -342,7 +342,7 @@ impl DirectiveProcess for Balance {
                              join transaction_postings on transactions.id = transaction_postings.trx_id
                     where account = $1
                       and datetime <= $2 and account_after_commodity = $3
-                    order by datetime desc
+                    order by datetime desc, sequence desc
                 "#,
                 )
                 .bind(balance_check.account.name())
@@ -409,7 +409,7 @@ impl DirectiveProcess for Balance {
                              join transaction_postings on transactions.id = transaction_postings.trx_id
                     where account = $1
                       and datetime <= $2 and account_after_commodity = $3
-                    order by datetime desc
+                    order by datetime desc, sequence desc
                 "#,
                 )
                 .bind(balance_pad.account.name())
