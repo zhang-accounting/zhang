@@ -1,7 +1,7 @@
-import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
-import { RootState } from '.';
-import { fetcher } from '..';
-import { Account, AccountStatus, LoadingState } from '../rest-model';
+import {createAsyncThunk, createSlice} from '@reduxjs/toolkit';
+import {RootState} from '.';
+import {fetcher} from '..';
+import {Account, AccountStatus, LoadingState} from '../rest-model';
 import AccountTrie from '../utils/AccountTrie';
 
 export const fetchAccounts = createAsyncThunk('accounts/fetch', async (thunkApi) => {
@@ -50,4 +50,16 @@ export const getAccountsTrie = (hideClosedAccount: boolean) => (state: RootState
     trie.insert(account);
   }
   return trie;
+};
+
+
+export const getAccountSelectItems = ()=> (state: RootState) => {
+  return state.accounts.data.map(account => {
+    const type = account.name.split(':')[0];
+    return {
+      label: account.name,
+      value: account.name,
+      group: type,
+    };
+  })
 };
