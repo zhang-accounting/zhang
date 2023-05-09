@@ -43,6 +43,7 @@ import { basicInfoSlice, fetchBasicInfo } from './states/basic';
 import { fetchCommodities } from './states/commodity';
 import { fetchError } from './states/errors';
 import { journalsSlice } from './states/journals';
+import BatchBalance from "./pages/tools/BatchBalance";
 
 const useStyles = createStyles((theme) => ({
   onlineIcon: {
@@ -335,6 +336,7 @@ export default function App() {
         <Route path="/report" element={<Report />} />
         <Route path="/tools" element={<ToolList />} />
         <Route path="/tools/wechat-exporter" element={<WechatExporter />} />
+        <Route path="/tools/batch-balance" element={<BatchBalance />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>
     </AppShell>

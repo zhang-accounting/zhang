@@ -3,7 +3,7 @@ WORKDIR /app
 COPY . /app
 
 RUN mkdir /data
-RUN cargo build --release
+RUN cargo build --release --features frontend
 
 FROM gcr.io/distroless/cc
 LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
@@ -15,4 +15,4 @@ WORKDIR application
 VOLUME "/data"
 EXPOSE 8000
 
-ENTRYPOINT ["./zhang", "server", "/data", "--port", "8000"]
+ENTRYPOINT ["./zhang", "serve", "/data", "--port", "8000"]

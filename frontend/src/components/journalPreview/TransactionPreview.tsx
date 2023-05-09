@@ -1,4 +1,4 @@
-import { Badge, Box, Group, Text } from '@mantine/core';
+import { Badge, Box, Group, SimpleGrid, Text } from '@mantine/core';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../rest-model';
 import Amount from '../Amount';
@@ -76,14 +76,22 @@ export default function TransactionPreview(props: Props) {
 
       <Box mx={1} my={4}>
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
-          <AccountDocumentUpload url={`/api/transactions/${props.data.id}/documents`} />
-          <Box>
+          <SimpleGrid
+            cols={4}
+            spacing="sm"
+            breakpoints={[
+              { maxWidth: 'md', cols: 3, spacing: 'md' },
+              { maxWidth: 'sm', cols: 2, spacing: 'sm' },
+              { maxWidth: 'xs', cols: 1, spacing: 'sm' },
+            ]}
+          >
             {props.data.metas
               .filter((meta) => meta.key === 'document')
               .map((meta, idx) => (
                 <DocumentPreview key={idx} uri={meta.value} filename={meta.value} />
               ))}
-          </Box>
+            <AccountDocumentUpload url={`/api/transactions/${props.data.id}/documents`} />
+          </SimpleGrid>
         </Section>
       </Box>
     </div>

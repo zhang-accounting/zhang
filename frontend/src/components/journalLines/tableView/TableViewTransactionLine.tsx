@@ -60,7 +60,7 @@ export default function TableViewTransactionLine({ data }: Props) {
       size: 'lg',
       centered: true,
       innerProps: {
-        data: data,
+        journalId: data.id,
       },
     });
   };
