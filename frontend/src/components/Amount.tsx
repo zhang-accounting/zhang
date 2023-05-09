@@ -20,13 +20,16 @@ interface Props {
   amount: string | number | BigNumber;
   currency: string;
   negetive?: boolean;
+  mask?: boolean,
 }
 
-export default function Amount({ amount, currency, negetive }: Props) {
+export default function Amount({ amount, currency, negetive,mask }: Props) {
   const { classes } = useStyles();
   const commodity = useAppSelector(getCommodityByName(currency));
 
   const flag = negetive || false ? -1 : 1;
+  const shouldMask = mask || false;
+  const shouldDisplayCurrencyName = !!!commodity?.prefix && !!!commodity?.suffix;
 
   let parsedValue: BigNumber;
   if (typeof amount === 'string') {
@@ -36,9 +39,10 @@ export default function Amount({ amount, currency, negetive }: Props) {
   } else {
     parsedValue = amount;
   }
-  const value = parsedValue.multipliedBy(flag);
-  const shouldDisplayCurrencyName = !!!commodity?.prefix && !!!commodity?.suffix;
 
+  const value = parsedValue.multipliedBy(flag);
+  const displayedValue = value.toFormat(commodity?.precision ?? 2);
+  const maskedValue = shouldMask ? displayedValue.replace(/\d/g, "*") : displayedValue;
   return (
     <span className={classes.wrapper}>
       {commodity?.prefix && (
@@ -46,7 +50,7 @@ export default function Amount({ amount, currency, negetive }: Props) {
           {commodity?.prefix}
         </Text>
       )}
-      <Text className={classes.number}>{value.toFormat(commodity?.precision ?? 2)}</Text>
+      <Text className={classes.number}>{maskedValue}</Text>
       {commodity?.suffix && (
         <Text mx={1} className={classes.postfix}>
           {commodity?.suffix}
