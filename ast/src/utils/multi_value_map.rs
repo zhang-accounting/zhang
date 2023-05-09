@@ -38,10 +38,7 @@ impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
         let value_len = self.inner.get(key.borrow()).map(|values| values.len());
         match value_len {
             Some(1) => self.inner.remove(key.borrow()).and_then(|mut values| values.pop()),
-            Some(_) => self
-                .inner
-                .get_mut(key.borrow())
-                .and_then(|values| Some(values.remove(0))),
+            Some(_) => self.inner.get_mut(key.borrow()).map(|values| values.remove(0)),
             None => None,
         }
     }
