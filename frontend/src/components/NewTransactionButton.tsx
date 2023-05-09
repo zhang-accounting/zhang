@@ -110,6 +110,12 @@ export default function NewTransactionButton() {
         });
       })
       .catch(function (error) {
+        showNotification({
+          title: 'Fail to create new Transaction',
+          color: 'red',
+          message: error?.response?.data ?? "",
+          autoClose:false
+        });
         console.log(error);
       });
   };

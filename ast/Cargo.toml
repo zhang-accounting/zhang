@@ -1,0 +1,18 @@
+[package]
+name = "zhang-ast"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0.136", features = ["derive"] }
+strum = { version = "0.19.5", features = ["derive"] }
+strum_macros = "0.19.4"
+indexmap = { version = "1.9.1", features = ["serde-1"] }
+itertools = "0.9.0"
+chrono = { version = "0.4.19", features = ["serde"] }
+bigdecimal = { version = "0.3", features = ["serde"] }
+
+[dev-dependencies]
+indoc = "1.0.3"

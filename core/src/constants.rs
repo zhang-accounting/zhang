@@ -1,0 +1,1 @@
+pub const DEFAULT_COMMODITY_PRECISION: i32 = 2;

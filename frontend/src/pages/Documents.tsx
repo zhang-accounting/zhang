@@ -1,12 +1,13 @@
-import { Badge, Button, Container, Grid, Group, Table, Title } from '@mantine/core';
+import { Badge, Button, Container, Group, SimpleGrid, Table, Title } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
+import { openContextModal } from '@mantine/modals';
 import { IconLayout2, IconListDetails } from '@tabler/icons';
 import { format } from 'date-fns';
+import { groupBy } from 'lodash';
 import useSWR from 'swr';
 import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import { fetcher } from '../index';
 import { Document } from '../rest-model';
-import { openContextModal } from '@mantine/modals';
 
 export default function Documents() {
   const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
@@ -27,6 +28,8 @@ export default function Documents() {
       },
     });
   };
+
+  const groupedDocuments = groupBy(documents, document => format(new Date(document.datetime), "yyyy-MM"))
   return (
     <Container fluid>
       <Group position="apart">
@@ -41,19 +44,37 @@ export default function Documents() {
         </Button.Group>
       </Group>
 
+
+
       {layout === 'Grid' ? (
-        <Grid gutter="xs" mt="lg">
-          {documents.map((document, idx) => (
-            <Grid.Col key={idx} span={3}>
-              <AccountDocumentLine {...document} />
-            </Grid.Col>
-          ))}
-        </Grid>
+        <>
+          {Object.values(groupedDocuments).map((targetMonthDocuments, idx) =>
+            <>
+              <Title key={`title=${idx}`} order={3} mt={"lg"} mb="sm">{format(new Date(targetMonthDocuments[0].datetime), "MMM yyyy")}</Title>
+              <SimpleGrid
+                key={`grid=${idx}`}
+                cols={6}
+                spacing="lg"
+                breakpoints={[
+                  { maxWidth: 'lg', cols: 4, spacing: 'md' },
+                  { maxWidth: 'sm', cols: 2, spacing: 'sm' },
+                  { maxWidth: 'xs', cols: 1, spacing: 'sm' },
+                ]}
+              >
+                {targetMonthDocuments.map((document, idx) => (
+                  <AccountDocumentLine key={idx} {...document} />
+                ))}
+              </SimpleGrid>
+            </>
+          )}
+        </>
+
+
+
       ) : (
         <Table verticalSpacing="xs" highlightOnHover>
           <thead>
             <tr>
-              <th>File Type</th>
               <th>Filename</th>
               <th style={{}}>Linked Directive</th>
               <th>Created Date</th>
@@ -63,10 +84,12 @@ export default function Documents() {
           <tbody>
             {documents.map((document, idx) => (
               <tr>
-                <td>
+                <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
+                  <div>
+                    {document.filename}
+                  </div>
                   <Badge color="dark">{document.filename.split('.').pop()}</Badge>
                 </td>
-                <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>{document.filename}</td>
                 <td>
                   {document.account && <Badge variant="dot">{document.account}</Badge>}
                   {document.trx_id && (
