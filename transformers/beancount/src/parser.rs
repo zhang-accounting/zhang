@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
 use bigdecimal::BigDecimal;
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveTime};
 use itertools::{Either, Itertools};
 use pest_consume::{match_nodes, Error, Parser};
 use snailquote::unescape;
@@ -484,6 +484,18 @@ impl BeancountParer {
         );
         Ok((ret, span_info))
     }
+
+    fn time_part(input: Node) -> Result<u32> {
+        Ok(u32::from_str(input.as_str()).unwrap())
+    }
+
+    fn time(input: Node) -> Result<NaiveTime> {
+        let (hour, min, sec): (u32, u32, u32) = match_nodes!(input.into_children();
+            [time_part(hour), time_part(min), time_part(sec)] => (hour, min, sec),
+        );
+        Ok(NaiveTime::from_hms_opt(hour, min, sec).expect("not a valid time"))
+    }
+
     fn entry(input: Node) -> Result<Vec<Spanned<BeancountDirective>>> {
         let ret: Vec<(BeancountDirective, SpanInfo)> = match_nodes!(input.into_children();
             [item(items).., _] => items.collect(),
@@ -508,6 +520,11 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
             .for_each(|directive| directive.span.filename = file.clone());
         directives
     })
+}
+pub fn parse_time(input_str: &str) -> Result<NaiveTime> {
+    let inputs = BeancountParer::parse(Rule::time, input_str)?;
+    let input = inputs.single()?;
+    BeancountParer::time(input)
 }
 
 #[cfg(test)]

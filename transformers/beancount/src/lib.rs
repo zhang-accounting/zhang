@@ -3,7 +3,7 @@ use itertools::{Either, Itertools};
 use latestmap::LatestMap;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use zhang_ast::{Account, Balance, BalanceCheck, BalancePad, Directive, Spanned};
+use zhang_ast::{Account, Balance, BalanceCheck, BalancePad, Date, Directive, Spanned};
 use zhang_core::transform::TextFileBasedTransformer;
 use zhang_core::{ZhangError, ZhangResult};
 
@@ -14,10 +14,51 @@ pub mod parser;
 pub mod directives;
 
 pub use crate::directives::{BeancountDirective, BeancountOnlyDirective};
+use crate::parser::parse_time;
 pub use parser::parse;
 
 #[derive(Clone, Default)]
 pub struct BeancountTransformer {}
+
+macro_rules! extract_time {
+    ($directive: tt) => {{
+        let time = $directive
+            .meta
+            .pop_one("time")
+            .and_then(|it| parse_time(it.as_str()).ok());
+        if let Some(time) = time {
+            $directive.date = Date::Datetime($directive.date.naive_date().and_time(time));
+        }
+    }};
+}
+
+impl BeancountTransformer {
+    fn extract_time_from_meta(&self, directive: &mut BeancountDirective) {
+        match directive {
+            Either::Left(zhang_directive) => match zhang_directive {
+                Directive::Open(directive) => extract_time!(directive),
+                Directive::Close(directive) => extract_time!(directive),
+                Directive::Commodity(directive) => extract_time!(directive),
+                Directive::Transaction(directive) => extract_time!(directive),
+                Directive::Balance(directive) => match directive {
+                    Balance::BalanceCheck(balance_check) => extract_time!(balance_check),
+                    Balance::BalancePad(balance_pad) => extract_time!(balance_pad),
+                },
+                Directive::Note(directive) => extract_time!(directive),
+                Directive::Document(directive) => extract_time!(directive),
+                Directive::Price(directive) => extract_time!(directive),
+                Directive::Event(directive) => extract_time!(directive),
+                Directive::Custom(directive) => extract_time!(directive),
+                _ => {}
+            },
+            Either::Right(beancount_onyly_directive) => match beancount_onyly_directive {
+                BeancountOnlyDirective::Pad(directive) => extract_time!(directive),
+                BeancountOnlyDirective::Balance(directive) => extract_time!(directive),
+                _ => {}
+            },
+        }
+    }
+}
 
 impl TextFileBasedTransformer for BeancountTransformer {
     type FileOutput = Spanned<BeancountDirective>;
@@ -39,7 +80,8 @@ impl TextFileBasedTransformer for BeancountTransformer {
         let mut pad_info: LatestMap<NaiveDate, HashMap<String, Account>> = LatestMap::default();
 
         for directives in directives {
-            let Spanned { span, data } = directives;
+            let Spanned { span, mut data } = directives;
+            self.extract_time_from_meta(&mut data);
             match data {
                 Either::Left(zhang_directive) => match zhang_directive {
                     Directive::Transaction(mut trx) => {
@@ -115,7 +157,10 @@ mod test {
     use chrono::NaiveDate;
     use std::str::FromStr;
     use zhang_ast::amount::Amount;
-    use zhang_ast::{Account, Balance, BalanceCheck, BalancePad, Date, Directive, SpanInfo, Spanned, Transaction};
+    use zhang_ast::{
+        Account, Balance, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned, Transaction,
+        ZhangString,
+    };
     use zhang_core::transform::TextFileBasedTransformer;
 
     fn fake_span() -> SpanInfo {
@@ -284,6 +329,44 @@ mod test {
                 pad: Account::from_str("Equity::Open-Balances").unwrap(),
                 meta: Default::default(),
             }))
+        );
+    }
+
+    #[test]
+    fn should_parse_time_from_meta() {
+        let transformer = BeancountTransformer::default();
+
+        let mut meta = Meta::default();
+        meta.insert("time".to_string(), ZhangString::quote("01:02:03"));
+        let mut directives = transformer
+            .transform(vec![Spanned::new(
+                BeancountDirective::Left(Directive::Open(Open {
+                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
+                    account: Account::from_str("Assets::BankAccount").unwrap(),
+                    commodities: vec![],
+                    meta,
+                })),
+                fake_span(),
+            )])
+            .unwrap();
+
+        assert_eq!(directives.len(), 1);
+
+        let balance_pad_directive = directives.pop().unwrap().data;
+
+        assert_eq!(
+            balance_pad_directive,
+            Directive::Open(Open {
+                date: Date::Datetime(
+                    NaiveDate::from_ymd_opt(1970, 1, 2)
+                        .unwrap()
+                        .and_hms_micro_opt(1, 2, 3, 0)
+                        .unwrap()
+                ),
+                account: Account::from_str("Assets::BankAccount").unwrap(),
+                commodities: vec![],
+                meta: Meta::default(),
+            })
         );
     }
 }

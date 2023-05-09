@@ -30,6 +30,22 @@ impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
         self.inner.get(key.borrow()).and_then(|store| store.get(0))
     }
 
+    pub fn pop_one<Q>(&mut self, key: &Q) -> Option<Value>
+    where
+        Key: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        let value_len = self.inner.get(key.borrow()).map(|values| values.len());
+        match value_len {
+            Some(1) => self.inner.remove(key.borrow()).and_then(|mut values| values.pop()),
+            Some(_) => self
+                .inner
+                .get_mut(key.borrow())
+                .and_then(|values| Some(values.remove(0))),
+            None => None,
+        }
+    }
+
     pub fn get_all<Q>(&self, key: &Q) -> Vec<&Value>
     where
         Key: Borrow<Q>,
@@ -96,5 +112,21 @@ mod test {
         map.insert(1, 3);
         assert_eq!(map.get_one(&1i32), Some(&2));
         assert_eq!(map.get_all(&1i32), vec![&2, &3]);
+    }
+
+    #[test]
+    fn should_pop_with_no_value() {
+        let mut map: MultiValueMap<i32, i32> = MultiValueMap::default();
+        assert_eq!(map.pop_one(&1i32), None);
+    }
+
+    #[test]
+    fn should_pop_first_value() {
+        let mut map: MultiValueMap<i32, i32> = MultiValueMap::default();
+        map.insert(1, 2);
+        map.insert(1, 3);
+        assert_eq!(map.pop_one(&1i32), Some(2));
+        assert_eq!(map.pop_one(&1i32), Some(3));
+        assert_eq!(map.pop_one(&1i32), None);
     }
 }

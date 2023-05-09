@@ -58,6 +58,9 @@ commodity_line      =  { string ~ space* ~ ":" ~ space* ~ string ~ space* }
 date = { date_only }
 date_only = { ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{1, 2} ~ "-" ~ ASCII_DIGIT{1, 2} }
 
+time      = { time_part ~ ":" ~ time_part ~ ":" ~ time_part }
+time_part = { ASCII_DIGIT{1, 2} }
+
 account_name   =  { account_type ~ (":" ~ unquote_string)+ }
 account_type   =  { "Assets" | "Liabilities" | "Equity" | "Income" | "Expenses" }
 string         =  { unquote_string | quote_string }
