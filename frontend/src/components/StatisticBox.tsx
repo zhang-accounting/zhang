@@ -5,7 +5,7 @@ import Amount from './Amount';
 
 const useStyles = createStyles((theme) => ({
   card: {
-    backgroundColor: theme.colors.teal[4],
+    backgroundColor: theme.colors[theme.primaryColor][5],
     padding: theme.spacing.xl,
     borderRadius: theme.radius.sm,
   },
