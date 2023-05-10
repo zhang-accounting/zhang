@@ -1,4 +1,4 @@
-use crate::domains::schemas::{AccountDailyBalanceDomain, MetaDomain, OptionDomain, PriceDomain};
+use crate::domains::schemas::{AccountDailyBalanceDomain, CommodityDomain, MetaDomain, OptionDomain, PriceDomain};
 use crate::ZhangResult;
 use chrono::NaiveDateTime;
 use itertools::Itertools;
@@ -108,5 +108,28 @@ impl Operations {
         .fetch_all(conn)
         .await?;
         Ok(rows.into_iter().map(|it| it.value).collect_vec())
+    }
+
+    pub async fn commodity(&mut self, name: &str) -> ZhangResult<Option<CommodityDomain>> {
+        let conn = self.pool.acquire().await?;
+
+        let option = sqlx::query_as::<_, CommodityDomain>(
+            r#"
+                select * from commodities where name = $1
+                "#,
+        )
+        .bind(name)
+        .fetch_optional(conn)
+        .await?;
+        Ok(option)
+    }
+    pub async fn exist_commodity(&mut self, name: &str) -> ZhangResult<bool> {
+        let conn = self.pool.acquire().await?;
+
+        Ok(sqlx::query("select 1 from commodities where name = $1")
+            .bind(name)
+            .fetch_optional(conn)
+            .await?
+            .is_some())
     }
 }

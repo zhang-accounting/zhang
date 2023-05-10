@@ -6,7 +6,6 @@ use std::time::Instant;
 use crate::constants::DEFAULT_COMMODITY_PRECISION;
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::domains::account::AccountDomain;
-use crate::domains::commodity::CommodityDomain;
 use crate::domains::options::OptionDomain;
 use crate::ledger::{Ledger, LedgerError, LedgerErrorType};
 use crate::utils::id::FromSpan;
@@ -76,8 +75,9 @@ async fn check_account_closed(account_name: &str, ledger: &mut Ledger, span: &Sp
     Ok(())
 }
 
-async fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection) -> ZhangResult<()> {
-    let existed = CommodityDomain::exists(commodity_name, conn).await?;
+async fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+    let mut operations = ledger.operations().await;
+    let existed = operations.exist_commodity(commodity_name).await?;
     if !existed {
         ledger.errors.push(LedgerError {
             span: span.clone(),
@@ -107,7 +107,7 @@ impl DirectiveProcess for Open {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
         for currency in &self.commodities {
-            check_commodity_define(currency, ledger, span, &mut conn).await?;
+            check_commodity_define(currency, ledger, span).await?;
         }
 
         sqlx::query(r#"INSERT OR REPLACE INTO accounts(date, type, name, status, alias) VALUES ($1, $2, $3, $4, $5);"#)
@@ -466,8 +466,8 @@ impl DirectiveProcess for Document {
 impl DirectiveProcess for Price {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
-        check_commodity_define(&self.currency, ledger, span, &mut conn).await?;
-        check_commodity_define(&self.amount.currency, ledger, span, &mut conn).await?;
+        check_commodity_define(&self.currency, ledger, span).await?;
+        check_commodity_define(&self.amount.currency, ledger, span).await?;
         sqlx::query(r#"INSERT INTO prices (datetime, commodity, amount, target_commodity)VALUES ($1, $2, $3, $4)"#)
             .bind(self.date.naive_datetime())
             .bind(&self.currency)

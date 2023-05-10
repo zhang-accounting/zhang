@@ -18,7 +18,6 @@ use zhang_ast::amount::Amount;
 use zhang_ast::{Directive, DirectiveType, SpanInfo, Spanned, Transaction};
 
 use crate::database::migrations::Migration;
-use crate::domains::commodity::CommodityDomain;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::options::Options;
@@ -204,7 +203,8 @@ impl Ledger {
             Ok(inventory) => {
                 for (currency, amount) in inventory.currencies.iter() {
                     let mut conn = self.connection().await;
-                    let commodity = CommodityDomain::get_by_name(currency, &mut conn).await?;
+                    let mut operations = self.operations().await;
+                    let commodity = operations.commodity(currency).await?;
                     let precision = commodity
                         .as_ref()
                         .map(|it| it.precision)
@@ -609,6 +609,41 @@ mod test {
         }
     }
 
+    mod commodity {
+        use crate::ledger::test::load_from_temp_str;
+        use bigdecimal::BigDecimal;
+        use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_get_commodity() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_temp_str(indoc! {r#"
+                1970-01-01 commodity CNY
+            "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let commodity = operations.commodity("CNY").await?.unwrap();
+            assert_eq!("CNY", commodity.name);
+            assert_eq!(2, commodity.precision);
+            assert_eq!(None, commodity.prefix);
+            assert_eq!(None, commodity.suffix);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn should_not_get_non_exist_commodity() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_temp_str(indoc! {r#"
+                1970-01-01 commodity CNY
+            "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let commodity = operations.commodity("USD").await?;
+            assert!(commodity.is_none());
+            Ok(())
+        }
+    }
     // mod txn {
     //     use bigdecimal::BigDecimal;
     //     use indoc::indoc;

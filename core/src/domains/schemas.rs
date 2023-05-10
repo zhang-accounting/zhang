@@ -32,3 +32,12 @@ pub struct MetaDomain {
     pub key: String,
     pub value: String,
 }
+
+#[derive(Debug, Clone, FromRow)]
+pub struct CommodityDomain {
+    pub name: String,
+    pub precision: i32,
+    pub prefix: Option<String>,
+    pub suffix: Option<String>,
+    pub rounding: Option<String>,
+}
