@@ -9,7 +9,9 @@ const useStyles = createStyles((theme) => ({
   },
 
   label: {
+    fontFamily: `Greycliff CF, ${theme.fontFamily}`,
     fontSize: theme.fontSizes.sm,
+    color: theme.colors.gray[7],
     lineHeight: 1,
   },
 
@@ -17,25 +19,6 @@ const useStyles = createStyles((theme) => ({
     fontWeight: 700,
     fontSize: theme.fontSizes.xl * 1.15,
     lineHeight: 1,
-  },
-
-  inner: {
-    display: 'flex',
-
-    [theme.fn.smallerThan('xs')]: {
-      flexDirection: 'column',
-    },
-  },
-
-  ring: {
-    flex: 1,
-    display: 'flex',
-    justifyContent: 'flex-end',
-
-    [theme.fn.smallerThan('xs')]: {
-      justifyContent: 'center',
-      marginTop: theme.spacing.md,
-    },
   },
 }));
 
@@ -53,21 +36,13 @@ export default function StatisticBox({ text, amount, currency, negetive, hint }:
   const { classes } = useStyles();
   const displayBox = (
     <Card withBorder px="xl" py="lg" shadow="sm" radius="sm" mt="sm" className={classes.card}>
-      <div className={classes.inner}>
-        <div>
-          <Text className={classes.label}>
-            {t(text)}
-          </Text>
-          <div>
-            <Text className={classes.lead}>
-              <Amount amount={amount} negetive={negetive} currency={currency} />
-            </Text>
-            {hint && <Text fz="xs" color="dimmed">
-              {hint}
-            </Text>}
-            
-          </div>
-        </div>
+      <div>
+        <Text className={classes.lead}>
+          <Amount amount={amount} negetive={negetive} currency={currency} />
+        </Text>
+        <Text className={classes.label}>
+          {t(text)}
+        </Text>
       </div>
     </Card>
 
