@@ -12,8 +12,8 @@ export default function StatisticBar() {
 
   return (
     <Group>
-      <StatisticBox text={'ASSET_BLANACE'} amount={data.balance.number} currency={data.balance.commodity} />
-      <StatisticBox text={'LIABILITY'} amount={data.liability.number} currency={data.liability.commodity} negetive />
+      <StatisticBox text={'ASSET_BLANACE'} amount={data.balance.calculated.number} currency={data.balance.calculated.commodity} />
+      <StatisticBox text={'LIABILITY'} amount={data.liability.calculated.number} currency={data.liability.calculated.commodity} negetive />
       <StatisticBox text={'CURRENT_MONTH_INCOME'} amount={data.income.number} currency={data.income.commodity} negetive />
       <StatisticBox text={'CURRENT_MONTH_EXPENSE'} amount={data.expense.number} currency={data.expense.commodity} />
     </Group>
