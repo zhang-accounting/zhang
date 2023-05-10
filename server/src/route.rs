@@ -19,7 +19,7 @@ use indexmap::IndexSet;
 use itertools::Itertools;
 use log::{error, info};
 use now::TimeZoneNow;
-use sqlx::{FromRow, SqliteConnection};
+use sqlx::FromRow;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -36,7 +36,7 @@ use crate::response::{
     AccountJournalItem, AccountResponse, AmountResponse, BasicInfo, CalculatedAmount, CommodityDetailResponse,
     CommodityListItemResponse, CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse,
     FileDetailResponse, InfoForNewTransaction, JournalBalanceCheckItemResponse, JournalBalancePadItemResponse,
-    JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse, Pageable,
+    JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, Pageable,
     ReportRankItemResponse, ReportResponse, ResponseWrapper, StatisticResponse,
 };
 use crate::{ApiResult, ServerResult};
@@ -62,33 +62,6 @@ pub struct DetailRow {
     account: String,
     balance_number: ZhangBigDecimal,
     balance_commodity: String,
-}
-
-pub async fn get_transaction_tags(trx_id: &str, conn: &mut SqliteConnection) -> ServerResult<Vec<String>> {
-    let rows = sqlx::query_as::<_, ValueRow>(
-        r#"
-        select tag as value from transaction_tags where trx_id = $1
-        "#,
-    )
-    .bind(trx_id)
-    .fetch_all(conn)
-    .await?;
-    Ok(rows.into_iter().map(|it| it.value).collect_vec())
-}
-pub async fn get_transaction_links(trx_id: &str, conn: &mut SqliteConnection) -> ServerResult<Vec<String>> {
-    #[derive(FromRow)]
-    struct ValueRow {
-        value: String,
-    }
-    let rows = sqlx::query_as::<_, ValueRow>(
-        r#"
-        select link as value from transaction_links where trx_id = $1
-        "#,
-    )
-    .bind(trx_id)
-    .fetch_all(conn)
-    .await?;
-    Ok(rows.into_iter().map(|it| it.value).collect_vec())
 }
 
 #[get("/api/sse")]
@@ -573,14 +546,14 @@ pub async fn get_journals(
                             account_after_commodity: arm.account_after_commodity,
                         })
                         .collect_vec();
-                    let tags = get_transaction_tags(&trx_id, &mut connection).await?;
-                    let links = get_transaction_links(&trx_id, &mut connection).await?;
+                    let tags = operations.trx_tags(&trx_id).await?;
+                    let links = operations.trx_links(&trx_id).await?;
                     let metas = operations
                         .metas("TransactionMeta", &trx_id)
                         .await
                         .unwrap()
                         .into_iter()
-                        .map(|it|it.into())
+                        .map(|it| it.into())
                         .collect();
                     JournalItemResponse::Transaction(JournalTransactionItemResponse {
                         id: trx_id,

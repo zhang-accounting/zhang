@@ -580,6 +580,39 @@ mod test {
         }
     }
 
+    mod price {
+        use crate::ledger::test::load_from_temp_str;
+        use bigdecimal::BigDecimal;
+        use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_get_price() {
+            let ledger = load_from_temp_str(indoc! {r#"
+                    1970-01-01 commodity CNY
+                    1970-01-01 commodity USD
+                    1970-02-01 price USD 7 CNY
+                "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+
+            let option = operations
+                .get_price(
+                    NaiveDateTime::new(
+                        NaiveDate::from_ymd_opt(1970, 2, 1).unwrap(),
+                        NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+                    ),
+                    "USD",
+                    "CNY",
+                )
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(BigDecimal::from(7), option.amount.0)
+        }
+    }
+
     // mod txn {
     //     use bigdecimal::BigDecimal;
     //     use indoc::indoc;
