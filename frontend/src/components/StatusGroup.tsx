@@ -1,4 +1,4 @@
-import { createStyles, Group, Text } from '@mantine/core';
+import { createStyles, SimpleGrid, Text } from '@mantine/core';
 import Amount from './Amount';
 
 const useStyles = createStyles((theme) => ({
@@ -6,10 +6,6 @@ const useStyles = createStyles((theme) => ({
     backgroundImage: `linear-gradient(-60deg, ${theme.colors[theme.primaryColor][4]} 0%, ${theme.colors[theme.primaryColor][7]} 100%)`,
     padding: theme.spacing.xl,
     borderRadius: theme.radius.sm,
-
-    [theme.fn.smallerThan('sm')]: {
-      flexDirection: 'column',
-    },
   },
 
   title: {
@@ -54,8 +50,15 @@ export default function StatsGroup({ data }: StatsGroupProps) {
     </div>
   ));
   return (
-    <Group position="apart" className={classes.root}>
+    <SimpleGrid
+      cols={data.length}
+      breakpoints={[
+        { maxWidth: 'md', cols: 2, spacing: 'sm' },
+        { maxWidth: 'sm', cols: 2, spacing: 'sm' },
+        { maxWidth: 'xs', cols: 1, spacing: 'sm' },
+      ]}
+      className={classes.root}>
       {stats}
-    </Group>
+    </SimpleGrid>
   );
 }

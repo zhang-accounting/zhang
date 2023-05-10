@@ -5,20 +5,24 @@ import Amount from './Amount';
 
 const useStyles = createStyles((theme) => ({
   card: {
-    backgroundColor: theme.colorScheme === 'dark' ? theme.colors.dark[7] : theme.white,
+    backgroundColor: theme.colors[theme.primaryColor][5],
+    padding: theme.spacing.xl,
+    borderRadius: theme.radius.sm,
   },
 
   label: {
     fontFamily: `Greycliff CF, ${theme.fontFamily}`,
-    fontSize: theme.fontSizes.sm,
-    color: theme.colors.gray[7],
     lineHeight: 1,
+    color: theme.colors.gray[9],
+    fontSize: theme.fontSizes.sm,
+    marginTop: 4,
   },
 
   lead: {
     fontWeight: 700,
     fontSize: theme.fontSizes.xl * 1.15,
     lineHeight: 1,
+    color: theme.colors.gray[9],
   },
 }));
 
@@ -35,7 +39,7 @@ export default function StatisticBox({ text, amount, currency, negetive, hint }:
   const { t } = useTranslation();
   const { classes } = useStyles();
   const displayBox = (
-    <Card withBorder px="xl" py="lg" shadow="sm" radius="sm" mt="sm" className={classes.card}>
+    <Card px="xl" py="lg" radius="sm" mt="sm" className={classes.card}>
       <div>
         <Text className={classes.lead}>
           <Amount amount={amount} negetive={negetive} currency={currency} />
