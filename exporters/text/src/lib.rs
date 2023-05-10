@@ -37,10 +37,7 @@ impl AppendableExporter for TextExporter {
                 })],
             )?;
         }
-        let directive_content = format!(
-            "\n{}\n",
-            directives.into_iter().map(|it| self.export_directive(it)).join("\n")
-        );
+        let directive_content = format!("\n{}\n", directives.into_iter().map(|it| self.export_directive(it)).join("\n"));
         let mut ledger_base_file = OpenOptions::new().append(true).create(true).open(&endpoint).unwrap();
         Ok(ledger_base_file.write_all(directive_content.as_bytes())?)
     }
@@ -141,18 +138,9 @@ impl TextExportable for Transaction {
         vec1.append(&mut tags);
         vec1.append(&mut links);
 
-        let mut transaction = self
-            .postings
-            .into_iter()
-            .map(|it| format!("  {}", it.export()))
-            .collect_vec();
+        let mut transaction = self.postings.into_iter().map(|it| format!("  {}", it.export())).collect_vec();
         transaction.insert(0, vec1.into_iter().flatten().join(" "));
-        let mut vec2 = self
-            .meta
-            .export()
-            .into_iter()
-            .map(|it| format!("  {}", it))
-            .collect_vec();
+        let mut vec2 = self.meta.export().into_iter().map(|it| format!("  {}", it)).collect_vec();
         transaction.append(&mut vec2);
 
         transaction.into_iter().join("\n")
@@ -229,12 +217,7 @@ impl TextExportable for Balance {
     fn export(self) -> String {
         match self {
             Balance::BalanceCheck(check) => {
-                let line = vec![
-                    check.date.export(),
-                    "balance".to_string(),
-                    check.account.export(),
-                    check.amount.export(),
-                ];
+                let line = vec![check.date.export(), "balance".to_string(), check.account.export(), check.amount.export()];
                 append_meta(check.meta, line.join(" "))
             }
             Balance::BalancePad(pad) => {
@@ -255,12 +238,7 @@ impl TextExportable for Balance {
 impl TextExportable for Note {
     type Output = String;
     fn export(self) -> String {
-        let line = vec![
-            self.date.export(),
-            "note".to_string(),
-            self.account.export(),
-            self.comment.export(),
-        ];
+        let line = vec![self.date.export(), "note".to_string(), self.account.export(), self.comment.export()];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -268,12 +246,7 @@ impl TextExportable for Note {
 impl TextExportable for Document {
     type Output = String;
     fn export(self) -> String {
-        let line = vec![
-            self.date.export(),
-            "document".to_string(),
-            self.account.export(),
-            self.filename.export(),
-        ];
+        let line = vec![self.date.export(), "document".to_string(), self.account.export(), self.filename.export()];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -281,12 +254,7 @@ impl TextExportable for Document {
 impl TextExportable for Price {
     type Output = String;
     fn export(self) -> String {
-        let line = vec![
-            self.date.export(),
-            "price".to_string(),
-            self.currency,
-            self.amount.export(),
-        ];
+        let line = vec![self.date.export(), "price".to_string(), self.currency, self.amount.export()];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -294,12 +262,7 @@ impl TextExportable for Price {
 impl TextExportable for Event {
     type Output = String;
     fn export(self) -> String {
-        let line = vec![
-            self.date.export(),
-            "event".to_string(),
-            self.event_type.export(),
-            self.description.export(),
-        ];
+        let line = vec![self.date.export(), "event".to_string(), self.event_type.export(), self.description.export()];
         append_meta(self.meta, line.join(" "))
     }
 }

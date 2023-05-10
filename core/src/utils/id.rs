@@ -11,11 +11,7 @@ pub trait FromSpan {
 
 impl FromSpan for Uuid {
     fn from_span(span: &SpanInfo) -> Uuid {
-        let file = span
-            .filename
-            .as_ref()
-            .and_then(|buf| buf.to_str())
-            .unwrap_or(DEFAULT_PATH);
+        let file = span.filename.as_ref().and_then(|buf| buf.to_str()).unwrap_or(DEFAULT_PATH);
         let string = digest(format!("{}-{}", &file, span.start));
         Uuid::from_str(&string[0..32]).unwrap()
     }

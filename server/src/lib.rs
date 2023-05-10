@@ -61,19 +61,9 @@ pub struct ServeConfig {
 }
 
 pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
-    info!(
-        "version: {}, build date: {}",
-        env!("CARGO_PKG_VERSION"),
-        env!("ZHANG_BUILD_DATE")
-    );
+    info!("version: {}, build date: {}", env!("CARGO_PKG_VERSION"), env!("ZHANG_BUILD_DATE"));
     let database = opts.database.clone();
-    let ledger = Ledger::load_with_database(
-        opts.path.clone(),
-        opts.endpoint.clone(),
-        database,
-        opts.transformer.clone(),
-    )
-    .await?;
+    let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), database, opts.transformer.clone()).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
 
     let cloned_ledger = ledger_data.clone();
@@ -87,9 +77,7 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
             guard1.entry.0.clone()
         };
         info!("watching {}", &entry_path.to_str().unwrap_or(""));
-        watcher
-            .watch(entry_path.as_path(), RecursiveMode::Recursive)
-            .expect("cannot watch entry path");
+        watcher.watch(entry_path.as_path(), RecursiveMode::Recursive).expect("cannot watch entry path");
         'looper: loop {
             let mut all = vec![];
             match rx.recv().await {
@@ -114,10 +102,7 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
                 .into_iter()
                 .filter_map(|event| event.ok())
                 .filter(|event| {
-                    let include_visited_files = event
-                        .paths
-                        .iter()
-                        .any(|path| has_path_visited(&guard.visited_files, path));
+                    let include_visited_files = event.paths.iter().any(|path| has_path_visited(&guard.visited_files, path));
                     include_visited_files && event.kind.is_modify()
                 })
                 .count()
@@ -165,9 +150,7 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     start_server(opts, ledger_data, broadcaster).await
 }
 
-async fn start_server(
-    opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>,
-) -> ZhangResult<()> {
+async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>) -> ZhangResult<()> {
     let addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), opts.port);
     info!("zhang is listening on http://127.0.0.1:{}/", opts.port);
     let exporter: Data<dyn AppendableExporter> = Data::from(opts.exporter);

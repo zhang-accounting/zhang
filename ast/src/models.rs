@@ -4,10 +4,7 @@ use strum_macros::EnumString;
 
 use crate::account::Account;
 use crate::amount::Amount;
-use crate::data::{
-    Balance, Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Plugin, Price,
-    Transaction,
-};
+use crate::data::{Balance, Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Plugin, Price, Transaction};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DirectiveType {

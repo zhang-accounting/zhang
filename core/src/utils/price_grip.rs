@@ -28,26 +28,17 @@ mod test {
         fn should_insert_price() {
             let mut grip = PriceGrip::default();
             grip.insert("USD".to_string(), "CNY".to_string(), BigDecimal::from(10i32));
-            assert_eq!(
-                grip.inner.get("USD").unwrap().get("CNY").unwrap(),
-                &BigDecimal::from(10i32)
-            );
+            assert_eq!(grip.inner.get("USD").unwrap().get("CNY").unwrap(), &BigDecimal::from(10i32));
 
             grip.insert("USD".to_string(), "CNY".to_string(), BigDecimal::from(20i32));
-            assert_eq!(
-                grip.inner.get("USD").unwrap().get("CNY").unwrap(),
-                &BigDecimal::from(20i32)
-            );
+            assert_eq!(grip.inner.get("USD").unwrap().get("CNY").unwrap(), &BigDecimal::from(20i32));
         }
 
         #[test]
         fn should_get_price() {
             let mut grip = PriceGrip::default();
             grip.insert("USD".to_string(), "CNY".to_string(), BigDecimal::from(7i32));
-            assert_eq!(
-                grip.get(&"USD".to_string(), &"CNY".to_string()),
-                Some(BigDecimal::from(7i32))
-            );
+            assert_eq!(grip.get(&"USD".to_string(), &"CNY".to_string()), Some(BigDecimal::from(7i32)));
             assert_eq!(grip.get(&"USD".to_string(), &"CCY".to_string()), None);
             assert_eq!(grip.get(&"CNY".to_string(), &"USD".to_string()), None);
         }

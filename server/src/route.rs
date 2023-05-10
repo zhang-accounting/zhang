@@ -29,22 +29,16 @@ use zhang_core::ledger::{Ledger, LedgerError};
 use zhang_core::utils::string_::StringExt;
 
 use crate::broadcast::Broadcaster;
-use crate::request::{
-    AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest,
-};
+use crate::request::{AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest};
 use crate::response::{
-    AccountJournalItem, AccountResponse, AmountResponse, BasicInfo, CalculatedAmount, CommodityDetailResponse,
-    CommodityListItemResponse, CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse,
-    FileDetailResponse, InfoForNewTransaction, JournalBalanceCheckItemResponse, JournalBalancePadItemResponse,
-    JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, Pageable,
-    ReportRankItemResponse, ReportResponse, ResponseWrapper, StatisticResponse,
+    AccountJournalItem, AccountResponse, AmountResponse, BasicInfo, CalculatedAmount, CommodityDetailResponse, CommodityListItemResponse, CommodityLot,
+    CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse, InfoForNewTransaction, JournalBalanceCheckItemResponse,
+    JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, Pageable, ReportRankItemResponse,
+    ReportResponse, ResponseWrapper, StatisticResponse,
 };
 use crate::{ApiResult, ServerResult};
 use zhang_ast::amount::Amount;
-use zhang_ast::{
-    Account, Balance, BalanceCheck, BalancePad, Date, Directive, Document, Flag, Meta, Posting, Transaction,
-    ZhangString,
-};
+use zhang_ast::{Account, Balance, BalanceCheck, BalancePad, Date, Directive, Document, Flag, Meta, Posting, Transaction, ZhangString};
 use zhang_core::domains::options::OptionDomain;
 use zhang_core::utils::date_range::NaiveDateRange;
 
@@ -71,11 +65,11 @@ pub async fn sse(broadcaster: Data<Broadcaster>) -> impl Responder {
 
 #[get("/api/info")]
 pub async fn get_basic_info(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<BasicInfo> {
-    let guard = ledger.read().await;
-    let mut connection = guard.connection().await;
+    let ledger = ledger.read().await;
+    let mut operations = ledger.operations().await;
 
     ResponseWrapper::json(BasicInfo {
-        title: OptionDomain::get("title", &mut connection).await?,
+        title: operations.options("title").await?.map(|it| it.value),
         version: env!("CARGO_PKG_VERSION").to_string(),
         build_date: env!("ZHANG_BUILD_DATE").to_string(),
     })
@@ -112,19 +106,13 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
     .await?;
 
     ResponseWrapper::json(InfoForNewTransaction {
-        payee: payees
-            .into_iter()
-            .map(|it| it.payee)
-            .filter(|it| !it.is_empty())
-            .collect_vec(),
+        payee: payees.into_iter().map(|it| it.payee).filter(|it| !it.is_empty()).collect_vec(),
         account_name: account_names.into_iter().map(|it| it.name).collect_vec(),
     })
 }
 
 #[get("/api/statistic")]
-pub async fn get_statistic_data(
-    ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>,
-) -> ApiResult<StatisticResponse> {
+pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> ApiResult<StatisticResponse> {
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
     let params = params.into_inner();
@@ -260,13 +248,10 @@ pub async fn get_statistic_data(
                 existing_balances.insert(target_account.to_owned(), target_account_balance);
             } else {
                 // need to get previous day's balance
-                let balance = existing_balances
-                    .get(target_account)
-                    .cloned()
-                    .unwrap_or_else(|| AmountResponse {
-                        number: ZhangBigDecimal(BigDecimal::zero()),
-                        commodity: ledger.options.operating_currency.to_owned(),
-                    });
+                let balance = existing_balances.get(target_account).cloned().unwrap_or_else(|| AmountResponse {
+                    number: ZhangBigDecimal(BigDecimal::zero()),
+                    commodity: ledger.options.operating_currency.to_owned(),
+                });
                 target_day_ret.insert(target_account.to_owned(), balance);
             }
         }
@@ -378,18 +363,13 @@ async fn group_and_calculate(
     let mut total_sum = BigDecimal::zero();
 
     let mut detail = HashMap::new();
-    for (commodity, values) in &latest_account_balances
-        .into_iter()
-        .group_by(|it| it.balance_commodity.to_owned())
-    {
+    for (commodity, values) in &latest_account_balances.into_iter().group_by(|it| it.balance_commodity.to_owned()) {
         let commodity_sum = values.fold(BigDecimal::zero(), |acc, item| acc.add(&*item.balance_number));
 
         if commodity.eq(operating_currency) {
             total_sum.add_assign(&commodity_sum);
         } else {
-            let target_price = operations
-                .get_price(Local::now().naive_local(), &commodity, operating_currency)
-                .await?;
+            let target_price = operations.get_price(Local::now().naive_local(), &commodity, operating_currency).await?;
             if let Some(price) = target_price {
                 total_sum.add_assign((&commodity_sum).mul(price.amount.0));
             }
@@ -406,9 +386,7 @@ async fn group_and_calculate(
 }
 
 #[get("/api/journals")]
-pub async fn get_journals(
-    ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>,
-) -> ApiResult<Pageable<JournalItemResponse>> {
+pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemResponse>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations().await;
     let mut connection = ledger.connection().await;
@@ -433,8 +411,8 @@ pub async fn get_journals(
         SELECT id, sequence, datetime, type as journal_type, payee, narration FROM transactions ORDER BY "sequence" DESC LIMIT $1 OFFSET $2
         "#,
     )
-        .bind(params.limit())
-        .bind(params.offset())
+    .bind(params.limit())
+    .bind(params.offset())
     .fetch_all(&mut connection)
     .await?;
 
@@ -460,13 +438,12 @@ pub async fn get_journals(
         select * from transaction_postings where trx_id in ( SELECT id FROM transactions ORDER BY "sequence" DESC LIMIT $1 OFFSET $2 )
         "#,
     )
-        .bind(params.limit())
-        .bind(params.offset())
+    .bind(params.limit())
+    .bind(params.offset())
     .fetch_all(&mut connection)
     .await?;
 
-    let mut header_map: HashMap<String, JournalHeader> =
-        journal_headers.into_iter().map(|it| (it.id.to_owned(), it)).collect();
+    let mut header_map: HashMap<String, JournalHeader> = journal_headers.into_iter().map(|it| (it.id.to_owned(), it)).collect();
     let mut ret = vec![];
     for (trx_id, arms) in &journal_arms.into_iter().group_by(|it| it.trx_id.to_owned()) {
         let header = header_map.remove(&trx_id);
@@ -580,8 +557,7 @@ pub async fn get_journals(
 
 #[post("/api/transactions")]
 pub async fn create_new_transaction(
-    ledger: Data<Arc<RwLock<Ledger>>>, Json(payload): Json<CreateTransactionRequest>,
-    exporter: Data<dyn AppendableExporter>,
+    ledger: Data<Arc<RwLock<Ledger>>>, Json(payload): Json<CreateTransactionRequest>, exporter: Data<dyn AppendableExporter>,
 ) -> ApiResult<String> {
     let ledger = ledger.read().await;
 
@@ -613,20 +589,16 @@ pub async fn create_new_transaction(
         postings,
         meta: metas,
     });
-    exporter.as_ref().append_directives(
-        &ledger,
-        PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
-        vec![trx],
-    )?;
+    exporter
+        .as_ref()
+        .append_directives(&ledger, PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())), vec![trx])?;
 
     ResponseWrapper::json("Ok".to_string())
 }
 
 // todo(refact): use exporter to update transaction
 #[post("/api/transactions/{transaction_id}/documents")]
-pub async fn upload_transaction_document(
-    ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: web::Path<(String,)>,
-) -> ApiResult<String> {
+pub async fn upload_transaction_document(ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: web::Path<(String,)>) -> ApiResult<String> {
     let transaction_id = path.into_inner().0;
     let ledger_stage = ledger.read().await;
     let mut conn = ledger_stage.connection().await;
@@ -641,12 +613,7 @@ pub async fn upload_transaction_document(
 
         let v4 = Uuid::new_v4();
         let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
-        info!(
-            "uploading document `{}`(id={}) to transaction {}",
-            file_name,
-            &v4.to_string(),
-            &transaction_id
-        );
+        info!("uploading document `{}`(id={}) to transaction {}", file_name, &v4.to_string(), &transaction_id);
         create_folder_if_not_exist(&buf);
         let mut f = File::create(&buf).expect("Unable to create file");
         while let Some(chunk) = field.next().await {
@@ -673,11 +640,7 @@ pub async fn upload_transaction_document(
         .into_iter()
         .map(|document| format!("  document: {}", document.to_plain_string()))
         .join("\n");
-    insert_line(
-        PathBuf::from(span_info.source_file),
-        &metas_content,
-        span_info.span_end as usize,
-    )?;
+    insert_line(PathBuf::from(span_info.source_file), &metas_content, span_info.span_end as usize)?;
     ResponseWrapper::json("Ok".to_string())
 }
 
@@ -762,8 +725,7 @@ pub async fn get_documents(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<D
 
 #[post("/api/accounts/{account_name}/documents")]
 pub async fn upload_account_document(
-    ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: web::Path<(String,)>,
-    exporter: Data<dyn AppendableExporter>,
+    ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: web::Path<(String,)>, exporter: Data<dyn AppendableExporter>,
 ) -> ApiResult<()> {
     let account_name = path.into_inner().0;
     let ledger_stage = ledger.read().await;
@@ -778,12 +740,7 @@ pub async fn upload_account_document(
 
         let v4 = Uuid::new_v4();
         let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
-        info!(
-            "uploading document `{}`(id={}) to account {}",
-            file_name,
-            &v4.to_string(),
-            &account_name
-        );
+        info!("uploading document `{}`(id={}) to account {}", file_name, &v4.to_string(), &account_name);
         create_folder_if_not_exist(&buf);
         let mut f = File::create(&buf).expect("Unable to create file");
         while let Some(chunk) = field.next().await {
@@ -806,19 +763,15 @@ pub async fn upload_account_document(
     }
     let time = Local::now().naive_local();
 
-    exporter.as_ref().append_directives(
-        &ledger_stage,
-        PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
-        documents,
-    )?;
+    exporter
+        .as_ref()
+        .append_directives(&ledger_stage, PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())), documents)?;
 
     ResponseWrapper::<()>::created()
 }
 
 #[get("/api/accounts/{account_name}/documents")]
-pub async fn get_account_documents(
-    ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>,
-) -> ApiResult<Vec<DocumentResponse>> {
+pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>) -> ApiResult<Vec<DocumentResponse>> {
     let account_name = params.into_inner().0;
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
@@ -840,9 +793,7 @@ pub async fn get_account_documents(
 }
 
 #[get("/api/accounts/{account_name}/journals")]
-pub async fn get_account_journals(
-    ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>,
-) -> ApiResult<Vec<AccountJournalItem>> {
+pub async fn get_account_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>) -> ApiResult<Vec<AccountJournalItem>> {
     let account_name = params.into_inner().0;
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
@@ -873,8 +824,7 @@ pub async fn get_account_journals(
 
 #[post("/api/accounts/{account_name}/balances")]
 pub async fn create_account_balance(
-    ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>, Json(payload): Json<AccountBalanceRequest>,
-    exporter: Data<dyn AppendableExporter>,
+    ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>, Json(payload): Json<AccountBalanceRequest>, exporter: Data<dyn AppendableExporter>,
 ) -> ApiResult<()> {
     let target_account = params.into_inner().0;
     let ledger = ledger.read().await;
@@ -912,8 +862,7 @@ pub async fn create_account_balance(
 }
 #[post("/api/accounts/batch-balances")]
 pub async fn create_batch_account_balances(
-    ledger: Data<Arc<RwLock<Ledger>>>, Json(payload): Json<Vec<AccountBalanceRequest>>,
-    exporter: Data<dyn AppendableExporter>,
+    ledger: Data<Arc<RwLock<Ledger>>>, Json(payload): Json<Vec<AccountBalanceRequest>>, exporter: Data<dyn AppendableExporter>,
 ) -> ApiResult<()> {
     let ledger = ledger.read().await;
     let mut directives = vec![];
@@ -928,11 +877,7 @@ pub async fn create_batch_account_balances(
                 },
                 meta: Default::default(),
             }),
-            AccountBalanceRequest::Pad {
-                account_name,
-                amount,
-                pad,
-            } => Balance::BalancePad(BalancePad {
+            AccountBalanceRequest::Pad { account_name, amount, pad } => Balance::BalancePad(BalancePad {
                 date: Date::Datetime(Local::now().naive_local()),
                 account: Account::from_str(&account_name)?,
                 amount: Amount {
@@ -947,11 +892,9 @@ pub async fn create_batch_account_balances(
     }
 
     let time = Local::now().naive_local();
-    exporter.as_ref().append_directives(
-        &ledger,
-        PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
-        directives,
-    )?;
+    exporter
+        .as_ref()
+        .append_directives(&ledger, PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())), directives)?;
     ResponseWrapper::<()>::created()
 }
 
@@ -985,9 +928,7 @@ pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult
 }
 
 #[get("/api/commodities/{commodity_name}")]
-pub async fn get_single_commodity(
-    ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>,
-) -> ApiResult<CommodityDetailResponse> {
+pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<CommodityDetailResponse> {
     let commodity_name = params.into_inner().0;
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
@@ -1010,10 +951,11 @@ pub async fn get_single_commodity(
                                 where accounts.type in ('Assets', 'Liabilities')
                                 group by commodity) commodity_total_amount on commodities.name = commodity_total_amount.commodity
             where commodities.name = $1
-    "#, )
-        .bind(&commodity_name)
-        .fetch_one(&mut connection)
-        .await?;
+    "#,
+    )
+    .bind(&commodity_name)
+    .fetch_one(&mut connection)
+    .await?;
 
     let lots = sqlx::query_as::<_, CommodityLot>(
         r#"
@@ -1065,9 +1007,7 @@ pub async fn get_files(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Optio
 }
 
 #[get("/api/files/{file_path}")]
-pub async fn get_file_content(
-    ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>,
-) -> ApiResult<FileDetailResponse> {
+pub async fn get_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>) -> ApiResult<FileDetailResponse> {
     let encoded_file_path = path.into_inner().0;
     let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
@@ -1080,9 +1020,7 @@ pub async fn get_file_content(
     })
 }
 #[put("/api/files/{file_path}")]
-pub async fn update_file_content(
-    ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>, Json(payload): Json<FileUpdateRequest>,
-) -> ApiResult<()> {
+pub async fn update_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>, Json(payload): Json<FileUpdateRequest>) -> ApiResult<()> {
     let encoded_file_path = path.into_inner().0;
     let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
@@ -1097,9 +1035,7 @@ pub async fn update_file_content(
 }
 
 #[get("api/errors")]
-pub async fn get_errors(
-    ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>,
-) -> ApiResult<Pageable<LedgerError>> {
+pub async fn get_errors(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<LedgerError>> {
     let ledger = ledger.read().await;
     let total_count = ledger.errors.len();
     let ret = ledger

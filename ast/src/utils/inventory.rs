@@ -96,10 +96,7 @@ pub struct Inventory {
 
 impl Inventory {
     pub fn add_lot(&mut self, amount: Amount, lot: LotInfo) {
-        let commodity_inventory = self
-            .currencies
-            .entry(amount.currency)
-            .or_insert_with_key(|key| CommodityInventory::new(key));
+        let commodity_inventory = self.currencies.entry(amount.currency).or_insert_with_key(|key| CommodityInventory::new(key));
         commodity_inventory.insert(&amount.number, lot);
     }
 
@@ -112,10 +109,7 @@ impl Inventory {
     }
 
     pub fn get_total(&self, currency: &Currency) -> BigDecimal {
-        self.currencies
-            .get(currency)
-            .map(|it| it.total.clone())
-            .unwrap_or_else(BigDecimal::zero)
+        self.currencies.get(currency).map(|it| it.total.clone()).unwrap_or_else(BigDecimal::zero)
     }
 
     pub fn is_zero(&self) -> bool {

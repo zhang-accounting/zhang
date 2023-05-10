@@ -58,20 +58,17 @@ where
                         let file_content = self.get_file_content(path.clone())?;
                         let entity_directives = self.parse(&file_content, path.clone())?;
 
-                        entity_directives
-                            .iter()
-                            .filter_map(|directive| self.go_next(directive))
-                            .for_each(|buf| {
-                                let fullpath = if buf.starts_with('/') {
-                                    buf
-                                } else {
-                                    path.parent()
-                                        .map(|it| it.join(buf))
-                                        .map(|it| it.as_path().to_str().unwrap().to_owned())
-                                        .unwrap()
-                                };
-                                load_queue.push_back(Pattern::new(&fullpath).unwrap());
-                            });
+                        entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
+                            let fullpath = if buf.starts_with('/') {
+                                buf
+                            } else {
+                                path.parent()
+                                    .map(|it| it.join(buf))
+                                    .map(|it| it.as_path().to_str().unwrap().to_owned())
+                                    .unwrap()
+                            };
+                            load_queue.push_back(Pattern::new(&fullpath).unwrap());
+                        });
                         directives.extend(entity_directives)
                     }
                     // if the path matched but was unreadable,

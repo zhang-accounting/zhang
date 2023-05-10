@@ -37,9 +37,6 @@ pub trait IoErrorIntoZhangError<T> {
 
 impl<T> IoErrorIntoZhangError<T> for Result<T, std::io::Error> {
     fn with_path(self, path: &Path) -> Result<T, ZhangError> {
-        self.map_err(|e| ZhangError::FileError {
-            e,
-            path: path.to_path_buf(),
-        })
+        self.map_err(|e| ZhangError::FileError { e, path: path.to_path_buf() })
     }
 }

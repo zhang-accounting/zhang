@@ -41,9 +41,7 @@ impl<T: Serialize> Responder for ResponseWrapper<T> {
                 let json = actix_web::web::Json(wrapper);
                 json.respond_to(req)
             }
-            ResponseWrapper::Created => HttpResponse::Created()
-                .message_body(EitherBody::new("".to_string()))
-                .unwrap(),
+            ResponseWrapper::Created => HttpResponse::Created().message_body(EitherBody::new("".to_string())).unwrap(),
         }
     }
 }

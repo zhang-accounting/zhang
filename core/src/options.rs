@@ -12,9 +12,7 @@ pub struct Options {
 }
 
 impl Options {
-    pub async fn parse(
-        &mut self, key: impl Into<String>, value: impl Into<String>, conn: &mut SqliteConnection,
-    ) -> ZhangResult<()> {
+    pub async fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, conn: &mut SqliteConnection) -> ZhangResult<()> {
         let value = value.into();
         let key = key.into();
         match key.as_str() {

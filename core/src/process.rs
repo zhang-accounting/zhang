@@ -40,9 +40,7 @@ pub(crate) trait DirectiveProcess {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()>;
 }
 
-async fn check_account_existed(
-    account_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection,
-) -> ZhangResult<()> {
+async fn check_account_existed(account_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection) -> ZhangResult<()> {
     let existed = AccountDomain::exists(account_name, conn).await?;
 
     if !existed {
@@ -56,9 +54,7 @@ async fn check_account_existed(
     Ok(())
 }
 
-async fn check_account_closed(
-    account_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection,
-) -> ZhangResult<()> {
+async fn check_account_closed(account_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection) -> ZhangResult<()> {
     #[derive(FromRow)]
     struct Row {
         status: String,
@@ -80,9 +76,7 @@ async fn check_account_closed(
     Ok(())
 }
 
-async fn check_commodity_define(
-    commodity_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection,
-) -> ZhangResult<()> {
+async fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection) -> ZhangResult<()> {
     let existed = CommodityDomain::exists(commodity_name, conn).await?;
     if !existed {
         ledger.errors.push(LedgerError {
@@ -99,13 +93,8 @@ async fn check_commodity_define(
 impl DirectiveProcess for Options {
     async fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
-        ledger
-            .options
-            .parse(self.key.as_str(), self.value.as_str(), &mut conn)
-            .await?;
-        ledger
-            .configs
-            .insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());
+        ledger.options.parse(self.key.as_str(), self.value.as_str(), &mut conn).await?;
+        ledger.configs.insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());
 
         OptionDomain::insert_or_update(self.key.as_str(), self.value.as_str(), &mut conn).await?;
 
@@ -219,17 +208,19 @@ impl DirectiveProcess for Transaction {
             });
         }
 
-        sqlx::query(r#"INSERT INTO transactions (id, datetime, type, payee, narration, source_file, span_start, span_end)VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#)
-            .bind(&id)
-            .bind(self.date.naive_datetime())
-            .bind(self.flag.clone().unwrap_or(Flag::Okay).to_string())
-            .bind(self.payee.as_ref().map(|it| it.as_str()))
-            .bind(self.narration.as_ref().map(|it| it.as_str()))
-            .bind(span.filename.as_ref().and_then(|it|it.to_str()).map(|it|it.to_string()))
-            .bind(span.start as i64)
-            .bind(span.end as i64)
-            .execute(&mut conn)
-            .await?;
+        sqlx::query(
+            r#"INSERT INTO transactions (id, datetime, type, payee, narration, source_file, span_start, span_end)VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+        )
+        .bind(&id)
+        .bind(self.date.naive_datetime())
+        .bind(self.flag.clone().unwrap_or(Flag::Okay).to_string())
+        .bind(self.payee.as_ref().map(|it| it.as_str()))
+        .bind(self.narration.as_ref().map(|it| it.as_str()))
+        .bind(span.filename.as_ref().and_then(|it| it.to_str()).map(|it| it.to_string()))
+        .bind(span.start as i64)
+        .bind(span.end as i64)
+        .execute(&mut conn)
+        .await?;
 
         for tag in self.tags.iter() {
             sqlx::query(r#"INSERT INTO transaction_tags (trx_id, tag)VALUES ($1, $2)"#)
@@ -267,53 +258,44 @@ impl DirectiveProcess for Transaction {
 
             let after_number = (&previous.number.0).add(&inferred_amount.number);
 
-            sqlx::query(r#"INSERT INTO transaction_postings
+            sqlx::query(
+                r#"INSERT INTO transaction_postings
                                (trx_id, account, unit_number, unit_commodity, cost_number, cost_commodity, inferred_unit_number, inferred_unit_commodity,
                                 account_before_number, account_before_commodity, account_after_number, account_after_commodity
                                )
-                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#)
-                .bind(&id)
-                .bind(txn_posting.posting.account.name())
-                .bind(txn_posting.posting.units.as_ref().map(|it| it.number.to_string()))
-                .bind(txn_posting.posting.units.as_ref().map(|it| &it.currency))
-                .bind(txn_posting.posting.cost.as_ref().map(|it| it.number.to_string()))
-                .bind(txn_posting.posting.cost.as_ref().map(|it| &it.currency))
-                .bind(inferred_amount.number.to_string())
-                .bind(&inferred_amount.currency)
-                .bind(&previous.number)
-                .bind(&previous.commodity)
-                .bind(after_number.to_string())
-                .bind(&previous.commodity)
-
-                .execute(&mut conn)
-                .await?;
-            let amount = txn_posting
-                .units()
-                .unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
+                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
+            )
+            .bind(&id)
+            .bind(txn_posting.posting.account.name())
+            .bind(txn_posting.posting.units.as_ref().map(|it| it.number.to_string()))
+            .bind(txn_posting.posting.units.as_ref().map(|it| &it.currency))
+            .bind(txn_posting.posting.cost.as_ref().map(|it| it.number.to_string()))
+            .bind(txn_posting.posting.cost.as_ref().map(|it| &it.currency))
+            .bind(inferred_amount.number.to_string())
+            .bind(&inferred_amount.currency)
+            .bind(&previous.number)
+            .bind(&previous.commodity)
+            .bind(after_number.to_string())
+            .bind(&previous.commodity)
+            .execute(&mut conn)
+            .await?;
+            let amount = txn_posting.units().unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
             let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
             lot_add(txn_posting.account_name(), amount, lot_info, &mut conn).await?;
         }
-        for document in self
-            .meta
-            .clone()
-            .get_flatten()
-            .into_iter()
-            .filter(|(key, _)| key.eq("document"))
-        {
+        for document in self.meta.clone().get_flatten().into_iter().filter(|(key, _)| key.eq("document")) {
             let (_, document_file_name) = document;
             let document_path = document_file_name.to_plain_string();
             let document_pathbuf = PathBuf::from(&document_path);
             let extension = document_pathbuf.extension().and_then(|it| it.to_str());
-            sqlx::query(
-                r#"INSERT INTO documents (datetime, filename, path, extension, trx_id) VALUES ($1, $2, $3, $4, $5);"#,
-            )
-            .bind(self.date.naive_datetime())
-            .bind(document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
-            .bind(&document_path)
-            .bind(extension)
-            .bind(&id)
-            .execute(&mut conn)
-            .await?;
+            sqlx::query(r#"INSERT INTO documents (datetime, filename, path, extension, trx_id) VALUES ($1, $2, $3, $4, $5);"#)
+                .bind(self.date.naive_datetime())
+                .bind(document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
+                .bind(&document_path)
+                .bind(extension)
+                .bind(&id)
+                .execute(&mut conn)
+                .await?;
         }
 
         for (meta_key, meta_value) in self.meta.clone().get_flatten() {
@@ -376,10 +358,7 @@ impl DirectiveProcess for Balance {
                     date: balance_check.date.clone(),
                     flag: Some(Flag::BalanceCheck),
                     payee: Some(ZhangString::quote("Balance Check")),
-                    narration: Some(ZhangString::quote(format!(
-                        "Check balance of {}",
-                        balance_check.account.name()
-                    ))),
+                    narration: Some(ZhangString::quote(format!("Check balance of {}", balance_check.account.name()))),
                     tags: Default::default(),
                     links: Default::default(),
                     postings: vec![Posting {
@@ -419,19 +398,12 @@ impl DirectiveProcess for Balance {
                 .await?;
                 let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
 
-                let distance = Amount::new(
-                    (&balance_pad.amount.number).sub(&current_balance_amount),
-                    balance_pad.amount.currency.clone(),
-                );
+                let distance = Amount::new((&balance_pad.amount.number).sub(&current_balance_amount), balance_pad.amount.currency.clone());
                 let mut transformed_trx = Transaction {
                     date: balance_pad.date.clone(),
                     flag: Some(Flag::BalancePad),
                     payee: Some(ZhangString::quote("Balance Pad")),
-                    narration: Some(ZhangString::quote(format!(
-                        "pad {} to {}",
-                        balance_pad.account.name(),
-                        balance_pad.pad.name()
-                    ))),
+                    narration: Some(ZhangString::quote(format!("pad {} to {}", balance_pad.account.name(), balance_pad.pad.name()))),
                     tags: Default::default(),
                     links: Default::default(),
                     postings: vec![
@@ -478,16 +450,14 @@ impl DirectiveProcess for Document {
 
         let document_pathbuf = PathBuf::from(&path);
         let extension = document_pathbuf.extension().and_then(|it| it.to_str());
-        sqlx::query(
-            r#"INSERT INTO documents (datetime, filename, path, extension, account) VALUES ($1, $2, $3, $4, $5);"#,
-        )
-        .bind(self.date.naive_datetime())
-        .bind(document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
-        .bind(&path)
-        .bind(extension)
-        .bind(self.account.name())
-        .execute(&mut conn)
-        .await?;
+        sqlx::query(r#"INSERT INTO documents (datetime, filename, path, extension, account) VALUES ($1, $2, $3, $4, $5);"#)
+            .bind(self.date.naive_datetime())
+            .bind(document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
+            .bind(&path)
+            .bind(extension)
+            .bind(self.account.name())
+            .execute(&mut conn)
+            .await?;
         Ok(())
     }
 }
@@ -517,9 +487,7 @@ struct LotRow {
     price_commodity: Option<String>,
 }
 
-async fn lot_add(
-    account_name: AccountName, amount: Amount, lot_info: LotInfo, conn: &mut SqliteConnection,
-) -> ZhangResult<()> {
+async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, conn: &mut SqliteConnection) -> ZhangResult<()> {
     let mut trx = conn.begin().await?;
     match lot_info {
         LotInfo::Lot(target_currency, lot_number) => {
@@ -542,12 +510,7 @@ async fn lot_add(
                         set amount = $1
                         where account = $2 and commodity = $3  and price_amount = $4 and price_commodity = $5"#,
                 )
-                .bind(
-                    BigDecimal::from_f64(lot_row.amount)
-                        .expect("error")
-                        .add(&amount.number)
-                        .to_string(),
-                )
+                .bind(BigDecimal::from_f64(lot_row.amount).expect("error").add(&amount.number).to_string())
                 .bind(&account_name)
                 .bind(&amount.currency)
                 .bind(lot_number.to_string())
@@ -593,12 +556,7 @@ async fn lot_add(
                         set amount = $1
                         where account = $2 and commodity = $3  and price_amount = $4 and price_commodity = $5"#,
                     )
-                    .bind(
-                        BigDecimal::from_f64(lot.amount)
-                            .expect("error")
-                            .add(&amount.number)
-                            .to_string(),
-                    )
+                    .bind(BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number).to_string())
                     .bind(&account_name)
                     .bind(&amount.currency)
                     .bind(lot.price_amount)
@@ -614,12 +572,7 @@ async fn lot_add(
                         set amount = $1
                         where account = $2 and commodity = $3  and price_amount is NULL and price_commodity is NULL"#,
                     )
-                    .bind(
-                        BigDecimal::from_f64(lot.amount)
-                            .expect("error")
-                            .add(&amount.number)
-                            .to_string(),
-                    )
+                    .bind(BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number).to_string())
                     .bind(&account_name)
                     .bind(&amount.currency)
                     .execute(&mut trx)

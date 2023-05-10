@@ -77,9 +77,7 @@ impl Ledger {
         Ledger::load_with_database(entry, endpoint, None, transformer).await
     }
 
-    pub async fn load_with_database(
-        entry: PathBuf, endpoint: String, database: Option<PathBuf>, transformer: Arc<dyn Transformer>,
-    ) -> ZhangResult<Ledger> {
+    pub async fn load_with_database(entry: PathBuf, endpoint: String, database: Option<PathBuf>, transformer: Arc<dyn Transformer>) -> ZhangResult<Ledger> {
         let entry = entry.canonicalize().with_path(&entry)?;
 
         let transform_result = transformer.load(entry.clone(), endpoint.clone())?;
@@ -98,8 +96,8 @@ impl Ledger {
     }
 
     async fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: Option<PathBuf>,
-        visited_files: Vec<Pattern>, transformer: Arc<dyn Transformer>,
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: Option<PathBuf>, visited_files: Vec<Pattern>,
+        transformer: Arc<dyn Transformer>,
     ) -> ZhangResult<Ledger> {
         let sqlite_pool = if let Some(ref path) = database {
             info!("database store at {}", path.display());
@@ -115,11 +113,7 @@ impl Ledger {
             SqlitePoolOptions::new()
                 .max_lifetime(None)
                 .idle_timeout(None)
-                .connect_with(
-                    SqliteConnectOptions::from_str("sqlite::memory:")
-                        .unwrap()
-                        .journal_mode(SqliteJournalMode::Wal),
-                )
+                .connect_with(SqliteConnectOptions::from_str("sqlite::memory:").unwrap().journal_mode(SqliteJournalMode::Wal))
                 .await?
         };
         let mut connection = sqlite_pool.acquire().await?;
@@ -269,18 +263,10 @@ mod test {
 
     macro_rules! count {
         ($reason:expr, $times: expr, $sql:expr, $conn:expr) => {
-            assert_eq!(
-                $times,
-                sqlx::query($sql).fetch_all($conn).await.unwrap().len(),
-                $reason
-            )
+            assert_eq!($times, sqlx::query($sql).fetch_all($conn).await.unwrap().len(), $reason)
         };
         ($reason:expr, $sql:expr, $conn:expr) => {
-            assert_eq!(
-                1,
-                sqlx::query($sql).fetch_all($conn).await.unwrap().len(),
-                $reason
-            )
+            assert_eq!(1, sqlx::query($sql).fetch_all($conn).await.unwrap().len(), $reason)
         };
     }
 
@@ -502,6 +488,27 @@ mod test {
             );
         }
     }
+    mod options {
+        use crate::ledger::test::load_from_temp_str;
+        use bigdecimal::BigDecimal;
+        use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_get_price() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_temp_str(indoc! {r#"
+                    option "title" "Example Beancount file"
+                    option "operating_currency" "USD"
+                "#})
+            .await;
+            let mut operations = ledger.operations().await;
+
+            assert_eq!("Example Beancount file", operations.options("title").await?.unwrap().value);
+            assert_eq!("USD", operations.options("operating_currency").await?.unwrap().value);
+            assert!(operations.options("operating_currency2").await?.is_none());
+            Ok(())
+        }
+    }
 
     mod extract_info {
         use indoc::indoc;
@@ -567,16 +574,8 @@ mod test {
             .await;
             let mut conn = ledger.connection().await;
             count!("should have 2 commodity", 2, "select * from commodities", &mut conn);
-            count!(
-                "should have CNY record",
-                "select * from commodities where name = 'CNY'",
-                &mut conn
-            );
-            count!(
-                "should have HKD record",
-                "select * from commodities where name = 'HKD'",
-                &mut conn
-            );
+            count!("should have CNY record", "select * from commodities where name = 'CNY'", &mut conn);
+            count!("should have HKD record", "select * from commodities where name = 'HKD'", &mut conn);
         }
     }
 
@@ -599,10 +598,7 @@ mod test {
 
             let option = operations
                 .get_price(
-                    NaiveDateTime::new(
-                        NaiveDate::from_ymd_opt(1970, 2, 1).unwrap(),
-                        NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-                    ),
+                    NaiveDateTime::new(NaiveDate::from_ymd_opt(1970, 2, 1).unwrap(), NaiveTime::from_hms_opt(0, 0, 0).unwrap()),
                     "USD",
                     "CNY",
                 )

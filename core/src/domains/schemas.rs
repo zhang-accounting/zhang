@@ -4,6 +4,12 @@ use sqlx::FromRow;
 use zhang_ast::Currency;
 
 #[derive(FromRow, Debug, Clone)]
+pub struct OptionDomain {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(FromRow, Debug, Clone)]
 pub struct AccountDailyBalanceDomain {
     pub date: NaiveDate,
     pub account: String,

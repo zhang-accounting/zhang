@@ -52,15 +52,11 @@ impl Migration {
         let mut trx = conn.begin().await?;
 
         for table_name in TABLES {
-            sqlx::query(&format!("DROP TABLE IF EXISTS {table_name}"))
-                .execute(&mut trx)
-                .await?;
+            sqlx::query(&format!("DROP TABLE IF EXISTS {table_name}")).execute(&mut trx).await?;
         }
 
         for view_name in VIEWS {
-            sqlx::query(&format!("DROP VIEW IF EXISTS {view_name}"))
-                .execute(&mut trx)
-                .await?;
+            sqlx::query(&format!("DROP VIEW IF EXISTS {view_name}")).execute(&mut trx).await?;
         }
         trx.commit().await?;
         Ok(())
