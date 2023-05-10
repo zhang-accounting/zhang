@@ -18,3 +18,11 @@ pub struct PriceDomain {
     pub amount: ZhangBigDecimal,
     pub target_commodity: Currency,
 }
+
+#[derive(FromRow, Debug, Clone)]
+pub struct MetaDomain {
+    pub meta_type: String,
+    pub type_identifier: String,
+    pub key: String,
+    pub value: String,
+}

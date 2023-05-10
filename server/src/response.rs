@@ -9,6 +9,7 @@ use sqlx::FromRow;
 use zhang_ast::amount::Amount;
 use zhang_ast::Currency;
 use zhang_core::database::type_ext::big_decimal::ZhangBigDecimal;
+use zhang_core::domains::schemas::MetaDomain;
 
 use crate::{ServerError, ServerResult};
 
@@ -109,6 +110,14 @@ pub struct StatisticResponse {
 pub struct MetaResponse {
     key: String,
     value: String,
+}
+impl From<MetaDomain> for MetaResponse {
+    fn from(value: MetaDomain) -> Self {
+        MetaResponse {
+            key: value.key,
+            value: value.value,
+        }
+    }
 }
 
 #[derive(Serialize)]

@@ -64,20 +64,6 @@ pub struct DetailRow {
     balance_commodity: String,
 }
 
-pub async fn get_metas(
-    type_: &str, type_identifier: &str, conn: &mut SqliteConnection,
-) -> ServerResult<Vec<MetaResponse>> {
-    let rows = sqlx::query_as::<_, MetaResponse>(
-        r#"
-        select key, value from metas where type = $1 and type_identifier = $2
-        "#,
-    )
-    .bind(type_)
-    .bind(type_identifier)
-    .fetch_all(conn)
-    .await?;
-    Ok(rows)
-}
 pub async fn get_transaction_tags(trx_id: &str, conn: &mut SqliteConnection) -> ServerResult<Vec<String>> {
     let rows = sqlx::query_as::<_, ValueRow>(
         r#"
@@ -451,6 +437,7 @@ pub async fn get_journals(
     ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>,
 ) -> ApiResult<Pageable<JournalItemResponse>> {
     let ledger = ledger.read().await;
+    let mut operations = ledger.operations().await;
     let mut connection = ledger.connection().await;
     let params = params.into_inner();
 
@@ -588,7 +575,13 @@ pub async fn get_journals(
                         .collect_vec();
                     let tags = get_transaction_tags(&trx_id, &mut connection).await?;
                     let links = get_transaction_links(&trx_id, &mut connection).await?;
-                    let metas = get_metas("TransactionMeta", &trx_id, &mut connection).await.unwrap();
+                    let metas = operations
+                        .metas("TransactionMeta", &trx_id)
+                        .await
+                        .unwrap()
+                        .into_iter()
+                        .map(|it|it.into())
+                        .collect();
                     JournalItemResponse::Transaction(JournalTransactionItemResponse {
                         id: trx_id,
                         sequence: header.sequence,
