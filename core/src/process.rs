@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use crate::constants::DEFAULT_COMMODITY_PRECISION;
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
-use crate::domains::account::AccountDomain;
 use crate::domains::options::OptionDomain;
 use crate::ledger::{Ledger, LedgerError, LedgerErrorType};
 use crate::utils::id::FromSpan;
@@ -39,9 +38,9 @@ pub(crate) trait DirectiveProcess {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()>;
 }
 
-async fn check_account_existed(account_name: &str, ledger: &mut Ledger, span: &SpanInfo, conn: &mut SqliteConnection) -> ZhangResult<()> {
-    let existed = AccountDomain::exists(account_name, conn).await?;
-
+async fn check_account_existed(account_name: &str, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+    let mut operations = ledger.operations().await;
+    let existed = operations.exist_account(account_name).await?;
     if !existed {
         ledger.errors.push(LedgerError {
             span: span.clone(),
@@ -138,7 +137,7 @@ impl DirectiveProcess for Close {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
         // check if account exist
-        check_account_existed(self.account.name(), ledger, span, &mut conn).await?;
+        check_account_existed(self.account.name(), ledger, span).await?;
         check_account_closed(self.account.name(), ledger, span, &mut conn).await?;
 
         sqlx::query(r#"update accounts set status = 'Close' where name = $1"#)
@@ -351,7 +350,7 @@ impl DirectiveProcess for Balance {
                     });
                 }
 
-                check_account_existed(balance_check.account.name(), ledger, span, &mut conn).await?;
+                check_account_existed(balance_check.account.name(), ledger, span).await?;
                 check_account_closed(balance_check.account.name(), ledger, span, &mut conn).await?;
 
                 let mut transformed_trx = Transaction {
@@ -376,8 +375,8 @@ impl DirectiveProcess for Balance {
                 transformed_trx.process(ledger, span).await?;
             }
             Balance::BalancePad(balance_pad) => {
-                check_account_existed(balance_pad.account.name(), ledger, span, &mut conn).await?;
-                check_account_existed(balance_pad.pad.name(), ledger, span, &mut conn).await?;
+                check_account_existed(balance_pad.account.name(), ledger, span).await?;
+                check_account_existed(balance_pad.pad.name(), ledger, span).await?;
                 check_account_closed(balance_pad.account.name(), ledger, span, &mut conn).await?;
                 check_account_closed(balance_pad.pad.name(), ledger, span, &mut conn).await?;
 
@@ -443,7 +442,7 @@ impl DirectiveProcess for Balance {
 impl DirectiveProcess for Document {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
-        check_account_existed(self.account.name(), ledger, span, &mut conn).await?;
+        check_account_existed(self.account.name(), ledger, span).await?;
         check_account_closed(self.account.name(), ledger, span, &mut conn).await?;
 
         let path = self.filename.clone().to_plain_string();

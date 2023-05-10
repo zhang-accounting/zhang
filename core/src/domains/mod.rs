@@ -5,8 +5,6 @@ use itertools::Itertools;
 use sqlx::pool::PoolConnection;
 use sqlx::{Acquire, FromRow, Sqlite};
 
-pub mod account;
-pub mod commodity;
 pub mod options;
 pub mod schemas;
 
@@ -18,7 +16,6 @@ struct ValueRow {
 pub struct Operations {
     pub(crate) pool: PoolConnection<Sqlite>,
 }
-
 impl Operations {
     pub async fn options(&mut self, key: impl AsRef<str>) -> ZhangResult<Option<OptionDomain>> {
         let conn = self.pool.acquire().await?;
@@ -127,6 +124,16 @@ impl Operations {
         let conn = self.pool.acquire().await?;
 
         Ok(sqlx::query("select 1 from commodities where name = $1")
+            .bind(name)
+            .fetch_optional(conn)
+            .await?
+            .is_some())
+    }
+
+    pub async fn exist_account(&mut self, name: &str) -> ZhangResult<bool> {
+        let conn = self.pool.acquire().await?;
+
+        Ok(sqlx::query("select 1 from accounts where name = $1")
             .bind(name)
             .fetch_optional(conn)
             .await?

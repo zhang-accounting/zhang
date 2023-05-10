@@ -39,7 +39,6 @@ use crate::response::{
 use crate::{ApiResult, ServerResult};
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Balance, BalanceCheck, BalancePad, Date, Directive, Document, Flag, Meta, Posting, Transaction, ZhangString};
-use zhang_core::domains::options::OptionDomain;
 use zhang_core::utils::date_range::NaiveDateRange;
 
 pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {

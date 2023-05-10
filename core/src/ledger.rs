@@ -202,7 +202,6 @@ impl Ledger {
         Ok(match txn.get_postings_inventory() {
             Ok(inventory) => {
                 for (currency, amount) in inventory.currencies.iter() {
-                    let mut conn = self.connection().await;
                     let mut operations = self.operations().await;
                     let commodity = operations.commodity(currency).await?;
                     let precision = commodity
@@ -490,8 +489,6 @@ mod test {
     }
     mod options {
         use crate::ledger::test::load_from_temp_str;
-        use bigdecimal::BigDecimal;
-        use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
         use indoc::indoc;
 
         #[tokio::test]
@@ -611,8 +608,6 @@ mod test {
 
     mod commodity {
         use crate::ledger::test::load_from_temp_str;
-        use bigdecimal::BigDecimal;
-        use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
         use indoc::indoc;
 
         #[tokio::test]
@@ -641,6 +636,24 @@ mod test {
             let mut operations = ledger.operations().await;
             let commodity = operations.commodity("USD").await?;
             assert!(commodity.is_none());
+            Ok(())
+        }
+    }
+
+    mod account {
+        use crate::ledger::test::load_from_temp_str;
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_return_true_given_exists_account() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_temp_str(indoc! {r#"
+                1970-01-01 open Assets:Bank
+            "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            assert!(operations.exist_account("Assets:Bank").await?);
+            assert!(!operations.exist_account("Assets:Bank2").await?);
             Ok(())
         }
     }
