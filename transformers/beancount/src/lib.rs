@@ -22,10 +22,7 @@ pub struct BeancountTransformer {}
 
 macro_rules! extract_time {
     ($directive: tt) => {{
-        let time = $directive
-            .meta
-            .pop_one("time")
-            .and_then(|it| parse_time(it.as_str()).ok());
+        let time = $directive.meta.pop_one("time").and_then(|it| parse_time(it.as_str()).ok());
         if let Some(time) = time {
             $directive.date = Date::Datetime($directive.date.naive_date().and_time(time));
         }
@@ -93,16 +90,11 @@ impl TextFileBasedTransformer for BeancountTransformer {
                             data: Directive::Transaction(trx),
                         });
                     }
-                    _ => ret.push(Spanned {
-                        span,
-                        data: zhang_directive,
-                    }),
+                    _ => ret.push(Spanned { span, data: zhang_directive }),
                 },
                 Either::Right(beancount_directive) => match beancount_directive {
                     BeancountOnlyDirective::PushTag(tag) => tags_stack.push(tag),
-                    BeancountOnlyDirective::PopTag(tag) => {
-                        tags_stack = tags_stack.into_iter().filter(|it| it.ne(&tag)).collect_vec()
-                    }
+                    BeancountOnlyDirective::PopTag(tag) => tags_stack = tags_stack.into_iter().filter(|it| it.ne(&tag)).collect_vec(),
                     BeancountOnlyDirective::Pad(pad) => {
                         let date = pad.date.naive_date();
                         if !pad_info.contains_key(&date) {
@@ -113,9 +105,7 @@ impl TextFileBasedTransformer for BeancountTransformer {
                     }
                     BeancountOnlyDirective::Balance(balance) => {
                         let date = balance.date.naive_date();
-                        let pad_account = pad_info
-                            .get_latest(&date)
-                            .and_then(|it| it.get(&balance.account.content));
+                        let pad_account = pad_info.get_latest(&date).and_then(|it| it.get(&balance.account.content));
 
                         if let Some(pad_account) = pad_account {
                             // balance pad
@@ -157,10 +147,7 @@ mod test {
     use chrono::NaiveDate;
     use std::str::FromStr;
     use zhang_ast::amount::Amount;
-    use zhang_ast::{
-        Account, Balance, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned, Transaction,
-        ZhangString,
-    };
+    use zhang_ast::{Account, Balance, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned, Transaction, ZhangString};
     use zhang_core::transform::TextFileBasedTransformer;
 
     fn fake_span() -> SpanInfo {
@@ -177,10 +164,7 @@ mod test {
         let transformer = BeancountTransformer::default();
         let mut directives = transformer
             .transform(vec![
-                Spanned::new(
-                    BeancountDirective::Right(BeancountOnlyDirective::PushTag("onetag".to_string())),
-                    fake_span(),
-                ),
+                Spanned::new(BeancountDirective::Right(BeancountOnlyDirective::PushTag("onetag".to_string())), fake_span()),
                 Spanned::new(
                     BeancountDirective::Left(Directive::Transaction(Transaction {
                         date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
@@ -210,14 +194,8 @@ mod test {
         let transformer = BeancountTransformer::default();
         let mut directives = transformer
             .transform(vec![
-                Spanned::new(
-                    BeancountDirective::Right(BeancountOnlyDirective::PushTag("onetag".to_string())),
-                    fake_span(),
-                ),
-                Spanned::new(
-                    BeancountDirective::Right(BeancountOnlyDirective::PopTag("onetag".to_string())),
-                    fake_span(),
-                ),
+                Spanned::new(BeancountDirective::Right(BeancountOnlyDirective::PushTag("onetag".to_string())), fake_span()),
+                Spanned::new(BeancountDirective::Right(BeancountOnlyDirective::PopTag("onetag".to_string())), fake_span()),
                 Spanned::new(
                     BeancountDirective::Left(Directive::Transaction(Transaction {
                         date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
@@ -357,12 +335,7 @@ mod test {
         assert_eq!(
             balance_pad_directive,
             Directive::Open(Open {
-                date: Date::Datetime(
-                    NaiveDate::from_ymd_opt(1970, 1, 2)
-                        .unwrap()
-                        .and_hms_micro_opt(1, 2, 3, 0)
-                        .unwrap()
-                ),
+                date: Date::Datetime(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap().and_hms_micro_opt(1, 2, 3, 0).unwrap()),
                 account: Account::from_str("Assets::BankAccount").unwrap(),
                 commodities: vec![],
                 meta: Meta::default(),

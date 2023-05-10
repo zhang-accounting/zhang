@@ -158,14 +158,21 @@ export interface StatisticResponse {
   details: { [date: string]: { [account: string]: AmountResponse } };
 }
 
+
+
+export interface CalculatedAmountResponse {
+  calculated: AmountResponse,
+  detail: { [commodity: string]: string }
+}
+
 export interface AmountResponse {
   number: string;
   commodity: string;
 }
 
 export interface CurrentStatisticResponse {
-  balance: AmountResponse;
-  liability: AmountResponse;
+  balance: CalculatedAmountResponse;
+  liability: CalculatedAmountResponse;
   income: AmountResponse;
   expense: AmountResponse;
 }
@@ -202,12 +209,12 @@ export interface SpanInfo {
 export interface LedgerError {
   span: SpanInfo;
   error:
-    | AccountBalanceCheckError
-    | AccountDoesNotExist
-    | AccountClosed
-    | TransactionDoesNotBalance
-    | CommodityDoesNotDefine
-    | TransactionHasMultipleImplicitPosting;
+  | AccountBalanceCheckError
+  | AccountDoesNotExist
+  | AccountClosed
+  | TransactionDoesNotBalance
+  | CommodityDoesNotDefine
+  | TransactionHasMultipleImplicitPosting;
 }
 
 export interface AccountBalanceCheckError extends SpanInfo {

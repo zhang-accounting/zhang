@@ -76,24 +76,17 @@ impl ZhangParser {
         Ok(Date::Date(date))
     }
     fn datetime(input: Node) -> Result<Date> {
-        Ok(Date::Datetime(
-            NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M:%S").unwrap(),
-        ))
+        Ok(Date::Datetime(NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M:%S").unwrap()))
     }
     fn date_hour(input: Node) -> Result<Date> {
-        Ok(Date::DateHour(
-            NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M").unwrap(),
-        ))
+        Ok(Date::DateHour(NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M").unwrap()))
     }
 
     fn plugin(input: Node) -> Result<Directive> {
         let ret: (ZhangString, Vec<ZhangString>) = match_nodes!(input.into_children();
             [string(module), string(values)..] => (module, values.collect()),
         );
-        Ok(Directive::Plugin(Plugin {
-            module: ret.0,
-            value: ret.1,
-        }))
+        Ok(Directive::Plugin(Plugin { module: ret.0, value: ret.1 }))
     }
 
     fn option(input: Node) -> Result<Directive> {
@@ -153,16 +146,8 @@ impl ZhangParser {
         Ok(ret)
     }
 
-    fn posting_unit(
-        input: Node,
-    ) -> Result<(
-        Option<Amount>,
-        Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>,
-    )> {
-        let ret: (
-            Option<Amount>,
-            Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>,
-        ) = match_nodes!(input.into_children();
+    fn posting_unit(input: Node) -> Result<(Option<Amount>, Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>)> {
+        let ret: (Option<Amount>, Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>) = match_nodes!(input.into_children();
             [posting_amount(amount)] => (Some(amount), None),
             [posting_meta(meta)] => (None, Some(meta)),
             [posting_amount(amount), posting_meta(meta)] => (Some(amount), Some(meta)),
@@ -222,10 +207,7 @@ impl ZhangParser {
         let ret: (
             Option<Flag>,
             Account,
-            Option<(
-                Option<Amount>,
-                Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>,
-            )>,
+            Option<(Option<Amount>, Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>)>,
         ) = match_nodes!(input.into_children();
             [account_name(account_name)] => (None, account_name, None),
             [account_name(account_name), posting_unit(unit)] => (None, account_name, Some(unit)),
@@ -499,9 +481,7 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
     let inputs = ZhangParser::parse(Rule::entry, input_str)?;
     let input = inputs.single()?;
     ZhangParser::entry(input).map(|mut directives| {
-        directives
-            .iter_mut()
-            .for_each(|directive| directive.span.filename = file.clone());
+        directives.iter_mut().for_each(|directive| directive.span.filename = file.clone());
         directives
     })
 }
@@ -575,17 +555,10 @@ mod test {
 
         #[test]
         fn should_parse_balance_check_and_balance_pad() {
-            let balance = parse("2101-10-10 10:10 balance Assets:Hello 123 CNY", None)
-                .unwrap()
-                .remove(0);
+            let balance = parse("2101-10-10 10:10 balance Assets:Hello 123 CNY", None).unwrap().remove(0);
             assert_eq!(
                 Directive::Balance(Balance::BalanceCheck(BalanceCheck {
-                    date: Date::DateHour(
-                        NaiveDate::from_ymd_opt(2101, 10, 10)
-                            .unwrap()
-                            .and_hms_opt(10, 10, 0)
-                            .unwrap()
-                    ),
+                    date: Date::DateHour(NaiveDate::from_ymd_opt(2101, 10, 10).unwrap().and_hms_opt(10, 10, 0).unwrap()),
                     account: Account::from_str("Assets:Hello").unwrap(),
                     amount: Amount::new(BigDecimal::from(123i32), "CNY"),
                     meta: Default::default()
@@ -593,20 +566,12 @@ mod test {
                 balance.data
             );
 
-            let balance = parse(
-                "2101-10-10 10:10 balance Assets:Hello 123 CNY with pad Income:Earnings",
-                None,
-            )
-            .unwrap()
-            .remove(0);
+            let balance = parse("2101-10-10 10:10 balance Assets:Hello 123 CNY with pad Income:Earnings", None)
+                .unwrap()
+                .remove(0);
             assert_eq!(
                 Directive::Balance(Balance::BalancePad(BalancePad {
-                    date: Date::DateHour(
-                        NaiveDate::from_ymd_opt(2101, 10, 10)
-                            .unwrap()
-                            .and_hms_opt(10, 10, 0)
-                            .unwrap()
-                    ),
+                    date: Date::DateHour(NaiveDate::from_ymd_opt(2101, 10, 10).unwrap().and_hms_opt(10, 10, 0).unwrap()),
                     account: Account::from_str("Assets:Hello").unwrap(),
                     amount: Amount::new(BigDecimal::from(123i32), "CNY"),
                     pad: Account::from_str("Income:Earnings").unwrap(),
@@ -872,10 +837,7 @@ mod test {
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
                 assert_eq!(Some(Amount::new(BigDecimal::from(7i32), "CNY")), posting.cost);
-                assert_eq!(
-                    Some(Date::Date(NaiveDate::from_ymd_opt(2022, 6, 6).unwrap())),
-                    posting.cost_date
-                );
+                assert_eq!(Some(Date::Date(NaiveDate::from_ymd_opt(2022, 6, 6).unwrap())), posting.cost_date);
                 assert_eq!(None, posting.price);
             }
             #[test]
@@ -888,10 +850,7 @@ mod test {
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
                 assert_eq!(None, posting.cost);
                 assert_eq!(None, posting.cost_date);
-                assert_eq!(
-                    Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))),
-                    posting.price
-                );
+                assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
             }
             #[test]
             fn should_return_unit_and_total_price() {
@@ -903,10 +862,7 @@ mod test {
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
                 assert_eq!(None, posting.cost);
                 assert_eq!(None, posting.cost_date);
-                assert_eq!(
-                    Some(SingleTotalPrice::Total(Amount::new(BigDecimal::from(700i32), "CNY"))),
-                    posting.price
-                );
+                assert_eq!(Some(SingleTotalPrice::Total(Amount::new(BigDecimal::from(700i32), "CNY"))), posting.price);
             }
             #[test]
             fn should_return_unit_cost_and_single_price() {
@@ -916,15 +872,9 @@ mod test {
                 "#});
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(
-                    Some(Amount::new(BigDecimal::from_f32(6.9).unwrap(), "CNY")),
-                    posting.cost
-                );
+                assert_eq!(Some(Amount::new(BigDecimal::from_f32(6.9).unwrap(), "CNY")), posting.cost);
                 assert_eq!(None, posting.cost_date);
-                assert_eq!(
-                    Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))),
-                    posting.price
-                );
+                assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
             }
         }
     }

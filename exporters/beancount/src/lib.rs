@@ -37,10 +37,7 @@ impl AppendableExporter for BeancountExporter {
                 })],
             )?;
         }
-        let directive_content = format!(
-            "\n{}\n",
-            directives.into_iter().map(|it| self.export_directive(it)).join("\n")
-        );
+        let directive_content = format!("\n{}\n", directives.into_iter().map(|it| self.export_directive(it)).join("\n"));
         let mut ledger_base_file = OpenOptions::new().append(true).create(true).open(&endpoint).unwrap();
         Ok(ledger_base_file.write_all(directive_content.as_bytes())?)
     }
@@ -127,10 +124,9 @@ macro_rules! convert_to_datetime {
         if let Date::Datetime(datetime) = $directive.date {
             let (date, time) = (datetime.date(), datetime.time());
             $directive.date = Date::Date(date);
-            $directive.meta.insert(
-                "time".to_string(),
-                ZhangString::QuoteString(time.format("%H:%M:%S").to_string()),
-            );
+            $directive
+                .meta
+                .insert("time".to_string(), ZhangString::QuoteString(time.format("%H:%M:%S").to_string()));
             $directive
         } else {
             $directive
@@ -150,19 +146,17 @@ fn convert_datetime_to_date(directive: Directive) -> Directive {
                 Date::DateHour(date_hour) => {
                     let (date, time) = (date_hour.date(), date_hour.time());
                     check.date = Date::Date(date);
-                    check.meta.insert(
-                        "time".to_string(),
-                        ZhangString::QuoteString(time.format("%H:%M:%S").to_string()),
-                    );
+                    check
+                        .meta
+                        .insert("time".to_string(), ZhangString::QuoteString(time.format("%H:%M:%S").to_string()));
                     directive
                 }
                 Date::Datetime(datetime) => {
                     let (date, time) = (datetime.date(), datetime.time());
                     check.date = Date::Date(date);
-                    check.meta.insert(
-                        "time".to_string(),
-                        ZhangString::QuoteString(time.format("%H:%M:%S").to_string()),
-                    );
+                    check
+                        .meta
+                        .insert("time".to_string(), ZhangString::QuoteString(time.format("%H:%M:%S").to_string()));
                     directive
                 }
             },
@@ -171,19 +165,15 @@ fn convert_datetime_to_date(directive: Directive) -> Directive {
                 Date::DateHour(date_hour) => {
                     let (date, time) = (date_hour.date(), date_hour.time());
                     pad.date = Date::Date(date);
-                    pad.meta.insert(
-                        "time".to_string(),
-                        ZhangString::QuoteString(time.format("%H:%M:%S").to_string()),
-                    );
+                    pad.meta
+                        .insert("time".to_string(), ZhangString::QuoteString(time.format("%H:%M:%S").to_string()));
                     directive
                 }
                 Date::Datetime(datetime) => {
                     let (date, time) = (datetime.date(), datetime.time());
                     pad.date = Date::Date(date);
-                    pad.meta.insert(
-                        "time".to_string(),
-                        ZhangString::QuoteString(time.format("%H:%M:%S").to_string()),
-                    );
+                    pad.meta
+                        .insert("time".to_string(), ZhangString::QuoteString(time.format("%H:%M:%S").to_string()));
                     directive
                 }
             },
@@ -224,9 +214,7 @@ mod test {
     fn should_keep_time_into_meta_for_open_directive() {
         let mut directive = test_parse_zhang! {"1970-01-01 open Assets:BankAccount"};
         match &mut directive {
-            Directive::Open(ref mut open) => {
-                open.date = Date::Datetime(open.date.naive_date().and_hms_nano_opt(1, 1, 1, 0).unwrap())
-            }
+            Directive::Open(ref mut open) => open.date = Date::Datetime(open.date.naive_date().and_hms_nano_opt(1, 1, 1, 0).unwrap()),
             _ => unreachable!(),
         }
 

@@ -48,10 +48,7 @@ impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
         Key: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        self.inner
-            .get(key.borrow())
-            .map(|it| it.iter().collect_vec())
-            .unwrap_or_default()
+        self.inner.get(key.borrow()).map(|it| it.iter().collect_vec()).unwrap_or_default()
     }
 }
 impl<Key: Hash + Eq + Clone, Value> MultiValueMap<Key, Value> {

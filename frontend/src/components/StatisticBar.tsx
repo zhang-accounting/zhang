@@ -1,4 +1,4 @@
-import { Group } from '@mantine/core';
+import { SimpleGrid } from '@mantine/core';
 import StatisticBox from './StatisticBox';
 import useSWR from 'swr';
 import { fetcher } from '../index';
@@ -11,11 +11,11 @@ export default function StatisticBar() {
   if (!data) return <>loading</>;
 
   return (
-    <Group>
-      <StatisticBox text={'ASSET_BLANACE'} amount={data.balance.number} currency={data.balance.commodity} />
-      <StatisticBox text={'LIABILITY'} amount={data.liability.number} currency={data.liability.commodity} negetive />
+    <SimpleGrid cols={6} >
+      <StatisticBox text={'ASSET_BLANACE'} amount={data.balance.calculated.number} currency={data.balance.calculated.commodity} hint={"include assets and liabilities"} />
+      <StatisticBox text={'LIABILITY'} amount={data.liability.calculated.number} currency={data.liability.calculated.commodity} negetive />
       <StatisticBox text={'CURRENT_MONTH_INCOME'} amount={data.income.number} currency={data.income.commodity} negetive />
       <StatisticBox text={'CURRENT_MONTH_EXPENSE'} amount={data.expense.number} currency={data.expense.commodity} />
-    </Group>
+    </SimpleGrid>
   );
 }

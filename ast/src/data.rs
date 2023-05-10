@@ -123,10 +123,7 @@ impl Transaction {
     }
 
     pub fn txn_postings(&self) -> Vec<TxnPosting> {
-        self.postings
-            .iter()
-            .map(|posting| TxnPosting { txn: self, posting })
-            .collect_vec()
+        self.postings.iter().map(|posting| TxnPosting { txn: self, posting }).collect_vec()
     }
     pub fn has_account(&self, name: &String) -> bool {
         self.postings.iter().any(|posting| posting.account.content.eq(name))
@@ -163,9 +160,7 @@ impl<'a> TxnPosting<'a> {
             .map(|unit| match (self.posting.cost.as_ref(), self.posting.price.as_ref()) {
                 (Some(cost), _) => Amount::new((&unit.number).mul(&cost.number), cost.currency.clone()),
                 (None, Some(price)) => match price {
-                    SingleTotalPrice::Single(single_price) => {
-                        Amount::new((&unit.number).mul(&single_price.number), single_price.currency.clone())
-                    }
+                    SingleTotalPrice::Single(single_price) => Amount::new((&unit.number).mul(&single_price.number), single_price.currency.clone()),
                     SingleTotalPrice::Total(total_price) => total_price.clone(),
                 },
                 (None, None) => unit.clone(),
@@ -209,13 +204,8 @@ impl<'a> TxnPosting<'a> {
                 Some(LotInfo::Lot(cost.currency.clone(), cost.number.clone()))
             } else if let Some(price) = &self.posting.price {
                 match price {
-                    SingleTotalPrice::Single(amount) => {
-                        Some(LotInfo::Lot(amount.currency.clone(), amount.number.clone()))
-                    }
-                    SingleTotalPrice::Total(amount) => Some(LotInfo::Lot(
-                        amount.currency.clone(),
-                        (&amount.number).div(&unit.number),
-                    )),
+                    SingleTotalPrice::Single(amount) => Some(LotInfo::Lot(amount.currency.clone(), amount.number.clone())),
+                    SingleTotalPrice::Total(amount) => Some(LotInfo::Lot(amount.currency.clone(), (&amount.number).div(&unit.number))),
                 }
             } else {
                 None

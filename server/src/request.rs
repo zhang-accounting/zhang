@@ -7,15 +7,8 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 #[serde(tag = "type")]
 pub enum AccountBalanceRequest {
-    Check {
-        account_name: String,
-        amount: AmountRequest,
-    },
-    Pad {
-        account_name: String,
-        amount: AmountRequest,
-        pad: String,
-    },
+    Check { account_name: String, amount: AmountRequest },
+    Pad { account_name: String, amount: AmountRequest, pad: String },
 }
 
 #[derive(Deserialize)]

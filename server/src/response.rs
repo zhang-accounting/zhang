@@ -6,8 +6,10 @@ use actix_web::{HttpRequest, HttpResponse, Responder, ResponseError};
 use chrono::{NaiveDate, NaiveDateTime};
 use serde::Serialize;
 use sqlx::FromRow;
+use zhang_ast::amount::Amount;
 use zhang_ast::Currency;
 use zhang_core::database::type_ext::big_decimal::ZhangBigDecimal;
+use zhang_core::domains::schemas::MetaDomain;
 
 use crate::{ServerError, ServerResult};
 
@@ -39,9 +41,7 @@ impl<T: Serialize> Responder for ResponseWrapper<T> {
                 let json = actix_web::web::Json(wrapper);
                 json.respond_to(req)
             }
-            ResponseWrapper::Created => HttpResponse::Created()
-                .message_body(EitherBody::new("".to_string()))
-                .unwrap(),
+            ResponseWrapper::Created => HttpResponse::Created().message_body(EitherBody::new("".to_string())).unwrap(),
         }
     }
 }
@@ -108,6 +108,14 @@ pub struct StatisticResponse {
 pub struct MetaResponse {
     key: String,
     value: String,
+}
+impl From<MetaDomain> for MetaResponse {
+    fn from(value: MetaDomain) -> Self {
+        MetaResponse {
+            key: value.key,
+            value: value.value,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -187,10 +195,25 @@ pub struct InfoForNewTransaction {
     pub account_name: Vec<String>,
 }
 
+#[derive(Serialize)]
+pub struct CalculatedAmount {
+    pub calculated: AmountResponse,
+    pub detail: HashMap<String, ZhangBigDecimal>,
+}
+
 #[derive(Serialize, Clone)]
 pub struct AmountResponse {
     pub number: ZhangBigDecimal,
     pub commodity: String,
+}
+
+impl From<Amount> for AmountResponse {
+    fn from(value: Amount) -> Self {
+        AmountResponse {
+            number: ZhangBigDecimal(value.number),
+            commodity: value.currency,
+        }
+    }
 }
 
 #[derive(FromRow, Serialize)]
@@ -250,8 +273,8 @@ pub struct FileDetailResponse {
 
 #[derive(Serialize)]
 pub struct CurrentStatisticResponse {
-    pub balance: AmountResponse,
-    pub liability: AmountResponse,
+    pub balance: CalculatedAmount,
+    pub liability: CalculatedAmount,
     pub income: AmountResponse,
     pub expense: AmountResponse,
 }

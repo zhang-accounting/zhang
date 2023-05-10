@@ -18,7 +18,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::{Directive, DirectiveType, SpanInfo, Spanned, Transaction};
 
 use crate::database::migrations::Migration;
-use crate::domains::commodity::CommodityDomain;
+use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::options::Options;
 use crate::process::DirectiveProcess;
@@ -76,9 +76,7 @@ impl Ledger {
         Ledger::load_with_database(entry, endpoint, None, transformer).await
     }
 
-    pub async fn load_with_database(
-        entry: PathBuf, endpoint: String, database: Option<PathBuf>, transformer: Arc<dyn Transformer>,
-    ) -> ZhangResult<Ledger> {
+    pub async fn load_with_database(entry: PathBuf, endpoint: String, database: Option<PathBuf>, transformer: Arc<dyn Transformer>) -> ZhangResult<Ledger> {
         let entry = entry.canonicalize().with_path(&entry)?;
 
         let transform_result = transformer.load(entry.clone(), endpoint.clone())?;
@@ -97,8 +95,8 @@ impl Ledger {
     }
 
     async fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: Option<PathBuf>,
-        visited_files: Vec<Pattern>, transformer: Arc<dyn Transformer>,
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: Option<PathBuf>, visited_files: Vec<Pattern>,
+        transformer: Arc<dyn Transformer>,
     ) -> ZhangResult<Ledger> {
         let sqlite_pool = if let Some(ref path) = database {
             info!("database store at {}", path.display());
@@ -114,11 +112,7 @@ impl Ledger {
             SqlitePoolOptions::new()
                 .max_lifetime(None)
                 .idle_timeout(None)
-                .connect_with(
-                    SqliteConnectOptions::from_str("sqlite::memory:")
-                        .unwrap()
-                        .journal_mode(SqliteJournalMode::Wal),
-                )
+                .connect_with(SqliteConnectOptions::from_str("sqlite::memory:").unwrap().journal_mode(SqliteJournalMode::Wal))
                 .await?
         };
         let mut connection = sqlite_pool.acquire().await?;
@@ -208,8 +202,8 @@ impl Ledger {
         Ok(match txn.get_postings_inventory() {
             Ok(inventory) => {
                 for (currency, amount) in inventory.currencies.iter() {
-                    let mut conn = self.connection().await;
-                    let commodity = CommodityDomain::get_by_name(currency, &mut conn).await?;
+                    let mut operations = self.operations().await;
+                    let commodity = operations.commodity(currency).await?;
                     let precision = commodity
                         .as_ref()
                         .map(|it| it.precision)
@@ -243,6 +237,11 @@ impl Ledger {
         *self = reload_ledger;
         Ok(())
     }
+
+    pub async fn operations(&self) -> Operations {
+        let pool = self.connection().await;
+        Operations { pool }
+    }
 }
 
 #[cfg(test)]
@@ -263,18 +262,10 @@ mod test {
 
     macro_rules! count {
         ($reason:expr, $times: expr, $sql:expr, $conn:expr) => {
-            assert_eq!(
-                $times,
-                sqlx::query($sql).fetch_all($conn).await.unwrap().len(),
-                $reason
-            )
+            assert_eq!($times, sqlx::query($sql).fetch_all($conn).await.unwrap().len(), $reason)
         };
         ($reason:expr, $sql:expr, $conn:expr) => {
-            assert_eq!(
-                1,
-                sqlx::query($sql).fetch_all($conn).await.unwrap().len(),
-                $reason
-            )
+            assert_eq!(1, sqlx::query($sql).fetch_all($conn).await.unwrap().len(), $reason)
         };
     }
 
@@ -496,6 +487,25 @@ mod test {
             );
         }
     }
+    mod options {
+        use crate::ledger::test::load_from_temp_str;
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_get_price() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_temp_str(indoc! {r#"
+                    option "title" "Example Beancount file"
+                    option "operating_currency" "USD"
+                "#})
+            .await;
+            let mut operations = ledger.operations().await;
+
+            assert_eq!("Example Beancount file", operations.options("title").await?.unwrap().value);
+            assert_eq!("USD", operations.options("operating_currency").await?.unwrap().value);
+            assert!(operations.options("operating_currency2").await?.is_none());
+            Ok(())
+        }
+    }
 
     mod extract_info {
         use indoc::indoc;
@@ -561,19 +571,92 @@ mod test {
             .await;
             let mut conn = ledger.connection().await;
             count!("should have 2 commodity", 2, "select * from commodities", &mut conn);
-            count!(
-                "should have CNY record",
-                "select * from commodities where name = 'CNY'",
-                &mut conn
-            );
-            count!(
-                "should have HKD record",
-                "select * from commodities where name = 'HKD'",
-                &mut conn
-            );
+            count!("should have CNY record", "select * from commodities where name = 'CNY'", &mut conn);
+            count!("should have HKD record", "select * from commodities where name = 'HKD'", &mut conn);
         }
     }
 
+    mod price {
+        use crate::ledger::test::load_from_temp_str;
+        use bigdecimal::BigDecimal;
+        use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_get_price() {
+            let ledger = load_from_temp_str(indoc! {r#"
+                    1970-01-01 commodity CNY
+                    1970-01-01 commodity USD
+                    1970-02-01 price USD 7 CNY
+                "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+
+            let option = operations
+                .get_price(
+                    NaiveDateTime::new(NaiveDate::from_ymd_opt(1970, 2, 1).unwrap(), NaiveTime::from_hms_opt(0, 0, 0).unwrap()),
+                    "USD",
+                    "CNY",
+                )
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(BigDecimal::from(7), option.amount.0)
+        }
+    }
+
+    mod commodity {
+        use crate::ledger::test::load_from_temp_str;
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_get_commodity() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_temp_str(indoc! {r#"
+                1970-01-01 commodity CNY
+            "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let commodity = operations.commodity("CNY").await?.unwrap();
+            assert_eq!("CNY", commodity.name);
+            assert_eq!(2, commodity.precision);
+            assert_eq!(None, commodity.prefix);
+            assert_eq!(None, commodity.suffix);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn should_not_get_non_exist_commodity() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_temp_str(indoc! {r#"
+                1970-01-01 commodity CNY
+            "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let commodity = operations.commodity("USD").await?;
+            assert!(commodity.is_none());
+            Ok(())
+        }
+    }
+
+    mod account {
+        use crate::ledger::test::load_from_temp_str;
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_return_true_given_exists_account() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_temp_str(indoc! {r#"
+                1970-01-01 open Assets:Bank
+            "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            assert!(operations.exist_account("Assets:Bank").await?);
+            assert!(!operations.exist_account("Assets:Bank2").await?);
+            Ok(())
+        }
+    }
     // mod txn {
     //     use bigdecimal::BigDecimal;
     //     use indoc::indoc;

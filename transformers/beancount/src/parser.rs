@@ -79,10 +79,7 @@ impl BeancountParer {
         let ret: (ZhangString, Vec<ZhangString>) = match_nodes!(input.into_children();
             [string(module), string(values)..] => (module, values.collect()),
         );
-        Ok(Directive::Plugin(Plugin {
-            module: ret.0,
-            value: ret.1,
-        }))
+        Ok(Directive::Plugin(Plugin { module: ret.0, value: ret.1 }))
     }
 
     fn option(input: Node) -> Result<Directive> {
@@ -142,16 +139,8 @@ impl BeancountParer {
         Ok(ret)
     }
 
-    fn posting_unit(
-        input: Node,
-    ) -> Result<(
-        Option<Amount>,
-        Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>,
-    )> {
-        let ret: (
-            Option<Amount>,
-            Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>,
-        ) = match_nodes!(input.into_children();
+    fn posting_unit(input: Node) -> Result<(Option<Amount>, Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>)> {
+        let ret: (Option<Amount>, Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>) = match_nodes!(input.into_children();
             [posting_amount(amount)] => (Some(amount), None),
             [posting_meta(meta)] => (None, Some(meta)),
             [posting_amount(amount), posting_meta(meta)] => (Some(amount), Some(meta)),
@@ -211,10 +200,7 @@ impl BeancountParer {
         let ret: (
             Option<Flag>,
             Account,
-            Option<(
-                Option<Amount>,
-                Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>,
-            )>,
+            Option<(Option<Amount>, Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>)>,
         ) = match_nodes!(input.into_children();
             [account_name(account_name)] => (None, account_name, None),
             [account_name(account_name), posting_unit(unit)] => (None, account_name, Some(unit)),
@@ -515,9 +501,7 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
     let inputs = BeancountParer::parse(Rule::entry, input_str)?;
     let input = inputs.single()?;
     BeancountParer::entry(input).map(|mut directives| {
-        directives
-            .iter_mut()
-            .for_each(|directive| directive.span.filename = file.clone());
+        directives.iter_mut().for_each(|directive| directive.span.filename = file.clone());
         directives
     })
 }
@@ -541,24 +525,12 @@ mod test {
 
         #[test]
         fn should_support_push_tag() {
-            let directive = parse("pushtag #mytag", None)
-                .unwrap()
-                .pop()
-                .unwrap()
-                .data
-                .right()
-                .unwrap();
+            let directive = parse("pushtag #mytag", None).unwrap().pop().unwrap().data.right().unwrap();
             assert_eq!(BeancountOnlyDirective::PushTag("mytag".to_string()), directive);
         }
         #[test]
         fn should_support_pop_tag() {
-            let directive = parse("poptag #mytag", None)
-                .unwrap()
-                .pop()
-                .unwrap()
-                .data
-                .right()
-                .unwrap();
+            let directive = parse("poptag #mytag", None).unwrap().pop().unwrap().data.right().unwrap();
             assert_eq!(BeancountOnlyDirective::PopTag("mytag".to_string()), directive);
         }
 
