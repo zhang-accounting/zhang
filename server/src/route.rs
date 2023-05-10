@@ -327,23 +327,10 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
 
     let month_beginning = Local.beginning_of_month().naive_local();
     let month_end = Local.end_of_month().naive_local();
-    let latest_account_balances = sqlx::query_as::<_, DetailRow>(
-        r#"
-        SELECT
-            date(datetime) AS date,
-            account,
-            balance_number,
-            balance_commodity
-        FROM
-            account_daily_balance
-        GROUP BY
-            account
-        HAVING
-            max(datetime)
-    "#,
-    )
-    .fetch_all(&mut connection)
-    .await?;
+
+    let mut domains = ledger.operations().await;
+    let latest_account_balances = domains.accounts_latest_balance().await?;
+
     let balance = latest_account_balances
         .iter()
         .filter(|it| it.account.starts_with("Assets") || it.account.starts_with("Liabilities"))

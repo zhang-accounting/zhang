@@ -19,6 +19,7 @@ use zhang_ast::{Directive, DirectiveType, SpanInfo, Spanned, Transaction};
 
 use crate::database::migrations::Migration;
 use crate::domains::commodity::CommodityDomain;
+use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::options::Options;
 use crate::process::DirectiveProcess;
@@ -242,6 +243,11 @@ impl Ledger {
         .await?;
         *self = reload_ledger;
         Ok(())
+    }
+
+    pub async fn operations(&self) -> Operations {
+        let pool = self.connection().await;
+        Operations { pool }
     }
 }
 
