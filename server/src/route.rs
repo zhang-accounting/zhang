@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::iter::FromIterator;
-use std::ops::{Add, AddAssign, Div};
+use std::ops::{Add, AddAssign, Div, Mul};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -33,11 +33,11 @@ use crate::request::{
     AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest,
 };
 use crate::response::{
-    AccountJournalItem, AccountResponse, AmountResponse, BasicInfo, CommodityDetailResponse, CommodityListItemResponse,
-    CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse,
-    InfoForNewTransaction, JournalBalanceCheckItemResponse, JournalBalancePadItemResponse, JournalItemResponse,
-    JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse, Pageable, ReportRankItemResponse,
-    ReportResponse, ResponseWrapper, StatisticResponse,
+    AccountJournalItem, AccountResponse, AmountResponse, BasicInfo, CalculatedAmount, CommodityDetailResponse,
+    CommodityListItemResponse, CommodityLot, CommodityPrice, CurrentStatisticResponse, DocumentResponse,
+    FileDetailResponse, InfoForNewTransaction, JournalBalanceCheckItemResponse, JournalBalancePadItemResponse,
+    JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, MetaResponse, Pageable,
+    ReportRankItemResponse, ReportResponse, ResponseWrapper, StatisticResponse,
 };
 use crate::{ApiResult, ServerResult};
 use zhang_ast::amount::Amount;
@@ -323,23 +323,38 @@ pub async fn get_statistic_data(
 #[get("/api/statistic/current")]
 pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<CurrentStatisticResponse> {
     let ledger = ledger.read().await;
+    let operating_currency = ledger.options.operating_currency.as_str();
+
     let mut connection = ledger.connection().await;
 
     let month_beginning = Local.beginning_of_month().naive_local();
     let month_end = Local.end_of_month().naive_local();
 
-    let mut domains = ledger.operations().await;
-    let latest_account_balances = domains.accounts_latest_balance().await?;
+    let mut operations = ledger.operations().await;
 
-    let balance = latest_account_balances
-        .iter()
-        .filter(|it| it.account.starts_with("Assets") || it.account.starts_with("Liabilities"))
-        .fold(BigDecimal::zero(), |acc, item| acc.add(&*item.balance_number));
+    let latest_account_balances = operations.accounts_latest_balance().await?;
 
-    let liability = latest_account_balances
-        .iter()
-        .filter(|it| it.account.starts_with("Liabilities"))
-        .fold(BigDecimal::zero(), |acc, item| acc.add(&*item.balance_number));
+    let balances = group_and_calculate(
+        &mut operations,
+        latest_account_balances
+            .iter()
+            .filter(|it| it.account.starts_with("Assets") || it.account.starts_with("Liabilities"))
+            .cloned()
+            .collect_vec(),
+        operating_currency,
+    )
+    .await?;
+
+    let liability = group_and_calculate(
+        &mut operations,
+        latest_account_balances
+            .iter()
+            .filter(|it| it.account.starts_with("Liabilities"))
+            .cloned()
+            .collect_vec(),
+        operating_currency,
+    )
+    .await?;
 
     #[derive(FromRow)]
     struct CurrentMonthBalance {
@@ -391,16 +406,44 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
         });
 
     ResponseWrapper::json(CurrentStatisticResponse {
-        balance: AmountResponse {
-            number: ZhangBigDecimal(balance),
-            commodity: ledger.options.operating_currency.to_owned(),
-        },
-        liability: AmountResponse {
-            number: ZhangBigDecimal(liability),
-            commodity: ledger.options.operating_currency.to_owned(),
-        },
+        balance: balances,
+        liability,
         income,
         expense,
+    })
+}
+
+async fn group_and_calculate(
+    operations: &mut Operations, latest_account_balances: Vec<AccountDailyBalanceDomain>, operating_currency: &str,
+) -> ZhangResult<CalculatedAmount> {
+    let mut total_sum = BigDecimal::zero();
+
+    let mut detail = HashMap::new();
+    for (commodity, values) in &latest_account_balances
+        .into_iter()
+        .filter(|it| it.account.starts_with("Assets") || it.account.starts_with("Liabilities"))
+        .group_by(|it| it.balance_commodity.to_owned())
+    {
+        let commodity_sum = values.fold(BigDecimal::zero(), |acc, item| acc.add(&*item.balance_number));
+
+        if commodity.eq(operating_currency) {
+            total_sum.add_assign(&commodity_sum);
+        } else {
+            let target_price = operations
+                .get_price(Local::now().naive_local(), &commodity, operating_currency)
+                .await?;
+            if let Some(price) = target_price {
+                total_sum.add_assign((&commodity_sum).mul(price.amount.0));
+            }
+        }
+        detail.insert(commodity, ZhangBigDecimal(commodity_sum));
+    }
+    Ok(CalculatedAmount {
+        calculated: AmountResponse {
+            number: ZhangBigDecimal(total_sum),
+            commodity: operating_currency.to_owned(),
+        },
+        detail,
     })
 }
 
@@ -1338,7 +1381,10 @@ pub struct StaticFile<T>(pub T);
 
 #[cfg(feature = "frontend")]
 use actix_web::{HttpRequest, HttpResponse};
+use zhang_core::domains::schemas::AccountDailyBalanceDomain;
+use zhang_core::domains::Operations;
 use zhang_core::exporter::AppendableExporter;
+use zhang_core::ZhangResult;
 
 #[cfg(feature = "frontend")]
 impl<T> Responder for StaticFile<T>
