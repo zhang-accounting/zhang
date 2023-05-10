@@ -421,7 +421,6 @@ async fn group_and_calculate(
     let mut detail = HashMap::new();
     for (commodity, values) in &latest_account_balances
         .into_iter()
-        .filter(|it| it.account.starts_with("Assets") || it.account.starts_with("Liabilities"))
         .group_by(|it| it.balance_commodity.to_owned())
     {
         let commodity_sum = values.fold(BigDecimal::zero(), |acc, item| acc.add(&*item.balance_number));
