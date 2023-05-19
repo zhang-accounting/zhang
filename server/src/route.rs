@@ -31,7 +31,7 @@ use zhang_core::utils::string_::StringExt;
 use crate::broadcast::Broadcaster;
 use crate::request::{AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest};
 use crate::response::{
-    AccountJournalItem, AccountResponse, AmountResponse, BasicInfo, CalculatedAmount, CommodityDetailResponse, CommodityListItemResponse, CommodityLot,
+    AccountResponse, AmountResponse, BasicInfo, CalculatedAmount, CommodityDetailResponse, CommodityListItemResponse, CommodityLot,
     CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse, InfoForNewTransaction, JournalBalanceCheckItemResponse,
     JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, Pageable, ReportRankItemResponse,
     ReportResponse, ResponseWrapper, StatisticResponse,
@@ -391,10 +391,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
     let mut connection = ledger.connection().await;
     let params = params.into_inner();
 
-    let total_count = sqlx::query_as::<_, (i64,)>(r#"select count(1) from transactions"#)
-        .fetch_one(&mut connection)
-        .await?
-        .0;
+    let total_count = operations.transaction_counts().await?;
 
     #[derive(Debug, FromRow)]
     struct JournalHeader {
@@ -600,7 +597,7 @@ pub async fn create_new_transaction(
 pub async fn upload_transaction_document(ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: web::Path<(String,)>) -> ApiResult<String> {
     let transaction_id = path.into_inner().0;
     let ledger_stage = ledger.read().await;
-    let mut conn = ledger_stage.connection().await;
+    let mut operations = ledger_stage.operations().await;
     let entry = &ledger_stage.entry.0;
     let mut documents = vec![];
 
@@ -626,20 +623,13 @@ pub async fn upload_transaction_document(ledger: Data<Arc<RwLock<Ledger>>>, mut 
 
         documents.push(ZhangString::QuoteString(path.to_string()));
     }
-    #[derive(FromRow)]
-    struct SpanInfo {
-        pub source_file: String,
-        pub span_end: i64,
-    }
-    let span_info = sqlx::query_as::<_, SpanInfo>(r#"select source_file, span_end from transactions where id = $1"#)
-        .bind(&transaction_id)
-        .fetch_one(&mut conn)
-        .await?;
+    let span_info = operations.transaction_span(&transaction_id).await?;
     let metas_content = documents
         .into_iter()
         .map(|document| format!("  document: {}", document.to_plain_string()))
         .join("\n");
     insert_line(PathBuf::from(span_info.source_file), &metas_content, span_info.span_end as usize)?;
+    // todo add update method in exporter
     ResponseWrapper::json("Ok".to_string())
 }
 
@@ -668,31 +658,16 @@ pub async fn serve_frontend(uri: actix_web::http::Uri) -> impl Responder {
 #[get("/api/accounts")]
 pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<AccountResponse>> {
     let ledger = ledger.read().await;
-    let mut connection = ledger.connection().await;
+    let mut operations = ledger.operations().await;
 
-    #[derive(FromRow)]
-    struct AccountBalanceRow {
-        name: String,
-        status: String,
-        balance_number: ZhangBigDecimal,
-        balance_commodity: String,
-    }
 
-    let rows = sqlx::query_as::<_, AccountBalanceRow>(
-        r#"
-    select name, status, balance_number, balance_commodity
-    from account_balance
-             join accounts on accounts.name = account_balance.account
-    "#,
-    )
-    .fetch_all(&mut connection)
-    .await?;
+    let balances = operations.account_balances().await?;
     let mut ret = vec![];
-    for (key, group) in &rows.into_iter().group_by(|it| it.name.clone()) {
+    for (key, group) in &balances.into_iter().group_by(|it| it.account.clone()) {
         let mut status = "".to_string();
         let mut commodities = HashMap::new();
         for row in group {
-            status = row.status;
+            status = row.account_status;
             commodities.insert(row.balance_commodity, row.balance_number);
         }
         ret.push(AccountResponse {
@@ -770,7 +745,7 @@ pub async fn upload_account_document(
 }
 
 #[get("/api/accounts/{account_name}/documents")]
-pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>) -> ApiResult<Vec<DocumentResponse>> {
+pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<Vec<DocumentResponse>> {
     let account_name = params.into_inner().0;
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
@@ -792,33 +767,14 @@ pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: we
 }
 
 #[get("/api/accounts/{account_name}/journals")]
-pub async fn get_account_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>) -> ApiResult<Vec<AccountJournalItem>> {
+pub async fn get_account_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<Vec<AccountJournalDomain>> {
     let account_name = params.into_inner().0;
     let ledger = ledger.read().await;
-    let mut connection = ledger.connection().await;
+    let mut operations = ledger.operations().await;
 
-    let rows = sqlx::query_as::<_, AccountJournalItem>(
-        r#"
-            select datetime,
-                   trx_id,
-                   account,
-                   payee,
-                   narration,
-                   inferred_unit_number,
-                   inferred_unit_commodity,
-                   account_after_number,
-                   account_after_commodity
-            from transaction_postings
-                     join transactions on transactions.id = transaction_postings.trx_id
-            where account = $1
-            order by datetime desc, transactions.sequence desc
-    "#,
-    )
-    .bind(account_name)
-    .fetch_all(&mut connection)
-    .await?;
+    let journals = operations.account_journals(&account_name).await?;
 
-    ResponseWrapper::json(rows)
+    ResponseWrapper::json(journals)
 }
 
 #[post("/api/accounts/{account_name}/balances")]
@@ -1051,6 +1007,7 @@ pub async fn get_errors(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journal
 pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportRequest>) -> ApiResult<ReportResponse> {
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
+    let mut operations = ledger.operations().await;
 
     let latest_account_balances = sqlx::query_as::<_, DetailRow>(
         r#"
@@ -1146,30 +1103,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
     .await?
     .0;
 
-    let income_transactions = sqlx::query_as::<_, AccountJournalItem>(
-        r#"
-        select datetime,
-               trx_id,
-               account,
-               payee,
-               narration,
-               inferred_unit_number,
-               inferred_unit_commodity,
-               account_after_number,
-               account_after_commodity
-        from transaction_postings
-                 join transactions on transactions.id = transaction_postings.trx_id
-                 join accounts on accounts.name = transaction_postings.account
-        where datetime >= $1
-          and datetime <= $2
-          and accounts.type = $3
-    "#,
-    )
-    .bind(params.from.naive_local())
-    .bind(params.to.naive_local())
-    .bind("Income")
-    .fetch_all(&mut connection)
-    .await?;
+    let income_transactions = operations.account_dated_journals("Income", params.from.naive_local(), params.to.naive_local()).await?;
 
     let total_income = income_transactions
         .iter()
@@ -1198,30 +1132,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
 
     // --------
 
-    let expense_transactions = sqlx::query_as::<_, AccountJournalItem>(
-        r#"
-        select datetime,
-               trx_id,
-               account,
-               payee,
-               narration,
-               inferred_unit_number,
-               inferred_unit_commodity,
-               account_after_number,
-               account_after_commodity
-        from transaction_postings
-                 join transactions on transactions.id = transaction_postings.trx_id
-                 join accounts on accounts.name = transaction_postings.account
-        where datetime >= $1
-          and datetime <= $2
-          and accounts.type = $3
-    "#,
-    )
-    .bind(params.from.naive_local())
-    .bind(params.to.naive_local())
-    .bind("Expenses")
-    .fetch_all(&mut connection)
-    .await?;
+    let expense_transactions = operations.account_dated_journals("Expenses", params.from.naive_local(), params.to.naive_local()).await?;
 
     let total_expense = expense_transactions
         .iter()
@@ -1281,7 +1192,7 @@ pub struct StaticFile<T>(pub T);
 
 #[cfg(feature = "frontend")]
 use actix_web::{HttpRequest, HttpResponse};
-use zhang_core::domains::schemas::AccountDailyBalanceDomain;
+use zhang_core::domains::schemas::{AccountDailyBalanceDomain, AccountJournalDomain};
 use zhang_core::domains::Operations;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ZhangResult;

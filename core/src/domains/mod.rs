@@ -1,4 +1,6 @@
-use crate::domains::schemas::{AccountDailyBalanceDomain, CommodityDomain, MetaDomain, OptionDomain, PriceDomain};
+use crate::domains::schemas::{
+    AccountBalanceDomain, AccountDailyBalanceDomain, AccountJournalDomain, CommodityDomain, MetaDomain, OptionDomain, PriceDomain, TransactionInfoDomain,
+};
 use crate::ZhangResult;
 use chrono::NaiveDateTime;
 use itertools::Itertools;
@@ -138,5 +140,83 @@ impl Operations {
             .fetch_optional(conn)
             .await?
             .is_some())
+    }
+
+    pub async fn transaction_counts(&mut self) -> ZhangResult<i64> {
+        let conn = self.pool.acquire().await?;
+        Ok(sqlx::query_as::<_, (i64,)>(r#"select count(1) from transactions"#).fetch_one(conn).await?.0)
+    }
+
+    pub async fn transaction_span(&mut self, id: &str) -> ZhangResult<TransactionInfoDomain> {
+        let conn = self.pool.acquire().await?;
+        Ok(
+            sqlx::query_as::<_, TransactionInfoDomain>(r#"select id, source_file, span_start, span_end from transactions where id = $1"#)
+                .bind(id)
+                .fetch_one(conn)
+                .await?,
+        )
+    }
+
+    pub async fn account_balances(&mut self) -> ZhangResult<Vec<AccountBalanceDomain>> {
+        let conn = self.pool.acquire().await?;
+        Ok(sqlx::query_as::<_, AccountBalanceDomain>(
+            r#"
+                        select name, account, account_status, balance_number, balance_commodity
+                        from account_balance
+            "#,
+        )
+        .fetch_all(conn)
+        .await?)
+    }
+
+    pub async fn account_journals(&mut self, account: &str) -> ZhangResult<Vec<AccountJournalDomain>> {
+        let conn = self.pool.acquire().await?;
+        Ok(sqlx::query_as::<_, AccountJournalDomain>(
+            r#"
+                    select datetime,
+                           trx_id,
+                           account,
+                           payee,
+                           narration,
+                           inferred_unit_number,
+                           inferred_unit_commodity,
+                           account_after_number,
+                           account_after_commodity
+                    from transaction_postings
+                             join transactions on transactions.id = transaction_postings.trx_id
+                    where account = $1
+                    order by datetime desc, transactions.sequence desc
+            "#,
+        )
+        .bind(account)
+        .fetch_all(conn)
+        .await?)
+    }
+    pub async fn account_dated_journals(&mut self, account_type: &str, from: NaiveDateTime, to: NaiveDateTime) -> ZhangResult<Vec<AccountJournalDomain>> {
+        let conn = self.pool.acquire().await?;
+        Ok(sqlx::query_as::<_, AccountJournalDomain>(
+            r#"
+                select datetime,
+                       trx_id,
+                       account,
+                       payee,
+                       narration,
+                       inferred_unit_number,
+                       inferred_unit_commodity,
+                       account_after_number,
+                       account_after_commodity
+                from transaction_postings
+                         join transactions on transactions.id = transaction_postings.trx_id
+                         join accounts on accounts.name = transaction_postings.account
+                where datetime >= $1
+                  and datetime <= $2
+                  and accounts.type = $3
+            "#,
+        )
+        .bind(from)
+        .bind(to)
+        .bind(account_type)
+        .fetch_all(conn)
+        .await?)
     }
 }
