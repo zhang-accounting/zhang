@@ -1,13 +1,23 @@
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
-use sqlx::FromRow;
-use zhang_ast::Currency;
 use serde::Serialize;
+use sqlx::FromRow;
+use std::collections::HashMap;
+use strum::{AsRefStr, EnumString};
+use zhang_ast::{Currency, SpanInfo};
 
 #[derive(FromRow, Debug, Clone)]
 pub struct OptionDomain {
     pub key: String,
     pub value: String,
+}
+#[derive(FromRow, Debug, Clone)]
+pub struct AccountDomain {
+    pub date: NaiveDateTime,
+    pub r#type: String,
+    pub name: String,
+    pub status: String,
+    pub alias: Option<String>,
 }
 
 #[derive(FromRow, Debug, Clone)]
@@ -52,7 +62,7 @@ pub struct CommodityDomain {
     pub rounding: Option<String>,
 }
 
-#[derive(Debug, Clone,FromRow)]
+#[derive(Debug, Clone, FromRow)]
 pub struct TransactionInfoDomain {
     pub id: String,
     pub source_file: String,
@@ -71,4 +81,47 @@ pub struct AccountJournalDomain {
     pub inferred_unit_commodity: String,
     pub account_after_number: ZhangBigDecimal,
     pub account_after_commodity: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ErrorDomain {
+    pub id: String,
+    pub span: Option<SpanInfo>,
+    pub error_type: ErrorType,
+    pub metas: HashMap<String, String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, AsRefStr, EnumString)]
+pub enum ErrorType {
+    AccountBalanceCheckError,
+    AccountDoesNotExist,
+    AccountClosed,
+    TransactionDoesNotBalance,
+    CommodityDoesNotDefine,
+    TransactionHasMultipleImplicitPosting,
+}
+
+impl sqlx::Type<sqlx::sqlite::Sqlite> for ErrorType {
+    fn type_info() -> <sqlx::Sqlite as sqlx::Database>::TypeInfo {
+        <String as sqlx::Type<sqlx::Sqlite>>::type_info()
+    }
+}
+impl<'r, DB: sqlx::Database> sqlx::Decode<'r, DB> for ErrorType
+where
+    &'r str: sqlx::Decode<'r, DB>,
+{
+    fn decode(value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef) -> Result<Self, sqlx::error::BoxDynError> {
+        use std::str::FromStr;
+        let value = <&str as sqlx::Decode<DB>>::decode(value)?;
+        Ok(ErrorType::from_str(value).unwrap())
+    }
+}
+impl<'q, DB: sqlx::Database> sqlx::Encode<'q, DB> for ErrorType
+where
+    String: sqlx::Encode<'q, DB>,
+{
+    fn encode_by_ref(&self, buf: &mut <DB as sqlx::database::HasArguments<'q>>::ArgumentBuffer) -> sqlx::encode::IsNull {
+        let enum_str: String = self.as_ref().to_owned();
+        <String as sqlx::Encode<DB>>::encode_by_ref(&enum_str, buf)
+    }
 }

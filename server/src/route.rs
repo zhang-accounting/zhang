@@ -25,16 +25,16 @@ use uuid::Uuid;
 
 use zhang_core::database::type_ext::big_decimal::ZhangBigDecimal;
 use zhang_core::error::IoErrorIntoZhangError;
-use zhang_core::ledger::{Ledger, LedgerError};
+use zhang_core::ledger::Ledger;
 use zhang_core::utils::string_::StringExt;
 
 use crate::broadcast::Broadcaster;
 use crate::request::{AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest};
 use crate::response::{
-    AccountResponse, AmountResponse, BasicInfo, CalculatedAmount, CommodityDetailResponse, CommodityListItemResponse, CommodityLot,
-    CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse, InfoForNewTransaction, JournalBalanceCheckItemResponse,
-    JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, Pageable, ReportRankItemResponse,
-    ReportResponse, ResponseWrapper, StatisticResponse,
+    AccountResponse, AmountResponse, BasicInfo, CalculatedAmount, CommodityDetailResponse, CommodityListItemResponse, CommodityLot, CommodityPrice,
+    CurrentStatisticResponse, DocumentResponse, FileDetailResponse, InfoForNewTransaction, JournalBalanceCheckItemResponse, JournalBalancePadItemResponse,
+    JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, Pageable, ReportRankItemResponse, ReportResponse, ResponseWrapper,
+    StatisticResponse,
 };
 use crate::{ApiResult, ServerResult};
 use zhang_ast::amount::Amount;
@@ -660,7 +660,6 @@ pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Ve
     let ledger = ledger.read().await;
     let mut operations = ledger.operations().await;
 
-
     let balances = operations.account_balances().await?;
     let mut ret = vec![];
     for (key, group) in &balances.into_iter().group_by(|it| it.account.clone()) {
@@ -990,11 +989,12 @@ pub async fn update_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: web::P
 }
 
 #[get("api/errors")]
-pub async fn get_errors(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<LedgerError>> {
+pub async fn get_errors(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<ErrorDomain>> {
     let ledger = ledger.read().await;
-    let total_count = ledger.errors.len();
-    let ret = ledger
-        .errors
+    let mut operations = ledger.operations().await;
+    let errors = operations.errors().await?;
+    let total_count = errors.len();
+    let ret = errors
         .iter()
         .skip(params.offset() as usize)
         .take(params.limit() as usize)
@@ -1103,7 +1103,9 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
     .await?
     .0;
 
-    let income_transactions = operations.account_dated_journals("Income", params.from.naive_local(), params.to.naive_local()).await?;
+    let income_transactions = operations
+        .account_dated_journals("Income", params.from.naive_local(), params.to.naive_local())
+        .await?;
 
     let total_income = income_transactions
         .iter()
@@ -1132,7 +1134,9 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
 
     // --------
 
-    let expense_transactions = operations.account_dated_journals("Expenses", params.from.naive_local(), params.to.naive_local()).await?;
+    let expense_transactions = operations
+        .account_dated_journals("Expenses", params.from.naive_local(), params.to.naive_local())
+        .await?;
 
     let total_expense = expense_transactions
         .iter()
@@ -1192,7 +1196,7 @@ pub struct StaticFile<T>(pub T);
 
 #[cfg(feature = "frontend")]
 use actix_web::{HttpRequest, HttpResponse};
-use zhang_core::domains::schemas::{AccountDailyBalanceDomain, AccountJournalDomain};
+use zhang_core::domains::schemas::{AccountDailyBalanceDomain, AccountJournalDomain, ErrorDomain};
 use zhang_core::domains::Operations;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ZhangResult;
