@@ -1,9 +1,9 @@
 import { Button, Group, Modal, Pagination, Skeleton, Stack, Text, Textarea } from '@mantine/core';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LedgerError, LoadingState } from '../rest-model';
+import { LoadingState } from '../rest-model';
 import { useAppDispatch, useAppSelector } from '../states';
-import { fetchError } from '../states/errors';
+import { LedgerError, fetchError } from '../states/errors';
 
 export default function ErrorBox() {
   const { t } = useTranslation();
@@ -61,7 +61,7 @@ export default function ErrorBox() {
         onClose={() => setIsOpen(false)}
         title={`${selectError?.span.filename}:${selectError?.span.start}:${selectError?.span.end}`}
       >
-        <Text>{t(selectError?.error.type || '')}</Text>
+        <Text>{t(selectError?.error_type || '')}</Text>
         <Textarea
           value={selectErrorContent}
           onChange={(event) => {
@@ -80,7 +80,7 @@ export default function ErrorBox() {
       <Stack>
         {items.map((error, idx) => (
           <Text key={idx} onClick={() => toggleError(error)}>
-            {t(error.error.type)}
+            {t(error.error_type)}
           </Text>
         ))}
 

@@ -61,7 +61,6 @@ pub struct Ledger {
     pub visited_files: Vec<Pattern>,
 
     pub options: Options,
-    pub errors: Vec<LedgerError>,
     pub configs: HashMap<String, String>,
 
     pub directives: Vec<Spanned<Directive>>,
@@ -130,8 +129,6 @@ impl Ledger {
             visited_files,
             directives: vec![],
             metas: vec![],
-
-            errors: vec![],
             configs: HashMap::default(),
             transformer,
         };
@@ -155,8 +152,10 @@ impl Ledger {
 
         ret_ledger.metas = meta_directives;
         ret_ledger.directives = directives;
-        if !ret_ledger.errors.is_empty() {
-            error!("Ledger loaded with {} error", ret_ledger.errors.len());
+        let mut operations = ret_ledger.operations().await;
+        let errors = operations.errors().await?;
+        if !errors.is_empty() {
+            error!("Ledger loaded with {} error", errors.len());
         } else {
             info!("Ledger loaded");
         }

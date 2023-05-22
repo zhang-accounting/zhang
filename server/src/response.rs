@@ -9,7 +9,7 @@ use sqlx::FromRow;
 use zhang_ast::amount::Amount;
 use zhang_ast::Currency;
 use zhang_core::database::type_ext::big_decimal::ZhangBigDecimal;
-use zhang_core::domains::schemas::MetaDomain;
+use zhang_core::domains::schemas::{AccountJournalDomain, MetaDomain};
 
 use crate::{ServerError, ServerResult};
 
@@ -217,19 +217,6 @@ impl From<Amount> for AmountResponse {
 }
 
 #[derive(FromRow, Serialize)]
-pub struct AccountJournalItem {
-    pub datetime: NaiveDateTime,
-    pub account: String,
-    pub trx_id: String,
-    pub payee: String,
-    pub narration: Option<String>,
-    pub inferred_unit_number: ZhangBigDecimal,
-    pub inferred_unit_commodity: String,
-    pub account_after_number: ZhangBigDecimal,
-    pub account_after_commodity: String,
-}
-
-#[derive(FromRow, Serialize)]
 pub struct CommodityListItemResponse {
     pub name: String,
     pub precision: i32,
@@ -291,9 +278,9 @@ pub struct ReportResponse {
     pub transaction_number: i64,
 
     pub income_rank: Vec<ReportRankItemResponse>,
-    pub income_top_transactions: Vec<AccountJournalItem>,
+    pub income_top_transactions: Vec<AccountJournalDomain>,
     pub expense_rank: Vec<ReportRankItemResponse>,
-    pub expense_top_transactions: Vec<AccountJournalItem>,
+    pub expense_top_transactions: Vec<AccountJournalDomain>,
 }
 #[derive(Serialize)]
 pub struct ReportRankItemResponse {

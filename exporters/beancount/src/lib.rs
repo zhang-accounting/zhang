@@ -205,7 +205,6 @@ mod test {
     macro_rules! test_parse_bc {
         ($content: expr) => {{
             let directive = parse($content, None).unwrap().into_iter().next().unwrap().data;
-            dbg!(&directive);
             directive.right().unwrap()
         }};
     }

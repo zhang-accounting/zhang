@@ -1,9 +1,16 @@
-use crate::domains::schemas::{AccountDailyBalanceDomain, CommodityDomain, MetaDomain, OptionDomain, PriceDomain};
+use crate::domains::schemas::{
+    AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, CommodityDomain, ErrorDomain, ErrorType, MetaDomain, OptionDomain,
+    PriceDomain, TransactionInfoDomain,
+};
 use crate::ZhangResult;
 use chrono::NaiveDateTime;
 use itertools::Itertools;
 use sqlx::pool::PoolConnection;
 use sqlx::{Acquire, FromRow, Sqlite};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use uuid::Uuid;
+use zhang_ast::SpanInfo;
 
 pub mod options;
 pub mod schemas;
@@ -138,5 +145,163 @@ impl Operations {
             .fetch_optional(conn)
             .await?
             .is_some())
+    }
+
+    pub async fn transaction_counts(&mut self) -> ZhangResult<i64> {
+        let conn = self.pool.acquire().await?;
+        Ok(sqlx::query_as::<_, (i64,)>(r#"select count(1) from transactions"#).fetch_one(conn).await?.0)
+    }
+
+    pub async fn transaction_span(&mut self, id: &str) -> ZhangResult<TransactionInfoDomain> {
+        let conn = self.pool.acquire().await?;
+        Ok(
+            sqlx::query_as::<_, TransactionInfoDomain>(r#"select id, source_file, span_start, span_end from transactions where id = $1"#)
+                .bind(id)
+                .fetch_one(conn)
+                .await?,
+        )
+    }
+
+    pub async fn account_balances(&mut self) -> ZhangResult<Vec<AccountBalanceDomain>> {
+        let conn = self.pool.acquire().await?;
+        Ok(sqlx::query_as::<_, AccountBalanceDomain>(
+            r#"
+                        select name, account, account_status, balance_number, balance_commodity
+                        from account_balance
+            "#,
+        )
+        .fetch_all(conn)
+        .await?)
+    }
+
+    pub async fn account_journals(&mut self, account: &str) -> ZhangResult<Vec<AccountJournalDomain>> {
+        let conn = self.pool.acquire().await?;
+        Ok(sqlx::query_as::<_, AccountJournalDomain>(
+            r#"
+                    select datetime,
+                           trx_id,
+                           account,
+                           payee,
+                           narration,
+                           inferred_unit_number,
+                           inferred_unit_commodity,
+                           account_after_number,
+                           account_after_commodity
+                    from transaction_postings
+                             join transactions on transactions.id = transaction_postings.trx_id
+                    where account = $1
+                    order by datetime desc, transactions.sequence desc
+            "#,
+        )
+        .bind(account)
+        .fetch_all(conn)
+        .await?)
+    }
+    pub async fn account_dated_journals(&mut self, account_type: &str, from: NaiveDateTime, to: NaiveDateTime) -> ZhangResult<Vec<AccountJournalDomain>> {
+        let conn = self.pool.acquire().await?;
+        Ok(sqlx::query_as::<_, AccountJournalDomain>(
+            r#"
+                select datetime,
+                       trx_id,
+                       account,
+                       payee,
+                       narration,
+                       inferred_unit_number,
+                       inferred_unit_commodity,
+                       account_after_number,
+                       account_after_commodity
+                from transaction_postings
+                         join transactions on transactions.id = transaction_postings.trx_id
+                         join accounts on accounts.name = transaction_postings.account
+                where datetime >= $1
+                  and datetime <= $2
+                  and accounts.type = $3
+            "#,
+        )
+        .bind(from)
+        .bind(to)
+        .bind(account_type)
+        .fetch_all(conn)
+        .await?)
+    }
+
+    pub async fn errors(&mut self) -> ZhangResult<Vec<ErrorDomain>> {
+        let conn = self.pool.acquire().await?;
+
+        #[derive(FromRow)]
+        struct ErrorRow {
+            pub id: String,
+            pub filename: Option<String>,
+            pub span_start: Option<i64>,
+            pub span_end: Option<i64>,
+            pub content: String,
+            pub error_type: ErrorType,
+            pub metas: String,
+        }
+
+        let rows = sqlx::query_as::<_, ErrorRow>(
+            r#"
+            select
+                id, filename, span_start, span_end, content, content, error_type, metas
+            from errors
+        "#,
+        )
+        .fetch_all(conn)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let span = match (row.span_start, row.span_end) {
+                    (Some(start), Some(end)) => Some(SpanInfo {
+                        start: start as usize,
+                        end: end as usize,
+                        content: row.content,
+                        filename: row.filename.map(PathBuf::from),
+                    }),
+                    _ => None,
+                };
+                ErrorDomain {
+                    id: row.id,
+                    span,
+                    error_type: row.error_type,
+                    metas: serde_json::from_str(&row.metas).unwrap(),
+                }
+            })
+            .collect_vec())
+    }
+
+    pub async fn account(&mut self, account_name: &str) -> ZhangResult<Option<AccountDomain>> {
+        let conn = self.pool.acquire().await?;
+        Ok(
+            sqlx::query_as::<_, AccountDomain>(r#"select date, type, name, status, alias from accounts where name = $1"#)
+                .bind(account_name)
+                .fetch_optional(conn)
+                .await?,
+        )
+    }
+}
+
+// for insert and new operations
+impl Operations {
+    pub async fn new_error(&mut self, error_type: ErrorType, span: &SpanInfo, metas: HashMap<String, String>) -> ZhangResult<()> {
+        let conn = self.pool.acquire().await?;
+        sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO
+                errors(id, filename, span_start, span_end, content, error_type, metas)
+            VALUES
+                ($1, $2, $3, $4, $5, $6, $7);
+        "#,
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(span.filename.as_ref().and_then(|it| it.to_str()))
+        .bind(span.start as i64)
+        .bind(span.end as i64)
+        .bind(&span.content)
+        .bind(error_type)
+        .bind(serde_json::to_string(&metas).unwrap())
+        .execute(conn)
+        .await?;
+        Ok(())
     }
 }

@@ -190,60 +190,9 @@ export interface ReportResponse {
   expense_top_transactions: AccountJournalItem[];
 }
 
-export enum LedgerErrorType {
-  AccountBalanceCheckError = 'AccountBalanceCheckError',
-  AccountDoesNotExist = 'AccountDoesNotExist',
-  AccountClosed = 'AccountClosed',
-  TransactionDoesNotBalance = 'TransactionDoesNotBalance',
-  CommodityDoesNotDefine = 'CommodityDoesNotDefine',
-  TransactionHasMultipleImplicitPosting = 'TransactionHasMultipleImplicitPosting',
-}
-
 export interface SpanInfo {
   start: number;
   end: number;
   content: string;
   filename: string;
-}
-
-export interface LedgerError {
-  span: SpanInfo;
-  error:
-  | AccountBalanceCheckError
-  | AccountDoesNotExist
-  | AccountClosed
-  | TransactionDoesNotBalance
-  | CommodityDoesNotDefine
-  | TransactionHasMultipleImplicitPosting;
-}
-
-export interface AccountBalanceCheckError extends SpanInfo {
-  type: LedgerErrorType.AccountBalanceCheckError;
-  account_name: string;
-  target: AmountResponse;
-  current: AmountResponse;
-  distance: AmountResponse;
-}
-
-export interface AccountDoesNotExist extends SpanInfo {
-  type: LedgerErrorType.AccountDoesNotExist;
-  account_name: string;
-}
-
-export interface AccountClosed extends SpanInfo {
-  type: LedgerErrorType.AccountClosed;
-  account_name: string;
-}
-
-export interface TransactionDoesNotBalance extends SpanInfo {
-  type: LedgerErrorType.TransactionDoesNotBalance;
-}
-
-export interface CommodityDoesNotDefine extends SpanInfo {
-  type: LedgerErrorType.CommodityDoesNotDefine;
-  commodity_name: string;
-}
-
-export interface TransactionHasMultipleImplicitPosting extends SpanInfo {
-  type: LedgerErrorType.TransactionHasMultipleImplicitPosting;
 }

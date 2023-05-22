@@ -5,7 +5,7 @@ use crate::ZhangResult;
 
 pub struct Migration;
 
-static TABLES: [&str; 11] = [
+static TABLES: [&str; 12] = [
     "options",
     "accounts",
     "metas",
@@ -17,10 +17,11 @@ static TABLES: [&str; 11] = [
     "transaction_postings",
     "prices",
     "commodity_lots",
+    "errors",
 ];
 static VIEWS: [&str; 2] = ["account_balance", "account_daily_balance"];
 
-static TABLES_SQL: [&str; 13] = [
+static TABLES_SQL: [&str; 14] = [
     include_str!("./schemas/options.sql"),
     include_str!("./schemas/prices.sql"),
     include_str!("./schemas/accounts.sql"),
@@ -34,6 +35,7 @@ static TABLES_SQL: [&str; 13] = [
     include_str!("./schemas/transaction_postings.sql"),
     include_str!("./schemas/account_balance.sql"),
     include_str!("./schemas/account_daily_balance.sql"),
+    include_str!("./schemas/errors.sql"),
 ];
 
 impl Migration {
