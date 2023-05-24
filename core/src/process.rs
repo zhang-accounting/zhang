@@ -94,6 +94,7 @@ impl DirectiveProcess for Options {
 impl DirectiveProcess for Open {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
+        let mut operations = ledger.operations().await;
         for currency in &self.commodities {
             check_commodity_define(currency, ledger, span).await?;
         }
@@ -107,15 +108,7 @@ impl DirectiveProcess for Open {
             .execute(&mut conn)
             .await?;
 
-        for (meta_key, meta_value) in self.meta.clone().get_flatten() {
-            sqlx::query(r#"INSERT OR REPLACE INTO metas VALUES ($1, $2, $3, $4);"#)
-                .bind("AccountMeta")
-                .bind(self.account.name())
-                .bind(meta_key)
-                .bind(meta_value.as_str())
-                .execute(&mut conn)
-                .await?;
-        }
+        operations.insert_meta("AccountMeta", self.account.name(), self.meta.clone()).await?;
 
         Ok(())
     }
@@ -142,6 +135,7 @@ impl DirectiveProcess for Close {
 impl DirectiveProcess for Commodity {
     async fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
+        let mut operations = ledger.operations().await;
         let precision = self
             .meta
             .get_one("precision")
@@ -170,15 +164,7 @@ impl DirectiveProcess for Commodity {
         .execute(&mut conn)
         .await?;
 
-        for (meta_key, meta_value) in self.meta.clone().get_flatten() {
-            sqlx::query(r#"INSERT OR REPLACE INTO metas VALUES ($1, $2, $3, $4);"#)
-                .bind("CommodityMeta")
-                .bind(self.currency.as_str())
-                .bind(meta_key)
-                .bind(meta_value.as_str())
-                .execute(&mut conn)
-                .await?;
-        }
+        operations.insert_meta("CommodityMeta", &self.currency, self.meta.clone()).await?;
 
         Ok(())
     }
@@ -285,15 +271,7 @@ impl DirectiveProcess for Transaction {
                 .await?;
         }
 
-        for (meta_key, meta_value) in self.meta.clone().get_flatten() {
-            sqlx::query(r#"INSERT OR REPLACE INTO metas VALUES ($1, $2, $3, $4);"#)
-                .bind("TransactionMeta")
-                .bind(&id)
-                .bind(meta_key)
-                .bind(meta_value.as_str())
-                .execute(&mut conn)
-                .await?;
-        }
+        operations.insert_meta("TransactionMeta", &id, self.meta.clone()).await?;
         Ok(())
     }
 }

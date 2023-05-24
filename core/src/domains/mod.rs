@@ -10,7 +10,7 @@ use sqlx::{Acquire, FromRow, Sqlite};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use uuid::Uuid;
-use zhang_ast::SpanInfo;
+use zhang_ast::{Meta, SpanInfo};
 
 pub mod schemas;
 
@@ -323,6 +323,20 @@ impl Operations {
             .bind(value)
             .execute(conn)
             .await?;
+        Ok(())
+    }
+
+    pub async fn insert_meta(&mut self, type_: impl AsRef<str>, type_identifier: impl AsRef<str>, meta: Meta) -> ZhangResult<()> {
+        let conn = self.pool.acquire().await?;
+        for (meta_key, meta_value) in meta.get_flatten() {
+            sqlx::query(r#"INSERT OR REPLACE INTO metas VALUES ($1, $2, $3, $4);"#)
+                .bind(type_.as_ref())
+                .bind(type_identifier.as_ref())
+                .bind(meta_key)
+                .bind(meta_value.as_str())
+                .execute(&mut *conn)
+                .await?;
+        }
         Ok(())
     }
 }
