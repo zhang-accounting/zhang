@@ -251,7 +251,7 @@ mod test {
                   prefix: "¥"
                   suffix: "CNY"
             "#})
-                .await;
+            .await;
 
             let mut operations = ledger.operations().await;
             let commodity = operations.commodity("CNY").await?.unwrap();
@@ -268,7 +268,25 @@ mod test {
                 1970-01-01 commodity CNY
                   precision: "4"
             "#})
-                .await;
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let commodity = operations.commodity("CNY").await?.unwrap();
+            assert_eq!("CNY", commodity.name);
+            assert_eq!(4, commodity.precision);
+            assert_eq!(None, commodity.prefix);
+            assert_eq!(None, commodity.suffix);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn should_work_with_same_default_operating_currency_and_commodity() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                option "operating_currency" "CNY"
+                1970-01-01 commodity CNY
+                  precision: "4"
+            "#})
+            .await;
 
             let mut operations = ledger.operations().await;
             let commodity = operations.commodity("CNY").await?.unwrap();
