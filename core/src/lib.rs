@@ -78,6 +78,20 @@ mod test {
             assert_eq!(option.value, "Example2");
             Ok(())
         }
+        #[tokio::test]
+        async fn should_get_all_options() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                 option "title" "Example"
+                 option "title" "Example2"
+                 option "url" "url here"
+            "#})
+            .await;
+            let mut operations = ledger.operations().await;
+
+            let options = operations.options().await.unwrap();
+            assert_eq!(options.len(), 2);
+            Ok(())
+        }
     }
 
     mod meta {
