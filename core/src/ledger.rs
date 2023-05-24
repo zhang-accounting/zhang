@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::option::Option::None;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -9,13 +8,11 @@ use bigdecimal::Zero;
 use glob::Pattern;
 use itertools::Itertools;
 use log::{error, info};
-use serde::Serialize;
 use sqlx::pool::PoolConnection;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Sqlite, SqlitePool};
 
-use zhang_ast::amount::Amount;
-use zhang_ast::{Directive, DirectiveType, SpanInfo, Spanned, Transaction};
+use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
 use crate::database::migrations::Migration;
 use crate::domains::Operations;
