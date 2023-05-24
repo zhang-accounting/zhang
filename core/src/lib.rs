@@ -242,5 +242,41 @@ mod test {
             assert_eq!(None, commodity.suffix);
             Ok(())
         }
+
+        #[tokio::test]
+        async fn should_get_info_from_meta() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                1970-01-01 commodity CNY
+                  precision: "3"
+                  prefix: "¥"
+                  suffix: "CNY"
+            "#})
+                .await;
+
+            let mut operations = ledger.operations().await;
+            let commodity = operations.commodity("CNY").await?.unwrap();
+            assert_eq!("CNY", commodity.name);
+            assert_eq!(3, commodity.precision);
+            assert_eq!("¥", commodity.prefix.unwrap());
+            assert_eq!("CNY", commodity.suffix.unwrap());
+            Ok(())
+        }
+        #[tokio::test]
+        async fn should_meta_precision_have_higher_priority() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                option "default_commodity_precision" "3"
+                1970-01-01 commodity CNY
+                  precision: "4"
+            "#})
+                .await;
+
+            let mut operations = ledger.operations().await;
+            let commodity = operations.commodity("CNY").await?.unwrap();
+            assert_eq!("CNY", commodity.name);
+            assert_eq!(4, commodity.precision);
+            assert_eq!(None, commodity.prefix);
+            assert_eq!(None, commodity.suffix);
+            Ok(())
+        }
     }
 }
