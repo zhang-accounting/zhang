@@ -1,17 +1,46 @@
+use crate::constants::{
+    DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN, DEFAULT_COMMODITY_PRECISION_PLAIN, DEFAULT_OPERATING_CURRENCY, DEFAULT_ROUNDING_PLAIN,
+    KEY_DEFAULT_BALANCE_TOLERANCE_PRECISION, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING, KEY_OPERATING_CURRENCY,
+};
+use itertools::Itertools;
 use sqlx::SqliteConnection;
 use std::str::FromStr;
-use zhang_ast::Rounding;
+use std::string::ToString;
+use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
 use crate::ZhangResult;
 
 #[derive(Debug)]
-pub struct Options {
+pub struct InMemoryOptions {
     pub operating_currency: String,
     pub default_rounding: Rounding,
     pub default_balance_tolerance_precision: i32,
 }
 
-impl Options {
+pub static DEFAULT_OPTIONS: [(&str, &str); 4] = [
+    (KEY_OPERATING_CURRENCY, DEFAULT_OPERATING_CURRENCY),
+    (KEY_DEFAULT_ROUNDING, DEFAULT_ROUNDING_PLAIN),
+    (KEY_DEFAULT_BALANCE_TOLERANCE_PRECISION, DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN),
+    (KEY_DEFAULT_COMMODITY_PRECISION, DEFAULT_COMMODITY_PRECISION_PLAIN),
+];
+
+pub fn default_options() -> Vec<Spanned<Directive>> {
+    DEFAULT_OPTIONS
+        .iter()
+        .cloned()
+        .map(|(key, value)| {
+            Spanned::new(
+                Directive::Option(Options {
+                    key: ZhangString::quote(key),
+                    value: ZhangString::quote(value),
+                }),
+                SpanInfo::default(),
+            )
+        })
+        .collect_vec()
+}
+
+impl InMemoryOptions {
     pub async fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, conn: &mut SqliteConnection) -> ZhangResult<()> {
         let value = value.into();
         let key = key.into();
@@ -23,7 +52,7 @@ impl Options {
                 let rounding = Some(self.default_rounding);
 
                 sqlx::query(
-                    r#"INSERT INTO commodities (name, precision, prefix, suffix, rounding)
+                    r#"INSERT OR REPLACE INTO commodities (name, precision, prefix, suffix, rounding)
                         VALUES ($1, $2, $3, $4, $5);"#,
                 )
                 .bind(&value)
@@ -49,9 +78,9 @@ impl Options {
     }
 }
 
-impl Default for Options {
+impl Default for InMemoryOptions {
     fn default() -> Self {
-        Options {
+        InMemoryOptions {
             operating_currency: "CNY".to_string(),
             default_rounding: Rounding::RoundDown,
             default_balance_tolerance_precision: 2,

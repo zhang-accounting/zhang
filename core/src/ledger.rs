@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::option::Option::None;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -9,50 +8,20 @@ use bigdecimal::Zero;
 use glob::Pattern;
 use itertools::Itertools;
 use log::{error, info};
-use serde::Serialize;
 use sqlx::pool::PoolConnection;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Sqlite, SqlitePool};
 
-use zhang_ast::amount::Amount;
-use zhang_ast::{Directive, DirectiveType, SpanInfo, Spanned, Transaction};
+use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
 use crate::database::migrations::Migration;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
-use crate::options::Options;
+use crate::options::{default_options, InMemoryOptions};
 use crate::process::DirectiveProcess;
 use crate::transform::Transformer;
 use crate::utils::bigdecimal_ext::BigDecimalExt;
 use crate::ZhangResult;
-
-#[derive(Clone, Debug, Serialize)]
-pub struct LedgerError {
-    pub(crate) span: SpanInfo,
-    pub(crate) error: LedgerErrorType,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "type")]
-pub enum LedgerErrorType {
-    AccountBalanceCheckError {
-        account_name: String,
-        target: Amount,
-        current: Amount,
-        distance: Amount,
-    },
-    AccountDoesNotExist {
-        account_name: String,
-    },
-    AccountClosed {
-        account_name: String,
-    },
-    TransactionDoesNotBalance,
-    CommodityDoesNotDefine {
-        commodity_name: String,
-    },
-    TransactionHasMultipleImplicitPosting,
-}
 
 pub struct Ledger {
     pub entry: (PathBuf, String),
@@ -60,8 +29,7 @@ pub struct Ledger {
     pub pool_connection: SqlitePool,
     pub visited_files: Vec<Pattern>,
 
-    pub options: Options,
-    pub configs: HashMap<String, String>,
+    pub options: InMemoryOptions,
 
     pub directives: Vec<Spanned<Directive>>,
     pub metas: Vec<Spanned<Directive>>,
@@ -118,22 +86,29 @@ impl Ledger {
 
         Migration::init_database_if_missing(&mut connection).await?;
 
-        let (mut meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
+        let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
         let mut ret_ledger = Self {
-            options: Options::default(),
+            options: InMemoryOptions::default(),
             entry,
             database,
             pool_connection: sqlite_pool,
             visited_files,
             directives: vec![],
             metas: vec![],
-            configs: HashMap::default(),
             transformer,
         };
-
-        for directive in meta_directives.iter_mut().chain(directives.iter_mut()) {
+        let mut merged_metas = default_options()
+            .into_iter()
+            .chain(meta_directives.into_iter())
+            .rev()
+            .dedup_by(|x, y| match (&x.data, &y.data) {
+                (Directive::Option(option_x), Directive::Option(option_y)) => option_x.key.eq(&option_y.key),
+                _ => false,
+            })
+            .collect_vec();
+        for directive in merged_metas.iter_mut().rev().chain(directives.iter_mut()) {
             match &mut directive.data {
                 Directive::Option(option) => option.handler(&mut ret_ledger, &directive.span).await?,
                 Directive::Open(open) => open.handler(&mut ret_ledger, &directive.span).await?,
@@ -150,7 +125,7 @@ impl Ledger {
             }
         }
 
-        ret_ledger.metas = meta_directives;
+        ret_ledger.metas = merged_metas;
         ret_ledger.directives = directives;
         let mut operations = ret_ledger.operations().await;
         let errors = operations.errors().await?;
@@ -190,10 +165,6 @@ impl Ledger {
             .collect_vec();
         self.directives = vec;
         self
-    }
-
-    pub fn option(&self, key: &str) -> Option<String> {
-        self.configs.get(key).map(|it| it.to_string())
     }
 
     pub async fn is_transaction_balanced(&self, txn: &Transaction) -> ZhangResult<bool> {
@@ -499,9 +470,9 @@ mod test {
             .await;
             let mut operations = ledger.operations().await;
 
-            assert_eq!("Example Beancount file", operations.options("title").await?.unwrap().value);
-            assert_eq!("USD", operations.options("operating_currency").await?.unwrap().value);
-            assert!(operations.options("operating_currency2").await?.is_none());
+            assert_eq!("Example Beancount file", operations.option("title").await?.unwrap().value);
+            assert_eq!("USD", operations.option("operating_currency").await?.unwrap().value);
+            assert!(operations.option("operating_currency2").await?.is_none());
             Ok(())
         }
     }
@@ -602,40 +573,6 @@ mod test {
                 .unwrap()
                 .unwrap();
             assert_eq!(BigDecimal::from(7), option.amount.0)
-        }
-    }
-
-    mod commodity {
-        use crate::ledger::test::load_from_temp_str;
-        use indoc::indoc;
-
-        #[tokio::test]
-        async fn should_get_commodity() -> Result<(), Box<dyn std::error::Error>> {
-            let ledger = load_from_temp_str(indoc! {r#"
-                1970-01-01 commodity CNY
-            "#})
-            .await;
-
-            let mut operations = ledger.operations().await;
-            let commodity = operations.commodity("CNY").await?.unwrap();
-            assert_eq!("CNY", commodity.name);
-            assert_eq!(2, commodity.precision);
-            assert_eq!(None, commodity.prefix);
-            assert_eq!(None, commodity.suffix);
-            Ok(())
-        }
-
-        #[tokio::test]
-        async fn should_not_get_non_exist_commodity() -> Result<(), Box<dyn std::error::Error>> {
-            let ledger = load_from_temp_str(indoc! {r#"
-                1970-01-01 commodity CNY
-            "#})
-            .await;
-
-            let mut operations = ledger.operations().await;
-            let commodity = operations.commodity("USD").await?;
-            assert!(commodity.is_none());
-            Ok(())
         }
     }
 

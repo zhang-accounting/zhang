@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Instant;
 
-use crate::constants::DEFAULT_COMMODITY_PRECISION;
+use crate::constants::{KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::domains::schemas::ErrorType;
 use crate::ledger::Ledger;
@@ -85,7 +85,6 @@ impl DirectiveProcess for Options {
         let mut operations = ledger.operations().await;
         let mut conn = ledger.connection().await;
         ledger.options.parse(self.key.as_str(), self.value.as_str(), &mut conn).await?;
-        ledger.configs.insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());
         operations.insert_or_update_options(self.key.as_str(), self.value.as_str()).await?;
         Ok(())
     }
@@ -95,6 +94,7 @@ impl DirectiveProcess for Options {
 impl DirectiveProcess for Open {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
+        let mut operations = ledger.operations().await;
         for currency in &self.commodities {
             check_commodity_define(currency, ledger, span).await?;
         }
@@ -108,15 +108,7 @@ impl DirectiveProcess for Open {
             .execute(&mut conn)
             .await?;
 
-        for (meta_key, meta_value) in self.meta.clone().get_flatten() {
-            sqlx::query(r#"INSERT OR REPLACE INTO metas VALUES ($1, $2, $3, $4);"#)
-                .bind("AccountMeta")
-                .bind(self.account.name())
-                .bind(meta_key)
-                .bind(meta_value.as_str())
-                .execute(&mut conn)
-                .await?;
-        }
+        operations.insert_meta("AccountMeta", self.account.name(), self.meta.clone()).await?;
 
         Ok(())
     }
@@ -143,18 +135,26 @@ impl DirectiveProcess for Close {
 impl DirectiveProcess for Commodity {
     async fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
+        let mut operations = ledger.operations().await;
+
+        let default_precision = operations.option(KEY_DEFAULT_COMMODITY_PRECISION).await?.map(|it| it.value);
+        let default_rounding = operations.option(KEY_DEFAULT_ROUNDING).await?.map(|it| it.value);
+
         let precision = self
             .meta
             .get_one("precision")
+            .map(|it| it.as_str().to_owned())
+            .or(default_precision)
             .map(|it| it.as_str().parse::<i32>())
             .transpose()
-            .unwrap_or(None)
-            .unwrap_or(DEFAULT_COMMODITY_PRECISION);
+            .unwrap_or(None);
         let prefix = self.meta.get_one("prefix").map(|it| it.as_str());
         let suffix = self.meta.get_one("suffix").map(|it| it.as_str());
         let rounding = self
             .meta
             .get_one("rounding")
+            .map(|it| it.as_str().to_owned())
+            .or(default_rounding)
             .map(|it| Rounding::from_str(it.as_str()))
             .transpose()
             .unwrap_or(None);
@@ -171,15 +171,7 @@ impl DirectiveProcess for Commodity {
         .execute(&mut conn)
         .await?;
 
-        for (meta_key, meta_value) in self.meta.clone().get_flatten() {
-            sqlx::query(r#"INSERT OR REPLACE INTO metas VALUES ($1, $2, $3, $4);"#)
-                .bind("CommodityMeta")
-                .bind(self.currency.as_str())
-                .bind(meta_key)
-                .bind(meta_value.as_str())
-                .execute(&mut conn)
-                .await?;
-        }
+        operations.insert_meta("CommodityMeta", &self.currency, self.meta.clone()).await?;
 
         Ok(())
     }
@@ -286,15 +278,7 @@ impl DirectiveProcess for Transaction {
                 .await?;
         }
 
-        for (meta_key, meta_value) in self.meta.clone().get_flatten() {
-            sqlx::query(r#"INSERT OR REPLACE INTO metas VALUES ($1, $2, $3, $4);"#)
-                .bind("TransactionMeta")
-                .bind(&id)
-                .bind(meta_key)
-                .bind(meta_value.as_str())
-                .execute(&mut conn)
-                .await?;
-        }
+        operations.insert_meta("TransactionMeta", &id, self.meta.clone()).await?;
         Ok(())
     }
 }

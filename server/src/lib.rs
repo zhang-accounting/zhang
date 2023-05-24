@@ -182,6 +182,7 @@ async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broad
             .service(update_file_content)
             .service(get_report)
             .service(get_errors)
+            .service(get_all_options)
             .service(sse);
 
         #[cfg(feature = "frontend")]
