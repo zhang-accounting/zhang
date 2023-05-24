@@ -97,7 +97,7 @@ mod test {
             let ledger = load_from_text(indoc! {r#"
                  option "operating_currency" "USD"
             "#})
-                .await;
+            .await;
             let mut operations = ledger.operations().await;
 
             assert_eq!(operations.option("operating_currency").await.unwrap().unwrap().value, "USD");

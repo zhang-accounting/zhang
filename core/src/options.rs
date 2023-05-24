@@ -1,3 +1,7 @@
+use crate::constants::{
+    DEFAULT_BALANCE_TOLERANCE_PRECISION, DEFAULT_OPERATING_CURRENCY, DEFAULT_ROUNDING, KEY_DEFAULT_BALANCE_TOLERANCE_PRECISION, KEY_DEFAULT_ROUNDING,
+    KEY_OPERATING_CURRENCY,
+};
 use sqlx::SqliteConnection;
 use std::str::FromStr;
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
@@ -11,30 +15,26 @@ pub struct InMemoryOptions {
     pub default_balance_tolerance_precision: i32,
 }
 
-static OPERATING_CURRENCY: &str = "operating_currency";
-static DEFAULT_ROUNDING: &str = "default_rounding";
-static DEFAULT_BALANCE_TOLERANCE_PRECISION: &str = "default_balance_tolerance_precision";
-
 pub fn default_options() -> [Spanned<Directive>; 3] {
     [
         Spanned::new(
             Directive::Option(Options {
-                key: ZhangString::quote(OPERATING_CURRENCY),
-                value: ZhangString::quote("CNY"),
+                key: ZhangString::quote(KEY_OPERATING_CURRENCY),
+                value: ZhangString::quote(DEFAULT_OPERATING_CURRENCY),
             }),
             SpanInfo::default(),
         ),
         Spanned::new(
             Directive::Option(Options {
-                key: ZhangString::quote(DEFAULT_ROUNDING),
-                value: ZhangString::quote("RoundDown"),
+                key: ZhangString::quote(KEY_DEFAULT_ROUNDING),
+                value: ZhangString::quote(DEFAULT_ROUNDING.to_string()),
             }),
             SpanInfo::default(),
         ),
         Spanned::new(
             Directive::Option(Options {
-                key: ZhangString::quote(DEFAULT_BALANCE_TOLERANCE_PRECISION),
-                value: ZhangString::quote("2"),
+                key: ZhangString::quote(KEY_DEFAULT_BALANCE_TOLERANCE_PRECISION),
+                value: ZhangString::quote(DEFAULT_BALANCE_TOLERANCE_PRECISION.to_string()),
             }),
             SpanInfo::default(),
         ),
