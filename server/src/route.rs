@@ -68,7 +68,7 @@ pub async fn get_basic_info(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Basi
     let mut operations = ledger.operations().await;
 
     ResponseWrapper::json(BasicInfo {
-        title: operations.options("title").await?.map(|it| it.value),
+        title: operations.option("title").await?.map(|it| it.value),
         version: env!("CARGO_PKG_VERSION").to_string(),
         build_date: env!("ZHANG_BUILD_DATE").to_string(),
     })
@@ -1186,6 +1186,14 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
     })
 }
 
+#[get("/api/options")]
+pub async fn get_all_options(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<OptionDomain>> {
+    let ledger = ledger.read().await;
+    let mut operations = ledger.operations().await;
+    let options = operations.options().await?;
+    ResponseWrapper::json(options)
+}
+
 #[cfg(feature = "frontend")]
 #[derive(rust_embed::RustEmbed)]
 #[folder = "../frontend/build"]
@@ -1196,7 +1204,7 @@ pub struct StaticFile<T>(pub T);
 
 #[cfg(feature = "frontend")]
 use actix_web::{HttpRequest, HttpResponse};
-use zhang_core::domains::schemas::{AccountDailyBalanceDomain, AccountJournalDomain, ErrorDomain};
+use zhang_core::domains::schemas::{AccountDailyBalanceDomain, AccountJournalDomain, ErrorDomain, OptionDomain};
 use zhang_core::domains::Operations;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ZhangResult;

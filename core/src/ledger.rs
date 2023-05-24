@@ -499,9 +499,9 @@ mod test {
             .await;
             let mut operations = ledger.operations().await;
 
-            assert_eq!("Example Beancount file", operations.options("title").await?.unwrap().value);
-            assert_eq!("USD", operations.options("operating_currency").await?.unwrap().value);
-            assert!(operations.options("operating_currency2").await?.is_none());
+            assert_eq!("Example Beancount file", operations.option("title").await?.unwrap().value);
+            assert_eq!("USD", operations.option("operating_currency").await?.unwrap().value);
+            assert!(operations.option("operating_currency2").await?.is_none());
             Ok(())
         }
     }

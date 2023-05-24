@@ -196,3 +196,8 @@ export interface SpanInfo {
   content: string;
   filename: string;
 }
+
+export interface Option {
+  key:string;
+  value:string;
+}

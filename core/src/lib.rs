@@ -58,7 +58,7 @@ mod test {
             .await;
             let mut operations = ledger.operations().await;
 
-            let option = operations.options("title").await.unwrap().unwrap();
+            let option = operations.option("title").await.unwrap().unwrap();
             assert_eq!(option.key, "title");
             assert_eq!(option.value, "Example");
             Ok(())
@@ -73,7 +73,7 @@ mod test {
             .await;
             let mut operations = ledger.operations().await;
 
-            let option = operations.options("title").await.unwrap().unwrap();
+            let option = operations.option("title").await.unwrap().unwrap();
             assert_eq!(option.key, "title");
             assert_eq!(option.value, "Example2");
             Ok(())

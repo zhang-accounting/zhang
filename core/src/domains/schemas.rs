@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use strum::{AsRefStr, EnumString};
 use zhang_ast::{Currency, SpanInfo};
 
-#[derive(FromRow, Debug, Clone)]
+#[derive(FromRow, Debug, Clone, Serialize)]
 pub struct OptionDomain {
     pub key: String,
     pub value: String,

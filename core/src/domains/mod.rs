@@ -23,7 +23,19 @@ pub struct Operations {
     pub(crate) pool: PoolConnection<Sqlite>,
 }
 impl Operations {
-    pub async fn options(&mut self, key: impl AsRef<str>) -> ZhangResult<Option<OptionDomain>> {
+    pub async fn options(&mut self) -> ZhangResult<Vec<OptionDomain>> {
+        let conn = self.pool.acquire().await?;
+
+        let options = sqlx::query_as::<_, OptionDomain>(
+            r#"
+                select key, value from options
+                "#,
+        )
+        .fetch_all(conn)
+        .await?;
+        Ok(options)
+    }
+    pub async fn option(&mut self, key: impl AsRef<str>) -> ZhangResult<Option<OptionDomain>> {
         let conn = self.pool.acquire().await?;
 
         let option = sqlx::query_as::<_, OptionDomain>(
