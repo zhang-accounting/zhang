@@ -1,17 +1,47 @@
 use sqlx::SqliteConnection;
 use std::str::FromStr;
-use zhang_ast::Rounding;
+use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
 use crate::ZhangResult;
 
 #[derive(Debug)]
-pub struct Options {
+pub struct InMemoryOptions {
     pub operating_currency: String,
     pub default_rounding: Rounding,
     pub default_balance_tolerance_precision: i32,
 }
 
-impl Options {
+static OPERATING_CURRENCY: &str = "operating_currency";
+static DEFAULT_ROUNDING: &str = "default_rounding";
+static DEFAULT_BALANCE_TOLERANCE_PRECISION: &str = "default_balance_tolerance_precision";
+
+pub fn default_options() -> [Spanned<Directive>; 3] {
+    [
+        Spanned::new(
+            Directive::Option(Options {
+                key: ZhangString::quote(OPERATING_CURRENCY),
+                value: ZhangString::quote("CNY"),
+            }),
+            SpanInfo::default(),
+        ),
+        Spanned::new(
+            Directive::Option(Options {
+                key: ZhangString::quote(DEFAULT_ROUNDING),
+                value: ZhangString::quote("RoundDown"),
+            }),
+            SpanInfo::default(),
+        ),
+        Spanned::new(
+            Directive::Option(Options {
+                key: ZhangString::quote(DEFAULT_BALANCE_TOLERANCE_PRECISION),
+                value: ZhangString::quote("2"),
+            }),
+            SpanInfo::default(),
+        ),
+    ]
+}
+
+impl InMemoryOptions {
     pub async fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, conn: &mut SqliteConnection) -> ZhangResult<()> {
         let value = value.into();
         let key = key.into();
@@ -49,9 +79,9 @@ impl Options {
     }
 }
 
-impl Default for Options {
+impl Default for InMemoryOptions {
     fn default() -> Self {
-        Options {
+        InMemoryOptions {
             operating_currency: "CNY".to_string(),
             default_rounding: Rounding::RoundDown,
             default_balance_tolerance_precision: 2,

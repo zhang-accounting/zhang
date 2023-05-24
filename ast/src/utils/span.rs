@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct SpanInfo {
     pub start: usize,
     pub end: usize,

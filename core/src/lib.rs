@@ -78,6 +78,21 @@ mod test {
             assert_eq!(option.value, "Example2");
             Ok(())
         }
+
+        #[tokio::test]
+        async fn should_get_default_options() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                 option "title" "Example"
+            "#})
+            .await;
+            let mut operations = ledger.operations().await;
+
+            assert_eq!(operations.option("operating_currency").await.unwrap().unwrap().value, "CNY");
+            assert_eq!(operations.option("default_rounding").await.unwrap().unwrap().value, "RoundDown");
+            assert_eq!(operations.option("default_balance_tolerance_precision").await.unwrap().unwrap().value, "2");
+            Ok(())
+        }
+
         #[tokio::test]
         async fn should_get_all_options() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
@@ -89,7 +104,7 @@ mod test {
             let mut operations = ledger.operations().await;
 
             let options = operations.options().await.unwrap();
-            assert_eq!(options.len(), 2);
+            assert_eq!(options.len(), 5);
             Ok(())
         }
     }

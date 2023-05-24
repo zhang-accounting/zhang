@@ -17,7 +17,7 @@ use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 use crate::database::migrations::Migration;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
-use crate::options::Options;
+use crate::options::{default_options, InMemoryOptions};
 use crate::process::DirectiveProcess;
 use crate::transform::Transformer;
 use crate::utils::bigdecimal_ext::BigDecimalExt;
@@ -29,7 +29,7 @@ pub struct Ledger {
     pub pool_connection: SqlitePool,
     pub visited_files: Vec<Pattern>,
 
-    pub options: Options,
+    pub options: InMemoryOptions,
 
     pub directives: Vec<Spanned<Directive>>,
     pub metas: Vec<Spanned<Directive>>,
@@ -86,11 +86,11 @@ impl Ledger {
 
         Migration::init_database_if_missing(&mut connection).await?;
 
-        let (mut meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
+        let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
         let mut ret_ledger = Self {
-            options: Options::default(),
+            options: InMemoryOptions::default(),
             entry,
             database,
             pool_connection: sqlite_pool,
@@ -99,8 +99,16 @@ impl Ledger {
             metas: vec![],
             transformer,
         };
-
-        for directive in meta_directives.iter_mut().chain(directives.iter_mut()) {
+        let mut merged_metas = default_options()
+            .into_iter()
+            .chain(meta_directives.into_iter())
+            .rev()
+            .dedup_by(|x, y| match (&x.data, &y.data) {
+                (Directive::Option(option_x), Directive::Option(option_y)) => option_x.key.eq(&option_y.key),
+                _ => false,
+            })
+            .collect_vec();
+        for directive in merged_metas.iter_mut().rev().chain(directives.iter_mut()) {
             match &mut directive.data {
                 Directive::Option(option) => option.handler(&mut ret_ledger, &directive.span).await?,
                 Directive::Open(open) => open.handler(&mut ret_ledger, &directive.span).await?,
@@ -117,7 +125,7 @@ impl Ledger {
             }
         }
 
-        ret_ledger.metas = meta_directives;
+        ret_ledger.metas = merged_metas;
         ret_ledger.directives = directives;
         let mut operations = ret_ledger.operations().await;
         let errors = operations.errors().await?;
