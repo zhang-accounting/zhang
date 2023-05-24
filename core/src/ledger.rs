@@ -159,7 +159,6 @@ impl Ledger {
         self
     }
 
-
     pub async fn is_transaction_balanced(&self, txn: &Transaction) -> ZhangResult<bool> {
         // 1. get the txn's inventory
         Ok(match txn.get_postings_inventory() {
