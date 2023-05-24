@@ -6,7 +6,6 @@ use std::time::Instant;
 
 use crate::constants::DEFAULT_COMMODITY_PRECISION;
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
-use crate::domains::options::OptionDomain;
 use crate::domains::schemas::ErrorType;
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
@@ -83,12 +82,11 @@ async fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span:
 #[async_trait]
 impl DirectiveProcess for Options {
     async fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations().await;
         let mut conn = ledger.connection().await;
         ledger.options.parse(self.key.as_str(), self.value.as_str(), &mut conn).await?;
         ledger.configs.insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());
-
-        OptionDomain::insert_or_update(self.key.as_str(), self.value.as_str(), &mut conn).await?;
-
+        operations.insert_or_update_options(self.key.as_str(), self.value.as_str()).await?;
         Ok(())
     }
 }

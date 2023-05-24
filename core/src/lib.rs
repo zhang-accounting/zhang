@@ -46,6 +46,40 @@ mod test {
             .unwrap()
     }
 
+    mod options {
+        use crate::test::load_from_text;
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_get_option() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                 option "title" "Example"
+            "#})
+            .await;
+            let mut operations = ledger.operations().await;
+
+            let option = operations.options("title").await.unwrap().unwrap();
+            assert_eq!(option.key, "title");
+            assert_eq!(option.value, "Example");
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn should_get_latest_option_given_same_options() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                 option "title" "Example"
+                 option "title" "Example2"
+            "#})
+            .await;
+            let mut operations = ledger.operations().await;
+
+            let option = operations.options("title").await.unwrap().unwrap();
+            assert_eq!(option.key, "title");
+            assert_eq!(option.value, "Example2");
+            Ok(())
+        }
+    }
+
     mod meta {
         use crate::test::load_from_text;
         use indoc::indoc;
