@@ -47,6 +47,7 @@ mod test {
     }
 
     mod options {
+        use crate::options::DEFAULT_OPTIONS;
         use crate::test::load_from_text;
         use indoc::indoc;
 
@@ -115,7 +116,9 @@ mod test {
             let mut operations = ledger.operations().await;
 
             let options = operations.options().await.unwrap();
-            assert_eq!(options.len(), 5);
+            assert_eq!(DEFAULT_OPTIONS.len() + 2, options.len());
+            assert_eq!(1, options.iter().filter(|it| it.key.eq("title")).count());
+            assert_eq!(1, options.iter().filter(|it| it.key.eq("url")).count());
             Ok(())
         }
     }
@@ -187,6 +190,56 @@ mod test {
             assert_eq!(card_balance.account, "Assets:MyCard");
             assert_eq!(card_balance.balance_number.0, BigDecimal::from(-50));
             assert_eq!(card_balance.balance_commodity, "CNY");
+            Ok(())
+        }
+    }
+    mod commodity {
+        use crate::test::load_from_text;
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_get_commodity() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                1970-01-01 commodity CNY
+            "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let commodity = operations.commodity("CNY").await?.unwrap();
+            assert_eq!("CNY", commodity.name);
+            assert_eq!(2, commodity.precision);
+            assert_eq!(None, commodity.prefix);
+            assert_eq!(None, commodity.suffix);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn should_not_get_non_exist_commodity() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                1970-01-01 commodity CNY
+            "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let commodity = operations.commodity("USD").await?;
+            assert!(commodity.is_none());
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn should_get_correct_precision_given_override_default_precision() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                option "default_commodity_precision" "3"
+                1970-01-01 commodity CNY
+            "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let commodity = operations.commodity("CNY").await?.unwrap();
+            assert_eq!("CNY", commodity.name);
+            assert_eq!(3, commodity.precision);
+            assert_eq!(None, commodity.prefix);
+            assert_eq!(None, commodity.suffix);
             Ok(())
         }
     }

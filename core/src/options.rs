@@ -1,9 +1,11 @@
 use crate::constants::{
-    DEFAULT_BALANCE_TOLERANCE_PRECISION, DEFAULT_OPERATING_CURRENCY, DEFAULT_ROUNDING, KEY_DEFAULT_BALANCE_TOLERANCE_PRECISION, KEY_DEFAULT_ROUNDING,
-    KEY_OPERATING_CURRENCY,
+    DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN, DEFAULT_COMMODITY_PRECISION_PLAIN, DEFAULT_OPERATING_CURRENCY, DEFAULT_ROUNDING_PLAIN,
+    KEY_DEFAULT_BALANCE_TOLERANCE_PRECISION, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING, KEY_OPERATING_CURRENCY,
 };
+use itertools::Itertools;
 use sqlx::SqliteConnection;
 use std::str::FromStr;
+use std::string::ToString;
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
 use crate::ZhangResult;
@@ -15,30 +17,27 @@ pub struct InMemoryOptions {
     pub default_balance_tolerance_precision: i32,
 }
 
-pub fn default_options() -> [Spanned<Directive>; 3] {
-    [
-        Spanned::new(
-            Directive::Option(Options {
-                key: ZhangString::quote(KEY_OPERATING_CURRENCY),
-                value: ZhangString::quote(DEFAULT_OPERATING_CURRENCY),
-            }),
-            SpanInfo::default(),
-        ),
-        Spanned::new(
-            Directive::Option(Options {
-                key: ZhangString::quote(KEY_DEFAULT_ROUNDING),
-                value: ZhangString::quote(DEFAULT_ROUNDING.to_string()),
-            }),
-            SpanInfo::default(),
-        ),
-        Spanned::new(
-            Directive::Option(Options {
-                key: ZhangString::quote(KEY_DEFAULT_BALANCE_TOLERANCE_PRECISION),
-                value: ZhangString::quote(DEFAULT_BALANCE_TOLERANCE_PRECISION.to_string()),
-            }),
-            SpanInfo::default(),
-        ),
-    ]
+pub static DEFAULT_OPTIONS: [(&str, &str); 4] = [
+    (KEY_OPERATING_CURRENCY, DEFAULT_OPERATING_CURRENCY),
+    (KEY_DEFAULT_ROUNDING, DEFAULT_ROUNDING_PLAIN),
+    (KEY_DEFAULT_BALANCE_TOLERANCE_PRECISION, DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN),
+    (KEY_DEFAULT_COMMODITY_PRECISION, DEFAULT_COMMODITY_PRECISION_PLAIN),
+];
+
+pub fn default_options() -> Vec<Spanned<Directive>> {
+    DEFAULT_OPTIONS
+        .iter()
+        .cloned()
+        .map(|(key, value)| {
+            Spanned::new(
+                Directive::Option(Options {
+                    key: ZhangString::quote(key),
+                    value: ZhangString::quote(value),
+                }),
+                SpanInfo::default(),
+            )
+        })
+        .collect_vec()
 }
 
 impl InMemoryOptions {

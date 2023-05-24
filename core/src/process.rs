@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Instant;
 
-use crate::constants::DEFAULT_COMMODITY_PRECISION;
+use crate::constants::{KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::domains::schemas::ErrorType;
 use crate::ledger::Ledger;
@@ -136,18 +136,25 @@ impl DirectiveProcess for Commodity {
     async fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
         let mut operations = ledger.operations().await;
+
+        let default_precision = operations.option(KEY_DEFAULT_COMMODITY_PRECISION).await?.map(|it| it.value);
+        let default_rounding = operations.option(KEY_DEFAULT_ROUNDING).await?.map(|it| it.value);
+
         let precision = self
             .meta
             .get_one("precision")
+            .map(|it| it.as_str().to_owned())
+            .or(default_precision)
             .map(|it| it.as_str().parse::<i32>())
             .transpose()
-            .unwrap_or(None)
-            .unwrap_or(DEFAULT_COMMODITY_PRECISION);
+            .unwrap_or(None);
         let prefix = self.meta.get_one("prefix").map(|it| it.as_str());
         let suffix = self.meta.get_one("suffix").map(|it| it.as_str());
         let rounding = self
             .meta
             .get_one("rounding")
+            .map(|it| it.as_str().to_owned())
+            .or(default_rounding)
             .map(|it| Rounding::from_str(it.as_str()))
             .transpose()
             .unwrap_or(None);
