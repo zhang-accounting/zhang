@@ -92,6 +92,17 @@ mod test {
             assert_eq!(operations.option("default_balance_tolerance_precision").await.unwrap().unwrap().value, "2");
             Ok(())
         }
+        #[tokio::test]
+        async fn should_be_override_by_user_options() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                 option "operating_currency" "USD"
+            "#})
+                .await;
+            let mut operations = ledger.operations().await;
+
+            assert_eq!(operations.option("operating_currency").await.unwrap().unwrap().value, "USD");
+            Ok(())
+        }
 
         #[tokio::test]
         async fn should_get_all_options() -> Result<(), Box<dyn std::error::Error>> {
