@@ -68,4 +68,52 @@ mod test {
             Ok(())
         }
     }
+
+    mod account_balance {
+        use crate::test::load_from_text;
+        use bigdecimal::BigDecimal;
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_return_zero_balance_given_zero_directive() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                1970-01-01 open Assets:MyCard
+            "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+
+            let result = operations.account_balances().await?;
+            assert_eq!(0, result.len());
+
+            Ok(())
+        }
+        #[tokio::test]
+        async fn should_return_correct_balance_given_txn() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                1970-01-01 open Assets:MyCard
+                1970-01-01 open Expenses:Lunch
+                1970-01-02 "KFC" "Crazy Thursday"
+                  Assets:MyCard -50 CNY
+                  Expenses:Lunch 50 CNY
+            "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+
+            let mut result = operations.account_balances().await?;
+            assert_eq!(2, result.len());
+
+            let lunch_balance = result.pop().unwrap();
+            assert_eq!(lunch_balance.account, "Expenses:Lunch");
+            assert_eq!(lunch_balance.balance_number.0, BigDecimal::from(50));
+            assert_eq!(lunch_balance.balance_commodity, "CNY");
+
+            let card_balance = result.pop().unwrap();
+            assert_eq!(card_balance.account, "Assets:MyCard");
+            assert_eq!(card_balance.balance_number.0, BigDecimal::from(-50));
+            assert_eq!(card_balance.balance_commodity, "CNY");
+            Ok(())
+        }
+    }
 }

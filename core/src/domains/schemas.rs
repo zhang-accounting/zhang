@@ -22,7 +22,7 @@ pub struct AccountDomain {
 
 #[derive(FromRow, Debug, Clone)]
 pub struct AccountBalanceDomain {
-    pub date: NaiveDate,
+    pub datetime: NaiveDateTime,
     pub account: String,
     pub account_status: String,
     pub balance_number: ZhangBigDecimal,

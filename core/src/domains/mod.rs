@@ -166,7 +166,7 @@ impl Operations {
         let conn = self.pool.acquire().await?;
         Ok(sqlx::query_as::<_, AccountBalanceDomain>(
             r#"
-                        select name, account, account_status, balance_number, balance_commodity
+                        select datetime, account, account_status, balance_number, balance_commodity
                         from account_balance
             "#,
         )
