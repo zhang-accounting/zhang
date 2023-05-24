@@ -26,34 +26,6 @@ use crate::transform::Transformer;
 use crate::utils::bigdecimal_ext::BigDecimalExt;
 use crate::ZhangResult;
 
-#[derive(Clone, Debug, Serialize)]
-pub struct LedgerError {
-    pub(crate) span: SpanInfo,
-    pub(crate) error: LedgerErrorType,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "type")]
-pub enum LedgerErrorType {
-    AccountBalanceCheckError {
-        account_name: String,
-        target: Amount,
-        current: Amount,
-        distance: Amount,
-    },
-    AccountDoesNotExist {
-        account_name: String,
-    },
-    AccountClosed {
-        account_name: String,
-    },
-    TransactionDoesNotBalance,
-    CommodityDoesNotDefine {
-        commodity_name: String,
-    },
-    TransactionHasMultipleImplicitPosting,
-}
-
 pub struct Ledger {
     pub entry: (PathBuf, String),
     pub database: Option<PathBuf>,
@@ -61,7 +33,6 @@ pub struct Ledger {
     pub visited_files: Vec<Pattern>,
 
     pub options: Options,
-    pub configs: HashMap<String, String>,
 
     pub directives: Vec<Spanned<Directive>>,
     pub metas: Vec<Spanned<Directive>>,
@@ -129,7 +100,6 @@ impl Ledger {
             visited_files,
             directives: vec![],
             metas: vec![],
-            configs: HashMap::default(),
             transformer,
         };
 
@@ -192,9 +162,6 @@ impl Ledger {
         self
     }
 
-    pub fn option(&self, key: &str) -> Option<String> {
-        self.configs.get(key).map(|it| it.to_string())
-    }
 
     pub async fn is_transaction_balanced(&self, txn: &Transaction) -> ZhangResult<bool> {
         // 1. get the txn's inventory

@@ -85,7 +85,6 @@ impl DirectiveProcess for Options {
         let mut operations = ledger.operations().await;
         let mut conn = ledger.connection().await;
         ledger.options.parse(self.key.as_str(), self.value.as_str(), &mut conn).await?;
-        ledger.configs.insert(self.key.clone().to_plain_string(), self.value.clone().to_plain_string());
         operations.insert_or_update_options(self.key.as_str(), self.value.as_str()).await?;
         Ok(())
     }
