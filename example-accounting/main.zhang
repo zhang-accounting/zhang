@@ -1157,3 +1157,6 @@ option "operating_currency" "CNY"
   Income:Publisher:DogeRandomHouse -39 CNY
   Assets:Paypal 
   Expenses:RemunerationTax 2 CNY
+  a: b
+
+include "data/2023/5.zhang"

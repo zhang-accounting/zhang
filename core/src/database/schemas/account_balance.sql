@@ -1,3 +1,4 @@
+CREATE VIEW if not exists account_balance as
 select transactions.datetime,
        account_max_datetime.account,
        account_max_datetime.account_status,

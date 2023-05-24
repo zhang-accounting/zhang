@@ -12,7 +12,6 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use zhang_ast::SpanInfo;
 
-pub mod options;
 pub mod schemas;
 
 #[derive(FromRow)]
@@ -166,7 +165,7 @@ impl Operations {
         let conn = self.pool.acquire().await?;
         Ok(sqlx::query_as::<_, AccountBalanceDomain>(
             r#"
-                        select name, account, account_status, balance_number, balance_commodity
+                        select datetime, account, account_status, balance_number, balance_commodity
                         from account_balance
             "#,
         )
@@ -302,6 +301,16 @@ impl Operations {
         .bind(serde_json::to_string(&metas).unwrap())
         .execute(conn)
         .await?;
+        Ok(())
+    }
+
+    pub async fn insert_or_update_options(&mut self, key: &str, value: &str) -> ZhangResult<()> {
+        let conn = self.pool.acquire().await?;
+        sqlx::query(r#"INSERT OR REPLACE INTO options VALUES ($1, $2);"#)
+            .bind(key)
+            .bind(value)
+            .execute(conn)
+            .await?;
         Ok(())
     }
 }
