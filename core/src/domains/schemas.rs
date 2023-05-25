@@ -99,6 +99,7 @@ pub enum ErrorType {
     TransactionDoesNotBalance,
     CommodityDoesNotDefine,
     TransactionHasMultipleImplicitPosting,
+    CloseNonZeroAccount,
 }
 
 impl sqlx::Type<sqlx::sqlite::Sqlite> for ErrorType {
