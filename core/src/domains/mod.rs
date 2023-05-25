@@ -353,4 +353,13 @@ impl Operations {
         }
         Ok(())
     }
+
+    pub async fn close_account(&mut self, account_name: &str) -> ZhangResult<()> {
+        let conn = self.pool.acquire().await?;
+        sqlx::query(r#"update accounts set status = 'Close' where name = $1"#)
+            .bind(account_name)
+            .execute(conn)
+            .await?;
+        Ok(())
+    }
 }
