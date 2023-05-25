@@ -297,4 +297,46 @@ mod test {
             Ok(())
         }
     }
+    mod error {
+
+        mod close_non_zero_account {
+            use crate::domains::schemas::ErrorType;
+            use crate::test::load_from_text;
+            use indoc::indoc;
+
+            #[tokio::test]
+            async fn should_not_raise_error() -> Result<(), Box<dyn std::error::Error>> {
+                let ledger = load_from_text(indoc! {r#"
+                    1970-01-01 open Assets:MyCard
+                    1970-01-03 close Assets:MyCard
+                "#})
+                .await;
+
+                let mut operations = ledger.operations().await;
+                let mut errors = operations.errors().await?;
+                assert_eq!(errors.len(), 0);
+                Ok(())
+            }
+            #[tokio::test]
+            async fn should_raise_error() -> Result<(), Box<dyn std::error::Error>> {
+                let ledger = load_from_text(indoc! {r#"
+                    1970-01-01 open Assets:MyCard
+                    1970-01-01 open Expenses:Lunch
+                    1970-01-02 "KFC" "Crazy Thursday"
+                      Assets:MyCard -50 CNY
+                      Expenses:Lunch 50 CNY
+
+                    1970-01-03 close Assets:MyCard
+                "#})
+                .await;
+
+                let mut operations = ledger.operations().await;
+                let mut errors = operations.errors().await?;
+                assert_eq!(errors.len(), 1);
+                let error = errors.pop().unwrap();
+                assert_eq!(error.error_type, ErrorType::CloseNonZeroAccount);
+                Ok(())
+            }
+        }
+    }
 }

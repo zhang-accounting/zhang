@@ -185,6 +185,20 @@ impl Operations {
         .await?)
     }
 
+    pub async fn single_account_balances(&mut self, account_name: &str) -> ZhangResult<Vec<AccountBalanceDomain>> {
+        let conn = self.pool.acquire().await?;
+        Ok(sqlx::query_as::<_, AccountBalanceDomain>(
+            r#"
+                select datetime, account, account_status, balance_number, balance_commodity
+                from account_balance
+                where account = $1
+            "#,
+        )
+        .bind(account_name)
+        .fetch_all(conn)
+        .await?)
+    }
+
     pub async fn account_journals(&mut self, account: &str) -> ZhangResult<Vec<AccountJournalDomain>> {
         let conn = self.pool.acquire().await?;
         Ok(sqlx::query_as::<_, AccountJournalDomain>(

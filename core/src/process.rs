@@ -118,9 +118,16 @@ impl DirectiveProcess for Open {
 impl DirectiveProcess for Close {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut conn = ledger.connection().await;
+        let mut operations = ledger.operations().await;
         // check if account exist
         check_account_existed(self.account.name(), ledger, span).await?;
         check_account_closed(self.account.name(), ledger, span).await?;
+
+        let balances = operations.single_account_balances(self.account.name()).await?;
+        let has_non_zero_balance = balances.into_iter().any(|balance| !balance.balance_number.is_zero());
+        if has_non_zero_balance {
+            operations.new_error(ErrorType::CloseNonZeroAccount, span, HashMap::default()).await?;
+        }
 
         sqlx::query(r#"update accounts set status = 'Close' where name = $1"#)
             .bind(self.account.name())
