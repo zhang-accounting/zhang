@@ -313,7 +313,7 @@ mod test {
                 .await;
 
                 let mut operations = ledger.operations().await;
-                let mut errors = operations.errors().await?;
+                let errors = operations.errors().await?;
                 assert_eq!(errors.len(), 0);
                 Ok(())
             }
