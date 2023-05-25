@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::constants::{KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
-use crate::domains::schemas::ErrorType;
+use crate::domains::schemas::{AccountStatus, ErrorType};
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
@@ -56,7 +56,7 @@ async fn check_account_closed(account_name: &str, ledger: &mut Ledger, span: &Sp
     let mut operations = ledger.operations().await;
 
     let account = operations.account(account_name).await?;
-    if let Some(true) = account.map(|it| it.status.as_str().eq("Close")) {
+    if let Some(true) = account.map(|it| it.status == AccountStatus::Close) {
         operations
             .new_error(ErrorType::AccountClosed, span, HashMap::of("account_name", account_name.to_string()))
             .await?;

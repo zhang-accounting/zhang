@@ -663,7 +663,7 @@ pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Ve
     let balances = operations.account_balances().await?;
     let mut ret = vec![];
     for (key, group) in &balances.into_iter().group_by(|it| it.account.clone()) {
-        let mut status = "".to_string();
+        let mut status = AccountStatus::Open;
         let mut commodities = HashMap::new();
         for row in group {
             status = row.account_status;
@@ -1204,7 +1204,7 @@ pub struct StaticFile<T>(pub T);
 
 #[cfg(feature = "frontend")]
 use actix_web::{HttpRequest, HttpResponse};
-use zhang_core::domains::schemas::{AccountDailyBalanceDomain, AccountJournalDomain, ErrorDomain, OptionDomain};
+use zhang_core::domains::schemas::{AccountDailyBalanceDomain, AccountJournalDomain, AccountStatus, ErrorDomain, OptionDomain};
 use zhang_core::domains::Operations;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ZhangResult;

@@ -45,15 +45,22 @@ pub struct AccountDomain {
     pub date: NaiveDateTime,
     pub r#type: String,
     pub name: String,
-    pub status: String,
+    pub status: AccountStatus,
     pub alias: Option<String>,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, AsRefStr, EnumString)]
+pub enum AccountStatus {
+    Open,
+    Close,
+}
+text_enum! {AccountStatus}
 
 #[derive(FromRow, Debug, Clone)]
 pub struct AccountBalanceDomain {
     pub datetime: NaiveDateTime,
     pub account: String,
-    pub account_status: String,
+    pub account_status: AccountStatus,
     pub balance_number: ZhangBigDecimal,
     pub balance_commodity: String,
 }

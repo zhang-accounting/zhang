@@ -9,7 +9,7 @@ use sqlx::FromRow;
 use zhang_ast::amount::Amount;
 use zhang_ast::Currency;
 use zhang_core::database::type_ext::big_decimal::ZhangBigDecimal;
-use zhang_core::domains::schemas::{AccountJournalDomain, MetaDomain};
+use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, MetaDomain};
 
 use crate::{ServerError, ServerResult};
 
@@ -77,7 +77,7 @@ impl<T: Serialize> Pageable<T> {
 #[derive(Serialize)]
 pub struct AccountResponse {
     pub name: String,
-    pub status: String,
+    pub status: AccountStatus,
     pub commodities: HashMap<Currency, ZhangBigDecimal>,
 }
 

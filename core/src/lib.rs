@@ -146,6 +146,7 @@ mod test {
         }
     }
     mod account {
+        use crate::domains::schemas::AccountStatus;
         use crate::test::load_from_text;
         use indoc::indoc;
 
@@ -155,11 +156,11 @@ mod test {
                 1970-01-01 open Assets:MyCard
                 1970-01-02 close Assets:MyCard
             "#})
-                .await;
+            .await;
 
             let mut operations = ledger.operations().await;
             let account = operations.account("Assets:MyCard").await?.unwrap();
-            assert_eq!(account.status, "Close");
+            assert_eq!(account.status, AccountStatus::Close);
             Ok(())
         }
     }
