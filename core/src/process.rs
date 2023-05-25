@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::constants::{KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
-use crate::domains::schemas::ErrorType;
+use crate::domains::schemas::{AccountStatus, ErrorType, MetaType};
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
@@ -56,7 +56,7 @@ async fn check_account_closed(account_name: &str, ledger: &mut Ledger, span: &Sp
     let mut operations = ledger.operations().await;
 
     let account = operations.account(account_name).await?;
-    if let Some(true) = account.map(|it| it.status.as_str().eq("Close")) {
+    if let Some(true) = account.map(|it| it.status == AccountStatus::Close) {
         operations
             .new_error(ErrorType::AccountClosed, span, HashMap::of("account_name", account_name.to_string()))
             .await?;
@@ -108,7 +108,7 @@ impl DirectiveProcess for Open {
             .execute(&mut conn)
             .await?;
 
-        operations.insert_meta("AccountMeta", self.account.name(), self.meta.clone()).await?;
+        operations.insert_meta(MetaType::AccountMeta, self.account.name(), self.meta.clone()).await?;
 
         Ok(())
     }
@@ -117,16 +117,17 @@ impl DirectiveProcess for Open {
 #[async_trait]
 impl DirectiveProcess for Close {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        let mut conn = ledger.connection().await;
+        let mut operations = ledger.operations().await;
         // check if account exist
         check_account_existed(self.account.name(), ledger, span).await?;
         check_account_closed(self.account.name(), ledger, span).await?;
 
-        sqlx::query(r#"update accounts set status = 'Close' where name = $1"#)
-            .bind(self.account.name())
-            .execute(&mut conn)
-            .await?;
-
+        let balances = operations.single_account_balances(self.account.name()).await?;
+        let has_non_zero_balance = balances.into_iter().any(|balance| !balance.balance_number.is_zero());
+        if has_non_zero_balance {
+            operations.new_error(ErrorType::CloseNonZeroAccount, span, HashMap::default()).await?;
+        }
+        operations.close_account(self.account.name()).await?;
         Ok(())
     }
 }
@@ -171,7 +172,7 @@ impl DirectiveProcess for Commodity {
         .execute(&mut conn)
         .await?;
 
-        operations.insert_meta("CommodityMeta", &self.currency, self.meta.clone()).await?;
+        operations.insert_meta(MetaType::CommodityMeta, &self.currency, self.meta.clone()).await?;
 
         Ok(())
     }
@@ -278,7 +279,7 @@ impl DirectiveProcess for Transaction {
                 .await?;
         }
 
-        operations.insert_meta("TransactionMeta", &id, self.meta.clone()).await?;
+        operations.insert_meta(MetaType::TransactionMeta, &id, self.meta.clone()).await?;
         Ok(())
     }
 }

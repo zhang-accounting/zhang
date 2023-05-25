@@ -1,6 +1,6 @@
 use crate::domains::schemas::{
-    AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, CommodityDomain, ErrorDomain, ErrorType, MetaDomain, OptionDomain,
-    PriceDomain, TransactionInfoDomain,
+    AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, CommodityDomain, ErrorDomain, ErrorType, MetaDomain, MetaType,
+    OptionDomain, PriceDomain, TransactionInfoDomain,
 };
 use crate::ZhangResult;
 use chrono::NaiveDateTime;
@@ -82,7 +82,7 @@ impl Operations {
         .await?)
     }
 
-    pub async fn metas(&mut self, type_: impl AsRef<str>, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
+    pub async fn metas(&mut self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
         let conn = self.pool.acquire().await?;
 
         let rows = sqlx::query_as::<_, MetaDomain>(
@@ -181,6 +181,20 @@ impl Operations {
                         from account_balance
             "#,
         )
+        .fetch_all(conn)
+        .await?)
+    }
+
+    pub async fn single_account_balances(&mut self, account_name: &str) -> ZhangResult<Vec<AccountBalanceDomain>> {
+        let conn = self.pool.acquire().await?;
+        Ok(sqlx::query_as::<_, AccountBalanceDomain>(
+            r#"
+                select datetime, account, account_status, balance_number, balance_commodity
+                from account_balance
+                where account = $1
+            "#,
+        )
+        .bind(account_name)
         .fetch_all(conn)
         .await?)
     }
@@ -326,7 +340,7 @@ impl Operations {
         Ok(())
     }
 
-    pub async fn insert_meta(&mut self, type_: impl AsRef<str>, type_identifier: impl AsRef<str>, meta: Meta) -> ZhangResult<()> {
+    pub async fn insert_meta(&mut self, type_: MetaType, type_identifier: impl AsRef<str>, meta: Meta) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
         for (meta_key, meta_value) in meta.get_flatten() {
             sqlx::query(r#"INSERT OR REPLACE INTO metas VALUES ($1, $2, $3, $4);"#)
@@ -337,6 +351,15 @@ impl Operations {
                 .execute(&mut *conn)
                 .await?;
         }
+        Ok(())
+    }
+
+    pub async fn close_account(&mut self, account_name: &str) -> ZhangResult<()> {
+        let conn = self.pool.acquire().await?;
+        sqlx::query(r#"update accounts set status = 'Close' where name = $1"#)
+            .bind(account_name)
+            .execute(conn)
+            .await?;
         Ok(())
     }
 }
