@@ -6,6 +6,35 @@ use std::collections::HashMap;
 use strum::{AsRefStr, EnumString};
 use zhang_ast::{Currency, SpanInfo};
 
+macro_rules! text_enum {
+    ($enum_type:tt) => {
+        impl sqlx::Type<sqlx::sqlite::Sqlite> for $enum_type {
+            fn type_info() -> <sqlx::Sqlite as sqlx::Database>::TypeInfo {
+                <String as sqlx::Type<sqlx::Sqlite>>::type_info()
+            }
+        }
+        impl<'r, DB: sqlx::Database> sqlx::Decode<'r, DB> for $enum_type
+        where
+            &'r str: sqlx::Decode<'r, DB>,
+        {
+            fn decode(value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef) -> Result<Self, sqlx::error::BoxDynError> {
+                use std::str::FromStr;
+                let value = <&str as sqlx::Decode<DB>>::decode(value)?;
+                Ok($enum_type::from_str(value).unwrap())
+            }
+        }
+        impl<'q, DB: sqlx::Database> sqlx::Encode<'q, DB> for $enum_type
+        where
+            String: sqlx::Encode<'q, DB>,
+        {
+            fn encode_by_ref(&self, buf: &mut <DB as sqlx::database::HasArguments<'q>>::ArgumentBuffer) -> sqlx::encode::IsNull {
+                let enum_str: String = self.as_ref().to_owned();
+                <String as sqlx::Encode<DB>>::encode_by_ref(&enum_str, buf)
+            }
+        }
+    };
+}
+
 #[derive(FromRow, Debug, Clone, Serialize)]
 pub struct OptionDomain {
     pub key: String,
@@ -101,28 +130,4 @@ pub enum ErrorType {
     TransactionHasMultipleImplicitPosting,
     CloseNonZeroAccount,
 }
-
-impl sqlx::Type<sqlx::sqlite::Sqlite> for ErrorType {
-    fn type_info() -> <sqlx::Sqlite as sqlx::Database>::TypeInfo {
-        <String as sqlx::Type<sqlx::Sqlite>>::type_info()
-    }
-}
-impl<'r, DB: sqlx::Database> sqlx::Decode<'r, DB> for ErrorType
-where
-    &'r str: sqlx::Decode<'r, DB>,
-{
-    fn decode(value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef) -> Result<Self, sqlx::error::BoxDynError> {
-        use std::str::FromStr;
-        let value = <&str as sqlx::Decode<DB>>::decode(value)?;
-        Ok(ErrorType::from_str(value).unwrap())
-    }
-}
-impl<'q, DB: sqlx::Database> sqlx::Encode<'q, DB> for ErrorType
-where
-    String: sqlx::Encode<'q, DB>,
-{
-    fn encode_by_ref(&self, buf: &mut <DB as sqlx::database::HasArguments<'q>>::ArgumentBuffer) -> sqlx::encode::IsNull {
-        let enum_str: String = self.as_ref().to_owned();
-        <String as sqlx::Encode<DB>>::encode_by_ref(&enum_str, buf)
-    }
-}
+text_enum! {ErrorType}
