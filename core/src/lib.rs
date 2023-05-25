@@ -124,6 +124,7 @@ mod test {
     }
 
     mod meta {
+        use crate::domains::schemas::MetaType;
         use crate::test::load_from_text;
         use indoc::indoc;
 
@@ -136,7 +137,7 @@ mod test {
             .await;
             let mut operations = ledger.operations().await;
 
-            let mut vec = operations.metas("AccountMeta", "Assets:MyCard").await?;
+            let mut vec = operations.metas(MetaType::AccountMeta, "Assets:MyCard").await?;
             assert_eq!(1, vec.len());
             let meta = vec.pop().unwrap();
             assert_eq!(meta.key, "a");

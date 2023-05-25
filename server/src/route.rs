@@ -522,7 +522,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
                     let tags = operations.trx_tags(&trx_id).await?;
                     let links = operations.trx_links(&trx_id).await?;
                     let metas = operations
-                        .metas("TransactionMeta", &trx_id)
+                        .metas(MetaType::TransactionMeta, &trx_id)
                         .await
                         .unwrap()
                         .into_iter()
@@ -1204,7 +1204,7 @@ pub struct StaticFile<T>(pub T);
 
 #[cfg(feature = "frontend")]
 use actix_web::{HttpRequest, HttpResponse};
-use zhang_core::domains::schemas::{AccountDailyBalanceDomain, AccountJournalDomain, AccountStatus, ErrorDomain, OptionDomain};
+use zhang_core::domains::schemas::{AccountDailyBalanceDomain, AccountJournalDomain, AccountStatus, ErrorDomain, MetaType, OptionDomain};
 use zhang_core::domains::Operations;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ZhangResult;

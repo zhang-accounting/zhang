@@ -35,6 +35,14 @@ macro_rules! text_enum {
     };
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, AsRefStr, EnumString)]
+pub enum MetaType {
+    AccountMeta,
+    CommodityMeta,
+    TransactionMeta,
+}
+text_enum! {MetaType}
+
 #[derive(FromRow, Debug, Clone, Serialize)]
 pub struct OptionDomain {
     pub key: String,

@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::constants::{KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
-use crate::domains::schemas::{AccountStatus, ErrorType};
+use crate::domains::schemas::{AccountStatus, ErrorType, MetaType};
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
@@ -108,7 +108,7 @@ impl DirectiveProcess for Open {
             .execute(&mut conn)
             .await?;
 
-        operations.insert_meta("AccountMeta", self.account.name(), self.meta.clone()).await?;
+        operations.insert_meta(MetaType::AccountMeta, self.account.name(), self.meta.clone()).await?;
 
         Ok(())
     }
@@ -172,7 +172,7 @@ impl DirectiveProcess for Commodity {
         .execute(&mut conn)
         .await?;
 
-        operations.insert_meta("CommodityMeta", &self.currency, self.meta.clone()).await?;
+        operations.insert_meta(MetaType::CommodityMeta, &self.currency, self.meta.clone()).await?;
 
         Ok(())
     }
@@ -279,7 +279,7 @@ impl DirectiveProcess for Transaction {
                 .await?;
         }
 
-        operations.insert_meta("TransactionMeta", &id, self.meta.clone()).await?;
+        operations.insert_meta(MetaType::TransactionMeta, &id, self.meta.clone()).await?;
         Ok(())
     }
 }
