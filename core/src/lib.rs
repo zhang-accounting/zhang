@@ -145,6 +145,24 @@ mod test {
             Ok(())
         }
     }
+    mod account {
+        use crate::test::load_from_text;
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_closed_account() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                1970-01-01 open Assets:MyCard
+                1970-01-02 close Assets:MyCard
+            "#})
+                .await;
+
+            let mut operations = ledger.operations().await;
+            let account = operations.account("Assets:MyCard").await?.unwrap();
+            assert_eq!(account.status, "Close");
+            Ok(())
+        }
+    }
 
     mod account_balance {
         use crate::test::load_from_text;
