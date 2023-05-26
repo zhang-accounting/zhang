@@ -329,7 +329,7 @@ impl DirectiveProcess for Balance {
                     date: balance_check.date.clone(),
                     flag: Some(Flag::BalanceCheck),
                     payee: Some(ZhangString::quote("Balance Check")),
-                    narration: Some(ZhangString::quote(format!("Check balance of {}", balance_check.account.name()))),
+                    narration: Some(ZhangString::quote(balance_check.account.name())),
                     tags: Default::default(),
                     links: Default::default(),
                     postings: vec![Posting {

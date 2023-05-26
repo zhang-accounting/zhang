@@ -11,6 +11,11 @@ const useStyles = createStyles((theme, _params, getRef) => ({
     fontWeight: 'bold',
   },
   narration: {},
+  accumulated: {
+    color: theme.colors.gray[7],
+    fontFeatureSettings: 'tnum',
+    fontSize: theme.fontSizes.sm * 0.75,
+  },
   positiveAmount: {
     color: theme.colors.gray[7],
     fontWeight: 'bold',
@@ -86,8 +91,8 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
             <Amount amount={data.postings[0].account_after_number} currency={data.postings[0].account_after_commodity} />
           </div>
           {!isBalanced && (
-            <span className={classes.positiveAmount}>
-              current: <Amount amount={data.postings[0].account_before_number} currency={data.postings[0].account_before_commodity} />
+            <span className={classes.accumulated}>
+              accumulated: <Amount amount={data.postings[0].account_before_number} currency={data.postings[0].account_before_commodity} />
             </span>
           )}
         </div>
