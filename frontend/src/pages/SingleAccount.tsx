@@ -10,6 +10,7 @@ import {useAppDispatch, useAppSelector} from "../states";
 import {fetchAccounts, getAccountByName} from "../states/account";
 import AccountBalanceCheckLine from "../components/AccountBalanceCheckLine";
 import {useEffect} from "react";
+import PayeeNarration from '../components/basic/PayeeNarration';
 
 function SingleAccount() {
   let {accountName} = useParams();
@@ -61,7 +62,7 @@ function SingleAccount() {
                             <tr>
                               <td>{format(new Date(item.datetime), 'yyyy-MM-dd hh:mm:ss')}</td>
                               <td>
-                                {item.payee} {item.narration}
+                              <PayeeNarration payee={item.payee} narration={item.narration} />
                               </td>
                               <td>
                                 {item.inferred_unit_number} {item.inferred_unit_commodity}
