@@ -23,7 +23,7 @@ interface Props {
   mask?: boolean,
 }
 
-export default function Amount({ amount, currency, negetive,mask }: Props) {
+export default function Amount({ amount, currency, negetive, mask }: Props) {
   const { classes } = useStyles();
   const commodity = useAppSelector(getCommodityByName(currency));
 
