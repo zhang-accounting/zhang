@@ -56,7 +56,7 @@ export default function TableViewTransactionLine({ data }: Props) {
   const openPreviewModal = (e: any) => {
     openContextModal({
       modal: 'transactionPreviewModal',
-      title: 'transaction preview',
+      title: 'Transaction Detail',
       size: 'lg',
       centered: true,
       innerProps: {

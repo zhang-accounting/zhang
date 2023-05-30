@@ -55,7 +55,7 @@ export default function TableViewBalancePadLine({ data, onClick }: Props) {
   const openPreviewModal = (e: any) => {
     openContextModal({
       modal: 'transactionPreviewModal',
-      title: 'transaction preview',
+      title: 'Balance Pad Detail',
       size: 'lg',
       centered: true,
       innerProps: {

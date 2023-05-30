@@ -1,4 +1,4 @@
-import { Badge, Box, Group, Text } from '@mantine/core';
+import { Badge, Box, Text } from '@mantine/core';
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 import { JournalBalanceCheckItem } from '../../rest-model';
@@ -11,54 +11,71 @@ interface Props {
 }
 export default function BalanceCheckPreview(props: Props) {
   const isBalanced = new BigNumber(props.data.postings[0].account_after_number).eq(new BigNumber(props.data.postings[0].account_before_number));
-
+  const checkInfo = props.data.postings[0];
   return (
     <div>
       <Box mb={10}>
-        <Box mx={1} my={2}>
-          {format(new Date(props.data.datetime), 'yyyy-MM-dd hh:mm:ss')}
-        </Box>
-        {!isBalanced && (
-          <Box mx={1} my={2}>
-            <Text color={'red'}>UNBALANCED</Text>
-          </Box>
-        )}
-        <Box mx={1} my={2}>
-          <Text>{props.data.payee}</Text>
-        </Box>
-        <Box mx={1} my={2}>
-          {props.data.narration}
-        </Box>
-        <Group mx={1} my={2} spacing="sm">
-          {(props.data.links || []).map((link) => (
-            <Badge key={link} size="lg" variant="dot">
-              {link}
-            </Badge>
-          ))}
-          {(props.data.tags || []).map((tag) => (
-            <Badge key={tag} size="lg" color="orange" variant="dot">
-              {tag}
-            </Badge>
-          ))}
-        </Group>
-      </Box>
+        <Section title="Check Info">
+          <DashLine>
+            <Text lineClamp={1} my="xs">
+              Datetime
+            </Text>
+            <Text lineClamp={1}>
+              {format(new Date(props.data.datetime), 'yyyy-MM-dd hh:mm:ss')}
+            </Text>
+          </DashLine>
+          <DashLine>
+            <Text lineClamp={1} my="xs">
+              Account
+            </Text>
+            <Text lineClamp={1}>
+              {checkInfo.account}
+            </Text>
+          </DashLine>
+          <DashLine>
+            <Text lineClamp={1} my="xs">
+              Check Status
+            </Text>
+            <Text lineClamp={1}>
+              {isBalanced ?
+                <Badge size="lg" color={'green'}>Pass</Badge>
+                : <Badge color={'red'}>UNBALANCED</Badge>
+              }
+            </Text>
+          </DashLine>
+          <DashLine>
+            <Text lineClamp={1} my="xs">
+              Balance Amount
+            </Text>
+            <Text lineClamp={1}>
+              <Amount amount={checkInfo.account_after_number} currency={checkInfo.account_after_commodity} />
+            </Text>
+          </DashLine>
 
-      <Box mx={1} my={4}>
-        <Section title="Postings">
-          <>
-            {props.data.postings.map((posting, idx) => (
-              <DashLine key={idx}>
+          {!isBalanced &&
+            <>
+              <DashLine>
                 <Text lineClamp={1} my="xs">
-                  {posting.account}
+                  Accumlated Amount
                 </Text>
                 <Text lineClamp={1}>
-                  <Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} />
+                  <Amount amount={checkInfo.account_before_number} currency={checkInfo.account_before_commodity} />
                 </Text>
               </DashLine>
-            ))}
-          </>
+
+              <DashLine>
+                <Text lineClamp={1} my="xs">
+                  Distance
+                </Text>
+                <Text lineClamp={1}>
+                  <Amount amount={checkInfo.inferred_unit_number} currency={checkInfo.inferred_unit_commodity} />
+                </Text>
+              </DashLine>
+            </>
+          }
         </Section>
       </Box>
+
     </div>
   );
 }

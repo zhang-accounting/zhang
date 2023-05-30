@@ -1,11 +1,11 @@
-import { Badge, Box, Group, SimpleGrid, Text, createStyles } from '@mantine/core';
+import { Badge, Box, Group, Text, createStyles } from '@mantine/core';
 import { format } from 'date-fns';
-import { JournalTransactionItem } from '../../rest-model';
+import { JournalBlancePadItem } from '../../rest-model';
 import Amount from '../Amount';
 import DashLine from '../DashedLine';
 import Section from '../Section';
-import DocumentPreview from './DocumentPreview';
-import AccountDocumentUpload from '../AccountDocumentUpload';
+
+
 const useStyles = createStyles((theme) => ({
   amount: {
     display: "flex",
@@ -17,14 +17,15 @@ const useStyles = createStyles((theme) => ({
     color: theme.colors.gray[7]
   }
 }));
+
 interface Props {
-  data: JournalTransactionItem;
+  data: JournalBlancePadItem;
 }
-export default function TransactionPreview(props: Props) {
+export default function BalancePadPreview(props: Props) {
   const { classes } = useStyles();
   return (
     <div>
-      <Section title="Transaction Info">
+      <Section title="Check Info">
         <DashLine>
           <Text lineClamp={1} my="xs">
             Datetime
@@ -39,34 +40,23 @@ export default function TransactionPreview(props: Props) {
             Type
           </Text>
           <Text lineClamp={1}>
-            Transaction
+            Balance Pad
           </Text>
         </DashLine>
         <DashLine>
           <Text lineClamp={1} my="xs">
-            Check Status
+            Balance Account
           </Text>
           <Text lineClamp={1}>
-            {props.data.is_balanced ?
-              <Badge size="lg" color={'green'}>Pass</Badge>
-              : <Badge color={'red'}>UNBALANCED</Badge>
-            }
+            {props.data.postings[0].account}
           </Text>
         </DashLine>
         <DashLine>
           <Text lineClamp={1} my="xs">
-            Payee
+            Pad Account
           </Text>
           <Text lineClamp={1}>
-            {props.data.payee}
-          </Text>
-        </DashLine>
-        <DashLine>
-          <Text lineClamp={1} my="xs">
-            Narration
-          </Text>
-          <Text lineClamp={1}>
-            {props.data.narration}
+            {props.data.postings[1].account}
           </Text>
         </DashLine>
         {(props.data.links || []).length > 0 &&
@@ -103,6 +93,8 @@ export default function TransactionPreview(props: Props) {
             </Text>
           </DashLine>
         }
+
+
       </Section>
       <Box mx={1} my={4}>
         <Section title="Postings">
@@ -137,26 +129,6 @@ export default function TransactionPreview(props: Props) {
             ))}
         </Section>
       )}
-      <Box mx={1} my={4}>
-        <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
-          <SimpleGrid
-            cols={4}
-            spacing="sm"
-            breakpoints={[
-              { maxWidth: 'md', cols: 3, spacing: 'md' },
-              { maxWidth: 'sm', cols: 2, spacing: 'sm' },
-              { maxWidth: 'xs', cols: 1, spacing: 'sm' },
-            ]}
-          >
-            {props.data.metas
-              .filter((meta) => meta.key === 'document')
-              .map((meta, idx) => (
-                <DocumentPreview key={idx} uri={meta.value} filename={meta.value} />
-              ))}
-            <AccountDocumentUpload url={`/api/transactions/${props.data.id}/documents`} />
-          </SimpleGrid>
-        </Section>
-      </Box>
     </div>
   );
 }
