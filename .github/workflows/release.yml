@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          # (required)
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-assets:
+    name: ${{ matrix.target }}
+    needs:
+      - create-release
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+          - target: aarch64-apple-darwin
+            os: macos-11
+          - target: x86_64-apple-darwin
+            os: macos-11
+
+    # The type of runner that the job will run on
+    # Runs on Ubuntu if other os is not specified above
+    runs-on: ${{ matrix.os || 'ubuntu-22.04' }}
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+
+      # Build and upload the binary to the new release
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: zhang
+          target: ${{ matrix.target }}
+          tar: all
+          features: 'frontend'
+          token: ${{ secrets.GITHUB_TOKEN }}
