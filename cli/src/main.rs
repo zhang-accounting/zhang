@@ -1,9 +1,12 @@
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::{Args, Parser};
 use env_logger::Env;
-use log::LevelFilter;
+use log::{error, info, LevelFilter};
+use self_update::Status;
+use tokio::task::spawn_blocking;
 
 use beancount_exporter::BeancountExporter;
 use beancount_transformer::BeancountTransformer;
@@ -25,6 +28,12 @@ pub enum Opts {
 
     /// start an internal server with frontend ui
     Serve(ServerOpts),
+
+    /// self update
+    Update {
+        #[clap(short, long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -132,6 +141,29 @@ impl Opts {
                 })
                 .await
                 .expect("cannot serve")
+            }
+            Opts::Update { verbose } => {
+                dbg!(verbose);
+                info!("performing self update");
+                let update_result = spawn_blocking(move || {
+                    self_update::backends::github::Update::configure()
+                        .repo_owner("zhang-accounting")
+                        .repo_name("zhang")
+                        .bin_name("zhang")
+                        .show_download_progress(verbose)
+                        .show_output(verbose)
+                        .current_version(env!("CARGO_PKG_VERSION"))
+                        .build()
+                        .unwrap()
+                        .update()
+                })
+                .await
+                .unwrap();
+                match update_result {
+                    Ok(Status::UpToDate(version)) => info!("zhang is already up to dated with version {}", version),
+                    Ok(Status::Updated(version)) => info!("zhang is updated to version {}", version),
+                    Err(e) => error!("fail to update: {}", e),
+                }
             }
         }
     }
