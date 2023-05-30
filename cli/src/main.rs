@@ -60,7 +60,7 @@ pub struct ExportOpts {
 
     /// the endpoint of main zhang file.
     #[clap(short, long, default_value = "Text")]
-    pub exporer: Exporter,
+    pub exporter: Exporter,
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
