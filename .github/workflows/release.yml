@@ -38,6 +38,24 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v3
 
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: frontend install
+        run: yarn install
+        working-directory: ./frontend
+
+      - name: frontend build
+        run: yarn run build
+        working-directory: ./frontend
+
       # Build and upload the binary to the new release
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
