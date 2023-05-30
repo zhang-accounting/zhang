@@ -64,7 +64,7 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
   const openPreviewModal = (e: any) => {
     openContextModal({
       modal: 'transactionPreviewModal',
-      title: 'transaction preview',
+      title: 'Balance Check Detail',
       size: 'lg',
       centered: true,
       innerProps: {
