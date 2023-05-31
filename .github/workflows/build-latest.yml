@@ -12,6 +12,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  frontend-style-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - name: frontend install
+        run: yarn install
+        working-directory: ./frontend
+      - name: frontend style check
+        run: yarn run prettier:check
+        working-directory: ./frontend
   frontend-build:
     runs-on: ubuntu-latest
     steps:
