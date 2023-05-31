@@ -28,7 +28,7 @@ export enum AccountType {
 export interface Account {
   name: string;
   status: AccountStatus;
-  commodities: { [commodity_name: string]: string };
+  amount: CalculatedAmountResponse;
 }
 
 export interface Document {

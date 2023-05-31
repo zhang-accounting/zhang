@@ -1,4 +1,4 @@
-import { Account } from '../rest-model';
+import { Account, CalculatedAmountResponse } from '../rest-model';
 import { BigNumber } from 'bignumber.js';
 
 export default class AccountTrie {
@@ -21,14 +21,10 @@ export default class AccountTrie {
         node.children[ch].path = [node.path, ch].filter((item) => item.length > 0).join(':');
         node.isLeaf = false;
       }
-      for (const [commodity, amount] of Object.entries(account.commodities)) {
-        node.amount.insert(amount, commodity);
-      }
+      node.amount.merge(account.amount);
       node = node.children[ch];
     }
-    for (const [commodity, amount] of Object.entries(account.commodities)) {
-      node.amount.insert(amount, commodity);
-    }
+    node.amount.merge(account.amount);
     node.isLeaf = true;
     node.word = word;
     node.val = account;
@@ -36,6 +32,8 @@ export default class AccountTrie {
 }
 
 export class MultiCommodityAmount {
+  total: BigNumber = new BigNumber(0);
+  commodity: string = "";
   data: { [commodity: string]: BigNumber } = {};
 
   insert(amount: string, commodity: string) {
@@ -47,10 +45,12 @@ export class MultiCommodityAmount {
     }
     this.data[commodity] = this.data[commodity].plus(amount);
   }
-
-  merge(other: MultiCommodityAmount) {
-    Object.keys(other.data).forEach((commodity) => {
-      this.insertBigNumber(other.data[commodity], commodity);
+  merge(other: CalculatedAmountResponse) {
+    this.total = this.total.plus(other.calculated.number);
+    this.commodity = other.calculated.commodity;
+    Object.keys(other.detail).forEach((commodity) => {
+      this.insert(other.detail[commodity], commodity);
     });
   }
+  
 }

@@ -1,10 +1,10 @@
-import { Text, Space, Group, ActionIcon, Badge, Stack, createStyles } from '@mantine/core';
+import { ActionIcon, Badge, Divider, Group, HoverCard, Space, Stack, Text, createStyles } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons';
 import { useNavigate } from 'react-router';
+import { AccountStatus } from '../rest-model';
 import AccountTrie from '../utils/AccountTrie';
 import Amount from './Amount';
-import { AccountStatus } from '../rest-model';
 
 const useStyles = createStyles((theme) => ({
   leaf: {
@@ -28,6 +28,7 @@ export default function AccountLine({ data, spacing }: Props) {
   const { classes } = useStyles();
   const [isShow, setCollapse] = useLocalStorage({ key: `account-collapse-${data.path}`, defaultValue: false });
 
+  const haveMultipleCommodity = Object.keys(data.amount.data).length > 1;
   const onNavigate = () => {
     if (data?.val?.name) {
       navigate(data?.val?.name);
@@ -68,11 +69,36 @@ export default function AccountLine({ data, spacing }: Props) {
         </td>
         <td>
           <Group position="right">
-            <Stack spacing="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
-              {Object.entries(data.amount.data).map(([key, value]) => (
-                <Amount amount={value} currency={key}></Amount>
-              ))}
-            </Stack>
+            {haveMultipleCommodity ?
+              <HoverCard width={280} shadow="md" withArrow position="left">
+                <HoverCard.Target>
+                  <Group spacing="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
+                    <Text>≈</Text> <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
+                  </Group>
+                </HoverCard.Target>
+                <HoverCard.Dropdown>
+                  <Stack spacing="xs">
+
+                    {Object.entries(data.amount.data).map(([key, value]) => (
+                      <Group position='apart'>
+                        <Text>+</Text>
+                        <Amount amount={value} currency={key}></Amount>
+                      </Group>
+                    ))}
+                    <Divider variant="dashed" />
+                    <Group position='apart'>
+                      <Text>=</Text>
+                      <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
+                    </Group>
+                  </Stack>
+                </HoverCard.Dropdown>
+              </HoverCard>
+              :
+              <Group spacing="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
+                <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
+              </Group>
+            }
+
           </Group>
         </td>
       </tr>

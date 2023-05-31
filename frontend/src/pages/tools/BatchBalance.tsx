@@ -23,7 +23,7 @@ interface BalanceLineItem {
 
 const getFilteredItems = createSelector([(states) => states.accounts], (accounts) => {
   const items = accounts.data.flatMap((account: Account) =>
-    Object.entries(account.commodities).map(([commodity, value]) => ({
+    Object.entries(account.amount.detail).map(([commodity, value]) => ({
       commodity: commodity,
       currentAmount: value,
       accountName: account.name,

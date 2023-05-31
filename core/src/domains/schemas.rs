@@ -57,7 +57,7 @@ pub struct AccountDomain {
     pub alias: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, AsRefStr, EnumString)]
+#[derive(Clone, Debug, PartialEq, Eq, Copy, Serialize, AsRefStr, EnumString)]
 pub enum AccountStatus {
     Open,
     Close,

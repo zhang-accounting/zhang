@@ -107,7 +107,7 @@ function SingleAccount() {
               </tr>
             </thead>
             <tbody>
-              {Object.entries(account?.commodities ?? []).map(([commodity, amount], idx) => (
+              {Object.entries(account?.amount.detail ?? []).map(([commodity, amount], idx) => (
                 <AccountBalanceCheckLine currentAmount={amount} commodity={commodity} accountName={account.name} />
               ))}
             </tbody>
