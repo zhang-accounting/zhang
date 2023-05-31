@@ -33,7 +33,7 @@ export default class AccountTrie {
 
 export class MultiCommodityAmount {
   total: BigNumber = new BigNumber(0);
-  commodity: string = "";
+  commodity: string = '';
   data: { [commodity: string]: BigNumber } = {};
 
   insert(amount: string, commodity: string) {
@@ -52,5 +52,4 @@ export class MultiCommodityAmount {
       this.insert(other.detail[commodity], commodity);
     });
   }
-  
 }

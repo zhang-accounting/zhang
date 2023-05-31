@@ -8,10 +8,9 @@ import Amount from './Amount';
 
 const useStyles = createStyles((theme) => ({
   leaf: {
-    cursor: "pointer",
+    cursor: 'pointer',
   },
-  nonLeaf: {
-  },
+  nonLeaf: {},
   leafAmount: {},
   nonLeafAmount: {
     color: theme.colors.gray[5],
@@ -69,7 +68,7 @@ export default function AccountLine({ data, spacing }: Props) {
         </td>
         <td>
           <Group position="right">
-            {haveMultipleCommodity ?
+            {haveMultipleCommodity ? (
               <HoverCard width={280} shadow="md" withArrow position="left">
                 <HoverCard.Target>
                   <Group spacing="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
@@ -78,27 +77,25 @@ export default function AccountLine({ data, spacing }: Props) {
                 </HoverCard.Target>
                 <HoverCard.Dropdown>
                   <Stack spacing="xs">
-
                     {Object.entries(data.amount.data).map(([key, value]) => (
-                      <Group position='apart'>
+                      <Group position="apart">
                         <Text>+</Text>
                         <Amount amount={value} currency={key}></Amount>
                       </Group>
                     ))}
                     <Divider variant="dashed" />
-                    <Group position='apart'>
+                    <Group position="apart">
                       <Text>=</Text>
                       <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
                     </Group>
                   </Stack>
                 </HoverCard.Dropdown>
               </HoverCard>
-              :
+            ) : (
               <Group spacing="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
                 <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
               </Group>
-            }
-
+            )}
           </Group>
         </td>
       </tr>
