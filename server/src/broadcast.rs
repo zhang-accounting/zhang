@@ -12,6 +12,7 @@ use tokio::time::interval;
 pub enum BroadcastEvent {
     Reload,
     Connected,
+    NewVersionFound { version: String },
 }
 
 impl BroadcastEvent {
@@ -88,5 +89,9 @@ impl Broadcaster {
         // try to send to all clients, ignoring failures
         // disconnected clients will get swept up by `remove_stale_clients`
         let _ = future::join_all(send_futures).await;
+    }
+
+    pub async fn client_number(&self) -> usize {
+        self.inner.lock().await.clients.len()
     }
 }

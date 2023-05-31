@@ -3360,7 +3360,7 @@ dependencies = [
 
 [[package]]
 name = "zhang-server"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "actix-cors",
  "actix-files",
@@ -3383,6 +3383,7 @@ dependencies = [
  "now",
  "reqwest",
  "rust-embed",
+ "self_update",
  "serde 1.0.137",
  "sqlx",
  "thiserror",

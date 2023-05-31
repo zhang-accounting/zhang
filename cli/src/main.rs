@@ -143,8 +143,8 @@ impl Opts {
                 .expect("cannot serve")
             }
             Opts::Update { verbose } => {
-                dbg!(verbose);
                 info!("performing self update");
+                info!("current version is {}", env!("CARGO_PKG_VERSION"));
                 let update_result = spawn_blocking(move || {
                     self_update::backends::github::Update::configure()
                         .repo_owner("zhang-accounting")
