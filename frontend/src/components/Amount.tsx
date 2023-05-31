@@ -11,7 +11,7 @@ const useStyles = createStyles((theme) => ({
   number: {
     fontFeatureSettings: '"tnum" 1',
   },
-  postfix: {
+  part: {
     fontFeatureSettings: '"tnum" 1',
   },
 }));
@@ -41,23 +41,27 @@ export default function Amount({ amount, currency, negetive, mask }: Props) {
   }
 
   const value = parsedValue.multipliedBy(flag);
-  const displayedValue = value.toFormat(commodity?.precision ?? 2);
+  const isNegative = !value.isZero() && value.isNegative();
+  const displayedValue = value.abs().toFormat(commodity?.precision ?? 2);
   const maskedValue = shouldMask ? displayedValue.replace(/\d/g, '*') : displayedValue;
   return (
     <span className={classes.wrapper}>
-      {commodity?.prefix && (
-        <Text mx={1} className={classes.postfix}>
-          {commodity?.prefix}
+      {isNegative && (
+        <Text mx={1} className={classes.part}>
+          -
         </Text>
       )}
-      <Text className={classes.number}>{maskedValue}</Text>
+      <Text className={classes.number}>
+        {commodity?.prefix}
+        {maskedValue}
+      </Text>
       {commodity?.suffix && (
-        <Text mx={1} className={classes.postfix}>
+        <Text mx={1} className={classes.part}>
           {commodity?.suffix}
         </Text>
       )}
       {shouldDisplayCurrencyName && (
-        <Text mx={1} className={classes.postfix}>
+        <Text mx={1} className={classes.part}>
           {currency}
         </Text>
       )}
