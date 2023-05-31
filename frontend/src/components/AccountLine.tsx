@@ -7,6 +7,11 @@ import Amount from './Amount';
 import { AccountStatus } from '../rest-model';
 
 const useStyles = createStyles((theme) => ({
+  leaf: {
+    cursor: "pointer",
+  },
+  nonLeaf: {
+  },
   leafAmount: {},
   nonLeafAmount: {
     color: theme.colors.gray[5],
@@ -43,7 +48,7 @@ export default function AccountLine({ data, spacing }: Props) {
             ) : (
               <Space w={22}></Space>
             )}
-            <div onClick={onNavigate} style={{ cursor: 'pointer' }}>
+            <div onClick={onNavigate} className={data.isLeaf ? classes.leaf : classes.nonLeaf}>
               <Group>
                 <Text>{data.word}</Text>
                 {data.val?.status === AccountStatus.Close && (
