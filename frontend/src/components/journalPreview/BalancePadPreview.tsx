@@ -5,17 +5,16 @@ import Amount from '../Amount';
 import DashLine from '../DashedLine';
 import Section from '../Section';
 
-
 const useStyles = createStyles((theme) => ({
   amount: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "end",
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'end',
   },
   balance: {
     fontSize: theme.fontSizes.sm,
-    color: theme.colors.gray[7]
-  }
+    color: theme.colors.gray[7],
+  },
 }));
 
 interface Props {
@@ -30,36 +29,28 @@ export default function BalancePadPreview(props: Props) {
           <Text lineClamp={1} my="xs">
             Datetime
           </Text>
-          <Text lineClamp={1}>
-            {format(new Date(props.data.datetime), 'yyyy-MM-dd hh:mm:ss')}
-          </Text>
+          <Text lineClamp={1}>{format(new Date(props.data.datetime), 'yyyy-MM-dd hh:mm:ss')}</Text>
         </DashLine>
 
         <DashLine>
           <Text lineClamp={1} my="xs">
             Type
           </Text>
-          <Text lineClamp={1}>
-            Balance Pad
-          </Text>
+          <Text lineClamp={1}>Balance Pad</Text>
         </DashLine>
         <DashLine>
           <Text lineClamp={1} my="xs">
             Balance Account
           </Text>
-          <Text lineClamp={1}>
-            {props.data.postings[0].account}
-          </Text>
+          <Text lineClamp={1}>{props.data.postings[0].account}</Text>
         </DashLine>
         <DashLine>
           <Text lineClamp={1} my="xs">
             Pad Account
           </Text>
-          <Text lineClamp={1}>
-            {props.data.postings[1].account}
-          </Text>
+          <Text lineClamp={1}>{props.data.postings[1].account}</Text>
         </DashLine>
-        {(props.data.links || []).length > 0 &&
+        {(props.data.links || []).length > 0 && (
           <DashLine>
             <Text lineClamp={1} my="xs">
               Links
@@ -71,13 +62,12 @@ export default function BalancePadPreview(props: Props) {
                     {link}
                   </Badge>
                 ))}
-
               </Group>
             </Text>
           </DashLine>
-        }
+        )}
 
-        {(props.data.tags || []).length > 0 &&
+        {(props.data.tags || []).length > 0 && (
           <DashLine>
             <Text lineClamp={1} my="xs">
               Tags
@@ -92,9 +82,7 @@ export default function BalancePadPreview(props: Props) {
               </Group>
             </Text>
           </DashLine>
-        }
-
-
+        )}
       </Section>
       <Box mx={1} my={4}>
         <Section title="Postings">
@@ -106,9 +94,10 @@ export default function BalancePadPreview(props: Props) {
                 </Text>
                 <div className={classes.amount}>
                   <Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} />
-                  <div className={classes.balance}>Balance: <Amount amount={posting.account_after_number} currency={posting.account_after_commodity} /></div>
+                  <div className={classes.balance}>
+                    Balance: <Amount amount={posting.account_after_number} currency={posting.account_after_commodity} />
+                  </div>
                 </div>
-
               </DashLine>
             ))}
           </>

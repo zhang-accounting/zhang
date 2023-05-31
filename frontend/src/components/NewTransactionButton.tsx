@@ -113,8 +113,8 @@ export default function NewTransactionButton() {
         showNotification({
           title: 'Fail to create new Transaction',
           color: 'red',
-          message: error?.response?.data ?? "",
-          autoClose:false
+          message: error?.response?.data ?? '',
+          autoClose: false,
         });
         console.log(error);
       });

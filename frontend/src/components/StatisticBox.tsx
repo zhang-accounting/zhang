@@ -2,7 +2,6 @@ import { Card, createStyles, Text } from '@mantine/core';
 import { useTranslation } from 'react-i18next';
 import Amount from './Amount';
 
-
 const useStyles = createStyles((theme) => ({
   card: {
     backgroundColor: theme.colors[theme.primaryColor][5],
@@ -26,7 +25,6 @@ const useStyles = createStyles((theme) => ({
   },
 }));
 
-
 interface Props {
   text: string;
   amount: string;
@@ -44,12 +42,9 @@ export default function StatisticBox({ text, amount, currency, negetive, hint }:
         <Text className={classes.lead}>
           <Amount amount={amount} negetive={negetive} currency={currency} />
         </Text>
-        <Text className={classes.label}>
-          {t(text)}
-        </Text>
+        <Text className={classes.label}>{t(text)}</Text>
       </div>
     </Card>
-
   );
   return displayBox;
 }

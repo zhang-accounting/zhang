@@ -1,14 +1,13 @@
 import { Account } from '../rest-model';
 import { BigNumber } from 'bignumber.js';
 
-
 export default class AccountTrie {
   children: { [layer: string]: AccountTrie } = {};
   val?: Account;
   word?: string;
   path: string = '';
   isLeaf?: boolean | undefined = true;
-  amount: MultiCommodityAmount = new MultiCommodityAmount()
+  amount: MultiCommodityAmount = new MultiCommodityAmount();
 
   insert(account: Account) {
     let node: AccountTrie = this;
@@ -37,22 +36,21 @@ export default class AccountTrie {
 }
 
 export class MultiCommodityAmount {
-  data: {[commodity:string]:BigNumber} = {}
+  data: { [commodity: string]: BigNumber } = {};
 
   insert(amount: string, commodity: string) {
     this.insertBigNumber(new BigNumber(amount), commodity);
   }
   insertBigNumber(amount: BigNumber, commodity: string) {
-    if(!this.data[commodity]) {
+    if (!this.data[commodity]) {
       this.data[commodity] = new BigNumber(0);
     }
-    this.data[commodity] = this.data[commodity].plus(amount)
+    this.data[commodity] = this.data[commodity].plus(amount);
   }
 
   merge(other: MultiCommodityAmount) {
-    Object.keys(other.data).forEach(commodity=> {
-      this.insertBigNumber(other.data[commodity], commodity)
-    })
+    Object.keys(other.data).forEach((commodity) => {
+      this.insertBigNumber(other.data[commodity], commodity);
+    });
   }
 }
-

@@ -57,7 +57,8 @@ export default function StatsGroup({ data }: StatsGroupProps) {
         { maxWidth: 'sm', cols: 2, spacing: 'sm' },
         { maxWidth: 'xs', cols: 1, spacing: 'sm' },
       ]}
-      className={classes.root}>
+      className={classes.root}
+    >
       {stats}
     </SimpleGrid>
   );

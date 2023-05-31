@@ -6,10 +6,10 @@ import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import LoadingComponent from '../components/basic/LoadingComponent';
 import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import { AccountJournalItem, Document, LoadingState } from '../rest-model';
-import { useAppDispatch, useAppSelector } from "../states";
-import { fetchAccounts, getAccountByName } from "../states/account";
-import AccountBalanceCheckLine from "../components/AccountBalanceCheckLine";
-import { useEffect } from "react";
+import { useAppDispatch, useAppSelector } from '../states';
+import { fetchAccounts, getAccountByName } from '../states/account';
+import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
+import { useEffect } from 'react';
 import PayeeNarration from '../components/basic/PayeeNarration';
 import Amount from '../components/Amount';
 

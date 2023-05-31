@@ -158,11 +158,9 @@ export interface StatisticResponse {
   details: { [date: string]: { [account: string]: AmountResponse } };
 }
 
-
-
 export interface CalculatedAmountResponse {
-  calculated: AmountResponse,
-  detail: { [commodity: string]: string }
+  calculated: AmountResponse;
+  detail: { [commodity: string]: string };
 }
 
 export interface AmountResponse {
@@ -198,6 +196,6 @@ export interface SpanInfo {
 }
 
 export interface Option {
-  key:string;
-  value:string;
+  key: string;
+  value: string;
 }

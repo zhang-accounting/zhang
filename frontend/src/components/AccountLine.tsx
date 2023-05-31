@@ -6,14 +6,11 @@ import AccountTrie from '../utils/AccountTrie';
 import Amount from './Amount';
 import { AccountStatus } from '../rest-model';
 
-
 const useStyles = createStyles((theme) => ({
-  leafAmount: {
-  },
+  leafAmount: {},
   nonLeafAmount: {
     color: theme.colors.gray[5],
   },
-
 }));
 
 interface Props {
