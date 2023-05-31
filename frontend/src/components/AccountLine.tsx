@@ -1,10 +1,20 @@
-import { Text, Space, Group, ActionIcon, Badge, Stack } from '@mantine/core';
+import { Text, Space, Group, ActionIcon, Badge, Stack, createStyles } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons';
 import { useNavigate } from 'react-router';
 import AccountTrie from '../utils/AccountTrie';
 import Amount from './Amount';
 import { AccountStatus } from '../rest-model';
+
+
+const useStyles = createStyles((theme) => ({
+  leafAmount: {
+  },
+  nonLeafAmount: {
+    color: theme.colors.gray[5],
+  },
+
+}));
 
 interface Props {
   data: AccountTrie;
@@ -13,6 +23,7 @@ interface Props {
 
 export default function AccountLine({ data, spacing }: Props) {
   let navigate = useNavigate();
+  const { classes } = useStyles();
   const [isShow, setCollapse] = useLocalStorage({ key: `account-collapse-${data.path}`, defaultValue: false });
 
   const onNavigate = () => {
@@ -55,8 +66,8 @@ export default function AccountLine({ data, spacing }: Props) {
         </td>
         <td>
           <Group position="right">
-            <Stack spacing="xs">
-              {Object.entries(data.val?.commodities ?? {}).map(([key, value]) => (
+            <Stack spacing="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
+              {Object.entries(data.amount.data).map(([key, value]) => (
                 <Amount amount={value} currency={key}></Amount>
               ))}
             </Stack>
