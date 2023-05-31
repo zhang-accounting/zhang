@@ -20,7 +20,7 @@ interface Props {
   amount: string | number | BigNumber;
   currency: string;
   negetive?: boolean;
-  mask?: boolean,
+  mask?: boolean;
 }
 
 export default function Amount({ amount, currency, negetive, mask }: Props) {
@@ -42,7 +42,7 @@ export default function Amount({ amount, currency, negetive, mask }: Props) {
 
   const value = parsedValue.multipliedBy(flag);
   const displayedValue = value.toFormat(commodity?.precision ?? 2);
-  const maskedValue = shouldMask ? displayedValue.replace(/\d/g, "*") : displayedValue;
+  const maskedValue = shouldMask ? displayedValue.replace(/\d/g, '*') : displayedValue;
   return (
     <span className={classes.wrapper}>
       {commodity?.prefix && (

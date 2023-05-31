@@ -2,7 +2,6 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { fetcher } from '..';
 import { LoadingState, SpanInfo } from '../rest-model';
 
-
 export enum LedgerErrorType {
   AccountBalanceCheckError = 'AccountBalanceCheckError',
   AccountDoesNotExist = 'AccountDoesNotExist',
@@ -13,12 +12,11 @@ export enum LedgerErrorType {
 }
 
 export interface LedgerError {
-  id: string,
-  span: SpanInfo,
-  error_type: LedgerErrorType,
-  metas:{[key:string]: string}
+  id: string;
+  span: SpanInfo;
+  error_type: LedgerErrorType;
+  metas: { [key: string]: string };
 }
-
 
 export const fetchError = createAsyncThunk('errors/fetch', async (page: number, thunkApi) => {
   const ret = await fetcher(`/api/errors?page=${page}`);

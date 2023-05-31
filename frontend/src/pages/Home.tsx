@@ -10,7 +10,6 @@ import { StatisticResponse } from '../rest-model';
 import { useAppSelector } from '../states';
 import ReportGraph from '../components/ReportGraph';
 
-
 function Home() {
   const { t } = useTranslation();
   const error_total_number = useAppSelector((state) => state.errors.total_number);

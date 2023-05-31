@@ -356,14 +356,14 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
     })
 }
 
-async fn group_and_calculate(
-    operations: &mut Operations, latest_account_balances: Vec<AccountDailyBalanceDomain>, operating_currency: &str,
+async fn group_and_calculate<T: AmountLike>(
+    operations: &mut Operations, latest_account_balances: Vec<T>, operating_currency: &str,
 ) -> ZhangResult<CalculatedAmount> {
     let mut total_sum = BigDecimal::zero();
 
     let mut detail = HashMap::new();
-    for (commodity, values) in &latest_account_balances.into_iter().group_by(|it| it.balance_commodity.to_owned()) {
-        let commodity_sum = values.fold(BigDecimal::zero(), |acc, item| acc.add(&*item.balance_number));
+    for (commodity, values) in &latest_account_balances.into_iter().group_by(|it| it.commodity().to_owned()) {
+        let commodity_sum = values.fold(BigDecimal::zero(), |acc, item| acc.add(item.number()));
 
         if commodity.eq(operating_currency) {
             total_sum.add_assign(&commodity_sum);
@@ -659,21 +659,16 @@ pub async fn serve_frontend(uri: actix_web::http::Uri) -> impl Responder {
 pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<AccountResponse>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations().await;
+    let operating_currency = ledger.options.operating_currency.as_str();
 
     let balances = operations.account_balances().await?;
     let mut ret = vec![];
     for (key, group) in &balances.into_iter().group_by(|it| it.account.clone()) {
-        let mut status = AccountStatus::Open;
-        let mut commodities = HashMap::new();
-        for row in group {
-            status = row.account_status;
-            commodities.insert(row.balance_commodity, row.balance_number);
-        }
-        ret.push(AccountResponse {
-            name: key,
-            status,
-            commodities,
-        });
+        let account_balances = group.collect_vec();
+        let status = account_balances.first().map(|it| it.account_status).unwrap_or(AccountStatus::Open);
+
+        let amount = group_and_calculate(&mut operations, account_balances, operating_currency).await?;
+        ret.push(AccountResponse { name: key, status, amount });
     }
     ResponseWrapper::json(ret)
 }
@@ -1202,9 +1197,10 @@ struct Asset;
 #[cfg(feature = "frontend")]
 pub struct StaticFile<T>(pub T);
 
+use crate::util::AmountLike;
 #[cfg(feature = "frontend")]
 use actix_web::{HttpRequest, HttpResponse};
-use zhang_core::domains::schemas::{AccountDailyBalanceDomain, AccountJournalDomain, AccountStatus, ErrorDomain, MetaType, OptionDomain};
+use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, ErrorDomain, MetaType, OptionDomain};
 use zhang_core::domains::Operations;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ZhangResult;

@@ -51,29 +51,33 @@ export default function Settings() {
         </Grid>
       </Section>
       <Section title="Options">
-      <Table verticalSpacing="xs" highlightOnHover>
-        <thead>
-          <tr>
-            <th>Key</th>
-            <th>Value</th>
-            
-          </tr>
-        </thead>
-        <tbody>
-          {!data ? 
+        <Table verticalSpacing="xs" highlightOnHover>
+          <thead>
             <tr>
-            <td><Skeleton height={20} mt={10} radius="xs" /></td>
-            <td><Skeleton height={20} mt={10} radius="xs" /></td>
-          </tr>
-            :
-            data.map(option=><tr>
-              <td>{option.key}</td>
-              <td>{option.value}</td>
-            </tr>)
-          }
-          
-        </tbody>
-      </Table>
+              <th>Key</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!data ? (
+              <tr>
+                <td>
+                  <Skeleton height={20} mt={10} radius="xs" />
+                </td>
+                <td>
+                  <Skeleton height={20} mt={10} radius="xs" />
+                </td>
+              </tr>
+            ) : (
+              data.map((option) => (
+                <tr>
+                  <td>{option.key}</td>
+                  <td>{option.value}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </Table>
       </Section>
     </Container>
   );

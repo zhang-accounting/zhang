@@ -35,7 +35,7 @@ export const basicInfoSlice = createSlice({
     },
     setUpdatableVersion: (state, action: PayloadAction<{ newVersion: string }>) => {
       state.updatableVersion = action.payload.newVersion;
-    }
+    },
   },
   extraReducers: (builder) => {
     builder.addCase(fetchBasicInfo.pending, (state, action) => {

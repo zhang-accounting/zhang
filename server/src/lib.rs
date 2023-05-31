@@ -29,6 +29,7 @@ pub mod error;
 pub mod request;
 pub mod response;
 pub mod route;
+pub mod util;
 
 pub type ServerResult<T> = Result<T, ServerError>;
 

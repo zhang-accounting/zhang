@@ -29,7 +29,7 @@ export default function Documents() {
     });
   };
 
-  const groupedDocuments = groupBy(documents, document => format(new Date(document.datetime), "yyyy-MM"))
+  const groupedDocuments = groupBy(documents, (document) => format(new Date(document.datetime), 'yyyy-MM'));
   return (
     <Container fluid>
       <Group position="apart">
@@ -44,13 +44,13 @@ export default function Documents() {
         </Button.Group>
       </Group>
 
-
-
       {layout === 'Grid' ? (
         <>
-          {Object.values(groupedDocuments).map((targetMonthDocuments, idx) =>
+          {Object.values(groupedDocuments).map((targetMonthDocuments, idx) => (
             <>
-              <Title key={`title=${idx}`} order={3} mt={"lg"} mb="sm">{format(new Date(targetMonthDocuments[0].datetime), "MMM yyyy")}</Title>
+              <Title key={`title=${idx}`} order={3} mt={'lg'} mb="sm">
+                {format(new Date(targetMonthDocuments[0].datetime), 'MMM yyyy')}
+              </Title>
               <SimpleGrid
                 key={`grid=${idx}`}
                 cols={6}
@@ -66,11 +66,8 @@ export default function Documents() {
                 ))}
               </SimpleGrid>
             </>
-          )}
+          ))}
         </>
-
-
-
       ) : (
         <Table verticalSpacing="xs" highlightOnHover>
           <thead>
@@ -85,9 +82,7 @@ export default function Documents() {
             {documents.map((document, idx) => (
               <tr>
                 <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
-                  <div>
-                    {document.filename}
-                  </div>
+                  <div>{document.filename}</div>
                   <Badge color="dark">{document.filename.split('.').pop()}</Badge>
                 </td>
                 <td>

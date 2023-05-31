@@ -9,7 +9,6 @@ import { ReportResponse, StatisticResponse } from '../rest-model';
 import Amount from '../components/Amount';
 import ReportGraph from '../components/ReportGraph';
 
-
 export default function Report() {
   const [value, setValue] = useState<DateRangePickerValue>([
     new Date(new Date().getFullYear(), new Date().getMonth(), 1, 0, 0, 1),

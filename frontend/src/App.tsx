@@ -43,7 +43,7 @@ import { basicInfoSlice, fetchBasicInfo } from './states/basic';
 import { fetchCommodities } from './states/commodity';
 import { fetchError } from './states/errors';
 import { journalsSlice } from './states/journals';
-import BatchBalance from "./pages/tools/BatchBalance";
+import BatchBalance from './pages/tools/BatchBalance';
 
 const useStyles = createStyles((theme) => ({
   onlineIcon: {
@@ -169,7 +169,6 @@ const links: LinkItem[] = [
   { icon: IconSettings, label: 'NAV_SETTING', uri: '/settings' },
 ];
 
-
 export default function App() {
   const { classes } = useStyles();
   const { t } = useTranslation();
@@ -287,11 +286,13 @@ export default function App() {
                   {mainLinks}
                 </div>
               </Navbar.Section>
-              {basicInfo.updatableVersion && <Navbar.Section>
-                <Group position="center">
-                  <a href="https://github.com/zhang-accounting/zhang/wiki/Guide-of-Updating">🎉 New Version is available!</a>
-                </Group>
-              </Navbar.Section>}
+              {basicInfo.updatableVersion && (
+                <Navbar.Section>
+                  <Group position="center">
+                    <a href="https://github.com/zhang-accounting/zhang/wiki/Guide-of-Updating">🎉 New Version is available!</a>
+                  </Group>
+                </Navbar.Section>
+              )}
             </Navbar>
           </MediaQuery>
         </>

@@ -7,7 +7,6 @@ use chrono::{NaiveDate, NaiveDateTime};
 use serde::Serialize;
 use sqlx::FromRow;
 use zhang_ast::amount::Amount;
-use zhang_ast::Currency;
 use zhang_core::database::type_ext::big_decimal::ZhangBigDecimal;
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, MetaDomain};
 
@@ -78,7 +77,7 @@ impl<T: Serialize> Pageable<T> {
 pub struct AccountResponse {
     pub name: String,
     pub status: AccountStatus,
-    pub commodities: HashMap<Currency, ZhangBigDecimal>,
+    pub amount: CalculatedAmount,
 }
 
 #[derive(Serialize, FromRow)]

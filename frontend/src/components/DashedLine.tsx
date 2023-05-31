@@ -4,8 +4,8 @@ const useStyles = createStyles((theme) => ({
   spoiled: {
     '& + &': {
       borderTop: `1px dashed ${theme.colors.dark[0]}`,
-      marginTop:theme.spacing.xs*0.5,
-      marginBottom: theme.spacing.xs*0.5
+      marginTop: theme.spacing.xs * 0.5,
+      marginBottom: theme.spacing.xs * 0.5,
     },
   },
 }));
