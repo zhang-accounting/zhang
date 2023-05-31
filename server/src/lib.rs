@@ -8,6 +8,7 @@ use actix_web::web::Data;
 use actix_web::{App, HttpServer};
 use log::{debug, error, info, trace};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use self_update::version::bump_is_greater;
 use serde::Serialize;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{channel, Receiver};
@@ -129,6 +130,14 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
             }
         }
     });
+    let update_checker_broadcaster = broadcaster.clone();
+    tokio::spawn(async move {
+        let mut report_interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            report_interval.tick().await;
+            update_checker(update_checker_broadcaster.clone()).await.ok();
+        }
+    });
 
     if !opts.no_report {
         tokio::spawn(async {
@@ -147,7 +156,7 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
             }
         });
     }
-    start_server(opts, ledger_data, broadcaster).await
+    start_server(opts, ledger_data, broadcaster.clone()).await
 }
 
 async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>) -> ZhangResult<()> {
@@ -217,6 +226,32 @@ async fn version_report_task() -> ServerResult<()> {
         .timeout(Duration::from_secs(10))
         .send()
         .await?;
+    Ok(())
+}
+
+async fn update_checker(broadcast: Arc<Broadcaster>) -> ServerResult<()> {
+    if broadcast.client_number().await < 1 {
+        return Ok(());
+    }
+
+    let latest_release = tokio::task::spawn_blocking(move || {
+        self_update::backends::github::Update::configure()
+            .repo_owner("zhang-accounting")
+            .repo_name("zhang")
+            .bin_name("zhang")
+            .current_version(env!("CARGO_PKG_VERSION"))
+            .build()
+            .unwrap()
+            .get_latest_release()
+    })
+    .await
+    .expect("cannot spawn update checker task");
+    dbg!(&latest_release);
+    if let Ok(release) = latest_release {
+        if bump_is_greater(env!("CARGO_PKG_VERSION"), &release.version).unwrap_or(false) {
+            broadcast.broadcast(BroadcastEvent::NewVersionFound { version: release.version }).await;
+        }
+    }
     Ok(())
 }
 

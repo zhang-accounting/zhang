@@ -169,16 +169,6 @@ const links: LinkItem[] = [
   { icon: IconSettings, label: 'NAV_SETTING', uri: '/settings' },
 ];
 
-// const collections = [
-//   { emoji: '👍', label: 'Sales' },
-//   { emoji: '🚚', label: 'Deliveries' },
-//   { emoji: '💸', label: 'Discounts' },
-//   { emoji: '💰', label: 'Profits' },
-//   { emoji: '✨', label: 'Reports' },
-//   { emoji: '🛒', label: 'Orders' },
-//   { emoji: '📅', label: 'Events' },
-//   { emoji: '🙈', label: 'Debts' },
-// ];
 
 export default function App() {
   const { classes } = useStyles();
@@ -215,6 +205,9 @@ export default function App() {
             message: '',
           });
           dispatch(fetchBasicInfo());
+          break;
+        case 'NewVersionFound':
+          dispatch(basicInfoSlice.actions.setUpdatableVersion({ newVersion: data.version }));
           break;
         default:
           break;
@@ -253,13 +246,6 @@ export default function App() {
       <link.icon size={20} stroke={1.5} />
     </UnstyledButton>
   ));
-
-  // const collectionLinks = collections.map((collection) => (
-  //   <a href="/" onClick={(event) => event.preventDefault()} key={collection.label} className={classes.collectionLink}>
-  //     <span style={{ marginRight: 9, fontSize: 16 }}>{collection.emoji}</span> {collection.label}
-  //   </a>
-  // ));
-  // return <Loader />
   return (
     <AppShell
       padding="xs"
@@ -285,7 +271,7 @@ export default function App() {
                 </Grid.Col>
               </Grid>
 
-              <Navbar.Section className={classes.section}>
+              <Navbar.Section grow className={classes.section}>
                 <div className={classes.mainLinks}>
                   <UnstyledButton component={RouteLink} to={'/'} key={'NAV_HOME'} className={classes.mainLink}>
                     <div className={classes.mainLinkInner}>
@@ -301,6 +287,11 @@ export default function App() {
                   {mainLinks}
                 </div>
               </Navbar.Section>
+              {basicInfo.updatableVersion && <Navbar.Section>
+                <Group position="center">
+                  <a href="https://github.com/zhang-accounting/zhang/wiki/Guide-of-Updating">🎉 New Version is available!</a>
+                </Group>
+              </Navbar.Section>}
             </Navbar>
           </MediaQuery>
         </>

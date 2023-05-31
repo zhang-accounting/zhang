@@ -1,4 +1,4 @@
-import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
+import { PayloadAction, createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { fetcher } from '..';
 import { LoadingState } from '../rest-model';
 
@@ -12,6 +12,7 @@ interface BasicInfoState {
   version?: string;
   isOnline: boolean;
   status: LoadingState;
+  updatableVersion?: string;
 }
 
 const initialState: BasicInfoState = {
@@ -19,6 +20,7 @@ const initialState: BasicInfoState = {
   version: undefined,
   isOnline: false,
   status: LoadingState.NotReady,
+  updatableVersion: undefined,
 };
 
 export const basicInfoSlice = createSlice({
@@ -31,6 +33,9 @@ export const basicInfoSlice = createSlice({
     offline: (state) => {
       state.isOnline = false;
     },
+    setUpdatableVersion: (state, action: PayloadAction<{ newVersion: string }>) => {
+      state.updatableVersion = action.payload.newVersion;
+    }
   },
   extraReducers: (builder) => {
     builder.addCase(fetchBasicInfo.pending, (state, action) => {
