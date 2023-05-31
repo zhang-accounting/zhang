@@ -1,6 +1,6 @@
 [package]
 name = "zhang"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.3"
 authors = ["Kilerd <blove694@gmail.com>"]
 description = "a plain text double-accounting tool which is compatible with beancount but more powerful"
 edition = "2018"
@@ -12,7 +12,7 @@ license = "Apache-2.0"
 
 zhang-core = {version="0.1", path="../core"}
 zhang-ast = {version="0.1", path="../ast"}
-zhang-server = {version="0.1.0-alpha.1", path="../server"}
+zhang-server = {version="0.1.0-alpha.3", path="../server"}
 
 text-transformer = {version="0.1", path="../transformers/text"}
 beancount-transformer = {version="0.1", path="../transformers/beancount"}
