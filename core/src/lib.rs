@@ -318,6 +318,9 @@ mod test {
         }
     }
     mod error {
+        use crate::domains::schemas::ErrorType;
+        use crate::test::load_from_text;
+        use indoc::indoc;
 
         mod close_non_zero_account {
             use crate::domains::schemas::ErrorType;
@@ -357,6 +360,23 @@ mod test {
                 assert_eq!(error.error_type, ErrorType::CloseNonZeroAccount);
                 Ok(())
             }
+        }
+
+        #[tokio::test]
+        async fn should_raise_non_balance_error_only() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                    1970-01-01 open Assets:MyCard CNY
+                    1970-01-03 balance Assets:MyCard 10 CNY
+                "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let mut errors = operations.errors().await?;
+            assert_eq!(errors.len(), 1);
+            let domain = errors.pop().unwrap();
+            assert_eq!(domain.error_type, ErrorType::AccountBalanceCheckError);
+            assert_eq!(domain.metas.get("account_name").unwrap(), "Assets:MyCard");
+            Ok(())
         }
     }
 }
