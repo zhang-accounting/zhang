@@ -183,10 +183,10 @@ impl DirectiveProcess for Transaction {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations().await;
         let mut conn = ledger.connection().await;
-        if !ledger.is_transaction_balanced(self).await? {
+
+        if self.flag != Some(Flag::BalancePad) && self.flag != Some(Flag::BalanceCheck) && !ledger.is_transaction_balanced(self).await? {
             operations.new_error(ErrorType::TransactionDoesNotBalance, span, HashMap::default()).await?;
         }
-
         let id = Uuid::from_span(span).to_string();
 
         sqlx::query(
