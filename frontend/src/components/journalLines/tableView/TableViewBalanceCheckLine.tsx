@@ -1,5 +1,5 @@
 import { JournalBalanceCheckItem } from '../../../rest-model';
-import { ActionIcon, Badge, createStyles } from '@mantine/core';
+import { ActionIcon, Badge, createStyles, getStylesRef, px } from '@mantine/core';
 import { format } from 'date-fns';
 import Amount from '../../Amount';
 import BigNumber from 'bignumber.js';
@@ -14,13 +14,13 @@ const useStyles = createStyles((theme, _params, getRef) => ({
   accumulated: {
     color: theme.colors.gray[7],
     fontFeatureSettings: 'tnum',
-    fontSize: theme.fontSizes.sm * 0.75,
+    fontSize: px(theme.fontSizes.sm) * 0.75,
   },
   positiveAmount: {
     color: theme.colors.gray[7],
     fontWeight: 'bold',
     fontFeatureSettings: 'tnum',
-    fontSize: theme.fontSizes.sm * 0.95,
+    fontSize: px(theme.fontSizes.sm) * 0.95,
   },
   negativeAmount: {
     color: theme.colors.red[5],
@@ -38,7 +38,7 @@ const useStyles = createStyles((theme, _params, getRef) => ({
   },
   actionHider: {
     '&:hover': {
-      [`& .${getRef('actions')}`]: {
+      [`& .${getStylesRef('actions')}`]: {
         display: 'flex',
         alignItems: 'end',
         justifyContent: 'end',
@@ -46,7 +46,7 @@ const useStyles = createStyles((theme, _params, getRef) => ({
     },
   },
   actions: {
-    ref: getRef('actions'),
+    ref: getStylesRef('actions'),
     display: 'none',
   },
 }));

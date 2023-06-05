@@ -84,7 +84,7 @@ export default function ErrorBox() {
           </Text>
         ))}
 
-        <Pagination mt="xs" total={total_page} page={page} onChange={handlePageChange} position="center" />
+        <Pagination mt="xs" total={total_page} value={page} onChange={handlePageChange} position="center" />
       </Stack>
     </>
   );

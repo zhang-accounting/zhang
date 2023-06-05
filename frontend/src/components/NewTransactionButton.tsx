@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { useEffect, useState } from 'react';
 // @ts-ignore
 import { ActionIcon, Button, Code, Container, Divider, Grid, Group, Modal, Select, TextInput } from '@mantine/core';
-import { DatePicker } from '@mantine/dates';
+import { DateInput } from '@mantine/dates';
 import { IconSquarePlus, IconTextPlus, IconTrashX } from '@tabler/icons';
 import useSWR from 'swr';
 import { axiosInstance, fetcher } from '..';
@@ -143,14 +143,14 @@ export default function NewTransactionButton() {
         size="xl"
         centered
         closeOnEscape
-        overflow="inside"
+        // overflow="inside"
         title="New Transaction"
         fullScreen={isMobile}
       >
         <Container>
           <Grid>
             <Grid.Col sm={12} lg={4}>
-              <DatePicker placeholder="Transaction Date" value={date} onChange={setDate} withAsterisk />
+              <DateInput placeholder="Transaction Date" value={date} onChange={setDate} withAsterisk />
             </Grid.Col>
             <Grid.Col sm={12} lg={4}>
               <Select

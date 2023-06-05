@@ -1,18 +1,18 @@
+import { MantineProvider } from '@mantine/core';
+import { ModalsProvider } from '@mantine/modals';
+import { Notifications } from '@mantine/notifications';
+import axios from 'axios';
 import { Chart, registerables } from 'chart.js';
 import React from 'react';
-import ReactDOM from 'react-dom';
+import { createRoot } from 'react-dom/client';
+import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
-import { MantineProvider } from '@mantine/core';
-import './i18n';
-import axios from 'axios';
-import { ModalsProvider } from '@mantine/modals';
 import { DocumentPreviewModal } from './components/modals/DocumentPreviewModal';
-import { Provider } from 'react-redux';
+import { TransactionPreviewModal } from './components/modals/TransactionPreviewModal';
+import './i18n';
 import { store } from './states';
 import { themeConfig } from './theme';
-import { TransactionPreviewModal } from './components/modals/TransactionPreviewModal';
-import { NotificationsProvider } from '@mantine/notifications';
 
 Chart.register(...registerables);
 // @ts-ignore
@@ -30,19 +30,19 @@ export const axiosInstance = axios.create({
   },
 });
 
-ReactDOM.render(
+const container = document.getElementById('root');
+const root = createRoot(container!);
+root.render(
   <React.StrictMode>
     <Provider store={store}>
       <MantineProvider withGlobalStyles withNormalizeCSS theme={themeConfig}>
         <ModalsProvider modals={{ documentPreviewModal: DocumentPreviewModal, transactionPreviewModal: TransactionPreviewModal }}>
-          <NotificationsProvider>
-            <BrowserRouter>
-              <App></App>
-            </BrowserRouter>
-          </NotificationsProvider>
+          <BrowserRouter>
+            <Notifications />
+            <App />
+          </BrowserRouter>
         </ModalsProvider>
       </MantineProvider>
     </Provider>
   </React.StrictMode>,
-  document.getElementById('root'),
 );

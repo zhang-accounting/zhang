@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, createStyles, Group } from '@mantine/core';
+import { ActionIcon, Badge, createStyles, getStylesRef, Group } from '@mantine/core';
 import { IconFile, IconZoomExclamation } from '@tabler/icons';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../../rest-model';
@@ -30,7 +30,7 @@ const useStyles = createStyles((theme, _params, getRef) => ({
   },
   actionHider: {
     '&:hover': {
-      [`& .${getRef('actions')}`]: {
+      [`& .${getStylesRef('actions')}`]: {
         display: 'flex',
         alignItems: 'end',
         justifyContent: 'end',
@@ -38,7 +38,7 @@ const useStyles = createStyles((theme, _params, getRef) => ({
     },
   },
   actions: {
-    ref: getRef('actions'),
+    ref: getStylesRef('actions'),
     display: 'none',
   },
 }));

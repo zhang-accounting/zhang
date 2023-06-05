@@ -1,4 +1,4 @@
-import { Box, createStyles, Grid, Group, Text } from '@mantine/core';
+import { Box, createStyles, Grid, Group, px, Text } from '@mantine/core';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
 import { JournalBlancePadItem, JournalItem } from '../../../rest-model';
@@ -13,7 +13,7 @@ const useStyles = createStyles((theme) => ({
     color: theme.colors.gray[8],
     fontWeight: 'bold',
     fontFeatureSettings: 'tnum',
-    fontSize: theme.fontSizes.sm * 0.95,
+    fontSize: px(theme.fontSizes.sm) * 0.95,
   },
   negativeAmount: {
     color: theme.colors.red[8],

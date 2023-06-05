@@ -51,7 +51,7 @@ function Journals() {
           })}
         </tbody>
       </Table>
-      <Pagination my="xs" total={total_page} page={current_page} onChange={onPage} position="center" />
+      <Pagination my="xs" total={total_page} value={current_page} onChange={onPage} position="center" />
     </>
   );
 }
