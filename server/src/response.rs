@@ -82,6 +82,7 @@ impl<T: Serialize> Pageable<T> {
 pub struct AccountResponse {
     pub name: String,
     pub status: AccountStatus,
+    pub alias: Option<String>,
     pub amount: CalculatedAmount,
 }
 

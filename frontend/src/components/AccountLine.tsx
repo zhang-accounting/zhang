@@ -50,7 +50,7 @@ export default function AccountLine({ data, spacing }: Props) {
             )}
             <div onClick={onNavigate} className={data.isLeaf ? classes.leaf : classes.nonLeaf}>
               <Group>
-                <Text>{data.word}</Text>
+                <Text>{data.val?.alias ?? data.word}</Text>
                 {data.val?.status === AccountStatus.Close && (
                   <Badge size="xs" color="red" variant="dot">
                     {data.val?.status}

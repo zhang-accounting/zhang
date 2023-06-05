@@ -665,10 +665,15 @@ pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Ve
     let mut ret = vec![];
     for (key, group) in &balances.into_iter().group_by(|it| it.account.clone()) {
         let account_balances = group.collect_vec();
-        let status = account_balances.first().map(|it| it.account_status).unwrap_or(AccountStatus::Open);
+        let account_domain = operations.account(&key).await?.ok_or(ZhangError::InvalidAccount)?;
 
         let amount = group_and_calculate(&mut operations, account_balances).await?;
-        ret.push(AccountResponse { name: key, status, amount });
+        ret.push(AccountResponse {
+            name: account_domain.name,
+            status: account_domain.status,
+            alias: account_domain.alias,
+            amount,
+        });
     }
     ResponseWrapper::json(ret)
 }
@@ -1225,7 +1230,7 @@ use crate::util::AmountLike;
 #[cfg(feature = "frontend")]
 use actix_web::{HttpRequest, HttpResponse};
 use zhang_core::constants::KEY_OPERATING_CURRENCY;
-use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, ErrorDomain, MetaType, OptionDomain};
+use zhang_core::domains::schemas::{AccountJournalDomain, ErrorDomain, MetaType, OptionDomain};
 use zhang_core::domains::Operations;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::{ZhangError, ZhangResult};
