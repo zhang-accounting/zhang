@@ -1,16 +1,17 @@
-import { Box, Container, Grid, Group, Progress, SegmentedControl, Table, Text, Title } from '@mantine/core';
-import { DateRangePicker, DateRangePickerValue } from '@mantine/dates';
+import { Box, Container, Grid, Group, Progress, Table, Text, Title } from '@mantine/core';
+import { DatePickerInput } from '@mantine/dates';
+import { IconCalendar } from '@tabler/icons';
 import { useEffect, useState } from 'react';
-import Section from '../components/Section';
-import StatusGroup from '../components/StatusGroup';
 import useSWR from 'swr';
-import { fetcher } from '../index';
-import { ReportResponse, StatisticResponse } from '../rest-model';
 import Amount from '../components/Amount';
 import ReportGraph from '../components/ReportGraph';
+import Section from '../components/Section';
+import StatusGroup from '../components/StatusGroup';
+import { fetcher } from '../index';
+import { ReportResponse, StatisticResponse } from '../rest-model';
 
 export default function Report() {
-  const [value, setValue] = useState<DateRangePickerValue>([
+  const [value, setValue] = useState<[Date | null, Date | null]>([
     new Date(new Date().getFullYear(), new Date().getMonth(), 1, 0, 0, 1),
     new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59),
   ]);
@@ -21,16 +22,15 @@ export default function Report() {
   ]);
 
   useEffect(() => {
+    console.log('value is ', value);
     if (value[0] !== null && value[1] !== null) {
       console.log('update value', value);
       setDateRange([value[0], value[1]]);
     }
   }, [value]);
 
-  const [gap, setGap] = useState('Day');
-
   const { data, error } = useSWR<StatisticResponse>(
-    `/api/statistic?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}&interval=${gap}`,
+    `/api/statistic?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}&interval=Day`,
     fetcher,
   );
 
@@ -50,7 +50,15 @@ export default function Report() {
       <Container fluid>
         <Group position="apart" my="lg">
           <Title order={2}>Report</Title>
-          <DateRangePicker placeholder="Pick dates range" value={value} onChange={setValue} />
+          <DatePickerInput
+            icon={<IconCalendar size="1.1rem" stroke={1.5} />}
+            clearable
+            placeholder="Pick dates range"
+            type="range"
+            allowSingleDateInRange
+            value={value}
+            onChange={setValue}
+          />
         </Group>
 
         <StatusGroup
@@ -63,22 +71,7 @@ export default function Report() {
           ]}
         />
 
-        <Section
-          title="Graph"
-          rightSection={
-            <SegmentedControl
-              size="xs"
-              value={gap.toString()}
-              onChange={setGap}
-              color="blue"
-              data={[
-                { label: 'Daily', value: 'Day' },
-                { label: 'Weekly', value: 'Week' },
-                { label: 'Monthly', value: 'Month' },
-              ]}
-            />
-          }
-        >
+        <Section title="Graph">
           <ReportGraph data={data} height={90}></ReportGraph>
         </Section>
 

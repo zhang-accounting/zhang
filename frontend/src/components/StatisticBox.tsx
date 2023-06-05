@@ -1,4 +1,4 @@
-import { Card, createStyles, Text } from '@mantine/core';
+import { Card, createStyles, px, Text } from '@mantine/core';
 import { useTranslation } from 'react-i18next';
 import Amount from './Amount';
 
@@ -19,7 +19,7 @@ const useStyles = createStyles((theme) => ({
 
   lead: {
     fontWeight: 700,
-    fontSize: theme.fontSizes.xl * 1.15,
+    fontSize: px(theme.fontSizes.xl) * 1.15,
     lineHeight: 1,
     color: theme.colors.gray[9],
   },

@@ -10,7 +10,7 @@ import Settings from './pages/Settings';
 import SingleAccount from './pages/SingleAccount';
 import SingleCommodity from './pages/SingleCommodity';
 
-import { Badge, Box, createStyles, Group, MediaQuery, Navbar, Text, TextInput, UnstyledButton } from '@mantine/core';
+import { Badge, Box, createStyles, Group, MediaQuery, Navbar, px, Text, TextInput, UnstyledButton } from '@mantine/core';
 import {
   IconBroadcast,
   IconCash,
@@ -35,6 +35,7 @@ import { showNotification } from '@mantine/notifications';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { serverBaseUrl } from './index';
+import BatchBalance from './pages/tools/BatchBalance';
 import ToolList from './pages/tools/ToolList';
 import WechatExporter from './pages/tools/WechatExporter';
 import { useAppDispatch, useAppSelector } from './states';
@@ -43,7 +44,6 @@ import { basicInfoSlice, fetchBasicInfo } from './states/basic';
 import { fetchCommodities } from './states/commodity';
 import { fetchError } from './states/errors';
 import { journalsSlice } from './states/journals';
-import BatchBalance from './pages/tools/BatchBalance';
 
 const useStyles = createStyles((theme) => ({
   onlineIcon: {
@@ -54,8 +54,7 @@ const useStyles = createStyles((theme) => ({
   },
 
   header: {
-    padding: theme.spacing.md,
-    paddingTop: 0,
+    padding: theme.spacing.sm,
     marginLeft: -theme.spacing.md,
     marginRight: -theme.spacing.md,
     color: theme.colorScheme === 'dark' ? theme.white : theme.black,
@@ -83,8 +82,6 @@ const useStyles = createStyles((theme) => ({
   },
 
   mainLinks: {
-    paddingLeft: theme.spacing.md - theme.spacing.xs,
-    paddingRight: theme.spacing.md - theme.spacing.xs,
     paddingBottom: theme.spacing.md,
   },
   mainLink: {
@@ -92,7 +89,7 @@ const useStyles = createStyles((theme) => ({
     alignItems: 'center',
     width: '100%',
     fontSize: theme.fontSizes.sm,
-    padding: `8px ${theme.spacing.xs}px`,
+    padding: `${px(theme.spacing.sm)}px ${px(theme.spacing.xs)}px`,
     borderRadius: theme.radius.sm,
     fontWeight: 500,
     color: theme.colorScheme === 'dark' ? theme.colors.dark[0] : theme.colors.gray[7],
@@ -122,8 +119,8 @@ const useStyles = createStyles((theme) => ({
   },
 
   collections: {
-    paddingLeft: theme.spacing.md - 6,
-    paddingRight: theme.spacing.md - 6,
+    paddingLeft: theme.spacing.md,
+    paddingRight: theme.spacing.md,
     paddingBottom: theme.spacing.md,
   },
 
@@ -251,7 +248,7 @@ export default function App() {
       navbar={
         <>
           <MediaQuery smallerThan="sm" styles={{ display: 'none' }}>
-            <Navbar width={{ sm: 300 }} p="md" className={classes.navbar}>
+            <Navbar width={{ sm: 300 }} className={classes.navbar}>
               <Navbar.Section className={classes.header}>
                 <Group position="apart">
                   <Group spacing="xs" position="left">
@@ -261,7 +258,7 @@ export default function App() {
                 </Group>
               </Navbar.Section>
 
-              <Grid>
+              <Grid px="sm">
                 <Grid.Col span={8} py="md">
                   <TextInput placeholder="Search" size="xs" icon={<IconSearch size={12} stroke={1.5} />} />
                 </Grid.Col>
@@ -270,7 +267,7 @@ export default function App() {
                 </Grid.Col>
               </Grid>
 
-              <Navbar.Section grow className={classes.section}>
+              <Navbar.Section grow className={classes.section} mx="sm">
                 <div className={classes.mainLinks}>
                   <UnstyledButton component={RouteLink} to={'/'} key={'NAV_HOME'} className={classes.mainLink}>
                     <div className={classes.mainLinkInner}>
@@ -287,7 +284,7 @@ export default function App() {
                 </div>
               </Navbar.Section>
               {basicInfo.updatableVersion && (
-                <Navbar.Section>
+                <Navbar.Section px="sm">
                   <Group position="center">
                     <a href="https://github.com/zhang-accounting/zhang/wiki/Guide-of-Updating">🎉 New Version is available!</a>
                   </Group>

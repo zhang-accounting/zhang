@@ -1,4 +1,4 @@
-import { createStyles, Text } from '@mantine/core';
+import { createStyles, px, Text } from '@mantine/core';
 import BigNumber from 'bignumber.js';
 import { useAppSelector } from '../states';
 import { getCommodityByName } from '../states/commodity';
@@ -6,7 +6,7 @@ import { getCommodityByName } from '../states/commodity';
 const useStyles = createStyles((theme) => ({
   wrapper: {
     display: 'inline-flex',
-    gap: theme.spacing.xs * 0.25,
+    gap: px(theme.spacing.xs) * 0.25,
   },
   number: {
     fontFeatureSettings: '"tnum" 1',
