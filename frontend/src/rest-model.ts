@@ -30,6 +30,12 @@ export interface Account {
   status: AccountStatus;
   amount: CalculatedAmountResponse;
 }
+export interface AccountInfo {
+  name: string;
+  status: AccountStatus;
+  alias?: String;
+  amount: CalculatedAmountResponse;
+}
 
 export interface Document {
   datetime: string;

@@ -21,9 +21,10 @@ interface Props {
   currency: string;
   negetive?: boolean;
   mask?: boolean;
+  className?: string;
 }
 
-export default function Amount({ amount, currency, negetive, mask }: Props) {
+export default function Amount({ amount, currency, negetive, mask, className }: Props) {
   const { classes } = useStyles();
   const commodity = useAppSelector(getCommodityByName(currency));
 
@@ -45,7 +46,7 @@ export default function Amount({ amount, currency, negetive, mask }: Props) {
   const displayedValue = value.abs().toFormat(commodity?.precision ?? 2);
   const maskedValue = shouldMask ? displayedValue.replace(/\d/g, '*') : displayedValue;
   return (
-    <span className={classes.wrapper}>
+    <span className={`${classes.wrapper} ${className}`}>
       {isNegative && (
         <Text mx={1} className={classes.part}>
           -
