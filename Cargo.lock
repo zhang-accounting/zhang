@@ -3302,7 +3302,7 @@ dependencies = [
 
 [[package]]
 name = "zhang"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "beancount-exporter",
  "beancount-transformer",
@@ -3360,7 +3360,7 @@ dependencies = [
 
 [[package]]
 name = "zhang-server"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "actix-cors",
  "actix-files",
