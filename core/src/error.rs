@@ -29,6 +29,8 @@ pub enum ZhangError {
 
     #[error("databaseError: {0}")]
     DatabaseError(#[from] sqlx::Error),
+    #[error("cannot found option given key: {0}")]
+    OptionNotFound(String),
 }
 
 pub trait IoErrorIntoZhangError<T> {

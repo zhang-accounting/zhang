@@ -162,6 +162,21 @@ mod test {
             let mut operations = ledger.operations().await;
             let account = operations.account("Assets:MyCard").await?.unwrap();
             assert_eq!(account.status, AccountStatus::Close);
+            assert_eq!(account.alias, None);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn should_get_alias_from_meta() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                1970-01-01 open Assets:MyCard
+                  alias: "MyCardAliasName"
+            "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let account = operations.account("Assets:MyCard").await?.unwrap();
+            assert_eq!(account.alias.unwrap(), "MyCardAliasName");
             Ok(())
         }
     }

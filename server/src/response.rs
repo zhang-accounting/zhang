@@ -15,14 +15,18 @@ use crate::{ServerError, ServerResult};
 pub enum ResponseWrapper<T: Serialize> {
     Json(T),
     Created,
+    NotFound,
 }
 
 impl<T: Serialize> ResponseWrapper<T> {
     pub fn json(data: T) -> ServerResult<ResponseWrapper<T>> {
         Ok(ResponseWrapper::Json(data))
     }
-    pub fn created() -> ServerResult<ResponseWrapper<()>> {
+    pub fn created() -> ServerResult<ResponseWrapper<T>> {
         Ok(ResponseWrapper::Created)
+    }
+    pub fn not_found() -> ServerResult<ResponseWrapper<T>> {
+        Ok(ResponseWrapper::NotFound)
     }
 }
 
@@ -41,6 +45,7 @@ impl<T: Serialize> Responder for ResponseWrapper<T> {
                 json.respond_to(req)
             }
             ResponseWrapper::Created => HttpResponse::Created().message_body(EitherBody::new("".to_string())).unwrap(),
+            ResponseWrapper::NotFound => HttpResponse::NotFound().message_body(EitherBody::new("".to_string())).unwrap(),
         }
     }
 }
@@ -77,6 +82,7 @@ impl<T: Serialize> Pageable<T> {
 pub struct AccountResponse {
     pub name: String,
     pub status: AccountStatus,
+    pub alias: Option<String>,
     pub amount: CalculatedAmount,
 }
 
@@ -292,4 +298,14 @@ pub struct BasicInfo {
     pub title: Option<String>,
     pub version: String,
     pub build_date: String,
+}
+
+#[derive(Serialize)]
+pub struct AccountInfoResponse {
+    pub date: NaiveDateTime,
+    pub r#type: String,
+    pub name: String,
+    pub status: AccountStatus,
+    pub alias: Option<String>,
+    pub amount: CalculatedAmount,
 }

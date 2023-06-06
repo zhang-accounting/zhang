@@ -28,6 +28,13 @@ export enum AccountType {
 export interface Account {
   name: string;
   status: AccountStatus;
+  alias?: String;
+  amount: CalculatedAmountResponse;
+}
+export interface AccountInfo {
+  name: string;
+  status: AccountStatus;
+  alias?: String;
   amount: CalculatedAmountResponse;
 }
 

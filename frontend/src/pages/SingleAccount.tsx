@@ -1,35 +1,58 @@
-import { Container, Group, Table, Tabs, Title } from '@mantine/core';
+import { Badge, Container, Group, Stack, Table, Tabs, Text, Title, createStyles, px } from '@mantine/core';
 import { IconMessageCircle, IconPhoto, IconSettings } from '@tabler/icons';
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
-import AccountDocumentUpload from '../components/AccountDocumentUpload';
-import LoadingComponent from '../components/basic/LoadingComponent';
-import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
-import { AccountJournalItem, Document, LoadingState } from '../rest-model';
-import { useAppDispatch, useAppSelector } from '../states';
-import { fetchAccounts, getAccountByName } from '../states/account';
+import useSWR from 'swr';
+import { fetcher } from '..';
 import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
-import { useEffect } from 'react';
-import PayeeNarration from '../components/basic/PayeeNarration';
+import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
+import LoadingComponent from '../components/basic/LoadingComponent';
+import PayeeNarration from '../components/basic/PayeeNarration';
+import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
+import { AccountInfo, AccountJournalItem, Document } from '../rest-model';
+
+const useStyles = createStyles((theme) => ({
+  calculatedAmount: {
+    fontSize: px(theme.fontSizes.xl) * 1.1,
+    fontWeight: 500,
+  },
+  detailAmount: {
+    fontSize: px(theme.fontSizes.lg),
+  },
+}));
 
 function SingleAccount() {
   let { accountName } = useParams();
-  const dispatch = useAppDispatch();
+  const { classes } = useStyles();
 
-  const account = useAppSelector(getAccountByName(accountName!));
-  const accountStatus = useAppSelector((state) => state.accounts.status);
+  const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
 
-  useEffect(() => {
-    if (accountStatus === LoadingState.NotReady) {
-      dispatch(fetchAccounts());
-    }
-  }, [dispatch, accountStatus]);
-
+  if (error) return <div>failed to load</div>;
+  if (!account) return <div>{error}</div>;
   return (
     <Container fluid>
-      <Title order={2}>{accountName}</Title>
-      <Group>{/* <Badge variant="outline">{data?.account.status}</Badge> */}</Group>
+      <Group position="apart" py="sm" align="baseline">
+        <Stack>
+          <Title order={2}>
+            <Badge>{account.status}</Badge> {account.alias ?? account.name}
+          </Title>
+          {!!account.alias && <Title order={4}>{account.name}</Title>}
+        </Stack>
+        <Stack align="end" spacing="xs">
+          <Group className={classes.calculatedAmount}>
+            {Object.keys(account.amount.detail).length > 1 && <Text>≈</Text>}
+            <Amount amount={account.amount.calculated.number} currency={account.amount.calculated.commodity}></Amount>
+          </Group>
+          {Object.keys(account.amount.detail).length > 1 && (
+            <>
+              {Object.entries(account.amount.detail).map(([key, value]) => (
+                <Amount key={key} className={classes.detailAmount} amount={value} currency={key}></Amount>
+              ))}
+            </>
+          )}
+        </Stack>
+      </Group>
       <Tabs defaultValue="journals" mt="lg">
         <Tabs.List>
           <Tabs.Tab value="journals" icon={<IconPhoto size={14} />}>

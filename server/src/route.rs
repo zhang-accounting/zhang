@@ -31,10 +31,10 @@ use zhang_core::utils::string_::StringExt;
 use crate::broadcast::Broadcaster;
 use crate::request::{AccountBalanceRequest, CreateTransactionRequest, FileUpdateRequest, JournalRequest, ReportRequest, StatisticRequest};
 use crate::response::{
-    AccountResponse, AmountResponse, BasicInfo, CalculatedAmount, CommodityDetailResponse, CommodityListItemResponse, CommodityLot, CommodityPrice,
-    CurrentStatisticResponse, DocumentResponse, FileDetailResponse, InfoForNewTransaction, JournalBalanceCheckItemResponse, JournalBalancePadItemResponse,
-    JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, Pageable, ReportRankItemResponse, ReportResponse, ResponseWrapper,
-    StatisticResponse,
+    AccountInfoResponse, AccountResponse, AmountResponse, BasicInfo, CalculatedAmount, CommodityDetailResponse, CommodityListItemResponse, CommodityLot,
+    CommodityPrice, CurrentStatisticResponse, DocumentResponse, FileDetailResponse, InfoForNewTransaction, JournalBalanceCheckItemResponse,
+    JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse, JournalTransactionPostingResponse, Pageable, ReportRankItemResponse,
+    ReportResponse, ResponseWrapper, StatisticResponse,
 };
 use crate::{ApiResult, ServerResult};
 use zhang_ast::amount::Amount;
@@ -266,7 +266,6 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
 #[get("/api/statistic/current")]
 pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<CurrentStatisticResponse> {
     let ledger = ledger.read().await;
-    let operating_currency = ledger.options.operating_currency.as_str();
 
     let mut connection = ledger.connection().await;
 
@@ -284,7 +283,6 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
             .filter(|it| it.account.starts_with("Assets") || it.account.starts_with("Liabilities"))
             .cloned()
             .collect_vec(),
-        operating_currency,
     )
     .await?;
 
@@ -295,7 +293,6 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
             .filter(|it| it.account.starts_with("Liabilities"))
             .cloned()
             .collect_vec(),
-        operating_currency,
     )
     .await?;
 
@@ -356,19 +353,23 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
     })
 }
 
-async fn group_and_calculate<T: AmountLike>(
-    operations: &mut Operations, latest_account_balances: Vec<T>, operating_currency: &str,
-) -> ZhangResult<CalculatedAmount> {
+async fn group_and_calculate<T: AmountLike>(operations: &mut Operations, latest_account_balances: Vec<T>) -> ZhangResult<CalculatedAmount> {
+    let operating_currency = operations
+        .option(KEY_OPERATING_CURRENCY)
+        .await?
+        .ok_or(ZhangError::OptionNotFound(KEY_OPERATING_CURRENCY.to_owned()))?
+        .value;
+
     let mut total_sum = BigDecimal::zero();
 
     let mut detail = HashMap::new();
     for (commodity, values) in &latest_account_balances.into_iter().group_by(|it| it.commodity().to_owned()) {
         let commodity_sum = values.fold(BigDecimal::zero(), |acc, item| acc.add(item.number()));
 
-        if commodity.eq(operating_currency) {
+        if commodity.eq(&operating_currency) {
             total_sum.add_assign(&commodity_sum);
         } else {
-            let target_price = operations.get_price(Local::now().naive_local(), &commodity, operating_currency).await?;
+            let target_price = operations.get_price(Local::now().naive_local(), &commodity, &operating_currency).await?;
             if let Some(price) = target_price {
                 total_sum.add_assign((&commodity_sum).mul(price.amount.0));
             }
@@ -659,18 +660,46 @@ pub async fn serve_frontend(uri: actix_web::http::Uri) -> impl Responder {
 pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<AccountResponse>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations().await;
-    let operating_currency = ledger.options.operating_currency.as_str();
 
     let balances = operations.account_balances().await?;
     let mut ret = vec![];
     for (key, group) in &balances.into_iter().group_by(|it| it.account.clone()) {
         let account_balances = group.collect_vec();
-        let status = account_balances.first().map(|it| it.account_status).unwrap_or(AccountStatus::Open);
+        let account_domain = operations.account(&key).await?.ok_or(ZhangError::InvalidAccount)?;
 
-        let amount = group_and_calculate(&mut operations, account_balances, operating_currency).await?;
-        ret.push(AccountResponse { name: key, status, amount });
+        let amount = group_and_calculate(&mut operations, account_balances).await?;
+        ret.push(AccountResponse {
+            name: account_domain.name,
+            status: account_domain.status,
+            alias: account_domain.alias,
+            amount,
+        });
     }
     ResponseWrapper::json(ret)
+}
+
+#[get("/api/accounts/{account_name}")]
+pub async fn get_account_info(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> ApiResult<AccountInfoResponse> {
+    let account_name = path.into_inner().0;
+    let ledger = ledger.read().await;
+    let mut operations = ledger.operations().await;
+    let account_domain = operations.account(&account_name).await?;
+
+    let account_info = match account_domain {
+        Some(info) => info,
+        None => return ResponseWrapper::not_found(),
+    };
+    let vec = operations.single_account_balances(&account_info.name).await?;
+    let amount = group_and_calculate(&mut operations, vec).await?;
+
+    ResponseWrapper::json(AccountInfoResponse {
+        date: account_info.date,
+        r#type: account_info.r#type,
+        name: account_info.name,
+        status: account_info.status,
+        alias: account_info.alias,
+        amount,
+    })
 }
 
 #[get("/api/documents")]
@@ -1200,10 +1229,11 @@ pub struct StaticFile<T>(pub T);
 use crate::util::AmountLike;
 #[cfg(feature = "frontend")]
 use actix_web::{HttpRequest, HttpResponse};
-use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, ErrorDomain, MetaType, OptionDomain};
+use zhang_core::constants::KEY_OPERATING_CURRENCY;
+use zhang_core::domains::schemas::{AccountJournalDomain, ErrorDomain, MetaType, OptionDomain};
 use zhang_core::domains::Operations;
 use zhang_core::exporter::AppendableExporter;
-use zhang_core::ZhangResult;
+use zhang_core::{ZhangError, ZhangResult};
 
 #[cfg(feature = "frontend")]
 impl<T> Responder for StaticFile<T>

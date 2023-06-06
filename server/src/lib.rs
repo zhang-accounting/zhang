@@ -177,6 +177,7 @@ async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broad
             .service(get_journals)
             .service(create_new_transaction)
             .service(get_account_list)
+            .service(get_account_info)
             .service(get_account_documents)
             .service(get_account_journals)
             .service(upload_account_document)
