@@ -424,5 +424,19 @@ mod test {
             assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone.value);
             Ok(())
         }
+        #[tokio::test]
+        async fn should_parse_user_timezone() -> Result<(), Box<dyn std::error::Error>> {
+
+            let ledger = load_from_text(indoc! {r#"
+                    option "timezone" "Antarctica/South_Pole"
+                "#})
+                .await;
+
+            let mut operations = ledger.operations().await;
+            let timezone = operations.option("timezone").await?.unwrap();
+            assert_eq!("Antarctica/South_Pole", timezone.value);
+            assert_eq!(ledger.options.timezone, "Antarctica/South_Pole".parse().unwrap());
+            Ok(())
+        }
     }
 }
