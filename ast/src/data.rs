@@ -23,8 +23,8 @@ pub enum Date {
 }
 
 impl Date {
-    pub fn now_datetime() -> Date {
-        Date::Datetime(Utc::now().naive_utc())
+    pub fn now(timezone: &Tz) -> Date {
+        Date::Datetime(Utc::now().with_timezone(timezone).naive_local())
     }
     pub fn to_timezone_datetime(&self, timezone: &Tz) -> DateTime<Tz> {
         timezone.from_local_datetime(&self.naive_datetime()).unwrap()
