@@ -161,7 +161,6 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
 }
 
 async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>) -> ZhangResult<()> {
-    dbg!(chrono::Local::now().offset().local_minus_utc());
     let addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), opts.port);
     info!("zhang is listening on http://127.0.0.1:{}/", opts.port);
     let exporter: Data<dyn AppendableExporter> = Data::from(opts.exporter);

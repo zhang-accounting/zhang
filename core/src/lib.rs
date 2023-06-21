@@ -395,4 +395,34 @@ mod test {
             Ok(())
         }
     }
+    mod timezone {
+        use crate::test::load_from_text;
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_get_system_timezone() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                    1970-01-01 open Assets:MyCard CNY
+                "#})
+                .await;
+
+            let mut operations = ledger.operations().await;
+            let timezone = operations.option("timezone").await?.unwrap();
+            assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone.value);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn should_fallback_to_use_system_timezone_given_invalid_timezone() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                    option "timezone" "MYZone"
+                "#})
+                .await;
+
+            let mut operations = ledger.operations().await;
+            let timezone = operations.option("timezone").await?.unwrap();
+            assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone.value);
+            Ok(())
+        }
+    }
 }
