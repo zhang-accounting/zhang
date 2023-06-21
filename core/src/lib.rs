@@ -47,9 +47,10 @@ mod test {
     }
 
     mod options {
-        use crate::options::DEFAULT_OPTIONS;
         use crate::test::load_from_text;
         use indoc::indoc;
+        use crate::options::BuiltinOption;
+        use strum::IntoEnumIterator;
 
         #[tokio::test]
         async fn should_get_option() -> Result<(), Box<dyn std::error::Error>> {
@@ -116,7 +117,7 @@ mod test {
             let mut operations = ledger.operations().await;
 
             let options = operations.options().await.unwrap();
-            assert_eq!(DEFAULT_OPTIONS.len() + 2, options.len());
+            assert_eq!(BuiltinOption::iter().count() + 2, options.len());
             assert_eq!(1, options.iter().filter(|it| it.key.eq("title")).count());
             assert_eq!(1, options.iter().filter(|it| it.key.eq("url")).count());
             Ok(())

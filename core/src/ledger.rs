@@ -17,7 +17,7 @@ use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 use crate::database::migrations::Migration;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
-use crate::options::{BuiltinOption, default_options, InMemoryOptions};
+use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::process::DirectiveProcess;
 use crate::transform::Transformer;
 use crate::utils::bigdecimal_ext::BigDecimalExt;
