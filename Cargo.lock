@@ -3427,6 +3427,7 @@ version = "0.1.0"
 dependencies = [
  "bigdecimal",
  "chrono",
+ "chrono-tz",
  "indexmap",
  "indoc",
  "itertools 0.9.0",

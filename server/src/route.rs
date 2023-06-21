@@ -575,7 +575,7 @@ pub async fn create_new_transaction(
     for meta in payload.metas {
         metas.insert(meta.key, meta.value.to_quote());
     }
-    let time = payload.datetime.naive_local();
+    let time = payload.datetime.with_timezone(&ledger.options.timezone).naive_local();
     let trx = Directive::Transaction(Transaction {
         date: Date::Datetime(time),
         flag: Some(Flag::Okay),
