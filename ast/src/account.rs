@@ -2,9 +2,9 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
-use strum_macros::EnumString;
+use strum::{EnumString, ToString};
 
-#[derive(Debug, EnumString, PartialEq, Eq, strum_macros::ToString, Deserialize, Serialize, Copy, Clone, Hash)]
+#[derive(Debug, EnumString, PartialEq, Eq, ToString, Deserialize, Serialize, Copy, Clone, Hash)]
 pub enum AccountType {
     Assets,
     Liabilities,

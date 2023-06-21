@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use strum_macros::EnumString;
+use strum::{EnumString, ToString};
 
 use crate::account::Account;
 use crate::amount::Amount;
@@ -119,7 +119,7 @@ pub enum SingleTotalPrice {
     Total(Amount),
 }
 
-#[derive(EnumString, Debug, PartialEq, Eq, strum_macros::ToString, Deserialize, Serialize, Clone)]
+#[derive(EnumString, Debug, PartialEq, Eq, ToString, Deserialize, Serialize, Clone)]
 pub enum Flag {
     #[strum(serialize = "*", to_string = "*")]
     Okay,
@@ -133,7 +133,7 @@ pub enum Flag {
     BalanceCheck,
 }
 
-#[derive(EnumString, Debug, PartialEq, Eq, strum_macros::ToString, Deserialize, Serialize, Clone, Copy)]
+#[derive(EnumString, Debug, PartialEq, Eq, ToString, Deserialize, Serialize, Clone, Copy)]
 pub enum Rounding {
     #[strum(serialize = "RoundUp", to_string = "RoundUp")]
     RoundUp,

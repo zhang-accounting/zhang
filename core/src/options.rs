@@ -7,6 +7,7 @@ use sqlx::SqliteConnection;
 use std::str::FromStr;
 use std::string::ToString;
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
+use strum::{AsRefStr, EnumString, EnumIter, IntoEnumIterator};
 
 use crate::ZhangResult;
 
@@ -23,6 +24,43 @@ pub static DEFAULT_OPTIONS: [(&str, &str); 4] = [
     (KEY_DEFAULT_BALANCE_TOLERANCE_PRECISION, DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN),
     (KEY_DEFAULT_COMMODITY_PRECISION, DEFAULT_COMMODITY_PRECISION_PLAIN),
 ];
+
+#[derive(Debug, AsRefStr, EnumIter, EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum BuiltinOption {
+    OperatingCurrency,
+    DefaultRounding,
+    DefaultBalanceTolerancePrecision,
+    DefaultCommodityPrecision,
+}
+
+impl BuiltinOption {
+    pub fn default_value(&self) -> &str {
+        match self {
+            BuiltinOption::OperatingCurrency => DEFAULT_OPERATING_CURRENCY,
+            BuiltinOption::DefaultRounding => DEFAULT_ROUNDING_PLAIN,
+            BuiltinOption::DefaultBalanceTolerancePrecision => DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN,
+            BuiltinOption::DefaultCommodityPrecision => DEFAULT_COMMODITY_PRECISION_PLAIN,
+        }
+    }
+    pub fn key(&self) -> &str {
+        self.as_ref()
+
+    }
+    pub fn default_options() -> Vec<Spanned<Directive>> {
+        BuiltinOption::iter()
+            .map(|key| {
+                Spanned::new(
+                    Directive::Option(Options {
+                        key: ZhangString::quote(key.as_ref()),
+                        value: ZhangString::quote(key.default_value()),
+                    }),
+                    SpanInfo::default(),
+                )
+            })
+            .collect_vec()
+    }
+}
 
 pub fn default_options() -> Vec<Spanned<Directive>> {
     DEFAULT_OPTIONS

@@ -23,7 +23,7 @@ serde_json = "0.9"
 strum = { version = "0.24", features = ["derive"] }
 
 [dev-dependencies]
-indoc = "1.0.3"
+indoc = "1"
 tempfile = "3.3.0"
 tokio = { version = "1.21.2", features = ['full', "tracing"] }
 text-transformer = { version = "0.1", path = "../transformers/text" }
