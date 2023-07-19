@@ -47,9 +47,10 @@ mod test {
     }
 
     mod options {
-        use crate::options::DEFAULT_OPTIONS;
+        use crate::options::BuiltinOption;
         use crate::test::load_from_text;
         use indoc::indoc;
+        use strum::IntoEnumIterator;
 
         #[tokio::test]
         async fn should_get_option() -> Result<(), Box<dyn std::error::Error>> {
@@ -116,7 +117,7 @@ mod test {
             let mut operations = ledger.operations().await;
 
             let options = operations.options().await.unwrap();
-            assert_eq!(DEFAULT_OPTIONS.len() + 2, options.len());
+            assert_eq!(BuiltinOption::iter().count() + 2, options.len());
             assert_eq!(1, options.iter().filter(|it| it.key.eq("title")).count());
             assert_eq!(1, options.iter().filter(|it| it.key.eq("url")).count());
             Ok(())
@@ -391,6 +392,49 @@ mod test {
             let domain = errors.pop().unwrap();
             assert_eq!(domain.error_type, ErrorType::AccountBalanceCheckError);
             assert_eq!(domain.metas.get("account_name").unwrap(), "Assets:MyCard");
+            Ok(())
+        }
+    }
+    mod timezone {
+        use crate::test::load_from_text;
+        use indoc::indoc;
+
+        #[tokio::test]
+        async fn should_get_system_timezone() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                    1970-01-01 open Assets:MyCard CNY
+                "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let timezone = operations.option("timezone").await?.unwrap();
+            assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone.value);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn should_fallback_to_use_system_timezone_given_invalid_timezone() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                    option "timezone" "MYZone"
+                "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let timezone = operations.option("timezone").await?.unwrap();
+            assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone.value);
+            Ok(())
+        }
+        #[tokio::test]
+        async fn should_parse_user_timezone() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                    option "timezone" "Antarctica/South_Pole"
+                "#})
+            .await;
+
+            let mut operations = ledger.operations().await;
+            let timezone = operations.option("timezone").await?.unwrap();
+            assert_eq!("Antarctica/South_Pole", timezone.value);
+            assert_eq!(ledger.options.timezone, "Antarctica/South_Pole".parse().unwrap());
             Ok(())
         }
     }

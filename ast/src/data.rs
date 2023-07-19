@@ -7,7 +7,8 @@ use crate::models::*;
 use crate::utils::inventory::{AmountLotPair, Inventory, LotInfo};
 use crate::utils::multi_value_map::MultiValueMap;
 use crate::Account;
-use chrono::{NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use indexmap::IndexSet;
 use itertools::Itertools;
 
@@ -21,10 +22,13 @@ pub enum Date {
 }
 
 impl Date {
-    pub fn now_datetime() -> Date {
-        Date::Datetime(Utc::now().naive_utc())
+    pub fn now(timezone: &Tz) -> Date {
+        Date::Datetime(Utc::now().with_timezone(timezone).naive_local())
     }
-    pub fn naive_datetime(&self) -> NaiveDateTime {
+    pub fn to_timezone_datetime(&self, timezone: &Tz) -> DateTime<Tz> {
+        timezone.from_local_datetime(&self.naive_datetime()).unwrap()
+    }
+    pub(crate) fn naive_datetime(&self) -> NaiveDateTime {
         match self {
             Date::Date(date) => date.and_hms_opt(0, 0, 0).unwrap(),
             Date::DateHour(date_hour) => *date_hour,

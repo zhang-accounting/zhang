@@ -84,8 +84,8 @@ impl DirectiveProcess for Options {
     async fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations().await;
         let mut conn = ledger.connection().await;
-        ledger.options.parse(self.key.as_str(), self.value.as_str(), &mut conn).await?;
-        operations.insert_or_update_options(self.key.as_str(), self.value.as_str()).await?;
+        let option_value = ledger.options.parse(self.key.as_str(), self.value.as_str(), &mut conn).await?;
+        operations.insert_or_update_options(self.key.as_str(), option_value.as_str()).await?;
         Ok(())
     }
 }
@@ -100,7 +100,7 @@ impl DirectiveProcess for Open {
         }
 
         sqlx::query(r#"INSERT OR REPLACE INTO accounts(date, type, name, status, alias) VALUES ($1, $2, $3, $4, $5);"#)
-            .bind(self.date.naive_datetime())
+            .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
             .bind(self.account.account_type.to_string())
             .bind(self.account.name())
             .bind("Open")
@@ -193,7 +193,7 @@ impl DirectiveProcess for Transaction {
             r#"INSERT INTO transactions (id, datetime, type, payee, narration, source_file, span_start, span_end)VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
         )
         .bind(&id)
-        .bind(self.date.naive_datetime())
+        .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
         .bind(self.flag.clone().unwrap_or(Flag::Okay).to_string())
         .bind(self.payee.as_ref().map(|it| it.as_str()))
         .bind(self.narration.as_ref().map(|it| it.as_str()))
@@ -228,7 +228,7 @@ impl DirectiveProcess for Transaction {
                                 order by "datetime" desc, transactions.sequence desc limit 1"#,
             )
             .bind(txn_posting.posting.account.name())
-            .bind(self.date.naive_datetime())
+            .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
             .bind(&inferred_amount.currency)
             .fetch_optional(&mut conn)
             .await?;
@@ -270,7 +270,7 @@ impl DirectiveProcess for Transaction {
             let document_pathbuf = PathBuf::from(&document_path);
             let extension = document_pathbuf.extension().and_then(|it| it.to_str());
             sqlx::query(r#"INSERT INTO documents (datetime, filename, path, extension, trx_id) VALUES ($1, $2, $3, $4, $5);"#)
-                .bind(self.date.naive_datetime())
+                .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
                 .bind(document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
                 .bind(&document_path)
                 .bind(extension)
@@ -302,7 +302,7 @@ impl DirectiveProcess for Balance {
                 "#,
                 )
                 .bind(balance_check.account.name())
-                .bind(balance_check.date.naive_datetime())
+                .bind(balance_check.date.to_timezone_datetime(&ledger.options.timezone))
                 .bind(&balance_check.amount.currency)
                 .fetch_optional(&mut conn)
                 .await?;
@@ -363,7 +363,7 @@ impl DirectiveProcess for Balance {
                 "#,
                 )
                 .bind(balance_pad.account.name())
-                .bind(balance_pad.date.naive_datetime())
+                .bind(balance_pad.date.to_timezone_datetime(&ledger.options.timezone))
                 .bind(&balance_pad.amount.currency)
                 .fetch_optional(&mut conn)
                 .await?;
@@ -422,7 +422,7 @@ impl DirectiveProcess for Document {
         let document_pathbuf = PathBuf::from(&path);
         let extension = document_pathbuf.extension().and_then(|it| it.to_str());
         sqlx::query(r#"INSERT INTO documents (datetime, filename, path, extension, account) VALUES ($1, $2, $3, $4, $5);"#)
-            .bind(self.date.naive_datetime())
+            .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
             .bind(document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
             .bind(&path)
             .bind(extension)
@@ -440,7 +440,7 @@ impl DirectiveProcess for Price {
         check_commodity_define(&self.currency, ledger, span).await?;
         check_commodity_define(&self.amount.currency, ledger, span).await?;
         sqlx::query(r#"INSERT INTO prices (datetime, commodity, amount, target_commodity)VALUES ($1, $2, $3, $4)"#)
-            .bind(self.date.naive_datetime())
+            .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
             .bind(&self.currency)
             .bind(&self.amount.number.to_string())
             .bind(&self.amount.currency)

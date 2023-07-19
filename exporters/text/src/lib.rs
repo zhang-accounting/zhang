@@ -3,6 +3,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 
+use chrono::Datelike;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::exporter::{AppendableExporter, Exporter};
@@ -16,30 +17,46 @@ pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
 }
 
 pub struct TextExporter {}
-
-impl AppendableExporter for TextExporter {
-    fn append_directives(&self, ledger: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()> {
+impl TextExporter {
+    fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, check_file_visit: bool) -> ZhangResult<()> {
         let (entry, main_file_endpoint) = &ledger.entry;
-        let endpoint = entry.join(file);
+
+        let endpoint = file.unwrap_or_else(|| {
+            if let Some(datetime) = directive.datetime() {
+                entry.join(PathBuf::from(format!("data/{}/{}.zhang", datetime.year(), datetime.month())))
+            } else {
+                entry.join(main_file_endpoint)
+            }
+        });
 
         create_folder_if_not_exist(&endpoint);
 
-        if !has_path_visited(&ledger.visited_files, &endpoint) {
+        if !has_path_visited(&ledger.visited_files, &endpoint) && check_file_visit {
             let path = match endpoint.strip_prefix(entry) {
                 Ok(relative_path) => relative_path.to_str().unwrap(),
                 Err(_) => endpoint.to_str().unwrap(),
             };
-            self.append_directives(
+            self.append_directive(
                 ledger,
-                entry.join(main_file_endpoint),
-                vec![Directive::Include(Include {
+                Directive::Include(Include {
                     file: ZhangString::QuoteString(path.to_string()),
-                })],
+                }),
+                None,
+                false,
             )?;
         }
-        let directive_content = format!("\n{}\n", directives.into_iter().map(|it| self.export_directive(it)).join("\n"));
+        let directive_content = format!("\n{}\n", self.export_directive(directive));
         let mut ledger_base_file = OpenOptions::new().append(true).create(true).open(&endpoint).unwrap();
         Ok(ledger_base_file.write_all(directive_content.as_bytes())?)
+    }
+}
+
+impl AppendableExporter for TextExporter {
+    fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        for directive in directives {
+            self.append_directive(ledger, directive, None, true)?;
+        }
+        Ok(())
     }
 }
 

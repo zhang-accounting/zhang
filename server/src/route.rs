@@ -12,7 +12,7 @@ use actix_multipart::Multipart;
 use actix_web::web::{Data, Json, Path, Query};
 use actix_web::{get, post, put, web, Responder};
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
+use chrono::{Local, NaiveDate, NaiveDateTime};
 use futures_util::StreamExt;
 use glob::glob;
 use indexmap::IndexSet;
@@ -575,7 +575,7 @@ pub async fn create_new_transaction(
     for meta in payload.metas {
         metas.insert(meta.key, meta.value.to_quote());
     }
-    let time = payload.datetime.naive_local();
+    let time = payload.datetime.with_timezone(&ledger.options.timezone).naive_local();
     let trx = Directive::Transaction(Transaction {
         date: Date::Datetime(time),
         flag: Some(Flag::Okay),
@@ -586,9 +586,7 @@ pub async fn create_new_transaction(
         postings,
         meta: metas,
     });
-    exporter
-        .as_ref()
-        .append_directives(&ledger, PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())), vec![trx])?;
+    exporter.as_ref().append_directives(&ledger, vec![trx])?;
 
     ResponseWrapper::json("Ok".to_string())
 }
@@ -750,7 +748,7 @@ pub async fn upload_account_document(
         };
 
         documents.push(Directive::Document(Document {
-            date: Date::Datetime(Local::now().naive_local()),
+            date: Date::now(&ledger_stage.options.timezone),
             account: Account::from_str(&account_name)?,
             filename: ZhangString::QuoteString(path.to_string()),
             tags: None,
@@ -758,11 +756,8 @@ pub async fn upload_account_document(
             meta: Default::default(),
         }));
     }
-    let time = Local::now().naive_local();
 
-    exporter
-        .as_ref()
-        .append_directives(&ledger_stage, PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())), documents)?;
+    exporter.as_ref().append_directives(&ledger_stage, documents)?;
 
     ResponseWrapper::<()>::created()
 }
@@ -810,7 +805,7 @@ pub async fn create_account_balance(
 
     let balance = match payload {
         AccountBalanceRequest::Check { amount, .. } => Balance::BalanceCheck(BalanceCheck {
-            date: Date::Datetime(Local::now().naive_local()),
+            date: Date::now(&ledger.options.timezone),
             account: Account::from_str(&target_account)?,
             amount: Amount {
                 number: amount.number,
@@ -819,7 +814,7 @@ pub async fn create_account_balance(
             meta: Default::default(),
         }),
         AccountBalanceRequest::Pad { amount, pad, .. } => Balance::BalancePad(BalancePad {
-            date: Date::Datetime(Local::now().naive_local()),
+            date: Date::now(&ledger.options.timezone),
             account: Account::from_str(&target_account)?,
             amount: Amount {
                 number: amount.number,
@@ -829,13 +824,8 @@ pub async fn create_account_balance(
             pad: Account::from_str(&pad)?,
         }),
     };
-    let time = Local::now().naive_local();
 
-    exporter.as_ref().append_directives(
-        &ledger,
-        PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
-        vec![Directive::Balance(balance)],
-    )?;
+    exporter.as_ref().append_directives(&ledger, vec![Directive::Balance(balance)])?;
     ResponseWrapper::<()>::created()
 }
 #[post("/api/accounts/batch-balances")]
@@ -847,7 +837,7 @@ pub async fn create_batch_account_balances(
     for balance in payload {
         let balance = match balance {
             AccountBalanceRequest::Check { account_name, amount } => Balance::BalanceCheck(BalanceCheck {
-                date: Date::Datetime(Local::now().naive_local()),
+                date: Date::now(&ledger.options.timezone),
                 account: Account::from_str(&account_name)?,
                 amount: Amount {
                     number: amount.number,
@@ -856,7 +846,7 @@ pub async fn create_batch_account_balances(
                 meta: Default::default(),
             }),
             AccountBalanceRequest::Pad { account_name, amount, pad } => Balance::BalancePad(BalancePad {
-                date: Date::Datetime(Local::now().naive_local()),
+                date: Date::now(&ledger.options.timezone),
                 account: Account::from_str(&account_name)?,
                 amount: Amount {
                     number: amount.number,
@@ -869,10 +859,7 @@ pub async fn create_batch_account_balances(
         directives.push(Directive::Balance(balance));
     }
 
-    let time = Local::now().naive_local();
-    exporter
-        .as_ref()
-        .append_directives(&ledger, PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())), directives)?;
+    exporter.as_ref().append_directives(&ledger, directives)?;
     ResponseWrapper::<()>::created()
 }
 
