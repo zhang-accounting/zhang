@@ -588,7 +588,7 @@ pub async fn create_new_transaction(
     });
     exporter
         .as_ref()
-        .append_directives(&ledger, PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())), vec![trx])?;
+        .append_directives(&ledger, vec![trx])?;
 
     ResponseWrapper::json("Ok".to_string())
 }
@@ -758,11 +758,10 @@ pub async fn upload_account_document(
             meta: Default::default(),
         }));
     }
-    let time = Local::now().with_timezone(&ledger_stage.options.timezone).naive_local();
 
     exporter
         .as_ref()
-        .append_directives(&ledger_stage, PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())), documents)?;
+        .append_directives(&ledger_stage, documents)?;
 
     ResponseWrapper::<()>::created()
 }
@@ -829,11 +828,9 @@ pub async fn create_account_balance(
             pad: Account::from_str(&pad)?,
         }),
     };
-    let time = Local::now().with_timezone(&ledger.options.timezone).naive_local();
 
     exporter.as_ref().append_directives(
         &ledger,
-        PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())),
         vec![Directive::Balance(balance)],
     )?;
     ResponseWrapper::<()>::created()
@@ -869,10 +866,9 @@ pub async fn create_batch_account_balances(
         directives.push(Directive::Balance(balance));
     }
 
-    let time = Local::now().with_timezone(&ledger.options.timezone).naive_local();
     exporter
         .as_ref()
-        .append_directives(&ledger, PathBuf::from(format!("data/{}/{}.zhang", time.year(), time.month())), directives)?;
+        .append_directives(&ledger, directives)?;
     ResponseWrapper::<()>::created()
 }
 

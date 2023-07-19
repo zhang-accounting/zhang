@@ -7,6 +7,8 @@ edition = "2021"
 
 [dependencies]
 itertools = "0.9"
+chrono = { version = "0.4" }
+
 zhang-core = { version = "0.1", path = "../../core" }
 zhang-ast = { version = "0.1", path = "../../ast" }
 log = "0.4"

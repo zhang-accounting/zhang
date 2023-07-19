@@ -10,15 +10,15 @@ pub trait Exporter: AppendableExporter {
 }
 
 pub trait AppendableExporter: Send + Sync {
-    /// define how the exporter append a directive to target file
-    fn append_directives(&self, ledger: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()>;
+    /// define how the exporter append directives
+    fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()>;
 }
 
 pub struct DebugExporter;
 
 impl AppendableExporter for DebugExporter {
-    fn append_directives(&self, _: &Ledger, file: PathBuf, directives: Vec<Directive>) -> ZhangResult<()> {
-        debug!("append directive [{:?}] to path [{:?}]", directives, file);
+    fn append_directives(&self, _: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        debug!("append directive [{:?}]", directives);
         Ok(())
     }
 }

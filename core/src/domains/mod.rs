@@ -3,12 +3,13 @@ use crate::domains::schemas::{
     OptionDomain, PriceDomain, TransactionInfoDomain,
 };
 use crate::ZhangResult;
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, TimeZone};
 use itertools::Itertools;
 use sqlx::pool::PoolConnection;
 use sqlx::{Acquire, FromRow, Sqlite};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use chrono_tz::Tz;
 use uuid::Uuid;
 use zhang_ast::{Meta, SpanInfo};
 
@@ -21,6 +22,7 @@ struct ValueRow {
 
 pub struct Operations {
     pub(crate) pool: PoolConnection<Sqlite>,
+    pub timezone: Tz,
 }
 impl Operations {
     pub async fn options(&mut self) -> ZhangResult<Vec<OptionDomain>> {
@@ -71,11 +73,12 @@ impl Operations {
     }
 
     pub async fn get_price(&mut self, date: NaiveDateTime, from: impl AsRef<str>, to: impl AsRef<str>) -> ZhangResult<Option<PriceDomain>> {
+        let datetime = self.timezone.from_local_datetime(&date).unwrap();
         let conn = self.pool.acquire().await?;
         Ok(sqlx::query_as::<_, PriceDomain>(
             "select datetime, commodity, amount, target_commodity from prices where datetime <= $1 and commodity = $2 and target_commodity = $3",
         )
-        .bind(date)
+        .bind(datetime)
         .bind(from.as_ref())
         .bind(to.as_ref())
         .fetch_optional(conn)

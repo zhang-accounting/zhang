@@ -210,7 +210,8 @@ impl Ledger {
 
     pub async fn operations(&self) -> Operations {
         let pool = self.connection().await;
-        Operations { pool }
+        let timezone = self.options.timezone;
+        Operations { pool, timezone }
     }
 }
 
