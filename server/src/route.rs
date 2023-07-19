@@ -586,9 +586,7 @@ pub async fn create_new_transaction(
         postings,
         meta: metas,
     });
-    exporter
-        .as_ref()
-        .append_directives(&ledger, vec![trx])?;
+    exporter.as_ref().append_directives(&ledger, vec![trx])?;
 
     ResponseWrapper::json("Ok".to_string())
 }
@@ -759,9 +757,7 @@ pub async fn upload_account_document(
         }));
     }
 
-    exporter
-        .as_ref()
-        .append_directives(&ledger_stage, documents)?;
+    exporter.as_ref().append_directives(&ledger_stage, documents)?;
 
     ResponseWrapper::<()>::created()
 }
@@ -829,10 +825,7 @@ pub async fn create_account_balance(
         }),
     };
 
-    exporter.as_ref().append_directives(
-        &ledger,
-        vec![Directive::Balance(balance)],
-    )?;
+    exporter.as_ref().append_directives(&ledger, vec![Directive::Balance(balance)])?;
     ResponseWrapper::<()>::created()
 }
 #[post("/api/accounts/batch-balances")]
@@ -866,9 +859,7 @@ pub async fn create_batch_account_balances(
         directives.push(Directive::Balance(balance));
     }
 
-    exporter
-        .as_ref()
-        .append_directives(&ledger, directives)?;
+    exporter.as_ref().append_directives(&ledger, directives)?;
     ResponseWrapper::<()>::created()
 }
 

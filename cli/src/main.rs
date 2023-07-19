@@ -120,7 +120,6 @@ impl SupportedFormat {
 
 impl Opts {
     pub async fn run(self) {
-
         match self {
             Opts::Parse(parse_opts) => {
                 let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");

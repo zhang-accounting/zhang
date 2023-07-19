@@ -3,6 +3,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 
+use chrono::Datelike;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::exporter::{AppendableExporter, Exporter};
@@ -10,7 +11,6 @@ use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
 use zhang_core::utils::string_::escape_with_quote;
 use zhang_core::ZhangResult;
-use chrono::Datelike;
 
 pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
     std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
@@ -42,7 +42,7 @@ impl TextExporter {
                     file: ZhangString::QuoteString(path.to_string()),
                 }),
                 None,
-                false
+                false,
             )?;
         }
         let directive_content = format!("\n{}\n", self.export_directive(directive));

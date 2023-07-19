@@ -3,13 +3,13 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use beancount_transformer::directives::{BalanceDirective, PadDirective};
+use chrono::Datelike;
 use text_exporter::{append_meta, TextExportable, TextExporter};
 use zhang_ast::{Balance, Date, Directive, Include, Meta, ZhangString};
 use zhang_core::exporter::{AppendableExporter, Exporter};
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
 use zhang_core::ZhangResult;
-use chrono::Datelike;
 
 pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
     std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
@@ -41,7 +41,7 @@ impl BeancountExporter {
                     file: ZhangString::QuoteString(path.to_string()),
                 }),
                 None,
-                false
+                false,
             )?;
         }
         let directive_content = format!("\n{}\n", self.export_directive(directive));

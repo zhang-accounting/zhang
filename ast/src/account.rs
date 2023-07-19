@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
-use strum::{EnumString, Display};
+use strum::{Display, EnumString};
 
 #[derive(Debug, EnumString, PartialEq, Eq, Display, Deserialize, Serialize, Copy, Clone, Hash)]
 pub enum AccountType {

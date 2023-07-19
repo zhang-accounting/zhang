@@ -47,9 +47,9 @@ mod test {
     }
 
     mod options {
+        use crate::options::BuiltinOption;
         use crate::test::load_from_text;
         use indoc::indoc;
-        use crate::options::BuiltinOption;
         use strum::IntoEnumIterator;
 
         #[tokio::test]
@@ -404,7 +404,7 @@ mod test {
             let ledger = load_from_text(indoc! {r#"
                     1970-01-01 open Assets:MyCard CNY
                 "#})
-                .await;
+            .await;
 
             let mut operations = ledger.operations().await;
             let timezone = operations.option("timezone").await?.unwrap();
@@ -417,7 +417,7 @@ mod test {
             let ledger = load_from_text(indoc! {r#"
                     option "timezone" "MYZone"
                 "#})
-                .await;
+            .await;
 
             let mut operations = ledger.operations().await;
             let timezone = operations.option("timezone").await?.unwrap();
@@ -426,11 +426,10 @@ mod test {
         }
         #[tokio::test]
         async fn should_parse_user_timezone() -> Result<(), Box<dyn std::error::Error>> {
-
             let ledger = load_from_text(indoc! {r#"
                     option "timezone" "Antarctica/South_Pole"
                 "#})
-                .await;
+            .await;
 
             let mut operations = ledger.operations().await;
             let timezone = operations.option("timezone").await?.unwrap();
