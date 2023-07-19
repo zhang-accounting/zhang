@@ -1,7 +1,6 @@
 use crate::ledger::Ledger;
 use crate::ZhangResult;
 use log::debug;
-use std::path::PathBuf;
 use zhang_ast::Directive;
 
 pub trait Exporter: AppendableExporter {

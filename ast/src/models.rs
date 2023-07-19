@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use strum::{EnumString, ToString};
+use strum::{Display, EnumString};
 
 use crate::account::Account;
 use crate::amount::Amount;
@@ -119,25 +119,25 @@ pub enum SingleTotalPrice {
     Total(Amount),
 }
 
-#[derive(EnumString, Debug, PartialEq, Eq, ToString, Deserialize, Serialize, Clone)]
+#[derive(EnumString, Debug, PartialEq, Eq, Display, Deserialize, Serialize, Clone)]
 pub enum Flag {
-    #[strum(serialize = "*", to_string = "*")]
+    #[strum(serialize = "*")]
     Okay,
-    #[strum(serialize = "!", to_string = "!")]
+    #[strum(serialize = "!")]
     Warning,
 
-    #[strum(serialize = "P", to_string = "BalancePad")]
+    #[strum(serialize = "BalancePad")]
     BalancePad,
 
-    #[strum(serialize = "C", to_string = "BalanceCheck")]
+    #[strum(serialize = "BalanceCheck")]
     BalanceCheck,
 }
 
-#[derive(EnumString, Debug, PartialEq, Eq, ToString, Deserialize, Serialize, Clone, Copy)]
+#[derive(EnumString, Debug, PartialEq, Eq, Deserialize, Serialize, Clone, Copy, Display)]
 pub enum Rounding {
-    #[strum(serialize = "RoundUp", to_string = "RoundUp")]
+    #[strum(serialize = "RoundUp")]
     RoundUp,
-    #[strum(serialize = "RoundDown", to_string = "RoundDown")]
+    #[strum(serialize = "RoundDown")]
     RoundDown,
 }
 impl Rounding {

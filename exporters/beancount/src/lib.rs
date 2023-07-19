@@ -3,7 +3,6 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use beancount_transformer::directives::{BalanceDirective, PadDirective};
-use itertools::Itertools;
 use text_exporter::{append_meta, TextExportable, TextExporter};
 use zhang_ast::{Balance, Date, Directive, Include, Meta, ZhangString};
 use zhang_core::exporter::{AppendableExporter, Exporter};
