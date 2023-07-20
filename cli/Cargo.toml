@@ -14,10 +14,8 @@ zhang-core = {version="0.1", path="../core"}
 zhang-ast = {version="0.1", path="../ast"}
 zhang-server = {version="0.1.0-alpha.3", path="../server"}
 
-text-transformer = {version="0.1", path="../transformers/text"}
 beancount-transformer = {version="0.1", path="../transformers/beancount"}
 
-text-exporter = {version="0.1", path="../exporters/text"}
 beancount-exporter = {version="0.1", path="../exporters/beancount"}
 
 tokio = { version = "1", features = ['full', "tracing", "rt"] }

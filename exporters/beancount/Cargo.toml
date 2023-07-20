@@ -12,7 +12,6 @@ chrono = { version = "0.4" }
 zhang-core = { version = "0.1", path = "../../core" }
 zhang-ast = { version = "0.1", path = "../../ast" }
 
-text-exporter = {version="0.1", path="../text"}
 beancount-transformer = {version = "0.1", path="../../transformers/beancount"}
 
 
