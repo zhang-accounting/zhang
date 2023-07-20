@@ -8,8 +8,7 @@ use log::{error, info, LevelFilter};
 use self_update::Status;
 use tokio::task::spawn_blocking;
 
-use beancount_exporter::BeancountExporter;
-use beancount_transformer::BeancountTransformer;
+use beancount::Beancount;
 use zhang_core::exporter::{AppendableExporter, TextExporter};
 use zhang_core::ledger::Ledger;
 use zhang_core::transform::{TextTransformer, Transformer};
@@ -105,13 +104,13 @@ impl SupportedFormat {
     fn transformer(&self) -> Arc<dyn Transformer + 'static> {
         match self {
             SupportedFormat::Zhang => Arc::new(TextTransformer::default()),
-            SupportedFormat::Beancount => Arc::new(BeancountTransformer::default()),
+            SupportedFormat::Beancount => Arc::new(Beancount::default()),
         }
     }
     fn exporter(&self) -> Arc<dyn AppendableExporter> {
         match self {
             SupportedFormat::Zhang => Arc::new(TextExporter {}),
-            SupportedFormat::Beancount => Arc::new(BeancountExporter {}),
+            SupportedFormat::Beancount => Arc::new(Beancount {}),
         }
     }
 }
