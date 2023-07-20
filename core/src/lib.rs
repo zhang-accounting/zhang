@@ -5,6 +5,9 @@ pub mod error;
 pub mod exporter;
 pub mod ledger;
 pub mod options;
+#[allow(clippy::upper_case_acronyms)]
+#[allow(clippy::type_complexity)]
+pub mod parser;
 pub(crate) mod process;
 pub mod transform;
 pub mod utils;
@@ -15,13 +18,13 @@ pub use error::ZhangError;
 #[cfg(test)]
 mod test {
     use crate::ledger::Ledger;
+    use crate::parser::parse as parse_zhang;
     use crate::transform::{TransformResult, Transformer};
     use crate::ZhangResult;
     use glob::Pattern;
     use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::tempdir;
-    use text_transformer::parse as parse_zhang;
     use zhang_ast::{Directive, Spanned};
 
     struct TestTransformer {}

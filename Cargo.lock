@@ -411,20 +411,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
 
 [[package]]
-name = "beancount-exporter"
-version = "0.1.0"
-dependencies = [
- "beancount-transformer",
- "chrono",
- "indoc",
- "itertools 0.9.0",
- "text-exporter",
- "zhang-ast",
- "zhang-core",
-]
-
-[[package]]
-name = "beancount-transformer"
+name = "beancount"
 version = "0.1.0"
 dependencies = [
  "bigdecimal",
@@ -2723,36 +2710,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "text-exporter"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "indoc",
- "itertools 0.9.0",
- "log",
- "text-transformer",
- "zhang-ast",
- "zhang-core",
-]
-
-[[package]]
-name = "text-transformer"
-version = "0.1.0"
-dependencies = [
- "bigdecimal",
- "chrono",
- "indoc",
- "itertools 0.9.0",
- "log",
- "pest",
- "pest_consume",
- "pest_derive",
- "snailquote",
- "zhang-ast",
- "zhang-core",
-]
-
-[[package]]
 name = "thiserror"
 version = "1.0.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3408,14 +3365,11 @@ dependencies = [
 name = "zhang"
 version = "0.1.0-alpha.4"
 dependencies = [
- "beancount-exporter",
- "beancount-transformer",
+ "beancount",
  "clap",
  "env_logger",
  "log",
  "self_update",
- "text-exporter",
- "text-transformer",
  "tokio",
  "tokio-util 0.6.9",
  "zhang-ast",
@@ -3450,13 +3404,16 @@ dependencies = [
  "indoc",
  "itertools 0.9.0",
  "log",
+ "pest",
+ "pest_consume",
+ "pest_derive",
  "serde 1.0.137",
  "serde_json 0.9.10",
  "sha256",
+ "snailquote",
  "sqlx",
  "strum",
  "tempfile",
- "text-transformer",
  "thiserror",
  "tokio",
  "unicode_categories",

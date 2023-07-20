@@ -536,7 +536,7 @@ mod test {
         use zhang_ast::amount::Amount;
         use zhang_ast::*;
 
-        use crate::parse;
+        use crate::parser::parse;
 
         #[test]
         fn should_parse_date_hour() {
@@ -584,7 +584,7 @@ mod test {
     mod options {
         use std::option::Option::None;
 
-        use crate::parse;
+        use crate::parser::parse;
         use indoc::indoc;
         use zhang_ast::*;
 
@@ -613,7 +613,7 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::parse;
+        use crate::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -641,7 +641,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::Directive;
 
-        use crate::parse;
+        use crate::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -669,7 +669,7 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::parse;
+        use crate::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -696,7 +696,7 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::parse;
+        use crate::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -723,7 +723,7 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::parse;
+        use crate::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -757,7 +757,7 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::parse;
+        use crate::parser::parse;
 
         #[test]
         fn should_support_trailing_space() {
@@ -780,7 +780,7 @@ mod test {
             use zhang_ast::amount::Amount;
             use zhang_ast::{Date, Directive, SingleTotalPrice, Transaction};
 
-            use crate::parse;
+            use crate::parser::parse;
 
             fn get_first_posting(content: &str) -> Transaction {
                 let directive = parse(content, None).unwrap().pop().unwrap();

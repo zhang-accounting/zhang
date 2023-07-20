@@ -1,5 +1,5 @@
 [package]
-name = "beancount-transformer"
+name = "beancount"
 version = "0.1.0"
 edition = "2021"
 
@@ -17,7 +17,6 @@ chrono = { version = "0.4", features = ["serde"] }
 bigdecimal = { version = "0.3", features = ["serde"] }
 snailquote = "0.3"
 latestmap = "0.1"
-
 
 [dev-dependencies]
 indoc = "1"

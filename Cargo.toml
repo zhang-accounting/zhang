@@ -4,8 +4,7 @@ resolver = "2"
 members = [
     "core",
     "ast",
-    "transformers/*",
-    "exporters/*",
+    "extensions/*",
     "server",
     "cli",
 #    "wasm"
