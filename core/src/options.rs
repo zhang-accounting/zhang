@@ -1,12 +1,14 @@
 use itertools::Itertools;
-use log::{error, info};
+use log::{error, info, warn};
 use sqlx::SqliteConnection;
 use std::str::FromStr;
 use std::string::ToString;
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
-use crate::constants::{DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN, DEFAULT_COMMODITY_PRECISION_PLAIN, DEFAULT_OPERATING_CURRENCY, DEFAULT_ROUNDING_PLAIN};
+use crate::constants::{
+    DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN, DEFAULT_COMMODITY_PRECISION_PLAIN, DEFAULT_OPERATING_CURRENCY, DEFAULT_ROUNDING_PLAIN, DEFAULT_TIMEZONE,
+};
 use crate::ZhangResult;
 use chrono_tz::Tz;
 
@@ -36,9 +38,16 @@ impl BuiltinOption {
             BuiltinOption::DefaultBalanceTolerancePrecision => DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN.to_owned(),
             BuiltinOption::DefaultCommodityPrecision => DEFAULT_COMMODITY_PRECISION_PLAIN.to_owned(),
             BuiltinOption::Timezone => {
-                let system_timezone = iana_time_zone::get_timezone().expect("cannot get the system timezone");
-                info!("detect system timezone is {}", system_timezone);
-                system_timezone
+                match iana_time_zone::get_timezone() {
+                    Ok(timezone) => {
+                        info!("detect system timezone is {}", timezone);
+                        timezone
+                    }
+                    Err(e) => {
+                        warn!("cannot get timezone, fall back to use GMT+8 as default timezone: {}", e);
+                        DEFAULT_TIMEZONE.to_owned()
+                    }
+                }
             }
         }
     }
