@@ -6,21 +6,24 @@ use crate::domains::schemas::{
 };
 use crate::store::{CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionHeaderDomain};
 use crate::{ZhangError, ZhangResult};
-use bigdecimal::BigDecimal;
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone};
+use bigdecimal::{BigDecimal, Zero};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::Tz;
+use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::Deserialize;
 use sqlx::pool::PoolConnection;
 use sqlx::{Acquire, FromRow, Sqlite};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::hash::Hash;
+use std::ops::AddAssign;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, Flag, Meta, SpanInfo};
+use zhang_ast::{Account, AccountType, Currency, Flag, Meta, SpanInfo};
 
 pub mod schemas;
 
@@ -85,8 +88,8 @@ impl Operations {
         Ok(())
     }
     pub(crate) async fn insert_transaction(
-        &mut self, id: &Uuid, sequence: i32, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>, tags: Vec<String>, links: Vec<String>,
-        span: &SpanInfo,
+        &mut self, id: &Uuid, sequence: i32, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>, tags: Vec<String>,
+        links: Vec<String>, span: &SpanInfo,
     ) -> ZhangResult<()> {
         let mut store = self.write();
 
@@ -160,24 +163,27 @@ impl Operations {
     pub(crate) async fn account_target_day_balance(
         &mut self, account_name: &str, datetime: DateTime<Tz>, currency: &str,
     ) -> ZhangResult<Option<AccountAmount>> {
-        let conn = self.pool.acquire().await?;
+        let store = self.read();
 
-        let option: Option<AccountAmount> = sqlx::query_as(
-            r#"select account_after_number as number, account_after_commodity as commodity from transaction_postings
-                                join transactions on transactions.id = transaction_postings.trx_id
-                                where account = $1 and "datetime" <=  $2 and account_after_commodity = $3
-                                order by "datetime" desc, transactions.sequence desc limit 1"#,
-        )
-        .bind(account_name)
-        .bind(datetime)
-        .bind(currency)
-        .fetch_optional(conn)
-        .await?;
-        Ok(option)
+        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
+
+        let posting: Option<&PostingDomain> = store
+            .postings
+            .iter()
+            .filter(|posting| posting.account.eq(&account))
+            .filter(|posting| posting.after_amount.currency.eq(&currency))
+            .filter(|posting| posting.trx_datetime.le(&datetime))
+            .sorted_by_key(|posting| posting.trx_datetime)
+            .rev()
+            .next();
+
+        Ok(posting.map(|it| AccountAmount {
+            number: ZhangBigDecimal(it.after_amount.number.clone()),
+            commodity: currency.to_owned(),
+        }))
     }
 
     pub(crate) async fn account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>) -> ZhangResult<Option<CommodityLotRecord>> {
-
         let mut store = self.write();
         let entry = store
             .commodity_lots
@@ -204,7 +210,7 @@ impl Operations {
         let option = entry
             .iter()
             .filter(|lot| lot.commodity.eq(currency))
-            .filter(|lot| lot.price.as_ref().map(|it|it.currency.as_str()).eq(&Some(price_commodity)))
+            .filter(|lot| lot.price.as_ref().map(|it| it.currency.as_str()).eq(&Some(price_commodity)))
             .next()
             .cloned();
 
@@ -263,24 +269,38 @@ impl Operations {
     }
 
     pub async fn accounts_latest_balance(&mut self) -> ZhangResult<Vec<AccountDailyBalanceDomain>> {
-        let conn = self.pool.acquire().await?;
-        Ok(sqlx::query_as::<_, AccountDailyBalanceDomain>(
-            r#"
-                SELECT
-                    date(datetime) AS date,
-                    account,
-                    balance_number,
-                    balance_commodity
-                FROM
-                    account_daily_balance
-                GROUP BY
-                    account
-                HAVING
-                    max(datetime)
-            "#,
-        )
-        .fetch_all(conn)
-        .await?)
+        let store = self.read();
+
+        let mut ret: HashMap<Account, IndexMap<Currency, BTreeMap<NaiveDate, Amount>>> = HashMap::new();
+
+        for posting in store.postings.iter().cloned().sorted_by_key(|posting| posting.trx_datetime) {
+            let posting: PostingDomain = posting;
+            let date = posting.trx_datetime.naive_local().date();
+
+            let account_inventory = ret.entry(posting.account).or_insert_with(|| IndexMap::new());
+            let dated_amount = account_inventory
+                .entry(posting.after_amount.currency.clone())
+                .or_insert_with(|| BTreeMap::new());
+            dated_amount.insert(date, posting.after_amount);
+        }
+
+        Ok(ret
+            .into_iter()
+            .flat_map(|(account, account_invetory)| {
+                account_invetory
+                    .into_iter()
+                    .map(|(currency, mut dated)| {
+                        let (date, amount) = dated.pop_last().expect("");
+                        AccountDailyBalanceDomain {
+                            date,
+                            account: account.name().to_owned(),
+                            balance_number: ZhangBigDecimal(amount.number),
+                            balance_commodity: amount.currency,
+                        }
+                    })
+                    .collect_vec()
+            })
+            .collect_vec())
     }
 
     pub async fn get_price(&mut self, date: NaiveDateTime, from: impl AsRef<str>, to: impl AsRef<str>) -> ZhangResult<Option<PriceDomain>> {
@@ -366,81 +386,100 @@ impl Operations {
             .unwrap())
     }
 
-    pub async fn account_balances(&mut self) -> ZhangResult<Vec<AccountBalanceDomain>> {
-        let conn = self.pool.acquire().await?;
-        Ok(sqlx::query_as::<_, AccountBalanceDomain>(
-            r#"
-                        select datetime, account, account_status, balance_number, balance_commodity
-                        from account_balance
-            "#,
-        )
-        .fetch_all(conn)
-        .await?)
-    }
-
     pub async fn single_account_balances(&mut self, account_name: &str) -> ZhangResult<Vec<AccountBalanceDomain>> {
-        let conn = self.pool.acquire().await?;
-        Ok(sqlx::query_as::<_, AccountBalanceDomain>(
-            r#"
-                select datetime, account, account_status, balance_number, balance_commodity
-                from account_balance
-                where account = $1
-            "#,
-        )
-        .bind(account_name)
-        .fetch_all(conn)
-        .await?)
+        let store = self.read();
+
+        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
+
+        let mut ret: IndexMap<Currency, BTreeMap<NaiveDate, Amount>> = IndexMap::new();
+
+        for posting in store
+            .postings
+            .iter()
+            .filter(|posting| posting.account.eq(&account))
+            .cloned()
+            .sorted_by_key(|posting| posting.trx_datetime)
+        {
+            let posting: PostingDomain = posting;
+            let date = posting.trx_datetime.naive_local().date();
+
+            let dated_amount = ret.entry(posting.after_amount.currency.clone()).or_insert_with(|| BTreeMap::new());
+            dated_amount.insert(date, posting.after_amount);
+        }
+
+        Ok(ret
+            .into_iter()
+            .map(|(date, mut balance)| {
+                let (date, amount) = balance.pop_last().expect("");
+                AccountBalanceDomain {
+                    datetime: date.and_time(NaiveTime::default()),
+                    account: account.name().to_owned(),
+                    account_status: AccountStatus::Open,
+                    balance_number: ZhangBigDecimal(amount.number),
+                    balance_commodity: amount.currency,
+                }
+            })
+            .collect_vec())
     }
 
     pub async fn account_journals(&mut self, account: &str) -> ZhangResult<Vec<AccountJournalDomain>> {
         let conn = self.pool.acquire().await?;
-        Ok(sqlx::query_as::<_, AccountJournalDomain>(
-            r#"
-                    select datetime,
-                           trx_id,
-                           account,
-                           payee,
-                           narration,
-                           inferred_unit_number,
-                           inferred_unit_commodity,
-                           account_after_number,
-                           account_after_commodity
-                    from transaction_postings
-                             join transactions on transactions.id = transaction_postings.trx_id
-                    where account = $1
-                    order by datetime desc, transactions.sequence desc
-            "#,
-        )
-        .bind(account)
-        .fetch_all(conn)
-        .await?)
+
+        let store = self.read();
+        let account = Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?;
+
+        let mut ret = vec![];
+        for posting in store.postings.iter().filter(|posting| posting.account.eq(&account)).cloned().sorted_by(|a, b| {
+            a.trx_datetime
+                .cmp(&b.trx_datetime)
+                .reverse()
+                .then(a.trx_sequence.cmp(&b.trx_sequence).reverse())
+        }) {
+            let posting: PostingDomain = posting;
+            let trx_header = store.transactions.get(&posting.trx_id);
+            ret.push(AccountJournalDomain {
+                datetime: posting.trx_datetime.naive_local(),
+                account: posting.account.name().to_owned(),
+                trx_id: posting.id.to_string(),
+                payee: trx_header.and_then(|it| it.payee.clone()),
+                narration: trx_header.and_then(|it| it.narration.clone()),
+                inferred_unit_number: ZhangBigDecimal(posting.inferred_amount.number),
+                inferred_unit_commodity: posting.inferred_amount.currency,
+                account_after_number: ZhangBigDecimal(posting.after_amount.number),
+                account_after_commodity: posting.after_amount.currency,
+            })
+        }
+        Ok(ret)
     }
-    pub async fn account_dated_journals(&mut self, account_type: &str, from: NaiveDateTime, to: NaiveDateTime) -> ZhangResult<Vec<AccountJournalDomain>> {
-        let conn = self.pool.acquire().await?;
-        Ok(sqlx::query_as::<_, AccountJournalDomain>(
-            r#"
-                select datetime,
-                       trx_id,
-                       account,
-                       payee,
-                       narration,
-                       inferred_unit_number,
-                       inferred_unit_commodity,
-                       account_after_number,
-                       account_after_commodity
-                from transaction_postings
-                         join transactions on transactions.id = transaction_postings.trx_id
-                         join accounts on accounts.name = transaction_postings.account
-                where datetime >= $1
-                  and datetime <= $2
-                  and accounts.type = $3
-            "#,
-        )
-        .bind(from)
-        .bind(to)
-        .bind(account_type)
-        .fetch_all(conn)
-        .await?)
+    pub async fn account_dated_journals(
+        &mut self, account_type: AccountType, from: DateTime<Utc>, to: DateTime<Utc>,
+    ) -> ZhangResult<Vec<AccountJournalDomain>> {
+        let store = self.read();
+
+        let mut ret = vec![];
+        for posting in store
+            .postings
+            .iter()
+            .filter(|posting| posting.trx_datetime.ge(&from))
+            .filter(|posting| posting.trx_datetime.le(&to))
+            .filter(|posting| posting.account.account_type == account_type)
+            .cloned()
+        {
+            let trx = store.transactions.get(&posting.trx_id).cloned().expect("cannot find trx");
+
+            ret.push(AccountJournalDomain {
+                datetime: posting.trx_datetime.naive_local(),
+                account: posting.account.name().to_owned(),
+                trx_id: posting.trx_id.to_string(),
+                payee: trx.payee,
+                narration: trx.narration,
+                inferred_unit_number: ZhangBigDecimal(posting.inferred_amount.number),
+                inferred_unit_commodity: posting.inferred_amount.currency,
+                account_after_number: ZhangBigDecimal(posting.after_amount.number),
+                account_after_commodity: posting.after_amount.currency,
+            })
+        }
+        Ok(ret)
     }
 
     pub async fn errors(&mut self) -> ZhangResult<Vec<ErrorDomain>> {
@@ -456,66 +495,68 @@ impl Operations {
     }
     pub async fn all_open_accounts(&mut self) -> ZhangResult<Vec<AccountDomain>> {
         let conn = self.pool.acquire().await?;
-        Ok(
-            sqlx::query_as::<_, AccountDomain>(r#"select date, type, name, status, alias from accounts WHERE status = 'Open'"#)
-                .fetch_all(conn)
-                .await?,
-        )
+        let store = self.read();
+        Ok(store
+            .accounts
+            .values()
+            .filter(|account| account.status == AccountStatus::Open)
+            .cloned()
+            .collect_vec())
     }
     pub async fn all_accounts(&mut self) -> ZhangResult<Vec<String>> {
-        let conn = self.pool.acquire().await?;
-        let accounts = sqlx::query_as::<_, ValueRow>("select name as value from accounts")
-            .fetch_all(conn)
-            .await?
-            .into_iter()
-            .map(|it| it.value)
-            .collect_vec();
-        Ok(accounts)
+        let store = self.read();
+        Ok(store.accounts.keys().map(|it| it.name().to_owned()).collect_vec())
     }
 
     pub async fn all_payees(&mut self) -> ZhangResult<Vec<String>> {
         let conn = self.pool.acquire().await?;
+        let store = self.read();
+        let payees: HashSet<String> = store
+            .transactions
+            .values()
+            .filter_map(|it| it.payee.as_ref())
+            .filter(|it| !it.is_empty())
+            .map(|it| it.to_owned())
+            .collect();
 
-        #[derive(FromRow)]
-        struct PayeeRow {
-            payee: String,
-        }
-        let payees = sqlx::query_as::<_, PayeeRow>(
-            r#"
-        select distinct payee from transactions
-        "#,
-        )
-        .fetch_all(conn)
-        .await?;
-        Ok(payees.into_iter().map(|it| it.payee).filter(|it| !it.is_empty()).collect_vec())
+        Ok(payees.into_iter().collect_vec())
     }
 
-    pub async fn static_duration(&mut self, from: NaiveDateTime, to: NaiveDateTime) -> ZhangResult<Vec<StaticRow>> {
+    pub async fn static_duration(&mut self, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<StaticRow>> {
         let conn = self.pool.acquire().await?;
-        let rows = sqlx::query_as::<_, StaticRow>(
-            r#"
-        SELECT
-            date(datetime) AS date,
-            accounts.type AS account_type,
-            sum(inferred_unit_number) AS amount,
-            inferred_unit_commodity AS commodity
-        FROM
-            transaction_postings
-            JOIN transactions ON transactions.id = transaction_postings.trx_id
-            JOIN accounts ON accounts.name = transaction_postings.account
-            where transactions.datetime >= $1 and transactions.datetime <= $2
-        GROUP BY
-            date(datetime),
-            accounts.type,
-            inferred_unit_commodity
-    "#,
-        )
-        .bind(from)
-        .bind(to)
-        .fetch_all(conn)
-        .await?;
 
-        Ok(rows)
+        let store = self.read();
+        let mut cal: HashMap<NaiveDate, HashMap<AccountType, HashMap<Currency, BigDecimal>>> = HashMap::new();
+
+        for posting in store
+            .postings
+            .iter()
+            .filter(|posting| posting.trx_datetime.ge(&from))
+            .filter(|posting| posting.trx_datetime.le(&to))
+            .cloned()
+        {
+            let date = posting.trx_datetime.naive_local().date();
+            let date_store = cal.entry(date).or_insert_with(|| HashMap::default());
+            let account_type_store = date_store.entry(posting.account.account_type).or_insert_with(|| HashMap::new());
+            let balance = account_type_store.entry(posting.after_amount.currency).or_insert_with(|| BigDecimal::zero());
+            balance.add_assign(&posting.after_amount.number);
+        }
+
+        let mut ret = vec![];
+        for (date, type_store) in cal {
+            for (account_type, currency_store) in type_store {
+                for (currency, balance) in currency_store {
+                    ret.push(StaticRow{
+                        date,
+                        account_type: account_type.to_string(),
+                        amount: ZhangBigDecimal(balance),
+                        commodity: currency,
+                    })
+                }
+            }
+        }
+        Ok(ret)
+
     }
 }
 

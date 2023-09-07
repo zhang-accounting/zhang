@@ -38,7 +38,7 @@ use crate::response::{
 };
 use crate::{ApiResult, ServerResult};
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, Balance, BalanceCheck, BalancePad, Date, Directive, Document, Flag, Meta, Posting, Transaction, ZhangString};
+use zhang_ast::{Account, AccountType, Balance, BalanceCheck, BalancePad, Date, Directive, Document, Flag, Meta, Posting, Transaction, ZhangString};
 use zhang_core::utils::date_range::NaiveDateRange;
 
 pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
@@ -92,7 +92,7 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
     let mut operations = ledger.operations().await;
     let params = params.into_inner();
 
-    let rows = operations.static_duration(params.from.naive_local(), params.to.naive_local()).await?;
+    let rows = operations.static_duration(params.from, params.to).await?;
 
     let mut ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
     for (date, dated_rows) in &rows.into_iter().group_by(|row| row.date) {
@@ -609,15 +609,14 @@ pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Ve
     let ledger = ledger.read().await;
     let mut operations = ledger.operations().await;
 
-    let balances = operations.account_balances().await?;
     let mut ret = vec![];
-    for (key, group) in &balances.into_iter().group_by(|it| it.account.clone()) {
-        let account_balances = group.collect_vec();
-        let account_domain = operations.account(&key).await?.ok_or(ZhangError::InvalidAccount)?;
-
+    for account in  operations.all_accounts().await? {
+        let account_domain = operations.account(&account).await?.expect("cannot find account");
+        let account_balances = operations.single_account_balances(&account).await?;
         let amount = group_and_calculate(&mut operations, account_balances).await?;
+
         ret.push(AccountResponse {
-            name: account_domain.name,
+            name: account,
             status: account_domain.status,
             alias: account_domain.alias,
             amount,
@@ -1074,7 +1073,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
     .0;
 
     let income_transactions = operations
-        .account_dated_journals("Income", params.from.naive_local(), params.to.naive_local())
+        .account_dated_journals(AccountType::Income, params.from, params.to)
         .await?;
 
     let total_income = income_transactions
@@ -1105,7 +1104,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
     // --------
 
     let expense_transactions = operations
-        .account_dated_journals("Expenses", params.from.naive_local(), params.to.naive_local())
+        .account_dated_journals(AccountType::Expenses, params.from.naive_local(), params.to.naive_local())
         .await?;
 
     let total_expense = expense_transactions

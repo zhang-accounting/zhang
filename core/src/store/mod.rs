@@ -21,6 +21,7 @@ pub struct TransactionHeaderDomain {
     pub links: Vec<String>,
 }
 
+#[derive(Clone)]
 pub struct PostingDomain {
     pub id: Uuid,
     pub trx_id: Uuid,

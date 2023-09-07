@@ -202,7 +202,7 @@ mod test {
 
             let mut operations = ledger.operations().await;
 
-            let result = operations.account_balances().await?;
+            let result = operations.single_account_balances("Assets:MyCard").await?;
             assert_eq!(0, result.len());
 
             Ok(())
@@ -220,15 +220,12 @@ mod test {
 
             let mut operations = ledger.operations().await;
 
-            let mut result = operations.account_balances().await?;
-            assert_eq!(2, result.len());
-
-            let lunch_balance = result.pop().unwrap();
+            let lunch_balance = operations.single_account_balances("Expenses:Lunch").await?.pop().unwrap();
             assert_eq!(lunch_balance.account, "Expenses:Lunch");
             assert_eq!(lunch_balance.balance_number.0, BigDecimal::from(50));
             assert_eq!(lunch_balance.balance_commodity, "CNY");
 
-            let card_balance = result.pop().unwrap();
+            let card_balance = operations.single_account_balances("Assets:MyCard").await?.pop().unwrap();
             assert_eq!(card_balance.account, "Assets:MyCard");
             assert_eq!(card_balance.balance_number.0, BigDecimal::from(-50));
             assert_eq!(card_balance.balance_commodity, "CNY");

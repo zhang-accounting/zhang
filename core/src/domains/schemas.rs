@@ -70,6 +70,7 @@ pub struct AccountBalanceDomain {
     pub datetime: NaiveDateTime,
     pub account: String,
     pub account_status: AccountStatus,
+    // todo: combine number and commodity
     pub balance_number: ZhangBigDecimal,
     pub balance_commodity: String,
 }
@@ -120,7 +121,7 @@ pub struct AccountJournalDomain {
     pub datetime: NaiveDateTime,
     pub account: String,
     pub trx_id: String,
-    pub payee: String,
+    pub payee: Option<String>,
     pub narration: Option<String>,
     pub inferred_unit_number: ZhangBigDecimal,
     pub inferred_unit_commodity: String,
