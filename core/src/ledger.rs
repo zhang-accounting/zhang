@@ -560,10 +560,11 @@ mod test {
                     1970-02-01 commodity HKD
                 "#})
             .await;
-            let mut conn = ledger.connection().await;
-            count!("should have 2 commodity", 2, "select * from commodities", &mut conn);
-            count!("should have CNY record", "select * from commodities where name = 'CNY'", &mut conn);
-            count!("should have HKD record", "select * from commodities where name = 'HKD'", &mut conn);
+            let store = ledger.store.read().unwrap();
+
+            assert_eq!(2,store.commodities.len(), "should have 2 commodity");
+            assert!(store.commodities.contains_key("CNY"), "should have CNY record");
+            assert!(store.commodities.contains_key("HKD"), "should have HKD record");
         }
     }
 

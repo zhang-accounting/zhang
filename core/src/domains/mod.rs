@@ -18,6 +18,7 @@ use std::rc::Rc;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
 use zhang_ast::{Meta, SpanInfo};
+use crate::constants::KEY_DEFAULT_COMMODITY_PRECISION;
 
 pub mod schemas;
 
@@ -407,26 +408,12 @@ impl Operations {
     }
 
     pub async fn commodity(&mut self, name: &str) -> ZhangResult<Option<CommodityDomain>> {
-        let conn = self.pool.acquire().await?;
-
-        let option = sqlx::query_as::<_, CommodityDomain>(
-            r#"
-                select * from commodities where name = $1
-                "#,
-        )
-        .bind(name)
-        .fetch_optional(conn)
-        .await?;
-        Ok(option)
+        let store = self.read();
+        Ok(store.commodities.get(name).cloned())
     }
-    pub async fn exist_commodity(&mut self, name: &str) -> ZhangResult<bool> {
-        let conn = self.pool.acquire().await?;
 
-        Ok(sqlx::query("select 1 from commodities where name = $1")
-            .bind(name)
-            .fetch_optional(conn)
-            .await?
-            .is_some())
+    pub async fn exist_commodity(&mut self, name: &str) -> ZhangResult<bool> {
+        Ok(self.commodity(name).await?.is_some())
     }
 
     pub async fn exist_account(&mut self, name: &str) -> ZhangResult<bool> {
@@ -682,15 +669,25 @@ impl Operations {
     }
 
     pub async fn insert_meta(&mut self, type_: MetaType, type_identifier: impl AsRef<str>, meta: Meta) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
+
+        let mut store = self.write();
+
         for (meta_key, meta_value) in meta.get_flatten() {
-            sqlx::query(r#"INSERT OR REPLACE INTO metas VALUES ($1, $2, $3, $4);"#)
-                .bind(type_.as_ref())
-                .bind(type_identifier.as_ref())
-                .bind(meta_key)
-                .bind(meta_value.as_str())
-                .execute(&mut *conn)
-                .await?;
+            let option = store.metas.iter_mut()
+                .filter(|it| it.type_identifier.eq(type_identifier.as_ref()))
+                .filter(|it| it.meta_type.eq(type_.as_ref()))
+                .filter(|it| it.key.eq(&meta_key))
+                .next();
+            if let Some(meta) = option {
+                meta.value = meta_value.to_plain_string()
+            }else {
+                store.metas.push(MetaDomain {
+                    meta_type: type_.as_ref().to_string(),
+                    type_identifier:type_identifier.as_ref().to_owned(),
+                    key: meta_key,
+                    value: meta_value.to_plain_string(),
+                });
+            }
         }
         Ok(())
     }
@@ -705,20 +702,18 @@ impl Operations {
     }
 
     pub async fn insert_commodity(
-        &mut self, name: &String, precision: Option<i32>, prefix: Option<String>, suffix: Option<String>, rounding: Option<String>,
+        &mut self, name: &String, precision: i32, prefix: Option<String>, suffix: Option<String>, rounding: Option<String>,
     ) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
-        sqlx::query(
-            r#"INSERT OR REPLACE INTO commodities (name, precision, prefix, suffix, rounding)
-                        VALUES ($1, $2, $3, $4, $5);"#,
-        )
-        .bind(name)
-        .bind(precision)
-        .bind(prefix)
-        .bind(suffix)
-        .bind(rounding)
-        .execute(conn)
-        .await?;
+
+
+        let mut store = self.write();
+        store.commodities.insert(name.to_owned(), CommodityDomain {
+            name: name.to_owned(),
+            precision,
+            prefix,
+            suffix,
+            rounding,
+        });
         Ok(())
     }
 }

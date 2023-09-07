@@ -81,7 +81,7 @@ impl InMemoryOptions {
                     let rounding = Some(self.default_rounding);
 
                     operation
-                        .insert_commodity(&value, Some(precision), prefix, suffix, rounding.map(|it| it.to_string()))
+                        .insert_commodity(&value, precision, prefix, suffix, rounding.map(|it| it.to_string()))
                         .await?;
 
                     self.operating_currency = value.to_owned();

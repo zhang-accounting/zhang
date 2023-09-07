@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Instant;
 
-use crate::constants::{KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
+use crate::constants::{DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::domains::schemas::{AccountStatus, ErrorType, MetaType};
 use crate::domains::{AccountAmount, Operations};
@@ -139,7 +139,8 @@ impl DirectiveProcess for Commodity {
             .or(default_precision)
             .map(|it| it.as_str().parse::<i32>())
             .transpose()
-            .unwrap_or(None);
+            .unwrap_or(None)
+            .unwrap_or(DEFAULT_COMMODITY_PRECISION);
         let prefix = self.meta.get_one("prefix").map(|it| it.clone().to_plain_string());
         let suffix = self.meta.get_one("suffix").map(|it| it.clone().to_plain_string());
         let rounding = self
