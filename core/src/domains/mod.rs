@@ -10,7 +10,7 @@ use sqlx::pool::PoolConnection;
 use sqlx::{Acquire, FromRow, Sqlite};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, FromPrimitive};
 use uuid::Uuid;
 use zhang_ast::{Meta, SpanInfo};
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
@@ -27,6 +27,13 @@ struct ValueRow {
 pub struct AccountAmount {
     pub number: ZhangBigDecimal,
     pub commodity: String,
+}
+
+#[derive(Debug, Deserialize, FromRow)]
+pub struct LotRow {
+    pub amount: f64,
+    pub price_amount: Option<f64>,
+    pub price_commodity: Option<String>,
 }
 
 #[derive(FromRow)]
@@ -194,6 +201,96 @@ impl Operations {
         Ok(option)
     }
 
+
+    pub(crate) async fn account_lot(&mut self, account_name: &str, currency: &str,price_amount: &BigDecimal,  price_commodity: &str)-> ZhangResult<Option<LotRow>> {
+        let conn = self.pool.acquire().await?;
+
+        let lot: Option<LotRow> = sqlx::query_as(
+            r#"
+            select amount, price_amount, price_commodity
+            from commodity_lots
+            where account = $1 and commodity = $2 and price_amount = $3 and price_commodity = $4"#,
+        )
+            .bind(account_name)
+            .bind(currency)
+            .bind(price_amount.to_string())
+            .bind(price_commodity)
+            .fetch_optional(conn)
+            .await?;
+        Ok(lot)
+    }
+
+    pub(crate) async fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str)-> ZhangResult<Option<LotRow>> {
+        let conn = self.pool.acquire().await?;
+
+        let lot: Option<LotRow> = sqlx::query_as(
+            r#"
+                select amount, price_amount, price_commodity
+                from commodity_lots
+                where account = $1 and commodity = $2
+                  and (price_commodity = $3 or price_commodity is null)
+                  and ((amount != 0 and price_amount is not null) or price_amount is null)
+                order by datetime desc
+            "#,
+        )
+            .bind(account_name)
+            .bind(currency)
+            .bind(price_commodity)
+            .fetch_optional(conn)
+            .await?;
+        Ok(lot)
+    }
+    pub(crate) async fn update_account_lot(&mut self, account_name: &str, currency: &str,price_amount: &BigDecimal,  price_commodity: &str, amount: &BigDecimal)-> ZhangResult<()> {
+        let conn = self.pool.acquire().await?;
+
+        sqlx::query(
+            r#"update commodity_lots
+                        set amount = $1
+                        where account = $2 and commodity = $3  and price_amount = $4 and price_commodity = $5"#,
+        )
+            .bind(amount.to_string())
+            .bind(account_name)
+            .bind(currency)
+            .bind(price_amount.to_string())
+            .bind(price_commodity)
+            .execute(conn)
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn update_account_default_lot(&mut self, account_name: &str, currency: &str, amount: &BigDecimal)-> ZhangResult<()> {
+        let conn = self.pool.acquire().await?;
+
+        sqlx::query(
+            r#"update commodity_lots
+                        set amount = $1
+                        where account = $2 and commodity = $3  and price_amount is NULL and price_commodity is NULL"#,
+        )
+            .bind(amount.to_string())
+            .bind(account_name)
+            .bind(currency)
+            .execute(conn)
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn insert_account_lot(&mut self, account_name: &str, currency: &str,price_amount: Option<&BigDecimal>,  price_commodity:Option< &str>, amount: &BigDecimal)-> ZhangResult<()> {
+        let conn = self.pool.acquire().await?;
+
+        sqlx::query(
+            r#"INSERT INTO commodity_lots (account, commodity, datetime, amount, price_amount, price_commodity)
+                                    VALUES ($1, $2, $3, $4, $5, $6)"#,
+        )
+            .bind(account_name)
+            .bind(currency)
+            .bind(None::<NaiveDateTime>)
+            .bind(amount.to_string())
+            .bind(price_amount.map(|it|it.to_string()))
+            .bind(price_commodity)
+            .execute(conn)
+            .await?;
+        Ok(())
+    }
 
 
 }
@@ -508,7 +605,6 @@ impl Operations {
         struct PayeeRow {
             payee: String,
         }
-        // todo(sqlx): move to operation
         let payees = sqlx::query_as::<_, PayeeRow>(
             r#"
         select distinct payee from transactions

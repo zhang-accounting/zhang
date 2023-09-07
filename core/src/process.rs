@@ -7,7 +7,7 @@ use std::time::Instant;
 use crate::constants::{KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::domains::schemas::{AccountStatus, ErrorType, MetaType};
-use crate::domains::AccountAmount;
+use crate::domains::{AccountAmount, LotRow, Operations};
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
@@ -233,7 +233,7 @@ impl DirectiveProcess for Transaction {
 
             let amount = txn_posting.units().unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
             let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
-            lot_add(txn_posting.account_name(), amount, lot_info, &mut conn).await?;
+            lot_add(txn_posting.account_name(), amount, lot_info, &mut conn, &mut operations).await?;
         }
         for document in self.meta.clone().get_flatten().into_iter().filter(|(key, _)| key.eq("document")) {
             let (_, document_file_name) = document;
@@ -403,124 +403,67 @@ impl DirectiveProcess for Price {
     }
 }
 
-#[derive(Debug, Deserialize, FromRow)]
-struct LotRow {
-    amount: f64,
-    price_amount: Option<f64>,
-    price_commodity: Option<String>,
-}
 
-async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, conn: &mut SqliteConnection) -> ZhangResult<()> {
+
+async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, conn: &mut SqliteConnection, operations: &mut Operations) -> ZhangResult<()> {
     let mut trx = conn.begin().await?;
     match lot_info {
         LotInfo::Lot(target_currency, lot_number) => {
-            // todo(sqlx): move to operation
-            let lot: Option<LotRow> = sqlx::query_as(
-                r#"
-            select amount, price_amount, price_commodity
-            from commodity_lots
-            where account = $1 and commodity = $2 and price_amount = $3 and price_commodity = $4"#,
-            )
-            .bind(&account_name)
-            .bind(&amount.currency)
-            .bind(lot_number.to_string())
-            .bind(&target_currency)
-            .fetch_optional(&mut trx)
-            .await?;
+
+            let lot = operations.account_lot(&account_name, &amount.currency, &lot_number,&target_currency).await?;
+
 
             if let Some(lot_row) = lot {
-                // todo(sqlx): move to operation
-                sqlx::query(
-                    r#"update commodity_lots
-                        set amount = $1
-                        where account = $2 and commodity = $3  and price_amount = $4 and price_commodity = $5"#,
-                )
-                .bind(BigDecimal::from_f64(lot_row.amount).expect("error").add(&amount.number).to_string())
-                .bind(&account_name)
-                .bind(&amount.currency)
-                .bind(lot_number.to_string())
-                .bind(&target_currency)
-                .execute(&mut trx)
-                .await?;
+                operations.update_account_lot(
+                    &account_name,
+                    &amount.currency,
+                    &lot_number,
+                    &target_currency,
+                    &BigDecimal::from_f64(lot_row.amount).expect("error").add(&amount.number)
+                ).await?;
+
+
             } else {
-                // todo(sqlx): move to operation
-                sqlx::query(
-                    r#"INSERT INTO commodity_lots (account, commodity, datetime, amount, price_amount, price_commodity)
-                                    VALUES ($1, $2, $3, $4, $5, $6)"#,
-                )
-                .bind(&account_name)
-                .bind(&amount.currency)
-                .bind(None::<NaiveDateTime>)
-                .bind(amount.number.to_string())
-                .bind(lot_number.to_string())
-                .bind(&target_currency)
-                .execute(&mut trx)
-                .await?;
+                operations.insert_account_lot(
+                    &account_name,&amount.currency,
+                    Some(&lot_number),
+                    Some(&target_currency),
+                    &amount.number
+                ).await?;
             }
         }
         LotInfo::Fifo => {
-            // todo(sqlx): move to operation
-            let lot: Option<LotRow> = sqlx::query_as(
-                r#"
-                select amount, price_amount, price_commodity
-                from commodity_lots
-                where account = $1 and commodity = $2
-                  and (price_commodity = $3 or price_commodity is null)
-                  and ((amount != 0 and price_amount is not null) or price_amount is null)
-                order by datetime desc
-            "#,
-            )
-            .bind(&account_name)
-            .bind(&amount.currency)
-            .bind(&amount.currency)
-            .fetch_optional(&mut trx)
-            .await?;
+            let lot = operations.account_lot_fifo(&account_name, &amount.currency, &amount.currency).await?;
             if let Some(lot) = lot {
                 if lot.price_amount.is_some() {
                     // target lot
-                    // todo(sqlx): move to operation
-                    sqlx::query(
-                        r#"update commodity_lots
-                        set amount = $1
-                        where account = $2 and commodity = $3  and price_amount = $4 and price_commodity = $5"#,
-                    )
-                    .bind(BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number).to_string())
-                    .bind(&account_name)
-                    .bind(&amount.currency)
-                    .bind(lot.price_amount)
-                    .bind(&lot.price_commodity)
-                    .execute(&mut trx)
-                    .await?;
+                    operations.update_account_lot(
+                        &account_name,
+                        &amount.currency,
+                        &BigDecimal::from_f64(lot.price_amount.unwrap()).expect("error"),
+                        &lot.price_commodity.unwrap(),
+                        &BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number)
+                    ).await?;
 
                     // todo check negative
                 } else {
                     // default lot
-                    // todo(sqlx): move to operation
-                    sqlx::query(
-                        r#"update commodity_lots
-                        set amount = $1
-                        where account = $2 and commodity = $3  and price_amount is NULL and price_commodity is NULL"#,
-                    )
-                    .bind(BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number).to_string())
-                    .bind(&account_name)
-                    .bind(&amount.currency)
-                    .execute(&mut trx)
-                    .await?;
+                    operations.update_account_default_lot(
+                        &account_name,
+                        &amount.currency,
+                        &BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number)
+                    ).await?;
                 }
             } else {
-                // todo(sqlx): move to operation
-                sqlx::query(
-                    r#"INSERT INTO commodity_lots (account, commodity, datetime, amount, price_amount, price_commodity)
-                                    VALUES ($1, $2, $3, $4, $5, $6)"#,
-                )
-                .bind(&account_name)
-                .bind(&amount.currency)
-                .bind(None::<NaiveDateTime>)
-                .bind(amount.number.to_string())
-                .bind(None::<f64>)
-                .bind(None::<String>)
-                .execute(&mut trx)
-                .await?;
+
+                operations.insert_account_lot(
+                    &account_name,
+                    &amount.currency,
+                    None, None,
+
+                    &amount.number
+                ).await?;
+
             }
         }
         LotInfo::Filo => {
