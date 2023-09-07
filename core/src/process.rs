@@ -84,7 +84,7 @@ impl DirectiveProcess for Options {
     async fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations().await;
         let mut conn = ledger.connection().await;
-        let option_value = ledger.options.parse(self.key.as_str(), self.value.as_str(), &mut conn).await?;
+        let option_value = ledger.options.parse(self.key.as_str(), self.value.as_str(), &mut operations).await?;
         operations.insert_or_update_options(self.key.as_str(), option_value.as_str()).await?;
         Ok(())
     }
@@ -98,6 +98,8 @@ impl DirectiveProcess for Open {
         for currency in &self.commodities {
             check_commodity_define(currency, ledger, span).await?;
         }
+
+        // todo(sqlx): move to operation
 
         sqlx::query(r#"INSERT OR REPLACE INTO accounts(date, type, name, status, alias) VALUES ($1, $2, $3, $4, $5);"#)
             .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
@@ -149,8 +151,8 @@ impl DirectiveProcess for Commodity {
             .map(|it| it.as_str().parse::<i32>())
             .transpose()
             .unwrap_or(None);
-        let prefix = self.meta.get_one("prefix").map(|it| it.as_str());
-        let suffix = self.meta.get_one("suffix").map(|it| it.as_str());
+        let prefix = self.meta.get_one("prefix").map(|it| it.clone().to_plain_string());
+        let suffix = self.meta.get_one("suffix").map(|it| it.clone().to_plain_string());
         let rounding = self
             .meta
             .get_one("rounding")
@@ -160,18 +162,7 @@ impl DirectiveProcess for Commodity {
             .transpose()
             .unwrap_or(None);
 
-        sqlx::query(
-            r#"INSERT OR REPLACE INTO commodities (name, precision, prefix, suffix, rounding)
-                        VALUES ($1, $2, $3, $4, $5);"#,
-        )
-        .bind(&self.currency)
-        .bind(precision)
-        .bind(prefix)
-        .bind(suffix)
-        .bind(rounding.map(|it| it.to_string()))
-        .execute(&mut conn)
-        .await?;
-
+        operations.insert_commodity(&self.currency, precision, prefix, suffix, rounding.map(|it| it.to_string())).await?;
         operations.insert_meta(MetaType::CommodityMeta, &self.currency, self.meta.clone()).await?;
 
         Ok(())
@@ -189,6 +180,7 @@ impl DirectiveProcess for Transaction {
         }
         let id = Uuid::from_span(span).to_string();
 
+        // todo(sqlx): move to operation
         sqlx::query(
             r#"INSERT INTO transactions (id, datetime, type, payee, narration, source_file, span_start, span_end)VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
         )
@@ -204,6 +196,7 @@ impl DirectiveProcess for Transaction {
         .await?;
 
         for tag in self.tags.iter() {
+            // todo(sqlx): move to operation
             sqlx::query(r#"INSERT INTO transaction_tags (trx_id, tag)VALUES ($1, $2)"#)
                 .bind(&id)
                 .bind(tag)
@@ -211,6 +204,7 @@ impl DirectiveProcess for Transaction {
                 .await?;
         }
         for link in self.links.iter() {
+            // todo(sqlx): move to operation
             sqlx::query(r#"INSERT INTO transaction_links (trx_id, link)VALUES ($1, $2)"#)
                 .bind(&id)
                 .bind(link)
@@ -221,6 +215,7 @@ impl DirectiveProcess for Transaction {
         for txn_posting in self.txn_postings() {
             let inferred_amount = txn_posting.infer_trade_amount().unwrap();
 
+            // todo(sqlx): move to operation
             let option: Option<AccountAmount> = sqlx::query_as(
                 r#"select account_after_number as number, account_after_commodity as commodity from transaction_postings
                                 join transactions on transactions.id = transaction_postings.trx_id
@@ -239,6 +234,7 @@ impl DirectiveProcess for Transaction {
 
             let after_number = (&previous.number.0).add(&inferred_amount.number);
 
+            // todo(sqlx): move to operation
             sqlx::query(
                 r#"INSERT INTO transaction_postings
                                (trx_id, account, unit_number, unit_commodity, cost_number, cost_commodity, inferred_unit_number, inferred_unit_commodity,
@@ -269,6 +265,7 @@ impl DirectiveProcess for Transaction {
             let document_path = document_file_name.to_plain_string();
             let document_pathbuf = PathBuf::from(&document_path);
             let extension = document_pathbuf.extension().and_then(|it| it.to_str());
+            // todo(sqlx): move to operation
             sqlx::query(r#"INSERT INTO documents (datetime, filename, path, extension, trx_id) VALUES ($1, $2, $3, $4, $5);"#)
                 .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
                 .bind(document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
@@ -291,6 +288,7 @@ impl DirectiveProcess for Balance {
         let mut operations = ledger.operations().await;
         match self {
             Balance::BalanceCheck(balance_check) => {
+                // todo(sqlx): move to operation
                 let option: Option<AccountAmount> = sqlx::query_as(
                     r#"
                     select account_after_number as number, account_after_commodity as commodity
@@ -351,7 +349,7 @@ impl DirectiveProcess for Balance {
                 check_account_existed(balance_pad.pad.name(), ledger, span).await?;
                 check_account_closed(balance_pad.account.name(), ledger, span).await?;
                 check_account_closed(balance_pad.pad.name(), ledger, span).await?;
-
+// todo(sqlx): move to operation
                 let option: Option<AccountAmount> = sqlx::query_as(
                     r#"
                     select account_after_number as number, account_after_commodity as commodity
@@ -421,6 +419,7 @@ impl DirectiveProcess for Document {
 
         let document_pathbuf = PathBuf::from(&path);
         let extension = document_pathbuf.extension().and_then(|it| it.to_str());
+        // todo(sqlx): move to operation
         sqlx::query(r#"INSERT INTO documents (datetime, filename, path, extension, account) VALUES ($1, $2, $3, $4, $5);"#)
             .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
             .bind(document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
@@ -439,6 +438,7 @@ impl DirectiveProcess for Price {
         let mut conn = ledger.connection().await;
         check_commodity_define(&self.currency, ledger, span).await?;
         check_commodity_define(&self.amount.currency, ledger, span).await?;
+        // todo(sqlx): move to operation
         sqlx::query(r#"INSERT INTO prices (datetime, commodity, amount, target_commodity)VALUES ($1, $2, $3, $4)"#)
             .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
             .bind(&self.currency)
@@ -462,6 +462,7 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
     let mut trx = conn.begin().await?;
     match lot_info {
         LotInfo::Lot(target_currency, lot_number) => {
+            // todo(sqlx): move to operation
             let lot: Option<LotRow> = sqlx::query_as(
                 r#"
             select amount, price_amount, price_commodity
@@ -476,6 +477,7 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
             .await?;
 
             if let Some(lot_row) = lot {
+                // todo(sqlx): move to operation
                 sqlx::query(
                     r#"update commodity_lots
                         set amount = $1
@@ -489,6 +491,7 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
                 .execute(&mut trx)
                 .await?;
             } else {
+                // todo(sqlx): move to operation
                 sqlx::query(
                     r#"INSERT INTO commodity_lots (account, commodity, datetime, amount, price_amount, price_commodity)
                                     VALUES ($1, $2, $3, $4, $5, $6)"#,
@@ -504,6 +507,7 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
             }
         }
         LotInfo::Fifo => {
+            // todo(sqlx): move to operation
             let lot: Option<LotRow> = sqlx::query_as(
                 r#"
                 select amount, price_amount, price_commodity
@@ -522,6 +526,7 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
             if let Some(lot) = lot {
                 if lot.price_amount.is_some() {
                     // target lot
+                    // todo(sqlx): move to operation
                     sqlx::query(
                         r#"update commodity_lots
                         set amount = $1
@@ -538,6 +543,7 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
                     // todo check negative
                 } else {
                     // default lot
+                    // todo(sqlx): move to operation
                     sqlx::query(
                         r#"update commodity_lots
                         set amount = $1
@@ -550,6 +556,7 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
                     .await?;
                 }
             } else {
+                // todo(sqlx): move to operation
                 sqlx::query(
                     r#"INSERT INTO commodity_lots (account, commodity, datetime, amount, price_amount, price_commodity)
                                     VALUES ($1, $2, $3, $4, $5, $6)"#,

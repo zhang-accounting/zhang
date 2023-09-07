@@ -84,6 +84,7 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
     struct AccountNameRow {
         name: String,
     }
+    // todo(sqlx): move to operation
     let account_names = sqlx::query_as::<_, AccountNameRow>(
         r#"
         SELECT name FROM accounts WHERE status = 'Open'
@@ -96,6 +97,7 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
     struct PayeeRow {
         payee: String,
     }
+    // todo(sqlx): move to operation
     let payees = sqlx::query_as::<_, PayeeRow>(
         r#"
         select distinct payee from transactions
@@ -122,6 +124,7 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
         amount: ZhangBigDecimal,
         commodity: String,
     }
+    // todo(sqlx): move to operation
     let rows = sqlx::query_as::<_, StaticRow>(
         r#"
         SELECT
@@ -161,6 +164,7 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
         ret.entry(day).or_insert_with(HashMap::new);
     }
 
+    // todo(sqlx): move to operation
     let accounts = sqlx::query_as::<_, ValueRow>("select name as value from accounts")
         .fetch_all(&mut connection)
         .await?
@@ -168,6 +172,7 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
         .map(|it| it.value)
         .collect_vec();
 
+    // todo(sqlx): move to operation
     let existing_account_balance = sqlx::query_as::<_, DetailRow>(
         r#"
         SELECT
@@ -202,6 +207,7 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
         })
         .collect();
 
+    // todo(sqlx): move to operation
     let details = sqlx::query_as::<_, DetailRow>(
         r#"
         SELECT
@@ -302,6 +308,7 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
         amount: ZhangBigDecimal,
         commodity: String,
     }
+    // todo(sqlx): move to operation
 
     let current_month_balance = sqlx::query_as::<_, CurrentMonthBalance>(
         r#"
@@ -403,6 +410,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
         payee: String,
         narration: Option<String>,
     }
+    // todo(sqlx): move to operation
     let journal_headers = sqlx::query_as::<_, JournalHeader>(
         r#"
         SELECT id, sequence, datetime, type as journal_type, payee, narration FROM transactions ORDER BY "sequence" DESC LIMIT $1 OFFSET $2
@@ -430,6 +438,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
         account_after_number: ZhangBigDecimal,
         account_after_commodity: String,
     }
+    // todo(sqlx): move to operation
     let journal_arms = sqlx::query_as::<_, JournalArm>(
         r#"
         select * from transaction_postings where trx_id in ( SELECT id FROM transactions ORDER BY "sequence" DESC LIMIT $1 OFFSET $2 )
@@ -705,6 +714,7 @@ pub async fn get_documents(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<D
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
 
+    // todo(sqlx): move to operation
     let rows = sqlx::query_as::<_, DocumentResponse>(
         r#"
     select documents.*
@@ -768,6 +778,7 @@ pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: Pa
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
 
+    // todo(sqlx): move to operation
     let rows = sqlx::query_as::<_, DocumentResponse>(
         r#"
     select documents.*
@@ -868,6 +879,7 @@ pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
 
+    // todo(sqlx): move to operation
     let vec = sqlx::query_as::<_, CommodityListItemResponse>(
         r#"
             select commodities.*,
@@ -898,6 +910,7 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
 
+    // todo(sqlx): move to operation
     let basic_info = sqlx::query_as::<_, CommodityListItemResponse>(
         r#"
             select commodities.*,
@@ -922,6 +935,7 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
     .fetch_one(&mut connection)
     .await?;
 
+    // todo(sqlx): move to operation
     let lots = sqlx::query_as::<_, CommodityLot>(
         r#"
             select datetime, amount, price_amount, price_commodity, account
@@ -932,6 +946,7 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
     .bind(&commodity_name)
     .fetch_all(&mut connection)
     .await?;
+    // todo(sqlx): move to operation
 
     let prices = sqlx::query_as::<_, CommodityPrice>(
         r#"
@@ -1020,6 +1035,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
     let mut connection = ledger.connection().await;
     let mut operations = ledger.operations().await;
 
+    // todo(sqlx): move to operation
     let latest_account_balances = sqlx::query_as::<_, DetailRow>(
         r#"
         SELECT
@@ -1056,6 +1072,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
         commodity: String,
     }
 
+    // todo(sqlx): move to operation
     let duration_balances = sqlx::query_as::<_, DurationBalance>(
         r#"
     SELECT accounts.type             AS account_type,
@@ -1098,6 +1115,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
             commodity: ledger.options.operating_currency.to_owned(),
         });
 
+    // todo(sqlx): move to operation
     let transaction_total = sqlx::query_as::<_, (i64,)>(
         r#"
         select count(1) as total

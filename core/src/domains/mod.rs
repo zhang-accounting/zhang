@@ -24,6 +24,8 @@ pub struct Operations {
     pub(crate) pool: PoolConnection<Sqlite>,
     pub timezone: Tz,
 }
+
+
 impl Operations {
     pub async fn options(&mut self) -> ZhangResult<Vec<OptionDomain>> {
         let conn = self.pool.acquire().await?;
@@ -361,6 +363,22 @@ impl Operations {
         let conn = self.pool.acquire().await?;
         sqlx::query(r#"update accounts set status = 'Close' where name = $1"#)
             .bind(account_name)
+            .execute(conn)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn insert_commodity(&mut self, name: &String, precision: Option<i32>, prefix: Option<String>, suffix: Option<String>, rounding: Option<String>) -> ZhangResult<()> {
+        let conn = self.pool.acquire().await?;
+        sqlx::query(
+            r#"INSERT OR REPLACE INTO commodities (name, precision, prefix, suffix, rounding)
+                        VALUES ($1, $2, $3, $4, $5);"#,
+        )
+            .bind(name)
+            .bind(precision)
+            .bind(prefix)
+            .bind(suffix)
+            .bind(rounding)
             .execute(conn)
             .await?;
         Ok(())

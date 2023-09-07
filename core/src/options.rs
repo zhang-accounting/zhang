@@ -11,6 +11,7 @@ use crate::constants::{
 };
 use crate::ZhangResult;
 use chrono_tz::Tz;
+use crate::domains::Operations;
 
 #[derive(Debug)]
 pub struct InMemoryOptions {
@@ -70,7 +71,7 @@ impl BuiltinOption {
 }
 
 impl InMemoryOptions {
-    pub async fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, conn: &mut SqliteConnection) -> ZhangResult<String> {
+    pub async fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, operation: &mut Operations) -> ZhangResult<String> {
         let value = value.into();
         let key = key.into();
         if let Ok(option) = BuiltinOption::from_str(&key) {
@@ -81,17 +82,8 @@ impl InMemoryOptions {
                     let suffix: Option<String> = None;
                     let rounding = Some(self.default_rounding);
 
-                    sqlx::query(
-                        r#"INSERT OR REPLACE INTO commodities (name, precision, prefix, suffix, rounding)
-                        VALUES ($1, $2, $3, $4, $5);"#,
-                    )
-                    .bind(&value)
-                    .bind(precision)
-                    .bind(prefix)
-                    .bind(suffix)
-                    .bind(rounding.map(|it| it.to_string()))
-                    .execute(conn)
-                    .await?;
+                    operation.insert_commodity(&value, Some(precision), prefix, suffix, rounding.map(|it| it.to_string())).await?;
+
                     self.operating_currency = value.to_owned();
                 }
                 BuiltinOption::DefaultRounding => {
