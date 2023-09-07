@@ -577,7 +577,7 @@ pub async fn upload_transaction_document(ledger: Data<Arc<RwLock<Ledger>>>, mut 
         .into_iter()
         .map(|document| format!("  document: {}", document.to_plain_string()))
         .join("\n");
-    insert_line(PathBuf::from(span_info.source_file), &metas_content, span_info.span_end as usize)?;
+    insert_line(span_info.source_file, &metas_content, span_info.span_end)?;
     // todo add update method in exporter
     ResponseWrapper::json("Ok".to_string())
 }

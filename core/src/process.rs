@@ -9,11 +9,13 @@ use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::domains::schemas::{AccountStatus, ErrorType, MetaType};
 use crate::domains::{AccountAmount, Operations};
 use crate::ledger::Ledger;
+use crate::store::DocumentType;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
 use crate::ZhangResult;
 use async_trait::async_trait;
 use bigdecimal::{BigDecimal, FromPrimitive, Zero};
+use itertools::Itertools;
 use log::debug;
 use sqlx::{Acquire, SqliteConnection};
 use uuid::Uuid;
@@ -93,9 +95,8 @@ impl DirectiveProcess for Open {
         operations
             .insert_or_update_account(
                 self.date.to_timezone_datetime(&ledger.options.timezone),
-                self.account.account_type.to_string(),
-                self.account.name(),
-                "Open",
+                self.account.clone(),
+                AccountStatus::Open,
                 self.meta.get_one("alias").map(|it| it.as_str()),
             )
             .await?;
@@ -170,27 +171,20 @@ impl DirectiveProcess for Transaction {
         if self.flag != Some(Flag::BalancePad) && self.flag != Some(Flag::BalanceCheck) && !ledger.is_transaction_balanced(self).await? {
             operations.new_error(ErrorType::TransactionDoesNotBalance, span, HashMap::default()).await?;
         }
-        let id = Uuid::from_span(span).to_string();
+        let id = Uuid::from_span(span);
 
         operations
             .insert_transaction(
                 &id,
                 self.date.to_timezone_datetime(&ledger.options.timezone),
-                self.flag.clone().unwrap_or(Flag::Okay).to_string(),
+                self.flag.clone().unwrap_or(Flag::Okay),
                 self.payee.as_ref().map(|it| it.as_str()),
                 self.narration.as_ref().map(|it| it.as_str()),
-                span.filename.as_ref().and_then(|it| it.to_str()),
-                span.start as i64,
-                span.end as i64,
+                self.tags.iter().cloned().collect_vec(),
+                self.links.iter().cloned().collect_vec(),
+                &span,
             )
             .await?;
-
-        for tag in self.tags.iter() {
-            operations.insert_transaction_tag(&id, tag).await?;
-        }
-        for link in self.links.iter() {
-            operations.insert_transaction_link(&id, link).await?;
-        }
 
         for txn_posting in self.txn_postings() {
             let inferred_amount = txn_posting.infer_trade_amount().unwrap();
@@ -207,23 +201,17 @@ impl DirectiveProcess for Transaction {
                 number: ZhangBigDecimal(BigDecimal::zero()),
                 commodity: inferred_amount.currency.clone(),
             });
-
             let after_number = (&previous.number.0).add(&inferred_amount.number);
 
             operations
                 .insert_transaction_posting(
                     &id,
                     txn_posting.posting.account.name(),
-                    txn_posting.posting.units.as_ref().map(|it| it.number.to_string()),
-                    txn_posting.posting.units.as_ref().map(|it| &it.currency),
-                    txn_posting.posting.cost.as_ref().map(|it| it.number.to_string()),
-                    txn_posting.posting.cost.as_ref().map(|it| &it.currency),
-                    inferred_amount.number.to_string(),
-                    &inferred_amount.currency,
-                    &previous.number,
-                    &previous.commodity,
-                    after_number.to_string(),
-                    &previous.commodity,
+                    txn_posting.posting.units.clone(),
+                    txn_posting.posting.cost.clone(),
+                    inferred_amount,
+                    Amount::new(previous.number.0, previous.commodity.clone()),
+                    Amount::new(after_number, previous.commodity),
                 )
                 .await?;
 
@@ -235,18 +223,16 @@ impl DirectiveProcess for Transaction {
             let (_, document_file_name) = document;
             let document_path = document_file_name.to_plain_string();
             let document_pathbuf = PathBuf::from(&document_path);
-            let extension = document_pathbuf.extension().and_then(|it| it.to_str());
             operations
-                .insert_trx_document(
+                .insert_document(
                     self.date.to_timezone_datetime(&ledger.options.timezone),
                     document_pathbuf.file_name().and_then(|it| it.to_str()),
-                    &document_path,
-                    extension,
-                    &id,
+                    document_path,
+                    DocumentType::Trx(id.clone()),
                 )
                 .await?;
         }
-        operations.insert_meta(MetaType::TransactionMeta, &id, self.meta.clone()).await?;
+        operations.insert_meta(MetaType::TransactionMeta, id.to_string(), self.meta.clone()).await?;
         Ok(())
     }
 }
@@ -372,15 +358,12 @@ impl DirectiveProcess for Document {
         let path = self.filename.clone().to_plain_string();
 
         let document_pathbuf = PathBuf::from(&path);
-        let extension = document_pathbuf.extension().and_then(|it| it.to_str());
-
         operations
-            .insert_account_document(
+            .insert_document(
                 self.date.to_timezone_datetime(&ledger.options.timezone),
                 document_pathbuf.file_name().and_then(|it| it.to_str()),
-                &path,
-                extension,
-                self.account.name(),
+                path,
+                DocumentType::Account(self.account.clone()),
             )
             .await?;
         Ok(())
@@ -410,36 +393,42 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
     let trx = conn.begin().await?;
     match lot_info {
         LotInfo::Lot(target_currency, lot_number) => {
-            let lot = operations.account_lot(&account_name, &amount.currency, &lot_number, &target_currency).await?;
+            let price = Amount::new(lot_number, target_currency);
+
+            let lot = operations.account_lot(&account_name, &amount.currency, Some(price.clone()) ).await?;
 
             if let Some(lot_row) = lot {
+
                 operations
                     .update_account_lot(
                         &account_name,
                         &amount.currency,
-                        &lot_number,
-                        &target_currency,
-                        &BigDecimal::from_f64(lot_row.amount).expect("error").add(&amount.number),
+                        Some(price),
+                        &lot_row.amount.add(&amount.number),
                     )
                     .await?;
             } else {
                 operations
-                    .insert_account_lot(&account_name, &amount.currency, Some(&lot_number), Some(&target_currency), &amount.number)
+                    .insert_account_lot(
+                        &account_name,
+                        &amount.currency,
+                        Some(price.clone()),
+                        &amount.number,
+                    )
                     .await?;
             }
         }
         LotInfo::Fifo => {
             let lot = operations.account_lot_fifo(&account_name, &amount.currency, &amount.currency).await?;
             if let Some(lot) = lot {
-                if lot.price_amount.is_some() {
+                if lot.price.is_some() {
                     // target lot
                     operations
                         .update_account_lot(
                             &account_name,
                             &amount.currency,
-                            &BigDecimal::from_f64(lot.price_amount.unwrap()).expect("error"),
-                            &lot.price_commodity.unwrap(),
-                            &BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number),
+                            lot.price,
+                            &lot.amount.add(&amount.number),
                         )
                         .await?;
 
@@ -447,17 +436,16 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
                 } else {
                     // default lot
                     operations
-                        .update_account_default_lot(
+                        .update_account_lot(
                             &account_name,
                             &amount.currency,
-                            &BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number),
+                            None,
+                            &lot.amount.add(&amount.number),
                         )
                         .await?;
                 }
             } else {
-                operations
-                    .insert_account_lot(&account_name, &amount.currency, None, None, &amount.number)
-                    .await?;
+                operations.insert_account_lot(&account_name, &amount.currency, None, &amount.number).await?;
             }
         }
         LotInfo::Filo => {

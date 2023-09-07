@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
+use zhang_ast::account::InvalidAccountError;
 
 #[derive(Debug, Error)]
 pub enum ZhangError {

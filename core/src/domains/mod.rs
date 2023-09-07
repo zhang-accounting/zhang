@@ -1,10 +1,11 @@
+use crate::constants::KEY_DEFAULT_COMMODITY_PRECISION;
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::domains::schemas::{
-    AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, CommodityDomain, ErrorDomain, ErrorType, MetaDomain, MetaType,
-    OptionDomain, PriceDomain, TransactionInfoDomain,
+    AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, ErrorType, MetaDomain,
+    MetaType, OptionDomain, PriceDomain, TransactionInfoDomain,
 };
-use crate::store::Store;
-use crate::ZhangResult;
+use crate::store::{CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionHeaderDomain};
+use crate::{ZhangError, ZhangResult};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
@@ -15,10 +16,11 @@ use sqlx::{Acquire, FromRow, Sqlite};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
-use zhang_ast::{Meta, SpanInfo};
-use crate::constants::KEY_DEFAULT_COMMODITY_PRECISION;
+use zhang_ast::amount::Amount;
+use zhang_ast::{Account, Flag, Meta, SpanInfo};
 
 pub mod schemas;
 
@@ -66,135 +68,90 @@ impl Operations {
 
 impl Operations {
     pub(crate) async fn insert_or_update_account(
-        &mut self, datetime: DateTime<Tz>, account_type: String, account_name: &str, status: &str, alias: Option<&str>,
+        &mut self, datetime: DateTime<Tz>, account: Account, status: AccountStatus, alias: Option<&str>,
     ) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
-        sqlx::query(r#"INSERT OR REPLACE INTO accounts(date, type, name, status, alias) VALUES ($1, $2, $3, $4, $5);"#)
-            .bind(datetime)
-            .bind(account_type)
-            .bind(account_name)
-            .bind(status)
-            .bind(alias)
-            .execute(conn)
-            .await?;
+        let mut store = self.write();
+        let account_domain = store.accounts.entry(account.clone()).or_insert_with(|| AccountDomain {
+            date: datetime.naive_local(),
+            r#type: account.account_type.to_string(),
+            name: account.name().to_owned(),
+            status,
+            alias: alias.map(|it| it.to_owned()),
+        });
+
+        // if account exists, the property only can be changed is status;
+        account_domain.status = status;
+
         Ok(())
     }
     pub(crate) async fn insert_transaction(
-        &mut self, id: &String, datetime: DateTime<Tz>, flag: String, payee: Option<&str>, narration: Option<&str>, filename: Option<&str>, span_start: i64,
-        span_end: i64,
+        &mut self, id: &Uuid, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>, tags: Vec<String>, links: Vec<String>,
+        span: &SpanInfo,
     ) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
+        let mut store = self.write();
 
-        sqlx::query(
-            r#"INSERT INTO transactions (id, datetime, type, payee, narration, source_file, span_start, span_end)VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-        )
-        .bind(id)
-        .bind(datetime)
-        .bind(flag)
-        .bind(payee)
-        .bind(narration)
-        .bind(filename)
-        .bind(span_start)
-        .bind(span_end)
-        .execute(conn)
-        .await?;
+        store.transactions.insert(
+            id.clone(),
+            TransactionHeaderDomain {
+                id: id.clone(),
+                datetime,
+                flag,
+                payee: payee.map(|it| it.to_owned()),
+                narration: narration.map(|it| it.to_owned()),
+                span: span.clone(),
+                tags,
+                links,
+            },
+        );
+
         Ok(())
     }
 
     pub(crate) async fn insert_transaction_posting(
-        &mut self, id: &String, account_name: &str, unit_number: Option<String>, unit_commodity: Option<&String>, cost_number: Option<String>,
-        cost_commodity: Option<&String>, inferred_amount_number: String, inferred_amount_commodity: &String, previous_number: &ZhangBigDecimal,
-        previous_commodity: &String, after_number: String, after_commodity: &String,
+        &mut self, trx_id: &Uuid, account_name: &str, unit: Option<Amount>, cost: Option<Amount>, inferred_amount: Amount, previous_amount: Amount,
+        after_amount: Amount,
+    ) -> ZhangResult<()> {
+        let mut store = self.write();
+
+        let time = store.transactions.get(trx_id).map(|it| it.datetime.clone()).expect("cannot find trx");
+        store.postings.push(PostingDomain {
+            id: Uuid::new_v4(),
+            trx_id: trx_id.clone(),
+            trx_datetime: time,
+            account: Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?,
+            unit,
+            cost,
+            inferred_amount,
+            previous_amount,
+            after_amount,
+        });
+        Ok(())
+    }
+
+    pub(crate) async fn insert_document(
+        &mut self, datetime: DateTime<Tz>, filename: Option<&str>, path: String, document_type: DocumentType,
     ) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
+        let mut store = self.write();
 
-        sqlx::query(
-            r#"INSERT INTO transaction_postings
-                               (trx_id, account, unit_number, unit_commodity, cost_number, cost_commodity, inferred_unit_number, inferred_unit_commodity,
-                                account_before_number, account_before_commodity, account_after_number, account_after_commodity
-                               )
-                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
-        )
-        .bind(id)
-        .bind(account_name)
-        .bind(unit_number)
-        .bind(unit_commodity)
-        .bind(cost_number)
-        .bind(cost_commodity)
-        .bind(inferred_amount_number)
-        .bind(inferred_amount_commodity)
-        .bind(previous_number)
-        .bind(previous_commodity)
-        .bind(after_number)
-        .bind(after_commodity)
-        .execute(conn)
-        .await?;
-        Ok(())
-    }
+        store.documents.push(DocumentDomain {
+            datetime,
+            document_type,
+            filename: filename.map(|it| it.to_owned()),
+            path,
+        });
 
-    pub(crate) async fn insert_transaction_tag(&mut self, id: &String, tag: &String) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
-
-        sqlx::query(r#"INSERT INTO transaction_tags (trx_id, tag)VALUES ($1, $2)"#)
-            .bind(id)
-            .bind(tag)
-            .execute(conn)
-            .await?;
-        Ok(())
-    }
-    pub(crate) async fn insert_transaction_link(&mut self, id: &String, link: &String) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
-
-        sqlx::query(r#"INSERT INTO transaction_tags (trx_id, tag)VALUES ($1, $2)"#)
-            .bind(id)
-            .bind(link)
-            .execute(conn)
-            .await?;
-        Ok(())
-    }
-
-    pub(crate) async fn insert_trx_document(
-        &mut self, datetime: DateTime<Tz>, filename: Option<&str>, path: &str, extension: Option<&str>, trx_id: &str,
-    ) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
-
-        sqlx::query(r#"INSERT INTO documents (datetime, filename, path, extension, trx_id) VALUES ($1, $2, $3, $4, $5);"#)
-            .bind(datetime)
-            .bind(filename)
-            .bind(path)
-            .bind(extension)
-            .bind(trx_id)
-            .execute(conn)
-            .await?;
-        Ok(())
-    }
-
-    pub(crate) async fn insert_account_document(
-        &mut self, datetime: DateTime<Tz>, filename: Option<&str>, path: &str, extension: Option<&str>, account_name: &str,
-    ) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
-
-        sqlx::query(r#"INSERT INTO documents (datetime, filename, path, extension, account) VALUES ($1, $2, $3, $4, $5);"#)
-            .bind(datetime)
-            .bind(filename)
-            .bind(path)
-            .bind(extension)
-            .bind(account_name)
-            .execute(conn)
-            .await?;
         Ok(())
     }
 
     pub(crate) async fn insert_price(&mut self, datetime: DateTime<Tz>, commodity: &str, amount: &BigDecimal, target_commodity: &str) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
-
-        sqlx::query(r#"INSERT INTO prices (datetime, commodity, amount, target_commodity)VALUES ($1, $2, $3, $4)"#)
-            .bind(datetime)
-            .bind(commodity)
-            .bind(amount.to_string())
-            .bind(target_commodity)
-            .execute(conn)
-            .await?;
+        let mut store = self.write();
+        store.prices.push(PriceDomain {
+            datetime: datetime.naive_local(),
+            commodity: commodity.to_owned(),
+            amount: ZhangBigDecimal(amount.clone()),
+            target_commodity: target_commodity.to_owned(),
+        });
         Ok(())
     }
 
@@ -217,99 +174,72 @@ impl Operations {
         Ok(option)
     }
 
-    pub(crate) async fn account_lot(
-        &mut self, account_name: &str, currency: &str, price_amount: &BigDecimal, price_commodity: &str,
-    ) -> ZhangResult<Option<LotRow>> {
-        let conn = self.pool.acquire().await?;
+    pub(crate) async fn account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>) -> ZhangResult<Option<CommodityLotRecord>> {
 
-        let lot: Option<LotRow> = sqlx::query_as(
-            r#"
-            select amount, price_amount, price_commodity
-            from commodity_lots
-            where account = $1 and commodity = $2 and price_amount = $3 and price_commodity = $4"#,
-        )
-        .bind(account_name)
-        .bind(currency)
-        .bind(price_amount.to_string())
-        .bind(price_commodity)
-        .fetch_optional(conn)
-        .await?;
-        Ok(lot)
+        let mut store = self.write();
+        let entry = store
+            .commodity_lots
+            .entry(Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?)
+            .or_insert_with(|| vec![]);
+
+        let option = entry
+            .iter()
+            .filter(|lot| lot.commodity.eq(currency))
+            .filter(|lot| lot.price.eq(&price))
+            .next()
+            .cloned();
+
+        Ok(option)
     }
 
-    pub(crate) async fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str) -> ZhangResult<Option<LotRow>> {
-        let conn = self.pool.acquire().await?;
+    pub(crate) async fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str) -> ZhangResult<Option<CommodityLotRecord>> {
+        let mut store = self.write();
+        let entry = store
+            .commodity_lots
+            .entry(Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?)
+            .or_insert_with(|| vec![]);
 
-        let lot: Option<LotRow> = sqlx::query_as(
-            r#"
-                select amount, price_amount, price_commodity
-                from commodity_lots
-                where account = $1 and commodity = $2
-                  and (price_commodity = $3 or price_commodity is null)
-                  and ((amount != 0 and price_amount is not null) or price_amount is null)
-                order by datetime desc
-            "#,
-        )
-        .bind(account_name)
-        .bind(currency)
-        .bind(price_commodity)
-        .fetch_optional(conn)
-        .await?;
-        Ok(lot)
+        let option = entry
+            .iter()
+            .filter(|lot| lot.commodity.eq(currency))
+            .filter(|lot| lot.price.as_ref().map(|it|it.currency.as_str()).eq(&Some(price_commodity)))
+            .next()
+            .cloned();
+
+        Ok(option)
     }
-    pub(crate) async fn update_account_lot(
-        &mut self, account_name: &str, currency: &str, price_amount: &BigDecimal, price_commodity: &str, amount: &BigDecimal,
-    ) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
+    pub(crate) async fn update_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
+        let mut store = self.write();
+        let entry = store
+            .commodity_lots
+            .entry(Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?)
+            .or_insert_with(|| vec![]);
 
-        sqlx::query(
-            r#"update commodity_lots
-                        set amount = $1
-                        where account = $2 and commodity = $3  and price_amount = $4 and price_commodity = $5"#,
-        )
-        .bind(amount.to_string())
-        .bind(account_name)
-        .bind(currency)
-        .bind(price_amount.to_string())
-        .bind(price_commodity)
-        .execute(conn)
-        .await?;
+        let option = entry.iter_mut().filter(|lot| lot.price.eq(&price)).next();
+        if let Some(lot) = option {
+            lot.amount = amount.clone();
+        } else {
+            entry.push(CommodityLotRecord {
+                commodity: currency.to_owned(),
+                datetime: None,
+                amount: amount.clone(),
+                price,
+            })
+        }
         Ok(())
     }
 
-    pub(crate) async fn update_account_default_lot(&mut self, account_name: &str, currency: &str, amount: &BigDecimal) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
+    pub(crate) async fn insert_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
+        let mut store = self.write();
+        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
+        let lot_records = store.commodity_lots.entry(account).or_insert_with(|| vec![]);
 
-        sqlx::query(
-            r#"update commodity_lots
-                        set amount = $1
-                        where account = $2 and commodity = $3  and price_amount is NULL and price_commodity is NULL"#,
-        )
-        .bind(amount.to_string())
-        .bind(account_name)
-        .bind(currency)
-        .execute(conn)
-        .await?;
-        Ok(())
-    }
-
-    pub(crate) async fn insert_account_lot(
-        &mut self, account_name: &str, currency: &str, price_amount: Option<&BigDecimal>, price_commodity: Option<&str>, amount: &BigDecimal,
-    ) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
-
-        sqlx::query(
-            r#"INSERT INTO commodity_lots (account, commodity, datetime, amount, price_amount, price_commodity)
-                                    VALUES ($1, $2, $3, $4, $5, $6)"#,
-        )
-        .bind(account_name)
-        .bind(currency)
-        .bind(None::<NaiveDateTime>)
-        .bind(amount.to_string())
-        .bind(price_amount.map(|it| it.to_string()))
-        .bind(price_commodity)
-        .execute(conn)
-        .await?;
+        lot_records.push(CommodityLotRecord {
+            commodity: currency.to_owned(),
+            datetime: None,
+            amount: amount.clone(),
+            price,
+        });
         Ok(())
     }
 }
@@ -352,59 +282,51 @@ impl Operations {
     }
 
     pub async fn get_price(&mut self, date: NaiveDateTime, from: impl AsRef<str>, to: impl AsRef<str>) -> ZhangResult<Option<PriceDomain>> {
-        let datetime = self.timezone.from_local_datetime(&date).unwrap();
-        let conn = self.pool.acquire().await?;
-        Ok(sqlx::query_as::<_, PriceDomain>(
-            "select datetime, commodity, amount, target_commodity from prices where datetime <= $1 and commodity = $2 and target_commodity = $3",
-        )
-        .bind(datetime)
-        .bind(from.as_ref())
-        .bind(to.as_ref())
-        .fetch_optional(conn)
-        .await?)
+        let store = self.read();
+        let x = store
+            .prices
+            .iter()
+            .filter(|price| price.commodity.eq(from.as_ref()))
+            .filter(|price| price.target_commodity.eq(to.as_ref()))
+            .filter(|price| price.datetime.le(&date))
+            .sorted_by(|a, b| a.datetime.cmp(&b.datetime))
+            .next()
+            .cloned();
+        Ok(x)
     }
 
     pub async fn metas(&mut self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
         let conn = self.pool.acquire().await?;
-
-        let rows = sqlx::query_as::<_, MetaDomain>(
-            r#"
-            select type as meta_type, type_identifier, key, value from metas where type = $1 and type_identifier = $2
-        "#,
-        )
-        .bind(type_.as_ref())
-        .bind(type_identifier.as_ref())
-        .fetch_all(conn)
-        .await?;
-        Ok(rows)
+        let store = self.read();
+        Ok(store
+            .metas
+            .iter()
+            .filter(|meta| meta.meta_type.eq(type_.as_ref()))
+            .filter(|meta| meta.type_identifier.eq(type_identifier.as_ref()))
+            .cloned()
+            .collect_vec())
     }
 
     pub async fn trx_tags(&mut self, trx_id: impl AsRef<str>) -> ZhangResult<Vec<String>> {
-        let conn = self.pool.acquire().await?;
+        let store = self.read();
+        let tags = store
+            .transactions
+            .get(&Uuid::from_str(trx_id.as_ref()).unwrap())
+            .map(|it| it.tags.clone())
+            .unwrap_or_default();
 
-        let rows = sqlx::query_as::<_, ValueRow>(
-            r#"
-        select tag as value from transaction_tags where trx_id = $1
-        "#,
-        )
-        .bind(trx_id.as_ref())
-        .fetch_all(conn)
-        .await?;
-        Ok(rows.into_iter().map(|it| it.value).collect_vec())
+        Ok(tags)
     }
 
     pub async fn trx_links(&mut self, trx_id: impl AsRef<str>) -> ZhangResult<Vec<String>> {
-        let conn = self.pool.acquire().await?;
+        let store = self.read();
+        let tags = store
+            .transactions
+            .get(&Uuid::from_str(trx_id.as_ref()).unwrap())
+            .map(|it| it.links.clone())
+            .unwrap_or_default();
 
-        let rows = sqlx::query_as::<_, ValueRow>(
-            r#"
-        select link as value from transaction_links where trx_id = $1
-        "#,
-        )
-        .bind(trx_id.as_ref())
-        .fetch_all(conn)
-        .await?;
-        Ok(rows.into_iter().map(|it| it.value).collect_vec())
+        Ok(tags)
     }
 
     pub async fn commodity(&mut self, name: &str) -> ZhangResult<Option<CommodityDomain>> {
@@ -417,28 +339,29 @@ impl Operations {
     }
 
     pub async fn exist_account(&mut self, name: &str) -> ZhangResult<bool> {
-        let conn = self.pool.acquire().await?;
-
-        Ok(sqlx::query("select 1 from accounts where name = $1")
-            .bind(name)
-            .fetch_optional(conn)
-            .await?
-            .is_some())
+        Ok(self.account(name).await?.is_some())
     }
 
     pub async fn transaction_counts(&mut self) -> ZhangResult<i64> {
         let conn = self.pool.acquire().await?;
-        Ok(sqlx::query_as::<_, (i64,)>(r#"select count(1) from transactions"#).fetch_one(conn).await?.0)
+        let store = self.read();
+        Ok(store.transactions.len() as i64)
     }
 
     pub async fn transaction_span(&mut self, id: &str) -> ZhangResult<TransactionInfoDomain> {
         let conn = self.pool.acquire().await?;
-        Ok(
-            sqlx::query_as::<_, TransactionInfoDomain>(r#"select id, source_file, span_start, span_end from transactions where id = $1"#)
-                .bind(id)
-                .fetch_one(conn)
-                .await?,
-        )
+
+        let store = self.read();
+        Ok(store
+            .transactions
+            .get(&Uuid::from_str(id).unwrap())
+            .map(|it| TransactionInfoDomain {
+                id: it.id.to_string(),
+                source_file: it.span.filename.clone().unwrap(),
+                span_start: it.span.start,
+                span_end: it.span.end,
+            })
+            .unwrap())
     }
 
     pub async fn account_balances(&mut self) -> ZhangResult<Vec<AccountBalanceDomain>> {
@@ -519,58 +442,15 @@ impl Operations {
     }
 
     pub async fn errors(&mut self) -> ZhangResult<Vec<ErrorDomain>> {
-        let conn = self.pool.acquire().await?;
-
-        #[derive(FromRow)]
-        struct ErrorRow {
-            pub id: String,
-            pub filename: Option<String>,
-            pub span_start: Option<i64>,
-            pub span_end: Option<i64>,
-            pub content: String,
-            pub error_type: ErrorType,
-            pub metas: String,
-        }
-
-        let rows = sqlx::query_as::<_, ErrorRow>(
-            r#"
-            select
-                id, filename, span_start, span_end, content, content, error_type, metas
-            from errors
-        "#,
-        )
-        .fetch_all(conn)
-        .await?;
-        Ok(rows
-            .into_iter()
-            .map(|row| {
-                let span = match (row.span_start, row.span_end) {
-                    (Some(start), Some(end)) => Some(SpanInfo {
-                        start: start as usize,
-                        end: end as usize,
-                        content: row.content,
-                        filename: row.filename.map(PathBuf::from),
-                    }),
-                    _ => None,
-                };
-                ErrorDomain {
-                    id: row.id,
-                    span,
-                    error_type: row.error_type,
-                    metas: serde_json::from_str(&row.metas).unwrap(),
-                }
-            })
-            .collect_vec())
+        let store = self.read();
+        Ok(store.errors.iter().cloned().collect_vec())
     }
 
     pub async fn account(&mut self, account_name: &str) -> ZhangResult<Option<AccountDomain>> {
-        let conn = self.pool.acquire().await?;
-        Ok(
-            sqlx::query_as::<_, AccountDomain>(r#"select date, type, name, status, alias from accounts where name = $1"#)
-                .bind(account_name)
-                .fetch_optional(conn)
-                .await?,
-        )
+        let store = self.read();
+
+        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
+        Ok(store.accounts.get(&account).cloned())
     }
     pub async fn all_open_accounts(&mut self) -> ZhangResult<Vec<AccountDomain>> {
         let conn = self.pool.acquire().await?;
@@ -641,23 +521,13 @@ impl Operations {
 impl Operations {
     pub async fn new_error(&mut self, error_type: ErrorType, span: &SpanInfo, metas: HashMap<String, String>) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
-        sqlx::query(
-            r#"
-            INSERT OR REPLACE INTO
-                errors(id, filename, span_start, span_end, content, error_type, metas)
-            VALUES
-                ($1, $2, $3, $4, $5, $6, $7);
-        "#,
-        )
-        .bind(Uuid::new_v4().to_string())
-        .bind(span.filename.as_ref().and_then(|it| it.to_str()))
-        .bind(span.start as i64)
-        .bind(span.end as i64)
-        .bind(&span.content)
-        .bind(error_type)
-        .bind(serde_json::to_string(&metas).unwrap())
-        .execute(conn)
-        .await?;
+        let mut store = self.write();
+        store.errors.push(ErrorDomain {
+            id: Uuid::new_v4().to_string(),
+            error_type,
+            span: Some(span.clone()),
+            metas,
+        });
         Ok(())
     }
 
@@ -669,21 +539,22 @@ impl Operations {
     }
 
     pub async fn insert_meta(&mut self, type_: MetaType, type_identifier: impl AsRef<str>, meta: Meta) -> ZhangResult<()> {
-
         let mut store = self.write();
 
         for (meta_key, meta_value) in meta.get_flatten() {
-            let option = store.metas.iter_mut()
+            let option = store
+                .metas
+                .iter_mut()
                 .filter(|it| it.type_identifier.eq(type_identifier.as_ref()))
                 .filter(|it| it.meta_type.eq(type_.as_ref()))
                 .filter(|it| it.key.eq(&meta_key))
                 .next();
             if let Some(meta) = option {
                 meta.value = meta_value.to_plain_string()
-            }else {
+            } else {
                 store.metas.push(MetaDomain {
                     meta_type: type_.as_ref().to_string(),
-                    type_identifier:type_identifier.as_ref().to_owned(),
+                    type_identifier: type_identifier.as_ref().to_owned(),
                     key: meta_key,
                     value: meta_value.to_plain_string(),
                 });
@@ -693,27 +564,32 @@ impl Operations {
     }
 
     pub async fn close_account(&mut self, account_name: &str) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
-        sqlx::query(r#"update accounts set status = 'Close' where name = $1"#)
-            .bind(account_name)
-            .execute(conn)
-            .await?;
+        let mut store = self.write();
+
+        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
+        let option = store.accounts.get_mut(&account);
+
+        if let Some(account) = option {
+            account.status = AccountStatus::Close
+        }
+
         Ok(())
     }
 
     pub async fn insert_commodity(
         &mut self, name: &String, precision: i32, prefix: Option<String>, suffix: Option<String>, rounding: Option<String>,
     ) -> ZhangResult<()> {
-
-
         let mut store = self.write();
-        store.commodities.insert(name.to_owned(), CommodityDomain {
-            name: name.to_owned(),
-            precision,
-            prefix,
-            suffix,
-            rounding,
-        });
+        store.commodities.insert(
+            name.to_owned(),
+            CommodityDomain {
+                name: name.to_owned(),
+                precision,
+                prefix,
+                suffix,
+                rounding,
+            },
+        );
         Ok(())
     }
 }

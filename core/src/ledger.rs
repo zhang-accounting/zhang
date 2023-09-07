@@ -499,7 +499,10 @@ mod test {
     }
 
     mod extract_info {
+        use std::str::FromStr;
         use indoc::indoc;
+        use zhang_ast::Account;
+        use crate::domains::schemas::AccountStatus;
 
         use crate::ledger::test::load_from_temp_str;
 
@@ -509,27 +512,10 @@ mod test {
                     1970-01-01 open Assets:Hello CNY
                 "#})
             .await;
-            let mut conn = ledger.connection().await;
-            count!(
-                "should have account record",
-                "select * from accounts where name = 'Assets:Hello' and status = 'Open' ",
-                &mut conn
-            );
-            // todo test account's commodity
-        }
+            let store = ledger.store.read().unwrap();
+            let account = store.accounts.get(&Account::from_str("Assets:Hello").unwrap()).unwrap();
+            assert_eq!(account.status, AccountStatus::Open);
 
-        #[tokio::test]
-        async fn should_extract_account_close() {
-            let ledger = load_from_temp_str(indoc! {r#"
-                    1970-01-01 open Assets:Hello CNY
-                "#})
-            .await;
-            let mut conn = ledger.connection().await;
-            count!(
-                "should have account record",
-                "select * from accounts where name = 'Assets:Hello' and status = 'Open' ",
-                &mut conn
-            );
         }
 
         #[tokio::test]
@@ -539,18 +525,9 @@ mod test {
                     1970-02-01 close Assets:Hello
                 "#})
             .await;
-            let mut conn = ledger.connection().await;
-            count!(
-                "should have account record",
-                "select * from accounts where name = 'Assets:Hello' and status = 'Close'",
-                &mut conn
-            );
-            count!(
-                "should not have account record",
-                0,
-                "select * from accounts where name = 'Assets:Hello' and status = 'Open'",
-                &mut conn
-            );
+            let store = ledger.store.read().unwrap();
+            let account = store.accounts.get(&Account::from_str("Assets:Hello").unwrap()).unwrap();
+            assert_eq!(account.status, AccountStatus::Close);
         }
 
         #[tokio::test]

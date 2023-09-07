@@ -13,7 +13,7 @@ pub enum AccountType {
     Expenses,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Account {
     pub account_type: AccountType,
     pub content: String,

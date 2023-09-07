@@ -3,6 +3,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use serde::Serialize;
 use sqlx::FromRow;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use strum::{AsRefStr, EnumString};
 use zhang_ast::{Currency, SpanInfo};
 
@@ -106,12 +107,12 @@ pub struct CommodityDomain {
     pub rounding: Option<String>,
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub struct TransactionInfoDomain {
     pub id: String,
-    pub source_file: String,
-    pub span_start: i64,
-    pub span_end: i64,
+    pub source_file: PathBuf,
+    pub span_start: usize,
+    pub span_end: usize,
 }
 
 #[derive(FromRow, Debug, Clone, Serialize)]
