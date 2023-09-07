@@ -3,6 +3,7 @@ use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, CommodityDomain, ErrorDomain, ErrorType, MetaDomain, MetaType,
     OptionDomain, PriceDomain, TransactionInfoDomain,
 };
+use crate::store::Store;
 use crate::ZhangResult;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone};
@@ -13,6 +14,8 @@ use sqlx::pool::PoolConnection;
 use sqlx::{Acquire, FromRow, Sqlite};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
 use zhang_ast::{Meta, SpanInfo};
 
@@ -45,11 +48,20 @@ pub struct StaticRow {
 }
 
 pub struct Operations {
+    #[cfg(feature = "sqlite")]
     pub(crate) pool: PoolConnection<Sqlite>,
     pub timezone: Tz,
+    pub store: Arc<RwLock<Store>>,
 }
 
-impl Operations {}
+impl Operations {
+    pub fn read(&self) -> RwLockReadGuard<Store> {
+        self.store.read().unwrap()
+    }
+    pub fn write(&self) -> RwLockWriteGuard<Store> {
+        self.store.write().unwrap()
+    }
+}
 
 impl Operations {
     pub(crate) async fn insert_or_update_account(
@@ -303,29 +315,18 @@ impl Operations {
 
 impl Operations {
     pub async fn options(&mut self) -> ZhangResult<Vec<OptionDomain>> {
-        let conn = self.pool.acquire().await?;
+        let store = self.read();
 
-        let options = sqlx::query_as::<_, OptionDomain>(
-            r#"
-                select key, value from options
-                "#,
-        )
-        .fetch_all(conn)
-        .await?;
-        Ok(options)
+        Ok(store.options.clone().into_iter().map(|(key, value)| OptionDomain { key, value }).collect_vec())
     }
-    pub async fn option(&mut self, key: impl AsRef<str>) -> ZhangResult<Option<OptionDomain>> {
-        let conn = self.pool.acquire().await?;
 
-        let option = sqlx::query_as::<_, OptionDomain>(
-            r#"
-                select key, value from options where key = $1
-                "#,
-        )
-        .bind(key.as_ref())
-        .fetch_optional(conn)
-        .await?;
-        Ok(option)
+    pub async fn option(&mut self, key: impl AsRef<str>) -> ZhangResult<Option<OptionDomain>> {
+        let store = self.read();
+
+        Ok(store.options.get(key.as_ref()).map(|value| OptionDomain {
+            key: key.as_ref().to_string(),
+            value: value.to_owned(),
+        }))
     }
 
     pub async fn accounts_latest_balance(&mut self) -> ZhangResult<Vec<AccountDailyBalanceDomain>> {
@@ -674,12 +675,9 @@ impl Operations {
     }
 
     pub async fn insert_or_update_options(&mut self, key: &str, value: &str) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
-        sqlx::query(r#"INSERT OR REPLACE INTO options VALUES ($1, $2);"#)
-            .bind(key)
-            .bind(value)
-            .execute(conn)
-            .await?;
+        let mut store = self.write();
+
+        store.options.insert(key.to_owned(), value.to_owned());
         Ok(())
     }
 

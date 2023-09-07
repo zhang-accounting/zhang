@@ -22,6 +22,7 @@ pub struct InMemoryOptions {
 
 #[derive(Debug, AsRefStr, EnumIter, EnumString)]
 #[strum(serialize_all = "snake_case")]
+#[non_exhaustive]
 pub enum BuiltinOption {
     OperatingCurrency,
     DefaultRounding,

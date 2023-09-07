@@ -1,8 +1,9 @@
 use std::cmp::Ordering;
 use std::option::Option::None;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use bigdecimal::Zero;
 use glob::Pattern;
@@ -19,14 +20,14 @@ use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::process::DirectiveProcess;
+use crate::store::Store;
 use crate::transform::Transformer;
 use crate::utils::bigdecimal_ext::BigDecimalExt;
 use crate::ZhangResult;
 
 pub struct Ledger {
     pub entry: (PathBuf, String),
-    pub database: Option<PathBuf>,
-    pub pool_connection: SqlitePool,
+
     pub visited_files: Vec<Pattern>,
 
     pub options: InMemoryOptions,
@@ -35,6 +36,13 @@ pub struct Ledger {
     pub metas: Vec<Spanned<Directive>>,
 
     transformer: Arc<dyn Transformer>,
+
+    store: Arc<RwLock<Store>>,
+
+    #[cfg(feature = "sqlite")]
+    pub database: Option<PathBuf>,
+    #[cfg(feature = "sqlite")]
+    pub pool_connection: SqlitePool,
 }
 
 impl Ledger {
@@ -57,6 +65,7 @@ impl Ledger {
         .await
     }
 
+    #[cfg(feature = "sqlite")]
     pub async fn connection(&self) -> PoolConnection<Sqlite> {
         self.pool_connection.acquire().await.unwrap()
     }
@@ -65,6 +74,7 @@ impl Ledger {
         directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: Option<PathBuf>, visited_files: Vec<Pattern>,
         transformer: Arc<dyn Transformer>,
     ) -> ZhangResult<Ledger> {
+        #[cfg(feature = "sqlite")]
         let sqlite_pool = if let Some(ref path) = database {
             info!("database store at {}", path.display());
             SqlitePool::connect_with(
@@ -82,8 +92,9 @@ impl Ledger {
                 .connect_with(SqliteConnectOptions::from_str("sqlite::memory:").unwrap().journal_mode(SqliteJournalMode::Wal))
                 .await?
         };
+        #[cfg(feature = "sqlite")]
         let mut connection = sqlite_pool.acquire().await?;
-
+        #[cfg(feature = "sqlite")]
         Migration::init_database_if_missing(&mut connection).await?;
 
         let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
@@ -92,12 +103,15 @@ impl Ledger {
         let mut ret_ledger = Self {
             options: InMemoryOptions::default(),
             entry,
+            #[cfg(feature = "sqlite")]
             database,
+            #[cfg(feature = "sqlite")]
             pool_connection: sqlite_pool,
             visited_files,
             directives: vec![],
             metas: vec![],
             transformer,
+            store: Default::default(),
         };
         let mut merged_metas = BuiltinOption::default_options()
             .into_iter()
@@ -209,9 +223,15 @@ impl Ledger {
     }
 
     pub async fn operations(&self) -> Operations {
+        #[cfg(feature = "sqlite")]
         let pool = self.connection().await;
         let timezone = self.options.timezone;
-        Operations { pool, timezone }
+        Operations {
+            #[cfg(feature = "sqlite")]
+            pool,
+            store: self.store.clone(),
+            timezone,
+        }
     }
 }
 
