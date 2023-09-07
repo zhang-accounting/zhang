@@ -3,7 +3,7 @@ use crate::domains::schemas::{
     OptionDomain, PriceDomain, TransactionInfoDomain,
 };
 use crate::ZhangResult;
-use chrono::{NaiveDateTime, TimeZone};
+use chrono::{NaiveDate, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use itertools::Itertools;
 use sqlx::pool::PoolConnection;
@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use uuid::Uuid;
 use zhang_ast::{Meta, SpanInfo};
+use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 
 pub mod schemas;
 
@@ -19,6 +20,16 @@ pub mod schemas;
 struct ValueRow {
     value: String,
 }
+
+
+#[derive(FromRow)]
+pub struct StaticRow {
+    pub date: NaiveDate,
+    pub account_type: String,
+    pub amount: ZhangBigDecimal,
+    pub commodity: String,
+}
+
 
 pub struct Operations {
     pub(crate) pool: PoolConnection<Sqlite>,
@@ -338,8 +349,34 @@ impl Operations {
         )
     }
 
+    pub async fn static_duration(&mut self, from: NaiveDateTime, to: NaiveDateTime) -> ZhangResult<Vec<StaticRow>> {
 
+        let conn = self.pool.acquire().await?;
+        let rows = sqlx::query_as::<_, StaticRow>(
+            r#"
+        SELECT
+            date(datetime) AS date,
+            accounts.type AS account_type,
+            sum(inferred_unit_number) AS amount,
+            inferred_unit_commodity AS commodity
+        FROM
+            transaction_postings
+            JOIN transactions ON transactions.id = transaction_postings.trx_id
+            JOIN accounts ON accounts.name = transaction_postings.account
+            where transactions.datetime >= $1 and transactions.datetime <= $2
+        GROUP BY
+            date(datetime),
+            accounts.type,
+            inferred_unit_commodity
+    "#,
+        )
+            .bind(from)
+            .bind(to)
+            .fetch_all(conn)
+            .await?;
 
+        Ok(rows)
+    }
 }
 
 // for insert and new operations

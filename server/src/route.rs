@@ -95,37 +95,11 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
 pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> ApiResult<StatisticResponse> {
     let ledger = ledger.read().await;
     let mut connection = ledger.connection().await;
+    let mut operations = ledger.operations().await;
     let params = params.into_inner();
-    #[derive(FromRow)]
-    pub struct StaticRow {
-        date: NaiveDate,
-        account_type: String,
-        amount: ZhangBigDecimal,
-        commodity: String,
-    }
-    // todo(sqlx): move to operation
-    let rows = sqlx::query_as::<_, StaticRow>(
-        r#"
-        SELECT
-            date(datetime) AS date,
-            accounts.type AS account_type,
-            sum(inferred_unit_number) AS amount,
-            inferred_unit_commodity AS commodity
-        FROM
-            transaction_postings
-            JOIN transactions ON transactions.id = transaction_postings.trx_id
-            JOIN accounts ON accounts.name = transaction_postings.account
-            where transactions.datetime >= $1 and transactions.datetime <= $2
-        GROUP BY
-            date(datetime),
-            accounts.type,
-            inferred_unit_commodity
-    "#,
-    )
-    .bind(params.from.naive_local())
-    .bind(params.to.naive_local())
-    .fetch_all(&mut connection)
-    .await?;
+
+    let rows = operations.static_duration(params.from.naive_local(), params.to.naive_local()).await?;
+
     let mut ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
     for (date, dated_rows) in &rows.into_iter().group_by(|row| row.date) {
         let date_entry = ret.entry(date).or_insert_with(HashMap::new);
