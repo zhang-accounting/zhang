@@ -3,7 +3,7 @@ import { useLocalStorage } from '@mantine/hooks';
 import { openContextModal } from '@mantine/modals';
 import { IconLayout2, IconListDetails } from '@tabler/icons';
 import { format } from 'date-fns';
-import { groupBy } from 'lodash';
+import { groupBy } from 'lodash-es';
 import useSWR from 'swr';
 import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import { fetcher } from '../index';

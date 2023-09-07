@@ -1,6 +1,6 @@
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
-import { sortBy } from 'lodash';
+import { sortBy } from 'lodash-es';
 import { Chart } from 'react-chartjs-2';
 import { AccountType, StatisticResponse } from '../rest-model';
 
