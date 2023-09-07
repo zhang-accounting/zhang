@@ -44,6 +44,7 @@ import { basicInfoSlice, fetchBasicInfo } from './states/basic';
 import { fetchCommodities } from './states/commodity';
 import { fetchError } from './states/errors';
 import { journalsSlice } from './states/journals';
+import {useLocalStorage} from "@mantine/hooks";
 
 const useStyles = createStyles((theme) => ({
   onlineIcon: {
@@ -168,10 +169,14 @@ const links: LinkItem[] = [
 
 export default function App() {
   const { classes } = useStyles();
-  const { t } = useTranslation();
+  const { t,i18n } = useTranslation();
   const dispatch = useAppDispatch();
   const basicInfo = useAppSelector((state) => state.basic);
 
+  const [lang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
+  if (i18n.language !== lang) {
+    i18n.changeLanguage(lang);
+  }
   useEffect(() => {
     dispatch(fetchError(1));
     dispatch(fetchCommodities());
