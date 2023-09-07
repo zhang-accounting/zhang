@@ -328,6 +328,16 @@ impl Operations {
                 .await?,
         )
     }
+    pub async fn all_accounts(&mut self) -> ZhangResult<Vec<String>> {
+        let conn = self.pool.acquire().await?;
+        let accounts = sqlx::query_as::<_, ValueRow>("select name as value from accounts")
+            .fetch_all(conn)
+            .await?
+            .into_iter()
+            .map(|it| it.value)
+            .collect_vec();
+        Ok(accounts)
+    }
 
     pub async fn all_payees(&mut self) -> ZhangResult<Vec<String>> {
         let conn = self.pool.acquire().await?;

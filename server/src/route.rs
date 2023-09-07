@@ -117,13 +117,8 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
         ret.entry(day).or_insert_with(HashMap::new);
     }
 
-    // todo(sqlx): move to operation
-    let accounts = sqlx::query_as::<_, ValueRow>("select name as value from accounts")
-        .fetch_all(&mut connection)
-        .await?
-        .into_iter()
-        .map(|it| it.value)
-        .collect_vec();
+    let accounts = operations.all_accounts().await?;
+
 
     // todo(sqlx): move to operation
     let existing_account_balance = sqlx::query_as::<_, DetailRow>(
