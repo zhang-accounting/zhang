@@ -7,17 +7,15 @@ use std::time::Instant;
 use crate::constants::{KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::domains::schemas::{AccountStatus, ErrorType, MetaType};
-use crate::domains::{AccountAmount, LotRow, Operations};
+use crate::domains::{AccountAmount, Operations};
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
 use crate::ZhangResult;
 use async_trait::async_trait;
 use bigdecimal::{BigDecimal, FromPrimitive, Zero};
-use chrono::NaiveDateTime;
 use log::debug;
-use serde::Deserialize;
-use sqlx::{Acquire, FromRow, SqliteConnection};
+use sqlx::{Acquire, SqliteConnection};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::utils::inventory::LotInfo;
@@ -78,7 +76,6 @@ async fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span:
 impl DirectiveProcess for Options {
     async fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations().await;
-        let mut conn = ledger.connection().await;
         let option_value = ledger.options.parse(self.key.as_str(), self.value.as_str(), &mut operations).await?;
         operations.insert_or_update_options(self.key.as_str(), option_value.as_str()).await?;
         Ok(())
@@ -88,7 +85,6 @@ impl DirectiveProcess for Options {
 #[async_trait]
 impl DirectiveProcess for Open {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        let mut conn = ledger.connection().await;
         let mut operations = ledger.operations().await;
         for currency in &self.commodities {
             check_commodity_define(currency, ledger, span).await?;
@@ -131,7 +127,6 @@ impl DirectiveProcess for Close {
 #[async_trait]
 impl DirectiveProcess for Commodity {
     async fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
-        let mut conn = ledger.connection().await;
         let mut operations = ledger.operations().await;
 
         let default_precision = operations.option(KEY_DEFAULT_COMMODITY_PRECISION).await?.map(|it| it.value);
@@ -240,16 +235,16 @@ impl DirectiveProcess for Transaction {
             let document_path = document_file_name.to_plain_string();
             let document_pathbuf = PathBuf::from(&document_path);
             let extension = document_pathbuf.extension().and_then(|it| it.to_str());
-            operations.insert_trx_document(
-                self.date.to_timezone_datetime(&ledger.options.timezone),
-                document_pathbuf.file_name().and_then(|it| it.to_str()),
-                &document_path,
-                extension,
-                &id
-            ).await?;
-
+            operations
+                .insert_trx_document(
+                    self.date.to_timezone_datetime(&ledger.options.timezone),
+                    document_pathbuf.file_name().and_then(|it| it.to_str()),
+                    &document_path,
+                    extension,
+                    &id,
+                )
+                .await?;
         }
-
         operations.insert_meta(MetaType::TransactionMeta, &id, self.meta.clone()).await?;
         Ok(())
     }
@@ -258,15 +253,16 @@ impl DirectiveProcess for Transaction {
 #[async_trait]
 impl DirectiveProcess for Balance {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        let mut conn = ledger.connection().await;
         let mut operations = ledger.operations().await;
         match self {
             Balance::BalanceCheck(balance_check) => {
-                let option = operations.account_target_day_balance(
-                    balance_check.account.name(),
-                    balance_check.date.to_timezone_datetime(&ledger.options.timezone),
-                    &balance_check.amount.currency
-                ).await?;
+                let option = operations
+                    .account_target_day_balance(
+                        balance_check.account.name(),
+                        balance_check.date.to_timezone_datetime(&ledger.options.timezone),
+                        &balance_check.amount.currency,
+                    )
+                    .await?;
 
                 let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
 
@@ -314,12 +310,13 @@ impl DirectiveProcess for Balance {
                 check_account_closed(balance_pad.account.name(), ledger, span).await?;
                 check_account_closed(balance_pad.pad.name(), ledger, span).await?;
 
-
-                let option = operations.account_target_day_balance(
-                    balance_pad.account.name(),
-                    balance_pad.date.to_timezone_datetime(&ledger.options.timezone),
-                    &balance_pad.amount.currency,
-                ).await?;
+                let option = operations
+                    .account_target_day_balance(
+                        balance_pad.account.name(),
+                        balance_pad.date.to_timezone_datetime(&ledger.options.timezone),
+                        &balance_pad.amount.currency,
+                    )
+                    .await?;
 
                 let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
 
@@ -376,11 +373,15 @@ impl DirectiveProcess for Document {
         let document_pathbuf = PathBuf::from(&path);
         let extension = document_pathbuf.extension().and_then(|it| it.to_str());
 
-        operations.insert_account_document(self.date.to_timezone_datetime(&ledger.options.timezone),
-        document_pathbuf.file_name().and_then(|it| it.to_str()),
-        &path,
-        extension,
-        self.account.name()).await?;
+        operations
+            .insert_account_document(
+                self.date.to_timezone_datetime(&ledger.options.timezone),
+                document_pathbuf.file_name().and_then(|it| it.to_str()),
+                &path,
+                extension,
+                self.account.name(),
+            )
+            .await?;
         Ok(())
     }
 }
@@ -391,45 +392,39 @@ impl DirectiveProcess for Price {
         let mut operations = ledger.operations().await;
         check_commodity_define(&self.currency, ledger, span).await?;
         check_commodity_define(&self.amount.currency, ledger, span).await?;
-        operations.insert_price(
-            self.date.to_timezone_datetime(&ledger.options.timezone),
-            &self.currency,
-            &self.amount.number,
-            &self.amount.currency
-
-        ).await?;
+        operations
+            .insert_price(
+                self.date.to_timezone_datetime(&ledger.options.timezone),
+                &self.currency,
+                &self.amount.number,
+                &self.amount.currency,
+            )
+            .await?;
 
         Ok(())
     }
 }
 
-
-
 async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, conn: &mut SqliteConnection, operations: &mut Operations) -> ZhangResult<()> {
-    let mut trx = conn.begin().await?;
+    let trx = conn.begin().await?;
     match lot_info {
         LotInfo::Lot(target_currency, lot_number) => {
-
-            let lot = operations.account_lot(&account_name, &amount.currency, &lot_number,&target_currency).await?;
-
+            let lot = operations.account_lot(&account_name, &amount.currency, &lot_number, &target_currency).await?;
 
             if let Some(lot_row) = lot {
-                operations.update_account_lot(
-                    &account_name,
-                    &amount.currency,
-                    &lot_number,
-                    &target_currency,
-                    &BigDecimal::from_f64(lot_row.amount).expect("error").add(&amount.number)
-                ).await?;
-
-
+                operations
+                    .update_account_lot(
+                        &account_name,
+                        &amount.currency,
+                        &lot_number,
+                        &target_currency,
+                        &BigDecimal::from_f64(lot_row.amount).expect("error").add(&amount.number),
+                    )
+                    .await?;
             } else {
-                operations.insert_account_lot(
-                    &account_name,&amount.currency,
-                    Some(&lot_number),
-                    Some(&target_currency),
-                    &amount.number
-                ).await?;
+                operations
+                    .insert_account_lot(&account_name, &amount.currency, Some(&lot_number), Some(&target_currency), &amount.number)
+                    .await?;
             }
         }
         LotInfo::Fifo => {
@@ -437,33 +432,31 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
             if let Some(lot) = lot {
                 if lot.price_amount.is_some() {
                     // target lot
-                    operations.update_account_lot(
-                        &account_name,
-                        &amount.currency,
-                        &BigDecimal::from_f64(lot.price_amount.unwrap()).expect("error"),
-                        &lot.price_commodity.unwrap(),
-                        &BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number)
-                    ).await?;
+                    operations
+                        .update_account_lot(
+                            &account_name,
+                            &amount.currency,
+                            &BigDecimal::from_f64(lot.price_amount.unwrap()).expect("error"),
+                            &lot.price_commodity.unwrap(),
+                            &BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number),
+                        )
+                        .await?;
 
                     // todo check negative
                 } else {
                     // default lot
-                    operations.update_account_default_lot(
-                        &account_name,
-                        &amount.currency,
-                        &BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number)
-                    ).await?;
+                    operations
+                        .update_account_default_lot(
+                            &account_name,
+                            &amount.currency,
+                            &BigDecimal::from_f64(lot.amount).expect("error").add(&amount.number),
+                        )
+                        .await?;
                 }
             } else {
-
-                operations.insert_account_lot(
-                    &account_name,
-                    &amount.currency,
-                    None, None,
-
-                    &amount.number
-                ).await?;
-
+                operations
+                    .insert_account_lot(&account_name, &amount.currency, None, None, &amount.number)
+                    .await?;
             }
         }
         LotInfo::Filo => {

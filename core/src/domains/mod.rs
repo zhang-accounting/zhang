@@ -1,20 +1,20 @@
+use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, CommodityDomain, ErrorDomain, ErrorType, MetaDomain, MetaType,
     OptionDomain, PriceDomain, TransactionInfoDomain,
 };
 use crate::ZhangResult;
+use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use itertools::Itertools;
+use serde::Deserialize;
 use sqlx::pool::PoolConnection;
 use sqlx::{Acquire, FromRow, Sqlite};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use bigdecimal::{BigDecimal, FromPrimitive};
 use uuid::Uuid;
 use zhang_ast::{Meta, SpanInfo};
-use crate::database::type_ext::big_decimal::ZhangBigDecimal;
-use serde::{Deserialize};
 
 pub mod schemas;
 
@@ -44,18 +44,17 @@ pub struct StaticRow {
     pub commodity: String,
 }
 
-
 pub struct Operations {
     pub(crate) pool: PoolConnection<Sqlite>,
     pub timezone: Tz,
 }
 
-impl Operations {
-
-}
+impl Operations {}
 
 impl Operations {
-    pub(crate) async fn insert_or_update_account(&mut self, datetime: DateTime<Tz>, account_type: String, account_name: &str, status: &str, alias: Option<&str>)-> ZhangResult<()> {
+    pub(crate) async fn insert_or_update_account(
+        &mut self, datetime: DateTime<Tz>, account_type: String, account_name: &str, status: &str, alias: Option<&str>,
+    ) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
         sqlx::query(r#"INSERT OR REPLACE INTO accounts(date, type, name, status, alias) VALUES ($1, $2, $3, $4, $5);"#)
             .bind(datetime)
@@ -67,34 +66,33 @@ impl Operations {
             .await?;
         Ok(())
     }
-    pub(crate) async fn insert_transaction(&mut self, id: &String,datetime: DateTime<Tz>, flag: String, payee: Option<&str>, narration: Option<&str>, filename: Option<&str>, span_start: i64, span_end: i64)-> ZhangResult<()> {
+    pub(crate) async fn insert_transaction(
+        &mut self, id: &String, datetime: DateTime<Tz>, flag: String, payee: Option<&str>, narration: Option<&str>, filename: Option<&str>, span_start: i64,
+        span_end: i64,
+    ) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
 
         sqlx::query(
             r#"INSERT INTO transactions (id, datetime, type, payee, narration, source_file, span_start, span_end)VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
         )
-            .bind(id)
-            .bind(datetime)
-            .bind(flag)
-            .bind(payee)
-            .bind(narration)
-            .bind(filename)
-            .bind(span_start)
-            .bind(span_end)
-            .execute( conn)
-            .await?;
+        .bind(id)
+        .bind(datetime)
+        .bind(flag)
+        .bind(payee)
+        .bind(narration)
+        .bind(filename)
+        .bind(span_start)
+        .bind(span_end)
+        .execute(conn)
+        .await?;
         Ok(())
     }
 
-    pub(crate) async fn insert_transaction_posting(&mut self, id: &String,
-    account_name: &str,
-        unit_number:Option<String>, unit_commodity: Option<&String>,
-        cost_number:Option<String>, cost_commodity: Option<&String>,
-        inferred_amount_number:String, inferred_amount_commodity: &String,
-        previous_number:&ZhangBigDecimal, previous_commodity: &String,
-        after_number:String, after_commodity: &String,
-
-    )-> ZhangResult<()> {
+    pub(crate) async fn insert_transaction_posting(
+        &mut self, id: &String, account_name: &str, unit_number: Option<String>, unit_commodity: Option<&String>, cost_number: Option<String>,
+        cost_commodity: Option<&String>, inferred_amount_number: String, inferred_amount_commodity: &String, previous_number: &ZhangBigDecimal,
+        previous_commodity: &String, after_number: String, after_commodity: &String,
+    ) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
 
         sqlx::query(
@@ -104,24 +102,24 @@ impl Operations {
                                )
                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
         )
-            .bind(id)
-            .bind(account_name)
-            .bind(unit_number)
-            .bind(unit_commodity)
-            .bind(cost_number)
-            .bind(cost_commodity)
-            .bind(inferred_amount_number)
-            .bind(inferred_amount_commodity)
-            .bind(previous_number)
-            .bind(previous_commodity)
-            .bind(after_number)
-            .bind(after_commodity)
-            .execute(conn)
-            .await?;
+        .bind(id)
+        .bind(account_name)
+        .bind(unit_number)
+        .bind(unit_commodity)
+        .bind(cost_number)
+        .bind(cost_commodity)
+        .bind(inferred_amount_number)
+        .bind(inferred_amount_commodity)
+        .bind(previous_number)
+        .bind(previous_commodity)
+        .bind(after_number)
+        .bind(after_commodity)
+        .execute(conn)
+        .await?;
         Ok(())
     }
 
-    pub(crate) async fn insert_transaction_tag(&mut self, id: &String, tag:&String)-> ZhangResult<()> {
+    pub(crate) async fn insert_transaction_tag(&mut self, id: &String, tag: &String) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
 
         sqlx::query(r#"INSERT INTO transaction_tags (trx_id, tag)VALUES ($1, $2)"#)
@@ -131,7 +129,7 @@ impl Operations {
             .await?;
         Ok(())
     }
-    pub(crate) async fn insert_transaction_link(&mut self, id: &String, link:&String)-> ZhangResult<()> {
+    pub(crate) async fn insert_transaction_link(&mut self, id: &String, link: &String) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
 
         sqlx::query(r#"INSERT INTO transaction_tags (trx_id, tag)VALUES ($1, $2)"#)
@@ -142,7 +140,9 @@ impl Operations {
         Ok(())
     }
 
-    pub(crate) async fn insert_trx_document(&mut self, datetime: DateTime<Tz>, filename: Option<&str>,  path: &str, extension: Option<&str>, trx_id: &str)-> ZhangResult<()> {
+    pub(crate) async fn insert_trx_document(
+        &mut self, datetime: DateTime<Tz>, filename: Option<&str>, path: &str, extension: Option<&str>, trx_id: &str,
+    ) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
 
         sqlx::query(r#"INSERT INTO documents (datetime, filename, path, extension, trx_id) VALUES ($1, $2, $3, $4, $5);"#)
@@ -156,7 +156,9 @@ impl Operations {
         Ok(())
     }
 
-    pub(crate) async fn insert_account_document(&mut self, datetime: DateTime<Tz>, filename: Option<&str>,  path: &str, extension: Option<&str>, account_name: &str)-> ZhangResult<()> {
+    pub(crate) async fn insert_account_document(
+        &mut self, datetime: DateTime<Tz>, filename: Option<&str>, path: &str, extension: Option<&str>, account_name: &str,
+    ) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
 
         sqlx::query(r#"INSERT INTO documents (datetime, filename, path, extension, account) VALUES ($1, $2, $3, $4, $5);"#)
@@ -170,7 +172,7 @@ impl Operations {
         Ok(())
     }
 
-    pub(crate) async fn insert_price(&mut self, datetime: DateTime<Tz>, commodity:&str, amount: &BigDecimal, target_commodity: &str)-> ZhangResult<()> {
+    pub(crate) async fn insert_price(&mut self, datetime: DateTime<Tz>, commodity: &str, amount: &BigDecimal, target_commodity: &str) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
 
         sqlx::query(r#"INSERT INTO prices (datetime, commodity, amount, target_commodity)VALUES ($1, $2, $3, $4)"#)
@@ -183,8 +185,9 @@ impl Operations {
         Ok(())
     }
 
-
-    pub(crate) async fn account_target_day_balance(&mut self, account_name: &str, datetime: DateTime<Tz>, currency: &str)-> ZhangResult<Option<AccountAmount>> {
+    pub(crate) async fn account_target_day_balance(
+        &mut self, account_name: &str, datetime: DateTime<Tz>, currency: &str,
+    ) -> ZhangResult<Option<AccountAmount>> {
         let conn = self.pool.acquire().await?;
 
         let option: Option<AccountAmount> = sqlx::query_as(
@@ -193,16 +196,17 @@ impl Operations {
                                 where account = $1 and "datetime" <=  $2 and account_after_commodity = $3
                                 order by "datetime" desc, transactions.sequence desc limit 1"#,
         )
-            .bind(account_name)
-            .bind(datetime)
-            .bind(currency)
-            .fetch_optional(conn)
-            .await?;
+        .bind(account_name)
+        .bind(datetime)
+        .bind(currency)
+        .fetch_optional(conn)
+        .await?;
         Ok(option)
     }
 
-
-    pub(crate) async fn account_lot(&mut self, account_name: &str, currency: &str,price_amount: &BigDecimal,  price_commodity: &str)-> ZhangResult<Option<LotRow>> {
+    pub(crate) async fn account_lot(
+        &mut self, account_name: &str, currency: &str, price_amount: &BigDecimal, price_commodity: &str,
+    ) -> ZhangResult<Option<LotRow>> {
         let conn = self.pool.acquire().await?;
 
         let lot: Option<LotRow> = sqlx::query_as(
@@ -211,16 +215,16 @@ impl Operations {
             from commodity_lots
             where account = $1 and commodity = $2 and price_amount = $3 and price_commodity = $4"#,
         )
-            .bind(account_name)
-            .bind(currency)
-            .bind(price_amount.to_string())
-            .bind(price_commodity)
-            .fetch_optional(conn)
-            .await?;
+        .bind(account_name)
+        .bind(currency)
+        .bind(price_amount.to_string())
+        .bind(price_commodity)
+        .fetch_optional(conn)
+        .await?;
         Ok(lot)
     }
 
-    pub(crate) async fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str)-> ZhangResult<Option<LotRow>> {
+    pub(crate) async fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str) -> ZhangResult<Option<LotRow>> {
         let conn = self.pool.acquire().await?;
 
         let lot: Option<LotRow> = sqlx::query_as(
@@ -233,14 +237,16 @@ impl Operations {
                 order by datetime desc
             "#,
         )
-            .bind(account_name)
-            .bind(currency)
-            .bind(price_commodity)
-            .fetch_optional(conn)
-            .await?;
+        .bind(account_name)
+        .bind(currency)
+        .bind(price_commodity)
+        .fetch_optional(conn)
+        .await?;
         Ok(lot)
     }
-    pub(crate) async fn update_account_lot(&mut self, account_name: &str, currency: &str,price_amount: &BigDecimal,  price_commodity: &str, amount: &BigDecimal)-> ZhangResult<()> {
+    pub(crate) async fn update_account_lot(
+        &mut self, account_name: &str, currency: &str, price_amount: &BigDecimal, price_commodity: &str, amount: &BigDecimal,
+    ) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
 
         sqlx::query(
@@ -248,17 +254,17 @@ impl Operations {
                         set amount = $1
                         where account = $2 and commodity = $3  and price_amount = $4 and price_commodity = $5"#,
         )
-            .bind(amount.to_string())
-            .bind(account_name)
-            .bind(currency)
-            .bind(price_amount.to_string())
-            .bind(price_commodity)
-            .execute(conn)
-            .await?;
+        .bind(amount.to_string())
+        .bind(account_name)
+        .bind(currency)
+        .bind(price_amount.to_string())
+        .bind(price_commodity)
+        .execute(conn)
+        .await?;
         Ok(())
     }
 
-    pub(crate) async fn update_account_default_lot(&mut self, account_name: &str, currency: &str, amount: &BigDecimal)-> ZhangResult<()> {
+    pub(crate) async fn update_account_default_lot(&mut self, account_name: &str, currency: &str, amount: &BigDecimal) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
 
         sqlx::query(
@@ -266,35 +272,34 @@ impl Operations {
                         set amount = $1
                         where account = $2 and commodity = $3  and price_amount is NULL and price_commodity is NULL"#,
         )
-            .bind(amount.to_string())
-            .bind(account_name)
-            .bind(currency)
-            .execute(conn)
-            .await?;
+        .bind(amount.to_string())
+        .bind(account_name)
+        .bind(currency)
+        .execute(conn)
+        .await?;
         Ok(())
     }
 
-    pub(crate) async fn insert_account_lot(&mut self, account_name: &str, currency: &str,price_amount: Option<&BigDecimal>,  price_commodity:Option< &str>, amount: &BigDecimal)-> ZhangResult<()> {
+    pub(crate) async fn insert_account_lot(
+        &mut self, account_name: &str, currency: &str, price_amount: Option<&BigDecimal>, price_commodity: Option<&str>, amount: &BigDecimal,
+    ) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
 
         sqlx::query(
             r#"INSERT INTO commodity_lots (account, commodity, datetime, amount, price_amount, price_commodity)
                                     VALUES ($1, $2, $3, $4, $5, $6)"#,
         )
-            .bind(account_name)
-            .bind(currency)
-            .bind(None::<NaiveDateTime>)
-            .bind(amount.to_string())
-            .bind(price_amount.map(|it|it.to_string()))
-            .bind(price_commodity)
-            .execute(conn)
-            .await?;
+        .bind(account_name)
+        .bind(currency)
+        .bind(None::<NaiveDateTime>)
+        .bind(amount.to_string())
+        .bind(price_amount.map(|it| it.to_string()))
+        .bind(price_commodity)
+        .execute(conn)
+        .await?;
         Ok(())
     }
-
-
 }
-
 
 impl Operations {
     pub async fn options(&mut self) -> ZhangResult<Vec<OptionDomain>> {
@@ -610,15 +615,12 @@ impl Operations {
         select distinct payee from transactions
         "#,
         )
-            .fetch_all( conn)
-            .await?;
-        Ok(
-            payees.into_iter().map(|it| it.payee).filter(|it| !it.is_empty()).collect_vec()
-        )
+        .fetch_all(conn)
+        .await?;
+        Ok(payees.into_iter().map(|it| it.payee).filter(|it| !it.is_empty()).collect_vec())
     }
 
     pub async fn static_duration(&mut self, from: NaiveDateTime, to: NaiveDateTime) -> ZhangResult<Vec<StaticRow>> {
-
         let conn = self.pool.acquire().await?;
         let rows = sqlx::query_as::<_, StaticRow>(
             r#"
@@ -638,10 +640,10 @@ impl Operations {
             inferred_unit_commodity
     "#,
         )
-            .bind(from)
-            .bind(to)
-            .fetch_all(conn)
-            .await?;
+        .bind(from)
+        .bind(to)
+        .fetch_all(conn)
+        .await?;
 
         Ok(rows)
     }
@@ -704,19 +706,21 @@ impl Operations {
         Ok(())
     }
 
-    pub async fn insert_commodity(&mut self, name: &String, precision: Option<i32>, prefix: Option<String>, suffix: Option<String>, rounding: Option<String>) -> ZhangResult<()> {
+    pub async fn insert_commodity(
+        &mut self, name: &String, precision: Option<i32>, prefix: Option<String>, suffix: Option<String>, rounding: Option<String>,
+    ) -> ZhangResult<()> {
         let conn = self.pool.acquire().await?;
         sqlx::query(
             r#"INSERT OR REPLACE INTO commodities (name, precision, prefix, suffix, rounding)
                         VALUES ($1, $2, $3, $4, $5);"#,
         )
-            .bind(name)
-            .bind(precision)
-            .bind(prefix)
-            .bind(suffix)
-            .bind(rounding)
-            .execute(conn)
-            .await?;
+        .bind(name)
+        .bind(precision)
+        .bind(prefix)
+        .bind(suffix)
+        .bind(rounding)
+        .execute(conn)
+        .await?;
         Ok(())
     }
 }

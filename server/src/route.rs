@@ -10,7 +10,7 @@ use std::sync::Arc;
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
 use actix_web::web::{Data, Json, Path, Query};
-use actix_web::{get, post, put, web, Responder};
+use actix_web::{get, post, put, Responder};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Local, NaiveDate, NaiveDateTime};
 use futures_util::StreamExt;
@@ -46,10 +46,6 @@ pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
 }
 
 #[derive(FromRow)]
-struct ValueRow {
-    value: String,
-}
-#[derive(FromRow)]
 pub struct DetailRow {
     date: NaiveDate,
     account: String,
@@ -78,9 +74,7 @@ pub async fn get_basic_info(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Basi
 #[get("/api/for-new-transaction")]
 pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<InfoForNewTransaction> {
     let guard = ledger.read().await;
-    let mut connection = guard.connection().await;
     let mut operations = guard.operations().await;
-
 
     let all_open_accounts = operations.all_open_accounts().await?;
     let account_names = all_open_accounts.into_iter().map(|it| it.name).collect_vec();
@@ -118,7 +112,6 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
     }
 
     let accounts = operations.all_accounts().await?;
-
 
     // todo(sqlx): move to operation
     let existing_account_balance = sqlx::query_as::<_, DetailRow>(
@@ -550,7 +543,7 @@ pub async fn create_new_transaction(
 
 // todo(refact): use exporter to update transaction
 #[post("/api/transactions/{transaction_id}/documents")]
-pub async fn upload_transaction_document(ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: web::Path<(String,)>) -> ApiResult<String> {
+pub async fn upload_transaction_document(ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: Path<(String,)>) -> ApiResult<String> {
     let transaction_id = path.into_inner().0;
     let ledger_stage = ledger.read().await;
     let mut operations = ledger_stage.operations().await;
@@ -678,7 +671,7 @@ pub async fn get_documents(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<D
 
 #[post("/api/accounts/{account_name}/documents")]
 pub async fn upload_account_document(
-    ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: web::Path<(String,)>, exporter: Data<dyn AppendableExporter>,
+    ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: Path<(String,)>, exporter: Data<dyn AppendableExporter>,
 ) -> ApiResult<()> {
     let account_name = path.into_inner().0;
     let ledger_stage = ledger.read().await;
@@ -756,7 +749,7 @@ pub async fn get_account_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
 
 #[post("/api/accounts/{account_name}/balances")]
 pub async fn create_account_balance(
-    ledger: Data<Arc<RwLock<Ledger>>>, params: web::Path<(String,)>, Json(payload): Json<AccountBalanceRequest>, exporter: Data<dyn AppendableExporter>,
+    ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>, Json(payload): Json<AccountBalanceRequest>, exporter: Data<dyn AppendableExporter>,
 ) -> ApiResult<()> {
     let target_account = params.into_inner().0;
     let ledger = ledger.read().await;
@@ -935,7 +928,7 @@ pub async fn get_files(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Optio
 }
 
 #[get("/api/files/{file_path}")]
-pub async fn get_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>) -> ApiResult<FileDetailResponse> {
+pub async fn get_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> ApiResult<FileDetailResponse> {
     let encoded_file_path = path.into_inner().0;
     let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
@@ -948,7 +941,7 @@ pub async fn get_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path
     })
 }
 #[put("/api/files/{file_path}")]
-pub async fn update_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: web::Path<(String,)>, Json(payload): Json<FileUpdateRequest>) -> ApiResult<()> {
+pub async fn update_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(String,)>, Json(payload): Json<FileUpdateRequest>) -> ApiResult<()> {
     let encoded_file_path = path.into_inner().0;
     let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;

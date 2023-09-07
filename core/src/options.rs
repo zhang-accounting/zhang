@@ -1,6 +1,5 @@
 use itertools::Itertools;
 use log::{error, info, warn};
-use sqlx::SqliteConnection;
 use std::str::FromStr;
 use std::string::ToString;
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
@@ -9,9 +8,9 @@ use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 use crate::constants::{
     DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN, DEFAULT_COMMODITY_PRECISION_PLAIN, DEFAULT_OPERATING_CURRENCY, DEFAULT_ROUNDING_PLAIN, DEFAULT_TIMEZONE,
 };
+use crate::domains::Operations;
 use crate::ZhangResult;
 use chrono_tz::Tz;
-use crate::domains::Operations;
 
 #[derive(Debug)]
 pub struct InMemoryOptions {
@@ -38,18 +37,16 @@ impl BuiltinOption {
             BuiltinOption::DefaultRounding => DEFAULT_ROUNDING_PLAIN.to_owned(),
             BuiltinOption::DefaultBalanceTolerancePrecision => DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN.to_owned(),
             BuiltinOption::DefaultCommodityPrecision => DEFAULT_COMMODITY_PRECISION_PLAIN.to_owned(),
-            BuiltinOption::Timezone => {
-                match iana_time_zone::get_timezone() {
-                    Ok(timezone) => {
-                        info!("detect system timezone is {}", timezone);
-                        timezone
-                    }
-                    Err(e) => {
-                        warn!("cannot get timezone, fall back to use GMT+8 as default timezone: {}", e);
-                        DEFAULT_TIMEZONE.to_owned()
-                    }
+            BuiltinOption::Timezone => match iana_time_zone::get_timezone() {
+                Ok(timezone) => {
+                    info!("detect system timezone is {}", timezone);
+                    timezone
                 }
-            }
+                Err(e) => {
+                    warn!("cannot get timezone, fall back to use GMT+8 as default timezone: {}", e);
+                    DEFAULT_TIMEZONE.to_owned()
+                }
+            },
         }
     }
     pub fn key(&self) -> &str {
@@ -82,7 +79,9 @@ impl InMemoryOptions {
                     let suffix: Option<String> = None;
                     let rounding = Some(self.default_rounding);
 
-                    operation.insert_commodity(&value, Some(precision), prefix, suffix, rounding.map(|it| it.to_string())).await?;
+                    operation
+                        .insert_commodity(&value, Some(precision), prefix, suffix, rounding.map(|it| it.to_string()))
+                        .await?;
 
                     self.operating_currency = value.to_owned();
                 }
