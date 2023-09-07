@@ -1,4 +1,5 @@
 pub mod constants;
+
 pub mod database;
 pub mod domains;
 pub mod error;
@@ -47,7 +48,7 @@ mod test {
         let temp_dir = tempdir().unwrap().into_path();
         let example = temp_dir.join("example.zhang");
         std::fs::write(&example, content).unwrap();
-        Ledger::load_with_database(temp_dir, "example.zhang".to_string(), None, Arc::new(TestTransformer {}))
+        Ledger::load_with_database(temp_dir, "example.zhang".to_string(), Arc::new(TestTransformer {}))
             .await
             .unwrap()
     }

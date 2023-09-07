@@ -3,10 +3,15 @@ use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "sqlite")]
 use sqlx::database::{HasArguments, HasValueRef};
+#[cfg(feature = "sqlite")]
 use sqlx::encode::IsNull;
+#[cfg(feature = "sqlite")]
 use sqlx::error::BoxDynError;
+#[cfg(feature = "sqlite")]
 use sqlx::sqlite::SqliteTypeInfo;
+#[cfg(feature = "sqlite")]
 use sqlx::{Database, Decode, Encode, Sqlite};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -20,6 +25,7 @@ impl Deref for ZhangBigDecimal {
     }
 }
 
+#[cfg(feature = "sqlite")]
 impl<'r, DB: Database> Decode<'r, DB> for ZhangBigDecimal
 where
     String: Decode<'r, DB>,
@@ -29,6 +35,7 @@ where
         Ok(ZhangBigDecimal(BigDecimal::from_str(&value).unwrap()))
     }
 }
+#[cfg(feature = "sqlite")]
 impl<'q, DB: Database> Encode<'q, DB> for ZhangBigDecimal
 where
     String: Encode<'q, DB>,
@@ -39,6 +46,7 @@ where
     }
 }
 
+#[cfg(feature = "sqlite")]
 impl sqlx::Type<Sqlite> for ZhangBigDecimal {
     fn type_info() -> SqliteTypeInfo {
         <f64 as sqlx::Type<Sqlite>>::type_info()

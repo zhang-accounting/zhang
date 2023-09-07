@@ -18,7 +18,6 @@ use async_trait::async_trait;
 use bigdecimal::{BigDecimal, FromPrimitive, Zero};
 use itertools::Itertools;
 use log::debug;
-use sqlx::{Acquire, SqliteConnection};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::utils::inventory::LotInfo;
@@ -167,7 +166,6 @@ impl DirectiveProcess for Commodity {
 impl DirectiveProcess for Transaction {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations().await;
-        let mut conn = ledger.connection().await;
 
         if self.flag != Some(Flag::BalancePad) && self.flag != Some(Flag::BalanceCheck) && !ledger.is_transaction_balanced(self).await? {
             operations.new_error(ErrorType::TransactionDoesNotBalance, span, HashMap::default()).await?;
@@ -219,7 +217,7 @@ impl DirectiveProcess for Transaction {
 
             let amount = txn_posting.units().unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
             let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
-            lot_add(txn_posting.account_name(), amount, lot_info, &mut conn, &mut operations).await?;
+            lot_add(txn_posting.account_name(), amount, lot_info, &mut operations).await?;
         }
         for document in self.meta.clone().get_flatten().into_iter().filter(|(key, _)| key.eq("document")) {
             let (_, document_file_name) = document;
@@ -391,8 +389,7 @@ impl DirectiveProcess for Price {
     }
 }
 
-async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, conn: &mut SqliteConnection, operations: &mut Operations) -> ZhangResult<()> {
-    let trx = conn.begin().await?;
+async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, operations: &mut Operations) -> ZhangResult<()> {
     match lot_info {
         LotInfo::Lot(target_currency, lot_number) => {
             let price = Amount::new(lot_number, target_currency);
@@ -454,7 +451,6 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, c
             unimplemented!()
         }
     }
-    trx.commit().await?;
 
     Ok(())
 }

@@ -7,7 +7,7 @@ members = [
     "extensions/*",
     "server",
     "cli",
-#    "wasm"
+    "wasm"
 ]
 
 [profile.dev]

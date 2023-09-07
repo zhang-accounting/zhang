@@ -1,6 +1,10 @@
 mod utils;
 
+use std::path::PathBuf;
+use std::str::FromStr;
 use wasm_bindgen::prelude::*;
+use zhang_core::transform::{TextFileBasedTransformer, TextTransformer};
+
 // use console_error_panic_hook::hook;
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -20,9 +24,7 @@ pub fn greet() {
 
 #[wasm_bindgen]
 pub fn parse(content: &str) -> String {
-    let parser = zhang::EntryParser::new();
-    match parser.parse(content) {
-        Ok(entry) => serde_json::to_string(&entry).unwrap(),
-        Err(e) => format!("{}", e.to_string()),
-    }
+    let transformer = TextTransformer::default();
+    let result = transformer.parse(content, PathBuf::from_str("hello").unwrap());
+    "OK".to_owned()
 }

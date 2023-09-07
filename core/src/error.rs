@@ -27,9 +27,6 @@ pub enum ZhangError {
     // StrumError(#[from] strum::ParseError),
     #[error("pest error: {0}")]
     PestError(String),
-
-    #[error("databaseError: {0}")]
-    DatabaseError(#[from] sqlx::Error),
     #[error("cannot found option given key: {0}")]
     OptionNotFound(String),
 }

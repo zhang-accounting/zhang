@@ -12,8 +12,6 @@ use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::Deserialize;
-use sqlx::pool::PoolConnection;
-use sqlx::{Acquire, FromRow, Sqlite};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
 use std::ops::AddAssign;
@@ -27,25 +25,20 @@ use zhang_ast::{Account, AccountType, Currency, Flag, Meta, SpanInfo};
 
 pub mod schemas;
 
-#[derive(FromRow)]
-struct ValueRow {
-    value: String,
-}
 
-#[derive(Debug, Deserialize, FromRow)]
+#[derive(Debug, Deserialize)]
 pub struct AccountAmount {
     pub number: ZhangBigDecimal,
     pub commodity: String,
 }
 
-#[derive(Debug, Deserialize, FromRow)]
+#[derive(Debug, Deserialize)]
 pub struct LotRow {
     pub amount: f64,
     pub price_amount: Option<f64>,
     pub price_commodity: Option<String>,
 }
 
-#[derive(FromRow)]
 pub struct StaticRow {
     pub date: NaiveDate,
     pub account_type: String,
@@ -55,7 +48,7 @@ pub struct StaticRow {
 
 pub struct Operations {
     #[cfg(feature = "sqlite")]
-    pub(crate) pool: PoolConnection<Sqlite>,
+    pub(crate) pool: sqlx::PoolConnection<sqlx::Sqlite>,
     pub timezone: Tz,
     pub store: Arc<RwLock<Store>>,
 }
@@ -136,7 +129,6 @@ impl Operations {
     pub(crate) async fn insert_document(
         &mut self, datetime: DateTime<Tz>, filename: Option<&str>, path: String, document_type: DocumentType,
     ) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
         let mut store = self.write();
 
         store.documents.push(DocumentDomain {
@@ -318,7 +310,6 @@ impl Operations {
     }
 
     pub async fn metas(&mut self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
-        let conn = self.pool.acquire().await?;
         let store = self.read();
         Ok(store
             .metas
@@ -365,13 +356,11 @@ impl Operations {
     }
 
     pub async fn transaction_counts(&mut self) -> ZhangResult<i64> {
-        let conn = self.pool.acquire().await?;
         let store = self.read();
         Ok(store.transactions.len() as i64)
     }
 
     pub async fn transaction_span(&mut self, id: &str) -> ZhangResult<TransactionInfoDomain> {
-        let conn = self.pool.acquire().await?;
 
         let store = self.read();
         Ok(store
@@ -423,7 +412,6 @@ impl Operations {
     }
 
     pub async fn account_journals(&mut self, account: &str) -> ZhangResult<Vec<AccountJournalDomain>> {
-        let conn = self.pool.acquire().await?;
 
         let store = self.read();
         let account = Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?;
@@ -494,7 +482,6 @@ impl Operations {
         Ok(store.accounts.get(&account).cloned())
     }
     pub async fn all_open_accounts(&mut self) -> ZhangResult<Vec<AccountDomain>> {
-        let conn = self.pool.acquire().await?;
         let store = self.read();
         Ok(store
             .accounts
@@ -509,7 +496,6 @@ impl Operations {
     }
 
     pub async fn all_payees(&mut self) -> ZhangResult<Vec<String>> {
-        let conn = self.pool.acquire().await?;
         let store = self.read();
         let payees: HashSet<String> = store
             .transactions
@@ -523,7 +509,6 @@ impl Operations {
     }
 
     pub async fn static_duration(&mut self, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<StaticRow>> {
-        let conn = self.pool.acquire().await?;
 
         let store = self.read();
         let mut cal: HashMap<NaiveDate, HashMap<AccountType, HashMap<Currency, BigDecimal>>> = HashMap::new();
@@ -563,7 +548,6 @@ impl Operations {
 // for insert and new operations
 impl Operations {
     pub async fn new_error(&mut self, error_type: ErrorType, span: &SpanInfo, metas: HashMap<String, String>) -> ZhangResult<()> {
-        let conn = self.pool.acquire().await?;
         let mut store = self.write();
         store.errors.push(ErrorDomain {
             id: Uuid::new_v4().to_string(),

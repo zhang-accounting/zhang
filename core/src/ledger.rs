@@ -10,13 +10,9 @@ use bigdecimal::Zero;
 use glob::Pattern;
 use itertools::Itertools;
 use log::{error, info};
-use sqlx::pool::PoolConnection;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
-use sqlx::{Sqlite, SqlitePool};
 
 use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
-use crate::database::migrations::Migration;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::options::{BuiltinOption, InMemoryOptions};
@@ -41,64 +37,32 @@ pub struct Ledger {
     store: Arc<RwLock<Store>>,
 
     pub(crate) trx_counter:  AtomicI32,
-
-    #[cfg(feature = "sqlite")]
-    pub database: Option<PathBuf>,
-    #[cfg(feature = "sqlite")]
-    pub pool_connection: SqlitePool,
 }
 
 impl Ledger {
     pub async fn load<T: Transformer + Default + 'static>(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
         let transformer = Arc::new(T::default());
-        Ledger::load_with_database(entry, endpoint, None, transformer).await
+        Ledger::load_with_database(entry, endpoint, transformer).await
     }
 
-    pub async fn load_with_database(entry: PathBuf, endpoint: String, database: Option<PathBuf>, transformer: Arc<dyn Transformer>) -> ZhangResult<Ledger> {
+    pub async fn load_with_database(entry: PathBuf, endpoint: String, transformer: Arc<dyn Transformer>) -> ZhangResult<Ledger> {
         let entry = entry.canonicalize().with_path(&entry)?;
 
         let transform_result = transformer.load(entry.clone(), endpoint.clone())?;
         Ledger::process(
             transform_result.directives,
             (entry, endpoint),
-            database,
             transform_result.visited_files,
             transformer,
         )
         .await
     }
 
-    #[cfg(feature = "sqlite")]
-    pub async fn connection(&self) -> PoolConnection<Sqlite> {
-        self.pool_connection.acquire().await.unwrap()
-    }
 
     async fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: Option<PathBuf>, visited_files: Vec<Pattern>,
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<Pattern>,
         transformer: Arc<dyn Transformer>,
     ) -> ZhangResult<Ledger> {
-        #[cfg(feature = "sqlite")]
-        let sqlite_pool = if let Some(ref path) = database {
-            info!("database store at {}", path.display());
-            SqlitePool::connect_with(
-                SqliteConnectOptions::default()
-                    .filename(path)
-                    .journal_mode(SqliteJournalMode::Wal)
-                    .create_if_missing(true),
-            )
-            .await?
-        } else {
-            info!("using in memory database");
-            SqlitePoolOptions::new()
-                .max_lifetime(None)
-                .idle_timeout(None)
-                .connect_with(SqliteConnectOptions::from_str("sqlite::memory:").unwrap().journal_mode(SqliteJournalMode::Wal))
-                .await?
-        };
-        #[cfg(feature = "sqlite")]
-        let mut connection = sqlite_pool.acquire().await?;
-        #[cfg(feature = "sqlite")]
-        Migration::init_database_if_missing(&mut connection).await?;
 
         let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
@@ -106,10 +70,6 @@ impl Ledger {
         let mut ret_ledger = Self {
             options: InMemoryOptions::default(),
             entry,
-            #[cfg(feature = "sqlite")]
-            database,
-            #[cfg(feature = "sqlite")]
-            pool_connection: sqlite_pool,
             visited_files,
             directives: vec![],
             metas: vec![],
@@ -217,7 +177,6 @@ impl Ledger {
         let reload_ledger = Ledger::process(
             transform_result.directives,
             (entry.clone(), endpoint.clone()),
-            self.database.clone(),
             transform_result.visited_files,
             self.transformer.clone(),
         )
@@ -290,7 +249,6 @@ mod test {
         Ledger::process(
             test_parse_zhang(content),
             (temp_dir.clone(), "example.zhang".to_string()),
-            None,
             vec![Pattern::new(temp_dir.join("example.zhang").as_path().to_str().unwrap()).unwrap()],
             Arc::new(TestTransformer {}),
         )
