@@ -7,6 +7,7 @@ use std::time::Instant;
 use crate::constants::{KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::domains::schemas::{AccountStatus, ErrorType, MetaType};
+use crate::domains::AccountAmount;
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
@@ -21,12 +22,6 @@ use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::utils::inventory::LotInfo;
 use zhang_ast::*;
-
-#[derive(Debug, Deserialize, FromRow)]
-struct AccountAmount {
-    number: ZhangBigDecimal,
-    commodity: String,
-}
 
 #[async_trait]
 pub(crate) trait DirectiveProcess {
@@ -99,15 +94,14 @@ impl DirectiveProcess for Open {
             check_commodity_define(currency, ledger, span).await?;
         }
 
-        // todo(sqlx): move to operation
-
-        sqlx::query(r#"INSERT OR REPLACE INTO accounts(date, type, name, status, alias) VALUES ($1, $2, $3, $4, $5);"#)
-            .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
-            .bind(self.account.account_type.to_string())
-            .bind(self.account.name())
-            .bind("Open")
-            .bind(self.meta.get_one("alias").map(|it| it.as_str()))
-            .execute(&mut conn)
+        operations
+            .insert_or_update_account(
+                self.date.to_timezone_datetime(&ledger.options.timezone),
+                self.account.account_type.to_string(),
+                self.account.name(),
+                "Open",
+                self.meta.get_one("alias").map(|it| it.as_str()),
+            )
             .await?;
 
         operations.insert_meta(MetaType::AccountMeta, self.account.name(), self.meta.clone()).await?;
@@ -162,7 +156,9 @@ impl DirectiveProcess for Commodity {
             .transpose()
             .unwrap_or(None);
 
-        operations.insert_commodity(&self.currency, precision, prefix, suffix, rounding.map(|it| it.to_string())).await?;
+        operations
+            .insert_commodity(&self.currency, precision, prefix, suffix, rounding.map(|it| it.to_string()))
+            .await?;
         operations.insert_meta(MetaType::CommodityMeta, &self.currency, self.meta.clone()).await?;
 
         Ok(())
@@ -180,53 +176,37 @@ impl DirectiveProcess for Transaction {
         }
         let id = Uuid::from_span(span).to_string();
 
-        // todo(sqlx): move to operation
-        sqlx::query(
-            r#"INSERT INTO transactions (id, datetime, type, payee, narration, source_file, span_start, span_end)VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-        )
-        .bind(&id)
-        .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
-        .bind(self.flag.clone().unwrap_or(Flag::Okay).to_string())
-        .bind(self.payee.as_ref().map(|it| it.as_str()))
-        .bind(self.narration.as_ref().map(|it| it.as_str()))
-        .bind(span.filename.as_ref().and_then(|it| it.to_str()).map(|it| it.to_string()))
-        .bind(span.start as i64)
-        .bind(span.end as i64)
-        .execute(&mut conn)
-        .await?;
+        operations
+            .insert_transaction(
+                &id,
+                self.date.to_timezone_datetime(&ledger.options.timezone),
+                self.flag.clone().unwrap_or(Flag::Okay).to_string(),
+                self.payee.as_ref().map(|it| it.as_str()),
+                self.narration.as_ref().map(|it| it.as_str()),
+                span.filename.as_ref().and_then(|it| it.to_str()),
+                span.start as i64,
+                span.end as i64,
+            )
+            .await?;
 
         for tag in self.tags.iter() {
-            // todo(sqlx): move to operation
-            sqlx::query(r#"INSERT INTO transaction_tags (trx_id, tag)VALUES ($1, $2)"#)
-                .bind(&id)
-                .bind(tag)
-                .execute(&mut conn)
-                .await?;
+            operations.insert_transaction_tag(&id, tag).await?;
         }
         for link in self.links.iter() {
-            // todo(sqlx): move to operation
-            sqlx::query(r#"INSERT INTO transaction_links (trx_id, link)VALUES ($1, $2)"#)
-                .bind(&id)
-                .bind(link)
-                .execute(&mut conn)
-                .await?;
+            operations.insert_transaction_link(&id, link).await?;
         }
 
         for txn_posting in self.txn_postings() {
             let inferred_amount = txn_posting.infer_trade_amount().unwrap();
 
-            // todo(sqlx): move to operation
-            let option: Option<AccountAmount> = sqlx::query_as(
-                r#"select account_after_number as number, account_after_commodity as commodity from transaction_postings
-                                join transactions on transactions.id = transaction_postings.trx_id
-                                where account = $1 and "datetime" <=  $2 and account_after_commodity = $3
-                                order by "datetime" desc, transactions.sequence desc limit 1"#,
-            )
-            .bind(txn_posting.posting.account.name())
-            .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
-            .bind(&inferred_amount.currency)
-            .fetch_optional(&mut conn)
-            .await?;
+            let option = operations
+                .account_target_day_balance(
+                    txn_posting.posting.account.name(),
+                    self.date.to_timezone_datetime(&ledger.options.timezone),
+                    &inferred_amount.currency,
+                )
+                .await?;
+
             let previous = option.unwrap_or(AccountAmount {
                 number: ZhangBigDecimal(BigDecimal::zero()),
                 commodity: inferred_amount.currency.clone(),
@@ -234,28 +214,23 @@ impl DirectiveProcess for Transaction {
 
             let after_number = (&previous.number.0).add(&inferred_amount.number);
 
-            // todo(sqlx): move to operation
-            sqlx::query(
-                r#"INSERT INTO transaction_postings
-                               (trx_id, account, unit_number, unit_commodity, cost_number, cost_commodity, inferred_unit_number, inferred_unit_commodity,
-                                account_before_number, account_before_commodity, account_after_number, account_after_commodity
-                               )
-                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
-            )
-            .bind(&id)
-            .bind(txn_posting.posting.account.name())
-            .bind(txn_posting.posting.units.as_ref().map(|it| it.number.to_string()))
-            .bind(txn_posting.posting.units.as_ref().map(|it| &it.currency))
-            .bind(txn_posting.posting.cost.as_ref().map(|it| it.number.to_string()))
-            .bind(txn_posting.posting.cost.as_ref().map(|it| &it.currency))
-            .bind(inferred_amount.number.to_string())
-            .bind(&inferred_amount.currency)
-            .bind(&previous.number)
-            .bind(&previous.commodity)
-            .bind(after_number.to_string())
-            .bind(&previous.commodity)
-            .execute(&mut conn)
-            .await?;
+            operations
+                .insert_transaction_posting(
+                    &id,
+                    txn_posting.posting.account.name(),
+                    txn_posting.posting.units.as_ref().map(|it| it.number.to_string()),
+                    txn_posting.posting.units.as_ref().map(|it| &it.currency),
+                    txn_posting.posting.cost.as_ref().map(|it| it.number.to_string()),
+                    txn_posting.posting.cost.as_ref().map(|it| &it.currency),
+                    inferred_amount.number.to_string(),
+                    &inferred_amount.currency,
+                    &previous.number,
+                    &previous.commodity,
+                    after_number.to_string(),
+                    &previous.commodity,
+                )
+                .await?;
+
             let amount = txn_posting.units().unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
             let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
             lot_add(txn_posting.account_name(), amount, lot_info, &mut conn).await?;
@@ -265,15 +240,14 @@ impl DirectiveProcess for Transaction {
             let document_path = document_file_name.to_plain_string();
             let document_pathbuf = PathBuf::from(&document_path);
             let extension = document_pathbuf.extension().and_then(|it| it.to_str());
-            // todo(sqlx): move to operation
-            sqlx::query(r#"INSERT INTO documents (datetime, filename, path, extension, trx_id) VALUES ($1, $2, $3, $4, $5);"#)
-                .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
-                .bind(document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
-                .bind(&document_path)
-                .bind(extension)
-                .bind(&id)
-                .execute(&mut conn)
-                .await?;
+            operations.insert_trx_document(
+                self.date.to_timezone_datetime(&ledger.options.timezone),
+                document_pathbuf.file_name().and_then(|it| it.to_str()),
+                &document_path,
+                extension,
+                &id
+            ).await?;
+
         }
 
         operations.insert_meta(MetaType::TransactionMeta, &id, self.meta.clone()).await?;
@@ -288,22 +262,12 @@ impl DirectiveProcess for Balance {
         let mut operations = ledger.operations().await;
         match self {
             Balance::BalanceCheck(balance_check) => {
-                // todo(sqlx): move to operation
-                let option: Option<AccountAmount> = sqlx::query_as(
-                    r#"
-                    select account_after_number as number, account_after_commodity as commodity
-                    from transactions
-                             join transaction_postings on transactions.id = transaction_postings.trx_id
-                    where account = $1
-                      and datetime <= $2 and account_after_commodity = $3
-                    order by datetime desc, sequence desc
-                "#,
-                )
-                .bind(balance_check.account.name())
-                .bind(balance_check.date.to_timezone_datetime(&ledger.options.timezone))
-                .bind(&balance_check.amount.currency)
-                .fetch_optional(&mut conn)
-                .await?;
+                let option = operations.account_target_day_balance(
+                    balance_check.account.name(),
+                    balance_check.date.to_timezone_datetime(&ledger.options.timezone),
+                    &balance_check.amount.currency
+                ).await?;
+
                 let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
 
                 let distance = Amount::new(
@@ -349,22 +313,14 @@ impl DirectiveProcess for Balance {
                 check_account_existed(balance_pad.pad.name(), ledger, span).await?;
                 check_account_closed(balance_pad.account.name(), ledger, span).await?;
                 check_account_closed(balance_pad.pad.name(), ledger, span).await?;
-// todo(sqlx): move to operation
-                let option: Option<AccountAmount> = sqlx::query_as(
-                    r#"
-                    select account_after_number as number, account_after_commodity as commodity
-                    from transactions
-                             join transaction_postings on transactions.id = transaction_postings.trx_id
-                    where account = $1
-                      and datetime <= $2 and account_after_commodity = $3
-                    order by datetime desc, sequence desc
-                "#,
-                )
-                .bind(balance_pad.account.name())
-                .bind(balance_pad.date.to_timezone_datetime(&ledger.options.timezone))
-                .bind(&balance_pad.amount.currency)
-                .fetch_optional(&mut conn)
-                .await?;
+
+
+                let option = operations.account_target_day_balance(
+                    balance_pad.account.name(),
+                    balance_pad.date.to_timezone_datetime(&ledger.options.timezone),
+                    &balance_pad.amount.currency,
+                ).await?;
+
                 let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
 
                 let distance = Amount::new((&balance_pad.amount.number).sub(&current_balance_amount), balance_pad.amount.currency.clone());
@@ -411,7 +367,7 @@ impl DirectiveProcess for Balance {
 #[async_trait]
 impl DirectiveProcess for Document {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        let mut conn = ledger.connection().await;
+        let mut operations = ledger.operations().await;
         check_account_existed(self.account.name(), ledger, span).await?;
         check_account_closed(self.account.name(), ledger, span).await?;
 
@@ -419,15 +375,12 @@ impl DirectiveProcess for Document {
 
         let document_pathbuf = PathBuf::from(&path);
         let extension = document_pathbuf.extension().and_then(|it| it.to_str());
-        // todo(sqlx): move to operation
-        sqlx::query(r#"INSERT INTO documents (datetime, filename, path, extension, account) VALUES ($1, $2, $3, $4, $5);"#)
-            .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
-            .bind(document_pathbuf.file_name().and_then(|it| it.to_str()).unwrap())
-            .bind(&path)
-            .bind(extension)
-            .bind(self.account.name())
-            .execute(&mut conn)
-            .await?;
+
+        operations.insert_account_document(self.date.to_timezone_datetime(&ledger.options.timezone),
+        document_pathbuf.file_name().and_then(|it| it.to_str()),
+        &path,
+        extension,
+        self.account.name()).await?;
         Ok(())
     }
 }
@@ -435,17 +388,16 @@ impl DirectiveProcess for Document {
 #[async_trait]
 impl DirectiveProcess for Price {
     async fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        let mut conn = ledger.connection().await;
+        let mut operations = ledger.operations().await;
         check_commodity_define(&self.currency, ledger, span).await?;
         check_commodity_define(&self.amount.currency, ledger, span).await?;
-        // todo(sqlx): move to operation
-        sqlx::query(r#"INSERT INTO prices (datetime, commodity, amount, target_commodity)VALUES ($1, $2, $3, $4)"#)
-            .bind(self.date.to_timezone_datetime(&ledger.options.timezone))
-            .bind(&self.currency)
-            .bind(&self.amount.number.to_string())
-            .bind(&self.amount.currency)
-            .execute(&mut conn)
-            .await?;
+        operations.insert_price(
+            self.date.to_timezone_datetime(&ledger.options.timezone),
+            &self.currency,
+            &self.amount.number,
+            &self.amount.currency
+
+        ).await?;
 
         Ok(())
     }
