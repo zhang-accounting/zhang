@@ -85,22 +85,8 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
     let all_open_accounts = operations.all_open_accounts().await?;
     let account_names = all_open_accounts.into_iter().map(|it| it.name).collect_vec();
 
-
-    #[derive(FromRow)]
-    struct PayeeRow {
-        payee: String,
-    }
-    // todo(sqlx): move to operation
-    let payees = sqlx::query_as::<_, PayeeRow>(
-        r#"
-        select distinct payee from transactions
-        "#,
-    )
-    .fetch_all(&mut connection)
-    .await?;
-
     ResponseWrapper::json(InfoForNewTransaction {
-        payee: payees.into_iter().map(|it| it.payee).filter(|it| !it.is_empty()).collect_vec(),
+        payee: operations.all_payees().await?,
         account_name: account_names,
     })
 }

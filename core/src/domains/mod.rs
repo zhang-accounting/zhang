@@ -318,6 +318,25 @@ impl Operations {
         )
     }
 
+    pub async fn all_payees(&mut self) -> ZhangResult<Vec<String>> {
+        let conn = self.pool.acquire().await?;
+
+        #[derive(FromRow)]
+        struct PayeeRow {
+            payee: String,
+        }
+        // todo(sqlx): move to operation
+        let payees = sqlx::query_as::<_, PayeeRow>(
+            r#"
+        select distinct payee from transactions
+        "#,
+        )
+            .fetch_all( conn)
+            .await?;
+        Ok(
+            payees.into_iter().map(|it| it.payee).filter(|it| !it.is_empty()).collect_vec()
+        )
+    }
 
 
 
