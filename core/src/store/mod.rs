@@ -8,8 +8,10 @@ use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Flag, SpanInfo, Transaction};
 
+#[derive(Clone)]
 pub struct TransactionHeaderDomain {
     pub id: Uuid,
+    pub sequence: i32,
     pub datetime: DateTime<Tz>,
     pub flag: Flag,
     pub payee: Option<String>,
@@ -22,6 +24,7 @@ pub struct TransactionHeaderDomain {
 pub struct PostingDomain {
     pub id: Uuid,
     pub trx_id: Uuid,
+    pub trx_sequence: i32,
     pub trx_datetime: DateTime<Tz>,
     pub account: Account,
     pub unit: Option<Amount>,

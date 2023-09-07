@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::ops::{Add, Sub};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use crate::constants::{DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
@@ -172,10 +173,11 @@ impl DirectiveProcess for Transaction {
             operations.new_error(ErrorType::TransactionDoesNotBalance, span, HashMap::default()).await?;
         }
         let id = Uuid::from_span(span);
-
+        let sequence = ledger.trx_counter.fetch_add(1, Ordering::Relaxed);
         operations
             .insert_transaction(
                 &id,
+                sequence,
                 self.date.to_timezone_datetime(&ledger.options.timezone),
                 self.flag.clone().unwrap_or(Flag::Okay),
                 self.payee.as_ref().map(|it| it.as_str()),

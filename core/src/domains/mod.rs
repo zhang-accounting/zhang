@@ -85,7 +85,7 @@ impl Operations {
         Ok(())
     }
     pub(crate) async fn insert_transaction(
-        &mut self, id: &Uuid, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>, tags: Vec<String>, links: Vec<String>,
+        &mut self, id: &Uuid, sequence: i32, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>, tags: Vec<String>, links: Vec<String>,
         span: &SpanInfo,
     ) -> ZhangResult<()> {
         let mut store = self.write();
@@ -94,6 +94,7 @@ impl Operations {
             id.clone(),
             TransactionHeaderDomain {
                 id: id.clone(),
+                sequence,
                 datetime,
                 flag,
                 payee: payee.map(|it| it.to_owned()),
@@ -113,11 +114,12 @@ impl Operations {
     ) -> ZhangResult<()> {
         let mut store = self.write();
 
-        let time = store.transactions.get(trx_id).map(|it| it.datetime.clone()).expect("cannot find trx");
+        let trx = store.transactions.get(trx_id).cloned().expect("cannot find trx");
         store.postings.push(PostingDomain {
             id: Uuid::new_v4(),
             trx_id: trx_id.clone(),
-            trx_datetime: time,
+            trx_sequence: trx.sequence,
+            trx_datetime: trx.datetime,
             account: Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?,
             unit,
             cost,

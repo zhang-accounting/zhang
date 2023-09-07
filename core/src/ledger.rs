@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
+use std::sync::atomic::AtomicI32;
 
 use bigdecimal::Zero;
 use glob::Pattern;
@@ -38,6 +39,8 @@ pub struct Ledger {
     transformer: Arc<dyn Transformer>,
 
     store: Arc<RwLock<Store>>,
+
+    pub(crate) trx_counter:  AtomicI32,
 
     #[cfg(feature = "sqlite")]
     pub database: Option<PathBuf>,
@@ -112,6 +115,7 @@ impl Ledger {
             metas: vec![],
             transformer,
             store: Default::default(),
+            trx_counter: AtomicI32::new(1)
         };
         let mut merged_metas = BuiltinOption::default_options()
             .into_iter()
