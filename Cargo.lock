@@ -3501,7 +3501,6 @@ dependencies = [
  "serde_json 0.9.10",
  "sha256",
  "snailquote",
- "sqlx",
  "strum",
  "tempfile",
  "thiserror",

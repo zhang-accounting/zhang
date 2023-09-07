@@ -47,8 +47,6 @@ pub struct StaticRow {
 }
 
 pub struct Operations {
-    #[cfg(feature = "sqlite")]
-    pub(crate) pool: sqlx::PoolConnection<sqlx::Sqlite>,
     pub timezone: Tz,
     pub store: Arc<RwLock<Store>>,
 }

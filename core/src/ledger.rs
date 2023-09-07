@@ -186,12 +186,8 @@ impl Ledger {
     }
 
     pub async fn operations(&self) -> Operations {
-        #[cfg(feature = "sqlite")]
-        let pool = self.connection().await;
         let timezone = self.options.timezone;
         Operations {
-            #[cfg(feature = "sqlite")]
-            pool,
             store: self.store.clone(),
             timezone,
         }
