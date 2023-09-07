@@ -79,19 +79,12 @@ pub async fn get_basic_info(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Basi
 pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<InfoForNewTransaction> {
     let guard = ledger.read().await;
     let mut connection = guard.connection().await;
+    let mut operations = guard.operations().await;
 
-    #[derive(FromRow)]
-    struct AccountNameRow {
-        name: String,
-    }
-    // todo(sqlx): move to operation
-    let account_names = sqlx::query_as::<_, AccountNameRow>(
-        r#"
-        SELECT name FROM accounts WHERE status = 'Open'
-        "#,
-    )
-    .fetch_all(&mut connection)
-    .await?;
+
+    let all_open_accounts = operations.all_open_accounts().await?;
+    let account_names = all_open_accounts.into_iter().map(|it| it.name).collect_vec();
+
 
     #[derive(FromRow)]
     struct PayeeRow {
@@ -108,7 +101,7 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
 
     ResponseWrapper::json(InfoForNewTransaction {
         payee: payees.into_iter().map(|it| it.payee).filter(|it| !it.is_empty()).collect_vec(),
-        account_name: account_names.into_iter().map(|it| it.name).collect_vec(),
+        account_name: account_names,
     })
 }
 

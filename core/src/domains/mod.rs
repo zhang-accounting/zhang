@@ -309,6 +309,18 @@ impl Operations {
                 .await?,
         )
     }
+    pub async fn all_open_accounts(&mut self) -> ZhangResult<Vec<AccountDomain>> {
+        let conn = self.pool.acquire().await?;
+        Ok(
+            sqlx::query_as::<_, AccountDomain>(r#"select date, type, name, status, alias from accounts WHERE status = 'Open'"#)
+                .fetch_all(conn)
+                .await?,
+        )
+    }
+
+
+
+
 }
 
 // for insert and new operations
