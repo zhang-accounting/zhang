@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use strum::{AsRefStr, EnumString};
 use zhang_ast::{Currency, SpanInfo};
 
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, AsRefStr, EnumString)]
 pub enum MetaType {
     AccountMeta,
@@ -14,12 +13,12 @@ pub enum MetaType {
     TransactionMeta,
 }
 
-#[derive( Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct OptionDomain {
     pub key: String,
     pub value: String,
 }
-#[derive( Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct AccountDomain {
     pub date: NaiveDateTime,
     pub r#type: String,
@@ -34,7 +33,7 @@ pub enum AccountStatus {
     Close,
 }
 
-#[derive( Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct AccountBalanceDomain {
     pub datetime: NaiveDateTime,
     pub account: String,
@@ -44,7 +43,7 @@ pub struct AccountBalanceDomain {
     pub balance_commodity: String,
 }
 
-#[derive( Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct AccountDailyBalanceDomain {
     pub date: NaiveDate,
     pub account: String,
@@ -52,7 +51,7 @@ pub struct AccountDailyBalanceDomain {
     pub balance_commodity: String,
 }
 
-#[derive( Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct PriceDomain {
     pub datetime: NaiveDateTime,
     pub commodity: Currency,
@@ -60,7 +59,7 @@ pub struct PriceDomain {
     pub target_commodity: Currency,
 }
 
-#[derive( Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct MetaDomain {
     pub meta_type: String,
     pub type_identifier: String,
@@ -85,7 +84,7 @@ pub struct TransactionInfoDomain {
     pub span_end: usize,
 }
 
-#[derive( Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AccountJournalDomain {
     pub datetime: NaiveDateTime,
     pub account: String,

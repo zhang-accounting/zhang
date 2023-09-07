@@ -394,26 +394,15 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, o
         LotInfo::Lot(target_currency, lot_number) => {
             let price = Amount::new(lot_number, target_currency);
 
-            let lot = operations.account_lot(&account_name, &amount.currency, Some(price.clone()) ).await?;
+            let lot = operations.account_lot(&account_name, &amount.currency, Some(price.clone())).await?;
 
             if let Some(lot_row) = lot {
-
                 operations
-                    .update_account_lot(
-                        &account_name,
-                        &amount.currency,
-                        Some(price),
-                        &lot_row.amount.add(&amount.number),
-                    )
+                    .update_account_lot(&account_name, &amount.currency, Some(price), &lot_row.amount.add(&amount.number))
                     .await?;
             } else {
                 operations
-                    .insert_account_lot(
-                        &account_name,
-                        &amount.currency,
-                        Some(price.clone()),
-                        &amount.number,
-                    )
+                    .insert_account_lot(&account_name, &amount.currency, Some(price.clone()), &amount.number)
                     .await?;
             }
         }
@@ -423,24 +412,14 @@ async fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, o
                 if lot.price.is_some() {
                     // target lot
                     operations
-                        .update_account_lot(
-                            &account_name,
-                            &amount.currency,
-                            lot.price,
-                            &lot.amount.add(&amount.number),
-                        )
+                        .update_account_lot(&account_name, &amount.currency, lot.price, &lot.amount.add(&amount.number))
                         .await?;
 
                     // todo check negative
                 } else {
                     // default lot
                     operations
-                        .update_account_lot(
-                            &account_name,
-                            &amount.currency,
-                            None,
-                            &lot.amount.add(&amount.number),
-                        )
+                        .update_account_lot(&account_name, &amount.currency, None, &lot.amount.add(&amount.number))
                         .await?;
                 }
             } else {

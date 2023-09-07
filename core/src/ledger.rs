@@ -3,8 +3,8 @@ use std::option::Option::None;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::AtomicI32;
+use std::sync::{Arc, RwLock};
 
 use bigdecimal::Zero;
 use glob::Pattern;
@@ -36,7 +36,7 @@ pub struct Ledger {
 
     store: Arc<RwLock<Store>>,
 
-    pub(crate) trx_counter:  AtomicI32,
+    pub(crate) trx_counter: AtomicI32,
 }
 
 impl Ledger {
@@ -49,21 +49,12 @@ impl Ledger {
         let entry = entry.canonicalize().with_path(&entry)?;
 
         let transform_result = transformer.load(entry.clone(), endpoint.clone())?;
-        Ledger::process(
-            transform_result.directives,
-            (entry, endpoint),
-            transform_result.visited_files,
-            transformer,
-        )
-        .await
+        Ledger::process(transform_result.directives, (entry, endpoint), transform_result.visited_files, transformer).await
     }
 
-
     async fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<Pattern>,
-        transformer: Arc<dyn Transformer>,
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<Pattern>, transformer: Arc<dyn Transformer>,
     ) -> ZhangResult<Ledger> {
-
         let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
@@ -75,7 +66,7 @@ impl Ledger {
             metas: vec![],
             transformer,
             store: Default::default(),
-            trx_counter: AtomicI32::new(1)
+            trx_counter: AtomicI32::new(1),
         };
         let mut merged_metas = BuiltinOption::default_options()
             .into_iter()
@@ -457,10 +448,10 @@ mod test {
     }
 
     mod extract_info {
-        use std::str::FromStr;
-        use indoc::indoc;
-        use zhang_ast::Account;
         use crate::domains::schemas::AccountStatus;
+        use indoc::indoc;
+        use std::str::FromStr;
+        use zhang_ast::Account;
 
         use crate::ledger::test::load_from_temp_str;
 
@@ -473,7 +464,6 @@ mod test {
             let store = ledger.store.read().unwrap();
             let account = store.accounts.get(&Account::from_str("Assets:Hello").unwrap()).unwrap();
             assert_eq!(account.status, AccountStatus::Open);
-
         }
 
         #[tokio::test]
@@ -497,7 +487,7 @@ mod test {
             .await;
             let store = ledger.store.read().unwrap();
 
-            assert_eq!(2,store.commodities.len(), "should have 2 commodity");
+            assert_eq!(2, store.commodities.len(), "should have 2 commodity");
             assert!(store.commodities.contains_key("CNY"), "should have CNY record");
             assert!(store.commodities.contains_key("HKD"), "should have HKD record");
         }

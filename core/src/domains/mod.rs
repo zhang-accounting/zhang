@@ -25,7 +25,6 @@ use zhang_ast::{Account, AccountType, Currency, Flag, Meta, SpanInfo};
 
 pub mod schemas;
 
-
 #[derive(Debug, Deserialize)]
 pub struct AccountAmount {
     pub number: ZhangBigDecimal,
@@ -359,7 +358,6 @@ impl Operations {
     }
 
     pub async fn transaction_span(&mut self, id: &str) -> ZhangResult<TransactionInfoDomain> {
-
         let store = self.read();
         Ok(store
             .transactions
@@ -410,7 +408,6 @@ impl Operations {
     }
 
     pub async fn account_journals(&mut self, account: &str) -> ZhangResult<Vec<AccountJournalDomain>> {
-
         let store = self.read();
         let account = Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?;
 
@@ -507,7 +504,6 @@ impl Operations {
     }
 
     pub async fn static_duration(&mut self, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<StaticRow>> {
-
         let store = self.read();
         let mut cal: HashMap<NaiveDate, HashMap<AccountType, HashMap<Currency, BigDecimal>>> = HashMap::new();
 
@@ -529,7 +525,7 @@ impl Operations {
         for (date, type_store) in cal {
             for (account_type, currency_store) in type_store {
                 for (currency, balance) in currency_store {
-                    ret.push(StaticRow{
+                    ret.push(StaticRow {
                         date,
                         account_type: account_type.to_string(),
                         amount: ZhangBigDecimal(balance),
@@ -539,7 +535,6 @@ impl Operations {
             }
         }
         Ok(ret)
-
     }
 }
 

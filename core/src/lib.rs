@@ -15,7 +15,6 @@ pub mod utils;
 
 pub mod store;
 
-
 pub type ZhangResult<T> = Result<T, ZhangError>;
 pub use error::ZhangError;
 
