@@ -247,7 +247,6 @@ async fn update_checker(broadcast: Arc<Broadcaster>) -> ServerResult<()> {
     })
     .await
     .expect("cannot spawn update checker task");
-    dbg!(&latest_release);
     if let Ok(release) = latest_release {
         if bump_is_greater(env!("CARGO_PKG_VERSION"), &release.version).unwrap_or(false) {
             broadcast.broadcast(BroadcastEvent::NewVersionFound { version: release.version }).await;

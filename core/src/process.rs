@@ -365,7 +365,7 @@ fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, operati
             }
         }
         LotInfo::Fifo => {
-            let lot = operations.account_lot_fifo(&account_name, &amount.currency, &amount.currency)?;
+            let lot = operations.account_lot(&account_name, &amount.currency, None)?;
             if let Some(lot) = lot {
                 if lot.price.is_some() {
                     // target lot

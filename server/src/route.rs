@@ -252,7 +252,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
         .transactions
         .values()
         .sorted_by_key(|it| -it.sequence)
-        .skip(params.offset() as usize)
+        .skip(dbg!(params.offset() as usize))
         .take(params.limit() as usize)
         .cloned()
         .map(|it| JournalHeader {
@@ -267,7 +267,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
 
     let header_ids: HashSet<Uuid> = journal_headers.iter().map(|it| it.id).collect();
 
-    let postings = store.postings.iter().filter(|posting| header_ids.contains(&posting.id)).cloned().collect_vec();
+    let postings = store.postings.iter().filter(|posting| header_ids.contains(&posting.trx_id)).cloned().collect_vec();
 
     drop(store);
     let mut header_map: HashMap<Uuid, JournalHeader> = journal_headers.into_iter().map(|it| (it.id.to_owned(), it)).collect();

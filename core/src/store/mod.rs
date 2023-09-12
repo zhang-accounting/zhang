@@ -90,7 +90,7 @@ pub struct DocumentDomain {
     pub path: String,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct CommodityLotRecord {
     pub commodity: String,
     pub datetime: Option<DateTime<Tz>>,
