@@ -3195,7 +3195,6 @@ dependencies = [
 name = "zhang-core"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "bigdecimal",
  "chrono",
  "chrono-tz",

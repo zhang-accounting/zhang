@@ -58,10 +58,10 @@ pub async fn sse(broadcaster: Data<Broadcaster>) -> impl Responder {
 #[get("/api/info")]
 pub async fn get_basic_info(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<BasicInfo> {
     let ledger = ledger.read().await;
-    let mut operations = ledger.operations().await;
+    let mut operations = ledger.operations();
 
     ResponseWrapper::json(BasicInfo {
-        title: operations.option("title").await?.map(|it| it.value),
+        title: operations.option("title")?.map(|it| it.value),
         version: env!("CARGO_PKG_VERSION").to_string(),
         build_date: env!("ZHANG_BUILD_DATE").to_string(),
     })
@@ -71,13 +71,13 @@ pub async fn get_basic_info(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Basi
 #[get("/api/for-new-transaction")]
 pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<InfoForNewTransaction> {
     let guard = ledger.read().await;
-    let mut operations = guard.operations().await;
+    let mut operations = guard.operations();
 
-    let all_open_accounts = operations.all_open_accounts().await?;
+    let all_open_accounts = operations.all_open_accounts()?;
     let account_names = all_open_accounts.into_iter().map(|it| it.name).collect_vec();
 
     ResponseWrapper::json(InfoForNewTransaction {
-        payee: operations.all_payees().await?,
+        payee: operations.all_payees()?,
         account_name: account_names,
     })
 }
@@ -85,10 +85,10 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
 #[get("/api/statistic")]
 pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> ApiResult<StatisticResponse> {
     let ledger = ledger.read().await;
-    let mut operations = ledger.operations().await;
+    let mut operations = ledger.operations();
     let params = params.into_inner();
 
-    let rows = operations.static_duration(params.from, params.to).await?;
+    let rows = operations.static_duration(params.from, params.to)?;
 
     // 构建每日的统计数据
     let mut ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
@@ -110,7 +110,7 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
         ret.entry(day).or_insert_with(HashMap::new);
     }
 
-    let accounts = operations.all_accounts().await?;
+    let accounts = operations.all_accounts()?;
 
     let mut existing_balances: HashMap<String, AmountResponse> = HashMap::default();
     for account in accounts {
@@ -138,9 +138,9 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
 pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<CurrentStatisticResponse> {
     let ledger = ledger.read().await;
 
-    let mut operations = ledger.operations().await;
+    let mut operations = ledger.operations();
 
-    let latest_account_balances = operations.accounts_latest_balance().await?;
+    let latest_account_balances = operations.accounts_latest_balance()?;
 
     let balances = group_and_calculate(
         &mut operations,
@@ -150,7 +150,7 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
             .cloned()
             .collect_vec(),
     )
-    .await?;
+    ?;
 
     let liability = group_and_calculate(
         &mut operations,
@@ -159,8 +159,7 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
             .filter(|it| it.account.starts_with("Liabilities"))
             .cloned()
             .collect_vec(),
-    )
-    .await?;
+    )?;
 
     struct CurrentMonthBalance {
         account_type: String,
@@ -169,8 +168,7 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
     }
 
     let current_month_balance = operations
-        .accounts_latest_balance()
-        .await?
+        .accounts_latest_balance()?
         .into_iter()
         .map(|balance| CurrentMonthBalance {
             // todo use Account constructor
@@ -211,10 +209,9 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
     })
 }
 
-async fn group_and_calculate<T: AmountLike>(operations: &mut Operations, latest_account_balances: Vec<T>) -> ZhangResult<CalculatedAmount> {
+fn group_and_calculate<T: AmountLike>(operations: &mut Operations, latest_account_balances: Vec<T>) -> ZhangResult<CalculatedAmount> {
     let operating_currency = operations
-        .option(KEY_OPERATING_CURRENCY)
-        .await?
+        .option(KEY_OPERATING_CURRENCY)?
         .ok_or(ZhangError::OptionNotFound(KEY_OPERATING_CURRENCY.to_owned()))?
         .value;
 
@@ -227,7 +224,7 @@ async fn group_and_calculate<T: AmountLike>(operations: &mut Operations, latest_
         if commodity.eq(&operating_currency) {
             total_sum.add_assign(&commodity_sum);
         } else {
-            let target_price = operations.get_price(Local::now().naive_local(), &commodity, &operating_currency).await?;
+            let target_price = operations.get_price(Local::now().naive_local(), &commodity, &operating_currency)?;
             if let Some(price) = target_price {
                 total_sum.add_assign((&commodity_sum).mul(price.amount));
             }
@@ -246,10 +243,10 @@ async fn group_and_calculate<T: AmountLike>(operations: &mut Operations, latest_
 #[get("/api/journals")]
 pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemResponse>> {
     let ledger = ledger.read().await;
-    let mut operations = ledger.operations().await;
+    let mut operations = ledger.operations();
     let params = params.into_inner();
 
-    let total_count = operations.transaction_counts().await?;
+    let total_count = operations.transaction_counts()?;
 
     #[derive(Debug)]
     struct JournalHeader {
@@ -357,11 +354,10 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
                         account_after_commodity: arm.after_amount.currency,
                     })
                     .collect_vec();
-                let tags = operations.trx_tags(trx_id.to_string()).await?;
-                let links = operations.trx_links(trx_id.to_string()).await?;
+                let tags = operations.trx_tags(trx_id.to_string())?;
+                let links = operations.trx_links(trx_id.to_string())?;
                 let metas = operations
                     .metas(MetaType::TransactionMeta, trx_id.to_string())
-                    .await
                     .unwrap()
                     .into_iter()
                     .map(|it| it.into())
@@ -432,7 +428,7 @@ pub async fn create_new_transaction(
 pub async fn upload_transaction_document(ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: Path<(String,)>) -> ApiResult<String> {
     let transaction_id = path.into_inner().0;
     let ledger_stage = ledger.read().await;
-    let mut operations = ledger_stage.operations().await;
+    let mut operations = ledger_stage.operations();
     let entry = &ledger_stage.entry.0;
     let mut documents = vec![];
 
@@ -458,7 +454,7 @@ pub async fn upload_transaction_document(ledger: Data<Arc<RwLock<Ledger>>>, mut 
 
         documents.push(ZhangString::QuoteString(path.to_string()));
     }
-    let span_info = operations.transaction_span(&transaction_id).await?;
+    let span_info = operations.transaction_span(&transaction_id)?;
     let metas_content = documents
         .into_iter()
         .map(|document| format!("  document: {}", document.to_plain_string()))
@@ -493,13 +489,13 @@ pub async fn serve_frontend(uri: actix_web::http::Uri) -> impl Responder {
 #[get("/api/accounts")]
 pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<AccountResponse>> {
     let ledger = ledger.read().await;
-    let mut operations = ledger.operations().await;
+    let mut operations = ledger.operations();
 
     let mut ret = vec![];
-    for account in operations.all_accounts().await? {
-        let account_domain = operations.account(&account).await?.expect("cannot find account");
-        let account_balances = operations.single_account_balances(&account).await?;
-        let amount = group_and_calculate(&mut operations, account_balances).await?;
+    for account in operations.all_accounts()? {
+        let account_domain = operations.account(&account)?.expect("cannot find account");
+        let account_balances = operations.single_account_balances(&account)?;
+        let amount = group_and_calculate(&mut operations, account_balances)?;
 
         ret.push(AccountResponse {
             name: account,
@@ -515,15 +511,15 @@ pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Ve
 pub async fn get_account_info(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> ApiResult<AccountInfoResponse> {
     let account_name = path.into_inner().0;
     let ledger = ledger.read().await;
-    let mut operations = ledger.operations().await;
-    let account_domain = operations.account(&account_name).await?;
+    let mut operations = ledger.operations();
+    let account_domain = operations.account(&account_name)?;
 
     let account_info = match account_domain {
         Some(info) => info,
         None => return ResponseWrapper::not_found(),
     };
-    let vec = operations.single_account_balances(&account_info.name).await?;
-    let amount = group_and_calculate(&mut operations, vec).await?;
+    let vec = operations.single_account_balances(&account_info.name)?;
+    let amount = group_and_calculate(&mut operations, vec)?;
 
     ResponseWrapper::json(AccountInfoResponse {
         date: account_info.date,
@@ -538,7 +534,7 @@ pub async fn get_account_info(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(Str
 #[get("/api/documents")]
 pub async fn get_documents(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<DocumentResponse>> {
     let ledger = ledger.read().await;
-    let operations = ledger.operations().await;
+    let operations = ledger.operations();
     let store = operations.read();
 
     let rows = store
@@ -607,7 +603,7 @@ pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: Pa
     let account_name = params.into_inner().0;
 
     let ledger = ledger.read().await;
-    let operations = ledger.operations().await;
+    let operations = ledger.operations();
     let store = operations.read();
 
     let rows = store
@@ -632,9 +628,9 @@ pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: Pa
 pub async fn get_account_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<Vec<AccountJournalDomain>> {
     let account_name = params.into_inner().0;
     let ledger = ledger.read().await;
-    let mut operations = ledger.operations().await;
+    let mut operations = ledger.operations();
 
-    let journals = operations.account_journals(&account_name).await?;
+    let journals = operations.account_journals(&account_name)?;
 
     ResponseWrapper::json(journals)
 }
@@ -710,7 +706,7 @@ pub async fn create_batch_account_balances(
 pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<CommodityListItemResponse>> {
     let ledger = ledger.read().await;
 
-    let operations = ledger.operations().await;
+    let operations = ledger.operations();
     let operating_currency = ledger.options.operating_currency.as_str();
     let store = operations.read();
     let mut ret = vec![];
@@ -742,8 +738,8 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
     let ledger = ledger.read().await;
     let operating_currency = ledger.options.operating_currency.clone();
 
-    let mut operations = ledger.operations().await;
-    let commodity = operations.commodity(&commodity_name).await?.expect("cannot find commodity");
+    let mut operations = ledger.operations();
+    let commodity = operations.commodity(&commodity_name)?.expect("cannot find commodity");
     let latest_price = operations.get_latest_price(&commodity_name, operating_currency)?;
 
     let amount = operations.get_commodity_balances(&commodity_name)?;
@@ -839,8 +835,8 @@ pub async fn update_file_content(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(
 #[get("api/errors")]
 pub async fn get_errors(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<ErrorDomain>> {
     let ledger = ledger.read().await;
-    let mut operations = ledger.operations().await;
-    let errors = operations.errors().await?;
+    let mut operations = ledger.operations();
+    let errors = operations.errors()?;
     let total_count = errors.len();
     let ret = errors
         .iter()
@@ -854,9 +850,9 @@ pub async fn get_errors(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journal
 #[get("/api/report")]
 pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportRequest>) -> ApiResult<ReportResponse> {
     let ledger = ledger.read().await;
-    let mut operations = ledger.operations().await;
+    let mut operations = ledger.operations();
 
-    let accounts = operations.all_accounts().await?;
+    let accounts = operations.all_accounts()?;
 
     let mut latest_account_balances = vec![];
     for account in accounts {
@@ -923,7 +919,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
         .count();
 drop(store);
 
-    let income_transactions = operations.account_dated_journals(AccountType::Income, params.from, params.to).await?;
+    let income_transactions = operations.account_dated_journals(AccountType::Income, params.from, params.to)?;
 
     let total_income = income_transactions
         .iter()
@@ -953,8 +949,7 @@ drop(store);
     // --------
 
     let expense_transactions = operations
-        .account_dated_journals(AccountType::Expenses, params.from, params.to)
-        .await?;
+        .account_dated_journals(AccountType::Expenses, params.from, params.to)?;
 
     let total_expense = expense_transactions
         .iter()
@@ -1007,8 +1002,8 @@ drop(store);
 #[get("/api/options")]
 pub async fn get_all_options(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<OptionDomain>> {
     let ledger = ledger.read().await;
-    let mut operations = ledger.operations().await;
-    let options = operations.options().await?;
+    let mut operations = ledger.operations();
+    let options = operations.options()?;
     ResponseWrapper::json(options)
 }
 

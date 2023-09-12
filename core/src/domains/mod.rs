@@ -99,7 +99,7 @@ impl Operations {
 }
 
 impl Operations {
-    pub(crate) async fn insert_or_update_account(
+    pub(crate) fn insert_or_update_account(
         &mut self, datetime: DateTime<Tz>, account: Account, status: AccountStatus, alias: Option<&str>,
     ) -> ZhangResult<()> {
         let mut store = self.write();
@@ -116,7 +116,7 @@ impl Operations {
 
         Ok(())
     }
-    pub(crate) async fn insert_transaction(
+    pub(crate) fn insert_transaction(
         &mut self, id: &Uuid, sequence: i32, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>, tags: Vec<String>,
         links: Vec<String>, span: &SpanInfo,
     ) -> ZhangResult<()> {
@@ -140,7 +140,7 @@ impl Operations {
         Ok(())
     }
 
-    pub(crate) async fn insert_transaction_posting(
+    pub(crate) fn insert_transaction_posting(
         &mut self, trx_id: &Uuid, account_name: &str, unit: Option<Amount>, cost: Option<Amount>, inferred_amount: Amount, previous_amount: Amount,
         after_amount: Amount,
     ) -> ZhangResult<()> {
@@ -162,7 +162,7 @@ impl Operations {
         Ok(())
     }
 
-    pub(crate) async fn insert_document(
+    pub(crate)  fn insert_document(
         &mut self, datetime: DateTime<Tz>, filename: Option<&str>, path: String, document_type: DocumentType,
     ) -> ZhangResult<()> {
         let mut store = self.write();
@@ -177,7 +177,7 @@ impl Operations {
         Ok(())
     }
 
-    pub(crate) async fn insert_price(&mut self, datetime: DateTime<Tz>, commodity: &str, amount: &BigDecimal, target_commodity: &str) -> ZhangResult<()> {
+    pub(crate)  fn insert_price(&mut self, datetime: DateTime<Tz>, commodity: &str, amount: &BigDecimal, target_commodity: &str) -> ZhangResult<()> {
         let mut store = self.write();
         store.prices.push(PriceDomain {
             datetime: datetime.naive_local(),
@@ -188,7 +188,7 @@ impl Operations {
         Ok(())
     }
 
-    pub(crate) async fn account_target_day_balance(
+    pub(crate)  fn account_target_day_balance(
         &mut self, account_name: &str, datetime: DateTime<Tz>, currency: &str,
     ) -> ZhangResult<Option<AccountAmount>> {
         let store = self.read();
@@ -211,7 +211,7 @@ impl Operations {
         }))
     }
 
-    pub(crate) async fn account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>) -> ZhangResult<Option<CommodityLotRecord>> {
+    pub(crate)  fn account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>) -> ZhangResult<Option<CommodityLotRecord>> {
         let mut store = self.write();
         let entry = store
             .commodity_lots
@@ -228,7 +228,7 @@ impl Operations {
         Ok(option)
     }
 
-    pub(crate) async fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str) -> ZhangResult<Option<CommodityLotRecord>> {
+    pub(crate)  fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str) -> ZhangResult<Option<CommodityLotRecord>> {
         let mut store = self.write();
         let entry = store
             .commodity_lots
@@ -244,7 +244,7 @@ impl Operations {
 
         Ok(option)
     }
-    pub(crate) async fn update_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
+    pub(crate)  fn update_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
         let mut store = self.write();
         let entry = store
             .commodity_lots
@@ -265,7 +265,7 @@ impl Operations {
         Ok(())
     }
 
-    pub(crate) async fn insert_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
+    pub(crate)  fn insert_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
         let mut store = self.write();
         let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
         let lot_records = store.commodity_lots.entry(account).or_insert_with(|| vec![]);
@@ -306,13 +306,13 @@ impl Operations {
 }
 
 impl Operations {
-    pub async fn options(&mut self) -> ZhangResult<Vec<OptionDomain>> {
+    pub  fn options(&mut self) -> ZhangResult<Vec<OptionDomain>> {
         let store = self.read();
 
         Ok(store.options.clone().into_iter().map(|(key, value)| OptionDomain { key, value }).collect_vec())
     }
 
-    pub async fn option(&mut self, key: impl AsRef<str>) -> ZhangResult<Option<OptionDomain>> {
+    pub  fn option(&mut self, key: impl AsRef<str>) -> ZhangResult<Option<OptionDomain>> {
         let store = self.read();
 
         Ok(store.options.get(key.as_ref()).map(|value| OptionDomain {
@@ -321,7 +321,7 @@ impl Operations {
         }))
     }
 
-    pub async fn accounts_latest_balance(&mut self) -> ZhangResult<Vec<AccountDailyBalanceDomain>> {
+    pub  fn accounts_latest_balance(&mut self) -> ZhangResult<Vec<AccountDailyBalanceDomain>> {
         let store = self.read();
 
         let mut ret: HashMap<Account, IndexMap<Currency, BTreeMap<NaiveDate, Amount>>> = HashMap::new();
@@ -356,7 +356,7 @@ impl Operations {
             .collect_vec())
     }
 
-    pub async fn get_price(&mut self, date: NaiveDateTime, from: impl AsRef<str>, to: impl AsRef<str>) -> ZhangResult<Option<PriceDomain>> {
+    pub  fn get_price(&mut self, date: NaiveDateTime, from: impl AsRef<str>, to: impl AsRef<str>) -> ZhangResult<Option<PriceDomain>> {
         let store = self.read();
         let x = store
             .prices
@@ -370,7 +370,7 @@ impl Operations {
         Ok(x)
     }
 
-    pub async fn metas(&mut self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
+    pub  fn metas(&mut self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
         let store = self.read();
         Ok(store
             .metas
@@ -381,7 +381,7 @@ impl Operations {
             .collect_vec())
     }
 
-    pub async fn trx_tags(&mut self, trx_id: impl AsRef<str>) -> ZhangResult<Vec<String>> {
+    pub  fn trx_tags(&mut self, trx_id: impl AsRef<str>) -> ZhangResult<Vec<String>> {
         let store = self.read();
         let tags = store
             .transactions
@@ -392,7 +392,7 @@ impl Operations {
         Ok(tags)
     }
 
-    pub async fn trx_links(&mut self, trx_id: impl AsRef<str>) -> ZhangResult<Vec<String>> {
+    pub  fn trx_links(&mut self, trx_id: impl AsRef<str>) -> ZhangResult<Vec<String>> {
         let store = self.read();
         let tags = store
             .transactions
@@ -403,25 +403,25 @@ impl Operations {
         Ok(tags)
     }
 
-    pub async fn commodity(&mut self, name: &str) -> ZhangResult<Option<CommodityDomain>> {
+    pub  fn commodity(&mut self, name: &str) -> ZhangResult<Option<CommodityDomain>> {
         let store = self.read();
         Ok(store.commodities.get(name).cloned())
     }
 
-    pub async fn exist_commodity(&mut self, name: &str) -> ZhangResult<bool> {
-        Ok(self.commodity(name).await?.is_some())
+    pub  fn exist_commodity(&mut self, name: &str) -> ZhangResult<bool> {
+        Ok(self.commodity(name)?.is_some())
     }
 
-    pub async fn exist_account(&mut self, name: &str) -> ZhangResult<bool> {
-        Ok(self.account(name).await?.is_some())
+    pub  fn exist_account(&mut self, name: &str) -> ZhangResult<bool> {
+        Ok(self.account(name)?.is_some())
     }
 
-    pub async fn transaction_counts(&mut self) -> ZhangResult<i64> {
+    pub  fn transaction_counts(&mut self) -> ZhangResult<i64> {
         let store = self.read();
         Ok(store.transactions.len() as i64)
     }
 
-    pub async fn transaction_span(&mut self, id: &str) -> ZhangResult<TransactionInfoDomain> {
+    pub  fn transaction_span(&mut self, id: &str) -> ZhangResult<TransactionInfoDomain> {
         let store = self.read();
         Ok(store
             .transactions
@@ -435,7 +435,7 @@ impl Operations {
             .unwrap())
     }
 
-    pub async fn single_account_balances(&mut self, account_name: &str) -> ZhangResult<Vec<AccountBalanceDomain>> {
+    pub  fn single_account_balances(&mut self, account_name: &str) -> ZhangResult<Vec<AccountBalanceDomain>> {
         let store = self.read();
 
         let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
@@ -471,7 +471,7 @@ impl Operations {
             .collect_vec())
     }
 
-    pub async fn account_journals(&mut self, account: &str) -> ZhangResult<Vec<AccountJournalDomain>> {
+    pub  fn account_journals(&mut self, account: &str) -> ZhangResult<Vec<AccountJournalDomain>> {
         let store = self.read();
         let account = Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?;
 
@@ -498,7 +498,7 @@ impl Operations {
         }
         Ok(ret)
     }
-    pub async fn account_dated_journals(
+    pub  fn account_dated_journals(
         &mut self, account_type: AccountType, from: DateTime<Utc>, to: DateTime<Utc>,
     ) -> ZhangResult<Vec<AccountJournalDomain>> {
         let store = self.read();
@@ -529,18 +529,18 @@ impl Operations {
         Ok(ret)
     }
 
-    pub async fn errors(&mut self) -> ZhangResult<Vec<ErrorDomain>> {
+    pub  fn errors(&mut self) -> ZhangResult<Vec<ErrorDomain>> {
         let store = self.read();
         Ok(store.errors.iter().cloned().collect_vec())
     }
 
-    pub async fn account(&mut self, account_name: &str) -> ZhangResult<Option<AccountDomain>> {
+    pub  fn account(&mut self, account_name: &str) -> ZhangResult<Option<AccountDomain>> {
         let store = self.read();
 
         let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
         Ok(store.accounts.get(&account).cloned())
     }
-    pub async fn all_open_accounts(&mut self) -> ZhangResult<Vec<AccountDomain>> {
+    pub  fn all_open_accounts(&mut self) -> ZhangResult<Vec<AccountDomain>> {
         let store = self.read();
         Ok(store
             .accounts
@@ -549,12 +549,12 @@ impl Operations {
             .cloned()
             .collect_vec())
     }
-    pub async fn all_accounts(&mut self) -> ZhangResult<Vec<String>> {
+    pub  fn all_accounts(&mut self) -> ZhangResult<Vec<String>> {
         let store = self.read();
         Ok(store.accounts.keys().map(|it| it.name().to_owned()).collect_vec())
     }
 
-    pub async fn all_payees(&mut self) -> ZhangResult<Vec<String>> {
+    pub  fn all_payees(&mut self) -> ZhangResult<Vec<String>> {
         let store = self.read();
         let payees: HashSet<String> = store
             .transactions
@@ -567,7 +567,7 @@ impl Operations {
         Ok(payees.into_iter().collect_vec())
     }
 
-    pub async fn static_duration(&mut self, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<StaticRow>> {
+    pub  fn static_duration(&mut self, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<StaticRow>> {
         let store = self.read();
         let mut cal: HashMap<NaiveDate, HashMap<AccountType, HashMap<Currency, BigDecimal>>> = HashMap::new();
 
@@ -641,7 +641,7 @@ impl Operations {
 
 // for insert and new operations
 impl Operations {
-    pub async fn new_error(&mut self, error_type: ErrorType, span: &SpanInfo, metas: HashMap<String, String>) -> ZhangResult<()> {
+    pub  fn new_error(&mut self, error_type: ErrorType, span: &SpanInfo, metas: HashMap<String, String>) -> ZhangResult<()> {
         let mut store = self.write();
         store.errors.push(ErrorDomain {
             id: Uuid::new_v4().to_string(),
@@ -652,14 +652,14 @@ impl Operations {
         Ok(())
     }
 
-    pub async fn insert_or_update_options(&mut self, key: &str, value: &str) -> ZhangResult<()> {
+    pub  fn insert_or_update_options(&mut self, key: &str, value: &str) -> ZhangResult<()> {
         let mut store = self.write();
 
         store.options.insert(key.to_owned(), value.to_owned());
         Ok(())
     }
 
-    pub async fn insert_meta(&mut self, type_: MetaType, type_identifier: impl AsRef<str>, meta: Meta) -> ZhangResult<()> {
+    pub  fn insert_meta(&mut self, type_: MetaType, type_identifier: impl AsRef<str>, meta: Meta) -> ZhangResult<()> {
         let mut store = self.write();
 
         for (meta_key, meta_value) in meta.get_flatten() {
@@ -684,7 +684,7 @@ impl Operations {
         Ok(())
     }
 
-    pub async fn close_account(&mut self, account_name: &str) -> ZhangResult<()> {
+    pub  fn close_account(&mut self, account_name: &str) -> ZhangResult<()> {
         let mut store = self.write();
 
         let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
@@ -697,7 +697,7 @@ impl Operations {
         Ok(())
     }
 
-    pub async fn insert_commodity(
+    pub  fn insert_commodity(
         &mut self, name: &String, precision: i32, prefix: Option<String>, suffix: Option<String>, rounding: Option<String>,
     ) -> ZhangResult<()> {
         let mut store = self.write();

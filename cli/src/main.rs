@@ -121,7 +121,6 @@ impl Opts {
             Opts::Parse(parse_opts) => {
                 let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");
                 Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, format.transformer())
-                    .await
                     .expect("Cannot load ledger");
             }
             Opts::Export(_) => todo!(),

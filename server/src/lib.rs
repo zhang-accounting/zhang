@@ -65,7 +65,7 @@ pub struct ServeConfig {
 pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     info!("version: {}, build date: {}", env!("CARGO_PKG_VERSION"), env!("ZHANG_BUILD_DATE"));
     let database = opts.database.clone();
-    let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), opts.transformer.clone()).await?;
+    let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), opts.transformer.clone())?;
     let ledger_data = Arc::new(RwLock::new(ledger));
 
     let cloned_ledger = ledger_data.clone();
@@ -118,7 +118,7 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
                 debug!("watcher: got the lock");
                 info!("receive file event and reload ledger");
                 let start_time = Instant::now();
-                match guard.reload().await {
+                match guard.reload() {
                     Ok(_) => {
                         let duration = start_time.elapsed();
                         info!("ledger is reloaded successfully in {:?}", duration);

@@ -8,6 +8,42 @@ use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Flag, SpanInfo, Transaction};
 
+pub struct Store {
+    pub options: HashMap<String, String>,
+    pub accounts: HashMap<Account, AccountDomain>,
+    pub commodities: HashMap<String, CommodityDomain>,
+    pub transactions: HashMap<Uuid, TransactionHeaderDomain>,
+    pub postings: Vec<PostingDomain>,
+
+    pub prices: Vec<PriceDomain>,
+
+    // by account
+    pub commodity_lots: HashMap<Account, Vec<CommodityLotRecord>>,
+
+    pub documents: Vec<DocumentDomain>,
+
+    pub metas: Vec<MetaDomain>,
+
+    pub errors: Vec<ErrorDomain>,
+}
+
+impl Default for Store {
+    fn default() -> Self {
+        Self {
+            options: HashMap::default(),
+            accounts: Default::default(),
+            commodities: Default::default(),
+            transactions: Default::default(),
+            postings: vec![],
+            prices: vec![],
+            commodity_lots: Default::default(),
+            documents: vec![],
+            metas: vec![],
+            errors: vec![],
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct TransactionHeaderDomain {
     pub id: Uuid,
@@ -70,41 +106,6 @@ pub struct DocumentDomain {
     pub path: String,
 }
 
-pub struct Store {
-    pub options: HashMap<String, String>,
-    pub accounts: HashMap<Account, AccountDomain>,
-    pub commodities: HashMap<String, CommodityDomain>,
-    pub transactions: HashMap<Uuid, TransactionHeaderDomain>,
-    pub postings: Vec<PostingDomain>,
-
-    pub prices: Vec<PriceDomain>,
-
-    // by account
-    pub commodity_lots: HashMap<Account, Vec<CommodityLotRecord>>,
-
-    pub documents: Vec<DocumentDomain>,
-
-    pub metas: Vec<MetaDomain>,
-
-    pub errors: Vec<ErrorDomain>,
-}
-
-impl Default for Store {
-    fn default() -> Self {
-        Self {
-            options: HashMap::default(),
-            accounts: Default::default(),
-            commodities: Default::default(),
-            transactions: Default::default(),
-            postings: vec![],
-            prices: vec![],
-            commodity_lots: Default::default(),
-            documents: vec![],
-            metas: vec![],
-            errors: vec![],
-        }
-    }
-}
 
 #[derive(Default, Clone)]
 pub struct CommodityLotRecord {
