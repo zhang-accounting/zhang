@@ -222,12 +222,12 @@ mod test {
 
             let lunch_balance = operations.single_account_balances("Expenses:Lunch").await?.pop().unwrap();
             assert_eq!(lunch_balance.account, "Expenses:Lunch");
-            assert_eq!(lunch_balance.balance_number.0, BigDecimal::from(50));
+            assert_eq!(lunch_balance.balance_number, BigDecimal::from(50));
             assert_eq!(lunch_balance.balance_commodity, "CNY");
 
             let card_balance = operations.single_account_balances("Assets:MyCard").await?.pop().unwrap();
             assert_eq!(card_balance.account, "Assets:MyCard");
-            assert_eq!(card_balance.balance_number.0, BigDecimal::from(-50));
+            assert_eq!(card_balance.balance_number, BigDecimal::from(-50));
             assert_eq!(card_balance.balance_commodity, "CNY");
             Ok(())
         }

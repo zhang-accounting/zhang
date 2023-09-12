@@ -1,8 +1,8 @@
-use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use bigdecimal::BigDecimal;
 use strum::{AsRefStr, EnumString};
 use zhang_ast::{Currency, SpanInfo};
 
@@ -39,7 +39,7 @@ pub struct AccountBalanceDomain {
     pub account: String,
     pub account_status: AccountStatus,
     // todo: combine number and commodity
-    pub balance_number: ZhangBigDecimal,
+    pub balance_number: BigDecimal,
     pub balance_commodity: String,
 }
 
@@ -47,7 +47,7 @@ pub struct AccountBalanceDomain {
 pub struct AccountDailyBalanceDomain {
     pub date: NaiveDate,
     pub account: String,
-    pub balance_number: ZhangBigDecimal,
+    pub balance_number: BigDecimal,
     pub balance_commodity: String,
 }
 
@@ -55,7 +55,7 @@ pub struct AccountDailyBalanceDomain {
 pub struct PriceDomain {
     pub datetime: NaiveDateTime,
     pub commodity: Currency,
-    pub amount: ZhangBigDecimal,
+    pub amount: BigDecimal,
     pub target_commodity: Currency,
 }
 
@@ -91,9 +91,9 @@ pub struct AccountJournalDomain {
     pub trx_id: String,
     pub payee: Option<String>,
     pub narration: Option<String>,
-    pub inferred_unit_number: ZhangBigDecimal,
+    pub inferred_unit_number: BigDecimal,
     pub inferred_unit_commodity: String,
-    pub account_after_number: ZhangBigDecimal,
+    pub account_after_number: BigDecimal,
     pub account_after_commodity: String,
 }
 

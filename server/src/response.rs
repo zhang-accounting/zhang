@@ -3,11 +3,12 @@ use std::collections::HashMap;
 use actix_web::body::EitherBody;
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse, Responder, ResponseError};
+use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use serde::Serialize;
 use sqlx::FromRow;
+use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_core::database::type_ext::big_decimal::ZhangBigDecimal;
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, MetaDomain};
 
 use crate::{ServerError, ServerResult};
@@ -99,7 +100,7 @@ pub struct DocumentResponse {
 #[derive(Serialize)]
 pub struct StatisticFrameResponse {
     datetime: NaiveDateTime,
-    amount: ZhangBigDecimal,
+    amount: BigDecimal,
     commodity: String,
 }
 
@@ -132,7 +133,7 @@ pub enum JournalItemResponse {
 }
 
 impl JournalItemResponse {
-    pub fn sequence(&self) -> i64 {
+    pub fn sequence(&self) -> i32 {
         match self {
             JournalItemResponse::Transaction(inner) => inner.sequence,
             JournalItemResponse::BalanceCheck(inner) => inner.sequence,
@@ -143,8 +144,8 @@ impl JournalItemResponse {
 
 #[derive(Serialize)]
 pub struct JournalTransactionItemResponse {
-    pub id: String,
-    pub sequence: i64,
+    pub id: Uuid,
+    pub sequence: i32,
     pub datetime: NaiveDateTime,
     pub payee: String,
     pub narration: Option<String>,
@@ -158,24 +159,22 @@ pub struct JournalTransactionItemResponse {
 #[derive(Serialize)]
 pub struct JournalTransactionPostingResponse {
     pub account: String,
-    pub unit_number: Option<ZhangBigDecimal>,
+    pub unit_number: Option<BigDecimal>,
     pub unit_commodity: Option<String>,
-    pub cost_number: Option<ZhangBigDecimal>,
+    pub cost_number: Option<BigDecimal>,
     pub cost_commodity: Option<String>,
-    pub price_number: Option<ZhangBigDecimal>,
-    pub price_commodity: Option<String>,
-    pub inferred_unit_number: ZhangBigDecimal,
+    pub inferred_unit_number: BigDecimal,
     pub inferred_unit_commodity: String,
-    pub account_before_number: ZhangBigDecimal,
+    pub account_before_number: BigDecimal,
     pub account_before_commodity: String,
-    pub account_after_number: ZhangBigDecimal,
+    pub account_after_number: BigDecimal,
     pub account_after_commodity: String,
 }
 
 #[derive(Serialize)]
 pub struct JournalBalanceCheckItemResponse {
-    pub id: String,
-    pub sequence: i64,
+    pub id: Uuid,
+    pub sequence: i32,
     pub datetime: NaiveDateTime,
     pub payee: String,
     pub narration: Option<String>,
@@ -185,8 +184,8 @@ pub struct JournalBalanceCheckItemResponse {
 
 #[derive(Serialize)]
 pub struct JournalBalancePadItemResponse {
-    pub id: String,
-    pub sequence: i64,
+    pub id: Uuid,
+    pub sequence: i32,
     pub datetime: NaiveDateTime,
     pub payee: String,
     pub narration: Option<String>,
@@ -203,19 +202,19 @@ pub struct InfoForNewTransaction {
 #[derive(Serialize)]
 pub struct CalculatedAmount {
     pub calculated: AmountResponse,
-    pub detail: HashMap<String, ZhangBigDecimal>,
+    pub detail: HashMap<String, BigDecimal>,
 }
 
 #[derive(Serialize, Clone)]
 pub struct AmountResponse {
-    pub number: ZhangBigDecimal,
+    pub number: BigDecimal,
     pub commodity: String,
 }
 
 impl From<Amount> for AmountResponse {
     fn from(value: Amount) -> Self {
         AmountResponse {
-            number: ZhangBigDecimal(value.number),
+            number: value.number,
             commodity: value.currency,
         }
     }
@@ -228,17 +227,17 @@ pub struct CommodityListItemResponse {
     pub prefix: Option<String>,
     pub suffix: Option<String>,
     pub rounding: Option<String>,
-    pub total_amount: ZhangBigDecimal,
+    pub total_amount: BigDecimal,
     pub latest_price_date: Option<NaiveDateTime>,
-    pub latest_price_amount: Option<ZhangBigDecimal>,
+    pub latest_price_amount: Option<BigDecimal>,
     pub latest_price_commodity: Option<String>,
 }
 
 #[derive(FromRow, Serialize)]
 pub struct CommodityLot {
     pub datetime: Option<NaiveDateTime>,
-    pub amount: ZhangBigDecimal,
-    pub price_amount: Option<ZhangBigDecimal>,
+    pub amount: BigDecimal,
+    pub price_amount: Option<BigDecimal>,
     pub price_commodity: Option<String>,
     pub account: String,
 }
@@ -246,7 +245,7 @@ pub struct CommodityLot {
 #[derive(FromRow, Serialize)]
 pub struct CommodityPrice {
     pub datetime: NaiveDateTime,
-    pub amount: ZhangBigDecimal,
+    pub amount: BigDecimal,
     pub target_commodity: Option<String>,
 }
 
@@ -290,7 +289,7 @@ pub struct ReportResponse {
 #[derive(Serialize)]
 pub struct ReportRankItemResponse {
     pub account: String,
-    pub percent: ZhangBigDecimal,
+    pub percent: BigDecimal,
 }
 
 #[derive(Serialize)]

@@ -34,12 +34,35 @@ pub struct PostingDomain {
     pub previous_amount: Amount,
     pub after_amount: Amount,
 }
-
+#[derive(Clone)]
 pub enum DocumentType {
     Trx(Uuid),
     Account(Account),
 }
 
+impl DocumentType {
+
+    pub fn match_account(&self, account_name: &str) ->bool {
+        match self {
+            DocumentType::Trx(_) => {false}
+            DocumentType::Account(acc) => {acc.name().eq(account_name)}
+        }
+    }
+    pub fn as_account(&self) -> Option<String> {
+        match self {
+            DocumentType::Trx(_) => {None}
+            DocumentType::Account(account) => {Some(account.name().to_owned())}
+        }
+    }
+    pub fn as_trx(&self) -> Option<String> {
+        match self {
+            DocumentType::Trx(id) => {Some(id.to_string())}
+            DocumentType::Account(account) => {None}
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct DocumentDomain {
     pub datetime: DateTime<Tz>,
     pub document_type: DocumentType,
@@ -48,22 +71,22 @@ pub struct DocumentDomain {
 }
 
 pub struct Store {
-    pub(crate) options: HashMap<String, String>,
-    pub(crate) accounts: HashMap<Account, AccountDomain>,
-    pub(crate) commodities: HashMap<String, CommodityDomain>,
-    pub(crate) transactions: HashMap<Uuid, TransactionHeaderDomain>,
-    pub(crate) postings: Vec<PostingDomain>,
+    pub options: HashMap<String, String>,
+    pub accounts: HashMap<Account, AccountDomain>,
+    pub commodities: HashMap<String, CommodityDomain>,
+    pub transactions: HashMap<Uuid, TransactionHeaderDomain>,
+    pub postings: Vec<PostingDomain>,
 
-    pub(crate) prices: Vec<PriceDomain>,
+    pub prices: Vec<PriceDomain>,
 
     // by account
-    pub(crate) commodity_lots: HashMap<Account, Vec<CommodityLotRecord>>,
+    pub commodity_lots: HashMap<Account, Vec<CommodityLotRecord>>,
 
-    pub(crate) documents: Vec<DocumentDomain>,
+    pub documents: Vec<DocumentDomain>,
 
-    pub(crate) metas: Vec<MetaDomain>,
+    pub metas: Vec<MetaDomain>,
 
-    pub(crate) errors: Vec<ErrorDomain>,
+    pub errors: Vec<ErrorDomain>,
 }
 
 impl Default for Store {

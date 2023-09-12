@@ -37,7 +37,7 @@ reqwest = { version = "0.11", features = ["json"] }
 itertools = "0.9"
 bigdecimal = { version = "0.3.0", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 indexmap = { version = "1.9", features = ["serde-1"] }
 mime_guess = "2"
 glob = "0.3.1"

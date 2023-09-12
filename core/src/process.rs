@@ -6,7 +6,6 @@ use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use crate::constants::{DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
-use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::domains::schemas::{AccountStatus, ErrorType, MetaType};
 use crate::domains::{AccountAmount, Operations};
 use crate::ledger::Ledger;
@@ -198,10 +197,10 @@ impl DirectiveProcess for Transaction {
                 .await?;
 
             let previous = option.unwrap_or(AccountAmount {
-                number: ZhangBigDecimal(BigDecimal::zero()),
+                number: BigDecimal::zero(),
                 commodity: inferred_amount.currency.clone(),
             });
-            let after_number = (&previous.number.0).add(&inferred_amount.number);
+            let after_number = (&previous.number).add(&inferred_amount.number);
 
             operations
                 .insert_transaction_posting(
@@ -210,7 +209,7 @@ impl DirectiveProcess for Transaction {
                     txn_posting.posting.units.clone(),
                     txn_posting.posting.cost.clone(),
                     inferred_amount,
-                    Amount::new(previous.number.0, previous.commodity.clone()),
+                    Amount::new(previous.number, previous.commodity.clone()),
                     Amount::new(after_number, previous.commodity),
                 )
                 .await?;
@@ -251,7 +250,7 @@ impl DirectiveProcess for Balance {
                     )
                     .await?;
 
-                let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
+                let current_balance_amount = option.map(|it| it.number).unwrap_or_else(BigDecimal::zero);
 
                 let distance = Amount::new(
                     (&balance_check.amount.number).sub(&current_balance_amount),
@@ -305,7 +304,7 @@ impl DirectiveProcess for Balance {
                     )
                     .await?;
 
-                let current_balance_amount = option.map(|it| it.number.0).unwrap_or_else(BigDecimal::zero);
+                let current_balance_amount = option.map(|it| it.number).unwrap_or_else(BigDecimal::zero);
 
                 let distance = Amount::new((&balance_pad.amount.number).sub(&current_balance_amount), balance_pad.amount.currency.clone());
                 let mut transformed_trx = Transaction {

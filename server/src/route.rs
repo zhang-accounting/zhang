@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
 use std::iter::FromIterator;
-use std::ops::{Add, AddAssign, Div, Mul};
+use std::ops::{Add, AddAssign, Deref, Div, Mul};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -23,7 +23,6 @@ use sqlx::FromRow;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use zhang_core::database::type_ext::big_decimal::ZhangBigDecimal;
 use zhang_core::error::IoErrorIntoZhangError;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::string_::StringExt;
@@ -49,7 +48,7 @@ pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
 pub struct DetailRow {
     date: NaiveDate,
     account: String,
-    balance_number: ZhangBigDecimal,
+    balance_number: BigDecimal,
     balance_commodity: String,
 }
 
@@ -88,12 +87,12 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
 #[get("/api/statistic")]
 pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> ApiResult<StatisticResponse> {
     let ledger = ledger.read().await;
-    let mut connection = ledger.connection().await;
     let mut operations = ledger.operations().await;
     let params = params.into_inner();
 
     let rows = operations.static_duration(params.from, params.to).await?;
 
+    // 构建每日的统计数据
     let mut ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
     for (date, dated_rows) in &rows.into_iter().group_by(|row| row.date) {
         let date_entry = ret.entry(date).or_insert_with(HashMap::new);
@@ -107,102 +106,29 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
             );
         }
     }
+
+    // 补充不存在的日期
     for day in NaiveDateRange::new(params.from.date_naive(), params.to.date_naive()) {
         ret.entry(day).or_insert_with(HashMap::new);
     }
 
     let accounts = operations.all_accounts().await?;
 
-    // todo(sqlx): move to operation
-    let existing_account_balance = sqlx::query_as::<_, DetailRow>(
-        r#"
-        SELECT
-            date(datetime) AS date,
-            account,
-            balance_number,
-            balance_commodity
-        FROM
-            account_daily_balance
-        WHERE
-            datetime < $1
-        GROUP BY
-            account
-        HAVING
-            max(datetime)
-    "#,
-    )
-    .bind(params.from.naive_local())
-    .fetch_all(&mut connection)
-    .await?;
-
-    let mut existing_balances: HashMap<String, AmountResponse> = existing_account_balance
-        .into_iter()
-        .map(|line| {
-            (
-                line.account.to_owned(),
+    let mut existing_balances: HashMap<String, AmountResponse> = HashMap::default();
+    for account in accounts {
+        let balance = operations.account_target_date_balance(&account, params.from)?.into_iter().next();
+        if let Some(balance) = balance {
+            existing_balances.insert(
+                account,
                 AmountResponse {
-                    number: line.balance_number,
-                    commodity: line.balance_commodity,
-                },
-            )
-        })
-        .collect();
-
-    // todo(sqlx): move to operation
-    let details = sqlx::query_as::<_, DetailRow>(
-        r#"
-        SELECT
-        date(datetime) AS date,
-        account,
-        balance_number,
-        balance_commodity
-    FROM
-        account_daily_balance
-    where datetime >= $1 and datetime <= $2
-    "#,
-    )
-    .bind(params.from.naive_local())
-    .bind(params.to.naive_local())
-    .fetch_all(&mut connection)
-    .await?;
-
-    let mut detail_map: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
-    for (date, dated_rows) in &details.into_iter().group_by(|row| row.date) {
-        let date_entry = detail_map.entry(date).or_insert_with(HashMap::new);
-        for row in dated_rows {
-            date_entry.insert(
-                row.account,
-                AmountResponse {
-                    number: row.balance_number,
-                    commodity: row.balance_commodity,
+                    number: balance.balance_number,
+                    commodity: balance.balance_commodity,
                 },
             );
         }
     }
 
     let mut detail_ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
-
-    for target_day in NaiveDateRange::new(params.from.date_naive(), params.to.date_naive()) {
-        let mut target_day_ret = HashMap::new();
-
-        let mut target_day_map = detail_map.remove(&target_day).unwrap_or_default();
-        for target_account in &accounts {
-            let option = target_day_map.remove(target_account);
-            if let Some(target_account_balance) = option {
-                // has change in date
-                target_day_ret.insert(target_account.to_owned(), target_account_balance.clone());
-                existing_balances.insert(target_account.to_owned(), target_account_balance);
-            } else {
-                // need to get previous day's balance
-                let balance = existing_balances.get(target_account).cloned().unwrap_or_else(|| AmountResponse {
-                    number: ZhangBigDecimal(BigDecimal::zero()),
-                    commodity: ledger.options.operating_currency.to_owned(),
-                });
-                target_day_ret.insert(target_account.to_owned(), balance);
-            }
-        }
-        detail_ret.insert(target_day, target_day_ret);
-    }
 
     ResponseWrapper::json(StatisticResponse {
         changes: ret,
@@ -213,11 +139,6 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
 #[get("/api/statistic/current")]
 pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<CurrentStatisticResponse> {
     let ledger = ledger.read().await;
-
-    let mut connection = ledger.connection().await;
-
-    let month_beginning = Local.beginning_of_month().naive_local();
-    let month_end = Local.end_of_month().naive_local();
 
     let mut operations = ledger.operations().await;
 
@@ -246,29 +167,21 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
     #[derive(FromRow)]
     struct CurrentMonthBalance {
         account_type: String,
-        amount: ZhangBigDecimal,
+        amount: BigDecimal,
         commodity: String,
     }
-    // todo(sqlx): move to operation
 
-    let current_month_balance = sqlx::query_as::<_, CurrentMonthBalance>(
-        r#"
-    SELECT accounts.type             AS account_type,
-           sum(inferred_unit_number) AS amount,
-           inferred_unit_commodity   AS commodity
-    FROM transaction_postings
-             JOIN transactions ON transactions.id = transaction_postings.trx_id
-             JOIN accounts ON accounts.name = transaction_postings.account
-    WHERE transactions.datetime >= $1 and transactions.datetime <= $2
-    GROUP BY
-        accounts.type,
-        inferred_unit_commodity
-    "#,
-    )
-    .bind(month_beginning)
-    .bind(month_end)
-    .fetch_all(&mut connection)
-    .await?;
+    let current_month_balance = operations
+        .accounts_latest_balance()
+        .await?
+        .into_iter()
+        .map(|balance| CurrentMonthBalance {
+            // todo use Account constructor
+            account_type: balance.account.split(":").next().unwrap().to_owned(),
+            amount: balance.balance_number,
+            commodity: balance.balance_commodity,
+        })
+        .collect_vec();
 
     let income = current_month_balance
         .iter()
@@ -278,7 +191,7 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
             commodity: it.commodity.to_owned(),
         })
         .unwrap_or_else(|| AmountResponse {
-            number: ZhangBigDecimal(BigDecimal::zero()),
+            number: BigDecimal::zero(),
             commodity: ledger.options.operating_currency.to_owned(),
         });
     let expense = current_month_balance
@@ -289,7 +202,7 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
             commodity: it.commodity.to_owned(),
         })
         .unwrap_or_else(|| AmountResponse {
-            number: ZhangBigDecimal(BigDecimal::zero()),
+            number: BigDecimal::zero(),
             commodity: ledger.options.operating_currency.to_owned(),
         });
 
@@ -319,14 +232,14 @@ async fn group_and_calculate<T: AmountLike>(operations: &mut Operations, latest_
         } else {
             let target_price = operations.get_price(Local::now().naive_local(), &commodity, &operating_currency).await?;
             if let Some(price) = target_price {
-                total_sum.add_assign((&commodity_sum).mul(price.amount.0));
+                total_sum.add_assign((&commodity_sum).mul(price.amount));
             }
         }
-        detail.insert(commodity, ZhangBigDecimal(commodity_sum));
+        detail.insert(commodity, commodity_sum);
     }
     Ok(CalculatedAmount {
         calculated: AmountResponse {
-            number: ZhangBigDecimal(total_sum),
+            number: total_sum,
             commodity: operating_currency.to_owned(),
         },
         detail,
@@ -337,165 +250,141 @@ async fn group_and_calculate<T: AmountLike>(operations: &mut Operations, latest_
 pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemResponse>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations().await;
-    let mut connection = ledger.connection().await;
     let params = params.into_inner();
 
     let total_count = operations.transaction_counts().await?;
 
     #[derive(Debug, FromRow)]
     struct JournalHeader {
-        id: String,
-        sequence: i64,
+        id: Uuid,
+        sequence: i32,
         datetime: NaiveDateTime,
         journal_type: String,
         payee: String,
         narration: Option<String>,
     }
-    // todo(sqlx): move to operation
-    let journal_headers = sqlx::query_as::<_, JournalHeader>(
-        r#"
-        SELECT id, sequence, datetime, type as journal_type, payee, narration FROM transactions ORDER BY "sequence" DESC LIMIT $1 OFFSET $2
-        "#,
-    )
-    .bind(params.limit())
-    .bind(params.offset())
-    .fetch_all(&mut connection)
-    .await?;
+    let store = operations.read();
+    let journal_headers = store
+        .transactions
+        .values()
+        .sorted_by_key(|it| -it.sequence)
+        .skip(params.offset() as usize)
+        .take(params.limit() as usize)
+        .cloned()
+        .map(|it| JournalHeader {
+            id: it.id,
+            sequence: it.sequence,
+            datetime: it.datetime.naive_local(),
+            journal_type: it.flag.to_string(),
+            payee: it.payee.unwrap_or_default(),
+            narration: it.narration,
+        })
+        .collect_vec();
 
-    #[derive(Debug, FromRow)]
-    struct JournalArm {
-        trx_id: String,
-        account: String,
-        unit_number: Option<ZhangBigDecimal>,
-        unit_commodity: Option<String>,
-        cost_number: Option<ZhangBigDecimal>,
-        cost_commodity: Option<String>,
-        price_number: Option<ZhangBigDecimal>,
-        price_commodity: Option<String>,
-        inferred_unit_number: ZhangBigDecimal,
-        inferred_unit_commodity: String,
-        account_before_number: ZhangBigDecimal,
-        account_before_commodity: String,
-        account_after_number: ZhangBigDecimal,
-        account_after_commodity: String,
-    }
-    // todo(sqlx): move to operation
-    let journal_arms = sqlx::query_as::<_, JournalArm>(
-        r#"
-        select * from transaction_postings where trx_id in ( SELECT id FROM transactions ORDER BY "sequence" DESC LIMIT $1 OFFSET $2 )
-        "#,
-    )
-    .bind(params.limit())
-    .bind(params.offset())
-    .fetch_all(&mut connection)
-    .await?;
+    let header_ids: HashSet<Uuid> = journal_headers.iter().map(|it| it.id.clone()).collect();
 
-    let mut header_map: HashMap<String, JournalHeader> = journal_headers.into_iter().map(|it| (it.id.to_owned(), it)).collect();
+    let postings = store.postings.iter().filter(|posting| header_ids.contains(&posting.id)).cloned().collect_vec();
+
+    drop(store);
+    let mut header_map: HashMap<Uuid, JournalHeader> = journal_headers.into_iter().map(|it| (it.id.to_owned(), it)).collect();
+
     let mut ret = vec![];
-    for (trx_id, arms) in &journal_arms.into_iter().group_by(|it| it.trx_id.to_owned()) {
-        let header = header_map.remove(&trx_id);
-        if let Some(header) = header {
-            let item = match header.journal_type.as_str() {
-                "BalancePad" => {
-                    let postings = arms
-                        .map(|arm| JournalTransactionPostingResponse {
-                            account: arm.account,
-                            unit_number: arm.unit_number,
-                            unit_commodity: arm.unit_commodity,
-                            cost_number: arm.cost_number,
-                            cost_commodity: arm.cost_commodity,
-                            price_number: arm.price_number,
-                            price_commodity: arm.price_commodity,
-                            inferred_unit_number: arm.inferred_unit_number,
-                            inferred_unit_commodity: arm.inferred_unit_commodity,
-                            account_before_number: arm.account_before_number,
-                            account_before_commodity: arm.account_before_commodity,
-                            account_after_number: arm.account_after_number,
-                            account_after_commodity: arm.account_after_commodity,
-                        })
-                        .collect_vec();
-                    JournalItemResponse::BalancePad(JournalBalancePadItemResponse {
-                        id: trx_id,
-                        sequence: header.sequence,
-                        datetime: header.datetime,
-                        payee: header.payee,
-                        narration: header.narration,
-                        type_: header.journal_type,
-                        postings,
+    for (trx_id, arms) in &postings.into_iter().group_by(|it| it.trx_id.to_owned()) {
+        let header= header_map.remove(&trx_id).expect("cannot found trx header") ;
+        let item = match header.journal_type.as_str() {
+            "BalancePad" => {
+                let postings = arms
+                    .map(|arm| JournalTransactionPostingResponse {
+                        account: arm.account.name().to_owned(),
+                        unit_number: arm.unit.as_ref().map(|it| it.number.clone()),
+                        unit_commodity: arm.unit.as_ref().map(|it| it.currency.clone()),
+                        cost_number: arm.cost.as_ref().map(|it| it.number.clone()),
+                        cost_commodity: arm.cost.as_ref().map(|it| it.currency.clone()),
+                        inferred_unit_number: arm.inferred_amount.number,
+                        inferred_unit_commodity: arm.inferred_amount.currency,
+                        account_before_number: arm.previous_amount.number,
+                        account_before_commodity: arm.previous_amount.currency,
+                        account_after_number: arm.after_amount.number,
+                        account_after_commodity: arm.after_amount.currency,
                     })
-                }
-                "BalanceCheck" => {
-                    let postings = arms
-                        .map(|arm| JournalTransactionPostingResponse {
-                            account: arm.account,
-                            unit_number: arm.unit_number,
-                            unit_commodity: arm.unit_commodity,
-                            cost_number: arm.cost_number,
-                            cost_commodity: arm.cost_commodity,
-                            price_number: arm.price_number,
-                            price_commodity: arm.price_commodity,
-                            inferred_unit_number: arm.inferred_unit_number,
-                            inferred_unit_commodity: arm.inferred_unit_commodity,
-                            account_before_number: arm.account_before_number,
-                            account_before_commodity: arm.account_before_commodity,
-                            account_after_number: arm.account_after_number,
-                            account_after_commodity: arm.account_after_commodity,
-                        })
-                        .collect_vec();
-                    JournalItemResponse::BalanceCheck(JournalBalanceCheckItemResponse {
-                        id: trx_id,
-                        sequence: header.sequence,
-                        datetime: header.datetime,
-                        payee: header.payee,
-                        narration: header.narration,
-                        type_: header.journal_type,
-                        postings,
+                    .collect_vec();
+                JournalItemResponse::BalancePad(JournalBalancePadItemResponse {
+                    id: trx_id,
+                    sequence: header.sequence,
+                    datetime: header.datetime,
+                    payee: header.payee,
+                    narration: header.narration,
+                    type_: header.journal_type,
+                    postings,
+                })
+            }
+            "BalanceCheck" => {
+                let postings = arms
+                    .map(|arm| JournalTransactionPostingResponse {
+                        account: arm.account.name().to_owned(),
+                        unit_number: arm.unit.as_ref().map(|it| it.number.clone()),
+                        unit_commodity: arm.unit.as_ref().map(|it| it.currency.clone()),
+                        cost_number: arm.cost.as_ref().map(|it| it.number.clone()),
+                        cost_commodity: arm.cost.as_ref().map(|it| it.currency.clone()),
+                        inferred_unit_number: arm.inferred_amount.number,
+                        inferred_unit_commodity: arm.inferred_amount.currency,
+                        account_before_number: arm.previous_amount.number,
+                        account_before_commodity: arm.previous_amount.currency,
+                        account_after_number: arm.after_amount.number,
+                        account_after_commodity: arm.after_amount.currency,
                     })
-                }
-                _ => {
-                    let postings = arms
-                        .map(|arm| JournalTransactionPostingResponse {
-                            account: arm.account,
-                            unit_number: arm.unit_number,
-                            unit_commodity: arm.unit_commodity,
-                            cost_number: arm.cost_number,
-                            cost_commodity: arm.cost_commodity,
-                            price_number: arm.price_number,
-                            price_commodity: arm.price_commodity,
-                            inferred_unit_number: arm.inferred_unit_number,
-                            inferred_unit_commodity: arm.inferred_unit_commodity,
-                            account_before_number: arm.account_before_number,
-                            account_before_commodity: arm.account_before_commodity,
-                            account_after_number: arm.account_after_number,
-                            account_after_commodity: arm.account_after_commodity,
-                        })
-                        .collect_vec();
-                    let tags = operations.trx_tags(&trx_id).await?;
-                    let links = operations.trx_links(&trx_id).await?;
-                    let metas = operations
-                        .metas(MetaType::TransactionMeta, &trx_id)
-                        .await
-                        .unwrap()
-                        .into_iter()
-                        .map(|it| it.into())
-                        .collect();
-                    JournalItemResponse::Transaction(JournalTransactionItemResponse {
-                        id: trx_id,
-                        sequence: header.sequence,
-                        datetime: header.datetime,
-                        payee: header.payee,
-                        narration: header.narration,
-                        tags,
-                        links,
-                        flag: header.journal_type,
-                        is_balanced: true,
-                        postings,
-                        metas,
+                    .collect_vec();
+                JournalItemResponse::BalanceCheck(JournalBalanceCheckItemResponse {
+                    id: trx_id,
+                    sequence: header.sequence,
+                    datetime: header.datetime,
+                    payee: header.payee,
+                    narration: header.narration,
+                    type_: header.journal_type,
+                    postings,
+                })
+            }
+            _ => {
+                let postings = arms
+                    .map(|arm| JournalTransactionPostingResponse {
+                        account: arm.account.name().to_owned(),
+                        unit_number: arm.unit.as_ref().map(|it| it.number.clone()),
+                        unit_commodity: arm.unit.as_ref().map(|it| it.currency.clone()),
+                        cost_number: arm.cost.as_ref().map(|it| it.number.clone()),
+                        cost_commodity: arm.cost.as_ref().map(|it| it.currency.clone()),
+                        inferred_unit_number: arm.inferred_amount.number,
+                        inferred_unit_commodity: arm.inferred_amount.currency,
+                        account_before_number: arm.previous_amount.number,
+                        account_before_commodity: arm.previous_amount.currency,
+                        account_after_number: arm.after_amount.number,
+                        account_after_commodity: arm.after_amount.currency,
                     })
-                }
-            };
-            ret.push(item);
-        }
+                    .collect_vec();
+                let tags = operations.trx_tags(trx_id.to_string()).await?;
+                let links = operations.trx_links(trx_id.to_string()).await?;
+                let metas = operations
+                    .metas(MetaType::TransactionMeta, trx_id.to_string())
+                    .await
+                    .unwrap()
+                    .into_iter()
+                    .map(|it| it.into())
+                    .collect();
+                JournalItemResponse::Transaction(JournalTransactionItemResponse {
+                    id: trx_id,
+                    sequence: header.sequence,
+                    datetime: header.datetime,
+                    payee: header.payee,
+                    narration: header.narration,
+                    tags,
+                    links,
+                    flag: header.journal_type,
+                    is_balanced: true,
+                    postings,
+                    metas,
+                })
+            }
+        };
+        ret.push(item);
     }
     ret.sort_by_key(|item| item.sequence());
     ret.reverse();
@@ -610,7 +499,7 @@ pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Ve
     let mut operations = ledger.operations().await;
 
     let mut ret = vec![];
-    for account in  operations.all_accounts().await? {
+    for account in operations.all_accounts().await? {
         let account_domain = operations.account(&account).await?.expect("cannot find account");
         let account_balances = operations.single_account_balances(&account).await?;
         let amount = group_and_calculate(&mut operations, account_balances).await?;
@@ -652,19 +541,23 @@ pub async fn get_account_info(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(Str
 #[get("/api/documents")]
 pub async fn get_documents(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<DocumentResponse>> {
     let ledger = ledger.read().await;
-    let mut connection = ledger.connection().await;
+    let operations = ledger.operations().await;
+    let store = operations.read();
 
-    // todo(sqlx): move to operation
-    let rows = sqlx::query_as::<_, DocumentResponse>(
-        r#"
-    select documents.*
-    from documents
-             left join transaction_postings tp on documents.trx_id = tp.trx_id
-    group by path, tp.trx_id
-    "#,
-    )
-    .fetch_all(&mut connection)
-    .await?;
+    let rows = store
+        .documents
+        .iter()
+        .cloned()
+        .map(|doc| DocumentResponse {
+            datetime: doc.datetime.naive_local(),
+            filename: doc.filename.unwrap_or_default(),
+            path: doc.path,
+            extension: None,
+            account: doc.document_type.as_account(),
+            trx_id: doc.document_type.as_trx(),
+        })
+        .collect_vec();
+
     ResponseWrapper::json(rows)
 }
 
@@ -715,22 +608,25 @@ pub async fn upload_account_document(
 #[get("/api/accounts/{account_name}/documents")]
 pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<Vec<DocumentResponse>> {
     let account_name = params.into_inner().0;
-    let ledger = ledger.read().await;
-    let mut connection = ledger.connection().await;
 
-    // todo(sqlx): move to operation
-    let rows = sqlx::query_as::<_, DocumentResponse>(
-        r#"
-    select documents.*
-    from documents
-             left join transaction_postings tp on documents.trx_id = tp.trx_id
-    where documents.account = $1
-       or tp.account = $1
-    "#,
-    )
-    .bind(account_name)
-    .fetch_all(&mut connection)
-    .await?;
+    let ledger = ledger.read().await;
+    let operations = ledger.operations().await;
+    let store = operations.read();
+
+    let rows = store
+        .documents
+        .iter()
+        .filter(|doc| doc.document_type.match_account(&account_name))
+        .cloned()
+        .map(|doc| DocumentResponse {
+            datetime: doc.datetime.naive_local(),
+            filename: doc.filename.unwrap_or_default(),
+            path: doc.path,
+            extension: None,
+            account: doc.document_type.as_account(),
+            trx_id: doc.document_type.as_trx(),
+        })
+        .collect_vec();
 
     ResponseWrapper::json(rows)
 }
@@ -752,7 +648,6 @@ pub async fn create_account_balance(
 ) -> ApiResult<()> {
     let target_account = params.into_inner().0;
     let ledger = ledger.read().await;
-    let _connection = ledger.connection().await;
 
     let balance = match payload {
         AccountBalanceRequest::Check { amount, .. } => Balance::BalanceCheck(BalanceCheck {
@@ -817,90 +712,80 @@ pub async fn create_batch_account_balances(
 #[get("/api/commodities")]
 pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<CommodityListItemResponse>> {
     let ledger = ledger.read().await;
-    let mut connection = ledger.connection().await;
 
-    // todo(sqlx): move to operation
-    let vec = sqlx::query_as::<_, CommodityListItemResponse>(
-        r#"
-            select commodities.*,
-                   IFNULL(commodity_total_amount.total_amount, 0.00) as total_amount,
-                   latest_price.datetime         latest_price_date,
-                   latest_price.amount           latest_price_amount,
-                   latest_price.target_commodity latest_price_commodity
-            from commodities
-                     left join (select commodity, datetime, amount, target_commodity
-                                from prices
-                                group by commodity
-                                having min(datetime)) latest_price on commodities.name = latest_price.commodity
-                     left join (select commodity, total(amount) as total_amount
-                                from commodity_lots
-                                         join accounts on commodity_lots.account = accounts.name
-                                where accounts.type in ('Assets', 'Liabilities')
-                                group by commodity) commodity_total_amount on commodities.name = commodity_total_amount.commodity
-    "#,
-    )
-    .fetch_all(&mut connection)
-    .await?;
-    ResponseWrapper::json(vec)
+    let operations = ledger.operations().await;
+    let operating_currency = ledger.options.operating_currency.as_str();
+    let store = operations.read();
+    let mut ret = vec![];
+    for commodity in store.commodities.values().cloned() {
+        let commodity: CommodityDomain = commodity;
+        let latest_price = operations.get_latest_price(&commodity.name, operating_currency)?;
+
+        let amount = operations.get_commodity_balances(&commodity.name)?;
+
+        ret.push(CommodityListItemResponse {
+            name: commodity.name,
+            precision: commodity.precision,
+            prefix: commodity.prefix,
+            suffix: commodity.suffix,
+            rounding: commodity.rounding,
+            total_amount: amount,
+            latest_price_date: latest_price.as_ref().map(|it| it.datetime.clone()),
+            latest_price_amount: latest_price.as_ref().map(|it| it.amount.clone()),
+            latest_price_commodity: latest_price.map(|it| it.commodity),
+        });
+    }
+
+    ResponseWrapper::json(ret)
 }
 
 #[get("/api/commodities/{commodity_name}")]
 pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<CommodityDetailResponse> {
     let commodity_name = params.into_inner().0;
     let ledger = ledger.read().await;
-    let mut connection = ledger.connection().await;
+    let operating_currency = ledger.options.operating_currency.clone();
 
-    // todo(sqlx): move to operation
-    let basic_info = sqlx::query_as::<_, CommodityListItemResponse>(
-        r#"
-            select commodities.*,
-                   IFNULL(commodity_total_amount.total_amount, 0.00) as total_amount,
-                   latest_price.datetime         latest_price_date,
-                   latest_price.amount           latest_price_amount,
-                   latest_price.target_commodity latest_price_commodity
-            from commodities
-                     left join (select commodity, datetime, amount, target_commodity
-                                from prices
-                                group by commodity
-                                having min(datetime)) latest_price on commodities.name = latest_price.commodity
-                     left join (select commodity, total(amount) as total_amount
-                                from commodity_lots
-                                         join accounts on commodity_lots.account = accounts.name
-                                where accounts.type in ('Assets', 'Liabilities')
-                                group by commodity) commodity_total_amount on commodities.name = commodity_total_amount.commodity
-            where commodities.name = $1
-    "#,
-    )
-    .bind(&commodity_name)
-    .fetch_one(&mut connection)
-    .await?;
+    let mut operations = ledger.operations().await;
+    let commodity = operations.commodity(&commodity_name).await?.expect("cannot find commodity");
+    let latest_price = operations.get_latest_price(&commodity_name, operating_currency)?;
 
-    // todo(sqlx): move to operation
-    let lots = sqlx::query_as::<_, CommodityLot>(
-        r#"
-            select datetime, amount, price_amount, price_commodity, account
-            from commodity_lots
-            where commodity = $1
-    "#,
-    )
-    .bind(&commodity_name)
-    .fetch_all(&mut connection)
-    .await?;
-    // todo(sqlx): move to operation
+    let amount = operations.get_commodity_balances(&commodity_name)?;
+    let commodity_item = CommodityListItemResponse {
+        name: commodity.name,
+        precision: commodity.precision,
+        prefix: commodity.prefix,
+        suffix: commodity.suffix,
+        rounding: commodity.rounding,
+        total_amount: amount,
+        latest_price_date: latest_price.as_ref().map(|it| it.datetime.clone()),
+        latest_price_amount: latest_price.as_ref().map(|it| it.amount.clone()),
+        latest_price_commodity: latest_price.map(|it| it.commodity),
+    };
 
-    let prices = sqlx::query_as::<_, CommodityPrice>(
-        r#"
-            select datetime, amount, target_commodity
-            from prices
-            where commodity = $1
-    "#,
-    )
-    .bind(&commodity_name)
-    .fetch_all(&mut connection)
-    .await?;
+    let lots = operations
+        .commodity_lots(&commodity_name)?
+        .into_iter()
+        .map(|it| CommodityLot {
+            datetime: it.datetime.map(|date| date.naive_local()),
+            amount: it.amount,
+            price_amount: it.price.as_ref().map(|price| price.number.clone()),
+            price_commodity: it.price.as_ref().map(|price| price.currency.clone()),
+            account: it.account.name().to_owned(),
+        })
+        .collect_vec();
+
+    let prices = operations
+        .commodity_prices(&commodity_name)?
+        .into_iter()
+        .map(|price| CommodityPrice {
+            datetime: price.datetime,
+            amount: price.amount,
+            target_commodity: Some(price.target_commodity),
+        })
+        .collect_vec();
 
     ResponseWrapper::json(CommodityDetailResponse {
-        info: basic_info,
+        info: commodity_item,
         lots,
         prices,
     })
@@ -972,118 +857,85 @@ pub async fn get_errors(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journal
 #[get("/api/report")]
 pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportRequest>) -> ApiResult<ReportResponse> {
     let ledger = ledger.read().await;
-    let mut connection = ledger.connection().await;
     let mut operations = ledger.operations().await;
 
-    // todo(sqlx): move to operation
-    let latest_account_balances = sqlx::query_as::<_, DetailRow>(
-        r#"
-        SELECT
-            date(datetime) AS date,
-            account,
-            balance_number,
-            balance_commodity
-        FROM
-            account_daily_balance
-        WHERE datetime <= $1
-        GROUP BY
-            account
-        HAVING
-            max(datetime)
-    "#,
-    )
-    .bind(params.to.naive_local())
-    .fetch_all(&mut connection)
-    .await?;
+    let accounts = operations.all_accounts().await?;
+
+    let mut latest_account_balances = vec![];
+    for account in accounts {
+        let vec = operations.account_target_date_balance(&account, params.to)?;
+        latest_account_balances.extend(vec);
+    }
+
     let balance = latest_account_balances
         .iter()
         .filter(|it| it.account.starts_with("Assets") || it.account.starts_with("Liabilities"))
-        .fold(BigDecimal::zero(), |acc, item| acc.add(&*item.balance_number));
+        .fold(BigDecimal::zero(), |acc, item| acc.add(&item.balance_number));
 
     let liability = latest_account_balances
         .iter()
         .filter(|it| it.account.starts_with("Liabilities"))
-        .fold(BigDecimal::zero(), |acc, item| acc.add(&*item.balance_number));
+        .fold(BigDecimal::zero(), |acc, item| acc.add(&item.balance_number));
 
-    #[derive(FromRow)]
-    struct DurationBalance {
-        account_type: String,
-        amount: ZhangBigDecimal,
-        commodity: String,
+    let store = operations.read();
+
+
+    let mut account_type_postings_map = HashMap::new();
+    for (key ,data) in &store.postings.iter()
+        .filter(|posting| posting.trx_datetime.ge(&params.from))
+        .filter(|posting| posting.trx_datetime.le(&params.to))
+        .cloned()
+        .group_by(|it|it.account.account_type) {
+        // todo(high) calculate all postings amount
+        account_type_postings_map.insert(key, data.collect_vec());
     }
 
-    // todo(sqlx): move to operation
-    let duration_balances = sqlx::query_as::<_, DurationBalance>(
-        r#"
-    SELECT accounts.type             AS account_type,
-           sum(inferred_unit_number) AS amount,
-           inferred_unit_commodity   AS commodity
-    FROM transaction_postings
-             JOIN transactions ON transactions.id = transaction_postings.trx_id
-             JOIN accounts ON accounts.name = transaction_postings.account
-    WHERE transactions.datetime >= $1 and transactions.datetime <= $2
-    GROUP BY
-        accounts.type,
-        inferred_unit_commodity
-    "#,
-    )
-    .bind(params.from.naive_local())
-    .bind(params.to.naive_local())
-    .fetch_all(&mut connection)
-    .await?;
-
-    let income = duration_balances
-        .iter()
-        .find(|it| it.account_type.eq("Income"))
+    let income = account_type_postings_map
+        .remove(&AccountType::Income)
+        .unwrap_or_default()
+        .into_iter()
+        .next()
         .map(|it| AmountResponse {
-            number: it.amount.clone(),
-            commodity: it.commodity.to_owned(),
+            number: it.inferred_amount.number.clone(),
+            commodity: it.inferred_amount.currency.to_owned(),
         })
         .unwrap_or_else(|| AmountResponse {
-            number: ZhangBigDecimal(BigDecimal::zero()),
+            number: BigDecimal::zero(),
             commodity: ledger.options.operating_currency.to_owned(),
         });
-    let expense = duration_balances
-        .iter()
-        .find(|it| it.account_type.eq("Expenses"))
+    let expense = account_type_postings_map
+        .remove(&AccountType::Expenses)
+        .unwrap_or_default()
+        .into_iter()
+        .next()
         .map(|it| AmountResponse {
-            number: it.amount.clone(),
-            commodity: it.commodity.to_owned(),
+            number: it.inferred_amount.number.clone(),
+            commodity: it.inferred_amount.currency.to_owned(),
         })
         .unwrap_or_else(|| AmountResponse {
-            number: ZhangBigDecimal(BigDecimal::zero()),
+            number: BigDecimal::zero(),
             commodity: ledger.options.operating_currency.to_owned(),
         });
 
-    // todo(sqlx): move to operation
-    let transaction_total = sqlx::query_as::<_, (i64,)>(
-        r#"
-        select count(1) as total
-        from transactions
-        where transactions."type" != 'BalancePad'
-          and transactions."type" != 'BalanceCheck'
-          and datetime >= ?
-          and datetime <= ?
-    "#,
-    )
-    .bind(params.from.naive_local())
-    .bind(params.to.naive_local())
-    .fetch_one(&mut connection)
-    .await?
-    .0;
 
-    let income_transactions = operations
-        .account_dated_journals(AccountType::Income, params.from, params.to)
-        .await?;
+
+    let transaction_total = store.transactions.values()
+        .filter(|trx| trx.flag != Flag::BalancePad && trx.flag != Flag::BalanceCheck)
+        .filter(|trx| trx.datetime.ge(&params.from))
+        .filter(|trx| trx.datetime.le(&params.to))
+        .count();
+drop(store);
+
+    let income_transactions = operations.account_dated_journals(AccountType::Income, params.from, params.to).await?;
 
     let total_income = income_transactions
         .iter()
-        .fold(BigDecimal::zero(), |accr, item| accr.add(&*item.inferred_unit_number));
+        .fold(BigDecimal::zero(), |accr, item| accr.add(&item.inferred_unit_number));
 
     let mut counter = HashMap::new();
     for item in &income_transactions {
         let x = counter.entry(item.account.to_owned()).or_insert_with(BigDecimal::zero);
-        x.add_assign(&*item.inferred_unit_number);
+        x.add_assign(&item.inferred_unit_number);
     }
     let income_rank = counter
         .into_iter()
@@ -1091,7 +943,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
         .take(10)
         .map(|(account, account_total)| ReportRankItemResponse {
             account,
-            percent: ZhangBigDecimal(account_total.div(&total_income)),
+            percent: account_total.div(&total_income),
         })
         .collect_vec();
 
@@ -1104,17 +956,17 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
     // --------
 
     let expense_transactions = operations
-        .account_dated_journals(AccountType::Expenses, params.from.naive_local(), params.to.naive_local())
+        .account_dated_journals(AccountType::Expenses, params.from, params.to)
         .await?;
 
     let total_expense = expense_transactions
         .iter()
-        .fold(BigDecimal::zero(), |accr, item| accr.add(&*item.inferred_unit_number));
+        .fold(BigDecimal::zero(), |accr, item| accr.add(&item.inferred_unit_number));
 
     let mut counter = HashMap::new();
     for item in &expense_transactions {
         let x = counter.entry(item.account.to_owned()).or_insert_with(BigDecimal::zero);
-        x.add_assign(&*item.inferred_unit_number);
+        x.add_assign(&item.inferred_unit_number);
     }
     let expense_rank = counter
         .into_iter()
@@ -1123,7 +975,7 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
         .take(10)
         .map(|(account, account_total)| ReportRankItemResponse {
             account,
-            percent: ZhangBigDecimal(account_total.div(&total_expense)),
+            percent: account_total.div(&total_expense),
         })
         .collect_vec();
 
@@ -1138,16 +990,16 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
         from: params.from.naive_local(),
         to: params.to.naive_local(),
         balance: AmountResponse {
-            number: ZhangBigDecimal(balance),
+            number: balance,
             commodity: ledger.options.operating_currency.to_owned(),
         },
         liability: AmountResponse {
-            number: ZhangBigDecimal(liability),
+            number: liability,
             commodity: ledger.options.operating_currency.to_owned(),
         },
         income,
         expense,
-        transaction_number: transaction_total,
+        transaction_number: transaction_total as i64,
         income_rank,
         income_top_transactions,
         expense_rank,
@@ -1175,7 +1027,7 @@ use crate::util::AmountLike;
 #[cfg(feature = "frontend")]
 use actix_web::{HttpRequest, HttpResponse};
 use zhang_core::constants::KEY_OPERATING_CURRENCY;
-use zhang_core::domains::schemas::{AccountJournalDomain, ErrorDomain, MetaType, OptionDomain};
+use zhang_core::domains::schemas::{AccountJournalDomain, CommodityDomain, ErrorDomain, MetaType, OptionDomain};
 use zhang_core::domains::Operations;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::{ZhangError, ZhangResult};

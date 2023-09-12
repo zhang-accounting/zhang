@@ -519,7 +519,7 @@ mod test {
                 .await
                 .unwrap()
                 .unwrap();
-            assert_eq!(BigDecimal::from(7), option.amount.0)
+            assert_eq!(BigDecimal::from(7), option.amount)
         }
     }
 

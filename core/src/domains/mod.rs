@@ -1,5 +1,4 @@
 use crate::constants::KEY_DEFAULT_COMMODITY_PRECISION;
-use crate::database::type_ext::big_decimal::ZhangBigDecimal;
 use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, ErrorType, MetaDomain,
     MetaType, OptionDomain, PriceDomain, TransactionInfoDomain,
@@ -14,6 +13,7 @@ use itertools::Itertools;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
+use std::iter::Rev;
 use std::ops::AddAssign;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -27,7 +27,7 @@ pub mod schemas;
 
 #[derive(Debug, Deserialize)]
 pub struct AccountAmount {
-    pub number: ZhangBigDecimal,
+    pub number: BigDecimal,
     pub commodity: String,
 }
 
@@ -41,14 +41,53 @@ pub struct LotRow {
 pub struct StaticRow {
     pub date: NaiveDate,
     pub account_type: String,
-    pub amount: ZhangBigDecimal,
+    pub amount: BigDecimal,
     pub commodity: String,
+}
+
+pub struct AccountCommodityLot {
+    pub account: Account,
+    pub datetime: Option<DateTime<Tz>>,
+    pub amount: BigDecimal,
+    pub price: Option<Amount>,
 }
 
 pub struct Operations {
     pub timezone: Tz,
     pub store: Arc<RwLock<Store>>,
 }
+
+impl Operations {
+    pub fn commodity_prices(&self, commodity: impl AsRef<str>) -> ZhangResult<Vec<PriceDomain>> {
+        let store = self.read();
+        let commodity = commodity.as_ref();
+        Ok(store.prices.iter().filter(|price| price.commodity.eq(commodity)).cloned().collect_vec())
+    }
+}
+
+impl Operations {
+    pub fn commodity_lots(&self, commodity: impl AsRef<str>) -> ZhangResult<Vec<AccountCommodityLot>> {
+        let store = self.read();
+        let commodity = commodity.as_ref();
+        let mut ret = vec![];
+        for (account, lots) in store.commodity_lots.iter() {
+            for lot in lots.iter() {
+                if lot.commodity.eq(commodity) {
+                    let lot = lot.clone();
+                    ret.push(AccountCommodityLot {
+                        account: account.clone(),
+                        datetime: lot.datetime,
+                        amount: lot.amount,
+                        price: lot.price,
+                    })
+                }
+            }
+        }
+        Ok(ret)
+    }
+}
+
+impl Operations {}
 
 impl Operations {
     pub fn read(&self) -> RwLockReadGuard<Store> {
@@ -143,7 +182,7 @@ impl Operations {
         store.prices.push(PriceDomain {
             datetime: datetime.naive_local(),
             commodity: commodity.to_owned(),
-            amount: ZhangBigDecimal(amount.clone()),
+            amount: amount.clone(),
             target_commodity: target_commodity.to_owned(),
         });
         Ok(())
@@ -167,7 +206,7 @@ impl Operations {
             .next();
 
         Ok(posting.map(|it| AccountAmount {
-            number: ZhangBigDecimal(it.after_amount.number.clone()),
+            number: it.after_amount.number.clone(),
             commodity: currency.to_owned(),
         }))
     }
@@ -239,6 +278,31 @@ impl Operations {
         });
         Ok(())
     }
+
+    pub fn get_latest_price(&self, from: impl AsRef<str>, to: impl AsRef<str>) -> ZhangResult<Option<PriceDomain>> {
+        let store = self.read();
+        let option = store
+            .prices
+            .iter()
+            .filter(|price| price.commodity.eq(from.as_ref()))
+            .filter(|price| price.target_commodity.eq(to.as_ref()))
+            .sorted_by_key(|it| it.datetime)
+            .rev()
+            .next()
+            .cloned();
+        Ok(option)
+    }
+    pub fn get_commodity_balances(&self, commodity: impl AsRef<str>) -> ZhangResult<BigDecimal> {
+        let mut total = BigDecimal::zero();
+        let store = self.read();
+        for (account, lots) in store.commodity_lots.iter() {
+            if account.account_type == AccountType::Assets || account.account_type == AccountType::Liabilities {
+                let account_sum: BigDecimal = lots.iter().map(|it| &it.amount).sum();
+                total.add_assign(account_sum);
+            }
+        }
+        Ok(total)
+    }
 }
 
 impl Operations {
@@ -283,7 +347,7 @@ impl Operations {
                         AccountDailyBalanceDomain {
                             date,
                             account: account.name().to_owned(),
-                            balance_number: ZhangBigDecimal(amount.number),
+                            balance_number: amount.number,
                             balance_commodity: amount.currency,
                         }
                     })
@@ -400,7 +464,7 @@ impl Operations {
                     datetime: date.and_time(NaiveTime::default()),
                     account: account.name().to_owned(),
                     account_status: AccountStatus::Open,
-                    balance_number: ZhangBigDecimal(amount.number),
+                    balance_number: amount.number,
                     balance_commodity: amount.currency,
                 }
             })
@@ -426,9 +490,9 @@ impl Operations {
                 trx_id: posting.id.to_string(),
                 payee: trx_header.and_then(|it| it.payee.clone()),
                 narration: trx_header.and_then(|it| it.narration.clone()),
-                inferred_unit_number: ZhangBigDecimal(posting.inferred_amount.number),
+                inferred_unit_number: posting.inferred_amount.number,
                 inferred_unit_commodity: posting.inferred_amount.currency,
-                account_after_number: ZhangBigDecimal(posting.after_amount.number),
+                account_after_number: posting.after_amount.number,
                 account_after_commodity: posting.after_amount.currency,
             })
         }
@@ -456,9 +520,9 @@ impl Operations {
                 trx_id: posting.trx_id.to_string(),
                 payee: trx.payee,
                 narration: trx.narration,
-                inferred_unit_number: ZhangBigDecimal(posting.inferred_amount.number),
+                inferred_unit_number: posting.inferred_amount.number,
                 inferred_unit_commodity: posting.inferred_amount.currency,
-                account_after_number: ZhangBigDecimal(posting.after_amount.number),
+                account_after_number: posting.after_amount.number,
                 account_after_commodity: posting.after_amount.currency,
             })
         }
@@ -528,13 +592,50 @@ impl Operations {
                     ret.push(StaticRow {
                         date,
                         account_type: account_type.to_string(),
-                        amount: ZhangBigDecimal(balance),
+                        amount: balance,
                         commodity: currency,
                     })
                 }
             }
         }
         Ok(ret)
+    }
+
+    pub fn account_target_date_balance(&self, account_name: impl AsRef<str>, date: DateTime<Utc>) -> ZhangResult<Vec<AccountBalanceDomain>> {
+        let store = self.read();
+
+        let account = Account::from_str(account_name.as_ref()).map_err(|_| ZhangError::InvalidAccount)?;
+
+        let mut ret: IndexMap<Currency, BTreeMap<NaiveDate, Amount>> = IndexMap::new();
+
+        for posting in store
+            .postings
+            .iter()
+            .filter(|posting| posting.account.eq(&account))
+            .filter(|positing| positing.trx_datetime.le(&date))
+            .cloned()
+            .sorted_by_key(|posting| posting.trx_datetime)
+        {
+            let posting: PostingDomain = posting;
+            let date = posting.trx_datetime.naive_local().date();
+
+            let dated_amount = ret.entry(posting.after_amount.currency.clone()).or_insert_with(|| BTreeMap::new());
+            dated_amount.insert(date, posting.after_amount);
+        }
+
+        Ok(ret
+            .into_iter()
+            .map(|(date, mut balance)| {
+                let (date, amount) = balance.pop_last().expect("");
+                AccountBalanceDomain {
+                    datetime: date.and_time(NaiveTime::default()),
+                    account: account.name().to_owned(),
+                    account_status: AccountStatus::Open,
+                    balance_number: amount.number,
+                    balance_commodity: amount.currency,
+                }
+            })
+            .collect_vec())
     }
 }
 
