@@ -2,5 +2,5 @@
 #[allow(clippy::type_complexity)]
 pub mod parser;
 
-pub mod transformer;
 pub mod exporter;
+pub mod transformer;

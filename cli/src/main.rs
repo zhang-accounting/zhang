@@ -8,11 +8,11 @@ use env_logger::Env;
 use log::{error, info, LevelFilter};
 use self_update::Status;
 use tokio::task::spawn_blocking;
-use zhang_core::exporter::{AppendableExporter};
+use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
 use zhang_core::text::exporter::TextExporter;
 use zhang_core::text::transformer::TextTransformer;
-use zhang_core::transform::{Transformer};
+use zhang_core::transform::Transformer;
 use zhang_server::ServeConfig;
 
 #[derive(Parser, Debug)]

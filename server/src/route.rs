@@ -162,7 +162,7 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
         .into_iter()
         .map(|balance| CurrentMonthBalance {
             // todo use Account constructor
-            account_type: balance.account.split(":").next().unwrap().to_owned(),
+            account_type: balance.account.split(':').next().unwrap().to_owned(),
             amount: balance.balance_number,
             commodity: balance.balance_commodity,
         })
@@ -265,7 +265,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
         })
         .collect_vec();
 
-    let header_ids: HashSet<Uuid> = journal_headers.iter().map(|it| it.id.clone()).collect();
+    let header_ids: HashSet<Uuid> = journal_headers.iter().map(|it| it.id).collect();
 
     let postings = store.postings.iter().filter(|posting| header_ids.contains(&posting.id)).cloned().collect_vec();
 
@@ -713,7 +713,7 @@ pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult
             suffix: commodity.suffix,
             rounding: commodity.rounding,
             total_amount: amount,
-            latest_price_date: latest_price.as_ref().map(|it| it.datetime.clone()),
+            latest_price_date: latest_price.as_ref().map(|it| it.datetime),
             latest_price_amount: latest_price.as_ref().map(|it| it.amount.clone()),
             latest_price_commodity: latest_price.map(|it| it.commodity),
         });
@@ -740,7 +740,7 @@ pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
         suffix: commodity.suffix,
         rounding: commodity.rounding,
         total_amount: amount,
-        latest_price_date: latest_price.as_ref().map(|it| it.datetime.clone()),
+        latest_price_date: latest_price.as_ref().map(|it| it.datetime),
         latest_price_amount: latest_price.as_ref().map(|it| it.amount.clone()),
         latest_price_commodity: latest_price.map(|it| it.commodity),
     };

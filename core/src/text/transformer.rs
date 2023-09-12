@@ -1,16 +1,10 @@
-use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 
-use glob::{glob, Pattern};
-use itertools::Itertools;
-use log::debug;
 use zhang_ast::{Directive, Spanned};
 
-use crate::error::IoErrorIntoZhangError;
 use crate::text::parser::parse;
-use crate::{utils, ZhangError, ZhangResult};
 use crate::transform::TextFileBasedTransformer;
-
+use crate::{ZhangError, ZhangResult};
 
 #[derive(Clone, Default)]
 pub struct TextTransformer {}

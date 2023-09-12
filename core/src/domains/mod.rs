@@ -111,6 +111,8 @@ impl Operations {
 
         Ok(())
     }
+
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction(
         &mut self, id: &Uuid, sequence: i32, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>, tags: Vec<String>,
         links: Vec<String>, span: &SpanInfo,
@@ -135,6 +137,7 @@ impl Operations {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction_posting(
         &mut self, trx_id: &Uuid, account_name: &str, unit: Option<Amount>, cost: Option<Amount>, inferred_amount: Amount, previous_amount: Amount,
         after_amount: Amount,

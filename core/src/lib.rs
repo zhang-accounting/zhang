@@ -6,13 +6,13 @@ pub mod error;
 pub mod ledger;
 pub mod options;
 
-pub(crate) mod process;
 pub mod exporter;
+pub(crate) mod process;
 pub mod transform;
 pub mod utils;
 
-pub mod text;
 pub mod store;
+pub mod text;
 
 pub type ZhangResult<T> = Result<T, ZhangError>;
 pub use error::ZhangError;

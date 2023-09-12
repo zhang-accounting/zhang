@@ -7,7 +7,7 @@ use log::debug;
 use zhang_ast::{Directive, Spanned};
 
 use crate::error::IoErrorIntoZhangError;
-use crate::{utils, ZhangError, ZhangResult};
+use crate::{utils, ZhangResult};
 
 pub struct TransformResult {
     pub directives: Vec<Spanned<Directive>>,
@@ -86,4 +86,3 @@ where
         })
     }
 }
-

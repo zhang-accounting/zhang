@@ -7,12 +7,12 @@ use chrono::{Datelike, NaiveDate};
 use itertools::{Either, Itertools};
 use latestmap::LatestMap;
 use zhang_ast::*;
+use zhang_core::exporter::{AppendableExporter, Exporter};
 use zhang_core::ledger::Ledger;
+use zhang_core::text::exporter::{append_meta, TextExportable, TextExporter};
 use zhang_core::transform::TextFileBasedTransformer;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{ZhangError, ZhangResult};
-use zhang_core::exporter::{AppendableExporter, Exporter};
-use zhang_core::text::exporter::{append_meta, TextExportable, TextExporter};
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
 use crate::parser::{parse, parse_time};
@@ -106,7 +106,7 @@ impl Exporter for Beancount {
 
                         meta: pad.meta,
                     };
-                    vec![
+                    [
                         BeancountOnlyExportable::export(pad_directive),
                         BeancountOnlyExportable::export(balance_directive),
                     ]
@@ -124,7 +124,7 @@ trait BeancountOnlyExportable {
 
 impl BeancountOnlyExportable for BalanceDirective {
     fn export(self) -> String {
-        let line = vec![
+        let line = [
             TextExportable::export(self.date),
             "balance".to_string(),
             TextExportable::export(self.account),
@@ -137,7 +137,7 @@ impl BeancountOnlyExportable for BalanceDirective {
 
 impl BeancountOnlyExportable for PadDirective {
     fn export(self) -> String {
-        let line = vec![
+        let line = [
             TextExportable::export(self.date),
             "pad".to_string(),
             TextExportable::export(self.account),

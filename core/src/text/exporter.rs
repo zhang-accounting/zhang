@@ -1,19 +1,17 @@
-
-use zhang_ast::amount::Amount;
-use zhang_ast::*;
-use crate::ledger::Ledger;
-use crate::utils::has_path_visited;
-use crate::utils::string_::escape_with_quote;
-use crate::ZhangResult;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 
 use chrono::Datelike;
 use itertools::Itertools;
-use log::debug;
-use crate::exporter::{AppendableExporter, create_folder_if_not_exist, Exporter};
+use zhang_ast::amount::Amount;
+use zhang_ast::*;
 
+use crate::exporter::{create_folder_if_not_exist, AppendableExporter, Exporter};
+use crate::ledger::Ledger;
+use crate::utils::has_path_visited;
+use crate::utils::string_::escape_with_quote;
+use crate::ZhangResult;
 
 pub struct TextExporter {}
 impl TextExporter {

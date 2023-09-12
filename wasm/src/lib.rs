@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use wasm_bindgen::prelude::*;
 use zhang_core::text::transformer::TextTransformer;
-use zhang_core::transform::{TextFileBasedTransformer};
+use zhang_core::transform::TextFileBasedTransformer;
 
 // use console_error_panic_hook::hook;
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -27,6 +27,6 @@ pub fn greet() {
 #[wasm_bindgen]
 pub fn parse(content: &str) -> String {
     let transformer = TextTransformer::default();
-    let result = transformer.parse(content, PathBuf::from_str("hello").unwrap());
+    let _result = transformer.parse(content, PathBuf::from_str("hello").unwrap());
     "OK".to_owned()
 }
