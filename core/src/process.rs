@@ -212,106 +212,103 @@ impl DirectiveProcess for Transaction {
     }
 }
 
-impl DirectiveProcess for Balance {
+impl DirectiveProcess for BalancePad {
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
-        match self {
-            Balance::BalanceCheck(balance_check) => {
-                let option = operations.account_target_day_balance(
-                    balance_check.account.name(),
-                    balance_check.date.to_timezone_datetime(&ledger.options.timezone),
-                    &balance_check.amount.currency,
-                )?;
+        check_account_existed(self.account.name(), ledger, span)?;
+        check_account_existed(self.pad.name(), ledger, span)?;
+        check_account_closed(self.account.name(), ledger, span)?;
+        check_account_closed(self.pad.name(), ledger, span)?;
 
-                let current_balance_amount = option.map(|it| it.number).unwrap_or_else(BigDecimal::zero);
+        let option = operations.account_target_day_balance(
+            self.account.name(),
+            self.date.to_timezone_datetime(&ledger.options.timezone),
+            &self.amount.currency,
+        )?;
 
-                let distance = Amount::new(
-                    (&balance_check.amount.number).sub(&current_balance_amount),
-                    balance_check.amount.currency.clone(),
-                );
-                if !distance.is_zero() {
-                    operations.new_error(
-                        ErrorType::AccountBalanceCheckError,
-                        span,
-                        HashMap::of("account_name", balance_check.account.name().to_string()),
-                    )?;
-                }
+        let current_balance_amount = option.map(|it| it.number).unwrap_or_else(BigDecimal::zero);
 
-                check_account_existed(balance_check.account.name(), ledger, span)?;
-                check_account_closed(balance_check.account.name(), ledger, span)?;
-
-                let mut transformed_trx = Transaction {
-                    date: balance_check.date.clone(),
-                    flag: Some(Flag::BalanceCheck),
-                    payee: Some(ZhangString::quote("Balance Check")),
-                    narration: Some(ZhangString::quote(balance_check.account.name())),
-                    tags: Default::default(),
-                    links: Default::default(),
-                    postings: vec![Posting {
-                        flag: None,
-                        account: balance_check.account.clone(),
-                        units: Some(distance),
-                        cost: None,
-                        cost_date: None,
-                        price: None,
-                        meta: Default::default(),
-                    }],
+        let distance = Amount::new((&self.amount.number).sub(&current_balance_amount), self.amount.currency.clone());
+        let mut transformed_trx = Transaction {
+            date: self.date.clone(),
+            flag: Some(Flag::BalancePad),
+            payee: Some(ZhangString::quote("Balance Pad")),
+            narration: Some(ZhangString::quote(format!("pad {} to {}", self.account.name(), self.pad.name()))),
+            tags: Default::default(),
+            links: Default::default(),
+            postings: vec![
+                Posting {
+                    flag: None,
+                    account: self.account.clone(),
+                    units: Some(distance.clone()),
+                    cost: None,
+                    cost_date: None,
+                    price: None,
                     meta: Default::default(),
-                };
-
-                transformed_trx.process(ledger, span)?;
-            }
-            Balance::BalancePad(balance_pad) => {
-                check_account_existed(balance_pad.account.name(), ledger, span)?;
-                check_account_existed(balance_pad.pad.name(), ledger, span)?;
-                check_account_closed(balance_pad.account.name(), ledger, span)?;
-                check_account_closed(balance_pad.pad.name(), ledger, span)?;
-
-                let option = operations.account_target_day_balance(
-                    balance_pad.account.name(),
-                    balance_pad.date.to_timezone_datetime(&ledger.options.timezone),
-                    &balance_pad.amount.currency,
-                )?;
-
-                let current_balance_amount = option.map(|it| it.number).unwrap_or_else(BigDecimal::zero);
-
-                let distance = Amount::new((&balance_pad.amount.number).sub(&current_balance_amount), balance_pad.amount.currency.clone());
-                let mut transformed_trx = Transaction {
-                    date: balance_pad.date.clone(),
-                    flag: Some(Flag::BalancePad),
-                    payee: Some(ZhangString::quote("Balance Pad")),
-                    narration: Some(ZhangString::quote(format!("pad {} to {}", balance_pad.account.name(), balance_pad.pad.name()))),
-                    tags: Default::default(),
-                    links: Default::default(),
-                    postings: vec![
-                        Posting {
-                            flag: None,
-                            account: balance_pad.account.clone(),
-                            units: Some(distance.clone()),
-                            cost: None,
-                            cost_date: None,
-                            price: None,
-                            meta: Default::default(),
-                        },
-                        Posting {
-                            flag: None,
-                            account: balance_pad.pad.clone(),
-                            units: None,
-                            cost: None,
-                            cost_date: None,
-                            price: None,
-                            meta: Default::default(),
-                        },
-                    ],
+                },
+                Posting {
+                    flag: None,
+                    account: self.pad.clone(),
+                    units: None,
+                    cost: None,
+                    cost_date: None,
+                    price: None,
                     meta: Default::default(),
-                };
+                },
+            ],
+            meta: Default::default(),
+        };
 
-                transformed_trx.process(ledger, span)?;
+        transformed_trx.process(ledger, span)?;
 
-                // let neg_distance = distance.neg();
-            }
+        // let neg_distance = distance.neg();
+        Ok(())
+    }
+}
+
+impl DirectiveProcess for BalanceCheck {
+    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
+        let option = operations.account_target_day_balance(
+            self.account.name(),
+            self.date.to_timezone_datetime(&ledger.options.timezone),
+            &self.amount.currency,
+        )?;
+
+        let current_balance_amount = option.map(|it| it.number).unwrap_or_else(BigDecimal::zero);
+
+        let distance = Amount::new((&self.amount.number).sub(&current_balance_amount), self.amount.currency.clone());
+        if !distance.is_zero() {
+            operations.new_error(
+                ErrorType::AccountBalanceCheckError,
+                span,
+                HashMap::of("account_name", self.account.name().to_string()),
+            )?;
         }
 
+        check_account_existed(self.account.name(), ledger, span)?;
+        check_account_closed(self.account.name(), ledger, span)?;
+
+        let mut transformed_trx = Transaction {
+            date: self.date.clone(),
+            flag: Some(Flag::BalanceCheck),
+            payee: Some(ZhangString::quote("Balance Check")),
+            narration: Some(ZhangString::quote(self.account.name())),
+            tags: Default::default(),
+            links: Default::default(),
+            postings: vec![Posting {
+                flag: None,
+                account: self.account.clone(),
+                units: Some(distance),
+                cost: None,
+                cost_date: None,
+                price: None,
+                meta: Default::default(),
+            }],
+            meta: Default::default(),
+        };
+
+        transformed_trx.process(ledger, span)?;
         Ok(())
     }
 }

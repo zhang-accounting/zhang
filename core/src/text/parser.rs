@@ -393,20 +393,20 @@ impl ZhangParser {
             [date(date), account_name(name), number(amount), commodity_name(commodity), account_name(pad)] => (date, name, amount, commodity, Some(pad)),
         );
         if let Some(pad) = ret.4 {
-            Ok(Directive::Balance(Balance::BalancePad(BalancePad {
+            Ok(Directive::BalancePad(BalancePad {
                 date: ret.0,
                 account: ret.1,
                 amount: Amount::new(ret.2, ret.3),
                 pad,
                 meta: Default::default(),
-            })))
+            }))
         } else {
-            Ok(Directive::Balance(Balance::BalanceCheck(BalanceCheck {
+            Ok(Directive::BalanceCheck(BalanceCheck {
                 date: ret.0,
                 account: ret.1,
                 amount: Amount::new(ret.2, ret.3),
                 meta: Default::default(),
-            })))
+            }))
         }
     }
 
@@ -557,12 +557,12 @@ mod test {
         fn should_parse_balance_check_and_balance_pad() {
             let balance = parse("2101-10-10 10:10 balance Assets:Hello 123 CNY", None).unwrap().remove(0);
             assert_eq!(
-                Directive::Balance(Balance::BalanceCheck(BalanceCheck {
+                Directive::BalanceCheck(BalanceCheck {
                     date: Date::DateHour(NaiveDate::from_ymd_opt(2101, 10, 10).unwrap().and_hms_opt(10, 10, 0).unwrap()),
                     account: Account::from_str("Assets:Hello").unwrap(),
                     amount: Amount::new(BigDecimal::from(123i32), "CNY"),
                     meta: Default::default()
-                })),
+                }),
                 balance.data
             );
 
@@ -570,13 +570,13 @@ mod test {
                 .unwrap()
                 .remove(0);
             assert_eq!(
-                Directive::Balance(Balance::BalancePad(BalancePad {
+                Directive::BalancePad(BalancePad {
                     date: Date::DateHour(NaiveDate::from_ymd_opt(2101, 10, 10).unwrap().and_hms_opt(10, 10, 0).unwrap()),
                     account: Account::from_str("Assets:Hello").unwrap(),
                     amount: Amount::new(BigDecimal::from(123i32), "CNY"),
                     pad: Account::from_str("Income:Earnings").unwrap(),
                     meta: Default::default()
-                })),
+                }),
                 balance.data
             )
         }

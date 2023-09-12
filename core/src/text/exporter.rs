@@ -226,26 +226,25 @@ impl TextExportable for Commodity {
     }
 }
 
-impl TextExportable for Balance {
+impl TextExportable for BalancePad {
     type Output = String;
     fn export(self) -> String {
-        match self {
-            Balance::BalanceCheck(check) => {
-                let line = vec![check.date.export(), "balance".to_string(), check.account.export(), check.amount.export()];
-                append_meta(check.meta, line.join(" "))
-            }
-            Balance::BalancePad(pad) => {
-                let line = vec![
-                    pad.date.export(),
-                    "balance".to_string(),
-                    pad.account.export(),
-                    pad.amount.export(),
-                    "with pad".to_string(),
-                    pad.pad.export(),
-                ];
-                append_meta(pad.meta, line.join(" "))
-            }
-        }
+        let line = vec![
+            self.date.export(),
+            "balance".to_string(),
+            self.account.export(),
+            self.amount.export(),
+            "with pad".to_string(),
+            self.pad.export(),
+        ];
+        append_meta(self.meta, line.join(" "))
+    }
+}
+impl TextExportable for BalanceCheck {
+    type Output = String;
+    fn export(self) -> String {
+        let line = vec![self.date.export(), "balance".to_string(), self.account.export(), self.amount.export()];
+        append_meta(self.meta, line.join(" "))
     }
 }
 
@@ -330,7 +329,8 @@ impl TextExportable for Directive {
             Directive::Close(close) => close.export(),
             Directive::Commodity(commodity) => commodity.export(),
             Directive::Transaction(txn) => txn.export(),
-            Directive::Balance(balance) => balance.export(),
+            Directive::BalancePad(pad) => pad.export(),
+            Directive::BalanceCheck(check) => check.export(),
             Directive::Note(note) => note.export(),
             Directive::Document(document) => document.export(),
             Directive::Price(price) => price.export(),

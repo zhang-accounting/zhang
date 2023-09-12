@@ -67,12 +67,6 @@ pub struct Commodity {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Balance {
-    BalanceCheck(BalanceCheck),
-    BalancePad(BalancePad),
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BalanceCheck {
     pub date: Date,

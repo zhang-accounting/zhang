@@ -79,40 +79,38 @@ impl Exporter for Beancount {
         let text_exporter = TextExporter {};
         let directive = convert_datetime_to_date(directive);
         match directive {
-            Directive::Balance(balance) => match balance {
-                Balance::BalanceCheck(check) => {
-                    let balance_directive = BalanceDirective {
-                        date: check.date,
-                        account: check.account,
-                        amount: check.amount,
+            Directive::BalanceCheck(check) => {
+                let balance_directive = BalanceDirective {
+                    date: check.date,
+                    account: check.account,
+                    amount: check.amount,
 
-                        meta: check.meta,
-                    };
-                    BeancountOnlyExportable::export(balance_directive)
-                }
-                Balance::BalancePad(pad) => {
-                    let balance_date = pad.date.naive_date();
-                    let pad_date = balance_date.pred_opt().unwrap_or(balance_date);
-                    let pad_directive = PadDirective {
-                        date: Date::Date(pad_date),
-                        account: pad.account.clone(),
-                        pad: pad.pad,
-                        meta: Meta::default(),
-                    };
-                    let balance_directive = BalanceDirective {
-                        date: pad.date,
-                        account: pad.account,
-                        amount: pad.amount,
+                    meta: check.meta,
+                };
+                BeancountOnlyExportable::export(balance_directive)
+            }
+            Directive::BalancePad(pad) => {
+                let balance_date = pad.date.naive_date();
+                let pad_date = balance_date.pred_opt().unwrap_or(balance_date);
+                let pad_directive = PadDirective {
+                    date: Date::Date(pad_date),
+                    account: pad.account.clone(),
+                    pad: pad.pad,
+                    meta: Meta::default(),
+                };
+                let balance_directive = BalanceDirective {
+                    date: pad.date,
+                    account: pad.account,
+                    amount: pad.amount,
 
-                        meta: pad.meta,
-                    };
-                    [
-                        BeancountOnlyExportable::export(pad_directive),
-                        BeancountOnlyExportable::export(balance_directive),
-                    ]
-                    .join("\n")
-                }
-            },
+                    meta: pad.meta,
+                };
+                [
+                    BeancountOnlyExportable::export(pad_directive),
+                    BeancountOnlyExportable::export(balance_directive),
+                ]
+                .join("\n")
+            }
             _ => text_exporter.export_directive(directive),
         }
     }
@@ -169,44 +167,8 @@ fn convert_datetime_to_date(directive: Directive) -> Directive {
         Directive::Close(mut directive) => Directive::Close(convert_to_datetime!(directive)),
         Directive::Commodity(mut directive) => Directive::Commodity(convert_to_datetime!(directive)),
         Directive::Transaction(mut directive) => Directive::Transaction(convert_to_datetime!(directive)),
-        Directive::Balance(mut directive) => Directive::Balance(match &mut directive {
-            Balance::BalanceCheck(check) => match check.date {
-                Date::Date(_) => directive,
-                Date::DateHour(date_hour) => {
-                    let (date, time) = (date_hour.date(), date_hour.time());
-                    check.date = Date::Date(date);
-                    check
-                        .meta
-                        .insert("time".to_string(), ZhangString::QuoteString(time.format("%H:%M:%S").to_string()));
-                    directive
-                }
-                Date::Datetime(datetime) => {
-                    let (date, time) = (datetime.date(), datetime.time());
-                    check.date = Date::Date(date);
-                    check
-                        .meta
-                        .insert("time".to_string(), ZhangString::QuoteString(time.format("%H:%M:%S").to_string()));
-                    directive
-                }
-            },
-            Balance::BalancePad(pad) => match pad.date {
-                Date::Date(_) => directive,
-                Date::DateHour(date_hour) => {
-                    let (date, time) = (date_hour.date(), date_hour.time());
-                    pad.date = Date::Date(date);
-                    pad.meta
-                        .insert("time".to_string(), ZhangString::QuoteString(time.format("%H:%M:%S").to_string()));
-                    directive
-                }
-                Date::Datetime(datetime) => {
-                    let (date, time) = (datetime.date(), datetime.time());
-                    pad.date = Date::Date(date);
-                    pad.meta
-                        .insert("time".to_string(), ZhangString::QuoteString(time.format("%H:%M:%S").to_string()));
-                    directive
-                }
-            },
-        }),
+        Directive::BalanceCheck(mut directive) => Directive::BalanceCheck(convert_to_datetime!(directive)),
+        Directive::BalancePad(mut directive) => Directive::BalancePad(convert_to_datetime!(directive)),
         Directive::Note(mut directive) => Directive::Note(convert_to_datetime!(directive)),
         Directive::Document(mut directive) => Directive::Document(convert_to_datetime!(directive)),
         Directive::Price(mut directive) => Directive::Price(convert_to_datetime!(directive)),
@@ -233,10 +195,8 @@ impl Beancount {
                 Directive::Close(directive) => extract_time!(directive),
                 Directive::Commodity(directive) => extract_time!(directive),
                 Directive::Transaction(directive) => extract_time!(directive),
-                Directive::Balance(directive) => match directive {
-                    Balance::BalanceCheck(balance_check) => extract_time!(balance_check),
-                    Balance::BalancePad(balance_pad) => extract_time!(balance_pad),
-                },
+                Directive::BalanceCheck(balance_check) => extract_time!(balance_check),
+                Directive::BalancePad(balance_pad) => extract_time!(balance_pad),
                 Directive::Note(directive) => extract_time!(directive),
                 Directive::Document(directive) => extract_time!(directive),
                 Directive::Price(directive) => extract_time!(directive),
@@ -307,24 +267,24 @@ impl TextFileBasedTransformer for Beancount {
                             // balance pad
                             ret.push(Spanned {
                                 span,
-                                data: Directive::Balance(Balance::BalancePad(BalancePad {
+                                data: Directive::BalancePad(BalancePad {
                                     date: balance.date,
                                     account: balance.account,
                                     amount: balance.amount,
                                     pad: pad_account.clone(),
                                     meta: balance.meta,
-                                })),
+                                }),
                             });
                         } else {
                             //balance check
                             ret.push(Spanned {
                                 span,
-                                data: Directive::Balance(Balance::BalanceCheck(BalanceCheck {
+                                data: Directive::BalanceCheck(BalanceCheck {
                                     date: balance.date,
                                     account: balance.account,
                                     amount: balance.amount,
                                     meta: balance.meta,
-                                })),
+                                }),
                             });
                         }
                     }
@@ -343,7 +303,7 @@ mod test {
     use chrono::NaiveDate;
     use indoc::indoc;
     use zhang_ast::amount::Amount;
-    use zhang_ast::{Account, Balance, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned, Transaction, ZhangString};
+    use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned, Transaction, ZhangString};
     use zhang_core::exporter::Exporter;
     use zhang_core::transform::TextFileBasedTransformer;
 
@@ -396,13 +356,13 @@ mod test {
     fn should_convert_to_pad_and_balance_directive_given_balance_pad_directive() {
         let directive = test_parse_bc! {"1970-01-02 balance Assets:BankAccount 2 CNY"};
         let directive = match directive {
-            BeancountOnlyDirective::Balance(check) => Directive::Balance(Balance::BalancePad(BalancePad {
+            BeancountOnlyDirective::Balance(check) => Directive::BalancePad(BalancePad {
                 date: check.date,
                 account: check.account,
                 amount: check.amount,
                 pad: Account::from_str("Equity:Open-Balances").unwrap(),
                 meta: Default::default(),
-            })),
+            }),
             _ => unreachable!(),
         };
 
@@ -517,12 +477,12 @@ mod test {
 
         assert_eq!(
             balance_pad_directive,
-            Directive::Balance(Balance::BalanceCheck(BalanceCheck {
+            Directive::BalanceCheck(BalanceCheck {
                 date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
                 account: Account::from_str("Assets::BankAccount").unwrap(),
                 amount: Amount::new(BigDecimal::from(100i32), "CNY"),
                 meta: Default::default(),
-            }))
+            })
         );
     }
 
@@ -558,13 +518,13 @@ mod test {
 
         assert_eq!(
             balance_pad_directive,
-            Directive::Balance(Balance::BalancePad(BalancePad {
+            Directive::BalancePad(BalancePad {
                 date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
                 account: Account::from_str("Assets::BankAccount").unwrap(),
                 amount: Amount::new(BigDecimal::from(100i32), "CNY"),
                 pad: Account::from_str("Equity::Open-Balances").unwrap(),
                 meta: Default::default(),
-            }))
+            })
         );
     }
 

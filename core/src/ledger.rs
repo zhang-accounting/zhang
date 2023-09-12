@@ -80,7 +80,8 @@ impl Ledger {
                 Directive::Close(close) => close.handler(&mut ret_ledger, &directive.span)?,
                 Directive::Commodity(commodity) => commodity.handler(&mut ret_ledger, &directive.span)?,
                 Directive::Transaction(trx) => trx.handler(&mut ret_ledger, &directive.span)?,
-                Directive::Balance(balance) => balance.handler(&mut ret_ledger, &directive.span)?,
+                Directive::BalancePad(pad) => pad.handler(&mut ret_ledger, &directive.span)?,
+                Directive::BalanceCheck(check) => check.handler(&mut ret_ledger, &directive.span)?,
                 Directive::Note(_) => {}
                 Directive::Document(document) => document.handler(&mut ret_ledger, &directive.span)?,
                 Directive::Price(price) => price.handler(&mut ret_ledger, &directive.span)?,
@@ -106,9 +107,9 @@ impl Ledger {
         directives.sort_by(|a, b| match (a.datetime(), b.datetime()) {
             (Some(a_datetime), Some(b_datetime)) => match a_datetime.cmp(&b_datetime) {
                 Ordering::Equal => match (a.directive_type(), b.directive_type()) {
-                    (DirectiveType::Balance, DirectiveType::Balance) => Ordering::Equal,
-                    (DirectiveType::Balance, _) => Ordering::Less,
-                    (_, DirectiveType::Balance) => Ordering::Greater,
+                    (DirectiveType::BalancePad | DirectiveType::BalanceCheck, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Equal,
+                    (DirectiveType::BalancePad | DirectiveType::BalanceCheck, _) => Ordering::Less,
+                    (_, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Greater,
                     (_, _) => Ordering::Equal,
                 },
                 other => other,

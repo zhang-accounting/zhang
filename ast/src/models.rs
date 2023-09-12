@@ -4,7 +4,8 @@ use strum::{Display, EnumString};
 
 use crate::account::Account;
 use crate::amount::Amount;
-use crate::data::{Balance, Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Plugin, Price, Transaction};
+use crate::data::{Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Plugin, Price, Transaction};
+use crate::{BalanceCheck, BalancePad};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DirectiveType {
@@ -12,7 +13,8 @@ pub enum DirectiveType {
     Close,
     Commodity,
     Transaction,
-    Balance,
+    BalancePad,
+    BalanceCheck,
     Note,
     Document,
     Price,
@@ -30,7 +32,8 @@ pub enum Directive {
     Close(Close),
     Commodity(Commodity),
     Transaction(Transaction),
-    Balance(Balance),
+    BalancePad(BalancePad),
+    BalanceCheck(BalanceCheck),
     Note(Note),
     Document(Document),
     Price(Price),
@@ -49,10 +52,8 @@ impl Directive {
             Directive::Close(close) => Some(close.date.naive_datetime()),
             Directive::Commodity(commodity) => Some(commodity.date.naive_datetime()),
             Directive::Transaction(txn) => Some(txn.date.naive_datetime()),
-            Directive::Balance(balance) => Some(match balance {
-                Balance::BalanceCheck(check) => check.date.naive_datetime(),
-                Balance::BalancePad(pad) => pad.date.naive_datetime(),
-            }),
+            Directive::BalanceCheck(check) => Some(check.date.naive_datetime()),
+            Directive::BalancePad(pad) => Some(pad.date.naive_datetime()),
             Directive::Note(note) => Some(note.date.naive_datetime()),
             Directive::Document(document) => Some(document.date.naive_datetime()),
             Directive::Price(price) => Some(price.date.naive_datetime()),
@@ -70,7 +71,6 @@ impl Directive {
             Directive::Close(_) => DirectiveType::Close,
             Directive::Commodity(_) => DirectiveType::Commodity,
             Directive::Transaction(_) => DirectiveType::Transaction,
-            Directive::Balance(_) => DirectiveType::Balance,
             Directive::Note(_) => DirectiveType::Note,
             Directive::Document(_) => DirectiveType::Document,
             Directive::Price(_) => DirectiveType::Price,
@@ -80,6 +80,8 @@ impl Directive {
             Directive::Plugin(_) => DirectiveType::Plugin,
             Directive::Include(_) => DirectiveType::Include,
             Directive::Comment(_) => DirectiveType::Comment,
+            Directive::BalancePad(_) => DirectiveType::BalancePad,
+            Directive::BalanceCheck(_) => DirectiveType::BalanceCheck,
         }
     }
 }

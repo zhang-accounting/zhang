@@ -55,7 +55,6 @@ pub struct Operations {
 }
 
 impl Operations {
-
     /// single commodity prices
     pub fn commodity_prices(&self, commodity: impl AsRef<str>) -> ZhangResult<Vec<PriceDomain>> {
         let store = self.read();
@@ -97,7 +96,6 @@ impl Operations {
 }
 
 impl Operations {
-
     /// insert or update account
     /// if account exists, then update its status only
     pub(crate) fn insert_or_update_account(&mut self, datetime: DateTime<Tz>, account: Account, status: AccountStatus, alias: Option<&str>) -> ZhangResult<()> {

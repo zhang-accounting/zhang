@@ -12,7 +12,7 @@ use log::info;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, Balance, BalanceCheck, BalancePad, Date, Directive, Document, ZhangString};
+use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Document, ZhangString};
 use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
@@ -155,7 +155,7 @@ pub async fn create_account_balance(
     let ledger = ledger.read().await;
 
     let balance = match payload {
-        AccountBalanceRequest::Check { amount, .. } => Balance::BalanceCheck(BalanceCheck {
+        AccountBalanceRequest::Check { amount, .. } => Directive::BalanceCheck(BalanceCheck {
             date: Date::now(&ledger.options.timezone),
             account: Account::from_str(&target_account)?,
             amount: Amount {
@@ -164,7 +164,7 @@ pub async fn create_account_balance(
             },
             meta: Default::default(),
         }),
-        AccountBalanceRequest::Pad { amount, pad, .. } => Balance::BalancePad(BalancePad {
+        AccountBalanceRequest::Pad { amount, pad, .. } => Directive::BalancePad(BalancePad {
             date: Date::now(&ledger.options.timezone),
             account: Account::from_str(&target_account)?,
             amount: Amount {
@@ -176,7 +176,7 @@ pub async fn create_account_balance(
         }),
     };
 
-    exporter.as_ref().append_directives(&ledger, vec![Directive::Balance(balance)])?;
+    exporter.as_ref().append_directives(&ledger, vec![balance])?;
     ResponseWrapper::<()>::created()
 }
 
@@ -188,7 +188,7 @@ pub async fn create_batch_account_balances(
     let mut directives = vec![];
     for balance in payload {
         let balance = match balance {
-            AccountBalanceRequest::Check { account_name, amount } => Balance::BalanceCheck(BalanceCheck {
+            AccountBalanceRequest::Check { account_name, amount } => Directive::BalanceCheck(BalanceCheck {
                 date: Date::now(&ledger.options.timezone),
                 account: Account::from_str(&account_name)?,
                 amount: Amount {
@@ -197,7 +197,7 @@ pub async fn create_batch_account_balances(
                 },
                 meta: Default::default(),
             }),
-            AccountBalanceRequest::Pad { account_name, amount, pad } => Balance::BalancePad(BalancePad {
+            AccountBalanceRequest::Pad { account_name, amount, pad } => Directive::BalancePad(BalancePad {
                 date: Date::now(&ledger.options.timezone),
                 account: Account::from_str(&account_name)?,
                 amount: Amount {
@@ -208,7 +208,7 @@ pub async fn create_batch_account_balances(
                 pad: Account::from_str(&pad)?,
             }),
         };
-        directives.push(Directive::Balance(balance));
+        directives.push(balance);
     }
 
     exporter.as_ref().append_directives(&ledger, directives)?;
