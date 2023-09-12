@@ -206,7 +206,7 @@ async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broad
 
         #[cfg(feature = "frontend")]
         {
-            app.default_service(actix_web::web::to(serve_frontend))
+            app.default_service(actix_web::web::to(routes::frontend::serve_frontend))
         }
 
         #[cfg(not(feature = "frontend"))]
