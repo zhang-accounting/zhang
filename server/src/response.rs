@@ -6,7 +6,6 @@ use actix_web::{HttpRequest, HttpResponse, Responder, ResponseError};
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use serde::Serialize;
-use sqlx::FromRow;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, MetaDomain};
@@ -87,7 +86,7 @@ pub struct AccountResponse {
     pub amount: CalculatedAmount,
 }
 
-#[derive(Serialize, FromRow)]
+#[derive(Serialize)]
 pub struct DocumentResponse {
     pub datetime: NaiveDateTime,
     pub filename: String,
@@ -110,7 +109,7 @@ pub struct StatisticResponse {
     pub details: HashMap<NaiveDate, HashMap<String, AmountResponse>>,
 }
 
-#[derive(Serialize, FromRow)]
+#[derive(Serialize)]
 pub struct MetaResponse {
     key: String,
     value: String,
@@ -220,7 +219,7 @@ impl From<Amount> for AmountResponse {
     }
 }
 
-#[derive(FromRow, Serialize)]
+#[derive(Serialize)]
 pub struct CommodityListItemResponse {
     pub name: String,
     pub precision: i32,
@@ -233,7 +232,7 @@ pub struct CommodityListItemResponse {
     pub latest_price_commodity: Option<String>,
 }
 
-#[derive(FromRow, Serialize)]
+#[derive( Serialize)]
 pub struct CommodityLot {
     pub datetime: Option<NaiveDateTime>,
     pub amount: BigDecimal,
@@ -242,7 +241,7 @@ pub struct CommodityLot {
     pub account: String,
 }
 
-#[derive(FromRow, Serialize)]
+#[derive( Serialize)]
 pub struct CommodityPrice {
     pub datetime: NaiveDateTime,
     pub amount: BigDecimal,

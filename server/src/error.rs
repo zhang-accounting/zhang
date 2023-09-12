@@ -10,9 +10,6 @@ pub enum ServerError {
     #[error("client error: {0}")]
     ClientError(#[from] reqwest::Error),
 
-    #[error("database error: {0}")]
-    DatabaseError(#[from] sqlx::Error),
-
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),
 }

@@ -19,7 +19,6 @@ use indexmap::IndexSet;
 use itertools::Itertools;
 use log::{error, info};
 use now::TimeZoneNow;
-use sqlx::FromRow;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -44,7 +43,6 @@ pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
     std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
 }
 
-#[derive(FromRow)]
 pub struct DetailRow {
     date: NaiveDate,
     account: String,
@@ -164,7 +162,6 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
     )
     .await?;
 
-    #[derive(FromRow)]
     struct CurrentMonthBalance {
         account_type: String,
         amount: BigDecimal,
@@ -254,7 +251,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
 
     let total_count = operations.transaction_counts().await?;
 
-    #[derive(Debug, FromRow)]
+    #[derive(Debug)]
     struct JournalHeader {
         id: Uuid,
         sequence: i32,

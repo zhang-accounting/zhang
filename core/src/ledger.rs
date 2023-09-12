@@ -201,14 +201,6 @@ mod test {
     use crate::transform::{TransformResult, Transformer};
     use crate::ZhangResult;
 
-    macro_rules! count {
-        ($reason:expr, $times: expr, $sql:expr, $conn:expr) => {
-            assert_eq!($times, sqlx::query($sql).fetch_all($conn).await.unwrap().len(), $reason)
-        };
-        ($reason:expr, $sql:expr, $conn:expr) => {
-            assert_eq!(1, sqlx::query($sql).fetch_all($conn).await.unwrap().len(), $reason)
-        };
-    }
 
     fn fake_span_info() -> SpanInfo {
         SpanInfo {
