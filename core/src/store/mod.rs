@@ -9,6 +9,7 @@ use zhang_ast::{Account, Flag, SpanInfo};
 
 use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain};
 
+#[derive(Default)]
 pub struct Store {
     pub options: HashMap<String, String>,
     pub accounts: HashMap<Account, AccountDomain>,
@@ -26,23 +27,6 @@ pub struct Store {
     pub metas: Vec<MetaDomain>,
 
     pub errors: Vec<ErrorDomain>,
-}
-
-impl Default for Store {
-    fn default() -> Self {
-        Self {
-            options: HashMap::default(),
-            accounts: Default::default(),
-            commodities: Default::default(),
-            transactions: Default::default(),
-            postings: vec![],
-            prices: vec![],
-            commodity_lots: Default::default(),
-            documents: vec![],
-            metas: vec![],
-            errors: vec![],
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -93,7 +77,7 @@ impl DocumentType {
     pub fn as_trx(&self) -> Option<String> {
         match self {
             DocumentType::Trx(id) => Some(id.to_string()),
-            DocumentType::Account(account) => None,
+            DocumentType::Account(_) => None,
         }
     }
 }

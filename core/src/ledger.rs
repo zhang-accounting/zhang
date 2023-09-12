@@ -66,7 +66,7 @@ impl Ledger {
         };
         let mut merged_metas = BuiltinOption::default_options()
             .into_iter()
-            .chain(meta_directives.into_iter())
+            .chain(meta_directives)
             .rev()
             .dedup_by(|x, y| match (&x.data, &y.data) {
                 (Directive::Option(option_x), Directive::Option(option_y)) => option_x.key.eq(&option_y.key),
@@ -217,7 +217,7 @@ mod test {
     fn load_from_temp_str(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().into_path();
         let example = temp_dir.join("example.zhang");
-        std::fs::write(&example, content).unwrap();
+        std::fs::write(example, content).unwrap();
         Ledger::process(
             test_parse_zhang(content),
             (temp_dir.clone(), "example.zhang".to_string()),

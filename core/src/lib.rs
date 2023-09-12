@@ -48,7 +48,7 @@ mod test {
     fn load_from_text(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().into_path();
         let example = temp_dir.join("example.zhang");
-        std::fs::write(&example, content).unwrap();
+        std::fs::write(example, content).unwrap();
         Ledger::load_with_database(temp_dir, "example.zhang".to_string(), Arc::new(TestTransformer {})).unwrap()
     }
 

@@ -164,7 +164,7 @@ impl DirectiveProcess for Transaction {
             self.narration.as_ref().map(|it| it.as_str()),
             self.tags.iter().cloned().collect_vec(),
             self.links.iter().cloned().collect_vec(),
-            &span,
+            span,
         )?;
 
         for txn_posting in self.txn_postings() {
@@ -204,7 +204,7 @@ impl DirectiveProcess for Transaction {
                 self.date.to_timezone_datetime(&ledger.options.timezone),
                 document_pathbuf.file_name().and_then(|it| it.to_str()),
                 document_path,
-                DocumentType::Trx(id.clone()),
+                DocumentType::Trx(id),
             )?;
         }
         operations.insert_meta(MetaType::TransactionMeta, id.to_string(), self.meta.clone())?;
@@ -308,7 +308,7 @@ impl DirectiveProcess for Balance {
 
                 transformed_trx.process(ledger, span)?;
 
-                let neg_distance = distance.neg();
+                // let neg_distance = distance.neg();
             }
         }
 
