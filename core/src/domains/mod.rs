@@ -286,9 +286,10 @@ impl Operations {
     pub fn get_commodity_balances(&self, commodity: impl AsRef<str>) -> ZhangResult<BigDecimal> {
         let mut total = BigDecimal::zero();
         let store = self.read();
+        let commodity = commodity.as_ref();
         for (account, lots) in store.commodity_lots.iter() {
             if account.account_type == AccountType::Assets || account.account_type == AccountType::Liabilities {
-                let account_sum: BigDecimal = lots.iter().map(|it| &it.amount).sum();
+                let account_sum: BigDecimal = lots.iter().filter(|lot| lot.commodity.eq(commodity)).map(|it| &it.amount).sum();
                 total.add_assign(account_sum);
             }
         }

@@ -18,7 +18,6 @@ use glob::glob;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use log::{error, info};
-use now::TimeZoneNow;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
@@ -40,13 +39,6 @@ use crate::{ApiResult, ServerResult};
 
 pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
     std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
-}
-
-pub struct DetailRow {
-    date: NaiveDate,
-    account: String,
-    balance_number: BigDecimal,
-    balance_commodity: String,
 }
 
 #[get("/api/sse")]
