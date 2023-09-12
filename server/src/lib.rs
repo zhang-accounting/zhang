@@ -8,6 +8,16 @@ use actix_web::web::Data;
 use actix_web::{App, HttpServer};
 use log::{debug, error, info, trace};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use routes::account::{
+    create_account_balance, create_batch_account_balances, get_account_documents, get_account_info, get_account_journals, get_account_list,
+    upload_account_document,
+};
+use routes::commodity::{get_all_commodities, get_single_commodity};
+use routes::common::{get_all_options, get_basic_info, get_errors, sse};
+use routes::document::{download_document, get_documents};
+use routes::file::{get_file_content, get_files, update_file_content};
+use routes::statistics::{current_statistic, get_report, get_statistic_data};
+use routes::transaction::{create_new_transaction, get_info_for_new_transactions, get_journals, upload_transaction_document};
 use self_update::version::bump_is_greater;
 use serde::Serialize;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -22,13 +32,12 @@ use zhang_core::ZhangResult;
 use crate::broadcast::{BroadcastEvent, Broadcaster};
 use crate::error::ServerError;
 use crate::response::ResponseWrapper;
-use crate::route::*;
 
 pub mod broadcast;
 pub mod error;
 pub mod request;
 pub mod response;
-pub mod route;
+pub mod routes;
 pub mod util;
 
 pub type ServerResult<T> = Result<T, ServerError>;
