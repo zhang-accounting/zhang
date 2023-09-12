@@ -3,8 +3,6 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
-use crate::parser::{parse, parse_time};
 use chrono::{Datelike, NaiveDate};
 use itertools::{Either, Itertools};
 use latestmap::LatestMap;
@@ -14,6 +12,9 @@ use zhang_core::ledger::Ledger;
 use zhang_core::transform::TextFileBasedTransformer;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{ZhangError, ZhangResult};
+
+use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
+use crate::parser::{parse, parse_time};
 
 #[allow(clippy::upper_case_acronyms)]
 #[allow(clippy::type_complexity)]
@@ -335,16 +336,18 @@ impl TextFileBasedTransformer for Beancount {
 
 #[cfg(test)]
 mod test {
-    use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
-    use crate::{parse, Beancount};
+    use std::str::FromStr;
+
     use bigdecimal::BigDecimal;
     use chrono::NaiveDate;
     use indoc::indoc;
-    use std::str::FromStr;
     use zhang_ast::amount::Amount;
     use zhang_ast::{Account, Balance, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned, Transaction, ZhangString};
     use zhang_core::exporter::Exporter;
     use zhang_core::transform::TextFileBasedTransformer;
+
+    use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
+    use crate::{parse, Beancount};
 
     macro_rules! test_parse_zhang {
         ($content: expr) => {{

@@ -20,15 +20,17 @@ pub use error::ZhangError;
 
 #[cfg(test)]
 mod test {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use glob::Pattern;
+    use tempfile::tempdir;
+    use zhang_ast::{Directive, Spanned};
+
     use crate::ledger::Ledger;
     use crate::parser::parse as parse_zhang;
     use crate::transform::{TransformResult, Transformer};
     use crate::ZhangResult;
-    use glob::Pattern;
-    use std::path::PathBuf;
-    use std::sync::Arc;
-    use tempfile::tempdir;
-    use zhang_ast::{Directive, Spanned};
 
     struct TestTransformer {}
 
@@ -47,23 +49,21 @@ mod test {
         let temp_dir = tempdir().unwrap().into_path();
         let example = temp_dir.join("example.zhang");
         std::fs::write(&example, content).unwrap();
-        Ledger::load_with_database(temp_dir, "example.zhang".to_string(), Arc::new(TestTransformer {}))
-            
-            .unwrap()
+        Ledger::load_with_database(temp_dir, "example.zhang".to_string(), Arc::new(TestTransformer {})).unwrap()
     }
 
     mod options {
-        use crate::options::BuiltinOption;
-        use crate::test::load_from_text;
         use indoc::indoc;
         use strum::IntoEnumIterator;
+
+        use crate::options::BuiltinOption;
+        use crate::test::load_from_text;
 
         #[test]
         fn should_get_option() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                  option "title" "Example"
-            "#})
-            ;
+            "#});
             let mut operations = ledger.operations();
 
             let option = operations.option("title").unwrap().unwrap();
@@ -77,8 +77,7 @@ mod test {
             let ledger = load_from_text(indoc! {r#"
                  option "title" "Example"
                  option "title" "Example2"
-            "#})
-            ;
+            "#});
             let mut operations = ledger.operations();
 
             let option = operations.option("title").unwrap().unwrap();
@@ -91,8 +90,7 @@ mod test {
         fn should_get_default_options() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                  option "title" "Example"
-            "#})
-            ;
+            "#});
             let mut operations = ledger.operations();
 
             assert_eq!(operations.option("operating_currency").unwrap().unwrap().value, "CNY");
@@ -104,8 +102,7 @@ mod test {
         fn should_be_override_by_user_options() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                  option "operating_currency" "USD"
-            "#})
-            ;
+            "#});
             let mut operations = ledger.operations();
 
             assert_eq!(operations.option("operating_currency").unwrap().unwrap().value, "USD");
@@ -118,8 +115,7 @@ mod test {
                  option "title" "Example"
                  option "title" "Example2"
                  option "url" "url here"
-            "#})
-            ;
+            "#});
             let mut operations = ledger.operations();
 
             let options = operations.options().unwrap();
@@ -131,17 +127,17 @@ mod test {
     }
 
     mod meta {
+        use indoc::indoc;
+
         use crate::domains::schemas::MetaType;
         use crate::test::load_from_text;
-        use indoc::indoc;
 
         #[test]
         fn should_get_account_meta() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                 1970-01-01 open Assets:MyCard
                   a: "b"
-            "#})
-            ;
+            "#});
             let mut operations = ledger.operations();
 
             let mut vec = operations.metas(MetaType::AccountMeta, "Assets:MyCard")?;
@@ -154,17 +150,17 @@ mod test {
         }
     }
     mod account {
+        use indoc::indoc;
+
         use crate::domains::schemas::AccountStatus;
         use crate::test::load_from_text;
-        use indoc::indoc;
 
         #[test]
         fn should_closed_account() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                 1970-01-01 open Assets:MyCard
                 1970-01-02 close Assets:MyCard
-            "#})
-            ;
+            "#});
 
             let mut operations = ledger.operations();
             let account = operations.account("Assets:MyCard")?.unwrap();
@@ -178,8 +174,7 @@ mod test {
             let ledger = load_from_text(indoc! {r#"
                 1970-01-01 open Assets:MyCard
                   alias: "MyCardAliasName"
-            "#})
-            ;
+            "#});
 
             let mut operations = ledger.operations();
             let account = operations.account("Assets:MyCard")?.unwrap();
@@ -189,16 +184,16 @@ mod test {
     }
 
     mod account_balance {
-        use crate::test::load_from_text;
         use bigdecimal::BigDecimal;
         use indoc::indoc;
+
+        use crate::test::load_from_text;
 
         #[test]
         fn should_return_zero_balance_given_zero_directive() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                 1970-01-01 open Assets:MyCard
-            "#})
-            ;
+            "#});
 
             let mut operations = ledger.operations();
 
@@ -215,8 +210,7 @@ mod test {
                 1970-01-02 "KFC" "Crazy Thursday"
                   Assets:MyCard -50 CNY
                   Expenses:Lunch 50 CNY
-            "#})
-            ;
+            "#});
 
             let mut operations = ledger.operations();
 
@@ -233,15 +227,15 @@ mod test {
         }
     }
     mod commodity {
-        use crate::test::load_from_text;
         use indoc::indoc;
+
+        use crate::test::load_from_text;
 
         #[test]
         fn should_get_commodity() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                 1970-01-01 commodity CNY
-            "#})
-            ;
+            "#});
 
             let mut operations = ledger.operations();
             let commodity = operations.commodity("CNY")?.unwrap();
@@ -256,8 +250,7 @@ mod test {
         fn should_not_get_non_exist_commodity() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                 1970-01-01 commodity CNY
-            "#})
-            ;
+            "#});
 
             let mut operations = ledger.operations();
             let commodity = operations.commodity("USD")?;
@@ -270,8 +263,7 @@ mod test {
             let ledger = load_from_text(indoc! {r#"
                 option "default_commodity_precision" "3"
                 1970-01-01 commodity CNY
-            "#})
-            ;
+            "#});
 
             let mut operations = ledger.operations();
             let commodity = operations.commodity("CNY")?.unwrap();
@@ -289,8 +281,7 @@ mod test {
                   precision: "3"
                   prefix: "¥"
                   suffix: "CNY"
-            "#})
-            ;
+            "#});
 
             let mut operations = ledger.operations();
             let commodity = operations.commodity("CNY")?.unwrap();
@@ -306,8 +297,7 @@ mod test {
                 option "default_commodity_precision" "3"
                 1970-01-01 commodity CNY
                   precision: "4"
-            "#})
-            ;
+            "#});
 
             let mut operations = ledger.operations();
             let commodity = operations.commodity("CNY")?.unwrap();
@@ -324,8 +314,7 @@ mod test {
                 option "operating_currency" "CNY"
                 1970-01-01 commodity CNY
                   precision: "4"
-            "#})
-            ;
+            "#});
 
             let mut operations = ledger.operations();
             let commodity = operations.commodity("CNY")?.unwrap();
@@ -337,22 +326,23 @@ mod test {
         }
     }
     mod error {
-        use crate::domains::schemas::ErrorType;
-        use crate::test::load_from_text;
         use indoc::indoc;
 
+        use crate::domains::schemas::ErrorType;
+        use crate::test::load_from_text;
+
         mod close_non_zero_account {
+            use indoc::indoc;
+
             use crate::domains::schemas::ErrorType;
             use crate::test::load_from_text;
-            use indoc::indoc;
 
             #[test]
             fn should_not_raise_error() -> Result<(), Box<dyn std::error::Error>> {
                 let ledger = load_from_text(indoc! {r#"
                     1970-01-01 open Assets:MyCard
                     1970-01-03 close Assets:MyCard
-                "#})
-                ;
+                "#});
 
                 let mut operations = ledger.operations();
                 let errors = operations.errors()?;
@@ -369,8 +359,7 @@ mod test {
                       Expenses:Lunch 50 CNY
 
                     1970-01-03 close Assets:MyCard
-                "#})
-                ;
+                "#});
 
                 let mut operations = ledger.operations();
                 let mut errors = operations.errors()?;
@@ -386,8 +375,7 @@ mod test {
             let ledger = load_from_text(indoc! {r#"
                     1970-01-01 open Assets:MyCard CNY
                     1970-01-03 balance Assets:MyCard 10 CNY
-                "#})
-            ;
+                "#});
 
             let mut operations = ledger.operations();
             let mut errors = operations.errors()?;
@@ -399,15 +387,15 @@ mod test {
         }
     }
     mod timezone {
-        use crate::test::load_from_text;
         use indoc::indoc;
+
+        use crate::test::load_from_text;
 
         #[test]
         fn should_get_system_timezone() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                     1970-01-01 open Assets:MyCard CNY
-                "#})
-            ;
+                "#});
 
             let mut operations = ledger.operations();
             let timezone = operations.option("timezone")?.unwrap();
@@ -419,8 +407,7 @@ mod test {
         fn should_fallback_to_use_system_timezone_given_invalid_timezone() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                     option "timezone" "MYZone"
-                "#})
-            ;
+                "#});
 
             let mut operations = ledger.operations();
             let timezone = operations.option("timezone")?.unwrap();
@@ -431,8 +418,7 @@ mod test {
         fn should_parse_user_timezone() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                     option "timezone" "Antarctica/South_Pole"
-                "#})
-            ;
+                "#});
 
             let mut operations = ledger.operations();
             let timezone = operations.option("timezone")?.unwrap();

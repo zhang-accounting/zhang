@@ -1,16 +1,17 @@
-use crate::ledger::Ledger;
-use crate::ZhangResult;
-use itertools::Itertools;
-use log::debug;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::utils::has_path_visited;
-use crate::utils::string_::escape_with_quote;
 use chrono::Datelike;
+use itertools::Itertools;
+use log::debug;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
+
+use crate::ledger::Ledger;
+use crate::utils::has_path_visited;
+use crate::utils::string_::escape_with_quote;
+use crate::ZhangResult;
 
 pub trait Exporter: AppendableExporter {
     type Output;
@@ -386,10 +387,10 @@ impl TextExportable for Ledger {
 mod test {
     use std::option::Option::None;
 
-    use crate::parser::parse;
     use indoc::indoc;
 
     use crate::exporter::TextExportable;
+    use crate::parser::parse;
 
     fn parse_and_export(from: &str) -> String {
         let directive = parse(from, None).unwrap().into_iter().next().unwrap();

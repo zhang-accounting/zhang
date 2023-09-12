@@ -3214,7 +3214,6 @@ dependencies = [
  "strum",
  "tempfile",
  "thiserror",
- "tokio",
  "unicode_categories",
  "uuid",
  "zhang-ast",

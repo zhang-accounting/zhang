@@ -1,7 +1,9 @@
-use itertools::Itertools;
-use log::{error, info, warn};
 use std::str::FromStr;
 use std::string::ToString;
+
+use chrono_tz::Tz;
+use itertools::Itertools;
+use log::{error, info, warn};
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
@@ -10,7 +12,6 @@ use crate::constants::{
 };
 use crate::domains::Operations;
 use crate::ZhangResult;
-use chrono_tz::Tz;
 
 #[derive(Debug)]
 pub struct InMemoryOptions {
@@ -80,9 +81,7 @@ impl InMemoryOptions {
                     let suffix: Option<String> = None;
                     let rounding = Some(self.default_rounding);
 
-                    operation
-                        .insert_commodity(&value, precision, prefix, suffix, rounding.map(|it| it.to_string()))
-                        ?;
+                    operation.insert_commodity(&value, precision, prefix, suffix, rounding.map(|it| it.to_string()))?;
 
                     self.operating_currency = value.to_owned();
                 }

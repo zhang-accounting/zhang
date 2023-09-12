@@ -5,6 +5,14 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
+use bigdecimal::{BigDecimal, FromPrimitive, Zero};
+use itertools::Itertools;
+use log::debug;
+use uuid::Uuid;
+use zhang_ast::amount::Amount;
+use zhang_ast::utils::inventory::LotInfo;
+use zhang_ast::*;
+
 use crate::constants::{DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::domains::schemas::{AccountStatus, ErrorType, MetaType};
 use crate::domains::{AccountAmount, Operations};
@@ -13,13 +21,6 @@ use crate::store::DocumentType;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
 use crate::ZhangResult;
-use bigdecimal::{BigDecimal, FromPrimitive, Zero};
-use itertools::Itertools;
-use log::debug;
-use uuid::Uuid;
-use zhang_ast::amount::Amount;
-use zhang_ast::utils::inventory::LotInfo;
-use zhang_ast::*;
 
 pub(crate) trait DirectiveProcess {
     fn handler(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
@@ -37,9 +38,7 @@ fn check_account_existed(account_name: &str, ledger: &mut Ledger, span: &SpanInf
     let existed = operations.exist_account(account_name)?;
 
     if !existed {
-        operations
-            .new_error(ErrorType::AccountDoesNotExist, span, HashMap::of("account_name", account_name.to_string()))
-            ?;
+        operations.new_error(ErrorType::AccountDoesNotExist, span, HashMap::of("account_name", account_name.to_string()))?;
     }
     Ok(())
 }
@@ -49,9 +48,7 @@ fn check_account_closed(account_name: &str, ledger: &mut Ledger, span: &SpanInfo
 
     let account = operations.account(account_name)?;
     if let Some(true) = account.map(|it| it.status == AccountStatus::Close) {
-        operations
-            .new_error(ErrorType::AccountClosed, span, HashMap::of("account_name", account_name.to_string()))
-            ?;
+        operations.new_error(ErrorType::AccountClosed, span, HashMap::of("account_name", account_name.to_string()))?;
     }
     Ok(())
 }
@@ -60,13 +57,11 @@ fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span: &Span
     let mut operations = ledger.operations();
     let existed = operations.exist_commodity(commodity_name)?;
     if !existed {
-        operations
-            .new_error(
-                ErrorType::CommodityDoesNotDefine,
-                span,
-                HashMap::of("commodity_name", commodity_name.to_string()),
-            )
-            ?;
+        operations.new_error(
+            ErrorType::CommodityDoesNotDefine,
+            span,
+            HashMap::of("commodity_name", commodity_name.to_string()),
+        )?;
     }
     Ok(())
 }
@@ -81,20 +76,18 @@ impl DirectiveProcess for Options {
 }
 
 impl DirectiveProcess for Open {
-     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
         for currency in &self.commodities {
             check_commodity_define(currency, ledger, span)?;
         }
 
-        operations
-            .insert_or_update_account(
-                self.date.to_timezone_datetime(&ledger.options.timezone),
-                self.account.clone(),
-                AccountStatus::Open,
-                self.meta.get_one("alias").map(|it| it.as_str()),
-            )
-            ?;
+        operations.insert_or_update_account(
+            self.date.to_timezone_datetime(&ledger.options.timezone),
+            self.account.clone(),
+            AccountStatus::Open,
+            self.meta.get_one("alias").map(|it| it.as_str()),
+        )?;
 
         operations.insert_meta(MetaType::AccountMeta, self.account.name(), self.meta.clone())?;
 
@@ -146,9 +139,7 @@ impl DirectiveProcess for Commodity {
             .transpose()
             .unwrap_or(None);
 
-        operations
-            .insert_commodity(&self.currency, precision, prefix, suffix, rounding.map(|it| it.to_string()))
-            ?;
+        operations.insert_commodity(&self.currency, precision, prefix, suffix, rounding.map(|it| it.to_string()))?;
         operations.insert_meta(MetaType::CommodityMeta, &self.currency, self.meta.clone())?;
 
         Ok(())
@@ -164,30 +155,26 @@ impl DirectiveProcess for Transaction {
         }
         let id = Uuid::from_span(span);
         let sequence = ledger.trx_counter.fetch_add(1, Ordering::Relaxed);
-        operations
-            .insert_transaction(
-                &id,
-                sequence,
-                self.date.to_timezone_datetime(&ledger.options.timezone),
-                self.flag.clone().unwrap_or(Flag::Okay),
-                self.payee.as_ref().map(|it| it.as_str()),
-                self.narration.as_ref().map(|it| it.as_str()),
-                self.tags.iter().cloned().collect_vec(),
-                self.links.iter().cloned().collect_vec(),
-                &span,
-            )
-            ?;
+        operations.insert_transaction(
+            &id,
+            sequence,
+            self.date.to_timezone_datetime(&ledger.options.timezone),
+            self.flag.clone().unwrap_or(Flag::Okay),
+            self.payee.as_ref().map(|it| it.as_str()),
+            self.narration.as_ref().map(|it| it.as_str()),
+            self.tags.iter().cloned().collect_vec(),
+            self.links.iter().cloned().collect_vec(),
+            &span,
+        )?;
 
         for txn_posting in self.txn_postings() {
             let inferred_amount = txn_posting.infer_trade_amount().unwrap();
 
-            let option = operations
-                .account_target_day_balance(
-                    txn_posting.posting.account.name(),
-                    self.date.to_timezone_datetime(&ledger.options.timezone),
-                    &inferred_amount.currency,
-                )
-                ?;
+            let option = operations.account_target_day_balance(
+                txn_posting.posting.account.name(),
+                self.date.to_timezone_datetime(&ledger.options.timezone),
+                &inferred_amount.currency,
+            )?;
 
             let previous = option.unwrap_or(AccountAmount {
                 number: BigDecimal::zero(),
@@ -195,17 +182,15 @@ impl DirectiveProcess for Transaction {
             });
             let after_number = (&previous.number).add(&inferred_amount.number);
 
-            operations
-                .insert_transaction_posting(
-                    &id,
-                    txn_posting.posting.account.name(),
-                    txn_posting.posting.units.clone(),
-                    txn_posting.posting.cost.clone(),
-                    inferred_amount,
-                    Amount::new(previous.number, previous.commodity.clone()),
-                    Amount::new(after_number, previous.commodity),
-                )
-                ?;
+            operations.insert_transaction_posting(
+                &id,
+                txn_posting.posting.account.name(),
+                txn_posting.posting.units.clone(),
+                txn_posting.posting.cost.clone(),
+                inferred_amount,
+                Amount::new(previous.number, previous.commodity.clone()),
+                Amount::new(after_number, previous.commodity),
+            )?;
 
             let amount = txn_posting.units().unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
             let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
@@ -215,14 +200,12 @@ impl DirectiveProcess for Transaction {
             let (_, document_file_name) = document;
             let document_path = document_file_name.to_plain_string();
             let document_pathbuf = PathBuf::from(&document_path);
-            operations
-                .insert_document(
-                    self.date.to_timezone_datetime(&ledger.options.timezone),
-                    document_pathbuf.file_name().and_then(|it| it.to_str()),
-                    document_path,
-                    DocumentType::Trx(id.clone()),
-                )
-                ?;
+            operations.insert_document(
+                self.date.to_timezone_datetime(&ledger.options.timezone),
+                document_pathbuf.file_name().and_then(|it| it.to_str()),
+                document_path,
+                DocumentType::Trx(id.clone()),
+            )?;
         }
         operations.insert_meta(MetaType::TransactionMeta, id.to_string(), self.meta.clone())?;
         Ok(())
@@ -234,13 +217,11 @@ impl DirectiveProcess for Balance {
         let mut operations = ledger.operations();
         match self {
             Balance::BalanceCheck(balance_check) => {
-                let option = operations
-                    .account_target_day_balance(
-                        balance_check.account.name(),
-                        balance_check.date.to_timezone_datetime(&ledger.options.timezone),
-                        &balance_check.amount.currency,
-                    )
-                    ?;
+                let option = operations.account_target_day_balance(
+                    balance_check.account.name(),
+                    balance_check.date.to_timezone_datetime(&ledger.options.timezone),
+                    &balance_check.amount.currency,
+                )?;
 
                 let current_balance_amount = option.map(|it| it.number).unwrap_or_else(BigDecimal::zero);
 
@@ -249,13 +230,11 @@ impl DirectiveProcess for Balance {
                     balance_check.amount.currency.clone(),
                 );
                 if !distance.is_zero() {
-                    operations
-                        .new_error(
-                            ErrorType::AccountBalanceCheckError,
-                            span,
-                            HashMap::of("account_name", balance_check.account.name().to_string()),
-                        )
-                        ?;
+                    operations.new_error(
+                        ErrorType::AccountBalanceCheckError,
+                        span,
+                        HashMap::of("account_name", balance_check.account.name().to_string()),
+                    )?;
                 }
 
                 check_account_existed(balance_check.account.name(), ledger, span)?;
@@ -288,13 +267,11 @@ impl DirectiveProcess for Balance {
                 check_account_closed(balance_pad.account.name(), ledger, span)?;
                 check_account_closed(balance_pad.pad.name(), ledger, span)?;
 
-                let option = operations
-                    .account_target_day_balance(
-                        balance_pad.account.name(),
-                        balance_pad.date.to_timezone_datetime(&ledger.options.timezone),
-                        &balance_pad.amount.currency,
-                    )
-                    ?;
+                let option = operations.account_target_day_balance(
+                    balance_pad.account.name(),
+                    balance_pad.date.to_timezone_datetime(&ledger.options.timezone),
+                    &balance_pad.amount.currency,
+                )?;
 
                 let current_balance_amount = option.map(|it| it.number).unwrap_or_else(BigDecimal::zero);
 
@@ -348,31 +325,27 @@ impl DirectiveProcess for Document {
         let path = self.filename.clone().to_plain_string();
 
         let document_pathbuf = PathBuf::from(&path);
-        operations
-            .insert_document(
-                self.date.to_timezone_datetime(&ledger.options.timezone),
-                document_pathbuf.file_name().and_then(|it| it.to_str()),
-                path,
-                DocumentType::Account(self.account.clone()),
-            )
-            ?;
+        operations.insert_document(
+            self.date.to_timezone_datetime(&ledger.options.timezone),
+            document_pathbuf.file_name().and_then(|it| it.to_str()),
+            path,
+            DocumentType::Account(self.account.clone()),
+        )?;
         Ok(())
     }
 }
 
 impl DirectiveProcess for Price {
-     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
         check_commodity_define(&self.currency, ledger, span)?;
         check_commodity_define(&self.amount.currency, ledger, span)?;
-        operations
-            .insert_price(
-                self.date.to_timezone_datetime(&ledger.options.timezone),
-                &self.currency,
-                &self.amount.number,
-                &self.amount.currency,
-            )
-            ?;
+        operations.insert_price(
+            self.date.to_timezone_datetime(&ledger.options.timezone),
+            &self.currency,
+            &self.amount.number,
+            &self.amount.currency,
+        )?;
 
         Ok(())
     }
@@ -386,13 +359,9 @@ fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, operati
             let lot = operations.account_lot(&account_name, &amount.currency, Some(price.clone()))?;
 
             if let Some(lot_row) = lot {
-                operations
-                    .update_account_lot(&account_name, &amount.currency, Some(price), &lot_row.amount.add(&amount.number))
-                    ?;
+                operations.update_account_lot(&account_name, &amount.currency, Some(price), &lot_row.amount.add(&amount.number))?;
             } else {
-                operations
-                    .insert_account_lot(&account_name, &amount.currency, Some(price.clone()), &amount.number)
-                    ?;
+                operations.insert_account_lot(&account_name, &amount.currency, Some(price.clone()), &amount.number)?;
             }
         }
         LotInfo::Fifo => {
@@ -400,16 +369,12 @@ fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, operati
             if let Some(lot) = lot {
                 if lot.price.is_some() {
                     // target lot
-                    operations
-                        .update_account_lot(&account_name, &amount.currency, lot.price, &lot.amount.add(&amount.number))
-                        ?;
+                    operations.update_account_lot(&account_name, &amount.currency, lot.price, &lot.amount.add(&amount.number))?;
 
                     // todo check negative
                 } else {
                     // default lot
-                    operations
-                        .update_account_lot(&account_name, &amount.currency, None, &lot.amount.add(&amount.number))
-                        ?;
+                    operations.update_account_lot(&account_name, &amount.currency, None, &lot.amount.add(&amount.number))?;
                 }
             } else {
                 operations.insert_account_lot(&account_name, &amount.currency, None, &amount.number)?;

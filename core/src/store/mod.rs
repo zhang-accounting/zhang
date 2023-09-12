@@ -1,12 +1,14 @@
-use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, ErrorType, MetaDomain, PriceDomain, TransactionInfoDomain};
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use bigdecimal::BigDecimal;
 use chrono::DateTime;
 use chrono_tz::Tz;
-use std::collections::HashMap;
-use std::path::PathBuf;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Flag, SpanInfo, Transaction};
+
+use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, ErrorType, MetaDomain, PriceDomain, TransactionInfoDomain};
 
 pub struct Store {
     pub options: HashMap<String, String>,
@@ -77,23 +79,22 @@ pub enum DocumentType {
 }
 
 impl DocumentType {
-
-    pub fn match_account(&self, account_name: &str) ->bool {
+    pub fn match_account(&self, account_name: &str) -> bool {
         match self {
-            DocumentType::Trx(_) => {false}
-            DocumentType::Account(acc) => {acc.name().eq(account_name)}
+            DocumentType::Trx(_) => false,
+            DocumentType::Account(acc) => acc.name().eq(account_name),
         }
     }
     pub fn as_account(&self) -> Option<String> {
         match self {
-            DocumentType::Trx(_) => {None}
-            DocumentType::Account(account) => {Some(account.name().to_owned())}
+            DocumentType::Trx(_) => None,
+            DocumentType::Account(account) => Some(account.name().to_owned()),
         }
     }
     pub fn as_trx(&self) -> Option<String> {
         match self {
-            DocumentType::Trx(id) => {Some(id.to_string())}
-            DocumentType::Account(account) => {None}
+            DocumentType::Trx(id) => Some(id.to_string()),
+            DocumentType::Account(account) => None,
         }
     }
 }
@@ -105,7 +106,6 @@ pub struct DocumentDomain {
     pub filename: Option<String>,
     pub path: String,
 }
-
 
 #[derive(Default, Clone)]
 pub struct CommodityLotRecord {

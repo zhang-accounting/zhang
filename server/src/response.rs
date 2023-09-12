@@ -232,7 +232,7 @@ pub struct CommodityListItemResponse {
     pub latest_price_commodity: Option<String>,
 }
 
-#[derive( Serialize)]
+#[derive(Serialize)]
 pub struct CommodityLot {
     pub datetime: Option<NaiveDateTime>,
     pub amount: BigDecimal,
@@ -241,7 +241,7 @@ pub struct CommodityLot {
     pub account: String,
 }
 
-#[derive( Serialize)]
+#[derive(Serialize)]
 pub struct CommodityPrice {
     pub datetime: NaiveDateTime,
     pub amount: BigDecimal,

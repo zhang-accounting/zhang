@@ -10,7 +10,6 @@ use bigdecimal::Zero;
 use glob::Pattern;
 use itertools::Itertools;
 use log::{error, info};
-
 use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
 use crate::domains::Operations;
@@ -186,17 +185,16 @@ impl Ledger {
 
 #[cfg(test)]
 mod test {
-    use glob::Pattern;
     use std::option::Option::None;
     use std::path::PathBuf;
     use std::sync::Arc;
 
+    use glob::Pattern;
     use tempfile::tempdir;
-
-    use crate::parser::parse as parse_zhang;
     use zhang_ast::{Directive, SpanInfo, Spanned};
 
     use crate::ledger::Ledger;
+    use crate::parser::parse as parse_zhang;
     use crate::transform::{TransformResult, Transformer};
     use crate::ZhangResult;
 
@@ -235,7 +233,6 @@ mod test {
     mod sort_directive_datetime {
         use indoc::indoc;
         use itertools::Itertools;
-
         use zhang_ast::{Directive, Options, Spanned, ZhangString};
 
         use crate::ledger::test::{fake_span_info, test_parse_zhang};
@@ -417,8 +414,9 @@ mod test {
         }
     }
     mod options {
-        use crate::ledger::test::load_from_temp_str;
         use indoc::indoc;
+
+        use crate::ledger::test::load_from_temp_str;
 
         #[test]
         fn should_get_price() -> Result<(), Box<dyn std::error::Error>> {
@@ -436,11 +434,12 @@ mod test {
     }
 
     mod extract_info {
-        use crate::domains::schemas::AccountStatus;
-        use indoc::indoc;
         use std::str::FromStr;
+
+        use indoc::indoc;
         use zhang_ast::Account;
 
+        use crate::domains::schemas::AccountStatus;
         use crate::ledger::test::load_from_temp_str;
 
         #[test]
@@ -479,10 +478,11 @@ mod test {
     }
 
     mod price {
-        use crate::ledger::test::load_from_temp_str;
         use bigdecimal::BigDecimal;
         use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
         use indoc::indoc;
+
+        use crate::ledger::test::load_from_temp_str;
 
         #[test]
         fn should_get_price() {
@@ -507,8 +507,9 @@ mod test {
     }
 
     mod account {
-        use crate::ledger::test::load_from_temp_str;
         use indoc::indoc;
+
+        use crate::ledger::test::load_from_temp_str;
 
         #[test]
         fn should_return_true_given_exists_account() -> Result<(), Box<dyn std::error::Error>> {

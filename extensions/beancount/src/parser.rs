@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveTime};
 use itertools::{Either, Itertools};
@@ -10,6 +9,8 @@ use snailquote::unescape;
 use zhang_ast::amount::Amount;
 use zhang_ast::utils::multi_value_map::MultiValueMap;
 use zhang_ast::*;
+
+use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -515,13 +516,15 @@ pub fn parse_time(input_str: &str) -> Result<NaiveTime> {
 mod test {
 
     mod tag {
-        use crate::directives::{BalanceDirective, BeancountOnlyDirective, PadDirective};
-        use crate::parser::parse;
+        use std::str::FromStr;
+
         use bigdecimal::BigDecimal;
         use chrono::NaiveDate;
-        use std::str::FromStr;
         use zhang_ast::amount::Amount;
         use zhang_ast::{Account, Date};
+
+        use crate::directives::{BalanceDirective, BeancountOnlyDirective, PadDirective};
+        use crate::parser::parse;
 
         #[test]
         fn should_support_push_tag() {

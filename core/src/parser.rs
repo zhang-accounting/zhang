@@ -584,9 +584,10 @@ mod test {
     mod options {
         use std::option::Option::None;
 
-        use crate::parser::parse;
         use indoc::indoc;
         use zhang_ast::*;
+
+        use crate::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -609,9 +610,9 @@ mod test {
     }
     mod document {
         use std::option::Option::None;
-        use zhang_ast::Directive;
 
         use indoc::indoc;
+        use zhang_ast::Directive;
 
         use crate::parser::parse;
 
@@ -665,9 +666,9 @@ mod test {
     }
     mod event {
         use std::option::Option::None;
-        use zhang_ast::Directive;
 
         use indoc::indoc;
+        use zhang_ast::Directive;
 
         use crate::parser::parse;
 
@@ -692,9 +693,9 @@ mod test {
     }
     mod plugin {
         use std::option::Option::None;
-        use zhang_ast::Directive;
 
         use indoc::indoc;
+        use zhang_ast::Directive;
 
         use crate::parser::parse;
 
@@ -719,9 +720,9 @@ mod test {
 
     mod custom {
         use std::option::Option::None;
-        use zhang_ast::{Directive, StringOrAccount};
 
         use indoc::indoc;
+        use zhang_ast::{Directive, StringOrAccount};
 
         use crate::parser::parse;
 

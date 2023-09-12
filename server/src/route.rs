@@ -21,9 +21,11 @@ use log::{error, info};
 use now::TimeZoneNow;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-
+use zhang_ast::amount::Amount;
+use zhang_ast::{Account, AccountType, Balance, BalanceCheck, BalancePad, Date, Directive, Document, Flag, Meta, Posting, Transaction, ZhangString};
 use zhang_core::error::IoErrorIntoZhangError;
 use zhang_core::ledger::Ledger;
+use zhang_core::utils::date_range::NaiveDateRange;
 use zhang_core::utils::string_::StringExt;
 
 use crate::broadcast::Broadcaster;
@@ -35,9 +37,6 @@ use crate::response::{
     ReportResponse, ResponseWrapper, StatisticResponse,
 };
 use crate::{ApiResult, ServerResult};
-use zhang_ast::amount::Amount;
-use zhang_ast::{Account, AccountType, Balance, BalanceCheck, BalancePad, Date, Directive, Document, Flag, Meta, Posting, Transaction, ZhangString};
-use zhang_core::utils::date_range::NaiveDateRange;
 
 pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
     std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
@@ -149,8 +148,7 @@ pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<C
             .filter(|it| it.account.starts_with("Assets") || it.account.starts_with("Liabilities"))
             .cloned()
             .collect_vec(),
-    )
-    ?;
+    )?;
 
     let liability = group_and_calculate(
         &mut operations,
@@ -284,7 +282,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
 
     let mut ret = vec![];
     for (trx_id, arms) in &postings.into_iter().group_by(|it| it.trx_id.to_owned()) {
-        let header= header_map.remove(&trx_id).expect("cannot found trx header") ;
+        let header = header_map.remove(&trx_id).expect("cannot found trx header");
         let item = match header.journal_type.as_str() {
             "BalancePad" => {
                 let postings = arms
@@ -872,13 +870,15 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
 
     let store = operations.read();
 
-
     let mut account_type_postings_map = HashMap::new();
-    for (key ,data) in &store.postings.iter()
+    for (key, data) in &store
+        .postings
+        .iter()
         .filter(|posting| posting.trx_datetime.ge(&params.from))
         .filter(|posting| posting.trx_datetime.le(&params.to))
         .cloned()
-        .group_by(|it|it.account.account_type) {
+        .group_by(|it| it.account.account_type)
+    {
         // todo(high) calculate all postings amount
         account_type_postings_map.insert(key, data.collect_vec());
     }
@@ -910,14 +910,14 @@ pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportR
             commodity: ledger.options.operating_currency.to_owned(),
         });
 
-
-
-    let transaction_total = store.transactions.values()
+    let transaction_total = store
+        .transactions
+        .values()
         .filter(|trx| trx.flag != Flag::BalancePad && trx.flag != Flag::BalanceCheck)
         .filter(|trx| trx.datetime.ge(&params.from))
         .filter(|trx| trx.datetime.le(&params.to))
         .count();
-drop(store);
+    drop(store);
 
     let income_transactions = operations.account_dated_journals(AccountType::Income, params.from, params.to)?;
 
@@ -948,8 +948,7 @@ drop(store);
 
     // --------
 
-    let expense_transactions = operations
-        .account_dated_journals(AccountType::Expenses, params.from, params.to)?;
+    let expense_transactions = operations.account_dated_journals(AccountType::Expenses, params.from, params.to)?;
 
     let total_expense = expense_transactions
         .iter()
@@ -1015,7 +1014,6 @@ struct Asset;
 #[cfg(feature = "frontend")]
 pub struct StaticFile<T>(pub T);
 
-use crate::util::AmountLike;
 #[cfg(feature = "frontend")]
 use actix_web::{HttpRequest, HttpResponse};
 use zhang_core::constants::KEY_OPERATING_CURRENCY;
@@ -1023,6 +1021,8 @@ use zhang_core::domains::schemas::{AccountJournalDomain, CommodityDomain, ErrorD
 use zhang_core::domains::Operations;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::{ZhangError, ZhangResult};
+
+use crate::util::AmountLike;
 
 #[cfg(feature = "frontend")]
 impl<T> Responder for StaticFile<T>
