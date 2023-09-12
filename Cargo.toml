@@ -1,6 +1,7 @@
-resolver = "2"
+
 
 [workspace]
+resolver = "2"
 members = [
     "core",
     "ast",
