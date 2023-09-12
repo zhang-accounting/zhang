@@ -1,14 +1,13 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use bigdecimal::BigDecimal;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, Flag, SpanInfo, Transaction};
+use zhang_ast::{Account, Flag, SpanInfo};
 
-use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, ErrorType, MetaDomain, PriceDomain, TransactionInfoDomain};
+use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain};
 
 pub struct Store {
     pub options: HashMap<String, String>,

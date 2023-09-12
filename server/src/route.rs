@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
 use std::iter::FromIterator;
-use std::ops::{Add, AddAssign, Deref, Div, Mul};
+use std::ops::{Add, AddAssign, Div, Mul};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -125,7 +125,7 @@ pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query
         }
     }
 
-    let mut detail_ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
+    let detail_ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
 
     ResponseWrapper::json(StatisticResponse {
         changes: ret,

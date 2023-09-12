@@ -1,8 +1,5 @@
 use std::cmp::Ordering;
-use std::option::Option::None;
 use std::path::PathBuf;
-use std::rc::Rc;
-use std::str::FromStr;
 use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, RwLock};
 

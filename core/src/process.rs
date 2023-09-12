@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use bigdecimal::{BigDecimal, FromPrimitive, Zero};
+use bigdecimal::{BigDecimal, Zero};
 use itertools::Itertools;
 use log::debug;
 use uuid::Uuid;
@@ -308,7 +308,7 @@ impl DirectiveProcess for Balance {
 
                 transformed_trx.process(ledger, span)?;
 
-                let _neg_distance = distance.neg();
+                let neg_distance = distance.neg();
             }
         }
 
