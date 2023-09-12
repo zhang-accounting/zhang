@@ -55,6 +55,8 @@ pub struct Operations {
 }
 
 impl Operations {
+
+    /// single commodity prices
     pub fn commodity_prices(&self, commodity: impl AsRef<str>) -> ZhangResult<Vec<PriceDomain>> {
         let store = self.read();
         let commodity = commodity.as_ref();
@@ -63,6 +65,7 @@ impl Operations {
 }
 
 impl Operations {
+    /// single commodity lots
     pub fn commodity_lots(&self, commodity: impl AsRef<str>) -> ZhangResult<Vec<AccountCommodityLot>> {
         let store = self.read();
         let commodity = commodity.as_ref();
@@ -84,8 +87,6 @@ impl Operations {
     }
 }
 
-impl Operations {}
-
 impl Operations {
     pub fn read(&self) -> RwLockReadGuard<Store> {
         self.store.read().unwrap()
@@ -96,6 +97,9 @@ impl Operations {
 }
 
 impl Operations {
+
+    /// insert or update account
+    /// if account exists, then update its status only
     pub(crate) fn insert_or_update_account(&mut self, datetime: DateTime<Tz>, account: Account, status: AccountStatus, alias: Option<&str>) -> ZhangResult<()> {
         let mut store = self.write();
         let account_domain = store.accounts.entry(account.clone()).or_insert_with(|| AccountDomain {
@@ -112,6 +116,7 @@ impl Operations {
         Ok(())
     }
 
+    /// insert new transaction
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction(
         &mut self, id: &Uuid, sequence: i32, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>, tags: Vec<String>,
@@ -137,6 +142,7 @@ impl Operations {
         Ok(())
     }
 
+    /// insert transaction postings
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction_posting(
         &mut self, trx_id: &Uuid, account_name: &str, unit: Option<Amount>, cost: Option<Amount>, inferred_amount: Amount, previous_amount: Amount,
@@ -160,6 +166,10 @@ impl Operations {
         Ok(())
     }
 
+    /// insert document
+    /// datetime means:
+    ///  - for transaction document: transaction datetime
+    ///  - for account document: document linking datetime
     pub(crate) fn insert_document(&mut self, datetime: DateTime<Tz>, filename: Option<&str>, path: String, document_type: DocumentType) -> ZhangResult<()> {
         let mut store = self.write();
 
@@ -173,6 +183,7 @@ impl Operations {
         Ok(())
     }
 
+    /// insert single price
     pub(crate) fn insert_price(&mut self, datetime: DateTime<Tz>, commodity: &str, amount: &BigDecimal, target_commodity: &str) -> ZhangResult<()> {
         let mut store = self.write();
         store.prices.push(PriceDomain {
