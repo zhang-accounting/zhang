@@ -3,16 +3,15 @@ pub mod constants;
 pub mod database;
 pub mod domains;
 pub mod error;
-pub mod exporter;
 pub mod ledger;
 pub mod options;
-#[allow(clippy::upper_case_acronyms)]
-#[allow(clippy::type_complexity)]
-pub mod parser;
+
 pub(crate) mod process;
+pub mod exporter;
 pub mod transform;
 pub mod utils;
 
+pub mod text;
 pub mod store;
 
 pub type ZhangResult<T> = Result<T, ZhangError>;
@@ -28,7 +27,7 @@ mod test {
     use zhang_ast::{Directive, Spanned};
 
     use crate::ledger::Ledger;
-    use crate::parser::parse as parse_zhang;
+    use crate::text::parser::parse as parse_zhang;
     use crate::transform::{TransformResult, Transformer};
     use crate::ZhangResult;
 

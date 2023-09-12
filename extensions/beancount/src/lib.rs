@@ -7,11 +7,12 @@ use chrono::{Datelike, NaiveDate};
 use itertools::{Either, Itertools};
 use latestmap::LatestMap;
 use zhang_ast::*;
-use zhang_core::exporter::{append_meta, AppendableExporter, Exporter, TextExportable, TextExporter};
 use zhang_core::ledger::Ledger;
 use zhang_core::transform::TextFileBasedTransformer;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{ZhangError, ZhangResult};
+use zhang_core::exporter::{AppendableExporter, Exporter};
+use zhang_core::text::exporter::{append_meta, TextExportable, TextExporter};
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
 use crate::parser::{parse, parse_time};

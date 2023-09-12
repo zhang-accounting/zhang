@@ -14,7 +14,7 @@ type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 
 #[derive(Parser)]
-#[grammar = "zhang.pest"]
+#[grammar = "text/zhang.pest"]
 pub struct ZhangParser;
 
 #[pest_consume::parser]
@@ -536,7 +536,7 @@ mod test {
         use zhang_ast::amount::Amount;
         use zhang_ast::*;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse_date_hour() {
@@ -587,7 +587,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::*;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -614,7 +614,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::Directive;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -642,7 +642,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::Directive;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -670,7 +670,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::Directive;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -697,7 +697,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::Directive;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -724,7 +724,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::{Directive, StringOrAccount};
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -758,7 +758,7 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_support_trailing_space() {
@@ -781,7 +781,7 @@ mod test {
             use zhang_ast::amount::Amount;
             use zhang_ast::{Date, Directive, SingleTotalPrice, Transaction};
 
-            use crate::parser::parse;
+            use crate::text::parser::parse;
 
             fn get_first_posting(content: &str) -> Transaction {
                 let directive = parse(content, None).unwrap().pop().unwrap();

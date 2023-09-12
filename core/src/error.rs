@@ -12,18 +12,7 @@ pub enum ZhangError {
     IoError(#[from] std::io::Error),
     #[error("file error: {e}")]
     FileError { e: std::io::Error, path: PathBuf },
-    //
-    // #[error("csv error: {0}")]
-    // CsvError(#[from] csv::Error),
-    //
-    // #[error("toml error: {0}")]
-    // TomlDeError(#[from] toml::de::Error),
-    //
-    // #[error("toml ser error: {0}")]
-    // TomlSerError(#[from] toml::ser::Error),
-    //
-    // #[error("strum error: {0}")]
-    // StrumError(#[from] strum::ParseError),
+
     #[error("pest error: {0}")]
     PestError(String),
     #[error("cannot found option given key: {0}")]

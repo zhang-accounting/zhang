@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use wasm_bindgen::prelude::*;
-use zhang_core::transform::{TextFileBasedTransformer, TextTransformer};
+use zhang_core::text::transformer::TextTransformer;
+use zhang_core::transform::{TextFileBasedTransformer};
 
 // use console_error_panic_hook::hook;
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global

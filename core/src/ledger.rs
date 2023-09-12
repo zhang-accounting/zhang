@@ -191,7 +191,7 @@ mod test {
     use zhang_ast::{Directive, SpanInfo, Spanned};
 
     use crate::ledger::Ledger;
-    use crate::parser::parse as parse_zhang;
+    use crate::text::parser::parse as parse_zhang;
     use crate::transform::{TransformResult, Transformer};
     use crate::ZhangResult;
 
