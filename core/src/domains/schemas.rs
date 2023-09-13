@@ -30,7 +30,6 @@ pub struct AccountDomain {
     pub alias: Option<String>,
 }
 
-
 #[derive(Clone, Debug, PartialEq, Eq, Copy, Serialize, AsRefStr, EnumString)]
 pub enum AccountStatus {
     Open,
@@ -73,7 +72,6 @@ pub struct MetaDomain {
     pub value: String,
 }
 
-
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct CommodityDomain {
@@ -105,7 +103,6 @@ pub struct AccountJournalDomain {
     pub account_after_commodity: String,
 }
 
-
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorDomain {
     pub id: String,
@@ -113,7 +110,6 @@ pub struct ErrorDomain {
     pub error_type: ErrorType,
     pub metas: HashMap<String, String>,
 }
-
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, AsRefStr, EnumString)]
 pub enum ErrorType {

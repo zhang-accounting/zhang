@@ -87,7 +87,6 @@ impl DocumentType {
     }
 }
 
-
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Clone)]
 pub struct DocumentDomain {

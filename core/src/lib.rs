@@ -24,7 +24,7 @@ mod test {
     use std::sync::Arc;
 
     use glob::Pattern;
-    use serde_json::json;
+    use serde_json_path::JsonPath;
     use tempfile::tempdir;
     use zhang_ast::{Directive, Spanned};
 
@@ -32,7 +32,6 @@ mod test {
     use crate::text::parser::parse as parse_zhang;
     use crate::transform::{TransformResult, Transformer};
     use crate::ZhangResult;
-    use serde_json_path::JsonPath;
 
     struct TestTransformer {}
 
@@ -71,7 +70,7 @@ mod test {
             let operations = self.ledger.operations();
             let guard = operations.store.read().unwrap();
             let x = guard.deref();
-            let value = serde_json::to_value(&x).unwrap();
+            let value = serde_json::to_value(x).unwrap();
             let json_path = JsonPath::parse(path).unwrap();
             let node = json_path.query(&value).exactly_one().unwrap().as_str().unwrap();
             assert_eq!(node, expected_data, "{}", msg);
@@ -117,6 +116,7 @@ mod test {
             .assert_string("$.options.default_balance_tolerance_precision", "2", "");
             Ok(())
         }
+
         #[test]
         fn should_be_override_by_user_options() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"

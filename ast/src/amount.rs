@@ -3,7 +3,6 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 use bigdecimal::{BigDecimal, Zero};
 use serde::Serialize;
 
-
 #[derive(Eq, PartialEq, Debug, Clone, Serialize)]
 pub struct Amount {
     pub number: BigDecimal,

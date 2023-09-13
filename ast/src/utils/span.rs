@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct SpanInfo {
     pub start: usize,
