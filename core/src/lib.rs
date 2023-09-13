@@ -446,4 +446,54 @@ mod test {
             Ok(())
         }
     }
+
+    mod transaction {
+        use indoc::indoc;
+
+        use crate::test::load_store;
+
+        #[test]
+        fn should_get_all_payees() {
+            let ledger = load_store(indoc! {r#"
+                1970-01-01 commodity USD
+                1970-01-01 open Assets:A
+                1970-01-01 open Expenses:A
+
+                1970-01-02 "Apple Inc" "iPhone 15"
+                  Assets:A -1000 USD
+                  Expenses:A
+
+                1970-01-02 "Origan Inc" "iPhone 15"
+                  Assets:A -1000 USD
+                  Expenses:A
+            "#})
+            .ledger;
+            let mut operations = ledger.operations();
+            let result = operations.all_payees().unwrap();
+            assert!(result.contains(&"Origan Inc".to_owned()));
+            assert!(result.contains(&"Apple Inc".to_owned()));
+        }
+
+        #[test]
+        fn should_remove_duplicated_payees() {
+            let ledger = load_store(indoc! {r#"
+                1970-01-01 commodity USD
+                1970-01-01 open Assets:A
+                1970-01-01 open Expenses:A
+
+                1970-01-02 "Apple Inc" "iPhone 15"
+                  Assets:A -1000 USD
+                  Expenses:A
+
+                1970-01-02 "Apple Inc" "iPhone 15"
+                  Assets:A -1000 USD
+                  Expenses:A
+            "#})
+            .ledger;
+            let mut operations = ledger.operations();
+            let result = operations.all_payees().unwrap();
+            assert!(result.contains(&"Apple Inc".to_owned()));
+            assert_eq!(1, result.len());
+        }
+    }
 }
