@@ -225,7 +225,7 @@ impl Operations {
         Ok(option)
     }
 
-    pub(crate) fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str) -> ZhangResult<Option<CommodityLotRecord>> {
+    pub fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str) -> ZhangResult<Option<CommodityLotRecord>> {
         let mut store = self.write();
         let entry = store
             .commodity_lots

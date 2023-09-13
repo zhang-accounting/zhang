@@ -172,7 +172,7 @@ mod test {
         use indoc::indoc;
 
         use crate::domains::schemas::AccountStatus;
-        use crate::test::load_from_text;
+        use crate::test::{load_from_text, load_store};
 
         #[test]
         fn should_closed_account() -> Result<(), Box<dyn std::error::Error>> {
@@ -199,6 +199,28 @@ mod test {
             let account = operations.account("Assets:MyCard")?.unwrap();
             assert_eq!(account.alias.unwrap(), "MyCardAliasName");
             Ok(())
+        }
+
+        #[test]
+        fn should_return_all_accounts() {
+            let ledger = load_store(indoc! {r#"
+                1970-01-01 commodity USD
+                1970-01-01 open Assets:A
+                1970-01-01 open Expenses:A
+
+                1970-01-02 "Apple Inc" "iPhone 15"
+                  Assets:A -1000 USD
+                  Expenses:A
+
+                1970-01-02 "Origan Inc" "iPhone 15"
+                  Assets:A -1000 USD
+                  Expenses:A
+            "#})
+            .ledger;
+            let mut operations = ledger.operations();
+            let result = operations.all_accounts().unwrap();
+            assert!(result.contains(&"Assets:A".to_owned()));
+            assert!(result.contains(&"Expenses:A".to_owned()));
         }
     }
 
