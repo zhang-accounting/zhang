@@ -19,6 +19,8 @@ pub struct OptionDomain {
     pub key: String,
     pub value: String,
 }
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct AccountDomain {
     pub date: NaiveDateTime,
@@ -27,6 +29,7 @@ pub struct AccountDomain {
     pub status: AccountStatus,
     pub alias: Option<String>,
 }
+
 
 #[derive(Clone, Debug, PartialEq, Eq, Copy, Serialize, AsRefStr, EnumString)]
 pub enum AccountStatus {
@@ -52,6 +55,7 @@ pub struct AccountDailyBalanceDomain {
     pub balance_commodity: String,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct PriceDomain {
     pub datetime: NaiveDateTime,
@@ -60,6 +64,7 @@ pub struct PriceDomain {
     pub target_commodity: Currency,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct MetaDomain {
     pub meta_type: String,
@@ -68,6 +73,8 @@ pub struct MetaDomain {
     pub value: String,
 }
 
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct CommodityDomain {
     pub name: String,
@@ -98,6 +105,7 @@ pub struct AccountJournalDomain {
     pub account_after_commodity: String,
 }
 
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorDomain {
     pub id: String,
@@ -105,6 +113,7 @@ pub struct ErrorDomain {
     pub error_type: ErrorType,
     pub metas: HashMap<String, String>,
 }
+
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, AsRefStr, EnumString)]
 pub enum ErrorType {

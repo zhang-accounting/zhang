@@ -19,10 +19,12 @@ pub use error::ZhangError;
 
 #[cfg(test)]
 mod test {
+    use std::ops::Deref;
     use std::path::PathBuf;
     use std::sync::Arc;
 
     use glob::Pattern;
+    use serde_json::json;
     use tempfile::tempdir;
     use zhang_ast::{Directive, Spanned};
 
@@ -30,6 +32,7 @@ mod test {
     use crate::text::parser::parse as parse_zhang;
     use crate::transform::{TransformResult, Transformer};
     use crate::ZhangResult;
+    use serde_json_path::JsonPath;
 
     struct TestTransformer {}
 
@@ -50,51 +53,68 @@ mod test {
         std::fs::write(example, content).unwrap();
         Ledger::load_with_database(temp_dir, "example.zhang".to_string(), Arc::new(TestTransformer {})).unwrap()
     }
+    fn load_store(content: &str) -> StoreTest {
+        let temp_dir = tempdir().unwrap().into_path();
+        let example = temp_dir.join("example.zhang");
+        std::fs::write(example, content).unwrap();
+        StoreTest {
+            ledger: Ledger::load_with_database(temp_dir, "example.zhang".to_string(), Arc::new(TestTransformer {})).unwrap(),
+        }
+    }
+
+    struct StoreTest {
+        ledger: Ledger,
+    }
+
+    impl StoreTest {
+        pub fn assert_string(self, path: &str, expected_data: &str, msg: &str) -> Self {
+            let operations = self.ledger.operations();
+            let guard = operations.store.read().unwrap();
+            let x = guard.deref();
+            let value = serde_json::to_value(&x).unwrap();
+            let json_path = JsonPath::parse(path).unwrap();
+            let node = json_path.query(&value).exactly_one().unwrap().as_str().unwrap();
+            assert_eq!(node, expected_data, "{}", msg);
+            self
+        }
+    }
 
     mod options {
         use indoc::indoc;
         use strum::IntoEnumIterator;
 
         use crate::options::BuiltinOption;
-        use crate::test::load_from_text;
+        use crate::test::{load_from_text, load_store};
 
         #[test]
         fn should_get_option() -> Result<(), Box<dyn std::error::Error>> {
-            let ledger = load_from_text(indoc! {r#"
+            load_store(indoc! {r#"
                  option "title" "Example"
-            "#});
-            let mut operations = ledger.operations();
-
-            let option = operations.option("title").unwrap().unwrap();
-            assert_eq!(option.key, "title");
-            assert_eq!(option.value, "Example");
+            "#})
+            .assert_string("$.options.title", "Example", "");
             Ok(())
         }
 
         #[test]
         fn should_get_latest_option_given_same_options() -> Result<(), Box<dyn std::error::Error>> {
-            let ledger = load_from_text(indoc! {r#"
+            load_store(indoc! {r#"
                  option "title" "Example"
                  option "title" "Example2"
-            "#});
-            let mut operations = ledger.operations();
-
-            let option = operations.option("title").unwrap().unwrap();
-            assert_eq!(option.key, "title");
-            assert_eq!(option.value, "Example2");
+            "#})
+            .assert_string("$.options.title", "Example2", "");
             Ok(())
         }
 
         #[test]
         fn should_get_default_options() -> Result<(), Box<dyn std::error::Error>> {
-            let ledger = load_from_text(indoc! {r#"
+            load_store(indoc! {r#"
                  option "title" "Example"
-            "#});
-            let mut operations = ledger.operations();
-
-            assert_eq!(operations.option("operating_currency").unwrap().unwrap().value, "CNY");
-            assert_eq!(operations.option("default_rounding").unwrap().unwrap().value, "RoundDown");
-            assert_eq!(operations.option("default_balance_tolerance_precision").unwrap().unwrap().value, "2");
+                 option "title" "Example2"
+            "#})
+            .assert_string("$.options.title", "Example2", "")
+            .assert_string("$.options.operating_currency", "CNY", "")
+            .assert_string("$.options.default_rounding", "RoundDown", "")
+            .assert_string("$.options.default_balance_tolerance_precision", "2", "");
             Ok(())
         }
         #[test]

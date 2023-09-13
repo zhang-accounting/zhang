@@ -13,6 +13,7 @@ pub enum AccountType {
     Expenses,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Account {
     pub account_type: AccountType,
