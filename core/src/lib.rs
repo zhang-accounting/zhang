@@ -266,6 +266,29 @@ mod test {
             assert_eq!(card_balance.balance_commodity, "CNY");
             Ok(())
         }
+
+        #[test]
+        fn should_get_correct_balance_after_pad_and_trx() {
+            let ledger = load_from_text(indoc! {r#"
+                1970-01-01 commodity CNY
+                1970-01-01 open Assets:A
+                1970-01-01 open Expenses:B
+                1970-01-01 open Equity:Open-Balacing
+
+                2023-01-01 balance Assets:A 3000 CNY with pad Equity:Open-Balacing
+
+                2023-01-02 "Shopping" ""
+                    Assets:A -30 CNY
+                    Expenses:B
+            "#});
+
+            let mut operations = ledger.operations();
+
+            let mut result = operations.single_account_balances("Assets:A").unwrap();
+            let balance = result.pop().unwrap();
+            assert_eq!(balance.balance_number, BigDecimal::from(2970i32));
+            assert_eq!(balance.balance_commodity, "CNY");
+        }
     }
     mod commodity {
         use indoc::indoc;
