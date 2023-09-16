@@ -104,3 +104,44 @@ pub struct CommodityLotRecord {
     pub amount: BigDecimal,
     pub price: Option<Amount>,
 }
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+
+    use uuid::Uuid;
+    use zhang_ast::Account;
+
+    use crate::store::DocumentType;
+
+    #[test]
+    fn should_match_document_type() {
+        let document_type = DocumentType::Trx(Uuid::new_v4());
+        assert_eq!(false, document_type.match_account("any"));
+
+        let account_type = DocumentType::Account(Account::from_str("Assets:A").unwrap());
+
+        assert_eq!(true, account_type.match_account("Assets:A"));
+        assert_eq!(false, account_type.match_account("Assets:A:B"));
+        assert_eq!(false, account_type.match_account("Assets:C"));
+    }
+
+    #[test]
+    fn should_return_account() {
+        let document_type = DocumentType::Trx(Uuid::new_v4());
+        assert_eq!(None, document_type.as_account());
+
+        let account_type = DocumentType::Account(Account::from_str("Assets:A").unwrap());
+        assert_eq!(account_type.as_account(), Some("Assets:A".to_owned()));
+    }
+
+    #[test]
+    fn should_return_trx() {
+        let uuid = Uuid::new_v4();
+        let document_type = DocumentType::Trx(uuid.clone());
+        assert_eq!(Some(uuid.to_string()), document_type.as_trx());
+
+        let account_type = DocumentType::Account(Account::from_str("Assets:A").unwrap());
+        assert_eq!(account_type.as_trx(), None);
+    }
+}
