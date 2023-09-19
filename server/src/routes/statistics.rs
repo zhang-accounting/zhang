@@ -1,296 +1,198 @@
 use std::collections::HashMap;
-use std::ops::{Add, AddAssign, Div};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use actix_web::get;
-use actix_web::web::{Data, Query};
-use bigdecimal::{BigDecimal, Zero};
-use chrono::NaiveDate;
+use actix_web::web::{Data, Path, Query};
+use chrono::Utc;
 use itertools::Itertools;
 use tokio::sync::RwLock;
-use zhang_ast::{AccountType, Flag};
+use zhang_ast::amount::Amount;
+use zhang_ast::{Account, AccountType, Flag};
 use zhang_core::ledger::Ledger;
+use zhang_core::utils::calculable::Calculable;
 use zhang_core::utils::date_range::NaiveDateRange;
 
-use crate::request::{ReportRequest, StatisticRequest};
-use crate::response::{AmountResponse, CurrentStatisticResponse, ReportRankItemResponse, ReportResponse, ResponseWrapper, StatisticResponse};
-use crate::{routes, ApiResult};
+use crate::request::{StatisticGraphRequest, StatisticRequest};
+use crate::response::{ReportRankItemResponse, ResponseWrapper, StatisticGraphResponse, StatisticRankResponse, StatisticSummaryResponse};
+use crate::ApiResult;
 
-#[get("/api/statistic")]
-pub async fn get_statistic_data(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> ApiResult<StatisticResponse> {
+#[get("/api/statistic/summary")]
+pub async fn get_statistic_summary(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> ApiResult<StatisticSummaryResponse> {
     let ledger = ledger.read().await;
-    let mut operations = ledger.operations();
-    let params = params.into_inner();
-
-    let rows = operations.static_duration(params.from, params.to)?;
-
-    // 构建每日的统计数据
-    let mut ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
-    for (date, dated_rows) in &rows.into_iter().group_by(|row| row.date) {
-        let date_entry = ret.entry(date).or_insert_with(HashMap::new);
-        for row in dated_rows {
-            date_entry.insert(
-                row.account_type,
-                AmountResponse {
-                    number: row.amount,
-                    commodity: row.commodity,
-                },
-            );
-        }
-    }
-
-    // 补充不存在的日期
-    for day in NaiveDateRange::new(params.from.date_naive(), params.to.date_naive()) {
-        ret.entry(day).or_insert_with(HashMap::new);
-    }
-
-    let accounts = operations.all_accounts()?;
-
-    let mut existing_balances: HashMap<String, AmountResponse> = HashMap::default();
-    for account in accounts {
-        let balance = operations.account_target_date_balance(&account, params.from)?.into_iter().next();
-        if let Some(balance) = balance {
-            existing_balances.insert(
-                account,
-                AmountResponse {
-                    number: balance.balance_number,
-                    commodity: balance.balance_commodity,
-                },
-            );
-        }
-    }
-
-    let detail_ret: HashMap<NaiveDate, HashMap<String, AmountResponse>> = HashMap::new();
-
-    ResponseWrapper::json(StatisticResponse {
-        changes: ret,
-        details: detail_ret,
-    })
-}
-
-#[get("/api/statistic/current")]
-pub async fn current_statistic(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<CurrentStatisticResponse> {
-    let ledger = ledger.read().await;
-
-    let mut operations = ledger.operations();
-
-    let latest_account_balances = operations.accounts_latest_balance()?;
-
-    let balances = routes::group_and_calculate(
-        &mut operations,
-        latest_account_balances
-            .iter()
-            .filter(|it| it.account.starts_with("Assets") || it.account.starts_with("Liabilities"))
-            .cloned()
-            .collect_vec(),
-    )?;
-
-    let liability = routes::group_and_calculate(
-        &mut operations,
-        latest_account_balances
-            .iter()
-            .filter(|it| it.account.starts_with("Liabilities"))
-            .cloned()
-            .collect_vec(),
-    )?;
-
-    struct CurrentMonthBalance {
-        account_type: String,
-        amount: BigDecimal,
-        commodity: String,
-    }
-
-    let current_month_balance = operations
-        .accounts_latest_balance()?
-        .into_iter()
-        .map(|balance| CurrentMonthBalance {
-            // todo use Account constructor
-            account_type: balance.account.split(':').next().unwrap().to_owned(),
-            amount: balance.balance_number,
-            commodity: balance.balance_commodity,
-        })
-        .collect_vec();
-
-    let income = current_month_balance
-        .iter()
-        .find(|it| it.account_type.eq("Income"))
-        .map(|it| AmountResponse {
-            number: it.amount.clone(),
-            commodity: it.commodity.to_owned(),
-        })
-        .unwrap_or_else(|| AmountResponse {
-            number: BigDecimal::zero(),
-            commodity: ledger.options.operating_currency.to_owned(),
-        });
-    let expense = current_month_balance
-        .iter()
-        .find(|it| it.account_type.eq("Expenses"))
-        .map(|it| AmountResponse {
-            number: it.amount.clone(),
-            commodity: it.commodity.to_owned(),
-        })
-        .unwrap_or_else(|| AmountResponse {
-            number: BigDecimal::zero(),
-            commodity: ledger.options.operating_currency.to_owned(),
-        });
-
-    ResponseWrapper::json(CurrentStatisticResponse {
-        balance: balances,
-        liability,
-        income,
-        expense,
-    })
-}
-
-#[get("/api/report")]
-pub async fn get_report(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<ReportRequest>) -> ApiResult<ReportResponse> {
-    let ledger = ledger.read().await;
+    let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
 
     let accounts = operations.all_accounts()?;
-
-    let mut latest_account_balances = vec![];
-    for account in accounts {
-        let vec = operations.account_target_date_balance(&account, params.to)?;
-        latest_account_balances.extend(vec);
+    // balance
+    let mut balances = vec![];
+    for account_name in &accounts {
+        let account = Account::from_str(&account_name)?;
+        if account.account_type == AccountType::Assets || account.account_type == AccountType::Liabilities {
+            operations
+                .account_target_date_balance(&account_name, params.to)?
+                .into_iter()
+                .for_each(|balance| {
+                    balances.push(Amount::new(balance.balance_number, balance.balance_commodity));
+                });
+        }
     }
+    let balance = balances.calculate(params.to.with_timezone(timezone), &mut operations)?;
 
-    let balance = latest_account_balances
-        .iter()
-        .filter(|it| it.account.starts_with("Assets") || it.account.starts_with("Liabilities"))
-        .fold(BigDecimal::zero(), |acc, item| acc.add(&item.balance_number));
+    let mut liability_amounts = vec![];
+    for account_name in &accounts {
+        let account = Account::from_str(&account_name)?;
+        if account.account_type == AccountType::Liabilities {
+            operations
+                .account_target_date_balance(&account_name, params.to)?
+                .into_iter()
+                .for_each(|balance| {
+                    liability_amounts.push(Amount::new(balance.balance_number, balance.balance_commodity));
+                });
+        }
+    }
+    let liability = liability_amounts.calculate(params.to.with_timezone(timezone), &mut operations)?;
 
-    let liability = latest_account_balances
-        .iter()
-        .filter(|it| it.account.starts_with("Liabilities"))
-        .fold(BigDecimal::zero(), |acc, item| acc.add(&item.balance_number));
-
-    let store = operations.read();
-
-    let mut account_type_postings_map = HashMap::new();
-    for (key, data) in &store
+    let income_amounts = operations
+        .read()
         .postings
         .iter()
         .filter(|posting| posting.trx_datetime.ge(&params.from))
         .filter(|posting| posting.trx_datetime.le(&params.to))
-        .cloned()
-        .group_by(|it| it.account.account_type)
-    {
-        // todo(high) calculate all postings amount
-        account_type_postings_map.insert(key, data.collect_vec());
-    }
+        .filter(|posting| posting.account.account_type == AccountType::Income)
+        .map(|posting| posting.inferred_amount.clone())
+        .collect_vec();
 
-    let income = account_type_postings_map
-        .remove(&AccountType::Income)
-        .unwrap_or_default()
-        .into_iter()
-        .next()
-        .map(|it| AmountResponse {
-            number: it.inferred_amount.number.clone(),
-            commodity: it.inferred_amount.currency.to_owned(),
-        })
-        .unwrap_or_else(|| AmountResponse {
-            number: BigDecimal::zero(),
-            commodity: ledger.options.operating_currency.to_owned(),
-        });
-    let expense = account_type_postings_map
-        .remove(&AccountType::Expenses)
-        .unwrap_or_default()
-        .into_iter()
-        .next()
-        .map(|it| AmountResponse {
-            number: it.inferred_amount.number.clone(),
-            commodity: it.inferred_amount.currency.to_owned(),
-        })
-        .unwrap_or_else(|| AmountResponse {
-            number: BigDecimal::zero(),
-            commodity: ledger.options.operating_currency.to_owned(),
-        });
+    let income = income_amounts.calculate(params.to.with_timezone(timezone), &mut operations)?;
 
-    let transaction_total = store
+    let expense_amounts = operations
+        .read()
+        .postings
+        .iter()
+        .filter(|posting| posting.trx_datetime.ge(&params.from))
+        .filter(|posting| posting.trx_datetime.le(&params.to))
+        .filter(|posting| posting.account.account_type == AccountType::Expenses)
+        .map(|posting| posting.inferred_amount.clone())
+        .collect_vec();
+    let expense = expense_amounts.calculate(params.to.with_timezone(timezone), &mut operations)?;
+
+    let trx_number = operations
+        .read()
         .transactions
         .values()
-        .filter(|trx| trx.flag != Flag::BalancePad && trx.flag != Flag::BalanceCheck)
+        .filter(|trx| trx.flag != Flag::BalanceCheck || trx.flag != Flag::BalancePad)
         .filter(|trx| trx.datetime.ge(&params.from))
         .filter(|trx| trx.datetime.le(&params.to))
         .count();
-    drop(store);
 
-    let income_transactions = operations.account_dated_journals(AccountType::Income, params.from, params.to)?;
-
-    let total_income = income_transactions
-        .iter()
-        .fold(BigDecimal::zero(), |accr, item| accr.add(&item.inferred_unit_number));
-
-    let mut counter = HashMap::new();
-    for item in &income_transactions {
-        let x = counter.entry(item.account.to_owned()).or_insert_with(BigDecimal::zero);
-        x.add_assign(&item.inferred_unit_number);
-    }
-    let income_rank = counter
-        .into_iter()
-        .sorted_by(|a, b| a.1.cmp(&b.1))
-        .take(10)
-        .map(|(account, account_total)| ReportRankItemResponse {
-            account,
-            percent: account_total.div(&total_income),
-        })
-        .collect_vec();
-
-    let income_top_transactions = income_transactions
-        .into_iter()
-        .sorted_by(|a, b| a.inferred_unit_number.cmp(&b.inferred_unit_number))
-        .take(10)
-        .collect_vec();
-
-    // --------
-
-    let expense_transactions = operations.account_dated_journals(AccountType::Expenses, params.from, params.to)?;
-
-    let total_expense = expense_transactions
-        .iter()
-        .fold(BigDecimal::zero(), |accr, item| accr.add(&item.inferred_unit_number));
-
-    let mut counter = HashMap::new();
-    for item in &expense_transactions {
-        let x = counter.entry(item.account.to_owned()).or_insert_with(BigDecimal::zero);
-        x.add_assign(&item.inferred_unit_number);
-    }
-    let expense_rank = counter
-        .into_iter()
-        .sorted_by(|a, b| a.1.cmp(&b.1))
-        .rev()
-        .take(10)
-        .map(|(account, account_total)| ReportRankItemResponse {
-            account,
-            percent: account_total.div(&total_expense),
-        })
-        .collect_vec();
-
-    let expense_top_transactions = expense_transactions
-        .into_iter()
-        .sorted_by(|a, b| a.inferred_unit_number.cmp(&b.inferred_unit_number))
-        .rev()
-        .take(10)
-        .collect_vec();
-
-    ResponseWrapper::json(ReportResponse {
-        from: params.from.naive_local(),
-        to: params.to.naive_local(),
-        balance: AmountResponse {
-            number: balance,
-            commodity: ledger.options.operating_currency.to_owned(),
-        },
-        liability: AmountResponse {
-            number: liability,
-            commodity: ledger.options.operating_currency.to_owned(),
-        },
+    ResponseWrapper::json(StatisticSummaryResponse {
+        from: params.from,
+        to: params.to,
+        balance,
+        liability,
         income,
         expense,
-        transaction_number: transaction_total as i64,
-        income_rank,
-        income_top_transactions,
-        expense_rank,
-        expense_top_transactions,
+        transaction_number: trx_number as i64,
+    })
+}
+#[get("/api/statistic/graph")]
+pub async fn get_statistic_graph(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticGraphRequest>) -> ApiResult<StatisticGraphResponse> {
+    let ledger = ledger.read().await;
+    let timezone = &ledger.options.timezone;
+    let mut operations = ledger.operations();
+    let params = params.into_inner();
+
+    let accounts = operations.all_accounts()?;
+
+    let mut dated_balance = HashMap::new();
+    for date in NaiveDateRange::new(params.from.date_naive(), params.to.date_naive()).into_iter() {
+        let mut balances = vec![];
+        for account_name in &accounts {
+            let account = Account::from_str(&account_name)?;
+            if account.account_type == AccountType::Assets || account.account_type == AccountType::Liabilities {
+                operations
+                    .account_target_date_balance(&account_name, date.and_hms_opt(23, 59, 59).unwrap().and_local_timezone(Utc).unwrap())?
+                    .into_iter()
+                    .for_each(|balance| {
+                        balances.push(Amount::new(balance.balance_number, balance.balance_commodity));
+                    });
+            }
+        }
+        let balance = balances.calculate(params.to.with_timezone(timezone), &mut operations)?;
+        dated_balance.insert(date, balance);
+    }
+
+    let mut dated_change = HashMap::new();
+    let postings = operations.dated_journals(params.from, params.to)?;
+
+    for posting in postings {
+        let date = posting.trx_datetime.naive_local().date();
+        let account_type_store = dated_change.entry(date).or_insert_with(HashMap::new);
+        let currency_store = account_type_store.entry(posting.account.account_type).or_insert_with(Vec::new);
+        currency_store.push(posting.inferred_amount);
+    }
+
+    let mut dated_change_ret = HashMap::new();
+    for (date, account_type_store) in dated_change.into_iter() {
+        let datetime = date.and_hms_opt(23, 59, 59).unwrap().and_local_timezone(Utc).unwrap();
+        let mut r = HashMap::new();
+        for (account_type, currency_store) in account_type_store.into_iter() {
+            let amount = currency_store.calculate(datetime.with_timezone(timezone), &mut operations)?;
+            r.insert(account_type, amount);
+        }
+        dated_change_ret.insert(date, r);
+    }
+
+    ResponseWrapper::json(StatisticGraphResponse {
+        from: params.from.naive_local(),
+        to: params.to.naive_local(),
+        balances: dated_balance,
+        changes: dated_change_ret,
+    })
+}
+
+#[get("/api/statistic/{account_type}")]
+pub async fn get_statistic_rank_detail_by_account_type(
+    ledger: Data<Arc<RwLock<Ledger>>>, paths: Path<(String,)>, params: Query<StatisticRequest>,
+) -> ApiResult<StatisticRankResponse> {
+    let account_type = AccountType::from_str(&paths.into_inner().0)?;
+    let ledger = ledger.read().await;
+    let timezone = &ledger.options.timezone;
+    let mut operations = ledger.operations();
+
+    let income_transactions = operations.account_dated_journals(account_type, params.from, params.to)?;
+
+    let mut account_detail: HashMap<String, Vec<Amount>> = HashMap::new();
+
+    for posting in &income_transactions {
+        let target_account = account_detail.entry(posting.account.clone()).or_insert_with(Vec::new);
+        target_account.push(Amount::new(posting.inferred_unit_number.clone(), posting.inferred_unit_commodity.clone()));
+    }
+
+    let top_transactions = income_transactions
+        .into_iter()
+        .sorted_by(|a, b| {
+            if !account_type.positive_type() {
+                a.inferred_unit_number.cmp(&b.inferred_unit_number)
+            } else {
+                b.inferred_unit_number.cmp(&a.inferred_unit_number)
+            }
+        })
+        .take(10)
+        .collect_vec();
+
+    let detail = account_detail
+        .into_iter()
+        .map(|(account, amounts)| ReportRankItemResponse {
+            account,
+            amount: amounts.calculate(params.to.with_timezone(timezone), &mut operations).expect("cannot calculate"),
+        })
+        .sorted_by(|a, b| a.amount.calculated.number.cmp(&b.amount.calculated.number))
+        .collect_vec();
+    ResponseWrapper::json(StatisticRankResponse {
+        from: params.from.naive_local(),
+        to: params.to.naive_local(),
+        detail,
+        top_transactions,
     })
 }

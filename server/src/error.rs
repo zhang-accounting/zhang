@@ -12,6 +12,9 @@ pub enum ServerError {
 
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),
+
+    #[error("io error: {0}")]
+    StrumError(#[from] strum::ParseError),
 }
 
 impl From<InvalidAccountError> for ServerError {

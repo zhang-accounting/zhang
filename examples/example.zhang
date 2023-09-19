@@ -892,8 +892,8 @@ option "operating_currency" "CNY"
 
 
 2023-09-01 08:00:00 "GrandLordCompany" "Salary"
-  Income:GrandLordCompany:Salary -2050 CNY
-  Assets:CitiBank:9999 1700 CNY
+  Income:GrandLordCompany:Salary -200 CNY
+  Assets:CitiBank:9999 170 CNY
   Expenses:GrandLordCompany:Tax
 
 

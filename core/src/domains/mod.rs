@@ -492,6 +492,17 @@ impl Operations {
         }
         Ok(ret)
     }
+
+    pub fn dated_journals(&mut self, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<PostingDomain>> {
+        let store = self.read();
+        Ok(store
+            .postings
+            .iter()
+            .filter(|posting| posting.trx_datetime.ge(&from))
+            .filter(|posting| posting.trx_datetime.le(&to))
+            .cloned()
+            .collect_vec())
+    }
     pub fn account_dated_journals(&mut self, account_type: AccountType, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<AccountJournalDomain>> {
         let store = self.read();
 

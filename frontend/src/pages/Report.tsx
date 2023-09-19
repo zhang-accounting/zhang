@@ -1,4 +1,4 @@
-import { Box, Container, Grid, Group, Progress, Table, Text, Title } from '@mantine/core';
+import { Container, Grid, Group, Progress, Table, Title } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { IconCalendar } from '@tabler/icons';
 import { useEffect, useState } from 'react';
@@ -8,7 +8,11 @@ import ReportGraph from '../components/ReportGraph';
 import Section from '../components/Section';
 import StatusGroup from '../components/StatusGroup';
 import { fetcher } from '../index';
-import { ReportResponse, StatisticResponse } from '../rest-model';
+import { StatisticGraphResponse, StatisticResponse, StatisticTypeResponse } from '../rest-model';
+import PayeeNarration from '../components/basic/PayeeNarration';
+import BigNumber from 'bignumber.js';
+
+const color_set = ['pink', 'grape', 'violet'];
 
 export default function Report() {
   const [value, setValue] = useState<[Date | null, Date | null]>([
@@ -30,17 +34,33 @@ export default function Report() {
   }, [value]);
 
   const { data, error } = useSWR<StatisticResponse>(
-    `/api/statistic?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}&interval=Day`,
+    `/api/statistic/summary?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}&interval=Day`,
     fetcher,
   );
 
-  const { data: reportData, error: reportError } = useSWR<ReportResponse>(
-    `/api/report?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}`,
+  const { data: graph_data } = useSWR<StatisticGraphResponse>(
+    `/api/statistic/graph?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}&interval=Day`,
     fetcher,
   );
 
-  if (reportError) return <div>failed to load</div>;
-  if (!reportData) return <>loading</>;
+  const { data: income_data } = useSWR<StatisticTypeResponse>(
+    `/api/statistic/Income?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}`,
+    fetcher,
+  );
+
+  const { data: expenses_data } = useSWR<StatisticTypeResponse>(
+    `/api/statistic/Expenses?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}`,
+    fetcher,
+  );
+
+  const income_total =
+    income_data?.detail.reduce((acc, current) => acc.plus(new BigNumber(current.amount.calculated.number)), new BigNumber(0)).toNumber() ?? 0;
+  const expense_total =
+    expenses_data?.detail.reduce((acc, current) => acc.plus(new BigNumber(current.amount.calculated.number)), new BigNumber(0)).toNumber() ?? 0;
+
+  // if (reportError) return <div>failed to load</div>;
+  // if (!reportData) return <>loading</>;
+  if (!graph_data) return <>loading</>;
 
   if (error) return <div>failed to load</div>;
   if (!data) return <>loading</>;
@@ -63,34 +83,33 @@ export default function Report() {
 
         <StatusGroup
           data={[
-            { title: '资产余额', amount: reportData.balance.number, currency: reportData.balance.commodity },
+            { title: '资产余额', amount: data.balance.calculated.number, currency: data.balance.calculated.commodity },
             // { title: '总收支', amount: data?.statistic.incomeExpense.summary.number, currency: data?.statistic.incomeExpense.summary.currency },
-            { title: '收入', amount: reportData.income.number, currency: reportData.income.commodity },
-            { title: '支出', amount: reportData.expense.number, currency: reportData.expense.commodity },
-            { title: '交易数', number: reportData.transaction_number },
+            { title: '收入', amount: data.income.calculated.number, currency: data.income.calculated.commodity },
+            { title: '支出', amount: data.expense.calculated.number, currency: data.expense.calculated.commodity },
+            { title: '交易数', number: data.transaction_number },
           ]}
         />
 
         <Section title="Graph">
-          <ReportGraph data={data} height={90}></ReportGraph>
+          <ReportGraph data={graph_data} height={90}></ReportGraph>
         </Section>
 
         <Section title="Incomes">
           <Grid>
-            <Grid.Col span={4}>
-              {reportData.income_rank.map((each_income) => (
-                <Box mt="sm" key={each_income.account}>
-                  <Group position="apart">
-                    <Text>{each_income.account}</Text>
-                    <Text size="xs" color="teal" weight={700}>
-                      {(parseFloat(each_income.percent) * 100).toFixed(2)}%
-                    </Text>
-                  </Group>
-                  <Progress radius="xs" size="lg" color="teal" value={parseFloat(each_income.percent) * 100} />
-                </Box>
-              ))}
+            <Grid.Col span={12}>
+              <Progress
+                radius="sm"
+                size={24}
+                sections={income_data?.detail.map((item, idx) => ({
+                  value: new BigNumber(item.amount.calculated.number).div(income_total).multipliedBy(100).toNumber(),
+                  color: color_set[idx % color_set.length],
+                  label: item.account,
+                  tooltip: `${item.account} - ${item.amount.calculated.number}`,
+                }))}
+              />
             </Grid.Col>
-            <Grid.Col span={8}>
+            <Grid.Col span={12}>
               <Table verticalSpacing="xs" highlightOnHover>
                 <thead>
                   <tr>
@@ -101,12 +120,12 @@ export default function Report() {
                   </tr>
                 </thead>
                 <tbody>
-                  {reportData.income_top_transactions.map((journal) => (
+                  {income_data?.top_transactions.map((journal) => (
                     <tr>
                       <td>{journal.datetime}</td>
                       <td>{journal.account}</td>
                       <td>
-                        {journal.payee} {journal.narration}
+                        <PayeeNarration payee={journal.payee} narration={journal.narration} />
                       </td>
                       <td>
                         <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
@@ -121,21 +140,19 @@ export default function Report() {
 
         <Section title="Expenses">
           <Grid>
-            <Grid.Col span={4}>
-              {reportData.expense_rank.map((each_expense) => (
-                <Box mt="sm" key={each_expense.account}>
-                  <Group position="apart">
-                    <Text>{each_expense.account}</Text>
-                    <Text size="xs" color="red" weight={700}>
-                      {(parseFloat(each_expense.percent) * 100).toFixed(2)}%
-                    </Text>
-                  </Group>
-
-                  <Progress radius="xs" size="lg" color="red" value={parseFloat(each_expense.percent) * 100} />
-                </Box>
-              ))}
+            <Grid.Col span={12}>
+              <Progress
+                radius="sm"
+                size={24}
+                sections={expenses_data?.detail.map((item, idx) => ({
+                  value: new BigNumber(item.amount.calculated.number).div(expense_total).multipliedBy(100).toNumber(),
+                  color: color_set[idx % color_set.length],
+                  label: item.account,
+                  tooltip: `${item.account} - ${item.amount.calculated.number}`,
+                }))}
+              />
             </Grid.Col>
-            <Grid.Col span={8}>
+            <Grid.Col span={12}>
               <Table verticalSpacing="xs" highlightOnHover>
                 <thead>
                   <tr>
@@ -146,7 +163,7 @@ export default function Report() {
                   </tr>
                 </thead>
                 <tbody>
-                  {reportData.expense_top_transactions.map((journal) => (
+                  {expenses_data?.top_transactions.map((journal) => (
                     // <JournalLine key={idx} data={journal} />
                     <tr>
                       <td>{journal.datetime}</td>

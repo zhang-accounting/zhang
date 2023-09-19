@@ -16,7 +16,6 @@ use routes::commodity::{get_all_commodities, get_single_commodity};
 use routes::common::{get_all_options, get_basic_info, get_errors, sse};
 use routes::document::{download_document, get_documents};
 use routes::file::{get_file_content, get_files, update_file_content};
-use routes::statistics::{current_statistic, get_report, get_statistic_data};
 use routes::transaction::{create_new_transaction, get_info_for_new_transactions, get_journals, upload_transaction_document};
 use self_update::version::bump_is_greater;
 use serde::Serialize;
@@ -180,8 +179,6 @@ async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broad
             .app_data(exporter.clone())
             .service(get_basic_info)
             .service(get_info_for_new_transactions)
-            .service(get_statistic_data)
-            .service(current_statistic)
             .service(get_journals)
             .service(create_new_transaction)
             .service(get_account_list)
@@ -199,9 +196,11 @@ async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broad
             .service(get_files)
             .service(get_file_content)
             .service(update_file_content)
-            .service(get_report)
             .service(get_errors)
             .service(get_all_options)
+            .service(routes::statistics::get_statistic_summary)
+            .service(routes::statistics::get_statistic_graph)
+            .service(routes::statistics::get_statistic_rank_detail_by_account_type)
             .service(sse);
 
         #[cfg(feature = "frontend")]

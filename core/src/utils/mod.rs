@@ -3,6 +3,7 @@ use std::path::Path;
 use glob::Pattern;
 
 pub mod bigdecimal_ext;
+pub mod calculable;
 pub mod date_range;
 pub mod hashmap;
 pub mod id;

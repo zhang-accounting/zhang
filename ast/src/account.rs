@@ -13,6 +13,18 @@ pub enum AccountType {
     Expenses,
 }
 
+impl AccountType {
+    pub fn positive_type(&self) -> bool {
+        match self {
+            AccountType::Assets => true,
+            AccountType::Liabilities => false,
+            AccountType::Equity => false,
+            AccountType::Income => false,
+            AccountType::Expenses => true,
+        }
+    }
+}
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Account {

@@ -41,6 +41,7 @@ indexmap = { version = "1.9", features = ["serde-1"] }
 mime_guess = "2"
 glob = "0.3.1"
 self_update = "0.36"
+strum = "0.24.1"
 
 
 [build-dependencies]

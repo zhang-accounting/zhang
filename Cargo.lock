@@ -3307,6 +3307,7 @@ dependencies = [
  "rust-embed",
  "self_update",
  "serde",
+ "strum",
  "thiserror",
  "tokio",
  "tokio-util 0.6.9",

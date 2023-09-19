@@ -4,6 +4,7 @@ export enum LoadingState {
   Success = 'Success',
   Refreshing = 'Refreshing',
 }
+
 export interface Pageable<T> {
   total_count: number;
   total_page: number;
@@ -31,6 +32,7 @@ export interface Account {
   alias?: String;
   amount: CalculatedAmountResponse;
 }
+
 export interface AccountInfo {
   name: string;
   status: AccountStatus;
@@ -161,8 +163,17 @@ export interface Posting {
 }
 
 export interface StatisticResponse {
-  changes: { [date: string]: { [type: string]: AmountResponse } };
-  details: { [date: string]: { [account: string]: AmountResponse } };
+  balance: CalculatedAmountResponse;
+  liability: CalculatedAmountResponse;
+  income: CalculatedAmountResponse;
+  expense: CalculatedAmountResponse;
+  transaction_number: number;
+}
+
+export interface StatisticGraphResponse {
+  // todo: to be deleted
+  balances: { [date: string]: CalculatedAmountResponse };
+  changes: { [date: string]: { [accountType: string]: CalculatedAmountResponse } };
 }
 
 export interface CalculatedAmountResponse {
@@ -182,17 +193,10 @@ export interface CurrentStatisticResponse {
   expense: AmountResponse;
 }
 
-export interface ReportResponse {
-  balance: AmountResponse;
-  liability: AmountResponse;
-  income: AmountResponse;
-  expense: AmountResponse;
-  transaction_number: number;
-
-  income_rank: { account: string; percent: string }[];
-  income_top_transactions: AccountJournalItem[];
-  expense_rank: { account: string; percent: string }[];
-  expense_top_transactions: AccountJournalItem[];
+export interface StatisticTypeResponse {
+  detail: { account: string; amount: CalculatedAmountResponse }[];
+  // income_rank: { account: string; percent: string }[];
+  top_transactions: AccountJournalItem[];
 }
 
 export interface SpanInfo {

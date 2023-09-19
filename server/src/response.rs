@@ -4,10 +4,11 @@ use actix_web::body::EitherBody;
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse, Responder, ResponseError};
 use bigdecimal::BigDecimal;
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
-use zhang_ast::amount::Amount;
+use zhang_ast::amount::{Amount, CalculatedAmount};
+use zhang_ast::AccountType;
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, MetaDomain};
 
 use crate::{ServerError, ServerResult};
@@ -198,12 +199,6 @@ pub struct InfoForNewTransaction {
     pub account_name: Vec<String>,
 }
 
-#[derive(Serialize)]
-pub struct CalculatedAmount {
-    pub calculated: AmountResponse,
-    pub detail: HashMap<String, BigDecimal>,
-}
-
 #[derive(Serialize, Clone)]
 pub struct AmountResponse {
     pub number: BigDecimal,
@@ -262,6 +257,19 @@ pub struct FileDetailResponse {
 }
 
 #[derive(Serialize)]
+pub struct StatisticSummaryResponse {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+
+    pub balance: CalculatedAmount,
+    pub liability: CalculatedAmount,
+
+    pub income: CalculatedAmount,
+    pub expense: CalculatedAmount,
+    pub transaction_number: i64,
+}
+
+#[derive(Serialize)]
 pub struct CurrentStatisticResponse {
     pub balance: CalculatedAmount,
     pub liability: CalculatedAmount,
@@ -285,10 +293,29 @@ pub struct ReportResponse {
     pub expense_rank: Vec<ReportRankItemResponse>,
     pub expense_top_transactions: Vec<AccountJournalDomain>,
 }
+
+#[derive(Serialize)]
+pub struct StatisticRankResponse {
+    pub from: NaiveDateTime,
+    pub to: NaiveDateTime,
+
+    pub detail: Vec<ReportRankItemResponse>,
+    pub top_transactions: Vec<AccountJournalDomain>,
+}
+
+#[derive(Serialize)]
+pub struct StatisticGraphResponse {
+    pub from: NaiveDateTime,
+    pub to: NaiveDateTime,
+
+    pub balances: HashMap<NaiveDate, CalculatedAmount>,
+    pub changes: HashMap<NaiveDate, HashMap<AccountType, CalculatedAmount>>,
+}
+
 #[derive(Serialize)]
 pub struct ReportRankItemResponse {
     pub account: String,
-    pub percent: BigDecimal,
+    pub amount: CalculatedAmount,
 }
 
 #[derive(Serialize)]

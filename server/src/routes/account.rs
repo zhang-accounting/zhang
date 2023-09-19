@@ -6,6 +6,7 @@ use std::sync::Arc;
 use actix_multipart::Multipart;
 use actix_web::web::{Data, Json, Path};
 use actix_web::{get, post};
+use chrono::Utc;
 use futures_util::StreamExt;
 use itertools::Itertools;
 use log::info;
@@ -16,6 +17,7 @@ use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Document, Zh
 use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
+use zhang_core::utils::calculable::Calculable;
 
 use crate::request::AccountBalanceRequest;
 use crate::response::{AccountInfoResponse, AccountResponse, DocumentResponse, ResponseWrapper};
@@ -24,13 +26,18 @@ use crate::{routes, ApiResult};
 #[get("/api/accounts")]
 pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<AccountResponse>> {
     let ledger = ledger.read().await;
+    let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
 
     let mut ret = vec![];
     for account in operations.all_accounts()? {
         let account_domain = operations.account(&account)?.expect("cannot find account");
-        let account_balances = operations.single_account_balances(&account)?;
-        let amount = routes::group_and_calculate(&mut operations, account_balances)?;
+        let account_balances = operations
+            .single_account_balances(&account)?
+            .into_iter()
+            .map(|balance| Amount::new(balance.balance_number, balance.balance_commodity))
+            .collect_vec();
+        let amount = account_balances.calculate(Utc::now().with_timezone(&timezone), &mut operations)?;
 
         ret.push(AccountResponse {
             name: account,
@@ -46,6 +53,7 @@ pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Ve
 pub async fn get_account_info(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> ApiResult<AccountInfoResponse> {
     let account_name = path.into_inner().0;
     let ledger = ledger.read().await;
+    let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
     let account_domain = operations.account(&account_name)?;
 
@@ -53,8 +61,12 @@ pub async fn get_account_info(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(Str
         Some(info) => info,
         None => return ResponseWrapper::not_found(),
     };
-    let vec = operations.single_account_balances(&account_info.name)?;
-    let amount = routes::group_and_calculate(&mut operations, vec)?;
+    let vec = operations
+        .single_account_balances(&account_info.name)?
+        .into_iter()
+        .map(|balance| Amount::new(balance.balance_number, balance.balance_commodity))
+        .collect_vec();
+    let amount = vec.calculate(Utc::now().with_timezone(&timezone), &mut operations)?;
 
     ResponseWrapper::json(AccountInfoResponse {
         date: account_info.date,
