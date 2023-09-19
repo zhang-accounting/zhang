@@ -2,16 +2,17 @@ use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use beancount::Beancount;
 use clap::{Args, Parser};
 use env_logger::Env;
 use log::{error, info, LevelFilter};
 use self_update::Status;
 use tokio::task::spawn_blocking;
-
-use beancount::Beancount;
-use zhang_core::exporter::{AppendableExporter, TextExporter};
+use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
-use zhang_core::transform::{TextTransformer, Transformer};
+use zhang_core::text::exporter::TextExporter;
+use zhang_core::text::transformer::TextTransformer;
+use zhang_core::transform::Transformer;
 use zhang_server::ServeConfig;
 
 #[derive(Parser, Debug)]
@@ -120,9 +121,7 @@ impl Opts {
         match self {
             Opts::Parse(parse_opts) => {
                 let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");
-                Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, parse_opts.database, format.transformer())
-                    .await
-                    .expect("Cannot load ledger");
+                Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, format.transformer()).expect("Cannot load ledger");
             }
             Opts::Export(_) => todo!(),
             Opts::Serve(opts) => {

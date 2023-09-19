@@ -14,7 +14,7 @@ type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 
 #[derive(Parser)]
-#[grammar = "zhang.pest"]
+#[grammar = "text/zhang.pest"]
 pub struct ZhangParser;
 
 #[pest_consume::parser]
@@ -393,20 +393,20 @@ impl ZhangParser {
             [date(date), account_name(name), number(amount), commodity_name(commodity), account_name(pad)] => (date, name, amount, commodity, Some(pad)),
         );
         if let Some(pad) = ret.4 {
-            Ok(Directive::Balance(Balance::BalancePad(BalancePad {
+            Ok(Directive::BalancePad(BalancePad {
                 date: ret.0,
                 account: ret.1,
                 amount: Amount::new(ret.2, ret.3),
                 pad,
                 meta: Default::default(),
-            })))
+            }))
         } else {
-            Ok(Directive::Balance(Balance::BalanceCheck(BalanceCheck {
+            Ok(Directive::BalanceCheck(BalanceCheck {
                 date: ret.0,
                 account: ret.1,
                 amount: Amount::new(ret.2, ret.3),
                 meta: Default::default(),
-            })))
+            }))
         }
     }
 
@@ -536,7 +536,7 @@ mod test {
         use zhang_ast::amount::Amount;
         use zhang_ast::*;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse_date_hour() {
@@ -557,12 +557,12 @@ mod test {
         fn should_parse_balance_check_and_balance_pad() {
             let balance = parse("2101-10-10 10:10 balance Assets:Hello 123 CNY", None).unwrap().remove(0);
             assert_eq!(
-                Directive::Balance(Balance::BalanceCheck(BalanceCheck {
+                Directive::BalanceCheck(BalanceCheck {
                     date: Date::DateHour(NaiveDate::from_ymd_opt(2101, 10, 10).unwrap().and_hms_opt(10, 10, 0).unwrap()),
                     account: Account::from_str("Assets:Hello").unwrap(),
                     amount: Amount::new(BigDecimal::from(123i32), "CNY"),
                     meta: Default::default()
-                })),
+                }),
                 balance.data
             );
 
@@ -570,13 +570,13 @@ mod test {
                 .unwrap()
                 .remove(0);
             assert_eq!(
-                Directive::Balance(Balance::BalancePad(BalancePad {
+                Directive::BalancePad(BalancePad {
                     date: Date::DateHour(NaiveDate::from_ymd_opt(2101, 10, 10).unwrap().and_hms_opt(10, 10, 0).unwrap()),
                     account: Account::from_str("Assets:Hello").unwrap(),
                     amount: Amount::new(BigDecimal::from(123i32), "CNY"),
                     pad: Account::from_str("Income:Earnings").unwrap(),
                     meta: Default::default()
-                })),
+                }),
                 balance.data
             )
         }
@@ -584,9 +584,10 @@ mod test {
     mod options {
         use std::option::Option::None;
 
-        use crate::parser::parse;
         use indoc::indoc;
         use zhang_ast::*;
+
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -609,11 +610,11 @@ mod test {
     }
     mod document {
         use std::option::Option::None;
-        use zhang_ast::Directive;
 
         use indoc::indoc;
+        use zhang_ast::Directive;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -641,7 +642,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::Directive;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -665,11 +666,11 @@ mod test {
     }
     mod event {
         use std::option::Option::None;
-        use zhang_ast::Directive;
 
         use indoc::indoc;
+        use zhang_ast::Directive;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -692,11 +693,11 @@ mod test {
     }
     mod plugin {
         use std::option::Option::None;
-        use zhang_ast::Directive;
 
         use indoc::indoc;
+        use zhang_ast::Directive;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -719,11 +720,11 @@ mod test {
 
     mod custom {
         use std::option::Option::None;
-        use zhang_ast::{Directive, StringOrAccount};
 
         use indoc::indoc;
+        use zhang_ast::{Directive, StringOrAccount};
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -757,7 +758,7 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::parser::parse;
+        use crate::text::parser::parse;
 
         #[test]
         fn should_support_trailing_space() {
@@ -780,7 +781,7 @@ mod test {
             use zhang_ast::amount::Amount;
             use zhang_ast::{Date, Directive, SingleTotalPrice, Transaction};
 
-            use crate::parser::parse;
+            use crate::text::parser::parse;
 
             fn get_first_posting(content: &str) -> Transaction {
                 let directive = parse(content, None).unwrap().pop().unwrap();

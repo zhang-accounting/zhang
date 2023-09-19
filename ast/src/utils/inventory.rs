@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::ops::{Add, AddAssign};
 
-use crate::amount::Amount;
-use crate::Currency;
 use bigdecimal::{BigDecimal, One, Signed, Zero};
 use indexmap::IndexMap;
+
+use crate::amount::Amount;
+use crate::Currency;
 
 pub type AmountLotPair = (Option<Amount>, Option<LotInfo>);
 

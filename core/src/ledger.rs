@@ -1,32 +1,26 @@
 use std::cmp::Ordering;
-use std::option::Option::None;
 use std::path::PathBuf;
-use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::atomic::AtomicI32;
+use std::sync::{Arc, RwLock};
 
 use bigdecimal::Zero;
 use glob::Pattern;
 use itertools::Itertools;
 use log::{error, info};
-use sqlx::pool::PoolConnection;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
-use sqlx::{Sqlite, SqlitePool};
-
 use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
-use crate::database::migrations::Migration;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::process::DirectiveProcess;
+use crate::store::Store;
 use crate::transform::Transformer;
 use crate::utils::bigdecimal_ext::BigDecimalExt;
 use crate::ZhangResult;
 
 pub struct Ledger {
     pub entry: (PathBuf, String),
-    pub database: Option<PathBuf>,
-    pub pool_connection: SqlitePool,
+
     pub visited_files: Vec<Pattern>,
 
     pub options: InMemoryOptions,
@@ -35,73 +29,44 @@ pub struct Ledger {
     pub metas: Vec<Spanned<Directive>>,
 
     transformer: Arc<dyn Transformer>,
+
+    store: Arc<RwLock<Store>>,
+
+    pub(crate) trx_counter: AtomicI32,
 }
 
 impl Ledger {
-    pub async fn load<T: Transformer + Default + 'static>(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
+    pub fn load<T: Transformer + Default + 'static>(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
         let transformer = Arc::new(T::default());
-        Ledger::load_with_database(entry, endpoint, None, transformer).await
+        Ledger::load_with_database(entry, endpoint, transformer)
     }
 
-    pub async fn load_with_database(entry: PathBuf, endpoint: String, database: Option<PathBuf>, transformer: Arc<dyn Transformer>) -> ZhangResult<Ledger> {
+    pub fn load_with_database(entry: PathBuf, endpoint: String, transformer: Arc<dyn Transformer>) -> ZhangResult<Ledger> {
         let entry = entry.canonicalize().with_path(&entry)?;
 
         let transform_result = transformer.load(entry.clone(), endpoint.clone())?;
-        Ledger::process(
-            transform_result.directives,
-            (entry, endpoint),
-            database,
-            transform_result.visited_files,
-            transformer,
-        )
-        .await
+        Ledger::process(transform_result.directives, (entry, endpoint), transform_result.visited_files, transformer)
     }
 
-    pub async fn connection(&self) -> PoolConnection<Sqlite> {
-        self.pool_connection.acquire().await.unwrap()
-    }
-
-    async fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), database: Option<PathBuf>, visited_files: Vec<Pattern>,
-        transformer: Arc<dyn Transformer>,
+    fn process(
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<Pattern>, transformer: Arc<dyn Transformer>,
     ) -> ZhangResult<Ledger> {
-        let sqlite_pool = if let Some(ref path) = database {
-            info!("database store at {}", path.display());
-            SqlitePool::connect_with(
-                SqliteConnectOptions::default()
-                    .filename(path)
-                    .journal_mode(SqliteJournalMode::Wal)
-                    .create_if_missing(true),
-            )
-            .await?
-        } else {
-            info!("using in memory database");
-            SqlitePoolOptions::new()
-                .max_lifetime(None)
-                .idle_timeout(None)
-                .connect_with(SqliteConnectOptions::from_str("sqlite::memory:").unwrap().journal_mode(SqliteJournalMode::Wal))
-                .await?
-        };
-        let mut connection = sqlite_pool.acquire().await?;
-
-        Migration::init_database_if_missing(&mut connection).await?;
-
         let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
         let mut directives = Ledger::sort_directives_datetime(dated_directive);
         let mut ret_ledger = Self {
             options: InMemoryOptions::default(),
             entry,
-            database,
-            pool_connection: sqlite_pool,
             visited_files,
             directives: vec![],
             metas: vec![],
             transformer,
+            store: Default::default(),
+            trx_counter: AtomicI32::new(1),
         };
         let mut merged_metas = BuiltinOption::default_options()
             .into_iter()
-            .chain(meta_directives.into_iter())
+            .chain(meta_directives)
             .rev()
             .dedup_by(|x, y| match (&x.data, &y.data) {
                 (Directive::Option(option_x), Directive::Option(option_y)) => option_x.key.eq(&option_y.key),
@@ -110,15 +75,16 @@ impl Ledger {
             .collect_vec();
         for directive in merged_metas.iter_mut().rev().chain(directives.iter_mut()) {
             match &mut directive.data {
-                Directive::Option(option) => option.handler(&mut ret_ledger, &directive.span).await?,
-                Directive::Open(open) => open.handler(&mut ret_ledger, &directive.span).await?,
-                Directive::Close(close) => close.handler(&mut ret_ledger, &directive.span).await?,
-                Directive::Commodity(commodity) => commodity.handler(&mut ret_ledger, &directive.span).await?,
-                Directive::Transaction(trx) => trx.handler(&mut ret_ledger, &directive.span).await?,
-                Directive::Balance(balance) => balance.handler(&mut ret_ledger, &directive.span).await?,
+                Directive::Option(option) => option.handler(&mut ret_ledger, &directive.span)?,
+                Directive::Open(open) => open.handler(&mut ret_ledger, &directive.span)?,
+                Directive::Close(close) => close.handler(&mut ret_ledger, &directive.span)?,
+                Directive::Commodity(commodity) => commodity.handler(&mut ret_ledger, &directive.span)?,
+                Directive::Transaction(trx) => trx.handler(&mut ret_ledger, &directive.span)?,
+                Directive::BalancePad(pad) => pad.handler(&mut ret_ledger, &directive.span)?,
+                Directive::BalanceCheck(check) => check.handler(&mut ret_ledger, &directive.span)?,
                 Directive::Note(_) => {}
-                Directive::Document(document) => document.handler(&mut ret_ledger, &directive.span).await?,
-                Directive::Price(price) => price.handler(&mut ret_ledger, &directive.span).await?,
+                Directive::Document(document) => document.handler(&mut ret_ledger, &directive.span)?,
+                Directive::Price(price) => price.handler(&mut ret_ledger, &directive.span)?,
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
                 _ => {}
@@ -127,8 +93,8 @@ impl Ledger {
 
         ret_ledger.metas = merged_metas;
         ret_ledger.directives = directives;
-        let mut operations = ret_ledger.operations().await;
-        let errors = operations.errors().await?;
+        let mut operations = ret_ledger.operations();
+        let errors = operations.errors()?;
         if !errors.is_empty() {
             error!("Ledger loaded with {} error", errors.len());
         } else {
@@ -141,9 +107,9 @@ impl Ledger {
         directives.sort_by(|a, b| match (a.datetime(), b.datetime()) {
             (Some(a_datetime), Some(b_datetime)) => match a_datetime.cmp(&b_datetime) {
                 Ordering::Equal => match (a.directive_type(), b.directive_type()) {
-                    (DirectiveType::Balance, DirectiveType::Balance) => Ordering::Equal,
-                    (DirectiveType::Balance, _) => Ordering::Less,
-                    (_, DirectiveType::Balance) => Ordering::Greater,
+                    (DirectiveType::BalancePad | DirectiveType::BalanceCheck, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Equal,
+                    (DirectiveType::BalancePad | DirectiveType::BalanceCheck, _) => Ordering::Less,
+                    (_, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Greater,
                     (_, _) => Ordering::Equal,
                 },
                 other => other,
@@ -167,13 +133,13 @@ impl Ledger {
         self
     }
 
-    pub async fn is_transaction_balanced(&self, txn: &Transaction) -> ZhangResult<bool> {
+    pub fn is_transaction_balanced(&self, txn: &Transaction) -> ZhangResult<bool> {
         // 1. get the txn's inventory
         Ok(match txn.get_postings_inventory() {
             Ok(inventory) => {
                 for (currency, amount) in inventory.currencies.iter() {
-                    let mut operations = self.operations().await;
-                    let commodity = operations.commodity(currency).await?;
+                    let mut operations = self.operations();
+                    let commodity = operations.commodity(currency)?;
                     let precision = commodity
                         .as_ref()
                         .map(|it| it.precision)
@@ -193,52 +159,42 @@ impl Ledger {
         })
     }
 
-    pub async fn reload(&mut self) -> ZhangResult<()> {
+    pub fn reload(&mut self) -> ZhangResult<()> {
         let (entry, endpoint) = &mut self.entry;
         let transform_result = self.transformer.load(entry.clone(), endpoint.clone())?;
         let reload_ledger = Ledger::process(
             transform_result.directives,
             (entry.clone(), endpoint.clone()),
-            self.database.clone(),
             transform_result.visited_files,
             self.transformer.clone(),
-        )
-        .await?;
+        )?;
         *self = reload_ledger;
         Ok(())
     }
 
-    pub async fn operations(&self) -> Operations {
-        let pool = self.connection().await;
+    pub fn operations(&self) -> Operations {
         let timezone = self.options.timezone;
-        Operations { pool, timezone }
+        Operations {
+            store: self.store.clone(),
+            timezone,
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use glob::Pattern;
     use std::option::Option::None;
     use std::path::PathBuf;
     use std::sync::Arc;
 
+    use glob::Pattern;
     use tempfile::tempdir;
-
-    use crate::parser::parse as parse_zhang;
     use zhang_ast::{Directive, SpanInfo, Spanned};
 
     use crate::ledger::Ledger;
+    use crate::text::parser::parse as parse_zhang;
     use crate::transform::{TransformResult, Transformer};
     use crate::ZhangResult;
-
-    macro_rules! count {
-        ($reason:expr, $times: expr, $sql:expr, $conn:expr) => {
-            assert_eq!($times, sqlx::query($sql).fetch_all($conn).await.unwrap().len(), $reason)
-        };
-        ($reason:expr, $sql:expr, $conn:expr) => {
-            assert_eq!(1, sqlx::query($sql).fetch_all($conn).await.unwrap().len(), $reason)
-        };
-    }
 
     fn fake_span_info() -> SpanInfo {
         SpanInfo {
@@ -259,25 +215,22 @@ mod test {
             todo!()
         }
     }
-    async fn load_from_temp_str(content: &str) -> Ledger {
+    fn load_from_temp_str(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().into_path();
         let example = temp_dir.join("example.zhang");
-        std::fs::write(&example, content).unwrap();
+        std::fs::write(example, content).unwrap();
         Ledger::process(
             test_parse_zhang(content),
             (temp_dir.clone(), "example.zhang".to_string()),
-            None,
             vec![Pattern::new(temp_dir.join("example.zhang").as_path().to_str().unwrap()).unwrap()],
             Arc::new(TestTransformer {}),
         )
-        .await
         .unwrap()
     }
 
     mod sort_directive_datetime {
         use indoc::indoc;
         use itertools::Itertools;
-
         use zhang_ast::{Directive, Options, Spanned, ZhangString};
 
         use crate::ledger::test::{fake_span_info, test_parse_zhang};
@@ -459,110 +412,85 @@ mod test {
         }
     }
     mod options {
-        use crate::ledger::test::load_from_temp_str;
         use indoc::indoc;
 
-        #[tokio::test]
-        async fn should_get_price() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::ledger::test::load_from_temp_str;
+
+        #[test]
+        fn should_get_price() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_temp_str(indoc! {r#"
                     option "title" "Example Beancount file"
                     option "operating_currency" "USD"
-                "#})
-            .await;
-            let mut operations = ledger.operations().await;
+                "#});
+            let mut operations = ledger.operations();
 
-            assert_eq!("Example Beancount file", operations.option("title").await?.unwrap().value);
-            assert_eq!("USD", operations.option("operating_currency").await?.unwrap().value);
-            assert!(operations.option("operating_currency2").await?.is_none());
+            assert_eq!("Example Beancount file", operations.option("title")?.unwrap().value);
+            assert_eq!("USD", operations.option("operating_currency")?.unwrap().value);
+            assert!(operations.option("operating_currency2")?.is_none());
             Ok(())
         }
     }
 
     mod extract_info {
-        use indoc::indoc;
+        use std::str::FromStr;
 
+        use indoc::indoc;
+        use zhang_ast::Account;
+
+        use crate::domains::schemas::AccountStatus;
         use crate::ledger::test::load_from_temp_str;
 
-        #[tokio::test]
-        async fn should_extract_account_open() {
+        #[test]
+        fn should_extract_account_open() {
             let ledger = load_from_temp_str(indoc! {r#"
                     1970-01-01 open Assets:Hello CNY
-                "#})
-            .await;
-            let mut conn = ledger.connection().await;
-            count!(
-                "should have account record",
-                "select * from accounts where name = 'Assets:Hello' and status = 'Open' ",
-                &mut conn
-            );
-            // todo test account's commodity
+                "#});
+            let store = ledger.store.read().unwrap();
+            let account = store.accounts.get(&Account::from_str("Assets:Hello").unwrap()).unwrap();
+            assert_eq!(account.status, AccountStatus::Open);
         }
 
-        #[tokio::test]
-        async fn should_extract_account_close() {
-            let ledger = load_from_temp_str(indoc! {r#"
-                    1970-01-01 open Assets:Hello CNY
-                "#})
-            .await;
-            let mut conn = ledger.connection().await;
-            count!(
-                "should have account record",
-                "select * from accounts where name = 'Assets:Hello' and status = 'Open' ",
-                &mut conn
-            );
-        }
-
-        #[tokio::test]
-        async fn should_mark_as_close_after_opening_account() {
+        #[test]
+        fn should_mark_as_close_after_opening_account() {
             let ledger = load_from_temp_str(indoc! {r#"
                     1970-01-01 open Assets:Hello CNY
                     1970-02-01 close Assets:Hello
-                "#})
-            .await;
-            let mut conn = ledger.connection().await;
-            count!(
-                "should have account record",
-                "select * from accounts where name = 'Assets:Hello' and status = 'Close'",
-                &mut conn
-            );
-            count!(
-                "should not have account record",
-                0,
-                "select * from accounts where name = 'Assets:Hello' and status = 'Open'",
-                &mut conn
-            );
+                "#});
+            let store = ledger.store.read().unwrap();
+            let account = store.accounts.get(&Account::from_str("Assets:Hello").unwrap()).unwrap();
+            assert_eq!(account.status, AccountStatus::Close);
         }
 
-        #[tokio::test]
-        async fn should_extract_commodities() {
+        #[test]
+        fn should_extract_commodities() {
             let ledger = load_from_temp_str(indoc! {r#"
                     1970-01-01 commodity CNY
                     1970-02-01 commodity HKD
-                "#})
-            .await;
-            let mut conn = ledger.connection().await;
-            count!("should have 2 commodity", 2, "select * from commodities", &mut conn);
-            count!("should have CNY record", "select * from commodities where name = 'CNY'", &mut conn);
-            count!("should have HKD record", "select * from commodities where name = 'HKD'", &mut conn);
+                "#});
+            let store = ledger.store.read().unwrap();
+
+            assert_eq!(2, store.commodities.len(), "should have 2 commodity");
+            assert!(store.commodities.contains_key("CNY"), "should have CNY record");
+            assert!(store.commodities.contains_key("HKD"), "should have HKD record");
         }
     }
 
     mod price {
-        use crate::ledger::test::load_from_temp_str;
         use bigdecimal::BigDecimal;
         use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
         use indoc::indoc;
 
-        #[tokio::test]
-        async fn should_get_price() {
+        use crate::ledger::test::load_from_temp_str;
+
+        #[test]
+        fn should_get_price() {
             let ledger = load_from_temp_str(indoc! {r#"
                     1970-01-01 commodity CNY
                     1970-01-01 commodity USD
                     1970-02-01 price USD 7 CNY
-                "#})
-            .await;
+                "#});
 
-            let mut operations = ledger.operations().await;
+            let mut operations = ledger.operations();
 
             let option = operations
                 .get_price(
@@ -570,27 +498,26 @@ mod test {
                     "USD",
                     "CNY",
                 )
-                .await
                 .unwrap()
                 .unwrap();
-            assert_eq!(BigDecimal::from(7), option.amount.0)
+            assert_eq!(BigDecimal::from(7), option.amount)
         }
     }
 
     mod account {
-        use crate::ledger::test::load_from_temp_str;
         use indoc::indoc;
 
-        #[tokio::test]
-        async fn should_return_true_given_exists_account() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::ledger::test::load_from_temp_str;
+
+        #[test]
+        fn should_return_true_given_exists_account() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_temp_str(indoc! {r#"
                 1970-01-01 open Assets:Bank
-            "#})
-            .await;
+            "#});
 
-            let mut operations = ledger.operations().await;
-            assert!(operations.exist_account("Assets:Bank").await?);
-            assert!(!operations.exist_account("Assets:Bank2").await?);
+            let mut operations = ledger.operations();
+            assert!(operations.exist_account("Assets:Bank")?);
+            assert!(!operations.exist_account("Assets:Bank2")?);
             Ok(())
         }
     }
@@ -609,7 +536,7 @@ mod test {
     //                   Assets:From -10 CNY
     //                   Expenses:To 10 CNY
     //             "#})
-    //         .await;
+    //         ;
     //
     //         assert_eq!(2, ledger.account_inventory.len());
     //         assert_eq!(
@@ -646,7 +573,7 @@ mod test {
     //                   Assets:From -10 CNY
     //                   Expenses:To
     //             "#})
-    //         .await;
+    //         ;
     //
     //         assert_eq!(2, ledger.account_inventory.len());
     //         assert_eq!(
@@ -684,7 +611,7 @@ mod test {
     //                   Assets:From -5 CNY
     //                   Expenses:To
     //             "#})
-    //         .await;
+    //         ;
     //
     //         assert_eq!(2, ledger.account_inventory.len());
     //         assert_eq!(
@@ -722,7 +649,7 @@ mod test {
     //                   Assets:From -5 CNY
     //                   Expenses:To 1 BTC @@ 10 CNY
     //             "#})
-    //         .await;
+    //         ;
     //
     //         assert_eq!(2, ledger.account_inventory.len());
     //         assert_eq!(
@@ -760,7 +687,7 @@ mod test {
     //                   Assets:From -5 CNY
     //                   Expenses:To 10 CNY2 @ 1 CNY
     //             "#})
-    //         .await;
+    //         ;
     //
     //         assert_eq!(2, ledger.account_inventory.len());
     //         assert_eq!(
@@ -790,8 +717,8 @@ mod test {
 
     mod daily_inventory {
 
-        #[tokio::test]
-        async fn should_record_daily_inventory() {
+        #[test]
+        fn should_record_daily_inventory() {
             // let ledger = load_from_temp_str(indoc! {r#"
             //         1970-01-01 open Assets:From CNY
             //         1970-01-01 open Expenses:To CNY
@@ -800,7 +727,7 @@ mod test {
             //           Assets:From -10 CNY
             //           Expenses:To
             //     "#})
-            // .await
+            //
             // .unwrap();
             //
             // let account_inventory = ledger
@@ -856,7 +783,7 @@ mod test {
     //                 option "title" "Example accounting book"
     //                 option "operating_currency" "CNY"
     //             "#})
-    //         .await
+    //
     //         .unwrap();
     //         assert_eq!(ledger.option("title").unwrap(), "Example accounting book");
     //         assert_eq!(ledger.option("operating_currency").unwrap(), "CNY");
@@ -868,7 +795,7 @@ mod test {
     //                 option "title" "Example accounting book"
     //                 option "title" "Example accounting book 2"
     //             "#})
-    //         .await
+    //
     //         .unwrap();
     //         assert_eq!(ledger.option("title").unwrap(), "Example accounting book 2");
     //     }
@@ -883,9 +810,9 @@ mod test {
     //         let ledger = load_from_temp_str(indoc! {r#"
     //                 option "operating_currency" "CNY"
     //             "#})
-    //         .await
+    //
     //         .unwrap();
-    //         let mut conn = ledger.connection().await;
+    //         let mut conn = ledger.connection();
     //         assert_eq!(ledger.options.operating_currency, "CNY");
     //
     //         count!(
@@ -903,9 +830,9 @@ mod test {
     //                 1970-01-01 commodity CNY
     //                   precision: 3
     //             "#})
-    //         .await
+    //
     //         .unwrap();
-    //         let mut conn = ledger.connection().await;
+    //         let mut conn = ledger.connection();
     //         assert_eq!(ledger.options.operating_currency, "CNY");
     //
     //         count!(

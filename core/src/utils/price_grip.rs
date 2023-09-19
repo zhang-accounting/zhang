@@ -21,8 +21,9 @@ impl PriceGrip {
 #[cfg(test)]
 mod test {
     mod price_grip {
-        use crate::utils::price_grip::PriceGrip;
         use bigdecimal::BigDecimal;
+
+        use crate::utils::price_grip::PriceGrip;
 
         #[test]
         fn should_insert_price() {

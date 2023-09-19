@@ -9,7 +9,7 @@ pub trait AmountLike {
 
 impl AmountLike for AccountDailyBalanceDomain {
     fn number(&self) -> &BigDecimal {
-        &self.balance_number.0
+        &self.balance_number
     }
 
     fn commodity(&self) -> &String {
@@ -19,7 +19,7 @@ impl AmountLike for AccountDailyBalanceDomain {
 
 impl AmountLike for AccountBalanceDomain {
     fn number(&self) -> &BigDecimal {
-        &self.balance_number.0
+        &self.balance_number
     }
 
     fn commodity(&self) -> &String {

@@ -1,16 +1,17 @@
 use std::collections::HashSet;
 use std::ops::{Div, Mul, Neg};
 
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono_tz::Tz;
+use indexmap::IndexSet;
+use itertools::Itertools;
+
 use crate::amount::Amount;
 use crate::error::ErrorKind;
 use crate::models::*;
 use crate::utils::inventory::{AmountLotPair, Inventory, LotInfo};
 use crate::utils::multi_value_map::MultiValueMap;
 use crate::Account;
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
-use chrono_tz::Tz;
-use indexmap::IndexSet;
-use itertools::Itertools;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
@@ -64,12 +65,6 @@ pub struct Commodity {
     pub date: Date,
     pub currency: String,
     pub meta: Meta,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Balance {
-    BalanceCheck(BalanceCheck),
-    BalancePad(BalancePad),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

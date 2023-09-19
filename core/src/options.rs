@@ -1,16 +1,17 @@
-use itertools::Itertools;
-use log::{error, info, warn};
-use sqlx::SqliteConnection;
 use std::str::FromStr;
 use std::string::ToString;
+
+use chrono_tz::Tz;
+use itertools::Itertools;
+use log::{error, info, warn};
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
 use crate::constants::{
     DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN, DEFAULT_COMMODITY_PRECISION_PLAIN, DEFAULT_OPERATING_CURRENCY, DEFAULT_ROUNDING_PLAIN, DEFAULT_TIMEZONE,
 };
+use crate::domains::Operations;
 use crate::ZhangResult;
-use chrono_tz::Tz;
 
 #[derive(Debug)]
 pub struct InMemoryOptions {
@@ -22,6 +23,7 @@ pub struct InMemoryOptions {
 
 #[derive(Debug, AsRefStr, EnumIter, EnumString)]
 #[strum(serialize_all = "snake_case")]
+#[non_exhaustive]
 pub enum BuiltinOption {
     OperatingCurrency,
     DefaultRounding,
@@ -37,18 +39,16 @@ impl BuiltinOption {
             BuiltinOption::DefaultRounding => DEFAULT_ROUNDING_PLAIN.to_owned(),
             BuiltinOption::DefaultBalanceTolerancePrecision => DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN.to_owned(),
             BuiltinOption::DefaultCommodityPrecision => DEFAULT_COMMODITY_PRECISION_PLAIN.to_owned(),
-            BuiltinOption::Timezone => {
-                match iana_time_zone::get_timezone() {
-                    Ok(timezone) => {
-                        info!("detect system timezone is {}", timezone);
-                        timezone
-                    }
-                    Err(e) => {
-                        warn!("cannot get timezone, fall back to use GMT+8 as default timezone: {}", e);
-                        DEFAULT_TIMEZONE.to_owned()
-                    }
+            BuiltinOption::Timezone => match iana_time_zone::get_timezone() {
+                Ok(timezone) => {
+                    info!("detect system timezone is {}", timezone);
+                    timezone
                 }
-            }
+                Err(e) => {
+                    warn!("cannot get timezone, fall back to use GMT+8 as default timezone: {}", e);
+                    DEFAULT_TIMEZONE.to_owned()
+                }
+            },
         }
     }
     pub fn key(&self) -> &str {
@@ -70,7 +70,7 @@ impl BuiltinOption {
 }
 
 impl InMemoryOptions {
-    pub async fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, conn: &mut SqliteConnection) -> ZhangResult<String> {
+    pub fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, operation: &mut Operations) -> ZhangResult<String> {
         let value = value.into();
         let key = key.into();
         if let Ok(option) = BuiltinOption::from_str(&key) {
@@ -81,17 +81,8 @@ impl InMemoryOptions {
                     let suffix: Option<String> = None;
                     let rounding = Some(self.default_rounding);
 
-                    sqlx::query(
-                        r#"INSERT OR REPLACE INTO commodities (name, precision, prefix, suffix, rounding)
-                        VALUES ($1, $2, $3, $4, $5);"#,
-                    )
-                    .bind(&value)
-                    .bind(precision)
-                    .bind(prefix)
-                    .bind(suffix)
-                    .bind(rounding.map(|it| it.to_string()))
-                    .execute(conn)
-                    .await?;
+                    operation.insert_commodity(&value, precision, prefix, suffix, rounding.map(|it| it.to_string()))?;
+
                     self.operating_currency = value.to_owned();
                 }
                 BuiltinOption::DefaultRounding => {

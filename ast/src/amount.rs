@@ -1,7 +1,25 @@
+use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use bigdecimal::{BigDecimal, Zero};
 use serde::Serialize;
+
+#[derive(Serialize)]
+pub struct CalculatedAmount {
+    pub calculated: Amount,
+    pub detail: HashMap<String, BigDecimal>,
+}
+
+impl CalculatedAmount {
+    pub fn new(currency: &str) -> CalculatedAmount {
+        let mut detail = HashMap::new();
+        detail.insert(currency.to_owned(), BigDecimal::zero());
+        CalculatedAmount {
+            calculated: Amount::new(BigDecimal::zero(), currency.to_owned()),
+            detail,
+        }
+    }
+}
 
 #[derive(Eq, PartialEq, Debug, Clone, Serialize)]
 pub struct Amount {

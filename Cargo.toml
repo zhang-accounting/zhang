@@ -1,13 +1,14 @@
-resolver = "2"
+
 
 [workspace]
+resolver = "2"
 members = [
     "core",
     "ast",
     "extensions/*",
     "server",
     "cli",
-#    "wasm"
+    "wasm"
 ]
 
 [profile.dev]

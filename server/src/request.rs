@@ -27,6 +27,11 @@ pub enum StatisticInterval {
 pub struct StatisticRequest {
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
+}
+#[derive(Deserialize)]
+pub struct StatisticGraphRequest {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
     pub interval: StatisticInterval,
 }
 
