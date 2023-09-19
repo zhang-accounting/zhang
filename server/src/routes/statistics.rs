@@ -27,10 +27,10 @@ pub async fn get_statistic_summary(ledger: Data<Arc<RwLock<Ledger>>>, params: Qu
     // balance
     let mut balances = vec![];
     for account_name in &accounts {
-        let account = Account::from_str(&account_name)?;
+        let account = Account::from_str(account_name)?;
         if account.account_type == AccountType::Assets || account.account_type == AccountType::Liabilities {
             operations
-                .account_target_date_balance(&account_name, params.to)?
+                .account_target_date_balance(account_name, params.to)?
                 .into_iter()
                 .for_each(|balance| {
                     balances.push(Amount::new(balance.balance_number, balance.balance_commodity));
@@ -41,10 +41,10 @@ pub async fn get_statistic_summary(ledger: Data<Arc<RwLock<Ledger>>>, params: Qu
 
     let mut liability_amounts = vec![];
     for account_name in &accounts {
-        let account = Account::from_str(&account_name)?;
+        let account = Account::from_str(account_name)?;
         if account.account_type == AccountType::Liabilities {
             operations
-                .account_target_date_balance(&account_name, params.to)?
+                .account_target_date_balance(account_name, params.to)?
                 .into_iter()
                 .for_each(|balance| {
                     liability_amounts.push(Amount::new(balance.balance_number, balance.balance_commodity));
@@ -105,13 +105,13 @@ pub async fn get_statistic_graph(ledger: Data<Arc<RwLock<Ledger>>>, params: Quer
     let accounts = operations.all_accounts()?;
 
     let mut dated_balance = HashMap::new();
-    for date in NaiveDateRange::new(params.from.date_naive(), params.to.date_naive()).into_iter() {
+    for date in NaiveDateRange::new(params.from.date_naive(), params.to.date_naive()) {
         let mut balances = vec![];
         for account_name in &accounts {
-            let account = Account::from_str(&account_name)?;
+            let account = Account::from_str(account_name)?;
             if account.account_type == AccountType::Assets || account.account_type == AccountType::Liabilities {
                 operations
-                    .account_target_date_balance(&account_name, date.and_hms_opt(23, 59, 59).unwrap().and_local_timezone(Utc).unwrap())?
+                    .account_target_date_balance(account_name, date.and_hms_opt(23, 59, 59).unwrap().and_local_timezone(Utc).unwrap())?
                     .into_iter()
                     .for_each(|balance| {
                         balances.push(Amount::new(balance.balance_number, balance.balance_commodity));
