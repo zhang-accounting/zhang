@@ -11,5 +11,4 @@ pub type AccountName = String;
 pub use crate::account::{Account, AccountType};
 pub use crate::data::*;
 pub use crate::models::*;
-
 pub use crate::utils::span::{SpanInfo, Spanned};

@@ -5,11 +5,14 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+wasm = ["uuid/js"]
+serde = ["zhang-ast/serde", "uuid/serde", "chrono-tz/serde", ]
+
+
 [dependencies]
 zhang-ast = { version = "0.1", path = "../ast" }
 thiserror = "1"
-async-trait = "0.1"
-sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "sqlite", "chrono", "bigdecimal"] }
 log = "0.4"
 itertools = "0.9"
 bigdecimal = { version = "0.3", features = ["serde"] }
@@ -19,7 +22,7 @@ uuid = { version = "1", features = ["v4"] }
 unicode_categories = "0.1"
 sha256 = "1.1.2"
 glob = "0.3.1"
-serde_json = "0.9"
+serde_json = "1"
 strum = { version = "0.24", features = ["derive"] }
 chrono-tz = "0.8"
 iana-time-zone = "0.1"
@@ -27,8 +30,9 @@ pest = "2.1"
 pest_consume = "1.1"
 pest_derive = "2.1"
 snailquote = "0.3"
+indexmap = "2"
 
 [dev-dependencies]
 indoc = "1"
+serde_json_path = "0.6"
 tempfile = "3.3.0"
-tokio = { version = "1.21.2", features = ['full', "tracing"] }

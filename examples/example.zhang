@@ -1,0 +1,1074 @@
+option "title" "My Accounting"
+option "operating_currency" "CNY"
+
+
+1970-01-01 commodity CNY
+  precision: 2
+  prefix: "¥"
+1970-01-01 commodity USD
+  precision: 2
+  prefix: "$"
+
+
+1970-01-01 open Income:GrandLordCompany:Salary CNY, USD
+1970-01-01 open Income:Remuneration CNY, USD
+1970-01-01 open Income:CitiBank:Interest CNY, USD
+1970-01-01 open Income:Publisher:DogeRandomHouse CNY, USD
+1970-01-01 open Income:Publisher:TheZhangBookGroup CNY, USD
+1970-01-01 open Income:Publisher:Scgolastic CNY, USD
+
+
+1970-01-01 open Assets:Paypal CNY, USD
+1970-01-01 open Assets:WeChat CNY, USD
+1970-01-01 open Assets:CitiBank:9999 CNY, USD
+
+
+1970-01-01 open Liabilities:CreditCard:Apple CNY, USD
+1970-01-01 open Liabilities:CreditCard:CitiBank:3423 CNY, USD
+
+
+1970-01-01 open Expenses:PersonalDiet:Lunch CNY, USD
+1970-01-01 open Expenses:PersonalDiet:Dinner CNY, USD
+1970-01-01 open Expenses:Clothing CNY, USD
+1970-01-01 open Expenses:Medical CNY, USD
+1970-01-01 open Expenses:Sport CNY, USD
+1970-01-01 open Expenses:Transportaion CNY, USD
+1970-01-01 open Expenses:GrandLordCompany:Tax CNY, USD
+1970-01-01 open Expenses:RemunerationTax CNY, USD
+
+
+1970-01-01 open Equity:OpenBlancing CNY, USD
+
+
+2023-05-31 01:01:01 balance Assets:Paypal 135125 CNY with pad Equity:OpenBlancing
+2023-05-31 01:01:01 balance Assets:WeChat 146340 CNY with pad Equity:OpenBlancing
+2023-05-31 01:01:01 balance Assets:CitiBank:9999 158059 CNY with pad Equity:OpenBlancing
+
+
+
+
+2023-06-01 08:00:00 "GrandLordCompany" "Salary"
+  Income:GrandLordCompany:Salary -2709 CNY
+  Assets:CitiBank:9999 2358 CNY
+  Expenses:GrandLordCompany:Tax
+
+
+2023-06-02 02:01:55 "Github Restaurant" "Eating Dinner"
+  Assets:Paypal -20 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-02 08:16:32 "KFC" "Eating Lunch"
+  Assets:Paypal -20 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-02 11:19:33 "UNIQLO" "T-shirt"
+  Assets:Paypal -19 CNY
+  Expenses:Clothing
+
+
+2023-06-03 20:09:35 "KFC" "Fried Chicken"
+  Liabilities:CreditCard:Apple -26 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-03 00:02:14 "隆江猪脚饭" "Eating Dinner"
+  Liabilities:CreditCard:Apple -11 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-03 07:59:33 "The Zhang Book Group" "Remuneration of <Good Good study, Day Day Up>"
+  Income:Publisher:Scgolastic -12 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-06-04 07:31:20 "隆江猪脚饭" "Eating Dinner"
+  Assets:CitiBank:9999 -18 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-04 22:32:53 "隆江猪脚饭" "Eating Lunch"
+  Assets:CitiBank:9999 -10 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-04 17:13:08 "Nike" "jeans"
+  Assets:CitiBank:9999 -29 CNY
+  Expenses:Clothing
+
+
+2023-06-04 05:37:18 "The Zhang Book Group" "Remuneration of <Good Good study, Day Day Up>"
+  Income:Publisher:Scgolastic -24 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 4 CNY
+
+
+2023-06-05 15:49:15 "The Zhang Book Group" "Annual Remuneration"
+  Income:Publisher:Scgolastic -10 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-06-06 18:39:19 "KFC" "Eating Dinner"
+  Assets:WeChat -16 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-06 21:14:48 "隆江猪脚饭" "Eating Lunch"
+  Assets:Paypal -26 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-06 12:15:37 "Doge Random House" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:DogeRandomHouse -11 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 5 CNY
+
+
+2023-06-07 06:34:58 "隆江猪脚饭" "Eating Dinner"
+  Assets:Paypal -13 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-07 16:38:18 "KFC" "Eating Dinner"
+  Assets:WeChat -16 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-07 18:08:35 "Nike" "jeans"
+  Assets:CitiBank:9999 -30 CNY
+  Expenses:Clothing
+
+
+2023-06-07 13:08:57 "Doge Random House" "Remuneration of <Good Good study, Day Day Up>"
+  Income:Publisher:TheZhangBookGroup -28 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 5 CNY
+
+
+2023-06-08 11:54:47 "Github Restaurant" "Eating Lunch"
+  Assets:Paypal -21 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-09 15:10:26 "Github Restaurant" "Eating Dinner"
+  Assets:Paypal -14 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-09 23:37:16 "The Zhang Book Group" "Annual Remuneration"
+  Income:Publisher:TheZhangBookGroup -16 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-06-10 03:50:20 "隆江猪脚饭" "Eating Lunch"
+  Assets:WeChat -27 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-11 00:14:22 "Adidas" "jeans"
+  Assets:WeChat -29 CNY
+  Expenses:Clothing
+
+
+2023-06-11 07:46:08 "The Zhang Book Group" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:Scgolastic -29 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 5 CNY
+
+
+2023-06-12 01:12:33 "隆江猪脚饭" "Eating Lunch"
+  Assets:WeChat -26 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-13 18:51:31 "H & M" "T-shirt"
+  Assets:WeChat -16 CNY
+  Expenses:Clothing
+
+
+2023-06-14 08:09:39 "Mcdonald" "Fried Chicken"
+  Assets:Paypal -12 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-15 19:53:15 "Mcdonald" "Eating Lunch"
+  Assets:WeChat -12 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-15 13:42:16 "隆江猪脚饭" "Eating Lunch"
+  Assets:Paypal -17 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-16 16:18:48 "H & M" "shoes"
+  Assets:Paypal -13 CNY
+  Expenses:Clothing
+
+
+2023-06-17 21:58:44 "隆江猪脚饭" "Eating Dinner"
+  Assets:WeChat -15 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-17 02:38:58 "UNIQLO" "shoes"
+  Assets:CitiBank:9999 -28 CNY
+  Expenses:Clothing
+
+
+2023-06-18 09:27:48 "Github Restaurant" "Fried Chicken"
+  Assets:Paypal -18 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-18 19:43:01 "Doge Random House" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:Scgolastic -47 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 2 CNY
+
+
+2023-06-19 04:45:08 "隆江猪脚饭" "Fried Chicken"
+  Assets:Paypal -10 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-19 15:35:34 "Github Restaurant" "Fried Chicken"
+  Assets:WeChat -29 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-19 09:08:13 "UNIQLO" "shoes"
+  Assets:WeChat -15 CNY
+  Expenses:Clothing
+
+
+2023-06-19 11:49:47 "Doge Random House" "Annual Remuneration"
+  Income:Publisher:DogeRandomHouse -25 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 4 CNY
+
+
+2023-06-20 05:59:19 "Mcdonald" "Fried Chicken"
+  Assets:WeChat -27 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-21 11:48:43 "Nike" "shoes"
+  Assets:Paypal -25 CNY
+  Expenses:Clothing
+
+
+2023-06-22 08:39:42 "Github Restaurant" "Fried Chicken"
+  Liabilities:CreditCard:CitiBank:3423 -26 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-22 06:29:43 "Doge Random House" "Annual Remuneration"
+  Income:Publisher:TheZhangBookGroup -46 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 2 CNY
+
+
+2023-06-23 15:24:22 "The Zhang Book Group" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:DogeRandomHouse -17 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-06-24 03:22:43 "Github Restaurant" "Eating Dinner"
+  Assets:Paypal -10 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-24 09:00:41 "Vans" "jeans"
+  Assets:WeChat -30 CNY
+  Expenses:Clothing
+
+
+2023-06-24 13:43:14 "The Zhang Book Group" "Annual Remuneration"
+  Income:Publisher:DogeRandomHouse -18 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 5 CNY
+
+
+2023-06-25 04:15:47 "隆江猪脚饭" "Eating Lunch"
+  Assets:Paypal -22 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-25 00:50:26 "Vans" "T-shirt"
+  Assets:CitiBank:9999 -27 CNY
+  Expenses:Clothing
+
+
+2023-06-26 08:23:00 "KFC" "Eating Dinner"
+  Assets:Paypal -27 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-26 00:51:05 "Github Restaurant" "Fried Chicken"
+  Assets:WeChat -30 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-27 05:06:55 "Vans" "jeans"
+  Assets:CitiBank:9999 -18 CNY
+  Expenses:Clothing
+
+
+2023-06-27 09:51:56 "Scgolastic" "Annual Remuneration"
+  Income:Publisher:Scgolastic -39 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 5 CNY
+
+
+2023-06-29 20:07:00 "Github Restaurant" "Eating Lunch"
+  Liabilities:CreditCard:Apple -13 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-06-29 23:14:36 "Github Restaurant" "Fried Chicken"
+  Assets:CitiBank:9999 -21 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-06-29 02:07:22 "The Zhang Book Group" "Annual Remuneration"
+  Income:Publisher:DogeRandomHouse -32 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 4 CNY
+
+
+
+
+2023-07-01 08:00:00 "GrandLordCompany" "Salary"
+  Income:GrandLordCompany:Salary -2832 CNY
+  Assets:CitiBank:9999 2511 CNY
+  Expenses:GrandLordCompany:Tax 321 CNY
+
+
+2023-07-01 20:49:17 "隆江猪脚饭" "Fried Chicken"
+  Assets:CitiBank:9999 -28 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-01 20:46:02 "Mcdonald" "Eating Lunch"
+  Liabilities:CreditCard:Apple -24 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-07-02 12:08:13 "隆江猪脚饭" "Eating Lunch"
+  Liabilities:CreditCard:CitiBank:3423 -17 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-07-03 09:40:18 "隆江猪脚饭" "Fried Chicken"
+  Assets:CitiBank:9999 -23 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-03 14:41:18 "Mcdonald" "Eating Lunch"
+  Liabilities:CreditCard:CitiBank:3423 -14 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-07-03 16:48:54 "Scgolastic" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:Scgolastic -38 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 5 CNY
+
+
+2023-07-05 08:24:07 "KFC" "Eating Dinner"
+  Liabilities:CreditCard:Apple -17 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-07-06 09:34:48 "H & M" "jeans"
+  Assets:WeChat -15 CNY
+  Expenses:Clothing
+
+
+2023-07-06 22:30:43 "The Zhang Book Group" "Remuneration of <Good Good study, Day Day Up>"
+  Income:Publisher:DogeRandomHouse -42 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 2 CNY
+
+
+2023-07-07 20:20:02 "Mcdonald" "Fried Chicken"
+  Assets:WeChat -16 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-07-08 22:23:33 "Vans" "jeans"
+  Assets:Paypal -17 CNY
+  Expenses:Clothing
+
+
+2023-07-08 07:08:26 "Doge Random House" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:TheZhangBookGroup -38 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-07-09 23:26:31 "Doge Random House" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:TheZhangBookGroup -47 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 2 CNY
+
+
+2023-07-10 16:50:30 "Vans" "T-shirt"
+  Assets:Paypal -18 CNY
+  Expenses:Clothing
+
+
+2023-07-10 05:52:12 "Doge Random House" "Annual Remuneration"
+  Income:Publisher:Scgolastic -47 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-07-11 08:58:17 "Mcdonald" "Eating Dinner"
+  Assets:CitiBank:9999 -24 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-13 20:37:10 "KFC" "Eating Dinner"
+  Assets:WeChat -29 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-13 22:04:14 "KFC" "Eating Lunch"
+  Assets:CitiBank:9999 -16 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-07-13 05:02:06 "Adidas" "jeans"
+  Assets:WeChat -11 CNY
+  Expenses:Clothing
+
+
+2023-07-15 07:01:55 "KFC" "Eating Dinner"
+  Assets:WeChat -21 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-15 19:31:18 "KFC" "Fried Chicken"
+  Assets:Paypal -22 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-15 05:12:18 "Nike" "jeans"
+  Assets:Paypal -10 CNY
+  Expenses:Clothing
+
+
+2023-07-16 03:21:34 "Github Restaurant" "Fried Chicken"
+  Assets:WeChat -15 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-16 11:58:32 "Github Restaurant" "Fried Chicken"
+  Assets:Paypal -28 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-17 16:48:51 "隆江猪脚饭" "Eating Dinner"
+  Assets:WeChat -23 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-07-17 06:14:20 "UNIQLO" "jeans"
+  Assets:WeChat -22 CNY
+  Expenses:Clothing
+
+
+2023-07-18 22:54:35 "KFC" "Eating Lunch"
+  Liabilities:CreditCard:Apple -12 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-18 22:24:15 "Doge Random House" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:TheZhangBookGroup -41 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 4 CNY
+
+
+2023-07-20 06:13:04 "KFC" "Eating Dinner"
+  Assets:CitiBank:9999 -19 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-07-20 20:07:29 "Scgolastic" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:DogeRandomHouse -37 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 2 CNY
+
+
+2023-07-21 21:59:42 "The Zhang Book Group" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:Scgolastic -39 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-07-22 21:49:07 "H & M" "T-shirt"
+  Assets:CitiBank:9999 -29 CNY
+  Expenses:Clothing
+
+
+2023-07-22 04:08:40 "Doge Random House" "Remuneration of <Good Good study, Day Day Up>"
+  Income:Publisher:DogeRandomHouse -19 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 2 CNY
+
+
+2023-07-23 01:36:07 "Doge Random House" "Annual Remuneration"
+  Income:Publisher:DogeRandomHouse -24 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 4 CNY
+
+
+2023-07-24 21:27:26 "隆江猪脚饭" "Fried Chicken"
+  Assets:CitiBank:9999 -10 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-25 08:34:06 "隆江猪脚饭" "Eating Lunch"
+  Assets:CitiBank:9999 -30 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-07-26 12:03:04 "KFC" "Eating Lunch"
+  Assets:WeChat -16 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-07-26 12:07:03 "Adidas" "jeans"
+  Assets:Paypal -27 CNY
+  Expenses:Clothing
+
+
+2023-07-26 13:21:27 "Scgolastic" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:DogeRandomHouse -21 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 4 CNY
+
+
+2023-07-27 14:38:13 "KFC" "Eating Dinner"
+  Assets:WeChat -26 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-28 12:50:29 "隆江猪脚饭" "Eating Lunch"
+  Liabilities:CreditCard:Apple -29 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-07-28 21:41:08 "Mcdonald" "Eating Lunch"
+  Liabilities:CreditCard:Apple -20 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-29 01:00:17 "隆江猪脚饭" "Eating Lunch"
+  Assets:CitiBank:9999 -28 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-29 17:46:37 "KFC" "Fried Chicken"
+  Liabilities:CreditCard:CitiBank:3423 -23 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-29 08:51:16 "UNIQLO" "shoes"
+  Assets:WeChat -19 CNY
+  Expenses:Clothing
+
+
+2023-07-29 21:39:32 "Scgolastic" "Annual Remuneration"
+  Income:Publisher:TheZhangBookGroup -25 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 5 CNY
+
+
+2023-07-30 08:07:32 "隆江猪脚饭" "Eating Lunch"
+  Assets:Paypal -20 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-07-30 04:28:54 "Adidas" "shoes"
+  Assets:CitiBank:9999 -23 CNY
+  Expenses:Clothing
+
+
+
+
+2023-08-01 08:00:00 "GrandLordCompany" "Salary"
+  Income:GrandLordCompany:Salary -2039 CNY
+  Assets:CitiBank:9999 1837 CNY
+  Expenses:GrandLordCompany:Tax 202 CNY
+
+
+2023-08-01 06:30:51 "Scgolastic" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:TheZhangBookGroup -45 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-08-02 06:06:07 "KFC" "Eating Lunch"
+  Liabilities:CreditCard:Apple -20 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-02 14:34:05 "The Zhang Book Group" "Remuneration of <Good Good study, Day Day Up>"
+  Income:Publisher:Scgolastic -17 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 5 CNY
+
+
+2023-08-03 23:05:38 "Mcdonald" "Eating Dinner"
+  Assets:CitiBank:9999 -19 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-03 02:46:08 "Github Restaurant" "Eating Dinner"
+  Assets:WeChat -28 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-03 16:17:08 "UNIQLO" "T-shirt"
+  Assets:Paypal -17 CNY
+  Expenses:Clothing
+
+
+2023-08-04 02:13:57 "隆江猪脚饭" "Fried Chicken"
+  Liabilities:CreditCard:CitiBank:3423 -24 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-04 22:35:20 "KFC" "Eating Dinner"
+  Liabilities:CreditCard:Apple -27 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-04 10:39:35 "UNIQLO" "jeans"
+  Assets:CitiBank:9999 -28 CNY
+  Expenses:Clothing
+
+
+2023-08-04 01:12:37 "Scgolastic" "Annual Remuneration"
+  Income:Publisher:DogeRandomHouse -45 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-08-05 17:39:28 "Github Restaurant" "Eating Lunch"
+  Assets:WeChat -22 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-06 23:11:50 "Github Restaurant" "Fried Chicken"
+  Assets:WeChat -25 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-06 13:22:51 "隆江猪脚饭" "Eating Dinner"
+  Liabilities:CreditCard:CitiBank:3423 -14 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-06 10:07:01 "Doge Random House" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:Scgolastic -11 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-08-07 07:12:39 "Mcdonald" "Eating Dinner"
+  Assets:Paypal -13 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-07 00:44:55 "Nike" "jeans"
+  Assets:Paypal -28 CNY
+  Expenses:Clothing
+
+
+2023-08-08 16:44:15 "Mcdonald" "Eating Lunch"
+  Assets:Paypal -29 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-08 07:11:26 "KFC" "Fried Chicken"
+  Assets:CitiBank:9999 -10 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-08 08:01:53 "Scgolastic" "Annual Remuneration"
+  Income:Publisher:Scgolastic -40 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 2 CNY
+
+
+2023-08-09 22:36:58 "Doge Random House" "Remuneration of <Good Good study, Day Day Up>"
+  Income:Publisher:DogeRandomHouse -28 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 2 CNY
+
+
+2023-08-10 02:00:15 "隆江猪脚饭" "Eating Dinner"
+  Liabilities:CreditCard:CitiBank:3423 -10 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-10 19:54:46 "隆江猪脚饭" "Eating Dinner"
+  Liabilities:CreditCard:Apple -18 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-11 13:25:18 "隆江猪脚饭" "Eating Lunch"
+  Liabilities:CreditCard:Apple -22 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-12 11:52:00 "KFC" "Eating Dinner"
+  Liabilities:CreditCard:CitiBank:3423 -20 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-12 11:21:10 "Nike" "shoes"
+  Assets:CitiBank:9999 -23 CNY
+  Expenses:Clothing
+
+
+2023-08-13 17:54:28 "Github Restaurant" "Eating Dinner"
+  Assets:Paypal -10 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-14 12:23:41 "Github Restaurant" "Eating Dinner"
+  Assets:Paypal -30 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-14 23:17:31 "Mcdonald" "Eating Lunch"
+  Liabilities:CreditCard:Apple -21 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-14 23:39:44 "Scgolastic" "Annual Remuneration"
+  Income:Publisher:TheZhangBookGroup -17 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 2 CNY
+
+
+2023-08-15 17:06:47 "The Zhang Book Group" "Annual Remuneration"
+  Income:Publisher:Scgolastic -34 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 5 CNY
+
+
+2023-08-17 00:45:56 "Github Restaurant" "Eating Dinner"
+  Assets:WeChat -22 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-18 16:42:09 "Mcdonald" "Eating Lunch"
+  Assets:CitiBank:9999 -27 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-18 16:29:21 "KFC" "Fried Chicken"
+  Assets:CitiBank:9999 -17 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-19 22:26:30 "The Zhang Book Group" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:Scgolastic -15 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-08-20 19:23:49 "Github Restaurant" "Fried Chicken"
+  Assets:Paypal -27 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-21 20:35:29 "Vans" "T-shirt"
+  Assets:CitiBank:9999 -28 CNY
+  Expenses:Clothing
+
+
+2023-08-21 17:36:19 "Scgolastic" "Annual Remuneration"
+  Income:Publisher:Scgolastic -48 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-08-22 01:31:33 "Github Restaurant" "Eating Lunch"
+  Assets:WeChat -26 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-22 00:37:50 "Github Restaurant" "Fried Chicken"
+  Liabilities:CreditCard:CitiBank:3423 -22 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-22 21:57:42 "Doge Random House" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:Scgolastic -19 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 3 CNY
+
+
+2023-08-23 10:30:33 "The Zhang Book Group" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:TheZhangBookGroup -16 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 2 CNY
+
+
+2023-08-24 08:59:12 "Github Restaurant" "Fried Chicken"
+  Assets:Paypal -10 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-25 23:03:09 "Scgolastic" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:Scgolastic -40 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 4 CNY
+
+
+2023-08-26 00:16:57 "隆江猪脚饭" "Eating Dinner"
+  Assets:Paypal -25 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-26 00:04:15 "Github Restaurant" "Eating Dinner"
+  Assets:Paypal -20 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-27 15:55:53 "Mcdonald" "Eating Lunch"
+  Assets:CitiBank:9999 -29 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-08-27 05:27:55 "KFC" "Fried Chicken"
+  Assets:Paypal -16 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-28 07:28:07 "Mcdonald" "Fried Chicken"
+  Assets:CitiBank:9999 -15 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-28 21:42:05 "隆江猪脚饭" "Eating Lunch"
+  Assets:WeChat -11 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-29 15:42:56 "Github Restaurant" "Fried Chicken"
+  Liabilities:CreditCard:CitiBank:3423 -13 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-29 11:45:32 "Github Restaurant" "Fried Chicken"
+  Assets:CitiBank:9999 -22 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-08-29 16:00:04 "UNIQLO" "T-shirt"
+  Assets:Paypal -22 CNY
+  Expenses:Clothing
+
+
+2023-08-29 17:57:37 "The Zhang Book Group" "Remuneration of <How to learn Zhang>"
+  Income:Publisher:DogeRandomHouse -38 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 5 CNY
+
+
+
+
+2023-09-01 08:00:00 "GrandLordCompany" "Salary"
+  Income:GrandLordCompany:Salary -200 CNY
+  Assets:CitiBank:9999 170 CNY
+  Expenses:GrandLordCompany:Tax
+
+
+2023-09-01 16:32:17 "Github Restaurant" "Fried Chicken"
+  Liabilities:CreditCard:CitiBank:3423 -11 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-01 18:13:45 "隆江猪脚饭" "Eating Lunch"
+  Assets:Paypal -12 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-02 15:55:25 "KFC" "Eating Dinner"
+  Liabilities:CreditCard:Apple -27 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-02 03:32:19 "KFC" "Eating Lunch"
+  Liabilities:CreditCard:CitiBank:3423 -21 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-03 07:06:28 "Mcdonald" "Eating Lunch"
+  Assets:WeChat -16 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-09-03 15:25:00 "Github Restaurant" "Fried Chicken"
+  Liabilities:CreditCard:Apple -21 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-03 22:53:07 "Scgolastic" "Remuneration of <Good Good study, Day Day Up>"
+  Income:Publisher:DogeRandomHouse -34 CNY
+  Assets:WeChat
+  Expenses:RemunerationTax 4 CNY
+
+
+2023-09-04 01:46:31 "隆江猪脚饭" "Eating Lunch"
+  Assets:CitiBank:9999 -13 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-09-04 17:42:42 "Nike" "T-shirt"
+  Assets:WeChat -20 CNY
+  Expenses:Clothing
+
+
+2023-09-05 08:54:37 "Nike" "shoes"
+  Assets:WeChat -16 CNY
+  Expenses:Clothing
+
+
+2023-09-06 19:18:31 "Github Restaurant" "Fried Chicken"
+  Liabilities:CreditCard:CitiBank:3423 -24 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-06 08:27:08 "隆江猪脚饭" "Eating Lunch"
+  Assets:CitiBank:9999 -13 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-09-06 04:48:06 "Scgolastic" "Annual Remuneration"
+  Income:Publisher:Scgolastic -35 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 5 CNY
+
+
+2023-09-08 16:08:33 "Mcdonald" "Eating Dinner"
+  Assets:Paypal -19 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-08 11:19:44 "隆江猪脚饭" "Fried Chicken"
+  Assets:Paypal -20 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-09 07:00:02 "Mcdonald" "Eating Dinner"
+  Assets:Paypal -22 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-09-09 08:19:09 "KFC" "Eating Lunch"
+  Assets:CitiBank:9999 -20 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-09-10 06:56:38 "The Zhang Book Group" "Annual Remuneration"
+  Income:Publisher:Scgolastic -46 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 5 CNY
+
+
+2023-09-11 16:03:16 "H & M" "shoes"
+  Assets:WeChat -16 CNY
+  Expenses:Clothing
+
+
+2023-09-11 09:36:51 "The Zhang Book Group" "Annual Remuneration"
+  Income:Publisher:DogeRandomHouse -13 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 4 CNY
+
+
+2023-09-12 03:34:50 "KFC" "Eating Dinner"
+  Assets:Paypal -19 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-09-12 20:59:41 "KFC" "Fried Chicken"
+  Liabilities:CreditCard:Apple -27 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-09-12 21:28:21 "H & M" "shoes"
+  Assets:CitiBank:9999 -29 CNY
+  Expenses:Clothing
+
+
+2023-09-12 14:52:48 "The Zhang Book Group" "Remuneration of <Good Good study, Day Day Up>"
+  Income:Publisher:Scgolastic -49 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 4 CNY
+
+
+2023-09-13 11:19:58 "Mcdonald" "Fried Chicken"
+  Liabilities:CreditCard:CitiBank:3423 -30 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-13 14:25:00 "Github Restaurant" "Fried Chicken"
+  Assets:WeChat -25 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-13 23:31:48 "Doge Random House" "Remuneration of <Good Good study, Day Day Up>"
+  Income:Publisher:Scgolastic -18 CNY
+  Assets:Paypal
+  Expenses:RemunerationTax 2 CNY
+
+
+2023-09-14 19:33:51 "Mcdonald" "Eating Lunch"
+  Assets:Paypal -30 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-14 08:57:12 "Github Restaurant" "Fried Chicken"
+  Assets:CitiBank:9999 -13 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-09-14 10:01:36 "Scgolastic" "Annual Remuneration"
+  Income:Publisher:DogeRandomHouse -41 CNY
+  Assets:CitiBank:9999
+  Expenses:RemunerationTax 4 CNY
+
+
+2023-09-15 10:06:48 "隆江猪脚饭" "Fried Chicken"
+  Liabilities:CreditCard:Apple -20 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-15 16:01:07 "Mcdonald" "Eating Dinner"
+  Assets:Paypal -17 CNY
+  Expenses:PersonalDiet:Lunch
+
+
+2023-09-16 17:05:48 "隆江猪脚饭" "Eating Lunch"
+  Liabilities:CreditCard:Apple -27 CNY
+  Expenses:PersonalDiet:Dinner
+
+
+2023-09-16 21:56:16 "隆江猪脚饭" "Eating Dinner"
+  Assets:CitiBank:9999 -21 CNY
+  Expenses:PersonalDiet:Lunch

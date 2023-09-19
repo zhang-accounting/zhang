@@ -2,7 +2,7 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 import { sortBy } from 'lodash-es';
 import { Chart } from 'react-chartjs-2';
-import { AccountType, StatisticResponse } from '../rest-model';
+import { AccountType, StatisticGraphResponse } from '../rest-model';
 
 const options = (meta: { isLogarithmic: boolean; offset: number; max: number }) => ({
   responsive: true,
@@ -57,9 +57,9 @@ const options = (meta: { isLogarithmic: boolean; offset: number; max: number }) 
     },
   },
 });
-const build_chart_data = (data: StatisticResponse) => {
+const build_chart_data = (data: StatisticGraphResponse) => {
   const dates = sortBy(
-    Object.keys(data.changes).map((date) => [date, new Date(date)]),
+    Object.keys(data.balances).map((date) => [date, new Date(date)]),
     (item) => item[1],
   );
 
@@ -68,17 +68,9 @@ const build_chart_data = (data: StatisticResponse) => {
   const labels = dates.map((date) => format(date[1] as Date, 'MMM dd'));
 
   let total_dataset = sequencedDate.map((date) => {
-    const target_day = data.details[date] ?? {};
-    let total = new BigNumber(0);
-    Object.entries(target_day)
-      .filter((it) => it[0].startsWith(AccountType.Assets) || it[0].startsWith(AccountType.Liabilities))
-      .forEach((it) => {
-        total = total.plus(new BigNumber(it[1].number));
-      });
-    return total.toNumber();
+    const target_day = data.balances[date];
+    return new BigNumber(target_day.calculated.number).toNumber();
   });
-
-  // let total_dataset = data.statistic.frames.map((frame) => parseFloat(frame.total.summary.number));
   const isLogarithmic = total_dataset.every((item) => item >= 0);
   let min = 0;
   let max = Math.max.apply(0, total_dataset) + 50;
@@ -89,8 +81,8 @@ const build_chart_data = (data: StatisticResponse) => {
     total_dataset = total_dataset.map((item) => item - min);
   }
 
-  const income_dataset = sequencedDate.map((date) => -1 * parseFloat(data.changes[date]?.[AccountType.Income]?.number ?? 0));
-  const expense_dataset = sequencedDate.map((date) => parseFloat(data.changes[date]?.[AccountType.Expenses]?.number ?? 0));
+  const income_dataset = sequencedDate.map((date) => -1 * (new BigNumber(data.changes[date]?.[AccountType.Income]?.calculated.number).toNumber() ?? 0));
+  const expense_dataset = sequencedDate.map((date) => new BigNumber(data.changes[date]?.[AccountType.Expenses]?.calculated.number).toNumber() ?? 0);
   return {
     data: {
       labels,
@@ -131,7 +123,7 @@ const build_chart_data = (data: StatisticResponse) => {
 };
 
 interface Props {
-  data: StatisticResponse;
+  data: StatisticGraphResponse;
   height: number;
 }
 

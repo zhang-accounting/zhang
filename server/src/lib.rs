@@ -8,6 +8,15 @@ use actix_web::web::Data;
 use actix_web::{App, HttpServer};
 use log::{debug, error, info, trace};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use routes::account::{
+    create_account_balance, create_batch_account_balances, get_account_documents, get_account_info, get_account_journals, get_account_list,
+    upload_account_document,
+};
+use routes::commodity::{get_all_commodities, get_single_commodity};
+use routes::common::{get_all_options, get_basic_info, get_errors, sse};
+use routes::document::{download_document, get_documents};
+use routes::file::{get_file_content, get_files, update_file_content};
+use routes::transaction::{create_new_transaction, get_info_for_new_transactions, get_journals, upload_transaction_document};
 use self_update::version::bump_is_greater;
 use serde::Serialize;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -22,13 +31,12 @@ use zhang_core::ZhangResult;
 use crate::broadcast::{BroadcastEvent, Broadcaster};
 use crate::error::ServerError;
 use crate::response::ResponseWrapper;
-use crate::route::*;
 
 pub mod broadcast;
 pub mod error;
 pub mod request;
 pub mod response;
-pub mod route;
+pub mod routes;
 pub mod util;
 
 pub type ServerResult<T> = Result<T, ServerError>;
@@ -64,8 +72,7 @@ pub struct ServeConfig {
 
 pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     info!("version: {}, build date: {}", env!("CARGO_PKG_VERSION"), env!("ZHANG_BUILD_DATE"));
-    let database = opts.database.clone();
-    let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), database, opts.transformer.clone()).await?;
+    let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), opts.transformer.clone())?;
     let ledger_data = Arc::new(RwLock::new(ledger));
 
     let cloned_ledger = ledger_data.clone();
@@ -118,7 +125,7 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
                 debug!("watcher: got the lock");
                 info!("receive file event and reload ledger");
                 let start_time = Instant::now();
-                match guard.reload().await {
+                match guard.reload() {
                     Ok(_) => {
                         let duration = start_time.elapsed();
                         info!("ledger is reloaded successfully in {:?}", duration);
@@ -172,8 +179,6 @@ async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broad
             .app_data(exporter.clone())
             .service(get_basic_info)
             .service(get_info_for_new_transactions)
-            .service(get_statistic_data)
-            .service(current_statistic)
             .service(get_journals)
             .service(create_new_transaction)
             .service(get_account_list)
@@ -191,14 +196,16 @@ async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broad
             .service(get_files)
             .service(get_file_content)
             .service(update_file_content)
-            .service(get_report)
             .service(get_errors)
             .service(get_all_options)
+            .service(routes::statistics::get_statistic_summary)
+            .service(routes::statistics::get_statistic_graph)
+            .service(routes::statistics::get_statistic_rank_detail_by_account_type)
             .service(sse);
 
         #[cfg(feature = "frontend")]
         {
-            app.default_service(actix_web::web::to(serve_frontend))
+            app.default_service(actix_web::web::to(routes::frontend::serve_frontend))
         }
 
         #[cfg(not(feature = "frontend"))]
@@ -248,7 +255,6 @@ async fn update_checker(broadcast: Arc<Broadcaster>) -> ServerResult<()> {
     })
     .await
     .expect("cannot spawn update checker task");
-    dbg!(&latest_release);
     if let Ok(release) = latest_release {
         if bump_is_greater(env!("CARGO_PKG_VERSION"), &release.version).unwrap_or(false) {
             broadcast.broadcast(BroadcastEvent::NewVersionFound { version: release.version }).await;

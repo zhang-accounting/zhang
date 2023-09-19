@@ -1,5 +1,6 @@
-use sha256::digest;
 use std::str::FromStr;
+
+use sha256::digest;
 use uuid::Uuid;
 use zhang_ast::SpanInfo;
 
@@ -19,10 +20,12 @@ impl FromSpan for Uuid {
 
 #[cfg(test)]
 mod test {
-    use crate::utils::id::FromSpan;
     use std::path::PathBuf;
+
     use uuid::Uuid;
     use zhang_ast::SpanInfo;
+
+    use crate::utils::id::FromSpan;
 
     #[test]
     fn should_generate_uuid_given_empty_file_name() {

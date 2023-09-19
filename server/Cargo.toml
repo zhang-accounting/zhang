@@ -24,7 +24,6 @@ base64 = "0.13.0"
 crossbeam-channel = "0.5.2"
 rust-embed = { version = "6.3", optional = true }
 serde = { version = "1", features = ["derive"] }
-sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "sqlite", "chrono", "bigdecimal"] }
 thiserror = "1"
 tokio = { version = "1", features = ['full', "tracing"] }
 tokio-util = { version = "0.6", features = ["io", "compat"] }
@@ -37,11 +36,12 @@ reqwest = { version = "0.11", features = ["json"] }
 itertools = "0.9"
 bigdecimal = { version = "0.3.0", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 indexmap = { version = "1.9", features = ["serde-1"] }
 mime_guess = "2"
 glob = "0.3.1"
 self_update = "0.36"
+strum = "0.24.1"
 
 
 [build-dependencies]
