@@ -1,4 +1,4 @@
-import { Container, Grid, Group, Progress, Table, Title } from '@mantine/core';
+import { Container, Grid, Progress, Table } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { IconCalendar } from '@tabler/icons';
 import { useEffect, useState } from 'react';
@@ -11,6 +11,7 @@ import { fetcher } from '../index';
 import { StatisticGraphResponse, StatisticResponse, StatisticTypeResponse } from '../rest-model';
 import PayeeNarration from '../components/basic/PayeeNarration';
 import BigNumber from 'bignumber.js';
+import { Heading } from '../components/basic/Heading';
 
 const color_set = ['pink', 'grape', 'violet'];
 
@@ -68,19 +69,20 @@ export default function Report() {
   return (
     <>
       <Container fluid>
-        <Group position="apart" my="lg">
-          <Title order={2}>Report</Title>
-          <DatePickerInput
-            icon={<IconCalendar size="1.1rem" stroke={1.5} />}
-            clearable
-            placeholder="Pick dates range"
-            type="range"
-            allowSingleDateInRange
-            value={value}
-            onChange={setValue}
-          />
-        </Group>
-
+        <Heading
+          title={`Report`}
+          rightSection={
+            <DatePickerInput
+              icon={<IconCalendar size="1.1rem" stroke={1.5} />}
+              clearable
+              placeholder="Pick dates range"
+              type="range"
+              allowSingleDateInRange
+              value={value}
+              onChange={setValue}
+            />
+          }
+        ></Heading>
         <StatusGroup
           data={[
             { title: '资产余额', amount: data.balance.calculated.number, currency: data.balance.calculated.commodity },

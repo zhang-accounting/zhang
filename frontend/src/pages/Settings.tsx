@@ -1,4 +1,4 @@
-import { Container, Grid, SegmentedControl, Skeleton, Table, Title } from '@mantine/core';
+import { Container, Grid, SegmentedControl, Skeleton, Table } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +8,7 @@ import { useAppSelector } from '../states';
 import useSWR from 'swr';
 import { fetcher } from '..';
 import { Option } from '../rest-model';
+import { Heading } from '../components/basic/Heading';
 
 export default function Settings() {
   const { i18n } = useTranslation();
@@ -26,8 +27,7 @@ export default function Settings() {
 
   return (
     <Container fluid>
-      <Title order={2}>Settings</Title>
-
+      <Heading title={`Settings`}></Heading>
       <Section title="Basic Setting">
         <Grid>
           <Grid.Col sm={12} md={6} lg={4}>

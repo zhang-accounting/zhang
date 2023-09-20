@@ -1,9 +1,10 @@
-import { Container, Group, Table, Text, Title } from '@mantine/core';
+import { Container, Group, Table, Text } from '@mantine/core';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router';
 import Amount from '../components/Amount';
 import { LoadingState } from '../rest-model';
 import { useAppSelector } from '../states';
+import { Heading } from '../components/basic/Heading';
 
 export default function Commodities() {
   let navigate = useNavigate();
@@ -18,7 +19,7 @@ export default function Commodities() {
 
   return (
     <Container fluid>
-      <Title order={2}>Commodities</Title>
+      <Heading title={`Commodities`}></Heading>
       <Table verticalSpacing="xs" highlightOnHover>
         <thead>
           <tr>

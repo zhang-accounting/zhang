@@ -1,4 +1,4 @@
-import { Pagination, Table, Title } from '@mantine/core';
+import { Button, Group, Pagination, Table } from '@mantine/core';
 import { format } from 'date-fns';
 import { groupBy } from 'lodash';
 import { useEffect } from 'react';
@@ -6,8 +6,11 @@ import TableViewJournalLine from '../components/journalLines/tableView/TableView
 import { LoadingState } from '../rest-model';
 import { useAppDispatch, useAppSelector } from '../states';
 import { fetchJournals, journalsSlice } from '../states/journals';
+import { Heading } from '../components/basic/Heading';
+import { useTranslation } from 'react-i18next';
 
 function Journals() {
+  const { t } = useTranslation();
   const { current_page, status: journalStatus, items, total_number, total_page } = useAppSelector((state) => state.journals);
   const dispatch = useAppDispatch();
   useEffect(() => {
@@ -27,7 +30,12 @@ function Journals() {
 
   return (
     <>
-      <Title order={2}>{total_number} Journals</Title>
+      <Heading title={`${total_number} Journals`}></Heading>
+      <Group my="lg" px="sm">
+        <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => dispatch(fetchJournals())}>
+          {t('REFRESH')}
+        </Button>
+      </Group>
       <Table verticalSpacing="xs" highlightOnHover>
         <thead>
           <tr>

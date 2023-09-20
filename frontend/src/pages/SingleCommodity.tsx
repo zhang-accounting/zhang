@@ -1,10 +1,11 @@
-import { Container, Table, Tabs, Title } from '@mantine/core';
+import { Container, Table, Tabs } from '@mantine/core';
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
 import useSWR from 'swr';
 import { fetcher } from '..';
 import Amount from '../components/Amount';
 import { CommodityDetail } from '../rest-model';
+import { Heading } from '../components/basic/Heading';
 
 export default function SingleCommodity() {
   let { commodityName } = useParams();
@@ -15,8 +16,7 @@ export default function SingleCommodity() {
 
   return (
     <Container fluid>
-      <Title order={2}>{commodityName}</Title>
-
+      <Heading title={commodityName!}></Heading>
       <Tabs defaultValue="lots" mt="lg">
         <Tabs.List>
           <Tabs.Tab value="lots">Lots</Tabs.Tab>

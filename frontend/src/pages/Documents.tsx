@@ -8,6 +8,7 @@ import useSWR from 'swr';
 import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import { fetcher } from '../index';
 import { Document } from '../rest-model';
+import { Heading } from '../components/basic/Heading';
 
 export default function Documents() {
   const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
@@ -33,7 +34,7 @@ export default function Documents() {
   return (
     <Container fluid>
       <Group position="apart">
-        <Title order={2}>{documents.length} Documents</Title>
+        <Heading title={`${documents.length} Documents`}></Heading>
         <Button.Group>
           <Button disabled={layout === 'Grid'} leftIcon={<IconLayout2 size={14} />} variant="default" onClick={() => setLayout('Grid')}>
             Grid

@@ -1,4 +1,4 @@
-import { Badge, Container, Group, Stack, Table, Tabs, Text, Title, createStyles, px } from '@mantine/core';
+import { Badge, Container, createStyles, Group, px, Stack, Table, Tabs, Text, Title } from '@mantine/core';
 import { IconMessageCircle, IconPhoto, IconSettings } from '@tabler/icons';
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
@@ -32,12 +32,13 @@ function SingleAccount() {
   if (!account) return <div>{error}</div>;
   return (
     <Container fluid>
-      <Group position="apart" py="sm" align="baseline">
+      <Group position="apart" py="md" px="sm" align="baseline">
         <Stack>
-          <Title order={2}>
-            <Badge>{account.status}</Badge> {account.alias ?? account.name}
-          </Title>
-          {!!account.alias && <Title order={4}>{account.name}</Title>}
+          <Title order={2}>{account.alias ?? account.name}</Title>
+          <Group>
+            <Badge>{account.status}</Badge>
+            {!!account.alias && <Title order={4}>{account.name}</Title>}
+          </Group>
         </Stack>
         <Stack align="end" spacing="xs">
           <Group className={classes.calculatedAmount}>
