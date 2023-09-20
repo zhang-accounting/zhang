@@ -5,6 +5,7 @@
     "CURRENT_MONTH_INCOME":"本月收入",
     "CURRENT_MONTH_EXPENSE":"本月支出",
     "RESET": "还原",
+    "REFRESH": "刷新",
 
     "NEW_TRANSACTION_PAYEE_CREATE": "新增",
 

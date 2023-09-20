@@ -1,5 +1,4 @@
-import { Container, Grid, Title } from '@mantine/core';
-import { useTranslation } from 'react-i18next';
+import { Container, Grid } from '@mantine/core';
 
 import useSWR from 'swr';
 import ErrorBox from '../components/ErrorBox';
@@ -9,9 +8,9 @@ import { fetcher } from '../index';
 import { StatisticGraphResponse } from '../rest-model';
 import { useAppSelector } from '../states';
 import ReportGraph from '../components/ReportGraph';
+import { Heading } from '../components/basic/Heading';
 
 function Home() {
-  const { t } = useTranslation();
   const error_total_number = useAppSelector((state) => state.errors.total_number);
   const now = new Date();
   const beginning_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 1);
@@ -26,7 +25,7 @@ function Home() {
   if (!data) return <>loading</>;
   return (
     <Container fluid>
-      <Title order={2}>{t('Dashboard')}</Title>
+      <Heading title={`Dashboard`}></Heading>
       <StatisticBar />
       <Grid>
         <Grid.Col span={8}>

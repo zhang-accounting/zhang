@@ -1,12 +1,15 @@
-import { Chip, Container, Group, Table, Title } from '@mantine/core';
+import { Button, Chip, Container, Group, Table } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import AccountLine from '../components/AccountLine';
 import { LoadingState } from '../rest-model';
 import { useAppDispatch, useAppSelector } from '../states';
 import { fetchAccounts, getAccountsTrie } from '../states/account';
+import { Heading } from '../components/basic/Heading';
+import { useTranslation } from 'react-i18next';
 
 export default function Accounts() {
+  const { t } = useTranslation();
   const [hideClosedAccount, setHideClosedAccount] = useLocalStorage({ key: 'hideClosedAccount', defaultValue: false });
   const dispatch = useAppDispatch();
   const accountStatus = useAppSelector((state) => state.accounts.status);
@@ -20,9 +23,11 @@ export default function Accounts() {
 
   return (
     <Container fluid>
-      <Title order={2}>Accounts</Title>
-
+      <Heading title={`Accounts`}></Heading>
       <Group my="lg">
+        <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => dispatch(fetchAccounts())}>
+          {t('REFRESH')}
+        </Button>
         <Chip checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)}>
           Hide closed accounts
         </Chip>
