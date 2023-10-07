@@ -12,3 +12,4 @@ crate-type = ["cdylib"]
 pyo3 = "0.19.0"
 zhang-core = {version="0.1", path="../../core"}
 zhang-ast = {version="0.1", path="../../ast"}
+tempfile = "3.8.0"
