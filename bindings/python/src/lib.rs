@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env::temp_dir;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -31,7 +32,11 @@ impl Ledger {
         let endpoint = t_dir.join("main.zhang");
         std::fs::write( endpoint, content)?;
         Ok(Ledger(zhang_core::ledger::Ledger::load::<TextTransformer>(t_dir, "main.zhang".to_owned()).unwrap()))
+    }
 
+    pub fn options(&self) -> PyResult<HashMap<String, String>> {
+        let store = self.0.store.read().unwrap();
+        Ok(store.options.clone())
     }
 }
 
