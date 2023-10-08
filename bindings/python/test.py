@@ -5,4 +5,6 @@ from pprint import pprint
 print("loading examples/example.zhang")
 ledger = Ledger("../../examples", "example.zhang")
 print("printing options")
-pprint(ledger.options())
+pprint(ledger.options)
+print("printing accounts info")
+pprint(ledger.accounts)
