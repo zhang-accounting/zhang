@@ -13,4 +13,11 @@ impl Account {
     pub fn name(&self) -> String {
         self.0.content.clone()
     }
+
+    pub fn __str__(&self) -> &str {
+        &self.0.content
+    }
+    pub fn __repr__(&self) -> String {
+        format!("<Account: {}>", &self.0.content)
+    }
 }
