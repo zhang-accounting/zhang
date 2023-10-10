@@ -1,4 +1,6 @@
+use crate::domain::CommodityDomain;
 use pyo3::prelude::*;
+use pyo3::types::PyTime;
 use std::collections::HashMap;
 use std::env::temp_dir;
 use std::path::PathBuf;
@@ -50,6 +52,17 @@ impl Ledger {
             .map(|(key, value)| (ast::Account(key), domain::AccountDomain(value)))
             .collect())
     }
+
+    #[getter]
+    pub fn commodities(&self) -> PyResult<HashMap<String, CommodityDomain>> {
+        let store = self.0.store.read().unwrap();
+        Ok(store
+            .commodities
+            .clone()
+            .into_iter()
+            .map(|(key, value)| (key, domain::CommodityDomain(value)))
+            .collect())
+    }
 }
 
 /// A Python module implemented in Rust.
@@ -58,5 +71,6 @@ fn zhang(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Ledger>()?;
     m.add_class::<ast::Account>()?;
     m.add_class::<domain::AccountDomain>()?;
+    m.add_class::<domain::CommodityDomain>()?;
     Ok(())
 }
