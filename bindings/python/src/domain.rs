@@ -6,7 +6,6 @@ pub struct AccountDomain(pub zhang_core::domains::schemas::AccountDomain);
 
 #[pymethods]
 impl AccountDomain {
-
     #[getter]
     pub fn datetime(&self) -> i64 {
         self.0.date.timestamp()
@@ -35,13 +34,11 @@ impl AccountDomain {
     }
 }
 
-
 #[pyclass]
 pub struct CommodityDomain(pub zhang_core::domains::schemas::CommodityDomain);
 
 #[pymethods]
 impl CommodityDomain {
-
     #[getter]
     pub fn name(&self) -> &str {
         &self.0.name
@@ -68,3 +65,108 @@ impl CommodityDomain {
         format!("<CommodityDomain: {}>", &self.0.name)
     }
 }
+
+#[pyclass]
+pub struct TransactionHeaderDomain(pub zhang_core::store::TransactionHeaderDomain);
+
+#[pymethods]
+impl TransactionHeaderDomain {
+    #[getter]
+    pub fn id(&self) -> String {
+        self.0.id.to_string()
+    }
+
+    #[getter]
+    pub fn sequence(&self) -> i32 {
+        self.0.sequence
+    }
+
+    #[getter]
+    pub fn datetime(&self) -> i64 {
+        self.0.datetime.timestamp()
+    }
+
+    #[getter]
+    pub fn flag(&self) -> String {
+        self.0.flag.to_string()
+    }
+
+    #[getter]
+    pub fn payee(&self) -> Option<String> {
+        self.0.payee.clone()
+    }
+
+    #[getter]
+    pub fn narration(&self) -> Option<String> {
+        self.0.narration.clone()
+    }
+
+    #[getter]
+    pub fn tags(&self) -> Vec<String> {
+        self.0.tags.clone()
+    }
+
+    #[getter]
+    pub fn links(&self) -> Vec<String> {
+        self.0.links.clone()
+    }
+    // todo SpanInfo,
+    // todo postings
+}
+
+#[pyclass]
+pub struct PostingDomain(pub zhang_core::store::PostingDomain);
+
+#[pymethods]
+impl PostingDomain {
+
+    #[getter]
+    pub fn id(&self) -> String {
+        self.0.id.to_string()
+    }
+    #[getter]
+    pub fn account(&self) -> String {
+       self.0.account.name().to_string()
+    }
+
+    #[getter]
+    pub fn unit(&self) -> Option<Amount> {
+        self.0.unit.clone().map(Amount)
+    }
+    #[getter]
+    pub fn cost(&self) -> Option<Amount> {
+        self.0.cost.clone().map(Amount)
+    }
+    #[getter]
+    pub fn inferred_amount(&self) ->Amount  {
+        Amount(self.0.inferred_amount.clone())
+    }
+    #[getter]
+    pub fn previous_amount(&self) -> Amount  {
+        Amount(self.0.previous_amount.clone())
+    }
+    #[getter]
+    pub fn after_amount(&self) -> Amount  {
+        Amount(self.0.after_amount.clone())
+    }
+}
+
+#[pyclass]
+pub struct Amount(pub zhang_ast::amount::Amount);
+
+#[pymethods]
+impl Amount {
+    #[getter]
+    pub fn number(&self) -> String {
+        self.0.number.to_string()
+    }
+    #[getter]
+    pub fn currency(&self) ->String {
+        self.0.currency
+    }
+}
+
+// todo price
+// todo commodity lot
+// todo document
+// todo errors
