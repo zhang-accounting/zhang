@@ -162,7 +162,7 @@ impl Amount {
     }
     #[getter]
     pub fn currency(&self) ->String {
-        self.0.currency
+        self.0.currency.to_owned()
     }
 }
 
