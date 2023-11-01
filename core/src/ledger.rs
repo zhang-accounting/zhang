@@ -30,7 +30,7 @@ pub struct Ledger {
 
     transformer: Arc<dyn Transformer>,
 
-    store: Arc<RwLock<Store>>,
+    pub store: Arc<RwLock<Store>>,
 
     pub(crate) trx_counter: AtomicI32,
 }

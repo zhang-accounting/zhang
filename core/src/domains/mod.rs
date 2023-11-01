@@ -218,7 +218,7 @@ impl Operations {
         let entry = store
             .commodity_lots
             .entry(Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?)
-            .or_insert_with(Vec::new);
+            .or_default();
 
         let option = entry.iter().filter(|lot| lot.commodity.eq(currency)).find(|lot| lot.price.eq(&price)).cloned();
 
@@ -230,7 +230,7 @@ impl Operations {
         let entry = store
             .commodity_lots
             .entry(Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?)
-            .or_insert_with(Vec::new);
+            .or_default();
 
         let option = entry
             .iter()
@@ -245,7 +245,7 @@ impl Operations {
         let entry = store
             .commodity_lots
             .entry(Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?)
-            .or_insert_with(Vec::new);
+            .or_default();
 
         let option = entry.iter_mut().find(|lot| lot.price.eq(&price));
         if let Some(lot) = option {
@@ -264,7 +264,7 @@ impl Operations {
     pub(crate) fn insert_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
         let mut store = self.write();
         let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
-        let lot_records = store.commodity_lots.entry(account).or_insert_with(Vec::new);
+        let lot_records = store.commodity_lots.entry(account).or_default();
 
         lot_records.push(CommodityLotRecord {
             commodity: currency.to_owned(),
@@ -326,8 +326,8 @@ impl Operations {
             let posting: PostingDomain = posting;
             let date = posting.trx_datetime.naive_local().date();
 
-            let account_inventory = ret.entry(posting.account).or_insert_with(IndexMap::new);
-            let dated_amount = account_inventory.entry(posting.after_amount.currency.clone()).or_insert_with(BTreeMap::new);
+            let account_inventory = ret.entry(posting.account).or_default();
+            let dated_amount = account_inventory.entry(posting.after_amount.currency.clone()).or_default();
             dated_amount.insert(date, posting.after_amount);
         }
 
@@ -446,7 +446,7 @@ impl Operations {
             let posting: PostingDomain = posting;
             let date = posting.trx_datetime.naive_local().date();
 
-            let dated_amount = ret.entry(posting.after_amount.currency.clone()).or_insert_with(BTreeMap::new);
+            let dated_amount = ret.entry(posting.after_amount.currency.clone()).or_default();
             dated_amount.insert(date, posting.after_amount);
         }
 
@@ -582,8 +582,8 @@ impl Operations {
             .cloned()
         {
             let date = posting.trx_datetime.naive_local().date();
-            let date_store = cal.entry(date).or_insert_with(HashMap::default);
-            let account_type_store = date_store.entry(posting.account.account_type).or_insert_with(HashMap::new);
+            let date_store = cal.entry(date).or_default();
+            let account_type_store = date_store.entry(posting.account.account_type).or_default();
             let balance = account_type_store.entry(posting.after_amount.currency).or_insert_with(BigDecimal::zero);
             balance.add_assign(&posting.after_amount.number);
         }
@@ -622,7 +622,7 @@ impl Operations {
             let posting: PostingDomain = posting;
             let date = posting.trx_datetime.naive_local().date();
 
-            let dated_amount = ret.entry(posting.after_amount.currency.clone()).or_insert_with(BTreeMap::new);
+            let dated_amount = ret.entry(posting.after_amount.currency.clone()).or_default();
             dated_amount.insert(date, posting.after_amount);
         }
 

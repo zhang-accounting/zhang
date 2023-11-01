@@ -10,7 +10,7 @@ pub struct PriceGrip {
 
 impl PriceGrip {
     pub fn insert(&mut self, from: Currency, to: Currency, amount: BigDecimal) {
-        let target_currency_map = self.inner.entry(from).or_insert_with(HashMap::new);
+        let target_currency_map = self.inner.entry(from).or_default();
         target_currency_map.insert(to, amount);
     }
     pub fn get(&self, from: &Currency, to: &Currency) -> Option<BigDecimal> {
