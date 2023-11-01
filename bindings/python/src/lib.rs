@@ -72,5 +72,8 @@ fn zhang(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ast::Account>()?;
     m.add_class::<domain::AccountDomain>()?;
     m.add_class::<domain::CommodityDomain>()?;
+    m.add_class::<domain::TransactionHeaderDomain>()?;
+    m.add_class::<domain::PostingDomain>()?;
+    m.add_class::<domain::Amount>()?;
     Ok(())
 }
