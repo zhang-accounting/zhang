@@ -165,7 +165,7 @@ pub async fn get_statistic_rank_detail_by_account_type(
     let mut account_detail: HashMap<String, Vec<Amount>> = HashMap::new();
 
     for posting in &income_transactions {
-        let target_account = account_detail.entry(posting.account.clone()).or_insert_with(Vec::new);
+        let target_account = account_detail.entry(posting.account.clone()).or_default();
         target_account.push(Amount::new(posting.inferred_unit_number.clone(), posting.inferred_unit_commodity.clone()));
     }
 

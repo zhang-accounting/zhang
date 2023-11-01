@@ -1,12 +1,13 @@
-use crate::domain::CommodityDomain;
-use pyo3::prelude::*;
-use pyo3::types::PyTime;
 use std::collections::HashMap;
 use std::env::temp_dir;
 use std::path::PathBuf;
 use std::str::FromStr;
+
+use pyo3::prelude::*;
 use zhang_ast::Spanned;
 use zhang_core::text::transformer::TextTransformer;
+
+use crate::domain::CommodityDomain;
 
 pub mod ast;
 pub mod domain;
@@ -27,7 +28,7 @@ impl Ledger {
     }
 
     #[staticmethod]
-    pub fn from_str(content: &str) -> PyResult<Self> {
+    pub fn from_string(content: &str) -> PyResult<Self> {
         let t_dir = temp_dir();
         let endpoint = t_dir.join("main.zhang");
         std::fs::write(endpoint, content)?;

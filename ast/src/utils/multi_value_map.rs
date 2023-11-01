@@ -18,7 +18,7 @@ impl<Key: Eq + Hash, Value> Default for MultiValueMap<Key, Value> {
 
 impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
     pub fn insert(&mut self, key: Key, value: Value) {
-        let key_store = self.inner.entry(key).or_insert_with(Vec::new);
+        let key_store = self.inner.entry(key).or_default();
         key_store.push(value);
     }
 
@@ -27,7 +27,7 @@ impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
         Key: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        self.inner.get(key.borrow()).and_then(|store| store.get(0))
+        self.inner.get(key).and_then(|store| store.get(0))
     }
 
     pub fn pop_one<Q>(&mut self, key: &Q) -> Option<Value>
@@ -35,10 +35,10 @@ impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
         Key: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        let value_len = self.inner.get(key.borrow()).map(|values| values.len());
+        let value_len = self.inner.get(key).map(|values| values.len());
         match value_len {
-            Some(1) => self.inner.remove(key.borrow()).and_then(|mut values| values.pop()),
-            Some(_) => self.inner.get_mut(key.borrow()).map(|values| values.remove(0)),
+            Some(1) => self.inner.remove(key).and_then(|mut values| values.pop()),
+            Some(_) => self.inner.get_mut(key).map(|values| values.remove(0)),
             None => None,
         }
     }
@@ -48,7 +48,7 @@ impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
         Key: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        self.inner.get(key.borrow()).map(|it| it.iter().collect_vec()).unwrap_or_default()
+        self.inner.get(key).map(|it| it.iter().collect_vec()).unwrap_or_default()
     }
 }
 impl<Key: Hash + Eq + Clone, Value> MultiValueMap<Key, Value> {

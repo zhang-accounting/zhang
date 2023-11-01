@@ -1,5 +1,4 @@
 use pyo3::prelude::*;
-use pyo3::types::PyDateTime;
 
 #[pyclass]
 pub struct AccountDomain(pub zhang_core::domains::schemas::AccountDomain);
@@ -119,14 +118,13 @@ pub struct PostingDomain(pub zhang_core::store::PostingDomain);
 
 #[pymethods]
 impl PostingDomain {
-
     #[getter]
     pub fn id(&self) -> String {
         self.0.id.to_string()
     }
     #[getter]
     pub fn account(&self) -> String {
-       self.0.account.name().to_string()
+        self.0.account.name().to_string()
     }
 
     #[getter]
@@ -138,15 +136,15 @@ impl PostingDomain {
         self.0.cost.clone().map(Amount)
     }
     #[getter]
-    pub fn inferred_amount(&self) ->Amount  {
+    pub fn inferred_amount(&self) -> Amount {
         Amount(self.0.inferred_amount.clone())
     }
     #[getter]
-    pub fn previous_amount(&self) -> Amount  {
+    pub fn previous_amount(&self) -> Amount {
         Amount(self.0.previous_amount.clone())
     }
     #[getter]
-    pub fn after_amount(&self) -> Amount  {
+    pub fn after_amount(&self) -> Amount {
         Amount(self.0.after_amount.clone())
     }
 }
@@ -161,7 +159,7 @@ impl Amount {
         self.0.number.to_string()
     }
     #[getter]
-    pub fn currency(&self) ->String {
+    pub fn currency(&self) -> String {
         self.0.currency.to_owned()
     }
 }

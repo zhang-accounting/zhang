@@ -1,5 +1,3 @@
-
-
 use pyo3::prelude::*;
 
 #[pyclass]
@@ -8,7 +6,6 @@ pub struct Account(pub zhang_ast::Account);
 
 #[pymethods]
 impl Account {
-
     #[getter]
     pub fn name(&self) -> String {
         self.0.content.clone()
