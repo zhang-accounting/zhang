@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use actix_web::web::{Data, Json, Path};
 use actix_web::{get, put};
+use itertools::Either;
 use log::error;
 use tokio::sync::RwLock;
 use zhang_core::ledger::Ledger;
@@ -16,16 +17,24 @@ pub async fn get_files(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Optio
     let entry_path = &ledger.entry.0;
 
     let mut ret = vec![];
-    for patten in &ledger.visited_files {
-        for entry in glob::glob(patten.as_str()).unwrap() {
-            match entry {
-                Ok(path) => {
-                    let p = path.strip_prefix(entry_path).unwrap().to_str().map(|it| it.to_string());
-                    ret.push(p);
+    for visited in &ledger.visited_files {
+        match visited {
+            Either::Left(pattern) => {
+                for entry in glob::glob(pattern.as_str()).unwrap() {
+                    match entry {
+                        Ok(path) => {
+                            let p = path.strip_prefix(entry_path).unwrap().to_str().map(|it| it.to_string());
+                            ret.push(p);
+                        }
+                        Err(e) => error!("{:?}", e),
+                    }
                 }
-                Err(e) => error!("{:?}", e),
+            },
+            Either::Right(path) => {
+                ret.push(path.to_str().map(|it| it.to_string()));
             }
         }
+
     }
     ResponseWrapper::json(ret)
 }

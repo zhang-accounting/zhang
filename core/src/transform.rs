@@ -1,17 +1,19 @@
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use glob::{glob, Pattern};
-use itertools::Itertools;
+use itertools::{Itertools, Either};
 use log::debug;
 use zhang_ast::{Directive, Spanned};
 
 use crate::error::IoErrorIntoZhangError;
+use crate::utils::to_glob_or_path;
 use crate::{utils, ZhangResult};
 
 pub struct TransformResult {
     pub directives: Vec<Spanned<Directive>>,
-    pub visited_files: Vec<Pattern>,
+    pub visited_files: Vec<Either<Pattern, PathBuf>>,
 }
 
 pub trait Transformer
@@ -43,46 +45,78 @@ where
         let entry = entry.canonicalize().with_path(&entry)?;
         let main_endpoint = entry.join(endpoint);
         let main_endpoint = main_endpoint.canonicalize().with_path(&main_endpoint)?;
-        let mut load_queue: VecDeque<Pattern> = VecDeque::new();
-        load_queue.push_back(Pattern::new(main_endpoint.as_path().to_str().unwrap()).unwrap());
+        let mut load_queue: VecDeque<Either<Pattern, PathBuf>> = VecDeque::new();
+        let a = to_glob_or_path(main_endpoint);
+        load_queue.push_back(a);
 
-        let mut visited: HashSet<Pattern> = HashSet::new();
+        let mut visited: Vec<Either<Pattern, PathBuf>> = Vec::new();
         let mut directives = vec![];
         while let Some(load_entity) = load_queue.pop_front() {
-            debug!("visited path pattern: {}", load_entity);
-            for entry in glob(load_entity.as_str()).unwrap() {
-                match entry {
-                    Ok(path) => {
-                        debug!("visited entry file: {:?}", path.display());
-                        if utils::has_path_visited(&visited, &path) {
-                            continue;
-                        }
-                        let file_content = self.get_file_content(path.clone())?;
-                        let entity_directives = self.parse(&file_content, path.clone())?;
+//            debug!("visited path pattern: {}", load_entity);
 
-                        entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
-                            let fullpath = if buf.starts_with('/') {
-                                buf
-                            } else {
-                                path.parent()
+            match &load_entity {
+                Either::Left(pattern) => {
+
+                    for entry in glob(pattern.as_str()).unwrap() {
+                        match entry {
+                            Ok(path) => {
+                                debug!("visited entry file: {:?}", path.display());
+                                if utils::has_path_visited(&visited, &path) {
+                                    continue;
+                                }
+                                let file_content = self.get_file_content(path.clone())?;
+                                let entity_directives = self.parse(&file_content, path.clone())?;
+
+                                entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
+                                    let fullpath = if buf.starts_with('/') {
+                                        to_glob_or_path(PathBuf::from_str(&buf).unwrap())
+                                    } else {
+                                        path.parent()
                                     .map(|it| it.join(buf))
-                                    .map(|it| it.as_path().to_str().unwrap().to_owned())
+                                    .map(|it| to_glob_or_path(it))
                                     .unwrap()
-                            };
-                            load_queue.push_back(Pattern::new(&fullpath).unwrap());
-                        });
-                        directives.extend(entity_directives)
+                                    };
+                                    load_queue.push_back(fullpath);
+                                });
+                                directives.extend(entity_directives);
+
+                            }
+                            // if the path matched but was unreadable,
+                            // thereby preventing its contents from matching
+                            Err(e) => println!("{:?}", e),
+                        }
                     }
-                    // if the path matched but was unreadable,
-                    // thereby preventing its contents from matching
-                    Err(e) => println!("{:?}", e),
-                }
-            }
-            visited.insert(load_entity);
+
+                },
+                Either::Right(pathbuf) => {
+                    debug!("visited entry file: {:?}", pathbuf.display());
+                    if utils::has_path_visited(&visited, &pathbuf) {
+                        continue;
+                    }
+                    let file_content = self.get_file_content(pathbuf.clone())?;
+                    let entity_directives = self.parse(&file_content, pathbuf.clone())?;
+
+                    entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
+                        let fullpath = if buf.starts_with('/') {
+                            to_glob_or_path(PathBuf::from_str(&buf).unwrap())
+                        } else {
+                            pathbuf.parent()
+                                    .map(|it| it.join(buf))
+                                    .map(|it| to_glob_or_path(it))
+                                    .unwrap()
+                        };
+                        load_queue.push_back(fullpath);
+                    });
+                    directives.extend(entity_directives);
+
+    }
+}
+            visited.push(load_entity);
+
         }
         Ok(TransformResult {
             directives: self.transform(directives)?,
-            visited_files: visited.into_iter().collect_vec(),
+            visited_files: visited,
         })
     }
 }

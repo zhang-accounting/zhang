@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 
 use bigdecimal::Zero;
 use glob::Pattern;
-use itertools::Itertools;
+use itertools::{Itertools, Either};
 use log::{error, info};
 use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
@@ -21,7 +21,7 @@ use crate::ZhangResult;
 pub struct Ledger {
     pub entry: (PathBuf, String),
 
-    pub visited_files: Vec<Pattern>,
+    pub visited_files: Vec<Either<Pattern, PathBuf>>,
 
     pub options: InMemoryOptions,
 
@@ -49,7 +49,7 @@ impl Ledger {
     }
 
     fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<Pattern>, transformer: Arc<dyn Transformer>,
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<Either<Pattern, PathBuf>>, transformer: Arc<dyn Transformer>,
     ) -> ZhangResult<Ledger> {
         let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
@@ -188,6 +188,7 @@ mod test {
     use std::sync::Arc;
 
     use glob::Pattern;
+    use itertools::Either;
     use tempfile::tempdir;
     use zhang_ast::{Directive, SpanInfo, Spanned};
 
@@ -222,7 +223,7 @@ mod test {
         Ledger::process(
             test_parse_zhang(content),
             (temp_dir.clone(), "example.zhang".to_string()),
-            vec![Pattern::new(temp_dir.join("example.zhang").as_path().to_str().unwrap()).unwrap()],
+            vec![Either::Left(Pattern::new(temp_dir.join("example.zhang").as_path().to_str().unwrap()).unwrap())],
             Arc::new(TestTransformer {}),
         )
         .unwrap()
