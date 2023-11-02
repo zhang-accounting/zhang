@@ -1,9 +1,9 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::str::FromStr;
 
 use glob::{glob, Pattern};
-use itertools::{Itertools, Either};
+use itertools::Either;
 use log::debug;
 use zhang_ast::{Directive, Spanned};
 
@@ -52,11 +52,10 @@ where
         let mut visited: Vec<Either<Pattern, PathBuf>> = Vec::new();
         let mut directives = vec![];
         while let Some(load_entity) = load_queue.pop_front() {
-//            debug!("visited path pattern: {}", load_entity);
+            //            debug!("visited path pattern: {}", load_entity);
 
             match &load_entity {
                 Either::Left(pattern) => {
-
                     for entry in glob(pattern.as_str()).unwrap() {
                         match entry {
                             Ok(path) => {
@@ -71,26 +70,21 @@ where
                                     let fullpath = if buf.starts_with('/') {
                                         to_glob_or_path(PathBuf::from_str(&buf).unwrap())
                                     } else {
-                                        path.parent()
-                                    .map(|it| it.join(buf))
-                                    .map(|it| to_glob_or_path(it))
-                                    .unwrap()
+                                        path.parent().map(|it| it.join(buf)).map(to_glob_or_path).unwrap()
                                     };
                                     load_queue.push_back(fullpath);
                                 });
                                 directives.extend(entity_directives);
-
                             }
                             // if the path matched but was unreadable,
                             // thereby preventing its contents from matching
                             Err(e) => println!("{:?}", e),
                         }
                     }
-
-                },
+                }
                 Either::Right(pathbuf) => {
                     debug!("visited entry file: {:?}", pathbuf.display());
-                    if utils::has_path_visited(&visited, &pathbuf) {
+                    if utils::has_path_visited(&visited, pathbuf) {
                         continue;
                     }
                     let file_content = self.get_file_content(pathbuf.clone())?;
@@ -100,19 +94,14 @@ where
                         let fullpath = if buf.starts_with('/') {
                             to_glob_or_path(PathBuf::from_str(&buf).unwrap())
                         } else {
-                            pathbuf.parent()
-                                    .map(|it| it.join(buf))
-                                    .map(|it| to_glob_or_path(it))
-                                    .unwrap()
+                            pathbuf.parent().map(|it| it.join(buf)).map(to_glob_or_path).unwrap()
                         };
                         load_queue.push_back(fullpath);
                     });
                     directives.extend(entity_directives);
-
-    }
-}
+                }
+            }
             visited.push(load_entity);
-
         }
         Ok(TransformResult {
             directives: self.transform(directives)?,

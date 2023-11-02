@@ -29,12 +29,11 @@ pub async fn get_files(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Optio
                         Err(e) => error!("{:?}", e),
                     }
                 }
-            },
+            }
             Either::Right(path) => {
                 ret.push(path.to_str().map(|it| it.to_string()));
             }
         }
-
     }
     ResponseWrapper::json(ret)
 }

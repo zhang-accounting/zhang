@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 
 use bigdecimal::Zero;
 use glob::Pattern;
-use itertools::{Itertools, Either};
+use itertools::{Either, Itertools};
 use log::{error, info};
 use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
