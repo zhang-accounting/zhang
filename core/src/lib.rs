@@ -24,6 +24,7 @@ mod test {
     use std::sync::Arc;
 
     use glob::Pattern;
+    use itertools::Either;
     use serde_json_path::JsonPath;
     use tempfile::tempdir;
     use zhang_ast::{Directive, Spanned};
@@ -42,7 +43,7 @@ mod test {
             let result: Vec<Spanned<Directive>> = parse_zhang(&string, file).expect("cannot read file");
             Ok(TransformResult {
                 directives: result,
-                visited_files: vec![Pattern::new("example.zhang").unwrap()],
+                visited_files: vec![Either::Left(Pattern::new("example.zhang").unwrap())],
             })
         }
     }
