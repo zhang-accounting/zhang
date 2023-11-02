@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+permissions:
+    id-token: write
+    pages: write
+
 env:
   # Name of module and id separated by a slash
   INSTANCE: Writerside/zhang
