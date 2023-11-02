@@ -139,12 +139,12 @@ jobs:
             artifacts/${{ env.ARTIFACT }}
           retention-days: 7
 
-  deploy:
+  doc-deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     # Requires test job results
-    needs: build
+    needs: doc-build
     runs-on: ubuntu-latest
 
     steps:
