@@ -13,5 +13,10 @@
             <noindex-content>true</noindex-content>
         </variables>
     </build-profile>
+    <build-profile instance="zhang-doc">
+        <variables>
+            <noindex-content>true</noindex-content>
+        </variables>
+    </build-profile>
 
 </buildprofiles>
