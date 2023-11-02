@@ -117,15 +117,14 @@ jobs:
             ghcr.io/zhang-accounting/zhang:snapshot-example
   doc-build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-
+      - name: Copy doc to root
+        uses: mv ./doc ./
       - name: Build Writerside docs using Docker
         uses: JetBrains/writerside-github-action@v4
         with:
-          working-directory: doc
           instance: ${{ env.INSTANCE }}
           artifact: ${{ env.ARTIFACT }}
           docker-version: ${{ env.DOCKER_VERSION }}
@@ -133,7 +132,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
-          working-directory: doc
           name: docs
           path: |
             artifacts/${{ env.ARTIFACT }}
