@@ -121,7 +121,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
       - name: Copy doc to root
-        run: mv ./doc/**/*.* ./
+        run: mv ./doc/Writerside ./Writerside
       - name: Build Writerside docs using Docker
         uses: JetBrains/writerside-github-action@v4
         with:
