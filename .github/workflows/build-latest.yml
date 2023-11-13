@@ -33,12 +33,18 @@ jobs:
         run: yarn run build
         working-directory: ./frontend
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+        rust: [stable]
     steps:
       - uses: actions/checkout@v1
-      - uses: actions-rs/toolchain@v1
+      - name: Install ${{ matrix.rust }}
+        uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: ${{ matrix.rust }}
+          override: true
       - uses: actions/cache@v3
         with:
           path: |
