@@ -1,17 +1,18 @@
-<div align="center">
-    <h1>账 Zhang</h1>
-    <p>a plain text double-accounting tool</p>
-    <img alt="GitHub Workflow Status" src="https://img.shields.io/github/workflow/status/kilerd/zhang/Develop%20Build">
-    <a href="https://crates.io/crates/zhang"><img alt="Crates.io" src="https://img.shields.io/crates/v/zhang"></a>
-    <a href="https://codecov.io/gh/zhang-accounting/zhang" ><img src="https://codecov.io/gh/zhang-accounting/zhang/branch/main/graph/badge.svg?token=AVM0HNGF91"/></a>
-    <img alt="Crates.io (recent)" src="https://img.shields.io/crates/dr/zhang">
-    <a href="docs.rs/zhang"><img alt="docs.rs" src="https://img.shields.io/docsrs/zhang"></a>
-    <img alt="Crates.io" src="https://img.shields.io/crates/l/zhang">
-    <img src="https://raw.githubusercontent.com/zhang-accounting/zhang/main/assets/screenshot.png">
-</div>
+<img align="right" width="256" height="256" src="/logo.jpg">
 
-Online Demo Web: [zhang online demo](https://zhang-accounting.zeabur.app/) 
-> due to security concern, we only provide the readonly file system, so some operation may not be supported in the demo.
+# 账 Zhang
+
+a plain text double-accounting tool.
+
+![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/zhang-accounting/zhang/build-latest.yml)
+[![](https://codecov.io/gh/zhang-accounting/zhang/branch/main/graph/badge.svg?token=AVM0HNGF91)](https://codecov.io/gh/zhang-accounting/zhang)
+![Crates.io (recent)](https://img.shields.io/crates/dr/zhang)
+![Docker Pulls](https://img.shields.io/docker/pulls/kilerd/zhang)
+[![](https://img.shields.io/docsrs/zhang)](docs.rs/zhang)
+![](https://img.shields.io/crates/l/zhang)
+
+- Online Demo: [Online Demo](https://zhang-accounting.zeabur.app/)
+- Documentation: [Documentation](zhang-accounting.github.io/zhang/)
 
 ## Features
  - **Independent Direcitve**: all directives in zhang are independent, you can write them in any file with any order.
