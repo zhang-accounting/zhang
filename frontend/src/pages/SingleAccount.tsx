@@ -85,7 +85,7 @@ function SingleAccount() {
                   <>
                     {data.map((item) => (
                       <tr>
-                        <td>{format(new Date(item.datetime), 'yyyy-MM-dd hh:mm:ss')}</td>
+                        <td>{format(new Date(item.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
                         <td>
                           <PayeeNarration payee={item.payee} narration={item.narration} />
                         </td>
