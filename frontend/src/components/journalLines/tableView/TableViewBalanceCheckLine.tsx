@@ -59,7 +59,7 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
   const { classes } = useStyles();
 
   const date = format(new Date(data.datetime), 'yyyy-MM-dd');
-  const time = format(new Date(data.datetime), 'hh:mm:ss');
+  const time = format(new Date(data.datetime), 'HH:mm:ss');
 
   const openPreviewModal = (e: any) => {
     openContextModal({

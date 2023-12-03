@@ -29,7 +29,7 @@ export default function TransactionPreview(props: Props) {
           <Text lineClamp={1} my="xs">
             Datetime
           </Text>
-          <Text lineClamp={1}>{format(new Date(props.data.datetime), 'yyyy-MM-dd hh:mm:ss')}</Text>
+          <Text lineClamp={1}>{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</Text>
         </DashLine>
 
         <DashLine>

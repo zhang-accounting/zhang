@@ -94,7 +94,7 @@ export default function Documents() {
                     </Badge>
                   )}
                 </td>
-                <td>{format(new Date(document.datetime), 'yyyy-MM-dd hh:mm:ss')}</td>
+                <td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
                 <td></td>
               </tr>
             ))}
