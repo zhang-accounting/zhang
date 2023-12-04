@@ -178,6 +178,7 @@ async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broad
             .app_data(Data::new(ledger_data.clone()))
             .app_data(exporter.clone())
             .service(get_basic_info)
+            .service(routes::common::get_store_data)
             .service(get_info_for_new_transactions)
             .service(get_journals)
             .service(create_new_transaction)
