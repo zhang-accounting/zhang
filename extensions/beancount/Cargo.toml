@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-zhang-ast = { version = "0.1", path = "../../ast" }
-zhang-core = { version = "0.1", path = "../../core" }
+zhang-ast = { version = "0.1", path = "../../zhang-ast" }
+zhang-core = { version = "0.1", path = "../../zhang-core" }
 pest = "2.1"
 pest_consume = "1.1"
 pest_derive = "2.1"

@@ -11,7 +11,7 @@ serde = ["zhang-ast/serde", "uuid/serde", "chrono-tz/serde", ]
 
 
 [dependencies]
-zhang-ast = { version = "0.1", path = "../ast" }
+zhang-ast = { version = "0.1", path = "../zhang-ast" }
 thiserror = "1"
 log = "0.4"
 itertools = "0.9"

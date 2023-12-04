@@ -11,8 +11,8 @@ build = "build.rs"
 frontend = ["rust-embed"]
 
 [dependencies]
-zhang-core = {version="0.1", path="../core"}
-zhang-ast = {version="0.1", path="../ast"}
+zhang-core = {version="0.1", path="../zhang-core"}
+zhang-ast = {version="0.1", path="../zhang-ast"}
 
 actix-cors = "0.6"
 actix-files = "0.6"

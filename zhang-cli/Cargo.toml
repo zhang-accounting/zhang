@@ -10,9 +10,9 @@ license = "Apache-2.0"
 
 [dependencies]
 
-zhang-core = {version="0.1", path="../core"}
-zhang-ast = {version="0.1", path="../ast"}
-zhang-server = {version="0.1.0-alpha.3", path="../server"}
+zhang-core = {version="0.1", path="../zhang-core"}
+zhang-ast = {version="0.1", path="../zhang-ast"}
+zhang-server = {version="0.1.0-alpha.3", path="../zhang-server"}
 
 beancount = {version="0.1", path="../extensions/beancount"}
 
