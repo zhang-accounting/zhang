@@ -7,7 +7,6 @@ edition = "2021"
 
 [features]
 wasm = ["uuid/js"]
-serde = ["zhang-ast/serde", "uuid/serde", "chrono-tz/serde", ]
 
 
 [dependencies]
