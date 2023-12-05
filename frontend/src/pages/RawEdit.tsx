@@ -13,16 +13,18 @@ function RawEdit() {
   if (!data) return <>loading</>;
 
   const tree: Tier = {};
-  data.forEach((entry) => {
-    let ref_tree = tree;
-    entry.split(/[/\\]/).forEach((path) => {
-      if (!ref_tree.hasOwnProperty(path)) {
-        ref_tree[path] = {};
-      }
-      ref_tree = ref_tree[path];
+  data
+    .map((it) => it.replace(/^\/|\/$/g, ''))
+    .forEach((entry) => {
+      let ref_tree = tree;
+      entry.split(/[/\\]/).forEach((path) => {
+        if (!ref_tree.hasOwnProperty(path)) {
+          ref_tree[path] = {};
+        }
+        ref_tree = ref_tree[path];
+      });
+      ref_tree[ZHANG_VALUE] = entry;
     });
-    ref_tree[ZHANG_VALUE] = entry;
-  });
   return (
     <Container fluid>
       <Grid>
