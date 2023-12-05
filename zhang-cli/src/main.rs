@@ -76,6 +76,10 @@ pub struct ServerOpts {
     #[clap(short, long, default_value = "main.zhang")]
     pub endpoint: String,
 
+    /// serve addr
+    #[clap(long, default_value = "0.0.0.0")]
+    pub addr: String,
+
     /// serve port
     #[clap(short, long, default_value_t = 8000)]
     pub port: u16,
@@ -129,6 +133,7 @@ impl Opts {
                 zhang_server::serve(ServeConfig {
                     path: opts.path,
                     endpoint: opts.endpoint,
+                    addr: opts.addr,
                     port: opts.port,
                     database: opts.database,
                     no_report: opts.no_report,
@@ -194,13 +199,23 @@ async fn main() {
 
 #[cfg(test)]
 mod test {
-    use crate::SupportedFormat;
     use std::io::{stdout, Write};
+    use std::net::TcpStream;
+    use std::sync::Arc;
+    use std::time::Duration;
+
     use serde::Deserialize;
+    use serde_json_path::JsonPath;
+    use tokio::sync::RwLock;
+    use zhang_core::ledger::Ledger;
+    use zhang_server::broadcast::Broadcaster;
     use zhang_server::ServeConfig;
+
+    use crate::SupportedFormat;
 
     #[tokio::test]
     async fn integration_test() {
+        env_logger::try_init().ok();
         type ValidationPoint = (String, serde_json::Value);
         #[derive(Deserialize)]
         struct Validation {
@@ -218,7 +233,7 @@ mod test {
                     writeln!(lock, "    \x1b[0;32mIntegration Test\x1b[0;0m: {}", path.path().display()).unwrap();
                 }
 
-                let pathbuf  = path.path();
+                let pathbuf = path.path();
                 let local = tokio::task::LocalSet::new();
 
                 local
@@ -226,18 +241,48 @@ mod test {
                         let format = SupportedFormat::Zhang;
 
                         let server_handler = tokio::task::spawn_local(async move {
-                            zhang_server::serve(ServeConfig {
-                                path: pathbuf,
-                                endpoint: "main.zhang".to_owned(),
-                                port: 19876,
-                                database: None,
-                                no_report: true,
-                                exporter: format.exporter(),
-                                transformer: format.transformer(),
-                            })
+                            let mut times = 0;
+                            while times < 100 {
+                                if TcpStream::connect("127.0.0.1:19876").is_ok() {
+                                    times += 1;
+                                    tokio::time::sleep(Duration::from_millis(10)).await;
+                                } else {
+                                    break;
+                                }
+                            }
+                            let ledger =
+                                Ledger::load_with_database(pathbuf.clone(), "main.zhang".to_owned(), format.transformer()).expect("cannot load ledger");
+                            let ledger_data = Arc::new(RwLock::new(ledger));
+                            let broadcaster = Broadcaster::create();
+
+                            zhang_server::start_server(
+                                ServeConfig {
+                                    path: pathbuf,
+                                    endpoint: "main.zhang".to_owned(),
+                                    addr: "127.0.0.1".to_string(),
+                                    port: 19876,
+                                    database: None,
+                                    no_report: true,
+                                    exporter: format.exporter(),
+                                    transformer: format.transformer(),
+                                },
+                                ledger_data,
+                                broadcaster,
+                            )
                             .await
-                            .expect("cannot start server")
+                            .expect("cannot start server");
+                            ()
                         });
+
+                        let mut times = 0;
+                        while times < 100 {
+                            if TcpStream::connect("127.0.0.1:19876").is_ok() {
+                                break;
+                            } else {
+                                times += 1;
+                                tokio::time::sleep(Duration::from_millis(10)).await;
+                            }
+                        }
 
                         let validations_content = std::fs::read_to_string(path.path().join("validations.json")).unwrap();
                         let validations: Vec<Validation> = serde_json::from_str(&validations_content).unwrap();
@@ -248,10 +293,25 @@ mod test {
                                 writeln!(lock, "      \x1b[0;32mTesting\x1b[0;0m: {}", &validation.uri).unwrap();
                             }
 
+                            let client = reqwest::Client::new();
+                            let res: serde_json::Value = client
+                                .get(format!("http://127.0.0.1:19876{}", &validation.uri))
+                                .timeout(Duration::from_secs(10))
+                                .send()
+                                .await
+                                .expect("cannot connect to server")
+                                .json()
+                                .await
+                                .expect("cannot serde to json");
                             for point in validation.validations {
                                 {
                                     let mut lock = stdout().lock();
                                     writeln!(lock, "        \x1b[0;32mValidating\x1b[0;0m: {}", point.0).unwrap();
+                                }
+                                let json_path = JsonPath::parse(&point.0).expect("invalid json path");
+                                let x = json_path.query(&res).exactly_one().expect("cannot get json value via json path");
+                                if !point.1.eq(x) {
+                                    assert!(false, "Validation fail: {} != {}", &point.1, &x);
                                 }
                             }
                         }

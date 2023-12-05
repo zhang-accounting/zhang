@@ -1,8 +1,0 @@
-[
-    {
-        "uri":"/api/store",
-        "validations": [
-            ["e.c.[].ab.c", ""]
-        ]
-    }
-]

@@ -53,7 +53,7 @@ pub async fn get_all_options(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec
 }
 
 #[get("/api/store")]
-pub async fn get_store_data(ledger:Data<Arc<RwLock<Ledger>>>) -> ApiResult<serde_json::Value> {
+pub async fn get_store_data(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<serde_json::Value> {
     let ledger = ledger.read().await;
     let store = ledger.store.read().unwrap();
     let value = serde_json::to_value(&*store).unwrap();
