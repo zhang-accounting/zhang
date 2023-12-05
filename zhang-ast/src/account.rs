@@ -25,8 +25,7 @@ impl AccountType {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, serde::Serialize)]
 pub struct Account {
     pub account_type: AccountType,
     pub content: String,

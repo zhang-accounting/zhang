@@ -20,8 +20,7 @@ pub struct OptionDomain {
     pub value: String,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct AccountDomain {
     pub date: NaiveDateTime,
     pub r#type: String,
@@ -54,8 +53,7 @@ pub struct AccountDailyBalanceDomain {
     pub balance_commodity: String,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PriceDomain {
     pub datetime: NaiveDateTime,
     pub commodity: Currency,
@@ -63,8 +61,7 @@ pub struct PriceDomain {
     pub target_commodity: Currency,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct MetaDomain {
     pub meta_type: String,
     pub type_identifier: String,
@@ -72,8 +69,7 @@ pub struct MetaDomain {
     pub value: String,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct CommodityDomain {
     pub name: String,
     pub precision: i32,

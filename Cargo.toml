@@ -8,8 +8,8 @@ members = [
     "zhang-server",
     "zhang-cli",
     "extensions/*",
-    "wasm",
-    "bindings/python"
+    "bindings/python",
+    "bindings/wasm",
 ]
 
 [profile.dev]

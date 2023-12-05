@@ -9,8 +9,7 @@ use zhang_ast::{Account, Flag, SpanInfo};
 
 use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain};
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[derive(Default)]
+#[derive(Default, serde::Serialize)]
 pub struct Store {
     pub options: HashMap<String, String>,
     pub accounts: HashMap<Account, AccountDomain>,
@@ -30,8 +29,7 @@ pub struct Store {
     pub errors: Vec<ErrorDomain>,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 pub struct TransactionHeaderDomain {
     pub id: Uuid,
     pub sequence: i32,
@@ -44,8 +42,7 @@ pub struct TransactionHeaderDomain {
     pub links: Vec<String>,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 pub struct PostingDomain {
     pub id: Uuid,
     pub trx_id: Uuid,
@@ -59,8 +56,7 @@ pub struct PostingDomain {
     pub after_amount: Amount,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 pub enum DocumentType {
     Trx(Uuid),
     Account(Account),
@@ -87,8 +83,7 @@ impl DocumentType {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 pub struct DocumentDomain {
     pub datetime: DateTime<Tz>,
     pub document_type: DocumentType,
@@ -96,8 +91,7 @@ pub struct DocumentDomain {
     pub path: String,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, serde::Serialize)]
 pub struct CommodityLotRecord {
     pub commodity: String,
     pub datetime: Option<DateTime<Tz>>,
