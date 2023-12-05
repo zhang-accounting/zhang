@@ -448,6 +448,18 @@ impl ZhangParser {
         }))
     }
 
+    fn budget_close(input: Node) -> Result<Directive> {
+        let ret: (Date, ZhangString, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name)] => (date, name, vec![]),
+            [date(date), unquote_string(name), commodity_meta(metas)] => (date, name, metas)
+        );
+        Ok(Directive::BudgetClose(BudgetClose {
+            date: ret.0,
+            name: ret.1.to_plain_string(),
+            meta: ret.2.into_iter().collect(),
+        }))
+    }
+
     fn budget_add(input: Node) -> Result<Directive> {
         let ret: (Date, ZhangString, Amount, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
             [date(date), unquote_string(name), posting_amount(amount)] => (date, name, amount, vec![]),
@@ -498,6 +510,7 @@ impl ZhangParser {
             [comment(item)] => item,
             [transaction(item)] => item,
             [budget(item)] => item,
+            [budget_close(item)] => item,
             [budget_add(item)] => item,
             [budget_transfer(item)] => item,
         );
@@ -996,6 +1009,23 @@ mod test {
                 assert_eq!(inner.from, "Diet");
                 assert_eq!(inner.to, "Saving");
                 assert_eq!(inner.amount, Amount::new(BigDecimal::one(), "CNY".to_owned()));
+            }
+        }
+
+        #[test]
+        fn should_parse_budget_close() {
+            let mut vec = parse(
+                indoc! {r#"
+                            1970-01-01 budget-close Diet
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::BudgetClose(..)));
+            if let Directive::BudgetClose(inner) = directive {
+                assert_eq!(inner.name, "Diet");
             }
         }
     }
