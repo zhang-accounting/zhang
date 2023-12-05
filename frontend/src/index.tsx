@@ -18,11 +18,13 @@ Chart.register(...registerables);
 // @ts-ignore
 export const fetcher = (...args) => axiosInstance.get(...args).then((res) => res.data.data);
 const development: boolean = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
+const backendUri: string = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:8000';
 
 if (development) {
   console.log('zhang is running in development mode');
+  console.log(`active backend is ${backendUri}`);
 }
-export const serverBaseUrl = development ? 'http://localhost:8000' : '';
+export const serverBaseUrl = development ? backendUri : '';
 export const axiosInstance = axios.create({
   baseURL: serverBaseUrl,
   headers: {
