@@ -191,3 +191,38 @@ async fn main() {
     let opts = Opts::parse();
     opts.run().await;
 }
+
+
+
+#[cfg(test)]
+mod test {
+    use crate::SupportedFormat;
+
+
+    #[tokio::test]
+    async fn integration_test() {
+        let paths =std::fs::read_dir("../integration-tests").unwrap();
+        use std::io::{stdout, Write};
+
+        for path in paths {
+            let path = path.unwrap();
+            if path.path().is_dir() {
+                {
+                    let mut lock = stdout().lock();
+                    writeln!(lock, "Testing: {}", path.path().display()).unwrap();
+                }
+                let format = SupportedFormat::Zhang;
+                tokio::spawn(zhang_server::serve(ServeConfig {
+                    path: opts.path,
+                    endpoint: opts.endpoint,
+                    port: opts.port,
+                    database: opts.database,
+                    no_report: opts.no_report,
+                    exporter: format.exporter(),
+                    transformer: format.transformer(),
+                }))
+            }
+
+        }
+    }
+}
