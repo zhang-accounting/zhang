@@ -460,6 +460,19 @@ impl ZhangParser {
             meta: ret.3.into_iter().collect(),
         }))
     }
+    fn budget_transfer(input: Node) -> Result<Directive> {
+        let ret: (Date, ZhangString, ZhangString, Amount, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(from), unquote_string(to), posting_amount(amount)] => (date, from, to, amount, vec![]),
+            [date(date), unquote_string(from), unquote_string(to), posting_amount(amount), commodity_meta(metas)] => (date, from, to, amount, metas)
+        );
+        Ok(Directive::BudgetTransfer(BudgetTransfer {
+            date: ret.0,
+            from: ret.1.to_plain_string(),
+            to: ret.2.to_plain_string(),
+            amount: ret.3,
+            meta: ret.4.into_iter().collect(),
+        }))
+    }
 
     fn item(input: Node) -> Result<(Directive, SpanInfo)> {
         let span = input.as_span();
@@ -486,6 +499,7 @@ impl ZhangParser {
             [transaction(item)] => item,
             [budget(item)] => item,
             [budget_add(item)] => item,
+            [budget_transfer(item)] => item,
         );
         Ok((ret, span_info))
     }
@@ -963,6 +977,24 @@ mod test {
             assert!(matches!(directive, Directive::BudgetAdd(..)));
             if let Directive::BudgetAdd(inner) = directive {
                 assert_eq!(inner.name, "Diet");
+                assert_eq!(inner.amount, Amount::new(BigDecimal::one(), "CNY".to_owned()));
+            }
+        }
+        #[test]
+        fn should_parse_budget_transfer() {
+            let mut vec = parse(
+                indoc! {r#"
+                            1970-01-01 budget-transfer Diet Saving 1 CNY
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::BudgetTransfer(..)));
+            if let Directive::BudgetTransfer(inner) = directive {
+                assert_eq!(inner.from, "Diet");
+                assert_eq!(inner.to, "Saving");
                 assert_eq!(inner.amount, Amount::new(BigDecimal::one(), "CNY".to_owned()));
             }
         }
