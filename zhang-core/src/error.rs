@@ -1,3 +1,4 @@
+use std::net::AddrParseError;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
@@ -12,6 +13,8 @@ pub enum ZhangError {
     IoError(#[from] std::io::Error),
     #[error("file error: {e}")]
     FileError { e: std::io::Error, path: PathBuf },
+    #[error("ip addr error: {0}")]
+    IpAddrError(#[from] AddrParseError),
 
     #[error("pest error: {0}")]
     PestError(String),

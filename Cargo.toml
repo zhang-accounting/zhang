@@ -3,11 +3,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "core",
-    "ast",
+    "zhang-core",
+    "zhang-ast",
+    "zhang-server",
+    "zhang-cli",
     "extensions/*",
-    "server",
-    "cli",
     "wasm",
     "bindings/python"
 ]

@@ -1,4 +1,4 @@
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::net::SocketAddrV4;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -63,6 +63,7 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
 pub struct ServeConfig {
     pub path: PathBuf,
     pub endpoint: String,
+    pub addr: String,
     pub port: u16,
     pub database: Option<PathBuf>,
     pub no_report: bool,
@@ -167,17 +168,18 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     start_server(opts, ledger_data, broadcaster.clone()).await
 }
 
-async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>) -> ZhangResult<()> {
-    let addr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), opts.port);
-    info!("zhang is listening on http://127.0.0.1:{}/", opts.port);
+pub async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>) -> ZhangResult<()> {
+    let addr = SocketAddrV4::new(opts.addr.parse()?, opts.port);
+    info!("zhang is listening on http://{}:{}/", opts.addr, opts.port);
     let exporter: Data<dyn AppendableExporter> = Data::from(opts.exporter);
-    Ok(HttpServer::new(move || {
+    let server = HttpServer::new(move || {
         let app = App::new()
             .wrap(Cors::permissive())
             .app_data(Data::from(broadcaster.clone()))
             .app_data(Data::new(ledger_data.clone()))
             .app_data(exporter.clone())
             .service(get_basic_info)
+            .service(routes::common::get_store_data)
             .service(get_info_for_new_transactions)
             .service(get_journals)
             .service(create_new_transaction)
@@ -213,9 +215,8 @@ async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broad
             app
         }
     })
-    .bind(addr)?
-    .run()
-    .await?)
+    .bind(addr)?;
+    Ok(server.run().await?)
 }
 
 async fn version_report_task() -> ServerResult<()> {

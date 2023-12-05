@@ -25,7 +25,7 @@ console_error_panic_hook = { version = "0.1.6", optional = true }
 #
 # Unfortunately, `wee_alloc` requires nightly Rust when targeting wasm for now.
 wee_alloc = { version = "0.4.5", optional = true }
-zhang-core = { path="../core", features=["wasm"]}
+zhang-core = { path="../zhang-core", features=["wasm"]}
 serde_json = "1"
 [dev-dependencies]
 wasm-bindgen-test = "0.3.13"

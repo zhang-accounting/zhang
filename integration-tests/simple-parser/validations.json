@@ -1,0 +1,8 @@
+[
+    {
+        "uri":"/api/store",
+        "validations": [
+            ["$.data.options.title", "My Accounting"]
+        ]
+    }
+]
