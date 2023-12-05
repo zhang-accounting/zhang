@@ -270,8 +270,7 @@ mod test {
                                 broadcaster,
                             )
                             .await
-                            .expect("cannot start server");
-                            ()
+                            .expect("cannot start server")
                         });
 
                         let mut times = 0;
@@ -311,7 +310,7 @@ mod test {
                                 let json_path = JsonPath::parse(&point.0).expect("invalid json path");
                                 let x = json_path.query(&res).exactly_one().expect("cannot get json value via json path");
                                 if !point.1.eq(x) {
-                                    assert!(false, "Validation fail: {} != {}", &point.1, &x);
+                                    panic!("Validation fail: {} != {}", &point.1, &x);
                                 }
                             }
                         }
