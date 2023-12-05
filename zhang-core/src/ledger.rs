@@ -87,7 +87,15 @@ impl Ledger {
                 Directive::Price(price) => price.handler(&mut ret_ledger, &directive.span)?,
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
-                _ => {}
+                Directive::Plugin(_) => {}
+                Directive::Include(_) => {
+                    unreachable!()
+                }
+                Directive::Comment(_) => {}
+                Directive::Budget(_) => {}
+                Directive::BudgetAdd(_) => {}
+                Directive::BudgetTransfer(_) => {}
+                Directive::BudgetClose(_) => {}
             }
         }
 

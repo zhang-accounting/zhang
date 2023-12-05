@@ -4,10 +4,11 @@ use bigdecimal::BigDecimal;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use uuid::Uuid;
-use zhang_ast::amount::Amount;
+use zhang_ast::amount::{Amount, CalculatedAmount};
+use zhang_ast::utils::inventory::Inventory;
 use zhang_ast::{Account, Flag, SpanInfo};
 
-use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain};
+use crate::domains::schemas::{AccountDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain};
 
 #[derive(Default, serde::Serialize)]
 pub struct Store {
@@ -18,6 +19,8 @@ pub struct Store {
     pub postings: Vec<PostingDomain>,
 
     pub prices: Vec<PriceDomain>,
+
+    pub budgets: HashMap<String, BudgetDomain>,
 
     // by account
     pub commodity_lots: HashMap<Account, Vec<CommodityLotRecord>>,
@@ -97,6 +100,33 @@ pub struct CommodityLotRecord {
     pub datetime: Option<DateTime<Tz>>,
     pub amount: BigDecimal,
     pub price: Option<Amount>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BudgetDomain {
+    pub name: String,
+    pub alias: Option<String>,
+    pub category: Option<String>,
+    pub closed: bool,
+    pub detail: HashMap<BudgetInterval, BudgetIntervalDetail>,
+}
+#[derive(Default, Clone, Debug, Hash, Eq, PartialEq, serde::Serialize)]
+pub struct BudgetInterval {
+    pub year: i32,
+    pub month: u32,
+}
+
+impl BudgetInterval {
+    pub fn new(year: i32, month: u32) -> Self {
+        Self { year, month }
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BudgetIntervalDetail {
+    pub assigned_amount: CalculatedAmount,
+    // todo: budget event for addition, transfer and close
+    pub activity_amount: CalculatedAmount,
 }
 
 #[cfg(test)]

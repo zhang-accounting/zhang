@@ -348,6 +348,22 @@ impl DirectiveProcess for Price {
     }
 }
 
+impl DirectiveProcess for Budget {
+    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
+        if operations.contains_budget(&self.name) {
+            // todo: add budget existed warning
+        }
+        operations.init_budget(
+            &self.name,
+            self.date.clone(),
+            self.meta.get_one("alias").map(|it| it.as_str().to_owned()),
+            self.meta.get_one("category").map(|it| it.as_str().to_owned()),
+        )?;
+        Ok(())
+    }
+}
+
 fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, operations: &mut Operations) -> ZhangResult<()> {
     match lot_info {
         LotInfo::Lot(target_currency, lot_number) => {

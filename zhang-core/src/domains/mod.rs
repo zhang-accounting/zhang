@@ -4,20 +4,23 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::Deserialize;
 use uuid::Uuid;
-use zhang_ast::amount::Amount;
-use zhang_ast::{Account, AccountType, Currency, Flag, Meta, SpanInfo};
+use zhang_ast::amount::{Amount, CalculatedAmount};
+use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, SpanInfo};
 
+use crate::constants::KEY_OPERATING_CURRENCY;
 use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, ErrorType, MetaDomain,
     MetaType, OptionDomain, PriceDomain, TransactionInfoDomain,
 };
-use crate::store::{CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionHeaderDomain};
+use crate::store::{
+    BudgetDomain, BudgetInterval, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionHeaderDomain,
+};
 use crate::{ZhangError, ZhangResult};
 
 pub mod schemas;
@@ -713,6 +716,35 @@ impl Operations {
                 rounding,
             },
         );
+        Ok(())
+    }
+}
+
+/// Budget Related Operations
+impl Operations {
+    pub fn contains_budget(&self, name: impl AsRef<str>) -> bool {
+        let store = self.read();
+        store.budgets.contains_key(name.as_ref())
+    }
+    pub fn init_budget(&mut self, name: impl Into<String>, date: Date, alias: Option<String>, category: Option<String>) -> ZhangResult<()> {
+        let operating_currency = self.option(KEY_OPERATING_CURRENCY)?.expect("cannot find operating currency").value;
+
+        let mut store = self.write();
+        let name = name.into();
+        let budget_domain = store.budgets.entry(name.clone()).or_insert(BudgetDomain {
+            name,
+            alias,
+            category,
+            closed: false,
+            detail: Default::default(),
+        });
+        let year = date.naive_date().year();
+        let month = date.naive_date().month();
+        let interval = BudgetInterval::new(year, month);
+        budget_domain.detail.entry(interval).or_insert(BudgetIntervalDetail {
+            assigned_amount: CalculatedAmount::new(&operating_currency),
+            activity_amount: CalculatedAmount::new(&operating_currency),
+        });
         Ok(())
     }
 }
