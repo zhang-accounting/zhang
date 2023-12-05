@@ -436,6 +436,18 @@ impl ZhangParser {
         }))
     }
 
+    fn budget(input: Node) -> Result<Directive> {
+        let ret: (Date, ZhangString, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name)] => (date, name, vec![]),
+            [date(date), unquote_string(name), commodity_meta(metas)] => (date, name, metas)
+        );
+        Ok(Directive::Budget(Budget {
+            date: ret.0,
+            name: ret.1.to_plain_string(),
+            meta: ret.2.into_iter().collect(),
+        }))
+    }
+
     fn item(input: Node) -> Result<(Directive, SpanInfo)> {
         let span = input.as_span();
         let span_info = SpanInfo {
@@ -459,6 +471,7 @@ impl ZhangParser {
             [custom(item)] => item,
             [comment(item)] => item,
             [transaction(item)] => item,
+            [budget(item)] => item,
         );
         Ok((ret, span_info))
     }
@@ -876,6 +889,47 @@ mod test {
                 assert_eq!(Some(Amount::new(BigDecimal::from_f32(6.9).unwrap(), "CNY")), posting.cost);
                 assert_eq!(None, posting.cost_date);
                 assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
+            }
+        }
+    }
+    mod budget {
+        use crate::text::parser::parse;
+        use indoc::indoc;
+        use zhang_ast::Directive;
+
+        #[test]
+        fn should_parse_budget_without_meta() {
+            let mut vec = parse(
+                indoc! {r#"
+                            1970-01-01 budget Diet
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::Budget(..)));
+            if let Directive::Budget(inner) = directive {
+                assert_eq!(inner.name, "Diet");
+            }
+        }
+
+        #[test]
+        fn should_parse_budget_with_meta() {
+            let mut vec = parse(
+                indoc! {r#"
+                            1970-01-01 budget Diet
+                              alias: "日常饮食"
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::Budget(..)));
+            if let Directive::Budget(inner) = directive {
+                assert_eq!(inner.name, "Diet");
+                assert_eq!(inner.meta.get_one("alias").unwrap(), &quote!("日常饮食"));
             }
         }
     }

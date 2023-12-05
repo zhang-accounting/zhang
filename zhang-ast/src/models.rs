@@ -5,7 +5,7 @@ use strum::{Display, EnumString};
 use crate::account::Account;
 use crate::amount::Amount;
 use crate::data::{Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Plugin, Price, Transaction};
-use crate::{BalanceCheck, BalancePad};
+use crate::{BalanceCheck, BalancePad, Budget, BudgetAdd, BudgetClose, BudgetTransfer};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DirectiveType {
@@ -24,6 +24,11 @@ pub enum DirectiveType {
     Plugin,
     Include,
     Comment,
+
+    Budget,
+    BudgetAdd,
+    BudgetTransfer,
+    BudgetClose,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -43,6 +48,11 @@ pub enum Directive {
     Plugin(Plugin),
     Include(Include),
     Comment(Comment),
+
+    Budget(Budget),
+    BudgetAdd(BudgetAdd),
+    BudgetTransfer(BudgetTransfer),
+    BudgetClose(BudgetClose),
 }
 
 impl Directive {
@@ -63,6 +73,11 @@ impl Directive {
             Directive::Plugin(_) => None,
             Directive::Include(_) => None,
             Directive::Comment(_) => None,
+
+            Directive::Budget(budget) => Some(budget.date.naive_datetime()),
+            Directive::BudgetAdd(budget_add) => Some(budget_add.date.naive_datetime()),
+            Directive::BudgetTransfer(budget_transfer) => Some(budget_transfer.date.naive_datetime()),
+            Directive::BudgetClose(budget_close) => Some(budget_close.date.naive_datetime()),
         }
     }
     pub fn directive_type(&self) -> DirectiveType {
@@ -82,6 +97,10 @@ impl Directive {
             Directive::Comment(_) => DirectiveType::Comment,
             Directive::BalancePad(_) => DirectiveType::BalancePad,
             Directive::BalanceCheck(_) => DirectiveType::BalanceCheck,
+            Directive::Budget(_) => DirectiveType::Budget,
+            Directive::BudgetAdd(_) => DirectiveType::BudgetAdd,
+            Directive::BudgetTransfer(_) => DirectiveType::BudgetTransfer,
+            Directive::BudgetClose(_) => DirectiveType::BudgetClose,
         }
     }
 }
@@ -97,6 +116,7 @@ pub enum ZhangString {
     UnquoteString(String),
     QuoteString(String),
 }
+
 impl ZhangString {
     pub fn as_str(&self) -> &str {
         match self {
@@ -142,6 +162,7 @@ pub enum Rounding {
     #[strum(serialize = "RoundDown")]
     RoundDown,
 }
+
 impl Rounding {
     pub fn is_up(&self) -> bool {
         match self {
