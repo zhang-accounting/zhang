@@ -330,6 +330,15 @@ impl TextExportable for Budget {
     }
 }
 
+impl TextExportable for BudgetAdd {
+    type Output = String;
+
+    fn export(self) -> Self::Output {
+        let line = vec![self.date.export(), "budget-add".to_owned(), self.name, self.amount.export()];
+        append_meta(self.meta, line.join(" "))
+    }
+}
+
 impl TextExportable for Directive {
     type Output = String;
     fn export(self) -> String {
@@ -350,9 +359,7 @@ impl TextExportable for Directive {
             Directive::Include(include) => include.export(),
             Directive::Comment(comment) => comment.export(),
             Directive::Budget(budget) => budget.export(),
-            Directive::BudgetAdd(_) => {
-                todo!()
-            }
+            Directive::BudgetAdd(budget_add) => budget_add.export(),
             Directive::BudgetTransfer(_) => {
                 todo!()
             }
@@ -633,6 +640,13 @@ mod test {
             "budget directive",
             indoc! {r#"
                 1970-01-01 budget Diet
+            "#}
+        );
+
+        assert_parse!(
+            "budget-add directive",
+            indoc! {r#"
+                1970-01-01 budget-add Diet 1 CNY
             "#}
         );
     }

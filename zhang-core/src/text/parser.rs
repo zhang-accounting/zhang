@@ -448,6 +448,19 @@ impl ZhangParser {
         }))
     }
 
+    fn budget_add(input: Node) -> Result<Directive> {
+        let ret: (Date, ZhangString, Amount, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name), posting_amount(amount)] => (date, name, amount, vec![]),
+            [date(date), unquote_string(name), posting_amount(amount), commodity_meta(metas)] => (date, name, amount, metas)
+        );
+        Ok(Directive::BudgetAdd(BudgetAdd {
+            date: ret.0,
+            name: ret.1.to_plain_string(),
+            amount: ret.2,
+            meta: ret.3.into_iter().collect(),
+        }))
+    }
+
     fn item(input: Node) -> Result<(Directive, SpanInfo)> {
         let span = input.as_span();
         let span_info = SpanInfo {
@@ -472,6 +485,7 @@ impl ZhangParser {
             [comment(item)] => item,
             [transaction(item)] => item,
             [budget(item)] => item,
+            [budget_add(item)] => item,
         );
         Ok((ret, span_info))
     }
@@ -894,7 +908,9 @@ mod test {
     }
     mod budget {
         use crate::text::parser::parse;
+        use bigdecimal::{BigDecimal, One};
         use indoc::indoc;
+        use zhang_ast::amount::Amount;
         use zhang_ast::Directive;
 
         #[test]
@@ -930,6 +946,24 @@ mod test {
             if let Directive::Budget(inner) = directive {
                 assert_eq!(inner.name, "Diet");
                 assert_eq!(inner.meta.get_one("alias").unwrap(), &quote!("日常饮食"));
+            }
+        }
+
+        #[test]
+        fn should_parse_budget_add() {
+            let mut vec = parse(
+                indoc! {r#"
+                            1970-01-01 budget-add Diet 1 CNY
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::BudgetAdd(..)));
+            if let Directive::BudgetAdd(inner) = directive {
+                assert_eq!(inner.name, "Diet");
+                assert_eq!(inner.amount, Amount::new(BigDecimal::one(), "CNY".to_owned()));
             }
         }
     }
