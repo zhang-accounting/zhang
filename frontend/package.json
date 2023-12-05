@@ -39,6 +39,7 @@
   },
   "scripts": {
     "start": "react-scripts start",
+    "start:demo": "REACT_APP_API_ENDPOINT=https://zhang-accounting.zeabur.app react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
