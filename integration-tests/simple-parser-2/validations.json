@@ -2,7 +2,7 @@
     {
         "uri":"/api/store",
         "validations": [
-            ["a.b.c.d", ""]
+            ["e.c.[].ab.c", ""]
         ]
     }
 ]

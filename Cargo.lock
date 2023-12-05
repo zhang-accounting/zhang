@@ -3345,6 +3345,8 @@ dependencies = [
  "env_logger",
  "log",
  "self_update",
+ "serde",
+ "serde_json",
  "tokio",
  "tokio-util 0.6.9",
  "zhang-ast",

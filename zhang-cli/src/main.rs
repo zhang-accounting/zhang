@@ -192,37 +192,73 @@ async fn main() {
     opts.run().await;
 }
 
-
-
 #[cfg(test)]
 mod test {
     use crate::SupportedFormat;
-
+    use std::io::{stdout, Write};
+    use serde::Deserialize;
+    use zhang_server::ServeConfig;
 
     #[tokio::test]
     async fn integration_test() {
-        let paths =std::fs::read_dir("../integration-tests").unwrap();
-        use std::io::{stdout, Write};
+        type ValidationPoint = (String, serde_json::Value);
+        #[derive(Deserialize)]
+        struct Validation {
+            uri: String,
+            validations: Vec<ValidationPoint>,
+        }
+
+        let paths = std::fs::read_dir("../integration-tests").unwrap();
 
         for path in paths {
             let path = path.unwrap();
             if path.path().is_dir() {
                 {
                     let mut lock = stdout().lock();
-                    writeln!(lock, "Testing: {}", path.path().display()).unwrap();
+                    writeln!(lock, "    \x1b[0;32mIntegration Test\x1b[0;0m: {}", path.path().display()).unwrap();
                 }
-                let format = SupportedFormat::Zhang;
-                tokio::spawn(zhang_server::serve(ServeConfig {
-                    path: opts.path,
-                    endpoint: opts.endpoint,
-                    port: opts.port,
-                    database: opts.database,
-                    no_report: opts.no_report,
-                    exporter: format.exporter(),
-                    transformer: format.transformer(),
-                }))
-            }
 
+                let pathbuf  = path.path();
+                let local = tokio::task::LocalSet::new();
+
+                local
+                    .run_until(async move {
+                        let format = SupportedFormat::Zhang;
+
+                        let server_handler = tokio::task::spawn_local(async move {
+                            zhang_server::serve(ServeConfig {
+                                path: pathbuf,
+                                endpoint: "main.zhang".to_owned(),
+                                port: 19876,
+                                database: None,
+                                no_report: true,
+                                exporter: format.exporter(),
+                                transformer: format.transformer(),
+                            })
+                            .await
+                            .expect("cannot start server")
+                        });
+
+                        let validations_content = std::fs::read_to_string(path.path().join("validations.json")).unwrap();
+                        let validations: Vec<Validation> = serde_json::from_str(&validations_content).unwrap();
+
+                        for validation in validations {
+                            {
+                                let mut lock = stdout().lock();
+                                writeln!(lock, "      \x1b[0;32mTesting\x1b[0;0m: {}", &validation.uri).unwrap();
+                            }
+
+                            for point in validation.validations {
+                                {
+                                    let mut lock = stdout().lock();
+                                    writeln!(lock, "        \x1b[0;32mValidating\x1b[0;0m: {}", point.0).unwrap();
+                                }
+                            }
+                        }
+                        server_handler.abort();
+                    })
+                    .await;
+            }
         }
     }
 }
