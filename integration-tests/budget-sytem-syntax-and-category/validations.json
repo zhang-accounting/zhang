@@ -9,6 +9,14 @@
       [
         "$.data.budgets.game_expense.detail.202312.activity_amount.number",
         "0"
+      ],
+      [
+        "$.data.budgets.food.detail.202312.assigned_amount.number",
+        "1000"
+      ],
+      [
+        "$.data.budgets.food.detail.202312.activity_amount.number",
+        "50"
       ]
     ]
   },

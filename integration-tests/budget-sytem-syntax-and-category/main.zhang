@@ -1,5 +1,10 @@
 option "operating_currency" "CNY"
 
+1970-01-01 open Assets:BankCard CNY
+
+1970-01-01 open Expenses:Food CNY
+    budget: food
+
 
 2023-12-01 budget 3C-Devices CNY
   alias: "3C淘汰"
@@ -38,4 +43,9 @@ option "operating_currency" "CNY"
   category: "精神食粮｜15%"
 
 
-2023-12-02 budget-add game_expense 200.1 CNY
+2023-12-01 budget-add game_expense 200.1 CNY
+2023-12-01 budget-add food 1000 CNY
+
+2023-12-02 "KFC" "VME50 Package"
+  Assets:BankCard -50 CNY
+  Expenses:Food
