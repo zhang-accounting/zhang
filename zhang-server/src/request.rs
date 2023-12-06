@@ -87,3 +87,9 @@ pub struct MetaRequest {
     pub key: String,
     pub value: String,
 }
+
+#[derive(Deserialize)]
+pub struct BudgetListRequest {
+    pub month: u32,
+    pub year: u32,
+}

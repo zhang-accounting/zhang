@@ -28,7 +28,7 @@ option "operating_currency" "CNY"
 2023-12-01 budget water-fee CNY
   alias: "水费"
   category: "生活开销｜55%"
-k
+
 2023-12-01 budget eat-with-friend CNY
   alias: "聚餐"
   category: "精神食粮｜15%"

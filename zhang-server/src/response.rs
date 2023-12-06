@@ -334,3 +334,14 @@ pub struct AccountInfoResponse {
     pub alias: Option<String>,
     pub amount: CalculatedAmount,
 }
+
+#[derive(Serialize)]
+pub struct BudgetListItemResponse {
+    pub name: String,
+    pub alias: Option<String>,
+    pub category: Option<String>,
+    pub closed: bool,
+    pub assigned_amount: Amount,
+    pub activity_amount: Amount,
+    pub available_amount: Amount,
+}

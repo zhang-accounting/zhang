@@ -721,10 +721,19 @@ impl Operations {
 
 /// Budget Related Operations
 impl Operations {
+    /// list all budgets
+    pub fn all_budgets(&self) -> ZhangResult<Vec<BudgetDomain>> {
+        let store = self.read();
+        Ok(store.budgets.values().cloned().collect_vec())
+    }
+
+    /// check if budget exists
     pub fn contains_budget(&self, name: impl AsRef<str>) -> bool {
         let store = self.read();
         store.budgets.contains_key(name.as_ref())
     }
+
+    /// init or create a new budget
     pub fn init_budget(
         &mut self, name: impl Into<String>, commodity: impl Into<String>, date: Date, alias: Option<String>, category: Option<String>,
     ) -> ZhangResult<()> {
@@ -746,34 +755,46 @@ impl Operations {
         Ok(())
     }
 
+    /// get target month's detail
+    pub fn budget_month_detail(&self, name: impl Into<String>, interval: u32) -> ZhangResult<BudgetIntervalDetail> {
+        let store = self.read();
+        let name = name.into();
+        let target_budget = store.budgets.get(&name).expect("budget does not exist");
+
+        Ok(target_budget
+            .detail
+            .iter()
+            .filter(|item| item.0 <= &interval)
+            .max_by_key(|item| item.0)
+            .map(|item| item.1.clone())
+            .unwrap_or(BudgetIntervalDetail {
+                assigned_amount: Amount::zero(&target_budget.commodity),
+                activity_amount: Amount::zero(&target_budget.commodity),
+            }))
+    }
+
+    /// add amount to target month's budget
     pub fn budget_add_amount(&mut self, name: impl Into<String>, date: Date, amount: Amount) -> ZhangResult<()> {
         let mut store = self.write();
         let name = name.into();
         let target_budget = store.budgets.get_mut(&name).expect("budget does not exist");
         let interval = date.as_budget_interval();
 
-        let previous_budget_detail = target_budget
-            .detail
-            .iter()
-            .filter(|item| item.0 < &interval)
-            .max_by_key(|item| item.0)
-            .map(|item| item.1.clone())
-            .unwrap_or(BudgetIntervalDetail {
-                assigned_amount: Amount::zero(&target_budget.commodity),
-                activity_amount: Amount::zero(&target_budget.commodity),
-            });
+        let previous_budget_detail = self.budget_month_detail(&name, interval)?;
         let detail = target_budget.detail.entry(interval).or_insert(previous_budget_detail);
 
         detail.assigned_amount = detail.assigned_amount.add(amount.number);
         Ok(())
     }
 
+    /// transfer amount between budgets
     pub fn budget_transfer(&mut self, date: Date, from: impl Into<String>, to: impl Into<String>, amount: Amount) -> ZhangResult<()> {
         self.budget_add_amount(from, date.clone(), amount.neg())?;
         self.budget_add_amount(to, date.clone(), amount)?;
         Ok(())
     }
 
+    /// close budget
     pub fn budget_close(&mut self, name: impl AsRef<str>, date: Date) -> ZhangResult<()> {
         let mut store = self.write();
         let name = name.as_ref();
