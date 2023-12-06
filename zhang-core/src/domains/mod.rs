@@ -773,4 +773,11 @@ impl Operations {
         self.budget_add_amount(to, date.clone(), amount)?;
         Ok(())
     }
+
+    pub fn budget_close(&mut self, name: impl AsRef<str>, date: Date) -> ZhangResult<()> {
+        let mut store = self.write();
+        let name = name.as_ref();
+        store.budgets.get_mut(name).map(|budget| budget.closed = true);
+        Ok(())
+    }
 }

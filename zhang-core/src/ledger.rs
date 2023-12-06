@@ -88,14 +88,12 @@ impl Ledger {
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
                 Directive::Plugin(_) => {}
-                Directive::Include(_) => {
-                    unreachable!()
-                }
+                Directive::Include(_) => unreachable!(),
                 Directive::Comment(_) => {}
-                Directive::Budget(_) => {}
-                Directive::BudgetAdd(_) => {}
-                Directive::BudgetTransfer(_) => {}
-                Directive::BudgetClose(_) => {}
+                Directive::Budget(budget) => budget.handler(&mut ret_ledger, &directive.span)?,
+                Directive::BudgetAdd(budget_add) => budget_add.handler(&mut ret_ledger, &directive.span)?,
+                Directive::BudgetTransfer(budget_transfer) => budget_transfer.handler(&mut ret_ledger, &directive.span)?,
+                Directive::BudgetClose(budget_close) => budget_close.handler(&mut ret_ledger, &directive.span)?,
             }
         }
 
