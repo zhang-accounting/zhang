@@ -1,12 +1,13 @@
-import { ActionIcon, Box, Space } from '@mantine/core';
-import { ReactElement } from 'react';
-import { IconChevronDown, IconChevronRight } from '@tabler/icons';
-import { useLocalStorage } from '@mantine/hooks';
-import { BudgetListItem } from '../../rest-model';
-import { Buffer } from 'buffer';
+import {ActionIcon} from '@mantine/core';
+import React from 'react';
+import {IconChevronDown, IconChevronRight} from '@tabler/icons';
+import {useLocalStorage} from '@mantine/hooks';
+import {BudgetListItem} from '../../rest-model';
+import {Buffer} from 'buffer';
 import BudgetLine from './BudgetLine';
 import BigNumber from 'bignumber.js';
 import Amount from '../Amount';
+import BackgroundProgress from "../basic/BackgroundProgress";
 
 interface Props {
   name: string;
@@ -41,30 +42,34 @@ export default function BudgetCategory(props: Props) {
     }),
     { number: new BigNumber(0), commodity: '' },
   );
+  let number = new BigNumber(activity_amount.number).div(new BigNumber(assigned_amount.number)).multipliedBy(100).toPrecision(2);
+
+
   return (
     <>
-      <tr>
+      <tr style={{position: "relative", zIndex: 1}}>
         <td>
-          <div style={{ display: 'flex' }}>
+          <BackgroundProgress percentage={number}/>
+          <div style={{display: 'flex'}}>
             <ActionIcon size="sm" variant="transparent" onClick={() => setCollapse(!isShow)}>
-              {isShow ? <IconChevronDown size={28} /> : <IconChevronRight size={48} />}
+              {isShow ? <IconChevronDown size={28}/> : <IconChevronRight size={48}/>}
             </ActionIcon>{' '}
             <b>{props.name}</b>
           </div>
         </td>
-        <td style={{ textAlign: 'end' }}>
+        <td style={{textAlign: 'end'}}>
           <b>
-            <Amount amount={assigned_amount.number} currency={assigned_amount.commodity} />
+            <Amount amount={assigned_amount.number} currency={assigned_amount.commodity}/>
+          </b>
+        </td>
+        <td style={{textAlign: 'end'}}>
+          <b>
+            <Amount amount={activity_amount.number} currency={activity_amount.commodity}/>
           </b>
         </td>
         <td style={{ textAlign: 'end' }}>
           <b>
-            <Amount amount={assigned_amount.number} currency={assigned_amount.commodity} />
-          </b>
-        </td>
-        <td style={{ textAlign: 'end' }}>
-          <b>
-            <Amount amount={assigned_amount.number} currency={assigned_amount.commodity} />
+            <Amount amount={available_amount.number} currency={available_amount.commodity} />
           </b>
         </td>
       </tr>
