@@ -356,7 +356,7 @@ impl Operations {
         Ok(x)
     }
 
-    pub fn metas(&mut self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
+    pub fn metas(&self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
         let store = self.read();
         Ok(store
             .metas
@@ -762,7 +762,7 @@ impl Operations {
     }
 
     /// add amount to target month's budget
-    pub fn budget_add_amount(&mut self, name: impl Into<String>, date: Date, amount: Amount) -> ZhangResult<()> {
+    pub fn budget_add_assigned_amount(&mut self, name: impl Into<String>, date: Date, amount: Amount) -> ZhangResult<()> {
         let name = name.into();
         let interval = date.as_budget_interval();
         let previous_budget_detail = self.budget_month_detail(&name, interval)?;
@@ -778,8 +778,8 @@ impl Operations {
 
     /// transfer amount between budgets
     pub fn budget_transfer(&mut self, date: Date, from: impl Into<String>, to: impl Into<String>, amount: Amount) -> ZhangResult<()> {
-        self.budget_add_amount(from, date.clone(), amount.neg())?;
-        self.budget_add_amount(to, date.clone(), amount)?;
+        self.budget_add_assigned_amount(from, date.clone(), amount.neg())?;
+        self.budget_add_assigned_amount(to, date.clone(), amount)?;
         Ok(())
     }
 
@@ -789,5 +789,25 @@ impl Operations {
         let name = name.as_ref();
         store.budgets.get_mut(name).map(|budget| budget.closed = true);
         Ok(())
+    }
+
+    /// close budget
+    pub fn budget_add_activity(&mut self, name: impl Into<String>, date: Date, amount: Amount) -> ZhangResult<()> {
+        let name = name.into();
+        let interval = date.as_budget_interval();
+        let previous_budget_detail = self.budget_month_detail(&name, interval)?;
+
+        let mut store = self.write();
+        let target_budget = store.budgets.get_mut(&name).expect("budget does not exist");
+
+        let detail = target_budget.detail.entry(interval).or_insert(previous_budget_detail);
+
+        detail.activity_amount = detail.activity_amount.add(amount.number);
+        Ok(())
+    }
+
+    pub fn get_account_budget(&self, account_name: impl AsRef<str>) -> ZhangResult<Vec<String>> {
+        let metas = self.metas(MetaType::AccountMeta, account_name)?;
+        Ok(metas.into_iter().filter(|meta| meta.key.eq("budget")).map(|meta| meta.value).collect_vec())
     }
 }

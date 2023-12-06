@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ops::{Add, Sub};
+use std::ops::{Add, Mul, Sub};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
@@ -187,10 +187,17 @@ impl DirectiveProcess for Transaction {
                 txn_posting.posting.account.name(),
                 txn_posting.posting.units.clone(),
                 txn_posting.posting.cost.clone(),
-                inferred_amount,
+                inferred_amount.clone(),
                 Amount::new(previous.number, previous.commodity.clone()),
                 Amount::new(after_number, previous.commodity),
             )?;
+
+            // budget related
+            let budgets_name = operations.get_account_budget(txn_posting.posting.account.name())?;
+            for budget in budgets_name {
+                let budget_activity_amount = inferred_amount.mul(BigDecimal::from(txn_posting.posting.account.get_account_sign()));
+                operations.budget_add_activity(budget, self.date.clone(), budget_activity_amount)?;
+            }
 
             let amount = txn_posting.units().unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
             let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
@@ -371,7 +378,7 @@ impl DirectiveProcess for BudgetAdd {
         if !operations.contains_budget(&self.name) {
             operations.new_error(ErrorType::BudgetDoesNotExist, span, HashMap::default())?;
         } else {
-            operations.budget_add_amount(&self.name, self.date.clone(), self.amount.clone())?;
+            operations.budget_add_assigned_amount(&self.name, self.date.clone(), self.amount.clone())?;
         }
 
         Ok(())
