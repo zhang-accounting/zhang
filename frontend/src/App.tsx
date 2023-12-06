@@ -250,7 +250,7 @@ export default function App() {
       navbar={
         <>
           <MediaQuery smallerThan="sm" styles={{ display: 'none' }}>
-            <Navbar width={{ sm: 300 }} className={classes.navbar}>
+            <Navbar width={{ sm: 240 }} className={classes.navbar}>
               <Navbar.Section className={classes.header}>
                 <Group position="apart">
                   <Group spacing="xs" position="left">
@@ -261,10 +261,10 @@ export default function App() {
               </Navbar.Section>
 
               <Grid px="sm">
-                <Grid.Col span={8} py="md">
+                <Grid.Col span={12} pt="lg">
                   <TextInput placeholder="Search" size="xs" icon={<IconSearch size={12} stroke={1.5} />} />
                 </Grid.Col>
-                <Grid.Col span={4} py="md">
+                <Grid.Col span={12} pb="md">
                   <NewTransactionButton />
                 </Grid.Col>
               </Grid>

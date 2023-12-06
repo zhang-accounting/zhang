@@ -133,8 +133,8 @@ export default function NewTransactionButton() {
 
   return (
     <>
-      <Button size="xs" leftIcon={<IconSquarePlus />} onClick={() => isOpenHandler.open()}>
-        NEW
+      <Button size="xs" fullWidth leftIcon={<IconSquarePlus />} onClick={() => isOpenHandler.open()}>
+        NEW TRANSACTION
       </Button>
 
       <Modal
