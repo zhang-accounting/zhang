@@ -378,6 +378,15 @@ impl DirectiveProcess for BudgetAdd {
     }
 }
 
+impl DirectiveProcess for BudgetTransfer {
+    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
+        // todo: check if budget exists
+        operations.budget_transfer(self.date.clone(), &self.from, &self.to, self.amount.clone())?;
+        Ok(())
+    }
+}
+
 fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, operations: &mut Operations) -> ZhangResult<()> {
     match lot_info {
         LotInfo::Lot(target_currency, lot_number) => {

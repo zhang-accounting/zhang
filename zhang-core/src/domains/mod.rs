@@ -767,4 +767,10 @@ impl Operations {
         detail.assigned_amount = detail.assigned_amount.add(amount.number);
         Ok(())
     }
+
+    pub fn budget_transfer(&mut self, date: Date, from: impl Into<String>, to: impl Into<String>, amount: Amount) -> ZhangResult<()> {
+        self.budget_add_amount(from, date.clone(), amount.neg())?;
+        self.budget_add_amount(to, date.clone(), amount)?;
+        Ok(())
+    }
 }
