@@ -1,20 +1,19 @@
-use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::{Add, AddAssign};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::Deserialize;
 use uuid::Uuid;
-use zhang_ast::amount::{Amount, CalculatedAmount};
+
+use zhang_ast::amount::Amount;
 use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, SpanInfo};
 
-use crate::constants::KEY_OPERATING_CURRENCY;
 use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, ErrorType, MetaDomain,
     MetaType, OptionDomain, PriceDomain, TransactionInfoDomain,
@@ -796,7 +795,7 @@ impl Operations {
     }
 
     /// close budget
-    pub fn budget_close(&mut self, name: impl AsRef<str>, date: Date) -> ZhangResult<()> {
+    pub fn budget_close(&mut self, name: impl AsRef<str>, _date: Date) -> ZhangResult<()> {
         let mut store = self.write();
         let name = name.as_ref();
         store.budgets.get_mut(name).map(|budget| budget.closed = true);

@@ -4,11 +4,11 @@ use bigdecimal::BigDecimal;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use uuid::Uuid;
-use zhang_ast::amount::{Amount, CalculatedAmount};
-use zhang_ast::utils::inventory::Inventory;
+
+use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Flag, SpanInfo};
 
-use crate::domains::schemas::{AccountDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain};
+use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain};
 
 #[derive(Default, serde::Serialize)]
 pub struct Store {
@@ -124,6 +124,7 @@ mod test {
     use std::str::FromStr;
 
     use uuid::Uuid;
+
     use zhang_ast::Account;
 
     use crate::store::DocumentType;

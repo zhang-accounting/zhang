@@ -349,7 +349,7 @@ impl DirectiveProcess for Price {
 }
 
 impl DirectiveProcess for Budget {
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
         if operations.contains_budget(&self.name) {
             // todo: add budget existed warning
@@ -379,7 +379,7 @@ impl DirectiveProcess for BudgetAdd {
 }
 
 impl DirectiveProcess for BudgetTransfer {
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
         // todo: check if budget exists
         operations.budget_transfer(self.date.clone(), &self.from, &self.to, self.amount.clone())?;
@@ -388,7 +388,7 @@ impl DirectiveProcess for BudgetTransfer {
 }
 
 impl DirectiveProcess for BudgetClose {
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
         // todo: check if budget exists
         // todo: check if budget is empty
