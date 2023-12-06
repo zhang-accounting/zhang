@@ -13,7 +13,7 @@ use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaD
 #[derive(Default, serde::Serialize)]
 pub struct Store {
     pub options: HashMap<String, String>,
-    pub accounts: HashMap<Account, AccountDomain>,
+    pub accounts: HashMap<String, AccountDomain>,
     pub commodities: HashMap<String, CommodityDomain>,
     pub transactions: HashMap<Uuid, TransactionHeaderDomain>,
     pub postings: Vec<PostingDomain>,
@@ -23,7 +23,7 @@ pub struct Store {
     pub budgets: HashMap<String, BudgetDomain>,
 
     // by account
-    pub commodity_lots: HashMap<Account, Vec<CommodityLotRecord>>,
+    pub commodity_lots: HashMap<String, Vec<CommodityLotRecord>>,
 
     pub documents: Vec<DocumentDomain>,
 

@@ -75,7 +75,7 @@ impl Operations {
                 if lot.commodity.eq(commodity) {
                     let lot = lot.clone();
                     ret.push(AccountCommodityLot {
-                        account: account.clone(),
+                        account: Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?,
                         datetime: lot.datetime,
                         amount: lot.amount,
                         price: lot.price,
@@ -101,7 +101,7 @@ impl Operations {
     /// if account exists, then update its status only
     pub(crate) fn insert_or_update_account(&mut self, datetime: DateTime<Tz>, account: Account, status: AccountStatus, alias: Option<&str>) -> ZhangResult<()> {
         let mut store = self.write();
-        let account_domain = store.accounts.entry(account.clone()).or_insert_with(|| AccountDomain {
+        let account_domain = store.accounts.entry(account.name().to_owned()).or_insert_with(|| AccountDomain {
             date: datetime.naive_local(),
             r#type: account.account_type.to_string(),
             name: account.name().to_owned(),
@@ -216,10 +216,7 @@ impl Operations {
 
     pub(crate) fn account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>) -> ZhangResult<Option<CommodityLotRecord>> {
         let mut store = self.write();
-        let entry = store
-            .commodity_lots
-            .entry(Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?)
-            .or_default();
+        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
         let option = entry.iter().filter(|lot| lot.commodity.eq(currency)).find(|lot| lot.price.eq(&price)).cloned();
 
@@ -228,10 +225,7 @@ impl Operations {
 
     pub fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str) -> ZhangResult<Option<CommodityLotRecord>> {
         let mut store = self.write();
-        let entry = store
-            .commodity_lots
-            .entry(Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?)
-            .or_default();
+        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
         let option = entry
             .iter()
@@ -243,10 +237,7 @@ impl Operations {
     }
     pub(crate) fn update_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
         let mut store = self.write();
-        let entry = store
-            .commodity_lots
-            .entry(Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?)
-            .or_default();
+        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
         let option = entry.iter_mut().find(|lot| lot.price.eq(&price));
         if let Some(lot) = option {
@@ -264,8 +255,7 @@ impl Operations {
 
     pub(crate) fn insert_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
         let mut store = self.write();
-        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
-        let lot_records = store.commodity_lots.entry(account).or_default();
+        let lot_records = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
         lot_records.push(CommodityLotRecord {
             commodity: currency.to_owned(),
@@ -293,6 +283,7 @@ impl Operations {
         let store = self.read();
         let commodity = commodity.as_ref();
         for (account, lots) in store.commodity_lots.iter() {
+            let account = Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?;
             if account.account_type == AccountType::Assets || account.account_type == AccountType::Liabilities {
                 let account_sum: BigDecimal = lots.iter().filter(|lot| lot.commodity.eq(commodity)).map(|it| &it.amount).sum();
                 total.add_assign(account_sum);
@@ -541,8 +532,7 @@ impl Operations {
     pub fn account(&mut self, account_name: &str) -> ZhangResult<Option<AccountDomain>> {
         let store = self.read();
 
-        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
-        Ok(store.accounts.get(&account).cloned())
+        Ok(store.accounts.get(account_name).cloned())
     }
     pub fn all_open_accounts(&mut self) -> ZhangResult<Vec<AccountDomain>> {
         let store = self.read();
@@ -555,7 +545,7 @@ impl Operations {
     }
     pub fn all_accounts(&mut self) -> ZhangResult<Vec<String>> {
         let store = self.read();
-        Ok(store.accounts.keys().map(|it| it.name().to_owned()).collect_vec())
+        Ok(store.accounts.keys().map(|it| it.to_owned()).collect_vec())
     }
 
     pub fn all_payees(&mut self) -> ZhangResult<Vec<String>> {
@@ -690,8 +680,7 @@ impl Operations {
     pub fn close_account(&mut self, account_name: &str) -> ZhangResult<()> {
         let mut store = self.write();
 
-        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
-        let option = store.accounts.get_mut(&account);
+        let option = store.accounts.get_mut(account_name);
 
         if let Some(account) = option {
             account.status = AccountStatus::Close

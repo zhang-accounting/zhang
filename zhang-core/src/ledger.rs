@@ -453,7 +453,7 @@ mod test {
                     1970-01-01 open Assets:Hello CNY
                 "#});
             let store = ledger.store.read().unwrap();
-            let account = store.accounts.get(&Account::from_str("Assets:Hello").unwrap()).unwrap();
+            let account = store.accounts.get("Assets:Hello").unwrap();
             assert_eq!(account.status, AccountStatus::Open);
         }
 
@@ -464,7 +464,7 @@ mod test {
                     1970-02-01 close Assets:Hello
                 "#});
             let store = ledger.store.read().unwrap();
-            let account = store.accounts.get(&Account::from_str("Assets:Hello").unwrap()).unwrap();
+            let account = store.accounts.get("Assets:Hello").unwrap();
             assert_eq!(account.status, AccountStatus::Close);
         }
 
