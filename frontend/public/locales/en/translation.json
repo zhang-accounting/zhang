@@ -19,6 +19,7 @@
     "NAV_RAW_EDITING": "Raw Editing",
     "NAV_TOOLS": "Tools",
     "NAV_SETTING": "Setting",
+    "NAV_BUDGETS": "Budget",
 
     "AccountDoesNotExist": "Account does not exist",
     "AccountBalanceCheckError": " Account does not pass the balance check",
