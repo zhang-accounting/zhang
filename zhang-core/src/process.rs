@@ -356,10 +356,24 @@ impl DirectiveProcess for Budget {
         }
         operations.init_budget(
             &self.name,
+            &self.commodity,
             self.date.clone(),
             self.meta.get_one("alias").map(|it| it.as_str().to_owned()),
             self.meta.get_one("category").map(|it| it.as_str().to_owned()),
         )?;
+        Ok(())
+    }
+}
+
+impl DirectiveProcess for BudgetAdd {
+    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
+        if !operations.contains_budget(&self.name) {
+            operations.new_error(ErrorType::BudgetDoesNotExist, span, HashMap::default())?;
+        } else {
+            operations.budget_add_amount(&self.name, self.date.clone(), self.amount.clone())?;
+        }
+
         Ok(())
     }
 }

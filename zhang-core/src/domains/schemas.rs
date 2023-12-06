@@ -116,4 +116,6 @@ pub enum ErrorType {
     CommodityDoesNotDefine,
     TransactionHasMultipleImplicitPosting,
     CloseNonZeroAccount,
+
+    BudgetDoesNotExist,
 }

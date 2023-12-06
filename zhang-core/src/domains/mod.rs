@@ -1,5 +1,6 @@
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ops::AddAssign;
+use std::ops::{Add, AddAssign};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -18,9 +19,7 @@ use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, ErrorType, MetaDomain,
     MetaType, OptionDomain, PriceDomain, TransactionInfoDomain,
 };
-use crate::store::{
-    BudgetDomain, BudgetInterval, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionHeaderDomain,
-};
+use crate::store::{BudgetDomain, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionHeaderDomain};
 use crate::{ZhangError, ZhangResult};
 
 pub mod schemas;
@@ -726,25 +725,46 @@ impl Operations {
         let store = self.read();
         store.budgets.contains_key(name.as_ref())
     }
-    pub fn init_budget(&mut self, name: impl Into<String>, date: Date, alias: Option<String>, category: Option<String>) -> ZhangResult<()> {
-        let operating_currency = self.option(KEY_OPERATING_CURRENCY)?.expect("cannot find operating currency").value;
-
+    pub fn init_budget(
+        &mut self, name: impl Into<String>, commodity: impl Into<String>, date: Date, alias: Option<String>, category: Option<String>,
+    ) -> ZhangResult<()> {
         let mut store = self.write();
         let name = name.into();
+        let commodity = commodity.into();
         let budget_domain = store.budgets.entry(name.clone()).or_insert(BudgetDomain {
             name,
+            commodity: commodity.clone(),
             alias,
             category,
             closed: false,
             detail: Default::default(),
         });
-        let year = date.naive_date().year();
-        let month = date.naive_date().month();
-        let interval = BudgetInterval::new(year, month);
-        budget_domain.detail.entry(interval).or_insert(BudgetIntervalDetail {
-            assigned_amount: CalculatedAmount::new(&operating_currency),
-            activity_amount: CalculatedAmount::new(&operating_currency),
+        budget_domain.detail.entry(date.as_budget_interval()).or_insert(BudgetIntervalDetail {
+            assigned_amount: Amount::zero(&commodity),
+            activity_amount: Amount::zero(&commodity),
         });
+        Ok(())
+    }
+
+    pub fn budget_add_amount(&mut self, name: impl Into<String>, date: Date, amount: Amount) -> ZhangResult<()> {
+        let mut store = self.write();
+        let name = name.into();
+        let target_budget = store.budgets.get_mut(&name).expect("budget does not exist");
+        let interval = date.as_budget_interval();
+
+        let previous_budget_detail = target_budget
+            .detail
+            .iter()
+            .filter(|item| item.0 < &interval)
+            .max_by_key(|item| item.0)
+            .map(|item| item.1.clone())
+            .unwrap_or(BudgetIntervalDetail {
+                assigned_amount: Amount::zero(&target_budget.commodity),
+                activity_amount: Amount::zero(&target_budget.commodity),
+            });
+        let detail = target_budget.detail.entry(interval).or_insert(previous_budget_detail);
+
+        detail.assigned_amount = detail.assigned_amount.add(amount.number);
         Ok(())
     }
 }

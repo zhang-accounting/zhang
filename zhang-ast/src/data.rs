@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::ops::{Div, Mul, Neg};
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use itertools::Itertools;
@@ -42,6 +42,12 @@ impl Date {
             Date::DateHour(date_hour) => date_hour.date(),
             Date::Datetime(datetime) => datetime.date(),
         }
+    }
+    pub fn as_budget_interval(&self) -> u32 {
+        let date = self.naive_date();
+        let year = date.year();
+        let month = date.month();
+        month + (year * 100) as u32
     }
 }
 
@@ -307,8 +313,9 @@ pub struct Comment {
 pub struct Budget {
     pub date: Date,
     pub name: String,
+    pub commodity: String,
 
-    pub meta: Meta
+    pub meta: Meta,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -317,7 +324,7 @@ pub struct BudgetAdd {
     pub name: String,
     pub amount: Amount,
 
-    pub meta: Meta
+    pub meta: Meta,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub struct BudgetTransfer {
@@ -326,7 +333,7 @@ pub struct BudgetTransfer {
     pub to: String,
     pub amount: Amount,
 
-    pub meta: Meta
+    pub meta: Meta,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -334,5 +341,5 @@ pub struct BudgetClose {
     pub date: Date,
     pub name: String,
 
-    pub meta: Meta
+    pub meta: Meta,
 }

@@ -325,7 +325,7 @@ impl TextExportable for Budget {
     type Output = String;
 
     fn export(self) -> Self::Output {
-        let line = vec![self.date.export(), "budget".to_owned(), self.name];
+        let line = vec![self.date.export(), "budget".to_owned(), self.name, self.commodity];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -652,7 +652,7 @@ mod test {
         assert_parse!(
             "budget directive",
             indoc! {r#"
-                1970-01-01 budget Diet
+                1970-01-01 budget Diet CNY
             "#}
         );
 

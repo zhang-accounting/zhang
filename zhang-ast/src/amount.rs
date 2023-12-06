@@ -35,6 +35,13 @@ impl Amount {
         }
     }
 
+    pub fn zero(currency: impl Into<String>) -> Amount {
+        Amount {
+            number: BigDecimal::zero(),
+            currency: currency.into(),
+        }
+    }
+
     ///
     /// ```rust
     /// use bigdecimal::BigDecimal;

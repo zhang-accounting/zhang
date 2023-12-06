@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use bigdecimal::BigDecimal;
 use chrono::DateTime;
@@ -108,25 +108,15 @@ pub struct BudgetDomain {
     pub alias: Option<String>,
     pub category: Option<String>,
     pub closed: bool,
-    pub detail: HashMap<BudgetInterval, BudgetIntervalDetail>,
-}
-#[derive(Default, Clone, Debug, Hash, Eq, PartialEq, serde::Serialize)]
-pub struct BudgetInterval {
-    pub year: i32,
-    pub month: u32,
-}
-
-impl BudgetInterval {
-    pub fn new(year: i32, month: u32) -> Self {
-        Self { year, month }
-    }
+    pub detail: BTreeMap<u32, BudgetIntervalDetail>,
+    pub commodity: String,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct BudgetIntervalDetail {
-    pub assigned_amount: CalculatedAmount,
+    pub assigned_amount: Amount,
     // todo: budget event for addition, transfer and close
-    pub activity_amount: CalculatedAmount,
+    pub activity_amount: Amount,
 }
 
 #[cfg(test)]

@@ -437,14 +437,15 @@ impl ZhangParser {
     }
 
     fn budget(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
-            [date(date), unquote_string(name)] => (date, name, vec![]),
-            [date(date), unquote_string(name), commodity_meta(metas)] => (date, name, metas)
+        let ret: (Date, ZhangString, String, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name), commodity_name(commodity)] => (date, name, commodity, vec![]),
+            [date(date), unquote_string(name), commodity_name(commodity), commodity_meta(metas)] => (date, name, commodity, metas)
         );
         Ok(Directive::Budget(Budget {
             date: ret.0,
             name: ret.1.to_plain_string(),
-            meta: ret.2.into_iter().collect(),
+            commodity: ret.2,
+            meta: ret.3.into_iter().collect(),
         }))
     }
 
@@ -944,7 +945,7 @@ mod test {
         fn should_parse_budget_without_meta() {
             let mut vec = parse(
                 indoc! {r#"
-                            1970-01-01 budget Diet
+                            1970-01-01 budget Diet CNY
                         "#},
                 None,
             )
@@ -954,6 +955,7 @@ mod test {
             assert!(matches!(directive, Directive::Budget(..)));
             if let Directive::Budget(inner) = directive {
                 assert_eq!(inner.name, "Diet");
+                assert_eq!(inner.commodity, "CNY");
             }
         }
 
@@ -961,7 +963,7 @@ mod test {
         fn should_parse_budget_with_meta() {
             let mut vec = parse(
                 indoc! {r#"
-                            1970-01-01 budget Diet
+                            1970-01-01 budget Diet CNY
                               alias: "日常饮食"
                         "#},
                 None,
@@ -972,6 +974,7 @@ mod test {
             assert!(matches!(directive, Directive::Budget(..)));
             if let Directive::Budget(inner) = directive {
                 assert_eq!(inner.name, "Diet");
+                assert_eq!(inner.commodity, "CNY");
                 assert_eq!(inner.meta.get_one("alias").unwrap(), &quote!("日常饮食"));
             }
         }
