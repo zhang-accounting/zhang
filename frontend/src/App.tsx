@@ -44,6 +44,7 @@ import { basicInfoSlice, fetchBasicInfo } from './states/basic';
 import { fetchCommodities } from './states/commodity';
 import { fetchError } from './states/errors';
 import { journalsSlice } from './states/journals';
+import Budgets from './pages/Budgets';
 
 const useStyles = createStyles((theme) => ({
   onlineIcon: {
@@ -158,6 +159,7 @@ const links: LinkItem[] = [
   { icon: IconList, label: 'NAV_JOURNALS', uri: '/journals' },
   { icon: IconCash, label: 'NAV_ACCOUNTS', uri: '/accounts' },
   { icon: IconCurrencyBitcoin, label: 'NAV_COMMDOITIES', uri: '/commodities' },
+  { icon: IconCurrencyBitcoin, label: 'NAV_BUDGETS', uri: '/budgets' },
   { icon: IconFiles, label: 'NAV_DOCUMENTS', uri: '/documents' },
   { icon: IconChartAreaLine, label: 'NAV_REPORT', uri: '/report' },
   { icon: IconCreditCard, label: 'NAV_LIABILITY', uri: '/liability' },
@@ -321,6 +323,7 @@ export default function App() {
         <Route path="/commodities" element={<Commodities />} />
         <Route path="/commodities/:commodityName" element={<SingleCommodity />} />
         <Route path="documents" element={<Documents />} />
+        <Route path="/budgets" element={<Budgets />} />
         <Route path="/edit" element={<RawEdit />} />
         <Route path="/report" element={<Report />} />
         <Route path="/tools" element={<ToolList />} />

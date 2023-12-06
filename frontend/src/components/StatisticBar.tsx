@@ -19,12 +19,12 @@ export default function StatisticBar() {
       <StatisticBox
         text={'ASSET_BLANACE'}
         amount={data.balance.calculated.number}
-        currency={data.balance.calculated.commodity}
+        currency={data.balance.calculated.currency}
         hint={'include assets and liabilities'}
       />
-      <StatisticBox text={'LIABILITY'} amount={data.liability.calculated.number} currency={data.liability.calculated.commodity} negetive />
-      <StatisticBox text={'CURRENT_MONTH_INCOME'} amount={data.income.calculated.number} currency={data.income.calculated.commodity} negetive />
-      <StatisticBox text={'CURRENT_MONTH_EXPENSE'} amount={data.expense.calculated.number} currency={data.expense.calculated.commodity} />
+      <StatisticBox text={'LIABILITY'} amount={data.liability.calculated.number} currency={data.liability.calculated.currency} negetive />
+      <StatisticBox text={'CURRENT_MONTH_INCOME'} amount={data.income.calculated.number} currency={data.income.calculated.currency} negetive />
+      <StatisticBox text={'CURRENT_MONTH_EXPENSE'} amount={data.expense.calculated.number} currency={data.expense.calculated.currency} />
     </SimpleGrid>
   );
 }

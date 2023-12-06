@@ -36,3 +36,6 @@ option "operating_currency" "CNY"
 2023-12-01 budget game-expense CNY
   alias: "游戏消费"
   category: "精神食粮｜15%"
+
+
+2023-12-02 budget-add game-expense 200.1 CNY

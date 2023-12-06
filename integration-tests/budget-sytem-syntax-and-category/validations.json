@@ -1,0 +1,28 @@
+[
+  {
+    "uri": "/api/store",
+    "validations": [
+      [
+        "$.data.budgets.'game-expense'.detail.'202312'.assigned_amount.number",
+        "200.1"
+      ],
+      [
+        "$.data.budgets.'game-expense'.detail.'202312'.activity_amount.number",
+        "0"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/budgets?year=2023&month=12",
+    "validations": [
+      [
+        "$.data.budgets[?(@.name='game-expense'].assigned_amount.number",
+        "200.1"
+      ],
+      [
+        "$.data.budgets[?(@.name='game-expense'].activity_amount.number",
+        "0"
+      ]
+    ]
+  }
+]

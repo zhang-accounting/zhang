@@ -775,12 +775,13 @@ impl Operations {
 
     /// add amount to target month's budget
     pub fn budget_add_amount(&mut self, name: impl Into<String>, date: Date, amount: Amount) -> ZhangResult<()> {
-        let mut store = self.write();
         let name = name.into();
-        let target_budget = store.budgets.get_mut(&name).expect("budget does not exist");
         let interval = date.as_budget_interval();
-
         let previous_budget_detail = self.budget_month_detail(&name, interval)?;
+
+        let mut store = self.write();
+        let target_budget = store.budgets.get_mut(&name).expect("budget does not exist");
+
         let detail = target_budget.detail.entry(interval).or_insert(previous_budget_detail);
 
         detail.assigned_amount = detail.assigned_amount.add(amount.number);
