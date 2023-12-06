@@ -36,10 +36,10 @@ function Journals() {
           {t('REFRESH')}
         </Button>
       </Group>
-      <Table verticalSpacing="xs" highlightOnHover>
+      <Table verticalSpacing="xs" highlightOnHover withBorder>
         <thead>
           <tr>
-            <th>Date</th>
+            <th style={{width:"200px"}}>Date</th>
             <th>Type</th>
             <th>Payee</th>
             <th>Narration</th>
