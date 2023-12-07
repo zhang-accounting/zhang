@@ -1,4 +1,4 @@
-import {Button, Chip, Container, Group, Table} from '@mantine/core';
+import {Button, Chip, Container, Group, Popover, Table, Title} from '@mantine/core';
 import {useLocalStorage} from '@mantine/hooks';
 import {useState} from 'react';
 import {BudgetListItem} from '../rest-model';
@@ -8,6 +8,8 @@ import useSWR from 'swr';
 import {fetcher} from '../index';
 import {groupBy, sortBy} from 'lodash';
 import BudgetCategory from '../components/budget/BudgetCategory';
+import {format} from "date-fns";
+import {MonthPicker} from "@mantine/dates";
 
 export default function Budgets() {
     const {t} = useTranslation();
@@ -27,7 +29,15 @@ export default function Budgets() {
 
     return (
         <Container fluid>
-            <Heading title={`Budgets`}></Heading>
+            <Popover position="bottom" withArrow shadow="md">
+                <Popover.Target>
+                    <Title style={{display:"inline-block", cursor:"pointer"}} order={2} py="md" px="xs">{`${format(date, 'MMM, yyyy')}`}</Title>
+
+                </Popover.Target>
+                <Popover.Dropdown>
+                    <MonthPicker value={date} onChange={newDate => setDate(newDate ?? new Date())}/>
+                </Popover.Dropdown>
+            </Popover>
             <Group my="lg">
                 <Button variant="outline" color="gray" radius="xl" size="xs">
                     {t('REFRESH')}
