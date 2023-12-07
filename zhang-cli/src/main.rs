@@ -321,7 +321,7 @@ mod test {
                                 }
 
                                 let value = res.clone().path(&point.0).unwrap();
-                                let expected_value = if point.1.is_array() { point.1.clone() } else { Value::Array(vec![point.1]) };
+                                let expected_value = Value::Array(vec![point.1]);
                                 if !expected_value.eq(&value) {
                                     panic!("Validation fail: {} != {}", &expected_value, &value);
                                 }

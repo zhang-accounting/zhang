@@ -204,6 +204,7 @@ pub async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, b
             .service(routes::statistics::get_statistic_graph)
             .service(routes::statistics::get_statistic_rank_detail_by_account_type)
             .service(routes::budget::get_budget_list)
+            .service(routes::budget::get_budget_info)
             .service(sse);
 
         #[cfg(feature = "frontend")]

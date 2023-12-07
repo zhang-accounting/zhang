@@ -90,5 +90,30 @@
         "0"
       ]
     ]
+  },
+  {
+    "uri": "/api/budgets/food?year=2023&month=12",
+    "validations": [
+      [
+        "$.data.name",
+        "food"
+      ],
+      [
+        "$.data.assigned_amount.number",
+        "1000"
+      ],
+      [
+        "$.data.activity_amount.number",
+        "50"
+      ],
+      [
+        "$.data.available_amount.number",
+        "950"
+      ],
+      [
+        "$.data.related_accounts",
+        ["Expenses:Food"]
+      ]
+    ]
   }
 ]
