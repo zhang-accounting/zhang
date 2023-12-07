@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ops::{Add, AddAssign};
+use std::ops::{Add, AddAssign, Sub};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -737,6 +737,7 @@ impl Operations {
             detail: Default::default(),
         });
         budget_domain.detail.entry(date.as_budget_interval()).or_insert(BudgetIntervalDetail {
+            date: date.as_budget_interval(),
             assigned_amount: Amount::zero(&commodity),
             activity_amount: Amount::zero(&commodity),
         });
@@ -755,7 +756,19 @@ impl Operations {
             .filter(|item| item.0 <= &interval)
             .max_by_key(|item| item.0)
             .map(|item| item.1.clone())
+            .map(|fetched_detail| {
+                if fetched_detail.date == interval {
+                    fetched_detail
+                } else {
+                    BudgetIntervalDetail {
+                        date: interval,
+                        assigned_amount: fetched_detail.assigned_amount.sub(fetched_detail.activity_amount.number),
+                        activity_amount: Amount::zero(&target_budget.commodity),
+                    }
+                }
+            })
             .unwrap_or(BudgetIntervalDetail {
+                date: interval,
                 assigned_amount: Amount::zero(&target_budget.commodity),
                 activity_amount: Amount::zero(&target_budget.commodity),
             }))

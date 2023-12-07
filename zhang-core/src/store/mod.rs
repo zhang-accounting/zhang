@@ -114,6 +114,8 @@ pub struct BudgetDomain {
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct BudgetIntervalDetail {
+    /// year and month pair, calculated as `year*100+month`, E.G. `202312`
+    pub date: u32,
     pub assigned_amount: Amount,
     // todo: budget event for addition, transfer and close
     pub activity_amount: Amount,
