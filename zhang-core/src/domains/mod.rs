@@ -745,7 +745,7 @@ impl Operations {
     }
 
     /// get target month's detail
-    pub fn budget_month_detail(&self, name: impl Into<String>, interval: u32) -> ZhangResult<BudgetIntervalDetail> {
+    pub fn budget_month_detail(&self, name: impl Into<String>, interval: u32) -> ZhangResult<Option<BudgetIntervalDetail>> {
         let store = self.read();
         let name = name.into();
         let target_budget = store.budgets.get(&name).expect("budget does not exist");
@@ -766,11 +766,6 @@ impl Operations {
                         activity_amount: Amount::zero(&target_budget.commodity),
                     }
                 }
-            })
-            .unwrap_or(BudgetIntervalDetail {
-                date: interval,
-                assigned_amount: Amount::zero(&target_budget.commodity),
-                activity_amount: Amount::zero(&target_budget.commodity),
             }))
     }
 
@@ -778,12 +773,20 @@ impl Operations {
     pub fn budget_add_assigned_amount(&mut self, name: impl Into<String>, date: Date, amount: Amount) -> ZhangResult<()> {
         let name = name.into();
         let interval = date.as_budget_interval();
+
         let previous_budget_detail = self.budget_month_detail(&name, interval)?;
 
         let mut store = self.write();
         let target_budget = store.budgets.get_mut(&name).expect("budget does not exist");
 
-        let detail = target_budget.detail.entry(interval).or_insert(previous_budget_detail);
+        let detail = target_budget
+            .detail
+            .entry(interval)
+            .or_insert(previous_budget_detail.unwrap_or(BudgetIntervalDetail {
+                date: interval,
+                assigned_amount: Amount::zero(&target_budget.commodity),
+                activity_amount: Amount::zero(&target_budget.commodity),
+            }));
 
         detail.assigned_amount = detail.assigned_amount.add(amount.number);
         Ok(())
@@ -813,7 +816,14 @@ impl Operations {
         let mut store = self.write();
         let target_budget = store.budgets.get_mut(&name).expect("budget does not exist");
 
-        let detail = target_budget.detail.entry(interval).or_insert(previous_budget_detail);
+        let detail = target_budget
+            .detail
+            .entry(interval)
+            .or_insert(previous_budget_detail.unwrap_or(BudgetIntervalDetail {
+                date: interval,
+                assigned_amount: Amount::zero(&target_budget.commodity),
+                activity_amount: Amount::zero(&target_budget.commodity),
+            }));
 
         detail.activity_amount = detail.activity_amount.add(amount.number);
         Ok(())

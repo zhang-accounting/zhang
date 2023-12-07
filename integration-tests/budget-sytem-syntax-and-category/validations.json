@@ -77,5 +77,18 @@
         "950"
       ]
     ]
+  },
+  {
+    "uri": "/api/budgets?year=2023&month=11",
+    "validations": [
+      [
+        "$.data.length()",
+        1
+      ],
+      [
+        "$.data[?(@.name=='3C_Devices')].assigned_amount.number",
+        "0"
+      ]
+    ]
   }
 ]

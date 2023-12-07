@@ -6,7 +6,7 @@ option "operating_currency" "CNY"
     budget: food
 
 
-2023-12-01 budget 3C-Devices CNY
+2023-11-01 budget 3C_Devices CNY
   alias: "3C淘汰"
   category: "长期持有｜10%"
 
