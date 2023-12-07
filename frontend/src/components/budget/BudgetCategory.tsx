@@ -73,7 +73,7 @@ export default function BudgetCategory(props: Props) {
           </b>
         </td>
       </tr>
-      {isShow && props.items.map((item) => <BudgetLine {...item}></BudgetLine>)}
+      {isShow && props.items.sort().map((item) => <BudgetLine key={`${item.name}`} {...item}></BudgetLine>)}
     </>
   );
 }

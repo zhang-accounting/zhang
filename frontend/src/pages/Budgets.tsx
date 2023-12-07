@@ -45,10 +45,12 @@ export default function Budgets() {
                                px="xs">{`${format(date, 'MMM, yyyy')}`}</Title>
                     </Popover.Target>
                     <Popover.Dropdown>
-                        <MonthPicker value={date} onChange={newDate => setDate(newDate ?? new Date())}/>
+                        <MonthPicker value={date} maxDate={new Date()}
+                                     onChange={newDate => setDate(newDate ?? new Date())}/>
                     </Popover.Dropdown>
                 </Popover>
-                <ActionIcon onClick={() => goToMonth(1)}>
+                <ActionIcon onClick={() => goToMonth(1)}
+                            disabled={date.getFullYear() == new Date().getFullYear() && date.getMonth() == new Date().getMonth()}>
                     <IconChevronRight size="1.125rem"/>
                 </ActionIcon>
             </Group>
@@ -72,7 +74,7 @@ export default function Budgets() {
                 </thead>
                 <tbody>
                 {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (
-                    <BudgetCategory name={entry[0]} items={entry[1]}></BudgetCategory>
+                    <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]} items={entry[1]}></BudgetCategory>
                 ))}
                 </tbody>
             </Table>
