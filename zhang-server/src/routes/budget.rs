@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 use actix_web::get;
 use actix_web::web::{Data, Path, Query};
-use chrono::{Datelike, Local};
+use chrono::{Datelike, Local, NaiveDate};
 use itertools::Itertools;
+use now::DateTimeNow;
 use tokio::sync::RwLock;
 
 use zhang_ast::amount::Amount;
@@ -12,7 +13,7 @@ use zhang_core::ledger::Ledger;
 use zhang_core::store::BudgetIntervalDetail;
 
 use crate::request::BudgetListRequest;
-use crate::response::{BudgetInfoResponse, BudgetListItemResponse, ResponseWrapper};
+use crate::response::{BudgetInfoResponse, BudgetIntervalEventResponse, BudgetListItemResponse, ResponseWrapper};
 use crate::ApiResult;
 
 #[get("/api/budgets")]
@@ -51,6 +52,7 @@ pub async fn get_budget_info(ledger: Data<Arc<RwLock<Ledger>>>, paths: Path<(Str
     let interval = params.as_interval();
     let interval_detail = operations.budget_month_detail(&budget.name, interval)?.unwrap_or(BudgetIntervalDetail {
         date: interval,
+        events: vec![],
         assigned_amount: Amount::zero(&budget.commodity),
         activity_amount: Amount::zero(&budget.commodity),
     });
@@ -72,4 +74,46 @@ pub async fn get_budget_info(ledger: Data<Arc<RwLock<Ledger>>>, paths: Path<(Str
         assigned_amount: interval_detail.assigned_amount,
         activity_amount: interval_detail.activity_amount,
     })
+}
+
+#[get("/api/budgets/{budget_name}/interval/{year}/{month}")]
+pub async fn get_budget_interval_detail(ledger: Data<Arc<RwLock<Ledger>>>, paths: Path<(String, u32, u32)>) -> ApiResult<Vec<BudgetIntervalEventResponse>> {
+    let (budget_name, year, month) = paths.into_inner();
+    let ledger = ledger.read().await;
+    let operations = ledger.operations();
+
+    let Some(budget) = operations.all_budgets()?.into_iter().filter(|budget| budget.name.eq(&budget_name)).next() else {
+        return ResponseWrapper::not_found();
+    };
+    let date = NaiveDate::from_ymd_opt(year as i32, month, 1).unwrap().and_hms_opt(0, 0, 0).unwrap();
+    let datetime = date.and_local_timezone(ledger.options.timezone).unwrap();
+    let month_beginning = datetime.beginning_of_month();
+    let month_end = datetime.end_of_month();
+    let interval = year * 100 + month;
+    let budget_events = operations
+        .budget_month_detail(budget_name, interval)?
+        .map(|interval| interval.events)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| BudgetIntervalEventResponse::BudgetEvent(e))
+        .collect_vec();
+
+    let store = operations.store.read().unwrap();
+    let related_accounts = store
+        .metas
+        .iter()
+        .filter(|meta| meta.meta_type.eq("AccountMeta"))
+        .filter(|meta| meta.key.eq("budget"))
+        .map(|meta| meta.type_identifier.clone())
+        .collect_vec();
+    let journals = operations
+        .accounts_dated_journals(&related_accounts, month_beginning, month_end)?
+        .into_iter()
+        .map(|item| BudgetIntervalEventResponse::Posting(item))
+        .collect_vec();
+    let mut ret = vec![];
+    ret.extend(budget_events);
+    ret.extend(journals);
+    ret.sort_by(|a, b| b.naive_datetime().cmp(&a.naive_datetime()));
+    ResponseWrapper::json(ret)
 }

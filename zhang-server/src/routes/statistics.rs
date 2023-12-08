@@ -160,7 +160,7 @@ pub async fn get_statistic_rank_detail_by_account_type(
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
 
-    let income_transactions = operations.account_dated_journals(account_type, params.from, params.to)?;
+    let income_transactions = operations.account_type_dated_journals(account_type, params.from, params.to)?;
 
     let mut account_detail: HashMap<String, Vec<Amount>> = HashMap::new();
 

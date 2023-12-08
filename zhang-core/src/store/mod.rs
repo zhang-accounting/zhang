@@ -118,7 +118,22 @@ pub struct BudgetIntervalDetail {
     pub date: u32,
     pub assigned_amount: Amount,
     // todo: budget event for addition, transfer and close
+    pub events: Vec<BudgetEvent>,
     pub activity_amount: Amount,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BudgetEvent {
+    pub datetime: DateTime<Tz>,
+    pub timestamp: i64,
+    pub amount: Amount,
+    pub event_type: BudgetEventType,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub enum BudgetEventType {
+    AddAssignedAmount,
+    Transfer,
 }
 
 #[cfg(test)]

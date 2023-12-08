@@ -27,7 +27,7 @@ impl Date {
         Date::Datetime(Utc::now().with_timezone(timezone).naive_local())
     }
     pub fn to_timezone_datetime(&self, timezone: &Tz) -> DateTime<Tz> {
-        timezone.from_local_datetime(&self.naive_datetime()).unwrap()
+        dbg!(timezone).from_local_datetime(dbg!(&self.naive_datetime())).unwrap()
     }
     pub(crate) fn naive_datetime(&self) -> NaiveDateTime {
         match self {

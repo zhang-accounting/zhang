@@ -17,7 +17,7 @@ use crate::constants::{DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_COMMODITY_PRECIS
 use crate::domains::schemas::{AccountStatus, ErrorType, MetaType};
 use crate::domains::{AccountAmount, Operations};
 use crate::ledger::Ledger;
-use crate::store::DocumentType;
+use crate::store::{BudgetEventType, DocumentType};
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
 use crate::ZhangResult;
@@ -196,7 +196,7 @@ impl DirectiveProcess for Transaction {
             let budgets_name = operations.get_account_budget(txn_posting.posting.account.name())?;
             for budget in budgets_name {
                 let budget_activity_amount = inferred_amount.mul(BigDecimal::from(txn_posting.posting.account.get_account_sign()));
-                operations.budget_add_activity(budget, self.date.clone(), budget_activity_amount)?;
+                operations.budget_add_activity(budget, self.date.to_timezone_datetime(&ledger.options.timezone), budget_activity_amount)?;
             }
 
             let amount = txn_posting.units().unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
@@ -364,7 +364,7 @@ impl DirectiveProcess for Budget {
         operations.init_budget(
             &self.name,
             &self.commodity,
-            self.date.clone(),
+            self.date.to_timezone_datetime(&ledger.options.timezone),
             self.meta.get_one("alias").map(|it| it.as_str().to_owned()),
             self.meta.get_one("category").map(|it| it.as_str().to_owned()),
         )?;
@@ -378,7 +378,12 @@ impl DirectiveProcess for BudgetAdd {
         if !operations.contains_budget(&self.name) {
             operations.new_error(ErrorType::BudgetDoesNotExist, span, HashMap::default())?;
         } else {
-            operations.budget_add_assigned_amount(&self.name, self.date.clone(), self.amount.clone())?;
+            operations.budget_add_assigned_amount(
+                &self.name,
+                dbg!(self.date.to_timezone_datetime(&ledger.options.timezone)),
+                BudgetEventType::AddAssignedAmount,
+                self.amount.clone(),
+            )?;
         }
 
         Ok(())
@@ -389,7 +394,12 @@ impl DirectiveProcess for BudgetTransfer {
     fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
         // todo: check if budget exists
-        operations.budget_transfer(self.date.clone(), &self.from, &self.to, self.amount.clone())?;
+        operations.budget_transfer(
+            self.date.to_timezone_datetime(&ledger.options.timezone),
+            &self.from,
+            &self.to,
+            self.amount.clone(),
+        )?;
         Ok(())
     }
 }

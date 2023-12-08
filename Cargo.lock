@@ -3435,6 +3435,7 @@ dependencies = [
  "base64 0.13.1",
  "bigdecimal",
  "chrono",
+ "chrono-tz",
  "crossbeam-channel",
  "futures",
  "futures-util",

@@ -45,6 +45,7 @@ import { fetchCommodities } from './states/commodity';
 import { fetchError } from './states/errors';
 import { journalsSlice } from './states/journals';
 import Budgets from './pages/Budgets';
+import SingleBudget from "./pages/SingleBudget";
 
 const useStyles = createStyles((theme) => ({
   onlineIcon: {
@@ -324,6 +325,7 @@ export default function App() {
         <Route path="/commodities/:commodityName" element={<SingleCommodity />} />
         <Route path="documents" element={<Documents />} />
         <Route path="/budgets" element={<Budgets />} />
+        <Route path="/budgets/:budgetName" element={<SingleBudget />} />
         <Route path="/edit" element={<RawEdit />} />
         <Route path="/report" element={<Report />} />
         <Route path="/tools" element={<ToolList />} />

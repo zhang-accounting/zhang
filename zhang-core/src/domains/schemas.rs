@@ -89,6 +89,7 @@ pub struct TransactionInfoDomain {
 #[derive(Debug, Clone, Serialize)]
 pub struct AccountJournalDomain {
     pub datetime: NaiveDateTime,
+    pub timestamp: i64,
     pub account: String,
     pub trx_id: String,
     pub payee: Option<String>,

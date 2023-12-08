@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -18,7 +18,10 @@ use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, ErrorType, MetaDomain,
     MetaType, OptionDomain, PriceDomain, TransactionInfoDomain,
 };
-use crate::store::{BudgetDomain, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionHeaderDomain};
+use crate::store::{
+    BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store,
+    TransactionHeaderDomain,
+};
 use crate::{ZhangError, ZhangResult};
 
 pub mod schemas;
@@ -472,6 +475,7 @@ impl Operations {
             let trx_header = store.transactions.get(&posting.trx_id);
             ret.push(AccountJournalDomain {
                 datetime: posting.trx_datetime.naive_local(),
+                timestamp: posting.trx_datetime.timestamp(),
                 account: posting.account.name().to_owned(),
                 trx_id: posting.id.to_string(),
                 payee: trx_header.and_then(|it| it.payee.clone()),
@@ -495,7 +499,7 @@ impl Operations {
             .cloned()
             .collect_vec())
     }
-    pub fn account_dated_journals(&mut self, account_type: AccountType, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<AccountJournalDomain>> {
+    pub fn account_type_dated_journals(&mut self, account_type: AccountType, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<AccountJournalDomain>> {
         let store = self.read();
 
         let mut ret = vec![];
@@ -511,6 +515,36 @@ impl Operations {
 
             ret.push(AccountJournalDomain {
                 datetime: posting.trx_datetime.naive_local(),
+                timestamp: posting.trx_datetime.timestamp(),
+                account: posting.account.name().to_owned(),
+                trx_id: posting.trx_id.to_string(),
+                payee: trx.payee,
+                narration: trx.narration,
+                inferred_unit_number: posting.inferred_amount.number,
+                inferred_unit_commodity: posting.inferred_amount.currency,
+                account_after_number: posting.after_amount.number,
+                account_after_commodity: posting.after_amount.currency,
+            })
+        }
+        Ok(ret)
+    }
+    pub fn accounts_dated_journals(&self, accounts: &[String], from: DateTime<Tz>, to: DateTime<Tz>) -> ZhangResult<Vec<AccountJournalDomain>> {
+        let store = self.read();
+
+        let mut ret = vec![];
+        for posting in store
+            .postings
+            .iter()
+            .filter(|posting| posting.trx_datetime.ge(&from))
+            .filter(|posting| posting.trx_datetime.le(&to))
+            .filter(|posting| accounts.contains(&posting.account.content))
+            .cloned()
+        {
+            let trx = store.transactions.get(&posting.trx_id).cloned().expect("cannot find trx");
+
+            ret.push(AccountJournalDomain {
+                datetime: posting.trx_datetime.naive_local(),
+                timestamp: posting.trx_datetime.timestamp(),
                 account: posting.account.name().to_owned(),
                 trx_id: posting.trx_id.to_string(),
                 payee: trx.payee,
@@ -723,11 +757,13 @@ impl Operations {
 
     /// init or create a new budget
     pub fn init_budget(
-        &mut self, name: impl Into<String>, commodity: impl Into<String>, date: Date, alias: Option<String>, category: Option<String>,
+        &mut self, name: impl Into<String>, commodity: impl Into<String>, date: DateTime<Tz>, alias: Option<String>, category: Option<String>,
     ) -> ZhangResult<()> {
         let mut store = self.write();
         let name = name.into();
         let commodity = commodity.into();
+        let interval = (date.year() as u32) * 100 + date.month();
+
         let budget_domain = store.budgets.entry(name.clone()).or_insert(BudgetDomain {
             name,
             commodity: commodity.clone(),
@@ -736,8 +772,9 @@ impl Operations {
             closed: false,
             detail: Default::default(),
         });
-        budget_domain.detail.entry(date.as_budget_interval()).or_insert(BudgetIntervalDetail {
-            date: date.as_budget_interval(),
+        budget_domain.detail.entry(interval).or_insert(BudgetIntervalDetail {
+            date: interval,
+            events: vec![],
             assigned_amount: Amount::zero(&commodity),
             activity_amount: Amount::zero(&commodity),
         });
@@ -762,6 +799,7 @@ impl Operations {
                 } else {
                     BudgetIntervalDetail {
                         date: interval,
+                        events: vec![],
                         assigned_amount: fetched_detail.assigned_amount.sub(fetched_detail.activity_amount.number),
                         activity_amount: Amount::zero(&target_budget.commodity),
                     }
@@ -770,9 +808,9 @@ impl Operations {
     }
 
     /// add amount to target month's budget
-    pub fn budget_add_assigned_amount(&mut self, name: impl Into<String>, date: Date, amount: Amount) -> ZhangResult<()> {
+    pub fn budget_add_assigned_amount(&mut self, name: impl Into<String>, date: DateTime<Tz>, event_type: BudgetEventType, amount: Amount) -> ZhangResult<()> {
         let name = name.into();
-        let interval = date.as_budget_interval();
+        let interval = (date.year() as u32) * 100 + date.month();
 
         let previous_budget_detail = self.budget_month_detail(&name, interval)?;
 
@@ -784,18 +822,25 @@ impl Operations {
             .entry(interval)
             .or_insert(previous_budget_detail.unwrap_or(BudgetIntervalDetail {
                 date: interval,
+                events: vec![],
                 assigned_amount: Amount::zero(&target_budget.commodity),
                 activity_amount: Amount::zero(&target_budget.commodity),
             }));
 
-        detail.assigned_amount = detail.assigned_amount.add(amount.number);
+        detail.assigned_amount = detail.assigned_amount.add(amount.number.clone());
+        detail.events.push(BudgetEvent {
+            datetime: date,
+            timestamp: date.timestamp(),
+            amount,
+            event_type,
+        });
         Ok(())
     }
 
     /// transfer amount between budgets
-    pub fn budget_transfer(&mut self, date: Date, from: impl Into<String>, to: impl Into<String>, amount: Amount) -> ZhangResult<()> {
-        self.budget_add_assigned_amount(from, date.clone(), amount.neg())?;
-        self.budget_add_assigned_amount(to, date.clone(), amount)?;
+    pub fn budget_transfer(&mut self, date: DateTime<Tz>, from: impl Into<String>, to: impl Into<String>, amount: Amount) -> ZhangResult<()> {
+        self.budget_add_assigned_amount(from, date.clone(), BudgetEventType::Transfer, amount.neg())?;
+        self.budget_add_assigned_amount(to, date.clone(), BudgetEventType::Transfer, amount)?;
         Ok(())
     }
 
@@ -808,9 +853,10 @@ impl Operations {
     }
 
     /// close budget
-    pub fn budget_add_activity(&mut self, name: impl Into<String>, date: Date, amount: Amount) -> ZhangResult<()> {
+    pub fn budget_add_activity(&mut self, name: impl Into<String>, date: DateTime<Tz>, amount: Amount) -> ZhangResult<()> {
         let name = name.into();
-        let interval = date.as_budget_interval();
+        let interval = (date.year() as u32) * 100 + date.month();
+
         let previous_budget_detail = self.budget_month_detail(&name, interval)?;
 
         let mut store = self.write();
@@ -821,6 +867,7 @@ impl Operations {
             .entry(interval)
             .or_insert(previous_budget_detail.unwrap_or(BudgetIntervalDetail {
                 date: interval,
+                events: vec![],
                 assigned_amount: Amount::zero(&target_budget.commodity),
                 activity_amount: Amount::zero(&target_budget.commodity),
             }));
