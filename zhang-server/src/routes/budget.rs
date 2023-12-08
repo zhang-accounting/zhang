@@ -62,6 +62,7 @@ pub async fn get_budget_info(ledger: Data<Arc<RwLock<Ledger>>>, paths: Path<(Str
         .iter()
         .filter(|meta| meta.meta_type.eq("AccountMeta"))
         .filter(|meta| meta.key.eq("budget"))
+        .filter(|meta| meta.value.eq(&budget_name))
         .map(|meta| meta.type_identifier.clone())
         .collect_vec();
     ResponseWrapper::json(BudgetInfoResponse {
@@ -91,7 +92,7 @@ pub async fn get_budget_interval_detail(ledger: Data<Arc<RwLock<Ledger>>>, paths
     let month_end = datetime.end_of_month();
     let interval = year * 100 + month;
     let budget_events = operations
-        .budget_month_detail(budget_name, interval)?
+        .budget_month_detail(&budget_name, interval)?
         .map(|interval| interval.events)
         .unwrap_or_default()
         .into_iter()
@@ -104,6 +105,7 @@ pub async fn get_budget_interval_detail(ledger: Data<Arc<RwLock<Ledger>>>, paths
         .iter()
         .filter(|meta| meta.meta_type.eq("AccountMeta"))
         .filter(|meta| meta.key.eq("budget"))
+        .filter(|meta| meta.value.eq(&budget_name))
         .map(|meta| meta.type_identifier.clone())
         .collect_vec();
     let journals = operations
