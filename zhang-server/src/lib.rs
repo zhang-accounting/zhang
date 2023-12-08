@@ -65,7 +65,6 @@ pub struct ServeConfig {
     pub endpoint: String,
     pub addr: String,
     pub port: u16,
-    pub database: Option<PathBuf>,
     pub no_report: bool,
     pub exporter: Arc<dyn AppendableExporter>,
     pub transformer: Arc<dyn Transformer>,
