@@ -342,14 +342,15 @@ impl ZhangParser {
     }
 
     fn custom(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, Vec<StringOrAccount>) = match_nodes!(input.into_children();
-            [date(date), string(module), string_or_account(options)..] => (date, module, options.collect()),
+        let ret: (Date, ZhangString, Vec<StringOrAccount>, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), string(module), string_or_account(options)..] => (date, module, options.collect(), vec![]),
+            [date(date), string(module), string_or_account(options).., commodity_meta(metas)] => (date, module, options.collect(), metas),
         );
         Ok(Directive::Custom(Custom {
             date: ret.0,
             custom_type: ret.1,
             values: ret.2,
-            meta: Default::default(),
+            meta: ret.3.into_iter().collect(),
         }))
     }
 
@@ -804,6 +805,23 @@ mod test {
                         StringOrAccount::String(quote!("monthly"))
                     ]
                 );
+            }
+        }
+        #[test]
+        fn should_parse_with_meta() {
+            let mut vec = parse(
+                indoc! {r#"
+                            1970-01-01 01:01:01 custom "budget" Assets:Card "100 CNY" "monthly"
+                              alias: "A"
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::Custom(..)));
+            if let Directive::Custom(inner) = directive {
+                assert_eq!(inner.meta.get_one("alias").unwrap(), &quote!("A"));
             }
         }
     }
