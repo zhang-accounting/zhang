@@ -5,6 +5,7 @@ use zhang_core::error::IoErrorIntoZhangError;
 use crate::ServerResult;
 
 pub mod account;
+pub mod budget;
 pub mod commodity;
 pub mod common;
 pub mod document;

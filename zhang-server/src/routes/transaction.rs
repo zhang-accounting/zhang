@@ -65,7 +65,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
         .transactions
         .values()
         .sorted_by_key(|it| -it.sequence)
-        .skip(dbg!(params.offset() as usize))
+        .skip(params.offset() as usize)
         .take(params.limit() as usize)
         .cloned()
         .map(|it| JournalHeader {

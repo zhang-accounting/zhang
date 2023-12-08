@@ -43,7 +43,7 @@ function SingleAccount() {
         <Stack align="end" spacing="xs">
           <Group className={classes.calculatedAmount}>
             {Object.keys(account.amount.detail).length > 1 && <Text>≈</Text>}
-            <Amount amount={account.amount.calculated.number} currency={account.amount.calculated.commodity}></Amount>
+            <Amount amount={account.amount.calculated.number} currency={account.amount.calculated.currency}></Amount>
           </Group>
           {Object.keys(account.amount.detail).length > 1 && (
             <>

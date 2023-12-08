@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::ops::{Div, Mul, Neg};
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use itertools::Itertools;
@@ -42,6 +42,12 @@ impl Date {
             Date::DateHour(date_hour) => date_hour.date(),
             Date::Datetime(datetime) => datetime.date(),
         }
+    }
+    pub fn as_budget_interval(&self) -> u32 {
+        let date = self.naive_date();
+        let year = date.year();
+        let month = date.month();
+        month + (year * 100) as u32
     }
 }
 
@@ -303,299 +309,37 @@ pub struct Comment {
     pub content: String,
 }
 
-#[cfg(test)]
-mod test {
-    // mod transaction {
-    //     use indoc::indoc;
-    //
-    //     use crate::models::Directive;
+#[derive(Debug, PartialEq, Eq)]
+pub struct Budget {
+    pub date: Date,
+    pub name: String,
+    pub commodity: String,
 
-    // todo(refact): move to core lib
-    // #[tokio::test]
-    // async fn should_return_true_given_balanced_transaction() {
-    //     let directive = parse_zhang(
-    //         indoc! {r#"
-    //         2022-06-02 "balanced transaction"
-    //           Assets:Card -100 CNY
-    //           Expenses:Some 100 CNY
-    //     "#},
-    //         None,
-    //     )
-    //     .unwrap()
-    //     .pop()
-    //     .unwrap();
-    //     let ledger = Ledger::load_from_str("").await.unwrap();
-    //     match directive.data {
-    //         Directive::Transaction(trx) => {
-    //             assert!(ledger.is_transaction_balanced(&trx).await.unwrap());
-    //         }
-    //         _ => unreachable!(),
-    //     }
-    // }
+    pub meta: Meta,
+}
 
-    // todo(refact): move to core lib
-    // #[tokio::test]
-    // async fn should_return_true_given_two_same_decimal() {
-    //     let directive = parse_zhang(
-    //         indoc! {r#"
-    //         2022-06-02 "balanced transaction"
-    //           Assets:Card -100.00 CNY
-    //           Expenses:Some 100 CNY
-    //     "#},
-    //         None,
-    //     )
-    //     .unwrap()
-    //     .pop()
-    //     .unwrap();
-    //     let ledger = Ledger::load_from_str("").await.unwrap();
-    //     match directive.data {
-    //         Directive::Transaction(trx) => {
-    //             assert!(ledger.is_transaction_balanced(&trx).await.unwrap());
-    //         }
-    //         _ => unreachable!(),
-    //     }
-    // }
+#[derive(Debug, PartialEq, Eq)]
+pub struct BudgetAdd {
+    pub date: Date,
+    pub name: String,
+    pub amount: Amount,
 
-    // todo(refact): move to core lib
-    // #[tokio::test]
-    // async fn should_return_true_given_multiple_posting() {
-    //     let directive = parse_zhang(
-    //         indoc! {r#"
-    //         2022-06-02 "balanced transaction"
-    //           Assets:Card -100.00 CNY
-    //           Expenses:Some 50 CNY
-    //           Expenses:Others 50 CNY
-    //     "#},
-    //         None,
-    //     )
-    //     .unwrap()
-    //     .pop()
-    //     .unwrap();
-    //     let ledger = Ledger::load_from_str("").await.unwrap();
-    //     match directive.data {
-    //         Directive::Transaction(trx) => {
-    //             assert!(ledger.is_transaction_balanced(&trx).await.unwrap());
-    //         }
-    //         _ => unreachable!(),
-    //     }
-    // }
-    // todo(refact): move to core lib
-    // #[tokio::test]
-    // async fn should_return_false_given_two_diff_posting_amount() {
-    //     let directive = parse_zhang(
-    //         indoc! {r#"
-    //         2022-06-02 "balanced transaction"
-    //           Assets:Card -100 CNY
-    //           Expenses:Some 90 CNY
-    //     "#},
-    //         None,
-    //     )
-    //     .unwrap()
-    //     .pop()
-    //     .unwrap();
-    //     let ledger = Ledger::load_from_str("").await.unwrap();
-    //     match directive.data {
-    //         Directive::Transaction(trx) => {
-    //             assert!(!ledger.is_transaction_balanced(&trx).await.unwrap());
-    //         }
-    //         _ => unreachable!(),
-    //     }
-    // }
-    // #[tokio::test]
-    // async fn should_return_false_given_two_diff_currency() {
-    //     let directive = parse_zhang(
-    //         indoc! {r#"
-    //         2022-06-02 "balanced transaction"
-    //           Assets:Card -100 CNY
-    //           Expenses:Some 100 CNY2
-    //     "#},
-    //         None,
-    //     )
-    //     .unwrap()
-    //     .pop()
-    //     .unwrap();
-    //     let ledger = Ledger::load_from_str("").await.unwrap();
-    //     match directive.data {
-    //         Directive::Transaction(trx) => {
-    //             assert!(!ledger.is_transaction_balanced(&trx).await.unwrap());
-    //         }
-    //         _ => unreachable!(),
-    //     }
-    // }
-    // #[tokio::test]
-    // async fn should_return_true_given_day_price() {
-    //     let directive = parse_zhang(
-    //         indoc! {r#"
-    //         2015-01-05 * "Investing 60% of cash in RGAGX"
-    //           Assets:US:Vanguard:RGAGX      4.088 RGAGX {88.07 USD, 2015-01-05}
-    //           Assets:US:Vanguard:Cash     -360.03 USD
-    //     "#},
-    //         None,
-    //     )
-    //     .unwrap()
-    //     .pop()
-    //     .unwrap();
-    //     let ledger = Ledger::load_from_str("").await.unwrap();
-    //     match directive.data {
-    //         Directive::Transaction(trx) => {
-    //             assert!(ledger.is_transaction_balanced(&trx).await.unwrap());
-    //         }
-    //         _ => unreachable!(),
-    //     }
-    // }
+    pub meta: Meta,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub struct BudgetTransfer {
+    pub date: Date,
+    pub from: String,
+    pub to: String,
+    pub amount: Amount,
 
-    //     mod txn_posting {
-    //         use bigdecimal::BigDecimal;
-    //         use indoc::indoc;
-    //         use crate::amount::Amount;
-    //         use crate::data::Transaction;
-    //         use crate::models::Directive;
-    //         use crate::utils::inventory::LotInfo;
-    //
-    //         fn get_first_posting(content: &str) -> Transaction {
-    //             let directive = parse_zhang(content, None).unwrap().pop().unwrap();
-    //             match directive.data {
-    //                 Directive::Transaction(trx) => trx,
-    //                 _ => unreachable!(),
-    //             }
-    //         }
-    //
-    //         #[test]
-    //         fn should_get_none_unit_given_auto_balanced_posting() {
-    //             let trx = get_first_posting(indoc! {r#"
-    //             2022-06-02 "balanced transaction"
-    //               Assets:Card
-    //             "#});
-    //             let posting = trx.txn_postings().pop().unwrap();
-    //             assert_eq!(None, posting.units());
-    //             assert_eq!(None, posting.costs());
-    //             assert_eq!(None, posting.trade_amount());
-    //         }
-    //         #[test]
-    //         fn should_get_unit() {
-    //             let trx = get_first_posting(indoc! {r#"
-    //             2022-06-02 "balanced transaction"
-    //               Assets:Card 100 CNY
-    //             "#});
-    //             let posting = trx.txn_postings().pop().unwrap();
-    //             assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
-    //             assert_eq!(None, posting.costs());
-    //             assert_eq!(
-    //                 Some(Amount::new(BigDecimal::from(100i32), "CNY")),
-    //                 posting.trade_amount()
-    //             );
-    //         }
-    //
-    //         #[test]
-    //         fn should_get_unit_given_single_price() {
-    //             let trx = get_first_posting(indoc! {r#"
-    //             2022-06-02 "balanced transaction"
-    //               Assets:Card 100 CNY @ 10 AAA
-    //             "#});
-    //             let posting = trx.txn_postings().pop().unwrap();
-    //             assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
-    //             assert_eq!(Some(Amount::new(BigDecimal::from(10i32), "AAA")), posting.costs());
-    //             assert_eq!(
-    //                 Some(Amount::new(BigDecimal::from(1000i32), "AAA")),
-    //                 posting.trade_amount()
-    //             );
-    //         }
-    //
-    //         #[test]
-    //         fn should_get_unit_given_cost() {
-    //             let trx = get_first_posting(indoc! {r#"
-    //             2022-06-02 "balanced transaction"
-    //               Assets:Card 100 CNY { 10 AAA }
-    //             "#});
-    //             let posting = trx.txn_postings().pop().unwrap();
-    //             assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
-    //             assert_eq!(Some(Amount::new(BigDecimal::from(10i32), "AAA")), posting.costs());
-    //             assert_eq!(
-    //                 Some(Amount::new(BigDecimal::from(1000i32), "AAA")),
-    //                 posting.trade_amount()
-    //             );
-    //         }
-    //
-    //         #[test]
-    //         fn should_get_unit_given_cost_and_single_price() {
-    //             let trx = get_first_posting(indoc! {r#"
-    //             2022-06-02 "balanced transaction"
-    //               Assets:Card 100 CNY { 10 AAA } @ 11 AAA
-    //             "#});
-    //             let posting = trx.txn_postings().pop().unwrap();
-    //             assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
-    //             assert_eq!(Some(Amount::new(BigDecimal::from(10i32), "AAA")), posting.costs());
-    //             assert_eq!(
-    //                 Some(Amount::new(BigDecimal::from(1000i32), "AAA")),
-    //                 posting.trade_amount()
-    //             );
-    //         }
-    //         #[test]
-    //         fn should_get_unit_given_total_price() {
-    //             let trx = get_first_posting(indoc! {r#"
-    //             2022-06-02 "balanced transaction"
-    //               Assets:Card 100 CNY @@ 110000 AAA
-    //             "#});
-    //             let posting = trx.txn_postings().pop().unwrap();
-    //             assert_eq!(Some(Amount::new(BigDecimal::from(100i32), "CNY")), posting.units());
-    //             assert_eq!(Some(Amount::new(BigDecimal::from(1100i32), "AAA")), posting.costs());
-    //             assert_eq!(
-    //                 Some(Amount::new(BigDecimal::from(110000i32), "AAA")),
-    //                 posting.trade_amount()
-    //             );
-    //         }
-    //         #[test]
-    //         fn should_get_infer_trade_amount() {
-    //             let trx = get_first_posting(indoc! {r#"
-    //             2022-06-02 "balanced transaction"
-    //               Assets:Card 100 CNY
-    //               Assets:Card2
-    //             "#});
-    //             let mut vec = trx.txn_postings();
-    //             let posting = vec.remove(0);
-    //             assert_eq!(
-    //                 Ok(Amount::new(BigDecimal::from(100i32), "CNY")),
-    //                 posting.infer_trade_amount(),
-    //                 "Assets:Card 100 CNY"
-    //             );
-    //             let posting2 = vec.remove(0);
-    //             assert_eq!(
-    //                 Ok(Amount::new(BigDecimal::from(-100i32), "CNY")),
-    //                 posting2.infer_trade_amount(),
-    //                 "Assets:Card2"
-    //             );
-    //         }
-    //
-    //         #[test]
-    //         fn should_get_lots_given_only_unit() {
-    //             let trx = get_first_posting(indoc! {r#"
-    //             2022-06-02 "balanced transaction"
-    //               Assets:Card 100 USD
-    //               Assets:Card2
-    //             "#});
-    //             let mut vec = trx.txn_postings();
-    //             let posting = vec.remove(0);
-    //             assert_eq!(None, posting.lots(), "Assets:Card 100 USD");
-    //             let posting = vec.remove(0);
-    //             assert_eq!(None, posting.lots(), "Assets:Card2");
-    //         }
-    //         #[test]
-    //         fn should_get_lots_given_unit_and_cost() {
-    //             let trx = get_first_posting(indoc! {r#"
-    //             2022-06-02 "balanced transaction"
-    //               Assets:Card 100 USD { 7 CNY }
-    //               Assets:Card2
-    //             "#});
-    //             let mut vec = trx.txn_postings();
-    //             let posting = vec.remove(0);
-    //             assert_eq!(
-    //                 Some(LotInfo::Lot("CNY".to_string(), BigDecimal::from(7i32))),
-    //                 posting.lots(),
-    //                 "Assets:Card 100 USD {{ 7 CNY }}"
-    //             );
-    //             let posting = vec.remove(0);
-    //             assert_eq!(None, posting.lots(), "Assets:Card2");
-    //         }
-    //     }
-    // }
+    pub meta: Meta,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct BudgetClose {
+    pub date: Date,
+    pub name: String,
+
+    pub meta: Meta,
 }

@@ -1,23 +1,27 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ops::AddAssign;
+use std::ops::{Add, AddAssign, Sub};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::Deserialize;
 use uuid::Uuid;
+
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, AccountType, Currency, Flag, Meta, SpanInfo};
+use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, SpanInfo};
 
 use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, ErrorType, MetaDomain,
     MetaType, OptionDomain, PriceDomain, TransactionInfoDomain,
 };
-use crate::store::{CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionHeaderDomain};
+use crate::store::{
+    BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store,
+    TransactionHeaderDomain,
+};
 use crate::{ZhangError, ZhangResult};
 
 pub mod schemas;
@@ -74,7 +78,7 @@ impl Operations {
                 if lot.commodity.eq(commodity) {
                     let lot = lot.clone();
                     ret.push(AccountCommodityLot {
-                        account: account.clone(),
+                        account: Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?,
                         datetime: lot.datetime,
                         amount: lot.amount,
                         price: lot.price,
@@ -100,7 +104,7 @@ impl Operations {
     /// if account exists, then update its status only
     pub(crate) fn insert_or_update_account(&mut self, datetime: DateTime<Tz>, account: Account, status: AccountStatus, alias: Option<&str>) -> ZhangResult<()> {
         let mut store = self.write();
-        let account_domain = store.accounts.entry(account.clone()).or_insert_with(|| AccountDomain {
+        let account_domain = store.accounts.entry(account.name().to_owned()).or_insert_with(|| AccountDomain {
             date: datetime.naive_local(),
             r#type: account.account_type.to_string(),
             name: account.name().to_owned(),
@@ -215,10 +219,7 @@ impl Operations {
 
     pub(crate) fn account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>) -> ZhangResult<Option<CommodityLotRecord>> {
         let mut store = self.write();
-        let entry = store
-            .commodity_lots
-            .entry(Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?)
-            .or_default();
+        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
         let option = entry.iter().filter(|lot| lot.commodity.eq(currency)).find(|lot| lot.price.eq(&price)).cloned();
 
@@ -227,10 +228,7 @@ impl Operations {
 
     pub fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str) -> ZhangResult<Option<CommodityLotRecord>> {
         let mut store = self.write();
-        let entry = store
-            .commodity_lots
-            .entry(Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?)
-            .or_default();
+        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
         let option = entry
             .iter()
@@ -242,10 +240,7 @@ impl Operations {
     }
     pub(crate) fn update_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
         let mut store = self.write();
-        let entry = store
-            .commodity_lots
-            .entry(Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?)
-            .or_default();
+        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
         let option = entry.iter_mut().find(|lot| lot.price.eq(&price));
         if let Some(lot) = option {
@@ -263,8 +258,7 @@ impl Operations {
 
     pub(crate) fn insert_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
         let mut store = self.write();
-        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
-        let lot_records = store.commodity_lots.entry(account).or_default();
+        let lot_records = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
         lot_records.push(CommodityLotRecord {
             commodity: currency.to_owned(),
@@ -292,6 +286,7 @@ impl Operations {
         let store = self.read();
         let commodity = commodity.as_ref();
         for (account, lots) in store.commodity_lots.iter() {
+            let account = Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?;
             if account.account_type == AccountType::Assets || account.account_type == AccountType::Liabilities {
                 let account_sum: BigDecimal = lots.iter().filter(|lot| lot.commodity.eq(commodity)).map(|it| &it.amount).sum();
                 total.add_assign(account_sum);
@@ -364,7 +359,7 @@ impl Operations {
         Ok(x)
     }
 
-    pub fn metas(&mut self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
+    pub fn metas(&self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
         let store = self.read();
         Ok(store
             .metas
@@ -480,6 +475,7 @@ impl Operations {
             let trx_header = store.transactions.get(&posting.trx_id);
             ret.push(AccountJournalDomain {
                 datetime: posting.trx_datetime.naive_local(),
+                timestamp: posting.trx_datetime.timestamp(),
                 account: posting.account.name().to_owned(),
                 trx_id: posting.id.to_string(),
                 payee: trx_header.and_then(|it| it.payee.clone()),
@@ -503,7 +499,7 @@ impl Operations {
             .cloned()
             .collect_vec())
     }
-    pub fn account_dated_journals(&mut self, account_type: AccountType, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<AccountJournalDomain>> {
+    pub fn account_type_dated_journals(&mut self, account_type: AccountType, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<AccountJournalDomain>> {
         let store = self.read();
 
         let mut ret = vec![];
@@ -519,6 +515,36 @@ impl Operations {
 
             ret.push(AccountJournalDomain {
                 datetime: posting.trx_datetime.naive_local(),
+                timestamp: posting.trx_datetime.timestamp(),
+                account: posting.account.name().to_owned(),
+                trx_id: posting.trx_id.to_string(),
+                payee: trx.payee,
+                narration: trx.narration,
+                inferred_unit_number: posting.inferred_amount.number,
+                inferred_unit_commodity: posting.inferred_amount.currency,
+                account_after_number: posting.after_amount.number,
+                account_after_commodity: posting.after_amount.currency,
+            })
+        }
+        Ok(ret)
+    }
+    pub fn accounts_dated_journals(&self, accounts: &[String], from: DateTime<Tz>, to: DateTime<Tz>) -> ZhangResult<Vec<AccountJournalDomain>> {
+        let store = self.read();
+
+        let mut ret = vec![];
+        for posting in store
+            .postings
+            .iter()
+            .filter(|posting| posting.trx_datetime.ge(&from))
+            .filter(|posting| posting.trx_datetime.le(&to))
+            .filter(|posting| accounts.contains(&posting.account.content))
+            .cloned()
+        {
+            let trx = store.transactions.get(&posting.trx_id).cloned().expect("cannot find trx");
+
+            ret.push(AccountJournalDomain {
+                datetime: posting.trx_datetime.naive_local(),
+                timestamp: posting.trx_datetime.timestamp(),
                 account: posting.account.name().to_owned(),
                 trx_id: posting.trx_id.to_string(),
                 payee: trx.payee,
@@ -540,8 +566,7 @@ impl Operations {
     pub fn account(&mut self, account_name: &str) -> ZhangResult<Option<AccountDomain>> {
         let store = self.read();
 
-        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
-        Ok(store.accounts.get(&account).cloned())
+        Ok(store.accounts.get(account_name).cloned())
     }
     pub fn all_open_accounts(&mut self) -> ZhangResult<Vec<AccountDomain>> {
         let store = self.read();
@@ -554,7 +579,7 @@ impl Operations {
     }
     pub fn all_accounts(&mut self) -> ZhangResult<Vec<String>> {
         let store = self.read();
-        Ok(store.accounts.keys().map(|it| it.name().to_owned()).collect_vec())
+        Ok(store.accounts.keys().map(|it| it.to_owned()).collect_vec())
     }
 
     pub fn all_payees(&mut self) -> ZhangResult<Vec<String>> {
@@ -689,8 +714,7 @@ impl Operations {
     pub fn close_account(&mut self, account_name: &str) -> ZhangResult<()> {
         let mut store = self.write();
 
-        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
-        let option = store.accounts.get_mut(&account);
+        let option = store.accounts.get_mut(account_name);
 
         if let Some(account) = option {
             account.status = AccountStatus::Close
@@ -714,5 +738,148 @@ impl Operations {
             },
         );
         Ok(())
+    }
+}
+
+/// Budget Related Operations
+impl Operations {
+    /// list all budgets
+    pub fn all_budgets(&self) -> ZhangResult<Vec<BudgetDomain>> {
+        let store = self.read();
+        Ok(store.budgets.values().cloned().collect_vec())
+    }
+
+    /// check if budget exists
+    pub fn contains_budget(&self, name: impl AsRef<str>) -> bool {
+        let store = self.read();
+        store.budgets.contains_key(name.as_ref())
+    }
+
+    /// init or create a new budget
+    pub fn init_budget(
+        &mut self, name: impl Into<String>, commodity: impl Into<String>, date: DateTime<Tz>, alias: Option<String>, category: Option<String>,
+    ) -> ZhangResult<()> {
+        let mut store = self.write();
+        let name = name.into();
+        let commodity = commodity.into();
+        let interval = (date.year() as u32) * 100 + date.month();
+
+        let budget_domain = store.budgets.entry(name.clone()).or_insert(BudgetDomain {
+            name,
+            commodity: commodity.clone(),
+            alias,
+            category,
+            closed: false,
+            detail: Default::default(),
+        });
+        budget_domain.detail.entry(interval).or_insert(BudgetIntervalDetail {
+            date: interval,
+            events: vec![],
+            assigned_amount: Amount::zero(&commodity),
+            activity_amount: Amount::zero(&commodity),
+        });
+        Ok(())
+    }
+
+    /// get target month's detail
+    pub fn budget_month_detail(&self, name: impl Into<String>, interval: u32) -> ZhangResult<Option<BudgetIntervalDetail>> {
+        let store = self.read();
+        let name = name.into();
+        let target_budget = store.budgets.get(&name).expect("budget does not exist");
+
+        Ok(target_budget
+            .detail
+            .iter()
+            .filter(|item| item.0 <= &interval)
+            .max_by_key(|item| item.0)
+            .map(|item| item.1.clone())
+            .map(|fetched_detail| {
+                if fetched_detail.date == interval {
+                    fetched_detail
+                } else {
+                    BudgetIntervalDetail {
+                        date: interval,
+                        events: vec![],
+                        assigned_amount: fetched_detail.assigned_amount.sub(fetched_detail.activity_amount.number),
+                        activity_amount: Amount::zero(&target_budget.commodity),
+                    }
+                }
+            }))
+    }
+
+    /// add amount to target month's budget
+    pub fn budget_add_assigned_amount(&mut self, name: impl Into<String>, date: DateTime<Tz>, event_type: BudgetEventType, amount: Amount) -> ZhangResult<()> {
+        let name = name.into();
+        let interval = (date.year() as u32) * 100 + date.month();
+
+        let previous_budget_detail = self.budget_month_detail(&name, interval)?;
+
+        let mut store = self.write();
+        let target_budget = store.budgets.get_mut(&name).expect("budget does not exist");
+
+        let detail = target_budget
+            .detail
+            .entry(interval)
+            .or_insert(previous_budget_detail.unwrap_or(BudgetIntervalDetail {
+                date: interval,
+                events: vec![],
+                assigned_amount: Amount::zero(&target_budget.commodity),
+                activity_amount: Amount::zero(&target_budget.commodity),
+            }));
+
+        detail.assigned_amount = detail.assigned_amount.add(amount.number.clone());
+        detail.events.push(BudgetEvent {
+            datetime: date,
+            timestamp: date.timestamp(),
+            amount,
+            event_type,
+        });
+        Ok(())
+    }
+
+    /// transfer amount between budgets
+    pub fn budget_transfer(&mut self, date: DateTime<Tz>, from: impl Into<String>, to: impl Into<String>, amount: Amount) -> ZhangResult<()> {
+        self.budget_add_assigned_amount(from, date, BudgetEventType::Transfer, amount.neg())?;
+        self.budget_add_assigned_amount(to, date, BudgetEventType::Transfer, amount)?;
+        Ok(())
+    }
+
+    /// close budget
+    pub fn budget_close(&mut self, name: impl AsRef<str>, _date: Date) -> ZhangResult<()> {
+        let mut store = self.write();
+        let name = name.as_ref();
+        if let Some(budget) = store.budgets.get_mut(name) {
+            budget.closed = true;
+        }
+        Ok(())
+    }
+
+    /// close budget
+    pub fn budget_add_activity(&mut self, name: impl Into<String>, date: DateTime<Tz>, amount: Amount) -> ZhangResult<()> {
+        let name = name.into();
+        let interval = (date.year() as u32) * 100 + date.month();
+
+        let previous_budget_detail = self.budget_month_detail(&name, interval)?;
+
+        let mut store = self.write();
+        let target_budget = store.budgets.get_mut(&name).expect("budget does not exist");
+
+        let detail = target_budget
+            .detail
+            .entry(interval)
+            .or_insert(previous_budget_detail.unwrap_or(BudgetIntervalDetail {
+                date: interval,
+                events: vec![],
+                assigned_amount: Amount::zero(&target_budget.commodity),
+                activity_amount: Amount::zero(&target_budget.commodity),
+            }));
+
+        detail.activity_amount = detail.activity_amount.add(amount.number);
+        Ok(())
+    }
+
+    pub fn get_account_budget(&self, account_name: impl AsRef<str>) -> ZhangResult<Vec<String>> {
+        let metas = self.metas(MetaType::AccountMeta, account_name)?;
+        Ok(metas.into_iter().filter(|meta| meta.key.eq("budget")).map(|meta| meta.value).collect_vec())
     }
 }

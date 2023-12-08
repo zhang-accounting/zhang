@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use pyo3::prelude::*;
-use zhang_ast::Spanned;
+use zhang_ast::{Account, Spanned};
 use zhang_core::text::transformer::TextTransformer;
 
 use crate::domain::CommodityDomain;
@@ -50,7 +50,7 @@ impl Ledger {
             .accounts
             .clone()
             .into_iter()
-            .map(|(key, value)| (ast::Account(key), domain::AccountDomain(value)))
+            .map(|(key, value)| (ast::Account(Account::from_str(&key).unwrap()), domain::AccountDomain(value)))
             .collect())
     }
 

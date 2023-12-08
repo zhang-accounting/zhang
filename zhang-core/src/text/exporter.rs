@@ -321,6 +321,41 @@ impl TextExportable for Comment {
     }
 }
 
+impl TextExportable for Budget {
+    type Output = String;
+
+    fn export(self) -> Self::Output {
+        let line = vec![self.date.export(), "budget".to_owned(), self.name, self.commodity];
+        append_meta(self.meta, line.join(" "))
+    }
+}
+impl TextExportable for BudgetClose {
+    type Output = String;
+
+    fn export(self) -> Self::Output {
+        let line = vec![self.date.export(), "budget-close".to_owned(), self.name];
+        append_meta(self.meta, line.join(" "))
+    }
+}
+
+impl TextExportable for BudgetAdd {
+    type Output = String;
+
+    fn export(self) -> Self::Output {
+        let line = vec![self.date.export(), "budget-add".to_owned(), self.name, self.amount.export()];
+        append_meta(self.meta, line.join(" "))
+    }
+}
+
+impl TextExportable for BudgetTransfer {
+    type Output = String;
+
+    fn export(self) -> Self::Output {
+        let line = vec![self.date.export(), "budget-transfer".to_owned(), self.from, self.to, self.amount.export()];
+        append_meta(self.meta, line.join(" "))
+    }
+}
+
 impl TextExportable for Directive {
     type Output = String;
     fn export(self) -> String {
@@ -340,6 +375,10 @@ impl TextExportable for Directive {
             Directive::Plugin(plugin) => plugin.export(),
             Directive::Include(include) => include.export(),
             Directive::Comment(comment) => comment.export(),
+            Directive::Budget(budget) => budget.export(),
+            Directive::BudgetAdd(budget_add) => budget_add.export(),
+            Directive::BudgetTransfer(budget_transfer) => budget_transfer.export(),
+            Directive::BudgetClose(budget_close) => budget_close.export(),
         }
     }
 }
@@ -605,6 +644,35 @@ mod test {
             indoc! {r#"
             include "file path"
         "#}
+        );
+    }
+
+    #[test]
+    fn budget() {
+        assert_parse!(
+            "budget directive",
+            indoc! {r#"
+                1970-01-01 budget Diet CNY
+            "#}
+        );
+
+        assert_parse!(
+            "budget-add directive",
+            indoc! {r#"
+                1970-01-01 budget-add Diet 1 CNY
+            "#}
+        );
+        assert_parse!(
+            "budget-transfer directive",
+            indoc! {r#"
+                1970-01-01 budget-transfer Diet Saving 1 CNY
+            "#}
+        );
+        assert_parse!(
+            "budget-close directive",
+            indoc! {r#"
+                1970-01-01 budget-close Diet
+            "#}
         );
     }
 }

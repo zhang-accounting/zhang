@@ -342,14 +342,15 @@ impl ZhangParser {
     }
 
     fn custom(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, Vec<StringOrAccount>) = match_nodes!(input.into_children();
-            [date(date), string(module), string_or_account(options)..] => (date, module, options.collect()),
+        let ret: (Date, ZhangString, Vec<StringOrAccount>, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), string(module), string_or_account(options)..] => (date, module, options.collect(), vec![]),
+            [date(date), string(module), string_or_account(options).., commodity_meta(metas)] => (date, module, options.collect(), metas),
         );
         Ok(Directive::Custom(Custom {
             date: ret.0,
             custom_type: ret.1,
             values: ret.2,
-            meta: Default::default(),
+            meta: ret.3.into_iter().collect(),
         }))
     }
 
@@ -436,6 +437,57 @@ impl ZhangParser {
         }))
     }
 
+    fn budget(input: Node) -> Result<Directive> {
+        let ret: (Date, ZhangString, String, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name), commodity_name(commodity)] => (date, name, commodity, vec![]),
+            [date(date), unquote_string(name), commodity_name(commodity), commodity_meta(metas)] => (date, name, commodity, metas)
+        );
+        Ok(Directive::Budget(Budget {
+            date: ret.0,
+            name: ret.1.to_plain_string(),
+            commodity: ret.2,
+            meta: ret.3.into_iter().collect(),
+        }))
+    }
+
+    fn budget_close(input: Node) -> Result<Directive> {
+        let ret: (Date, ZhangString, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name)] => (date, name, vec![]),
+            [date(date), unquote_string(name), commodity_meta(metas)] => (date, name, metas)
+        );
+        Ok(Directive::BudgetClose(BudgetClose {
+            date: ret.0,
+            name: ret.1.to_plain_string(),
+            meta: ret.2.into_iter().collect(),
+        }))
+    }
+
+    fn budget_add(input: Node) -> Result<Directive> {
+        let ret: (Date, ZhangString, Amount, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name), posting_amount(amount)] => (date, name, amount, vec![]),
+            [date(date), unquote_string(name), posting_amount(amount), commodity_meta(metas)] => (date, name, amount, metas)
+        );
+        Ok(Directive::BudgetAdd(BudgetAdd {
+            date: ret.0,
+            name: ret.1.to_plain_string(),
+            amount: ret.2,
+            meta: ret.3.into_iter().collect(),
+        }))
+    }
+    fn budget_transfer(input: Node) -> Result<Directive> {
+        let ret: (Date, ZhangString, ZhangString, Amount, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(from), unquote_string(to), posting_amount(amount)] => (date, from, to, amount, vec![]),
+            [date(date), unquote_string(from), unquote_string(to), posting_amount(amount), commodity_meta(metas)] => (date, from, to, amount, metas)
+        );
+        Ok(Directive::BudgetTransfer(BudgetTransfer {
+            date: ret.0,
+            from: ret.1.to_plain_string(),
+            to: ret.2.to_plain_string(),
+            amount: ret.3,
+            meta: ret.4.into_iter().collect(),
+        }))
+    }
+
     fn item(input: Node) -> Result<(Directive, SpanInfo)> {
         let span = input.as_span();
         let span_info = SpanInfo {
@@ -459,6 +511,10 @@ impl ZhangParser {
             [custom(item)] => item,
             [comment(item)] => item,
             [transaction(item)] => item,
+            [budget(item)] => item,
+            [budget_close(item)] => item,
+            [budget_add(item)] => item,
+            [budget_transfer(item)] => item,
         );
         Ok((ret, span_info))
     }
@@ -751,6 +807,23 @@ mod test {
                 );
             }
         }
+        #[test]
+        fn should_parse_with_meta() {
+            let mut vec = parse(
+                indoc! {r#"
+                            1970-01-01 01:01:01 custom "budget" Assets:Card "100 CNY" "monthly"
+                              alias: "A"
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::Custom(..)));
+            if let Directive::Custom(inner) = directive {
+                assert_eq!(inner.meta.get_one("alias").unwrap(), &quote!("A"));
+            }
+        }
     }
 
     mod transaction {
@@ -876,6 +949,104 @@ mod test {
                 assert_eq!(Some(Amount::new(BigDecimal::from_f32(6.9).unwrap(), "CNY")), posting.cost);
                 assert_eq!(None, posting.cost_date);
                 assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
+            }
+        }
+    }
+    mod budget {
+        use crate::text::parser::parse;
+        use bigdecimal::{BigDecimal, One};
+        use indoc::indoc;
+        use zhang_ast::amount::Amount;
+        use zhang_ast::Directive;
+
+        #[test]
+        fn should_parse_budget_without_meta() {
+            let mut vec = parse(
+                indoc! {r#"
+                            1970-01-01 budget Diet CNY
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::Budget(..)));
+            if let Directive::Budget(inner) = directive {
+                assert_eq!(inner.name, "Diet");
+                assert_eq!(inner.commodity, "CNY");
+            }
+        }
+
+        #[test]
+        fn should_parse_budget_with_meta() {
+            let mut vec = parse(
+                indoc! {r#"
+                            1970-01-01 budget Diet CNY
+                              alias: "日常饮食"
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::Budget(..)));
+            if let Directive::Budget(inner) = directive {
+                assert_eq!(inner.name, "Diet");
+                assert_eq!(inner.commodity, "CNY");
+                assert_eq!(inner.meta.get_one("alias").unwrap(), &quote!("日常饮食"));
+            }
+        }
+
+        #[test]
+        fn should_parse_budget_add() {
+            let mut vec = parse(
+                indoc! {r#"
+                            1970-01-01 budget-add Diet 1 CNY
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::BudgetAdd(..)));
+            if let Directive::BudgetAdd(inner) = directive {
+                assert_eq!(inner.name, "Diet");
+                assert_eq!(inner.amount, Amount::new(BigDecimal::one(), "CNY".to_owned()));
+            }
+        }
+        #[test]
+        fn should_parse_budget_transfer() {
+            let mut vec = parse(
+                indoc! {r#"
+                            1970-01-01 budget-transfer Diet Saving 1 CNY
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::BudgetTransfer(..)));
+            if let Directive::BudgetTransfer(inner) = directive {
+                assert_eq!(inner.from, "Diet");
+                assert_eq!(inner.to, "Saving");
+                assert_eq!(inner.amount, Amount::new(BigDecimal::one(), "CNY".to_owned()));
+            }
+        }
+
+        #[test]
+        fn should_parse_budget_close() {
+            let mut vec = parse(
+                indoc! {r#"
+                            1970-01-01 budget-close Diet
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::BudgetClose(..)));
+            if let Directive::BudgetClose(inner) = directive {
+                assert_eq!(inner.name, "Diet");
             }
         }
     }

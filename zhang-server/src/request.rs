@@ -1,7 +1,7 @@
 use std::cmp::max;
 
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Local, Utc};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -86,4 +86,16 @@ pub struct AmountRequest {
 pub struct MetaRequest {
     pub key: String,
     pub value: String,
+}
+
+#[derive(Deserialize)]
+pub struct BudgetListRequest {
+    pub month: Option<u32>,
+    pub year: Option<u32>,
+}
+impl BudgetListRequest {
+    pub fn as_interval(&self) -> u32 {
+        let time = Local::now();
+        self.year.unwrap_or(time.year() as u32) * 100 + self.month.unwrap_or(time.month())
+    }
 }

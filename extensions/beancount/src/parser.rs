@@ -442,6 +442,57 @@ impl BeancountParer {
         Ok(BeancountOnlyDirective::PopTag(ret))
     }
 
+    fn budget(input: Node) -> Result<Directive> {
+        let ret: (Date, ZhangString, String, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name), commodity_name(commodity)] => (date, name, commodity, vec![]),
+            [date(date), unquote_string(name), commodity_name(commodity), commodity_meta(metas)] => (date, name, commodity, metas)
+        );
+        Ok(Directive::Budget(Budget {
+            date: ret.0,
+            name: ret.1.to_plain_string(),
+            commodity: ret.2,
+            meta: ret.3.into_iter().collect(),
+        }))
+    }
+
+    fn budget_close(input: Node) -> Result<Directive> {
+        let ret: (Date, ZhangString, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name)] => (date, name, vec![]),
+            [date(date), unquote_string(name), commodity_meta(metas)] => (date, name, metas)
+        );
+        Ok(Directive::BudgetClose(BudgetClose {
+            date: ret.0,
+            name: ret.1.to_plain_string(),
+            meta: ret.2.into_iter().collect(),
+        }))
+    }
+
+    fn budget_add(input: Node) -> Result<Directive> {
+        let ret: (Date, ZhangString, Amount, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name), posting_amount(amount)] => (date, name, amount, vec![]),
+            [date(date), unquote_string(name), posting_amount(amount), commodity_meta(metas)] => (date, name, amount, metas)
+        );
+        Ok(Directive::BudgetAdd(BudgetAdd {
+            date: ret.0,
+            name: ret.1.to_plain_string(),
+            amount: ret.2,
+            meta: ret.3.into_iter().collect(),
+        }))
+    }
+    fn budget_transfer(input: Node) -> Result<Directive> {
+        let ret: (Date, ZhangString, ZhangString, Amount, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
+            [date(date), unquote_string(from), unquote_string(to), posting_amount(amount)] => (date, from, to, amount, vec![]),
+            [date(date), unquote_string(from), unquote_string(to), posting_amount(amount), commodity_meta(metas)] => (date, from, to, amount, metas)
+        );
+        Ok(Directive::BudgetTransfer(BudgetTransfer {
+            date: ret.0,
+            from: ret.1.to_plain_string(),
+            to: ret.2.to_plain_string(),
+            amount: ret.3,
+            meta: ret.4.into_iter().collect(),
+        }))
+    }
+
     fn item(input: Node) -> Result<(BeancountDirective, SpanInfo)> {
         let span = input.as_span();
         let span_info = SpanInfo {
@@ -451,23 +502,27 @@ impl BeancountParer {
             filename: None,
         };
         let ret: BeancountDirective = match_nodes!(input.into_children();
-            [option(item)]      => Either::Left(item),
-            [open(item)]        => Either::Left(item),
-            [plugin(item)]      => Either::Left(item),
-            [close(item)]       => Either::Left(item),
-            [include(item)]     => Either::Left(item),
-            [note(item)]        => Either::Left(item),
-            [event(item)]       => Either::Left(item),
-            [document(item)]    => Either::Left(item),
-            [balance(item)]     => Either::Right(item), // balance
-            [pad(item)]         => Either::Right(item), // pad
-            [push_tag(item)]    => Either::Right(item),
-            [pop_tag(item)]     => Either::Right(item),
-            [price(item)]       => Either::Left(item),
-            [commodity(item)]   => Either::Left(item),
-            [custom(item)]      => Either::Left(item),
-            [comment(item)]     => Either::Left(item),
-            [transaction(item)] => Either::Left(item),
+            [option(item)]          => Either::Left(item),
+            [open(item)]            => Either::Left(item),
+            [plugin(item)]          => Either::Left(item),
+            [close(item)]           => Either::Left(item),
+            [include(item)]         => Either::Left(item),
+            [note(item)]            => Either::Left(item),
+            [event(item)]           => Either::Left(item),
+            [document(item)]        => Either::Left(item),
+            [balance(item)]         => Either::Right(item), // balance
+            [pad(item)]             => Either::Right(item), // pad
+            [push_tag(item)]        => Either::Right(item),
+            [pop_tag(item)]         => Either::Right(item),
+            [price(item)]           => Either::Left(item),
+            [commodity(item)]       => Either::Left(item),
+            [custom(item)]          => Either::Left(item),
+            [comment(item)]         => Either::Left(item),
+            [transaction(item)]     => Either::Left(item),
+            [budget(item)]          => Either::Left(item),
+            [budget_close(item)]    => Either::Left(item),
+            [budget_add(item)]      => Either::Left(item),
+            [budget_transfer(item)] => Either::Left(item)
         );
         Ok((ret, span_info))
     }
@@ -574,6 +629,119 @@ mod test {
                 }),
                 directive
             );
+        }
+    }
+    mod budget {
+        use crate::parser::parse;
+        use bigdecimal::{BigDecimal, One};
+        use indoc::indoc;
+        use zhang_ast::amount::Amount;
+        use zhang_ast::Directive;
+
+        #[test]
+        fn should_parse_budget_without_meta() {
+            let directive = parse(
+                indoc! {r#"
+                            1970-01-01 custom budget Diet CNY
+                        "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap()
+            .data
+            .left()
+            .unwrap();
+            assert!(matches!(directive, Directive::Budget(..)));
+            if let Directive::Budget(inner) = directive {
+                assert_eq!(inner.name, "Diet");
+                assert_eq!(inner.commodity, "CNY");
+            }
+        }
+
+        #[test]
+        fn should_parse_budget_with_meta() {
+            let directive = parse(
+                indoc! {r#"
+                            1970-01-01 custom budget Diet CNY
+                              alias: "日常饮食"
+                        "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap()
+            .data
+            .left()
+            .unwrap();
+            assert!(matches!(directive, Directive::Budget(..)));
+            if let Directive::Budget(inner) = directive {
+                assert_eq!(inner.name, "Diet");
+                assert_eq!(inner.commodity, "CNY");
+                assert_eq!(inner.meta.get_one("alias").unwrap().clone().to_plain_string(), "日常饮食");
+            }
+        }
+
+        #[test]
+        fn should_parse_budget_add() {
+            let directive = parse(
+                indoc! {r#"
+                            1970-01-01 custom budget-add Diet 1 CNY
+                        "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap()
+            .data
+            .left()
+            .unwrap();
+            assert!(matches!(directive, Directive::BudgetAdd(..)));
+            if let Directive::BudgetAdd(inner) = directive {
+                assert_eq!(inner.name, "Diet");
+                assert_eq!(inner.amount, Amount::new(BigDecimal::one(), "CNY".to_owned()));
+            }
+        }
+        #[test]
+        fn should_parse_budget_transfer() {
+            let directive = parse(
+                indoc! {r#"
+                            1970-01-01 custom budget-transfer Diet Saving 1 CNY
+                        "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap()
+            .data
+            .left()
+            .unwrap();
+            assert!(matches!(directive, Directive::BudgetTransfer(..)));
+            if let Directive::BudgetTransfer(inner) = directive {
+                assert_eq!(inner.from, "Diet");
+                assert_eq!(inner.to, "Saving");
+                assert_eq!(inner.amount, Amount::new(BigDecimal::one(), "CNY".to_owned()));
+            }
+        }
+
+        #[test]
+        fn should_parse_budget_close() {
+            let directive = parse(
+                indoc! {r#"
+                            1970-01-01 custom budget-close Diet
+                        "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap()
+            .data
+            .left()
+            .unwrap();
+            assert!(matches!(directive, Directive::BudgetClose(..)));
+            if let Directive::BudgetClose(inner) = directive {
+                assert_eq!(inner.name, "Diet");
+            }
         }
     }
 }

@@ -2,12 +2,13 @@ use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use beancount::Beancount;
 use clap::{Args, Parser};
 use env_logger::Env;
 use log::{error, info, LevelFilter};
 use self_update::Status;
 use tokio::task::spawn_blocking;
+
+use beancount::Beancount;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
 use zhang_core::text::exporter::TextExporter;
@@ -201,12 +202,15 @@ async fn main() {
 mod test {
     use std::io::{stdout, Write};
     use std::net::TcpStream;
+    use std::sync::atomic::{AtomicU16, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
+    use jsonpath_rust::JsonPathQuery;
     use serde::Deserialize;
-    use serde_json_path::JsonPath;
+    use serde_json::Value;
     use tokio::sync::RwLock;
+
     use zhang_core::ledger::Ledger;
     use zhang_server::broadcast::Broadcaster;
     use zhang_server::ServeConfig;
@@ -222,7 +226,7 @@ mod test {
             uri: String,
             validations: Vec<ValidationPoint>,
         }
-
+        let port = Arc::new(AtomicU16::new(19876));
         let paths = std::fs::read_dir("../integration-tests").unwrap();
 
         for path in paths {
@@ -234,22 +238,23 @@ mod test {
                 }
 
                 let pathbuf = path.path();
-                let local = tokio::task::LocalSet::new();
+                port.clone().fetch_add(1, Ordering::SeqCst);
 
+                loop {
+                    if TcpStream::connect(format!("127.0.0.1:{}", port.clone().load(Ordering::SeqCst))).is_ok() {
+                        port.fetch_add(1, Ordering::SeqCst);
+                    } else {
+                        break;
+                    }
+                }
+                let cloned_port = port.clone();
+                let local = tokio::task::LocalSet::new();
                 local
                     .run_until(async move {
                         let format = SupportedFormat::Zhang;
 
+                        let cc_port = cloned_port.clone();
                         let server_handler = tokio::task::spawn_local(async move {
-                            let mut times = 0;
-                            while times < 100 {
-                                if TcpStream::connect("127.0.0.1:19876").is_ok() {
-                                    times += 1;
-                                    tokio::time::sleep(Duration::from_millis(10)).await;
-                                } else {
-                                    break;
-                                }
-                            }
                             let ledger =
                                 Ledger::load_with_database(pathbuf.clone(), "main.zhang".to_owned(), format.transformer()).expect("cannot load ledger");
                             let ledger_data = Arc::new(RwLock::new(ledger));
@@ -260,7 +265,7 @@ mod test {
                                     path: pathbuf,
                                     endpoint: "main.zhang".to_owned(),
                                     addr: "127.0.0.1".to_string(),
-                                    port: 19876,
+                                    port: cc_port.load(Ordering::SeqCst),
                                     database: None,
                                     no_report: true,
                                     exporter: format.exporter(),
@@ -275,7 +280,7 @@ mod test {
 
                         let mut times = 0;
                         while times < 100 {
-                            if TcpStream::connect("127.0.0.1:19876").is_ok() {
+                            if TcpStream::connect(format!("127.0.0.1:{}", cloned_port.clone().load(Ordering::SeqCst))).is_ok() {
                                 break;
                             } else {
                                 times += 1;
@@ -294,7 +299,7 @@ mod test {
 
                             let client = reqwest::Client::new();
                             let res: serde_json::Value = client
-                                .get(format!("http://127.0.0.1:19876{}", &validation.uri))
+                                .get(format!("http://127.0.0.1:{}{}", cloned_port.clone().load(Ordering::SeqCst), &validation.uri))
                                 .timeout(Duration::from_secs(10))
                                 .send()
                                 .await
@@ -305,12 +310,18 @@ mod test {
                             for point in validation.validations {
                                 {
                                     let mut lock = stdout().lock();
-                                    writeln!(lock, "        \x1b[0;32mValidating\x1b[0;0m: {}", point.0).unwrap();
+                                    writeln!(
+                                        lock,
+                                        "        \x1b[0;32mValidating\x1b[0;0m: \x1b[0;34m{}\x1b[0;0m to be \x1b[0;34m{}\x1b[0;0m",
+                                        point.0, &point.1
+                                    )
+                                    .unwrap();
                                 }
-                                let json_path = JsonPath::parse(&point.0).expect("invalid json path");
-                                let x = json_path.query(&res).exactly_one().expect("cannot get json value via json path");
-                                if !point.1.eq(x) {
-                                    panic!("Validation fail: {} != {}", &point.1, &x);
+
+                                let value = res.clone().path(&point.0).unwrap();
+                                let expected_value = Value::Array(vec![point.1]);
+                                if !expected_value.eq(&value) {
+                                    panic!("Validation fail: {} != {}", &expected_value, &value);
                                 }
                             }
                         }

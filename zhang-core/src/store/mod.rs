@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use bigdecimal::BigDecimal;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use uuid::Uuid;
+
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Flag, SpanInfo};
 
@@ -12,15 +13,17 @@ use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaD
 #[derive(Default, serde::Serialize)]
 pub struct Store {
     pub options: HashMap<String, String>,
-    pub accounts: HashMap<Account, AccountDomain>,
+    pub accounts: HashMap<String, AccountDomain>,
     pub commodities: HashMap<String, CommodityDomain>,
     pub transactions: HashMap<Uuid, TransactionHeaderDomain>,
     pub postings: Vec<PostingDomain>,
 
     pub prices: Vec<PriceDomain>,
 
+    pub budgets: HashMap<String, BudgetDomain>,
+
     // by account
-    pub commodity_lots: HashMap<Account, Vec<CommodityLotRecord>>,
+    pub commodity_lots: HashMap<String, Vec<CommodityLotRecord>>,
 
     pub documents: Vec<DocumentDomain>,
 
@@ -99,11 +102,46 @@ pub struct CommodityLotRecord {
     pub price: Option<Amount>,
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BudgetDomain {
+    pub name: String,
+    pub alias: Option<String>,
+    pub category: Option<String>,
+    pub closed: bool,
+    pub detail: BTreeMap<u32, BudgetIntervalDetail>,
+    pub commodity: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BudgetIntervalDetail {
+    /// year and month pair, calculated as `year*100+month`, E.G. `202312`
+    pub date: u32,
+    pub assigned_amount: Amount,
+    // todo: budget event for addition, transfer and close
+    pub events: Vec<BudgetEvent>,
+    pub activity_amount: Amount,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BudgetEvent {
+    pub datetime: DateTime<Tz>,
+    pub timestamp: i64,
+    pub amount: Amount,
+    pub event_type: BudgetEventType,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub enum BudgetEventType {
+    AddAssignedAmount,
+    Transfer,
+}
+
 #[cfg(test)]
 mod test {
     use std::str::FromStr;
 
     use uuid::Uuid;
+
     use zhang_ast::Account;
 
     use crate::store::DocumentType;

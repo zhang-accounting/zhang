@@ -9,7 +9,7 @@ interface Props {
 }
 export default function Section({ children, title, rightSection }: Props) {
   return (
-    <Card withBorder shadow="sm" radius="sm" mt="sm">
+    <Card withBorder radius="sm" mt="sm">
       <Card.Section withBorder inheritPadding py="xs">
         <Group position="apart">
           <Text weight={500}>{title}</Text>

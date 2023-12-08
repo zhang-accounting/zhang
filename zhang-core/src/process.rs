@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ops::{Add, Sub};
+use std::ops::{Add, Mul, Sub};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
@@ -17,7 +17,7 @@ use crate::constants::{DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_COMMODITY_PRECIS
 use crate::domains::schemas::{AccountStatus, ErrorType, MetaType};
 use crate::domains::{AccountAmount, Operations};
 use crate::ledger::Ledger;
-use crate::store::DocumentType;
+use crate::store::{BudgetEventType, DocumentType};
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
 use crate::ZhangResult;
@@ -187,10 +187,17 @@ impl DirectiveProcess for Transaction {
                 txn_posting.posting.account.name(),
                 txn_posting.posting.units.clone(),
                 txn_posting.posting.cost.clone(),
-                inferred_amount,
+                inferred_amount.clone(),
                 Amount::new(previous.number, previous.commodity.clone()),
                 Amount::new(after_number, previous.commodity),
             )?;
+
+            // budget related
+            let budgets_name = operations.get_account_budget(txn_posting.posting.account.name())?;
+            for budget in budgets_name {
+                let budget_activity_amount = inferred_amount.mul(BigDecimal::from(txn_posting.posting.account.get_account_sign()));
+                operations.budget_add_activity(budget, self.date.to_timezone_datetime(&ledger.options.timezone), budget_activity_amount)?;
+            }
 
             let amount = txn_posting.units().unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
             let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
@@ -344,6 +351,66 @@ impl DirectiveProcess for Price {
             &self.amount.currency,
         )?;
 
+        Ok(())
+    }
+}
+
+impl DirectiveProcess for Budget {
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
+        if operations.contains_budget(&self.name) {
+            // todo: add budget existed warning
+        }
+        operations.init_budget(
+            &self.name,
+            &self.commodity,
+            self.date.to_timezone_datetime(&ledger.options.timezone),
+            self.meta.get_one("alias").map(|it| it.as_str().to_owned()),
+            self.meta.get_one("category").map(|it| it.as_str().to_owned()),
+        )?;
+        Ok(())
+    }
+}
+
+impl DirectiveProcess for BudgetAdd {
+    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
+        if !operations.contains_budget(&self.name) {
+            operations.new_error(ErrorType::BudgetDoesNotExist, span, HashMap::default())?;
+        } else {
+            operations.budget_add_assigned_amount(
+                &self.name,
+                self.date.to_timezone_datetime(&ledger.options.timezone),
+                BudgetEventType::AddAssignedAmount,
+                self.amount.clone(),
+            )?;
+        }
+
+        Ok(())
+    }
+}
+
+impl DirectiveProcess for BudgetTransfer {
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
+        // todo: check if budget exists
+        operations.budget_transfer(
+            self.date.to_timezone_datetime(&ledger.options.timezone),
+            &self.from,
+            &self.to,
+            self.amount.clone(),
+        )?;
+        Ok(())
+    }
+}
+
+impl DirectiveProcess for BudgetClose {
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
+        // todo: check if budget exists
+        // todo: check if budget is empty
+
+        operations.budget_close(&self.name, self.date.clone())?;
         Ok(())
     }
 }

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::{ServerError, ServerResult};
 use actix_web::body::EitherBody;
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse, Responder, ResponseError};
@@ -10,8 +11,7 @@ use uuid::Uuid;
 use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::AccountType;
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, MetaDomain};
-
-use crate::{ServerError, ServerResult};
+use zhang_core::store::BudgetEvent;
 
 pub enum ResponseWrapper<T: Serialize> {
     Json(T),
@@ -333,4 +333,45 @@ pub struct AccountInfoResponse {
     pub status: AccountStatus,
     pub alias: Option<String>,
     pub amount: CalculatedAmount,
+}
+
+#[derive(Serialize)]
+pub struct BudgetListItemResponse {
+    pub name: String,
+    pub alias: Option<String>,
+    pub category: Option<String>,
+    pub closed: bool,
+    pub assigned_amount: Amount,
+    pub activity_amount: Amount,
+    pub available_amount: Amount,
+}
+
+#[derive(Serialize)]
+pub struct BudgetInfoResponse {
+    pub name: String,
+    pub alias: Option<String>,
+    pub category: Option<String>,
+    pub closed: bool,
+
+    pub related_accounts: Vec<String>,
+
+    pub assigned_amount: Amount,
+    pub activity_amount: Amount,
+    pub available_amount: Amount,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum BudgetIntervalEventResponse {
+    BudgetEvent(BudgetEvent),
+    Posting(AccountJournalDomain),
+}
+
+impl BudgetIntervalEventResponse {
+    pub(crate) fn naive_datetime(&self) -> NaiveDateTime {
+        match self {
+            BudgetIntervalEventResponse::BudgetEvent(budget_event) => budget_event.datetime.naive_local(),
+            BudgetIntervalEventResponse::Posting(posting) => posting.datetime,
+        }
+    }
 }

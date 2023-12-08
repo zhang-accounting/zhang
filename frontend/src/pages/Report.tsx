@@ -85,10 +85,10 @@ export default function Report() {
         ></Heading>
         <StatusGroup
           data={[
-            { title: '资产余额', amount: data.balance.calculated.number, currency: data.balance.calculated.commodity },
+            { title: '资产余额', amount: data.balance.calculated.number, currency: data.balance.calculated.currency },
             // { title: '总收支', amount: data?.statistic.incomeExpense.summary.number, currency: data?.statistic.incomeExpense.summary.currency },
-            { title: '收入', amount: data.income.calculated.number, currency: data.income.calculated.commodity },
-            { title: '支出', amount: data.expense.calculated.number, currency: data.expense.calculated.commodity },
+            { title: '收入', amount: data.income.calculated.number, currency: data.income.calculated.currency },
+            { title: '支出', amount: data.expense.calculated.number, currency: data.expense.calculated.currency },
             { title: '交易数', number: data.transaction_number },
           ]}
         />

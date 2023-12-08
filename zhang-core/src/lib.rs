@@ -158,7 +158,7 @@ mod test {
                 1970-01-01 open Assets:MyCard
                   a: "b"
             "#});
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
 
             let mut vec = operations.metas(MetaType::AccountMeta, "Assets:MyCard")?;
             assert_eq!(1, vec.len());

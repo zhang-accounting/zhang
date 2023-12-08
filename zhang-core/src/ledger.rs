@@ -87,7 +87,13 @@ impl Ledger {
                 Directive::Price(price) => price.handler(&mut ret_ledger, &directive.span)?,
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
-                _ => {}
+                Directive::Plugin(_) => {}
+                Directive::Include(_) => unreachable!(),
+                Directive::Comment(_) => {}
+                Directive::Budget(budget) => budget.handler(&mut ret_ledger, &directive.span)?,
+                Directive::BudgetAdd(budget_add) => budget_add.handler(&mut ret_ledger, &directive.span)?,
+                Directive::BudgetTransfer(budget_transfer) => budget_transfer.handler(&mut ret_ledger, &directive.span)?,
+                Directive::BudgetClose(budget_close) => budget_close.handler(&mut ret_ledger, &directive.span)?,
             }
         }
 
@@ -433,10 +439,8 @@ mod test {
     }
 
     mod extract_info {
-        use std::str::FromStr;
 
         use indoc::indoc;
-        use zhang_ast::Account;
 
         use crate::domains::schemas::AccountStatus;
         use crate::ledger::test::load_from_temp_str;
@@ -447,7 +451,7 @@ mod test {
                     1970-01-01 open Assets:Hello CNY
                 "#});
             let store = ledger.store.read().unwrap();
-            let account = store.accounts.get(&Account::from_str("Assets:Hello").unwrap()).unwrap();
+            let account = store.accounts.get("Assets:Hello").unwrap();
             assert_eq!(account.status, AccountStatus::Open);
         }
 
@@ -458,7 +462,7 @@ mod test {
                     1970-02-01 close Assets:Hello
                 "#});
             let store = ledger.store.read().unwrap();
-            let account = store.accounts.get(&Account::from_str("Assets:Hello").unwrap()).unwrap();
+            let account = store.accounts.get("Assets:Hello").unwrap();
             assert_eq!(account.status, AccountStatus::Close);
         }
 
@@ -522,330 +526,4 @@ mod test {
             Ok(())
         }
     }
-    // mod txn {
-    //     use bigdecimal::BigDecimal;
-    //     use indoc::indoc;
-    //     use crate::ledger::test::load_from_temp_str;
-    //
-    //     #[tokio::test]
-    //     async fn should_record_amount_into_inventory() {
-    //         let ledger = load_from_temp_str(indoc! {r#"
-    //                 1970-01-01 open Assets:From CNY
-    //                 1970-01-01 open Expenses:To CNY
-    //
-    //                 2022-02-22 "Payee"
-    //                   Assets:From -10 CNY
-    //                   Expenses:To 10 CNY
-    //             "#})
-    //         ;
-    //
-    //         assert_eq!(2, ledger.account_inventory.len());
-    //         assert_eq!(
-    //             &BigDecimal::from(-10i32),
-    //             &ledger
-    //                 .account_inventory
-    //                 .get("Assets:From")
-    //                 .unwrap()
-    //                 .currencies
-    //                 .get("CNY")
-    //                 .unwrap()
-    //                 .total
-    //         );
-    //         assert_eq!(
-    //             &BigDecimal::from(10i32),
-    //             &ledger
-    //                 .account_inventory
-    //                 .get("Expenses:To")
-    //                 .unwrap()
-    //                 .currencies
-    //                 .get("CNY")
-    //                 .unwrap()
-    //                 .total
-    //         );
-    //     }
-    //
-    //     #[tokio::test]
-    //     async fn should_record_amount_into_inventory_given_none_unit_posting_and_single_unit_posting() {
-    //         let ledger = load_from_temp_str(indoc! {r#"
-    //                 1970-01-01 open Assets:From CNY
-    //                 1970-01-01 open Expenses:To CNY
-    //
-    //                 2022-02-22 "Payee"
-    //                   Assets:From -10 CNY
-    //                   Expenses:To
-    //             "#})
-    //         ;
-    //
-    //         assert_eq!(2, ledger.account_inventory.len());
-    //         assert_eq!(
-    //             &BigDecimal::from(-10i32),
-    //             &ledger
-    //                 .account_inventory
-    //                 .get("Assets:From")
-    //                 .unwrap()
-    //                 .currencies
-    //                 .get("CNY")
-    //                 .unwrap()
-    //                 .total
-    //         );
-    //         assert_eq!(
-    //             &BigDecimal::from(10i32),
-    //             &ledger
-    //                 .account_inventory
-    //                 .get("Expenses:To")
-    //                 .unwrap()
-    //                 .currencies
-    //                 .get("CNY")
-    //                 .unwrap()
-    //                 .total
-    //         );
-    //     }
-    //
-    //     #[tokio::test]
-    //     async fn should_record_amount_into_inventory_given_none_unit_posting_and_more_unit_postings() {
-    //         let ledger = load_from_temp_str(indoc! {r#"
-    //                 1970-01-01 open Assets:From CNY
-    //                 1970-01-01 open Expenses:To CNY
-    //
-    //                 2022-02-22 "Payee"
-    //                   Assets:From -5 CNY
-    //                   Assets:From -5 CNY
-    //                   Expenses:To
-    //             "#})
-    //         ;
-    //
-    //         assert_eq!(2, ledger.account_inventory.len());
-    //         assert_eq!(
-    //             &BigDecimal::from(-10i32),
-    //             &ledger
-    //                 .account_inventory
-    //                 .get("Assets:From")
-    //                 .unwrap()
-    //                 .currencies
-    //                 .get("CNY")
-    //                 .unwrap()
-    //                 .total
-    //         );
-    //         assert_eq!(
-    //             &BigDecimal::from(10i32),
-    //             &ledger
-    //                 .account_inventory
-    //                 .get("Expenses:To")
-    //                 .unwrap()
-    //                 .currencies
-    //                 .get("CNY")
-    //                 .unwrap()
-    //                 .total
-    //         );
-    //     }
-    //
-    //     #[tokio::test]
-    //     async fn should_record_amount_into_inventory_given_unit_postings_and_total_cost() {
-    //         let ledger = load_from_temp_str(indoc! {r#"
-    //                 1970-01-01 open Assets:From CNY
-    //                 1970-01-01 open Expenses:To CNY
-    //
-    //                 2022-02-22 "Payee"
-    //                   Assets:From -5 CNY
-    //                   Assets:From -5 CNY
-    //                   Expenses:To 1 BTC @@ 10 CNY
-    //             "#})
-    //         ;
-    //
-    //         assert_eq!(2, ledger.account_inventory.len());
-    //         assert_eq!(
-    //             &BigDecimal::from(-10i32),
-    //             &ledger
-    //                 .account_inventory
-    //                 .get("Assets:From")
-    //                 .unwrap()
-    //                 .currencies
-    //                 .get("CNY")
-    //                 .unwrap()
-    //                 .total
-    //         );
-    //         assert_eq!(
-    //             &BigDecimal::from(1i32),
-    //             &ledger
-    //                 .account_inventory
-    //                 .get("Expenses:To")
-    //                 .unwrap()
-    //                 .currencies
-    //                 .get("BTC")
-    //                 .unwrap()
-    //                 .total
-    //         );
-    //     }
-    //
-    //     #[tokio::test]
-    //     async fn should_record_amount_into_inventory_given_unit_postings_and_single_cost() {
-    //         let ledger = load_from_temp_str(indoc! {r#"
-    //                 1970-01-01 open Assets:From CNY
-    //                 1970-01-01 open Expenses:To CNY2
-    //
-    //                 2022-02-22 "Payee"
-    //                   Assets:From -5 CNY
-    //                   Assets:From -5 CNY
-    //                   Expenses:To 10 CNY2 @ 1 CNY
-    //             "#})
-    //         ;
-    //
-    //         assert_eq!(2, ledger.account_inventory.len());
-    //         assert_eq!(
-    //             &BigDecimal::from(-10i32),
-    //             &ledger
-    //                 .account_inventory
-    //                 .get("Assets:From")
-    //                 .unwrap()
-    //                 .currencies
-    //                 .get("CNY")
-    //                 .unwrap()
-    //                 .total
-    //         );
-    //         assert_eq!(
-    //             &BigDecimal::from(10i32),
-    //             &ledger
-    //                 .account_inventory
-    //                 .get("Expenses:To")
-    //                 .unwrap()
-    //                 .currencies
-    //                 .get("CNY2")
-    //                 .unwrap()
-    //                 .total
-    //         );
-    //     }
-    // }
-
-    mod daily_inventory {
-
-        #[test]
-        fn should_record_daily_inventory() {
-            // let ledger = load_from_temp_str(indoc! {r#"
-            //         1970-01-01 open Assets:From CNY
-            //         1970-01-01 open Expenses:To CNY
-            //
-            //         2022-02-22 "Payee"
-            //           Assets:From -10 CNY
-            //           Expenses:To
-            //     "#})
-            //
-            // .unwrap();
-            //
-            // let account_inventory = ledger
-            //     .daily_inventory
-            //     .get_account_inventory(&NaiveDate::from_ymd(2022, 2, 22));
-            // assert_eq!(
-            //     &BigDecimal::from(-10i32),
-            //     &account_inventory
-            //         .get("Assets:From")
-            //         .unwrap()
-            //         .currencies
-            //         .get("CNY")
-            //         .unwrap()
-            //         .total
-            // );
-            // assert_eq!(
-            //     &BigDecimal::from(10i32),
-            //     &account_inventory
-            //         .get("Expenses:To")
-            //         .unwrap()
-            //         .currencies
-            //         .get("CNY")
-            //         .unwrap()
-            //         .total
-            // );
-        }
-
-        #[test]
-        fn should_get_from_previous_day_given_day_is_not_in_data() {
-            // let mut daily_inventory = DailyAccountInventory::default();
-            // let mut map = HashMap::default();
-            // map.insert(
-            //     "AAAAA".to_string(),
-            //     Inventory {
-            //         currencies: Default::default(),
-            //     },
-            // );
-            // daily_inventory.insert_account_inventory(NaiveDate::from_ymd(2022, 2, 22), map);
-            //
-            // let target_day_inventory = daily_inventory.get_account_inventory(&NaiveDate::from_ymd(2022, 3, 22));
-            // assert_eq!(1, target_day_inventory.len());
-            // assert!(target_day_inventory.contains_key("AAAAA"));
-        }
-    }
-    //
-    // mod option {
-    //     use crate::core::ledger::Ledger;
-    //     use indoc::indoc;
-    //
-    //     #[tokio::test]
-    //     async fn should_read_to_option() {
-    //         let ledger = load_from_temp_str(indoc! {r#"
-    //                 option "title" "Example accounting book"
-    //                 option "operating_currency" "CNY"
-    //             "#})
-    //
-    //         .unwrap();
-    //         assert_eq!(ledger.option("title").unwrap(), "Example accounting book");
-    //         assert_eq!(ledger.option("operating_currency").unwrap(), "CNY");
-    //     }
-    //
-    //     #[tokio::test]
-    //     async fn should_store_the_latest_one_given_same_name_option() {
-    //         let ledger = load_from_temp_str(indoc! {r#"
-    //                 option "title" "Example accounting book"
-    //                 option "title" "Example accounting book 2"
-    //             "#})
-    //
-    //         .unwrap();
-    //         assert_eq!(ledger.option("title").unwrap(), "Example accounting book 2");
-    //     }
-    // }
-    //
-    // mod default_behavior {
-    //     use crate::ledger::Ledger;
-    //     use indoc::indoc;
-    //
-    //     #[tokio::test]
-    //     async fn should_generate_default_commodity_for_operating_commodity() {
-    //         let ledger = load_from_temp_str(indoc! {r#"
-    //                 option "operating_currency" "CNY"
-    //             "#})
-    //
-    //         .unwrap();
-    //         let mut conn = ledger.connection();
-    //         assert_eq!(ledger.options.operating_currency, "CNY");
-    //
-    //         count!(
-    //             "should have commodity record for operating currency",
-    //             "select * from commodities where name = 'CNY'",
-    //             &mut conn
-    //         )
-    //     }
-    //
-    //     // todo(test): should update commodity info given options and commodity directive
-    //     #[tokio::test]
-    //     async fn should_update_commodity_info_given_operating_commodity_and_commodity_directive() {
-    //         let ledger = load_from_temp_str(indoc! {r#"
-    //                 option "operating_currency" "CNY"
-    //                 1970-01-01 commodity CNY
-    //                   precision: 3
-    //             "#})
-    //
-    //         .unwrap();
-    //         let mut conn = ledger.connection();
-    //         assert_eq!(ledger.options.operating_currency, "CNY");
-    //
-    //         count!(
-    //             "should have commodity record for operating currency",
-    //             "select * from commodities where name = 'CNY'",
-    //             &mut conn
-    //         );
-    //         count!(
-    //             "should update commodity info",
-    //             "select * from commodities where name = 'CNY' and precision = 3",
-    //             &mut conn
-    //         )
-    //     }
-    // }
 }

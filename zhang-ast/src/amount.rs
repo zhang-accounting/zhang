@@ -4,7 +4,7 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 use bigdecimal::{BigDecimal, Zero};
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CalculatedAmount {
     pub calculated: Amount,
     pub detail: HashMap<String, BigDecimal>,
@@ -31,6 +31,13 @@ impl Amount {
     pub fn new(number: BigDecimal, currency: impl Into<String>) -> Amount {
         Amount {
             number,
+            currency: currency.into(),
+        }
+    }
+
+    pub fn zero(currency: impl Into<String>) -> Amount {
+        Amount {
+            number: BigDecimal::zero(),
             currency: currency.into(),
         }
     }

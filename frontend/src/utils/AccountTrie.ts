@@ -47,7 +47,7 @@ export class MultiCommodityAmount {
   }
   merge(other: CalculatedAmountResponse) {
     this.total = this.total.plus(other.calculated.number);
-    this.commodity = other.calculated.commodity;
+    this.commodity = other.calculated.currency;
     Object.keys(other.detail).forEach((commodity) => {
       this.insert(other.detail[commodity], commodity);
     });

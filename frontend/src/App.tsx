@@ -44,6 +44,8 @@ import { basicInfoSlice, fetchBasicInfo } from './states/basic';
 import { fetchCommodities } from './states/commodity';
 import { fetchError } from './states/errors';
 import { journalsSlice } from './states/journals';
+import Budgets from './pages/Budgets';
+import SingleBudget from './pages/SingleBudget';
 
 const useStyles = createStyles((theme) => ({
   onlineIcon: {
@@ -158,6 +160,7 @@ const links: LinkItem[] = [
   { icon: IconList, label: 'NAV_JOURNALS', uri: '/journals' },
   { icon: IconCash, label: 'NAV_ACCOUNTS', uri: '/accounts' },
   { icon: IconCurrencyBitcoin, label: 'NAV_COMMDOITIES', uri: '/commodities' },
+  { icon: IconCurrencyBitcoin, label: 'NAV_BUDGETS', uri: '/budgets' },
   { icon: IconFiles, label: 'NAV_DOCUMENTS', uri: '/documents' },
   { icon: IconChartAreaLine, label: 'NAV_REPORT', uri: '/report' },
   { icon: IconCreditCard, label: 'NAV_LIABILITY', uri: '/liability' },
@@ -248,7 +251,7 @@ export default function App() {
       navbar={
         <>
           <MediaQuery smallerThan="sm" styles={{ display: 'none' }}>
-            <Navbar width={{ sm: 300 }} className={classes.navbar}>
+            <Navbar width={{ sm: 240 }} className={classes.navbar}>
               <Navbar.Section className={classes.header}>
                 <Group position="apart">
                   <Group spacing="xs" position="left">
@@ -259,10 +262,10 @@ export default function App() {
               </Navbar.Section>
 
               <Grid px="sm">
-                <Grid.Col span={8} py="md">
+                <Grid.Col span={12} pt="lg">
                   <TextInput placeholder="Search" size="xs" icon={<IconSearch size={12} stroke={1.5} />} />
                 </Grid.Col>
-                <Grid.Col span={4} py="md">
+                <Grid.Col span={12} pb="md">
                   <NewTransactionButton />
                 </Grid.Col>
               </Grid>
@@ -321,6 +324,8 @@ export default function App() {
         <Route path="/commodities" element={<Commodities />} />
         <Route path="/commodities/:commodityName" element={<SingleCommodity />} />
         <Route path="documents" element={<Documents />} />
+        <Route path="/budgets" element={<Budgets />} />
+        <Route path="/budgets/:budgetName" element={<SingleBudget />} />
         <Route path="/edit" element={<RawEdit />} />
         <Route path="/report" element={<Report />} />
         <Route path="/tools" element={<ToolList />} />

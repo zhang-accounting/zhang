@@ -1,6 +1,6 @@
 entry = { SOI ~ line* ~ (item ~ NEWLINE+)* ~ item? ~ EOI }
 
-item = { option | plugin | commodity | open | close | include | note | balance | document | price | event | custom | transaction | comment }
+item = { option | plugin | commodity | open | close | include | note | balance | document | price | event | custom | transaction | comment | budget | budget_add | budget_transfer | budget_close }
 
 option      = { "option" ~ space+ ~ string ~ space+ ~ string }
 plugin      = { "plugin" ~ space+ ~ string ~ (space+ ~ string)* }
@@ -13,8 +13,13 @@ balance     = { date ~ space+ ~ "balance" ~ space+ ~ account_name ~ space+ ~ num
 document    = { date ~ space+ ~ "document" ~ space+ ~ account_name ~ space+ ~ string }
 price       = { date ~ space+ ~ "price" ~ space+ ~ commodity_name ~ space+ ~ number ~ space+ ~ commodity_name }
 event       = { date ~ space+ ~ "event" ~ space+ ~ string ~ space+ ~ string }
-custom      = { date ~ space+ ~ "custom" ~ space+ ~ string ~ (space+ ~ string_or_account)+ }
+custom      = { date ~ space+ ~ "custom" ~ space+ ~ string ~ (space+ ~ string_or_account)+ ~ commodity_meta? }
 transaction = { date ~ transaction_flag? ~ (space+ ~ quote_string){0, 2} ~ tags? ~ links? ~ transaction_detail }
+
+budget          = { date ~ space+ ~ "budget" ~ space+ ~ unquote_string ~ space+ ~ commodity_name ~ commodity_meta? }
+budget_add      = { date ~ space+ ~ "budget-add" ~ space+ ~ unquote_string ~ space+ ~ posting_amount ~ commodity_meta? }
+budget_transfer = { date ~ space+ ~ "budget-transfer" ~ space+ ~ unquote_string ~ space+ ~ unquote_string ~ space+ ~ posting_amount ~ commodity_meta? }
+budget_close    = { date ~ space+ ~ "budget-close" ~ space+ ~ unquote_string ~ commodity_meta? }
 
 comment = { (";" | "*" | "#" | "//") ~ (!line ~ ANY)* }
 

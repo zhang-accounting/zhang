@@ -183,7 +183,7 @@ export interface CalculatedAmountResponse {
 
 export interface AmountResponse {
   number: string;
-  commodity: string;
+  currency: string;
 }
 
 export interface CurrentStatisticResponse {
@@ -209,4 +209,46 @@ export interface SpanInfo {
 export interface Option {
   key: string;
   value: string;
+}
+
+export interface BudgetListItem {
+  name: string;
+  alias?: string;
+  category?: string;
+  closed: boolean;
+  assigned_amount: AmountResponse;
+  activity_amount: AmountResponse;
+  available_amount: AmountResponse;
+}
+
+export interface BudgetInfoResponse {
+  name: string;
+  alias?: string;
+  category?: string;
+  closed: boolean;
+
+  related_accounts: string[];
+  assigned_amount: AmountResponse;
+  activity_amount: AmountResponse;
+  available_amount: AmountResponse;
+}
+
+export type BudgetIntervalEventResponse = BudgetIntervalEventBudgetResponse | BudgetIntervalEventPostingResponse;
+
+export interface BudgetIntervalEventBudgetResponse {
+  datetime: string;
+  timestamp: number;
+  amount: AmountResponse;
+  event_type: string;
+}
+
+export interface BudgetIntervalEventPostingResponse {
+  datetime: string;
+  timestamp: number;
+  account: string;
+  trx_id: string;
+  payee: string;
+  narration?: string;
+  inferred_unit_number: string;
+  inferred_unit_commodity: string;
 }
