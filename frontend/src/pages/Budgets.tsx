@@ -44,7 +44,7 @@ export default function Budgets() {
             <MonthPicker value={date} maxDate={new Date()} onChange={(newDate) => setDate(newDate ?? new Date())} />
           </Popover.Dropdown>
         </Popover>
-        <ActionIcon onClick={() => goToMonth(1)} disabled={date.getFullYear() == new Date().getFullYear() && date.getMonth() == new Date().getMonth()}>
+        <ActionIcon onClick={() => goToMonth(1)} disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}>
           <IconChevronRight size="1.125rem" />
         </ActionIcon>
       </Group>

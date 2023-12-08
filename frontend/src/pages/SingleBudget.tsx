@@ -1,15 +1,14 @@
-import {ActionIcon, Badge, Code, Container, Group, Popover, Stack, Table, Text, Title} from '@mantine/core';
-import {IconChevronLeft, IconChevronRight} from '@tabler/icons';
-import {format} from 'date-fns';
-import {useParams} from 'react-router';
+import { ActionIcon, Badge, Code, Container, Group, Popover, Stack, Table, Text, Title } from '@mantine/core';
+import { IconChevronLeft, IconChevronRight } from '@tabler/icons';
+import { format } from 'date-fns';
+import { useParams } from 'react-router';
 import useSWR from 'swr';
-import {fetcher} from '..';
+import { fetcher } from '..';
 import Amount from '../components/Amount';
 import PayeeNarration from '../components/basic/PayeeNarration';
-import {BudgetInfoResponse, BudgetIntervalEventResponse} from '../rest-model';
-import {MonthPicker} from '@mantine/dates';
-import {useState} from 'react';
-
+import { BudgetInfoResponse, BudgetIntervalEventResponse } from '../rest-model';
+import { MonthPicker } from '@mantine/dates';
+import { useState } from 'react';
 
 function SingleBudget() {
   let { budgetName } = useParams();
@@ -21,7 +20,7 @@ function SingleBudget() {
     setDate(newDate);
   };
   const { data: budget_info, error } = useSWR<BudgetInfoResponse>(`/api/budgets/${budgetName}`, fetcher);
-  const { data: budget_interval_event} = useSWR<BudgetIntervalEventResponse[]>(
+  const { data: budget_interval_event } = useSWR<BudgetIntervalEventResponse[]>(
     `/api/budgets/${budgetName}/interval/${date.getFullYear()}/${date.getMonth() + 1}`,
     fetcher,
   );
