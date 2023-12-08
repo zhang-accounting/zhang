@@ -1,32 +1,15 @@
-import { ActionIcon, Badge, Code, Container, createStyles, Group, Popover, px, Stack, Table, Tabs, Text, Title } from '@mantine/core';
-import { IconChevronLeft, IconChevronRight, IconMessageCircle, IconPhoto, IconSettings } from '@tabler/icons';
-import { format, parse, parseISO } from 'date-fns';
-import { useParams } from 'react-router';
+import {ActionIcon, Badge, Code, Container, Group, Popover, Stack, Table, Text, Title} from '@mantine/core';
+import {IconChevronLeft, IconChevronRight} from '@tabler/icons';
+import {format} from 'date-fns';
+import {useParams} from 'react-router';
 import useSWR from 'swr';
-import { fetcher } from '..';
-import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
-import AccountDocumentUpload from '../components/AccountDocumentUpload';
+import {fetcher} from '..';
 import Amount from '../components/Amount';
-import LoadingComponent from '../components/basic/LoadingComponent';
 import PayeeNarration from '../components/basic/PayeeNarration';
-import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
-import { AccountInfo, AccountJournalItem, BudgetInfoResponse, BudgetIntervalEventResponse, Document } from '../rest-model';
-import { MonthPicker } from '@mantine/dates';
-import { useState } from 'react';
-import { groupBy, sortBy } from 'lodash';
-import BudgetCategory from '../components/budget/BudgetCategory';
-import dayjs from 'dayjs';
-import moment from 'moment';
+import {BudgetInfoResponse, BudgetIntervalEventResponse} from '../rest-model';
+import {MonthPicker} from '@mantine/dates';
+import {useState} from 'react';
 
-const useStyles = createStyles((theme) => ({
-  calculatedAmount: {
-    fontSize: px(theme.fontSizes.xl) * 1.1,
-    fontWeight: 500,
-  },
-  detailAmount: {
-    fontSize: px(theme.fontSizes.lg),
-  },
-}));
 
 function SingleBudget() {
   let { budgetName } = useParams();
@@ -38,7 +21,7 @@ function SingleBudget() {
     setDate(newDate);
   };
   const { data: budget_info, error } = useSWR<BudgetInfoResponse>(`/api/budgets/${budgetName}`, fetcher);
-  const { data: budget_interval_event, error: event_error } = useSWR<BudgetIntervalEventResponse[]>(
+  const { data: budget_interval_event} = useSWR<BudgetIntervalEventResponse[]>(
     `/api/budgets/${budgetName}/interval/${date.getFullYear()}/${date.getMonth() + 1}`,
     fetcher,
   );
@@ -95,7 +78,7 @@ function SingleBudget() {
             <MonthPicker value={date} maxDate={new Date()} onChange={(newDate) => setDate(newDate ?? new Date())} />
           </Popover.Dropdown>
         </Popover>
-        <ActionIcon onClick={() => goToMonth(1)} disabled={date.getFullYear() == new Date().getFullYear() && date.getMonth() == new Date().getMonth()}>
+        <ActionIcon onClick={() => goToMonth(1)} disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}>
           <IconChevronRight size="1rem" />
         </ActionIcon>
       </Group>
@@ -130,10 +113,6 @@ function SingleBudget() {
               </tr>
             );
           })}
-
-          {/*{sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (*/}
-          {/*    <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]} items={entry[1]}></BudgetCategory>*/}
-          {/*))}*/}
         </tbody>
       </Table>
     </Container>
