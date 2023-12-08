@@ -439,10 +439,8 @@ mod test {
     }
 
     mod extract_info {
-        use std::str::FromStr;
 
         use indoc::indoc;
-        use zhang_ast::Account;
 
         use crate::domains::schemas::AccountStatus;
         use crate::ledger::test::load_from_temp_str;
