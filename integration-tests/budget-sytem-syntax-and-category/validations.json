@@ -112,7 +112,18 @@
       ],
       [
         "$.data.related_accounts",
-        ["Expenses:Food"]
+        [
+          "Expenses:Food"
+        ]
+      ]
+    ]
+  },
+  {
+    "uri": "/api/budgets/game_expense",
+    "validations": [
+      [
+        "$.data.related_accounts.length()",
+        0
       ]
     ]
   }
