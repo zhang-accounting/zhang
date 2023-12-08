@@ -39,7 +39,7 @@ function Journals() {
       <Table verticalSpacing="xs" highlightOnHover withBorder>
         <thead>
           <tr>
-            <th style={{width:"200px"}}>Date</th>
+            <th style={{ width: '200px' }}>Date</th>
             <th>Type</th>
             <th>Payee</th>
             <th>Narration</th>

@@ -45,7 +45,7 @@ import { fetchCommodities } from './states/commodity';
 import { fetchError } from './states/errors';
 import { journalsSlice } from './states/journals';
 import Budgets from './pages/Budgets';
-import SingleBudget from "./pages/SingleBudget";
+import SingleBudget from './pages/SingleBudget';
 
 const useStyles = createStyles((theme) => ({
   onlineIcon: {
