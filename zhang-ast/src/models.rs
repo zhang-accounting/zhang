@@ -133,6 +133,9 @@ impl ZhangString {
     pub fn quote(content: impl Into<String>) -> ZhangString {
         ZhangString::QuoteString(content.into())
     }
+    pub fn unquote(content: impl Into<String>) -> ZhangString {
+        ZhangString::UnquoteString(content.into())
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

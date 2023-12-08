@@ -111,6 +111,46 @@ impl Exporter for Beancount {
                 ]
                 .join("\n")
             }
+            Directive::Budget(budget) => Directive::Custom(Custom {
+                date: budget.date,
+                custom_type: ZhangString::unquote("budget"),
+                values: vec![
+                    StringOrAccount::String(ZhangString::unquote(budget.name)),
+                    StringOrAccount::String(ZhangString::unquote(budget.commodity)),
+                ],
+                meta: budget.meta,
+            })
+            .export(),
+            Directive::BudgetAdd(budget) => Directive::Custom(Custom {
+                date: budget.date,
+                custom_type: ZhangString::unquote("budget-add"),
+                values: vec![
+                    StringOrAccount::String(ZhangString::unquote(budget.name)),
+                    StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
+                    StringOrAccount::String(ZhangString::unquote(budget.amount.currency)),
+                ],
+                meta: budget.meta,
+            })
+            .export(),
+            Directive::BudgetTransfer(budget) => Directive::Custom(Custom {
+                date: budget.date,
+                custom_type: ZhangString::unquote("budget-transfer"),
+                values: vec![
+                    StringOrAccount::String(ZhangString::unquote(budget.from)),
+                    StringOrAccount::String(ZhangString::unquote(budget.to)),
+                    StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
+                    StringOrAccount::String(ZhangString::unquote(budget.amount.currency)),
+                ],
+                meta: budget.meta,
+            })
+            .export(),
+            Directive::BudgetClose(budget) => Directive::Custom(Custom {
+                date: budget.date,
+                custom_type: ZhangString::unquote("budget-close"),
+                values: vec![StringOrAccount::String(ZhangString::unquote(budget.name))],
+                meta: budget.meta,
+            })
+            .export(),
             _ => text_exporter.export_directive(directive),
         }
     }
