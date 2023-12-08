@@ -240,9 +240,7 @@ mod test {
                 let pathbuf = path.path();
                 port.clone().fetch_add(1, Ordering::SeqCst);
 
-                let is_port_available = false;
-
-                while !is_port_available {
+                loop {
                     if TcpStream::connect(format!("127.0.0.1:{}", port.clone().load(Ordering::SeqCst))).is_ok() {
                         port.fetch_add(1, Ordering::SeqCst);
                     } else {
