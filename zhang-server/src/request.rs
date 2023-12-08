@@ -3,7 +3,6 @@ use std::cmp::max;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Datelike, Local, Utc};
 use serde::Deserialize;
-use zhang_core::store::BudgetIntervalDetail;
 
 #[derive(Deserialize)]
 #[serde(tag = "type")]

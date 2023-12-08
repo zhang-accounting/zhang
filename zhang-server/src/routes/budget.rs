@@ -1,9 +1,10 @@
+use std::cmp::Reverse;
 use std::ops::Sub;
 use std::sync::Arc;
 
 use actix_web::get;
 use actix_web::web::{Data, Path, Query};
-use chrono::{Datelike, Local, NaiveDate};
+use chrono::NaiveDate;
 use itertools::Itertools;
 use now::DateTimeNow;
 use tokio::sync::RwLock;
@@ -46,7 +47,7 @@ pub async fn get_budget_info(ledger: Data<Arc<RwLock<Ledger>>>, paths: Path<(Str
     let ledger = ledger.read().await;
     let operations = ledger.operations();
 
-    let Some(budget) = operations.all_budgets()?.into_iter().filter(|budget| budget.name.eq(&budget_name)).next() else {
+    let Some(budget) = operations.all_budgets()?.into_iter().find(|budget| budget.name.eq(&budget_name)) else {
         return ResponseWrapper::not_found();
     };
     let interval = params.as_interval();
@@ -83,7 +84,7 @@ pub async fn get_budget_interval_detail(ledger: Data<Arc<RwLock<Ledger>>>, paths
     let ledger = ledger.read().await;
     let operations = ledger.operations();
 
-    let Some(budget) = operations.all_budgets()?.into_iter().filter(|budget| budget.name.eq(&budget_name)).next() else {
+    if !operations.all_budgets()?.into_iter().any(|budget| budget.name.eq(&budget_name)) {
         return ResponseWrapper::not_found();
     };
     let date = NaiveDate::from_ymd_opt(year as i32, month, 1).unwrap().and_hms_opt(0, 0, 0).unwrap();
@@ -96,7 +97,7 @@ pub async fn get_budget_interval_detail(ledger: Data<Arc<RwLock<Ledger>>>, paths
         .map(|interval| interval.events)
         .unwrap_or_default()
         .into_iter()
-        .map(|e| BudgetIntervalEventResponse::BudgetEvent(e))
+        .map(BudgetIntervalEventResponse::BudgetEvent)
         .collect_vec();
 
     let store = operations.store.read().unwrap();
@@ -111,11 +112,11 @@ pub async fn get_budget_interval_detail(ledger: Data<Arc<RwLock<Ledger>>>, paths
     let journals = operations
         .accounts_dated_journals(&related_accounts, month_beginning, month_end)?
         .into_iter()
-        .map(|item| BudgetIntervalEventResponse::Posting(item))
+        .map(BudgetIntervalEventResponse::Posting)
         .collect_vec();
     let mut ret = vec![];
     ret.extend(budget_events);
     ret.extend(journals);
-    ret.sort_by(|a, b| b.naive_datetime().cmp(&a.naive_datetime()));
+    ret.sort_by_key(|a| Reverse(a.naive_datetime()));
     ResponseWrapper::json(ret)
 }

@@ -839,8 +839,8 @@ impl Operations {
 
     /// transfer amount between budgets
     pub fn budget_transfer(&mut self, date: DateTime<Tz>, from: impl Into<String>, to: impl Into<String>, amount: Amount) -> ZhangResult<()> {
-        self.budget_add_assigned_amount(from, date.clone(), BudgetEventType::Transfer, amount.neg())?;
-        self.budget_add_assigned_amount(to, date.clone(), BudgetEventType::Transfer, amount)?;
+        self.budget_add_assigned_amount(from, date, BudgetEventType::Transfer, amount.neg())?;
+        self.budget_add_assigned_amount(to, date, BudgetEventType::Transfer, amount)?;
         Ok(())
     }
 
@@ -848,7 +848,9 @@ impl Operations {
     pub fn budget_close(&mut self, name: impl AsRef<str>, _date: Date) -> ZhangResult<()> {
         let mut store = self.write();
         let name = name.as_ref();
-        store.budgets.get_mut(name).map(|budget| budget.closed = true);
+        if let Some(budget) = store.budgets.get_mut(name) {
+            budget.closed = true;
+        }
         Ok(())
     }
 

@@ -380,7 +380,7 @@ impl DirectiveProcess for BudgetAdd {
         } else {
             operations.budget_add_assigned_amount(
                 &self.name,
-                dbg!(self.date.to_timezone_datetime(&ledger.options.timezone)),
+                self.date.to_timezone_datetime(&ledger.options.timezone),
                 BudgetEventType::AddAssignedAmount,
                 self.amount.clone(),
             )?;
