@@ -270,6 +270,7 @@ mod test {
                                     no_report: true,
                                     exporter: format.exporter(),
                                     transformer: format.transformer(),
+                                    auth_credential: None,
                                 },
                                 ledger_data,
                                 broadcaster,
