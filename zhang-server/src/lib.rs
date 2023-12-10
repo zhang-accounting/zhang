@@ -197,7 +197,7 @@ pub async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, b
             let mut hasher = Sha3_256::new();
             hasher.update(credentials.password().unwrap_or_default().as_bytes());
             let array = hasher.finalize();
-            let hex_hash = &array[..].into_iter().map(|it| format!("{:02x}", it)).join("");
+            let hex_hash = &array[..].iter().map(|it| format!("{:02x}", it)).join("");
             if let Some(basic) = option.as_ref() {
                 let pass = credentials.user_id().eq(basic.user_id()) && hex_hash.eq(basic.password().unwrap_or_default());
                 if pass {
