@@ -85,9 +85,9 @@ pub struct ServerOpts {
     #[clap(short, long, default_value_t = 8000)]
     pub port: u16,
 
-    /// indicate cache database file path, use memory database if not present
+    /// web basic auth credential to enable basic auth. or enable it via environment variable ZHANG_AUTH
     #[clap(long)]
-    pub database: Option<PathBuf>,
+    pub auth: Option<String>,
 
     /// whether the server report version info for anonymous statistics
     #[clap(long)]
@@ -131,12 +131,13 @@ impl Opts {
             Opts::Export(_) => todo!(),
             Opts::Serve(opts) => {
                 let format = SupportedFormat::from_path(&opts.endpoint).expect("unsupported file type");
+                let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok());
                 zhang_server::serve(ServeConfig {
                     path: opts.path,
                     endpoint: opts.endpoint,
                     addr: opts.addr,
                     port: opts.port,
-                    database: opts.database,
+                    auth_credential,
                     no_report: opts.no_report,
                     exporter: format.exporter(),
                     transformer: format.transformer(),
@@ -266,10 +267,10 @@ mod test {
                                     endpoint: "main.zhang".to_owned(),
                                     addr: "127.0.0.1".to_string(),
                                     port: cc_port.load(Ordering::SeqCst),
-                                    database: None,
                                     no_report: true,
                                     exporter: format.exporter(),
                                     transformer: format.transformer(),
+                                    auth_credential: None,
                                 },
                                 ledger_data,
                                 broadcaster,
