@@ -85,6 +85,10 @@ pub struct ServerOpts {
     #[clap(short, long, default_value_t = 8000)]
     pub port: u16,
 
+    /// web basic auth credential to enable basic auth. or enable it via environment variable ZHANG_AUTH
+    #[clap(long)]
+    pub auth: Option<String>,
+
     /// whether the server report version info for anonymous statistics
     #[clap(long)]
     pub no_report: bool,
@@ -127,11 +131,13 @@ impl Opts {
             Opts::Export(_) => todo!(),
             Opts::Serve(opts) => {
                 let format = SupportedFormat::from_path(&opts.endpoint).expect("unsupported file type");
+                let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok());
                 zhang_server::serve(ServeConfig {
                     path: opts.path,
                     endpoint: opts.endpoint,
                     addr: opts.addr,
                     port: opts.port,
+                    auth_credential,
                     no_report: opts.no_report,
                     exporter: format.exporter(),
                     transformer: format.transformer(),

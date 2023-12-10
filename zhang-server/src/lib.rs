@@ -4,10 +4,23 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix_cors::Cors;
+use actix_web::middleware::Condition;
 use actix_web::web::Data;
 use actix_web::{App, HttpServer};
-use log::{debug, error, info, trace};
+use actix_web_httpauth::extractors::AuthenticationError;
+use actix_web_httpauth::headers::authorization::Basic;
+use actix_web_httpauth::headers::www_authenticate::basic::Basic as BasicChangelle;
+use actix_web_httpauth::middleware::HttpAuthentication;
+use itertools::Itertools;
+use log::{debug, error, info, trace, warn};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use self_update::version::bump_is_greater;
+use serde::Serialize;
+use sha3::{Digest, Sha3_256};
+use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::RwLock;
+
 use routes::account::{
     create_account_balance, create_batch_account_balances, get_account_documents, get_account_info, get_account_journals, get_account_list,
     upload_account_document,
@@ -17,11 +30,6 @@ use routes::common::{get_all_options, get_basic_info, get_errors, sse};
 use routes::document::{download_document, get_documents};
 use routes::file::{get_file_content, get_files, update_file_content};
 use routes::transaction::{create_new_transaction, get_info_for_new_transactions, get_journals, upload_transaction_document};
-use self_update::version::bump_is_greater;
-use serde::Serialize;
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::mpsc::{channel, Receiver};
-use tokio::sync::RwLock;
 use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
 use zhang_core::transform::Transformer;
@@ -68,6 +76,7 @@ pub struct ServeConfig {
     pub no_report: bool,
     pub exporter: Arc<dyn AppendableExporter>,
     pub transformer: Arc<dyn Transformer>,
+    pub auth_credential: Option<String>,
 }
 
 pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
@@ -170,10 +179,47 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
 pub async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>) -> ZhangResult<()> {
     let addr = SocketAddrV4::new(opts.addr.parse()?, opts.port);
     info!("zhang is listening on http://{}:{}/", opts.addr, opts.port);
+
+    let basic_credential = opts.auth_credential.map(|credential| {
+        let token_part = credential.splitn(2, ':').map(|it| it.to_owned()).collect_vec();
+        Basic::new(
+            token_part.get(0).cloned().expect("cannot retrieve credential user_id"),
+            token_part.get(1).cloned(),
+        )
+    });
+    if basic_credential.is_some() {
+        info!("web basic auth is enabled");
+    }
     let exporter: Data<dyn AppendableExporter> = Data::from(opts.exporter);
     let server = HttpServer::new(move || {
+        let auth = HttpAuthentication::basic(|req, credentials| async move {
+            let option = req.app_data::<Data<Option<Basic>>>().unwrap();
+            let mut hasher = Sha3_256::new();
+            hasher.update(credentials.password().unwrap_or_default().as_bytes());
+            let array = hasher.finalize();
+            let hex_hash = &array[..].into_iter().map(|it| format!("{:02x}", it)).join("");
+            if let Some(basic) = option.as_ref() {
+                let pass = credentials.user_id().eq(basic.user_id()) && hex_hash.eq(basic.password().unwrap_or_default());
+                if pass {
+                    Ok(req)
+                } else {
+                    warn!(
+                        "web basic auth validation fail with user_id: {}, password: {}",
+                        credentials.user_id(),
+                        credentials.password().unwrap_or_default()
+                    );
+                    Err((AuthenticationError::new(BasicChangelle::new()).into(), req))
+                }
+            } else {
+                Ok(req)
+            }
+        });
+
+        let web_auth = Condition::new(basic_credential.is_some(), auth);
         let app = App::new()
+            .app_data(Data::new(basic_credential.clone()))
             .wrap(Cors::permissive())
+            .wrap(web_auth)
             .app_data(Data::from(broadcaster.clone()))
             .app_data(Data::new(ledger_data.clone()))
             .app_data(exporter.clone())
