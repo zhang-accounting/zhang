@@ -141,7 +141,7 @@ impl TextExportable for StringOrAccount {
 impl TextExportable for Transaction {
     type Output = String;
     fn export(self) -> String {
-        let mut vec1 = vec![
+        let mut header = vec![
             Some(self.date.export()),
             self.flag.map(|it| it.export()),
             self.payee.map(|it| it.export()),
@@ -149,21 +149,26 @@ impl TextExportable for Transaction {
         ];
         let mut tags = self.tags.into_iter().map(|it| Some(format!("#{}", it))).collect_vec();
         let mut links = self.links.into_iter().map(|it| Some(format!("^{}", it))).collect_vec();
-        vec1.append(&mut tags);
-        vec1.append(&mut links);
+        header.append(&mut tags);
+        header.append(&mut links);
 
-        let mut transaction = self.postings.into_iter().map(|it| format!("  {}", it.export())).collect_vec();
-        transaction.insert(0, vec1.into_iter().flatten().join(" "));
-        let mut vec2 = self.meta.export().into_iter().map(|it| format!("  {}", it)).collect_vec();
-        transaction.append(&mut vec2);
+        let mut transaction = self
+            .postings
+            .into_iter()
+            .flat_map(|posting| posting.export())
+            .map(|it| format!("  {}", it))
+            .collect_vec();
+        transaction.insert(0, header.into_iter().flatten().join(" "));
+        let mut txn_meta = self.meta.export().into_iter().map(|it| format!("  {}", it)).collect_vec();
+        transaction.append(&mut txn_meta);
 
         transaction.into_iter().join("\n")
     }
 }
 
 impl TextExportable for Posting {
-    type Output = String;
-    fn export(self) -> String {
+    type Output = Vec<String>;
+    fn export(self) -> Vec<String> {
         // todo cost and price
         let cost_string = if self.cost.is_some() || self.cost_date.is_some() {
             let vec2 = vec![self.cost.map(|it| it.export()), self.cost_date.map(|it| it.export())];
@@ -178,8 +183,10 @@ impl TextExportable for Posting {
             cost_string,
             self.price.map(|it| it.export()),
         ];
+        let mut ret = self.meta.export().into_iter().map(|it| format!("  {}", it)).collect_vec();
+        ret.insert(0, vec1.into_iter().flatten().join(" "));
 
-        vec1.into_iter().flatten().join(" ")
+        ret
     }
 }
 
@@ -566,6 +573,25 @@ mod test {
             indoc! {r#"
             1970-01-01 * "Payee" "Narration" ^link1 ^link-2
               Assets:123 -1 CNY
+              Expenses:TestCategory:One 1 CCC @@ 1 CNY
+        "#}
+        );
+
+        assert_parse!(
+            "transaction directive with meta",
+            indoc! {r#"
+            1970-01-01 * "Payee" "Narration" ^link1 ^link-2
+              Assets:123 -1 CNY
+              time: "123"
+        "#}
+        );
+
+        assert_parse!(
+            "transaction posting with meta",
+            indoc! {r#"
+            1970-01-01 * "Payee" "Narration" ^link1 ^link-2
+              Assets:123 -1 CNY
+                a: b
               Expenses:TestCategory:One 1 CCC @@ 1 CNY
         "#}
         );
