@@ -102,17 +102,17 @@ impl ZhangParser {
     }
 
     fn open(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, Vec<String>, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
-            [date(date), account_name(a), commodity_name(commodities).., commodity_meta(metas)] => (date, a, commodities.collect(), metas),
-            [date(date), account_name(a), commodity_name(commodities)..] => (date, a, commodities.collect(), vec![]),
-            [date(date), account_name(a), commodity_meta(metas)] => (date, a, vec![], metas),
+        let ret: (Date, Account, Vec<String>, Meta) = match_nodes!(input.into_children();
+            [date(date), account_name(a), commodity_name(commodities).., metas(metas)] => (date, a, commodities.collect(), metas),
+            [date(date), account_name(a), commodity_name(commodities)..] => (date, a, commodities.collect(), Meta::default()),
+            [date(date), account_name(a), metas(metas)] => (date, a, vec![], metas),
         );
 
         let open = Open {
             date: ret.0,
             account: ret.1,
             commodities: ret.2,
-            meta: ret.3.into_iter().collect(),
+            meta: ret.3,
         };
         Ok(Directive::Open(open))
     }
@@ -132,18 +132,18 @@ impl ZhangParser {
         Ok(())
     }
 
-    fn commodity_line(input: Node) -> Result<(String, ZhangString)> {
+    fn key_value_line(input: Node) -> Result<(String, ZhangString)> {
         let ret: (String, ZhangString) = match_nodes!(input.into_children();
             [string(key), string(value)] => (key.to_plain_string(), value),
         );
         Ok(ret)
     }
 
-    fn commodity_meta(input: Node) -> Result<Vec<(String, ZhangString)>> {
+    fn metas(input: Node) -> Result<Meta> {
         let ret: Vec<(String, ZhangString)> = match_nodes!(input.into_children();
-            [commodity_line(lines)..] => lines.collect(),
+            [key_value_line(lines)..] => lines.collect(),
         );
-        Ok(ret)
+        Ok(ret.into_iter().collect())
     }
 
     fn posting_unit(input: Node) -> Result<(Option<Amount>, Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>)> {
@@ -208,14 +208,20 @@ impl ZhangParser {
             Option<Flag>,
             Account,
             Option<(Option<Amount>, Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>)>,
+            Meta,
         ) = match_nodes!(input.into_children();
-            [account_name(account_name)] => (None, account_name, None),
-            [account_name(account_name), posting_unit(unit)] => (None, account_name, Some(unit)),
-            [transaction_flag(flag), account_name(account_name)] => (flag, account_name, None),
-            [transaction_flag(flag), account_name(account_name), posting_unit(unit)] => (flag, account_name, Some(unit)),
+            [account_name(account_name)] => (None, account_name, None, Meta::default()),
+            [account_name(account_name), posting_unit(unit)] => (None, account_name, Some(unit), Meta::default()),
+            [transaction_flag(flag), account_name(account_name)] => (flag, account_name, None, Meta::default()),
+            [transaction_flag(flag), account_name(account_name), posting_unit(unit)] => (flag, account_name, Some(unit), Meta::default()),
+
+            [account_name(account_name), metas(meta)] => (None, account_name, None, meta),
+            [account_name(account_name), posting_unit(unit), metas(meta)] => (None, account_name, Some(unit), meta),
+            [transaction_flag(flag), account_name(account_name), metas(meta)] => (flag, account_name, None, meta),
+            [transaction_flag(flag), account_name(account_name), posting_unit(unit), metas(meta)] => (flag, account_name, Some(unit), meta),
         );
 
-        let (flag, account, unit) = ret;
+        let (flag, account, unit, meta) = ret;
 
         let mut line = Posting {
             flag,
@@ -224,7 +230,7 @@ impl ZhangParser {
             cost: None,
             cost_date: None,
             price: None,
-            meta: Default::default(),
+            meta,
         };
 
         if let Some((amount, meta)) = unit {
@@ -242,7 +248,7 @@ impl ZhangParser {
     fn transaction_line(input: Node) -> Result<(Option<Posting>, Option<(String, ZhangString)>)> {
         let ret: (Option<Posting>, Option<(String, ZhangString)>) = match_nodes!(input.into_children();
             [transaction_posting(posting)] => (Some(posting), None),
-            [commodity_line(meta)] => (None, Some(meta)),
+            [key_value_line(meta)] => (None, Some(meta)),
 
         );
         Ok(ret)
@@ -323,13 +329,13 @@ impl ZhangParser {
 
     fn commodity(input: Node) -> Result<Directive> {
         let ret = match_nodes!(input.into_children();
-            [date(date), commodity_name(name)] => (date, name, vec![]),
-            [date(date), commodity_name(name), commodity_meta(meta)] => (date, name, meta),
+            [date(date), commodity_name(name)] => (date, name, Meta::default()),
+            [date(date), commodity_name(name), metas(meta)] => (date, name, meta),
         );
         Ok(Directive::Commodity(Commodity {
             date: ret.0,
             currency: ret.1,
-            meta: ret.2.into_iter().collect(),
+            meta: ret.2,
         }))
     }
 
@@ -342,15 +348,15 @@ impl ZhangParser {
     }
 
     fn custom(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, Vec<StringOrAccount>, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
-            [date(date), string(module), string_or_account(options)..] => (date, module, options.collect(), vec![]),
-            [date(date), string(module), string_or_account(options).., commodity_meta(metas)] => (date, module, options.collect(), metas),
+        let ret: (Date, ZhangString, Vec<StringOrAccount>, Meta) = match_nodes!(input.into_children();
+            [date(date), string(module), string_or_account(options)..] => (date, module, options.collect(), Meta::default()),
+            [date(date), string(module), string_or_account(options).., metas(metas)] => (date, module, options.collect(), metas),
         );
         Ok(Directive::Custom(Custom {
             date: ret.0,
             custom_type: ret.1,
             values: ret.2,
-            meta: ret.3.into_iter().collect(),
+            meta: ret.3,
         }))
     }
 
@@ -438,53 +444,53 @@ impl ZhangParser {
     }
 
     fn budget(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, String, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
-            [date(date), unquote_string(name), commodity_name(commodity)] => (date, name, commodity, vec![]),
-            [date(date), unquote_string(name), commodity_name(commodity), commodity_meta(metas)] => (date, name, commodity, metas)
+        let ret: (Date, ZhangString, String, Meta) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name), commodity_name(commodity)] => (date, name, commodity, Meta::default()),
+            [date(date), unquote_string(name), commodity_name(commodity), metas(metas)] => (date, name, commodity, metas)
         );
         Ok(Directive::Budget(Budget {
             date: ret.0,
             name: ret.1.to_plain_string(),
             commodity: ret.2,
-            meta: ret.3.into_iter().collect(),
+            meta: ret.3,
         }))
     }
 
     fn budget_close(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
-            [date(date), unquote_string(name)] => (date, name, vec![]),
-            [date(date), unquote_string(name), commodity_meta(metas)] => (date, name, metas)
+        let ret: (Date, ZhangString, Meta) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name)] => (date, name, Meta::default()),
+            [date(date), unquote_string(name), metas(metas)] => (date, name, metas)
         );
         Ok(Directive::BudgetClose(BudgetClose {
             date: ret.0,
             name: ret.1.to_plain_string(),
-            meta: ret.2.into_iter().collect(),
+            meta: ret.2,
         }))
     }
 
     fn budget_add(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, Amount, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
-            [date(date), unquote_string(name), posting_amount(amount)] => (date, name, amount, vec![]),
-            [date(date), unquote_string(name), posting_amount(amount), commodity_meta(metas)] => (date, name, amount, metas)
+        let ret: (Date, ZhangString, Amount, Meta) = match_nodes!(input.into_children();
+            [date(date), unquote_string(name), posting_amount(amount)] => (date, name, amount, Meta::default()),
+            [date(date), unquote_string(name), posting_amount(amount), metas(metas)] => (date, name, amount, metas)
         );
         Ok(Directive::BudgetAdd(BudgetAdd {
             date: ret.0,
             name: ret.1.to_plain_string(),
             amount: ret.2,
-            meta: ret.3.into_iter().collect(),
+            meta: ret.3,
         }))
     }
     fn budget_transfer(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, ZhangString, Amount, Vec<(String, ZhangString)>) = match_nodes!(input.into_children();
-            [date(date), unquote_string(from), unquote_string(to), posting_amount(amount)] => (date, from, to, amount, vec![]),
-            [date(date), unquote_string(from), unquote_string(to), posting_amount(amount), commodity_meta(metas)] => (date, from, to, amount, metas)
+        let ret: (Date, ZhangString, ZhangString, Amount, Meta) = match_nodes!(input.into_children();
+            [date(date), unquote_string(from), unquote_string(to), posting_amount(amount)] => (date, from, to, amount,Meta::default()),
+            [date(date), unquote_string(from), unquote_string(to), posting_amount(amount), metas(metas)] => (date, from, to, amount, metas)
         );
         Ok(Directive::BudgetTransfer(BudgetTransfer {
             date: ret.0,
             from: ret.1.to_plain_string(),
             to: ret.2.to_plain_string(),
             amount: ret.3,
-            meta: ret.4.into_iter().collect(),
+            meta: ret.4,
         }))
     }
 
@@ -863,7 +869,15 @@ mod test {
                     _ => unreachable!(),
                 }
             }
-
+            #[test]
+            fn should_parse_multiple_postings() {
+                let trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card
+                  Expenses:Food
+                "#});
+                assert_eq!(2, trx.postings.len());
+            }
             #[test]
             fn should_return_all_none_price() {
                 let mut trx = get_first_posting(indoc! {r#"
@@ -949,6 +963,16 @@ mod test {
                 assert_eq!(Some(Amount::new(BigDecimal::from_f32(6.9).unwrap(), "CNY")), posting.cost);
                 assert_eq!(None, posting.cost_date);
                 assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
+            }
+            #[test]
+            fn should_parse_metas_in_posting() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD
+                    a: b
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!("b", posting.meta.get_one("a").cloned().unwrap().to_plain_string());
             }
         }
     }
