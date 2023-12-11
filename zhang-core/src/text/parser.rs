@@ -869,7 +869,15 @@ mod test {
                     _ => unreachable!(),
                 }
             }
-
+            #[test]
+            fn should_parse_multiple_postings() {
+                let trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card
+                  Expenses:Food
+                "#});
+                assert_eq!(2, trx.postings.len());
+            }
             #[test]
             fn should_return_all_none_price() {
                 let mut trx = get_first_posting(indoc! {r#"
