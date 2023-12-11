@@ -1,4 +1,4 @@
-<img align="right" width="256" height="256" src="/assets/logo.jpg">
+<img align="right" width="256" height="256" src="/docs/logo.jpg">
 
 # 账 Zhang
 
