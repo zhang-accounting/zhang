@@ -131,7 +131,7 @@ impl Opts {
             Opts::Export(_) => todo!(),
             Opts::Serve(opts) => {
                 let format = SupportedFormat::from_path(&opts.endpoint).expect("unsupported file type");
-                let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok());
+                let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(":"));
                 zhang_server::serve(ServeConfig {
                     path: opts.path,
                     endpoint: opts.endpoint,
