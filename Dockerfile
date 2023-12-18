@@ -11,6 +11,7 @@ LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
 COPY --from=build-env /app/target/release/zhang /application/zhang
 COPY --from=build-env /data /data
 
+ENV ZHANG_AUTH=""
 WORKDIR application
 VOLUME "/data"
 EXPOSE 8000
