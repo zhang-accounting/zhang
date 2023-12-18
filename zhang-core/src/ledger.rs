@@ -88,7 +88,7 @@ impl Ledger {
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
                 Directive::Plugin(_) => {}
-                Directive::Include(_) => unreachable!(),
+                Directive::Include(_) => {},
                 Directive::Comment(_) => {}
                 Directive::Budget(budget) => budget.handler(&mut ret_ledger, &directive.span)?,
                 Directive::BudgetAdd(budget_add) => budget_add.handler(&mut ret_ledger, &directive.span)?,
