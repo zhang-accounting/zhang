@@ -2,14 +2,12 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use itertools::Itertools;
 use log::debug;
 use zhang_ast::{Directive, Spanned};
 
 use crate::error::IoErrorIntoZhangError;
 use crate::ledger::Ledger;
 use crate::{utils, ZhangResult};
-use async_trait::async_trait;
 
 pub struct TransformResult {
     pub directives: Vec<Spanned<Directive>>,
@@ -60,7 +58,7 @@ where
         let mut visited: Vec<PathBuf> = Vec::new();
         let mut directives = vec![];
         while let Some(pathbuf) = load_queue.pop_front() {
-            let striped_pathbuf = dbg!(&pathbuf).strip_prefix(dbg!(&entry)).expect("Cannot strip entry").to_path_buf();
+            let striped_pathbuf = &pathbuf.strip_prefix(&entry).expect("Cannot strip entry").to_path_buf();
             debug!("visited entry file: {:?}", striped_pathbuf.display());
 
             if utils::has_path_visited(&visited, &pathbuf) {
@@ -75,7 +73,7 @@ where
                 } else {
                     pathbuf.parent().map(|it| it.join(buf)).unwrap()
                 };
-                load_queue.push_back(dbg!(fullpath));
+                load_queue.push_back(fullpath);
             });
             directives.extend(entity_directives);
             visited.push(pathbuf);

@@ -23,8 +23,6 @@ mod test {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use glob::Pattern;
-    use itertools::Either;
     use serde_json_path::JsonPath;
     use tempfile::tempdir;
     use zhang_ast::{Directive, Spanned};

@@ -337,7 +337,7 @@ impl TextFileBasedTransformer for Beancount {
         Ok(())
     }
 
-    fn save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+    fn save_content(&self, _: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         std::fs::write(&path, content).with_path(PathBuf::from(path).as_path())
     }
 }

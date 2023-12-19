@@ -1,7 +1,5 @@
 use chrono::Datelike;
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use zhang_ast::{Directive, Include, Spanned, ZhangString};
 
@@ -92,7 +90,7 @@ impl TextFileBasedTransformer for TextTransformer {
         Ok(())
     }
 
-    fn save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+    fn save_content(&self, _: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         std::fs::write(&path, content).with_path(PathBuf::from(path).as_path())
     }
 }

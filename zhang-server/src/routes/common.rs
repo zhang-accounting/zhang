@@ -1,15 +1,14 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use actix_web::web::Data;
-use actix_web::{get, Responder};
 use async_stream::try_stream;
 use axum::extract::{Query, State};
 use axum::response::sse::{Event, KeepAlive};
-use axum::response::{IntoResponse, Sse};
+use axum::response::Sse;
 use futures_util::Stream;
 use itertools::Itertools;
 use tokio::sync::RwLock;
+
 use zhang_core::domains::schemas::{ErrorDomain, OptionDomain};
 use zhang_core::ledger::Ledger;
 

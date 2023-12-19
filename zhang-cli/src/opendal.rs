@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use log::info;
 use opendal::layers::BlockingLayer;
-use opendal::raw::Accessor;
 use opendal::services::{Fs, Webdav};
 use opendal::{BlockingOperator, Operator};
 
@@ -118,7 +117,7 @@ impl TextFileBasedTransformer for OpendalTextTransformer {
     type FileOutput = Spanned<Directive>;
 
     fn get_file_content(&self, path: PathBuf) -> ZhangResult<String> {
-        let path = dbg!(path.to_str().expect("cannot convert path to string"));
+        let path = path.to_str().expect("cannot convert path to string");
 
         let vec = tokio::task::block_in_place(move || self.get_content(path.to_string()).expect("cannot read file"));
         Ok(String::from_utf8(vec).expect("invalid utf8 content"))
@@ -165,7 +164,7 @@ impl TextFileBasedTransformer for OpendalTextTransformer {
         Ok(())
     }
 
-    fn save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+    fn save_content(&self, _: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         info!("[opendal] save content path={}", &path);
         let vec = content.to_vec();
         tokio::task::block_in_place(move || Ok(self.operator.write(&path, vec).unwrap()))

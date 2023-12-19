@@ -1,4 +1,3 @@
-use std::env::VarError;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,13 +8,13 @@ use log::{error, info, LevelFilter};
 use self_update::Status;
 use tokio::task::spawn_blocking;
 
-use crate::opendal::OpendalTextTransformer;
 use beancount::Beancount;
 use zhang_core::ledger::Ledger;
-use zhang_core::text::exporter::TextExporter;
 use zhang_core::text::transformer::TextTransformer;
 use zhang_core::transform::Transformer;
 use zhang_server::ServeConfig;
+
+use crate::opendal::OpendalTextTransformer;
 
 pub mod opendal;
 
@@ -148,7 +147,6 @@ impl Opts {
             }
             Opts::Export(_) => todo!(),
             Opts::Serve(opts) => {
-                let format = SupportedFormat::from_path(&opts.endpoint).expect("unsupported file type");
                 let data_source = opts.source.clone().or(DataSource::from_env()).unwrap_or(DataSource::Fs);
                 let transformer = OpendalTextTransformer::from_env(data_source.clone(), &opts).await;
                 let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(":"));
@@ -221,29 +219,26 @@ async fn main() {
 
 #[cfg(test)]
 mod test {
+    use std::io::{stdout, Write};
+    use std::sync::Arc;
+
     use axum::body::Body;
     use axum::extract::Request;
     use http::StatusCode;
-    use std::io::{stdout, Write};
-    use std::net::TcpStream;
-    use std::sync::atomic::{AtomicU16, Ordering};
-    use std::sync::Arc;
-    use std::time::Duration;
-
+    use http_body_util::BodyExt;
     use jsonpath_rust::JsonPathQuery;
     use serde::Deserialize;
     use serde_json::Value;
-    use tokio::net::TcpListener;
     use tokio::sync::RwLock;
+    use tower::util::ServiceExt;
 
-    use crate::opendal::OpendalTextTransformer;
     use zhang_core::ledger::Ledger;
     use zhang_server::broadcast::Broadcaster;
-    use zhang_server::{create_server_app, ServeConfig};
+    use zhang_server::create_server_app;
 
-    use crate::{DataSource, ServerOpts, SupportedFormat};
-    use http_body_util::BodyExt;
-    use tower::util::ServiceExt;
+    use crate::opendal::OpendalTextTransformer;
+    use crate::{DataSource, ServerOpts};
+
     macro_rules! pprintln {
 
     ($($arg:tt)*) => {
@@ -293,7 +288,7 @@ mod test {
                 )
                 .await;
                 let arc = Arc::new(transformer);
-                let ledger = Ledger::load_with_database(dbg!(pathbuf.clone()), "main.zhang".to_owned(), arc.clone()).expect("cannot load ledger");
+                let ledger = Ledger::load_with_database(pathbuf.clone(), "main.zhang".to_owned(), arc.clone()).expect("cannot load ledger");
                 let ledger_data = Arc::new(RwLock::new(ledger));
                 let broadcaster = Broadcaster::create();
                 let app = create_server_app(ledger_data, broadcaster, None);

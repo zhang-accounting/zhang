@@ -4,14 +4,12 @@ use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, RwLock};
 
 use bigdecimal::Zero;
-use glob::Pattern;
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use log::{error, info};
 use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
-use crate::exporter::Exporter;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::process::DirectiveProcess;
 use crate::store::Store;
@@ -194,8 +192,6 @@ mod test {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use glob::Pattern;
-    use itertools::Either;
     use tempfile::tempdir;
     use zhang_ast::{Directive, SpanInfo, Spanned};
 

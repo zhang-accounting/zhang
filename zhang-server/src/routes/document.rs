@@ -1,14 +1,12 @@
 use std::sync::Arc;
 
-use actix_files::NamedFile;
-use actix_web::{get, Responder};
 use axum::extract::{Path, State};
 use axum::http::header;
-use axum::response::{AppendHeaders, IntoResponse, Response};
+use axum::response::{AppendHeaders, IntoResponse};
 use bytes::Bytes;
 use itertools::Itertools;
 use tokio::sync::RwLock;
-use tower_http::body::Full;
+
 use zhang_core::ledger::Ledger;
 
 use crate::response::{DocumentResponse, ResponseWrapper};

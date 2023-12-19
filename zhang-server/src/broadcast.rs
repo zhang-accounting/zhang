@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use actix_web_lab::sse::{self, ChannelStream, Sse};
 use axum::response::sse::Event;
 use futures_util::future;
 use serde::Serialize;

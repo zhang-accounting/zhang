@@ -1,16 +1,14 @@
-use std::fs::File;
-use std::io::Write;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::extract::{Multipart, Path, State};
 use axum::Json;
 use chrono::Utc;
-use futures_util::StreamExt;
 use itertools::Itertools;
 use log::info;
 use tokio::sync::RwLock;
 use uuid::Uuid;
+
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Document, ZhangString};
 use zhang_core::domains::schemas::AccountJournalDomain;
@@ -19,7 +17,7 @@ use zhang_core::utils::calculable::Calculable;
 
 use crate::request::AccountBalanceRequest;
 use crate::response::{AccountInfoResponse, AccountResponse, DocumentResponse, ResponseWrapper};
-use crate::{routes, ApiResult};
+use crate::ApiResult;
 
 pub async fn get_account_list(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<AccountResponse>> {
     let ledger = ledger.read().await;
@@ -172,7 +170,7 @@ pub async fn create_account_balance(ledger: State<Arc<RwLock<Ledger>>>, params: 
         }),
     };
 
-    ledger.transformer.append_directives(&ledger, vec![balance]);
+    ledger.transformer.append_directives(&ledger, vec![balance]).unwrap();
     ResponseWrapper::<()>::created()
 }
 

@@ -1,11 +1,8 @@
 use std::sync::Arc;
 
-use actix_web::web::{Data, Json, Path};
-use actix_web::{get, put};
 use axum::extract::State;
-use itertools::Either;
-use log::error;
 use tokio::sync::RwLock;
+
 use zhang_core::ledger::Ledger;
 
 use crate::request::FileUpdateRequest;
@@ -29,7 +26,6 @@ pub async fn get_file_content(ledger: State<Arc<RwLock<Ledger>>>, path: axum::ex
     let encoded_file_path = path.0 .0;
     let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
-    let entry = &ledger.entry.0;
 
     let content = ledger.transformer.get_content(filename.to_owned())?;
     let content = String::from_utf8(content).unwrap();
