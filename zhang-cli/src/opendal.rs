@@ -1,10 +1,10 @@
-use log::info;
 use std::path::PathBuf;
 
+use log::info;
 use opendal::layers::BlockingLayer;
+use opendal::raw::Accessor;
 use opendal::services::{Fs, Webdav};
 use opendal::{BlockingOperator, Operator};
-use tokio::runtime::{Handle, Runtime};
 
 use beancount::Beancount;
 use zhang_ast::{Directive, Include, Spanned, ZhangString};
@@ -17,12 +17,8 @@ use zhang_core::utils::has_path_visited;
 use zhang_core::{ZhangError, ZhangResult};
 
 use crate::{DataSource, ServerOpts};
-use opendal::raw::Accessor;
-
-// static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
 
 pub struct OpendalTextTransformer {
-    // operator: Operator,
     operator: BlockingOperator,
     data_type: Box<dyn Exporter<Output = String> + 'static + Send + Sync>,
     is_beancount: bool,
@@ -36,10 +32,6 @@ impl OpendalTextTransformer {
             if let Some(datetime) = directive.datetime() {
                 let folder = datetime.format("data/%Y/").to_string();
 
-                // futures::executor::block_on(async {
-                //     info!("[opendal] trying to create folder {}", &folder);
-                //     self.operator.create_dir(&folder).await.unwrap();
-                // });
                 tokio::task::block_in_place(move || {
                     self.operator.create_dir(&folder).unwrap();
                 });
@@ -128,7 +120,6 @@ impl TextFileBasedTransformer for OpendalTextTransformer {
     fn get_file_content(&self, path: PathBuf) -> ZhangResult<String> {
         let path = dbg!(path.to_str().expect("cannot convert path to string"));
 
-        // let vec = tokio::task::block_in_place(move || Handle::current().block_on(async move { self.get_content(path.to_string()).expect("cannot read file") }));
         let vec = tokio::task::block_in_place(move || self.get_content(path.to_string()).expect("cannot read file"));
         Ok(String::from_utf8(vec).expect("invalid utf8 content"))
     }
@@ -165,24 +156,6 @@ impl TextFileBasedTransformer for OpendalTextTransformer {
                 Ok(Vec::new())
             }
         })
-        // tokio::task::block_in_place(move || {
-        //     Handle::current().block_on(async move {
-        //         info!("[opendal] get content path={}", &path);
-        //         if self.operator.is_exist(&path).await.expect("error") {
-        //             let vec = self.operator.read(&path).await.expect("cannot read file");
-        //             Ok(vec)
-        //         } else {
-        //             Ok(Vec::new())
-        //         }
-        //     })
-        // })
-
-        // if self.operator.is_exist(&path).expect("error") {
-        //     let vec = self.operator.read(&path).expect("cannot read file");
-        //     Ok(vec)
-        // } else {
-        //     Ok(Vec::new())
-        // }
     }
 
     fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
@@ -195,8 +168,6 @@ impl TextFileBasedTransformer for OpendalTextTransformer {
     fn save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         info!("[opendal] save content path={}", &path);
         let vec = content.to_vec();
-        // futures::executor::block_on(async { Ok(self.operator.write(&path, vec).await.unwrap()) })
         tokio::task::block_in_place(move || Ok(self.operator.write(&path, vec).unwrap()))
-        // tokio::task::block_in_place(move || Handle::current().block_on(async move { Ok(self.operator.write(&path, vec).await.unwrap()) }))
     }
 }

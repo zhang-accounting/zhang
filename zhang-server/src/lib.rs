@@ -274,7 +274,7 @@ async fn version_report_task() -> ServerResult<()> {
     debug!("reporting zhang's version");
     let client = reqwest::Client::new();
     client
-        .post("https://zhang.resource.rs")
+        .post("https://zhang-cloud.kilerd.me")
         .json(&VersionReport {
             version: env!("CARGO_PKG_VERSION"),
             build_date: env!("ZHANG_BUILD_DATE"),
