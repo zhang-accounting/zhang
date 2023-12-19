@@ -17,7 +17,7 @@ use zhang_core::utils::calculable::Calculable;
 
 use crate::request::AccountBalanceRequest;
 use crate::response::{AccountInfoResponse, AccountResponse, DocumentResponse, ResponseWrapper};
-use crate::ApiResult;
+use crate::{ApiResult, ReloadSender};
 
 pub async fn get_account_list(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<AccountResponse>> {
     let ledger = ledger.read().await;
@@ -72,7 +72,9 @@ pub async fn get_account_info(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(St
     })
 }
 
-pub async fn upload_account_document(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(String,)>, mut multipart: Multipart) -> ApiResult<()> {
+pub async fn upload_account_document(
+    ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, path: Path<(String,)>, mut multipart: Multipart,
+) -> ApiResult<()> {
     let account_name = path.0 .0;
     let ledger_stage = ledger.read().await;
     let entry = &ledger_stage.entry.0;
@@ -106,6 +108,7 @@ pub async fn upload_account_document(ledger: State<Arc<RwLock<Ledger>>>, path: P
     }
 
     ledger_stage.transformer.append_directives(&ledger_stage, documents)?;
+    reload_sender.reload();
     ResponseWrapper::<()>::created()
 }
 
@@ -144,7 +147,9 @@ pub async fn get_account_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Pa
     ResponseWrapper::json(journals)
 }
 
-pub async fn create_account_balance(ledger: State<Arc<RwLock<Ledger>>>, params: Path<(String,)>, Json(payload): Json<AccountBalanceRequest>) -> ApiResult<()> {
+pub async fn create_account_balance(
+    ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, params: Path<(String,)>, Json(payload): Json<AccountBalanceRequest>,
+) -> ApiResult<()> {
     let target_account = params.0 .0;
     let ledger = ledger.read().await;
 
@@ -171,10 +176,13 @@ pub async fn create_account_balance(ledger: State<Arc<RwLock<Ledger>>>, params: 
     };
 
     ledger.transformer.append_directives(&ledger, vec![balance]).unwrap();
+    reload_sender.reload();
     ResponseWrapper::<()>::created()
 }
 
-pub async fn create_batch_account_balances(ledger: State<Arc<RwLock<Ledger>>>, Json(payload): Json<Vec<AccountBalanceRequest>>) -> ApiResult<()> {
+pub async fn create_batch_account_balances(
+    ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, Json(payload): Json<Vec<AccountBalanceRequest>>,
+) -> ApiResult<()> {
     let ledger = ledger.read().await;
     let mut directives = vec![];
     for balance in payload {
@@ -203,5 +211,6 @@ pub async fn create_batch_account_balances(ledger: State<Arc<RwLock<Ledger>>>, J
     }
 
     ledger.transformer.append_directives(&ledger, directives)?;
+    reload_sender.reload();
     ResponseWrapper::<()>::created()
 }

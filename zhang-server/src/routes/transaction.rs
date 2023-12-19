@@ -22,7 +22,7 @@ use crate::response::{
     InfoForNewTransaction, JournalBalanceCheckItemResponse, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
     JournalTransactionPostingResponse, Pageable, ResponseWrapper,
 };
-use crate::ApiResult;
+use crate::{ApiResult, ReloadSender};
 
 // todo rename api
 pub async fn get_info_for_new_transactions(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<InfoForNewTransaction> {
@@ -224,7 +224,9 @@ pub async fn create_new_transaction(ledger: State<Arc<RwLock<Ledger>>>, Json(pay
 }
 
 // todo(refact): use exporter to update transaction
-pub async fn upload_transaction_document(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(String,)>, mut multipart: Multipart) -> ApiResult<String> {
+pub async fn upload_transaction_document(
+    ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, path: Path<(String,)>, mut multipart: Multipart,
+) -> ApiResult<String> {
     let transaction_id = path.0 .0;
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
@@ -261,5 +263,6 @@ pub async fn upload_transaction_document(ledger: State<Arc<RwLock<Ledger>>>, pat
     content.insert(span_info.span_end, '\n');
     content.insert_str(span_info.span_end + 1, &metas_content);
     ledger.transformer.save_content(&ledger, source_file_path, content.as_bytes())?;
+    reload_sender.reload();
     ResponseWrapper::json("Ok".to_string())
 }

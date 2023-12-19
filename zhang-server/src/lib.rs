@@ -76,6 +76,12 @@ pub struct ServeConfig {
 
 pub struct ReloadSender(Sender<i32>);
 
+impl ReloadSender {
+    fn reload(&self) -> () {
+        self.0.try_send(1).ok();
+    }
+}
+
 pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     info!("version: {}, build date: {}", env!("CARGO_PKG_VERSION"), env!("ZHANG_BUILD_DATE"));
     let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), opts.transformer.clone())?;

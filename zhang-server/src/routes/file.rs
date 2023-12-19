@@ -7,7 +7,7 @@ use zhang_core::ledger::Ledger;
 
 use crate::request::FileUpdateRequest;
 use crate::response::{FileDetailResponse, ResponseWrapper};
-use crate::ApiResult;
+use crate::{ApiResult, ReloadSender};
 
 pub async fn get_files(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Option<String>>> {
     let ledger = ledger.read().await;
@@ -34,7 +34,8 @@ pub async fn get_file_content(ledger: State<Arc<RwLock<Ledger>>>, path: axum::ex
 }
 
 pub async fn update_file_content(
-    ledger: State<Arc<RwLock<Ledger>>>, path: axum::extract::Path<(String,)>, axum::extract::Json(payload): axum::extract::Json<FileUpdateRequest>,
+    ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, path: axum::extract::Path<(String,)>,
+    axum::extract::Json(payload): axum::extract::Json<FileUpdateRequest>,
 ) -> ApiResult<()> {
     let encoded_file_path = path.0 .0;
     let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
@@ -43,5 +44,6 @@ pub async fn update_file_content(
     // todo(refact) check if the syntax valid
     // if parse_zhang(&payload.content, None).is_ok() {
     ledger.transformer.save_content(&ledger, filename, payload.content.as_bytes())?;
+    reload_sender.reload();
     ResponseWrapper::<()>::created()
 }
