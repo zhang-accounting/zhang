@@ -1,10 +1,8 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use actix_web::http::header;
-use actix_web::{HttpRequest, HttpResponse, Responder};
 use axum::body::Body;
-use axum::http::{HeaderValue, StatusCode, Uri};
+use axum::http::{header, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 
 pub async fn serve_frontend(uri: Uri) -> impl IntoResponse {
@@ -34,7 +32,7 @@ where
             Some(content) => {
                 let mime = mime_guess::from_path(path).first_or_octet_stream();
                 let result1 = HeaderValue::from_str(mime.as_ref()).unwrap();
-                let mut response1 = Body::new(content).into_response();
+                let mut response1 = Body::from(content.data.into_owned()).into_response();
                 response1.headers_mut().append(header::CONTENT_TYPE, result1);
                 response1
             }

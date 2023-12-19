@@ -244,6 +244,7 @@ pub fn create_server_app(ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcast
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */))
         .with_state(AppState { ledger, broadcaster });
+
     let app = if let Some((username, password)) = basic_credential {
         info!("web basic auth is enabled with username {}", &username);
         app.layer(ValidateRequestHeaderLayer::basic(&username, password.as_deref().unwrap_or_default()))
@@ -253,9 +254,12 @@ pub fn create_server_app(ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcast
 
     #[cfg(feature = "frontend")]
     {
-        let app = app.fallback(routes::frontend::serve_frontend);
+        app.fallback(routes::frontend::serve_frontend)
     }
-    app
+    #[cfg(not(feature = "frontend"))]
+    {
+        app
+    }
 }
 
 async fn version_report_task() -> ServerResult<()> {
