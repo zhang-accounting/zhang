@@ -229,12 +229,12 @@ mod test {
     use jsonpath_rust::JsonPathQuery;
     use serde::Deserialize;
     use serde_json::Value;
-    use tokio::sync::RwLock;
+    use tokio::sync::{mpsc, RwLock};
     use tower::util::ServiceExt;
 
     use zhang_core::ledger::Ledger;
     use zhang_server::broadcast::Broadcaster;
-    use zhang_server::create_server_app;
+    use zhang_server::{create_server_app, ReloadSender};
 
     use crate::opendal::OpendalTextTransformer;
     use crate::{DataSource, ServerOpts};
@@ -291,7 +291,9 @@ mod test {
                 let ledger = Ledger::load_with_database(pathbuf.clone(), "main.zhang".to_owned(), arc.clone()).expect("cannot load ledger");
                 let ledger_data = Arc::new(RwLock::new(ledger));
                 let broadcaster = Broadcaster::create();
-                let app = create_server_app(ledger_data, broadcaster, None);
+                let (tx, rx) = mpsc::channel(1);
+                let reload_sender = Arc::new(ReloadSender(tx));
+                let app = create_server_app(ledger_data, broadcaster, reload_sender, None);
 
                 let response = app
                     .oneshot(

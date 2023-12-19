@@ -15,7 +15,7 @@ use zhang_core::ledger::Ledger;
 use crate::broadcast::Broadcaster;
 use crate::request::JournalRequest;
 use crate::response::{BasicInfo, Pageable, ResponseWrapper};
-use crate::ApiResult;
+use crate::{ApiResult, ReloadSender};
 
 pub async fn sse(broadcaster: State<Arc<Broadcaster>>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let mut receiver = broadcaster.new_client().await;
@@ -28,6 +28,11 @@ pub async fn sse(broadcaster: State<Arc<Broadcaster>>) -> Sse<impl Stream<Item =
         }
     })
     .keep_alive(KeepAlive::default())
+}
+
+pub async fn reload(reload_sender: State<Arc<ReloadSender>>) -> ApiResult<String> {
+    reload_sender.0 .0.try_send(1).ok();
+    ResponseWrapper::json("Ok".to_string())
 }
 
 pub async fn get_basic_info(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<BasicInfo> {

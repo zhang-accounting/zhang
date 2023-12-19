@@ -12,8 +12,8 @@ use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use self_update::version::bump_is_greater;
 use serde::Serialize;
 use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::mpsc::{channel, Receiver};
-use tokio::sync::RwLock;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
@@ -74,79 +74,49 @@ pub struct ServeConfig {
     pub is_local_fs: bool,
 }
 
+pub struct ReloadSender(Sender<i32>);
+
 pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     info!("version: {}, build date: {}", env!("CARGO_PKG_VERSION"), env!("ZHANG_BUILD_DATE"));
     let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), opts.transformer.clone())?;
     let ledger_data = Arc::new(RwLock::new(ledger));
-
-    let cloned_ledger = ledger_data.clone();
     let broadcaster = Broadcaster::create();
-    let cloned_broadcaster = broadcaster.clone();
+    let (tx, mut rx) = mpsc::channel::<i32>(1);
+    let reload_sender = Arc::new(ReloadSender(tx));
+
+    start_reload_listener(ledger_data.clone(), broadcaster.clone(), rx);
 
     if opts.is_local_fs {
-        tokio::spawn(async move {
-            let (mut watcher, mut rx) = async_watcher().unwrap();
-
-            let entry_path = {
-                let guard1 = cloned_ledger.read().await;
-                guard1.entry.0.clone()
-            };
-            info!("watching {}", &entry_path.to_str().unwrap_or(""));
-            watcher.watch(entry_path.as_path(), RecursiveMode::Recursive).expect("cannot watch entry path");
-            'looper: loop {
-                let mut all = vec![];
-                match rx.recv().await {
-                    Some(event) => all.push(event),
-                    None => break 'looper,
-                }
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                'each_time: loop {
-                    let result = rx.try_recv();
-                    match result {
-                        Ok(event) => {
-                            all.push(event);
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-                        }
-                        Err(TryRecvError::Empty) => break 'each_time,
-                        Err(TryRecvError::Disconnected) => break 'looper,
-                    }
-                }
-                trace!("receive all file changes: {:?}", all);
-                let guard = cloned_ledger.read().await;
-                let is_visited_file_updated = all
-                    .into_iter()
-                    .filter_map(|event| event.ok())
-                    .filter(|event| {
-                        let include_visited_files = event.paths.iter().any(|path| has_path_visited(&guard.visited_files, path));
-                        include_visited_files && event.kind.is_modify()
-                    })
-                    .count()
-                    > 0;
-
-                drop(guard);
-
-                if is_visited_file_updated {
-                    debug!("gotcha event, start reloading...");
-                    let mut guard = cloned_ledger.write().await;
-                    debug!("watcher: got the lock");
-                    info!("receive file event and reload ledger");
-                    let start_time = Instant::now();
-                    match guard.reload() {
-                        Ok(_) => {
-                            let duration = start_time.elapsed();
-                            info!("ledger is reloaded successfully in {:?}", duration);
-                            cloned_broadcaster.broadcast(BroadcastEvent::Reload).await;
-                        }
-                        Err(err) => {
-                            error!("error on reload: {}", err)
-                        }
-                    };
-                }
-            }
-        });
+        start_fs_event_lisenter(ledger_data.clone(), reload_sender.clone());
     }
 
-    let update_checker_broadcaster = broadcaster.clone();
+    start_version_check_tasker(broadcaster.clone());
+
+    if !opts.no_report {
+        start_report_tasker();
+    }
+    start_server(opts, ledger_data, broadcaster.clone(), reload_sender.clone()).await
+}
+
+fn start_report_tasker() {
+    tokio::spawn(async {
+        let mut report_interval = tokio::time::interval(Duration::from_secs(60 * 60));
+        info!("start zhang's version report task");
+        loop {
+            report_interval.tick().await;
+            match version_report_task().await {
+                Ok(_) => {
+                    debug!("report zhang's version successfully");
+                }
+                Err(e) => {
+                    debug!("fail to report zhang's version: {}", e);
+                }
+            }
+        }
+    });
+}
+
+fn start_version_check_tasker(update_checker_broadcaster: Arc<Broadcaster>) {
     tokio::spawn(async move {
         let mut report_interval = tokio::time::interval(Duration::from_secs(60));
         loop {
@@ -154,37 +124,94 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
             update_checker(update_checker_broadcaster.clone()).await.ok();
         }
     });
-
-    if !opts.no_report {
-        tokio::spawn(async {
-            let mut report_interval = tokio::time::interval(Duration::from_secs(60 * 60));
-            info!("start zhang's version report task");
-            loop {
-                report_interval.tick().await;
-                match version_report_task().await {
-                    Ok(_) => {
-                        debug!("report zhang's version successfully");
-                    }
-                    Err(e) => {
-                        debug!("fail to report zhang's version: {}", e);
-                    }
-                }
-            }
-        });
-    }
-    start_server(opts, ledger_data, broadcaster.clone()).await
 }
 
-pub async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>) -> ZhangResult<()> {
+fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for_fs: Arc<ReloadSender>) {
+    tokio::spawn(async move {
+        let (mut watcher, mut rx) = async_watcher().unwrap();
+
+        let entry_path = {
+            let guard1 = cloned_ledger.read().await;
+            guard1.entry.0.clone()
+        };
+        info!("watching {}", &entry_path.to_str().unwrap_or(""));
+        watcher.watch(entry_path.as_path(), RecursiveMode::Recursive).expect("cannot watch entry path");
+        'looper: loop {
+            let mut all = vec![];
+            match rx.recv().await {
+                Some(event) => all.push(event),
+                None => break 'looper,
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            'each_time: loop {
+                let result = rx.try_recv();
+                match result {
+                    Ok(event) => {
+                        all.push(event);
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                    Err(TryRecvError::Empty) => break 'each_time,
+                    Err(TryRecvError::Disconnected) => break 'looper,
+                }
+            }
+            trace!("receive all file changes: {:?}", all);
+            let guard = cloned_ledger.read().await;
+            let is_visited_file_updated = all
+                .into_iter()
+                .filter_map(|event| event.ok())
+                .filter(|event| {
+                    let include_visited_files = event.paths.iter().any(|path| has_path_visited(&guard.visited_files, path));
+                    include_visited_files && event.kind.is_modify()
+                })
+                .count()
+                > 0;
+
+            drop(guard);
+
+            if is_visited_file_updated {
+                debug!("gotcha event, sending reload event...");
+                reload_sender_for_fs.0.try_send(1).ok();
+            }
+        }
+    });
+}
+
+fn start_reload_listener(ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcaster: Arc<Broadcaster>, mut rx: Receiver<i32>) {
+    tokio::spawn(async move {
+        while let Some(i) = rx.recv().await {
+            info!("start reloading...");
+            let start_time = Instant::now();
+            let mut guard = ledger_for_reload.write().await;
+            match guard.reload() {
+                Ok(_) => {
+                    let duration = start_time.elapsed();
+                    info!("ledger is reloaded successfully in {:?}", duration);
+                    // todo: add reload duration to reload event
+                    cloned_broadcaster.broadcast(BroadcastEvent::Reload).await;
+                }
+                Err(err) => {
+                    error!("error on reload: {}", err);
+                    // todo: broadcast the error
+                }
+            }
+        }
+    });
+}
+
+pub async fn start_server(
+    opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>,
+) -> ZhangResult<()> {
     let addr = SocketAddrV4::new(opts.addr.parse()?, opts.port);
     info!("zhang is listening on http://{}:{}/", opts.addr, opts.port);
 
-    let app = create_server_app(ledger_data, broadcaster, opts.auth_credential);
+    let app = create_server_app(ledger_data, broadcaster, reload_sender, opts.auth_credential);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
     Ok(())
 }
-pub fn create_server_app(ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, auth_credential: Option<String>) -> Router {
+pub fn create_server_app(
+    ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>, auth_credential: Option<String>,
+) -> Router {
     let basic_credential = auth_credential.map(|credential| {
         let token_part = credential.splitn(2, ':').map(|it| it.to_owned()).collect_vec();
         (
@@ -196,6 +223,7 @@ pub fn create_server_app(ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcast
     struct AppState {
         ledger: Arc<RwLock<Ledger>>,
         broadcaster: Arc<Broadcaster>,
+        reload_sender: Arc<ReloadSender>,
     }
 
     impl FromRef<AppState> for Arc<RwLock<Ledger>> {
@@ -209,9 +237,15 @@ pub fn create_server_app(ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcast
             input.broadcaster.clone()
         }
     }
+    impl FromRef<AppState> for Arc<ReloadSender> {
+        fn from_ref(input: &AppState) -> Self {
+            input.reload_sender.clone()
+        }
+    }
 
     let app = Router::new()
         .route("/api/sse", get(sse))
+        .route("/api/reload", post(reload))
         .route("/api/info", get(get_basic_info))
         .route("/api/store", get(get_store_data))
         .route("/api/options", get(get_all_options))
@@ -243,7 +277,11 @@ pub fn create_server_app(ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcast
         .layer(CorsLayer::permissive())
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */))
-        .with_state(AppState { ledger, broadcaster });
+        .with_state(AppState {
+            ledger,
+            broadcaster,
+            reload_sender,
+        });
 
     let app = if let Some((username, password)) = basic_credential {
         info!("web basic auth is enabled with username {}", &username);
