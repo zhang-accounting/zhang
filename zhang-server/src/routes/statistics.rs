@@ -1,9 +1,8 @@
+use axum::extract::{Path, Query, State};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use actix_web::get;
-use actix_web::web::{Data, Path, Query};
 use chrono::Utc;
 use itertools::Itertools;
 use tokio::sync::RwLock;
@@ -17,8 +16,7 @@ use crate::request::{StatisticGraphRequest, StatisticRequest};
 use crate::response::{ReportRankItemResponse, ResponseWrapper, StatisticGraphResponse, StatisticRankResponse, StatisticSummaryResponse};
 use crate::ApiResult;
 
-#[get("/api/statistic/summary")]
-pub async fn get_statistic_summary(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> ApiResult<StatisticSummaryResponse> {
+pub async fn get_statistic_summary(ledger: State<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> ApiResult<StatisticSummaryResponse> {
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
@@ -95,12 +93,11 @@ pub async fn get_statistic_summary(ledger: Data<Arc<RwLock<Ledger>>>, params: Qu
         transaction_number: trx_number as i64,
     })
 }
-#[get("/api/statistic/graph")]
-pub async fn get_statistic_graph(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<StatisticGraphRequest>) -> ApiResult<StatisticGraphResponse> {
+pub async fn get_statistic_graph(ledger: State<Arc<RwLock<Ledger>>>, params: Query<StatisticGraphRequest>) -> ApiResult<StatisticGraphResponse> {
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
-    let params = params.into_inner();
+    let params = params.0;
 
     let accounts = operations.all_accounts()?;
 
@@ -151,11 +148,10 @@ pub async fn get_statistic_graph(ledger: Data<Arc<RwLock<Ledger>>>, params: Quer
     })
 }
 
-#[get("/api/statistic/{account_type}")]
 pub async fn get_statistic_rank_detail_by_account_type(
-    ledger: Data<Arc<RwLock<Ledger>>>, paths: Path<(String,)>, params: Query<StatisticRequest>,
+    ledger: State<Arc<RwLock<Ledger>>>, paths: Path<(String,)>, params: Query<StatisticRequest>,
 ) -> ApiResult<StatisticRankResponse> {
-    let account_type = AccountType::from_str(&paths.into_inner().0)?;
+    let account_type = AccountType::from_str(&paths.0 .0)?;
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();

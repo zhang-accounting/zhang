@@ -11,6 +11,7 @@ use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
+use crate::exporter::Exporter;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::process::DirectiveProcess;
 use crate::store::Store;
@@ -21,14 +22,14 @@ use crate::ZhangResult;
 pub struct Ledger {
     pub entry: (PathBuf, String),
 
-    pub visited_files: Vec<Either<Pattern, PathBuf>>,
+    pub visited_files: Vec<PathBuf>,
 
     pub options: InMemoryOptions,
 
     pub directives: Vec<Spanned<Directive>>,
     pub metas: Vec<Spanned<Directive>>,
 
-    transformer: Arc<dyn Transformer>,
+    pub transformer: Arc<dyn Transformer>,
 
     pub store: Arc<RwLock<Store>>,
 
@@ -49,7 +50,7 @@ impl Ledger {
     }
 
     fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<Either<Pattern, PathBuf>>, transformer: Arc<dyn Transformer>,
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<PathBuf>, transformer: Arc<dyn Transformer>,
     ) -> ZhangResult<Ledger> {
         let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
@@ -88,7 +89,7 @@ impl Ledger {
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
                 Directive::Plugin(_) => {}
-                Directive::Include(_) => {},
+                Directive::Include(_) => {}
                 Directive::Comment(_) => {}
                 Directive::Budget(budget) => budget.handler(&mut ret_ledger, &directive.span)?,
                 Directive::BudgetAdd(budget_add) => budget_add.handler(&mut ret_ledger, &directive.span)?,
@@ -221,6 +222,18 @@ mod test {
         fn load(&self, _entry: PathBuf, _endpoint: String) -> ZhangResult<TransformResult> {
             todo!()
         }
+
+        fn get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
+            todo!()
+        }
+
+        fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+            todo!()
+        }
+
+        fn save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+            todo!()
+        }
     }
     fn load_from_temp_str(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().into_path();
@@ -229,7 +242,7 @@ mod test {
         Ledger::process(
             test_parse_zhang(content),
             (temp_dir.clone(), "example.zhang".to_string()),
-            vec![Either::Left(Pattern::new(temp_dir.join("example.zhang").as_path().to_str().unwrap()).unwrap())],
+            vec![temp_dir.join("example.zhang")],
             Arc::new(TestTransformer {}),
         )
         .unwrap()

@@ -3,9 +3,8 @@ use std::io::Write;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use actix_multipart::Multipart;
-use actix_web::web::{Data, Json, Path};
-use actix_web::{get, post};
+use axum::extract::{Multipart, Path, State};
+use axum::Json;
 use chrono::Utc;
 use futures_util::StreamExt;
 use itertools::Itertools;
@@ -15,7 +14,6 @@ use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Document, ZhangString};
 use zhang_core::domains::schemas::AccountJournalDomain;
-use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::calculable::Calculable;
 
@@ -23,8 +21,7 @@ use crate::request::AccountBalanceRequest;
 use crate::response::{AccountInfoResponse, AccountResponse, DocumentResponse, ResponseWrapper};
 use crate::{routes, ApiResult};
 
-#[get("/api/accounts")]
-pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<AccountResponse>> {
+pub async fn get_account_list(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<AccountResponse>> {
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
@@ -49,9 +46,8 @@ pub async fn get_account_list(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Ve
     ResponseWrapper::json(ret)
 }
 
-#[get("/api/accounts/{account_name}")]
-pub async fn get_account_info(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> ApiResult<AccountInfoResponse> {
-    let account_name = path.into_inner().0;
+pub async fn get_account_info(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> ApiResult<AccountInfoResponse> {
+    let account_name = path.0 .0;
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
@@ -78,53 +74,45 @@ pub async fn get_account_info(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(Str
     })
 }
 
-#[post("/api/accounts/{account_name}/documents")]
-pub async fn upload_account_document(
-    ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: Path<(String,)>, exporter: Data<dyn AppendableExporter>,
-) -> ApiResult<()> {
-    let account_name = path.into_inner().0;
+pub async fn upload_account_document(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(String,)>, mut multipart: Multipart) -> ApiResult<()> {
+    let account_name = path.0 .0;
     let ledger_stage = ledger.read().await;
     let entry = &ledger_stage.entry.0;
     let mut documents = vec![];
 
-    while let Some(item) = multipart.next().await {
-        let mut field = item.unwrap();
-        let _name = field.name().to_string();
-        let file_name = field.content_disposition().get_filename().unwrap().to_string();
-        let _content_type = field.content_type().type_().as_str().to_string();
+    while let Some(field) = multipart.next_field().await.unwrap() {
+        let _name = field.name().unwrap().to_string();
+        let file_name = field.file_name().unwrap().to_string();
+        let _content_type = field.content_type().unwrap().to_string();
 
         let v4 = Uuid::new_v4();
         let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
+        let striped_buf = buf.strip_prefix(entry).unwrap();
         info!("uploading document `{}`(id={}) to account {}", file_name, &v4.to_string(), &account_name);
-        routes::create_folder_if_not_exist(&buf);
-        let mut f = File::create(&buf).expect("Unable to create file");
-        while let Some(chunk) = field.next().await {
-            let data = chunk.unwrap();
-            f.write_all(&data).expect("cannot wirte content");
-        }
-        let path = match buf.strip_prefix(entry) {
-            Ok(relative_path) => relative_path.to_str().unwrap(),
-            Err(_) => buf.to_str().unwrap(),
-        };
+
+        let content_buf = field.bytes().await.unwrap();
+
+        let striped_path_string = striped_buf.to_string_lossy().to_string();
+        ledger_stage
+            .transformer
+            .save_content(&ledger_stage, striped_path_string.to_owned(), &content_buf)?;
 
         documents.push(Directive::Document(Document {
             date: Date::now(&ledger_stage.options.timezone),
             account: Account::from_str(&account_name)?,
-            filename: ZhangString::QuoteString(path.to_string()),
+            filename: ZhangString::QuoteString(striped_path_string),
             tags: None,
             links: None,
             meta: Default::default(),
         }));
     }
 
-    exporter.as_ref().append_directives(&ledger_stage, documents)?;
-
+    ledger_stage.transformer.append_directives(&ledger_stage, documents)?;
     ResponseWrapper::<()>::created()
 }
 
-#[get("/api/accounts/{account_name}/documents")]
-pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<Vec<DocumentResponse>> {
-    let account_name = params.into_inner().0;
+pub async fn get_account_documents(ledger: State<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<Vec<DocumentResponse>> {
+    let account_name = params.0 .0;
 
     let ledger = ledger.read().await;
     let operations = ledger.operations();
@@ -148,9 +136,8 @@ pub async fn get_account_documents(ledger: Data<Arc<RwLock<Ledger>>>, params: Pa
     ResponseWrapper::json(rows)
 }
 
-#[get("/api/accounts/{account_name}/journals")]
-pub async fn get_account_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<Vec<AccountJournalDomain>> {
-    let account_name = params.into_inner().0;
+pub async fn get_account_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<Vec<AccountJournalDomain>> {
+    let account_name = params.0 .0;
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
 
@@ -159,11 +146,8 @@ pub async fn get_account_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Pat
     ResponseWrapper::json(journals)
 }
 
-#[post("/api/accounts/{account_name}/balances")]
-pub async fn create_account_balance(
-    ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>, Json(payload): Json<AccountBalanceRequest>, exporter: Data<dyn AppendableExporter>,
-) -> ApiResult<()> {
-    let target_account = params.into_inner().0;
+pub async fn create_account_balance(ledger: State<Arc<RwLock<Ledger>>>, params: Path<(String,)>, Json(payload): Json<AccountBalanceRequest>) -> ApiResult<()> {
+    let target_account = params.0 .0;
     let ledger = ledger.read().await;
 
     let balance = match payload {
@@ -188,14 +172,11 @@ pub async fn create_account_balance(
         }),
     };
 
-    exporter.as_ref().append_directives(&ledger, vec![balance])?;
+    ledger.transformer.append_directives(&ledger, vec![balance]);
     ResponseWrapper::<()>::created()
 }
 
-#[post("/api/accounts/batch-balances")]
-pub async fn create_batch_account_balances(
-    ledger: Data<Arc<RwLock<Ledger>>>, Json(payload): Json<Vec<AccountBalanceRequest>>, exporter: Data<dyn AppendableExporter>,
-) -> ApiResult<()> {
+pub async fn create_batch_account_balances(ledger: State<Arc<RwLock<Ledger>>>, Json(payload): Json<Vec<AccountBalanceRequest>>) -> ApiResult<()> {
     let ledger = ledger.read().await;
     let mut directives = vec![];
     for balance in payload {
@@ -223,6 +204,6 @@ pub async fn create_batch_account_balances(
         directives.push(balance);
     }
 
-    exporter.as_ref().append_directives(&ledger, directives)?;
+    ledger.transformer.append_directives(&ledger, directives)?;
     ResponseWrapper::<()>::created()
 }

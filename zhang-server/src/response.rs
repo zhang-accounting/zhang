@@ -4,6 +4,8 @@ use crate::{ServerError, ServerResult};
 use actix_web::body::EitherBody;
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse, Responder, ResponseError};
+use axum::response::{IntoResponse, Response};
+use axum::Json;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::Serialize;
@@ -47,6 +49,23 @@ impl<T: Serialize> Responder for ResponseWrapper<T> {
             }
             ResponseWrapper::Created => HttpResponse::Created().message_body(EitherBody::new("".to_string())).unwrap(),
             ResponseWrapper::NotFound => HttpResponse::NotFound().message_body(EitherBody::new("".to_string())).unwrap(),
+        }
+    }
+}
+
+impl<T: Serialize> IntoResponse for ResponseWrapper<T> {
+    fn into_response(self) -> Response {
+        #[derive(Serialize)]
+        pub struct SuccessWrapper<T: Serialize> {
+            data: T,
+        }
+        match self {
+            ResponseWrapper::Json(data) => {
+                let wrapper = SuccessWrapper { data };
+                (axum::http::StatusCode::OK, Json(wrapper)).into_response()
+            }
+            ResponseWrapper::Created => (axum::http::StatusCode::CREATED, "").into_response(),
+            ResponseWrapper::NotFound => (axum::http::StatusCode::NOT_FOUND, "").into_response(),
         }
     }
 }

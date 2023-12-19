@@ -1,0 +1,52 @@
+
+option "operating_currency" "CNY"
+
+1970-01-01 open Assets:BankCard CNY
+
+1970-01-01 open Expenses:Food CNY
+    budget: food
+
+
+2023-11-01 budget 3C_Devices CNY
+  alias: "3C淘汰"
+  category: "长期持有｜10%"
+
+2023-12-01 budget vacation CNY
+  alias: "假期"
+  category: "长期持有｜10%"
+
+2023-12-01 budget food CNY
+  alias: "外食"
+  category: "生活开销｜55%"
+
+2023-12-01 budget house-rent CNY
+  alias: "房租｜每月1号"
+  category: "生活开销｜55%"
+
+2023-12-01 budget insurance CNY
+  alias: "劳保、健保、福利金"
+  category: "生活开销｜55%"
+
+2023-12-01 budget electric-fee CNY
+  alias: "电费"
+  category: "生活开销｜55%"
+
+2023-12-01 budget water-fee CNY
+  alias: "水费"
+  category: "生活开销｜55%"
+
+2023-12-01 budget eat-with-friend CNY
+  alias: "聚餐"
+  category: "精神食粮｜15%"
+
+2023-12-01 budget game_expense CNY
+  alias: "游戏消费"
+  category: "精神食粮｜15%"
+
+
+2023-12-01 budget-add game_expense 200.1 CNY
+2023-12-01 budget-add food 1000 CNY
+
+2023-12-02 "KFC" "VME50 Package"
+  Assets:BankCard -50 CNY
+  Expenses:Food

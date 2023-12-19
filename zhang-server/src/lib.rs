@@ -3,34 +3,24 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use actix_cors::Cors;
-use actix_web::middleware::Condition;
-use actix_web::web::Data;
-use actix_web::{App, HttpServer};
-use actix_web_httpauth::extractors::AuthenticationError;
 use actix_web_httpauth::headers::authorization::Basic;
-use actix_web_httpauth::headers::www_authenticate::basic::Basic as BasicChangelle;
-use actix_web_httpauth::middleware::HttpAuthentication;
+use axum::extract::{DefaultBodyLimit, FromRef};
+use axum::routing::{get, post, put};
+use axum::Router;
 use itertools::Itertools;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, trace};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use self_update::version::bump_is_greater;
 use serde::Serialize;
-use sha3::{Digest, Sha3_256};
+use sha3::Digest;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
+use tower_http::auth::{AddAuthorizationLayer, AsyncRequireAuthorizationLayer};
+use tower_http::cors::CorsLayer;
+use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::validate_request::ValidateRequestHeaderLayer;
 
-use routes::account::{
-    create_account_balance, create_batch_account_balances, get_account_documents, get_account_info, get_account_journals, get_account_list,
-    upload_account_document,
-};
-use routes::commodity::{get_all_commodities, get_single_commodity};
-use routes::common::{get_all_options, get_basic_info, get_errors, sse};
-use routes::document::{download_document, get_documents};
-use routes::file::{get_file_content, get_files, update_file_content};
-use routes::transaction::{create_new_transaction, get_info_for_new_transactions, get_journals, upload_transaction_document};
-use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
 use zhang_core::transform::Transformer;
 use zhang_core::utils::has_path_visited;
@@ -47,6 +37,14 @@ pub mod response;
 pub mod routes;
 pub mod util;
 
+use routes::account::*;
+use routes::budget::*;
+use routes::commodity::*;
+use routes::common::*;
+use routes::document::*;
+use routes::file::*;
+use routes::statistics::*;
+use routes::transaction::*;
 pub type ServerResult<T> = Result<T, ServerError>;
 
 pub type LedgerState = Arc<RwLock<Ledger>>;
@@ -74,9 +72,9 @@ pub struct ServeConfig {
     pub addr: String,
     pub port: u16,
     pub no_report: bool,
-    pub exporter: Arc<dyn AppendableExporter>,
     pub transformer: Arc<dyn Transformer>,
     pub auth_credential: Option<String>,
+    pub is_local_fs: bool,
 }
 
 pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
@@ -87,66 +85,70 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     let cloned_ledger = ledger_data.clone();
     let broadcaster = Broadcaster::create();
     let cloned_broadcaster = broadcaster.clone();
-    tokio::spawn(async move {
-        let (mut watcher, mut rx) = async_watcher().unwrap();
 
-        let entry_path = {
-            let guard1 = cloned_ledger.read().await;
-            guard1.entry.0.clone()
-        };
-        info!("watching {}", &entry_path.to_str().unwrap_or(""));
-        watcher.watch(entry_path.as_path(), RecursiveMode::Recursive).expect("cannot watch entry path");
-        'looper: loop {
-            let mut all = vec![];
-            match rx.recv().await {
-                Some(event) => all.push(event),
-                None => break 'looper,
-            }
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            'each_time: loop {
-                let result = rx.try_recv();
-                match result {
-                    Ok(event) => {
-                        all.push(event);
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+    if opts.is_local_fs {
+        tokio::spawn(async move {
+            let (mut watcher, mut rx) = async_watcher().unwrap();
+
+            let entry_path = {
+                let guard1 = cloned_ledger.read().await;
+                guard1.entry.0.clone()
+            };
+            info!("watching {}", &entry_path.to_str().unwrap_or(""));
+            watcher.watch(entry_path.as_path(), RecursiveMode::Recursive).expect("cannot watch entry path");
+            'looper: loop {
+                let mut all = vec![];
+                match rx.recv().await {
+                    Some(event) => all.push(event),
+                    None => break 'looper,
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                'each_time: loop {
+                    let result = rx.try_recv();
+                    match result {
+                        Ok(event) => {
+                            all.push(event);
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
+                        Err(TryRecvError::Empty) => break 'each_time,
+                        Err(TryRecvError::Disconnected) => break 'looper,
                     }
-                    Err(TryRecvError::Empty) => break 'each_time,
-                    Err(TryRecvError::Disconnected) => break 'looper,
+                }
+                trace!("receive all file changes: {:?}", all);
+                let guard = cloned_ledger.read().await;
+                let is_visited_file_updated = all
+                    .into_iter()
+                    .filter_map(|event| event.ok())
+                    .filter(|event| {
+                        let include_visited_files = event.paths.iter().any(|path| has_path_visited(&guard.visited_files, path));
+                        include_visited_files && event.kind.is_modify()
+                    })
+                    .count()
+                    > 0;
+
+                drop(guard);
+
+                if is_visited_file_updated {
+                    debug!("gotcha event, start reloading...");
+                    let mut guard = cloned_ledger.write().await;
+                    debug!("watcher: got the lock");
+                    info!("receive file event and reload ledger");
+                    let start_time = Instant::now();
+                    match guard.reload() {
+                        Ok(_) => {
+                            let duration = start_time.elapsed();
+                            info!("ledger is reloaded successfully in {:?}", duration);
+                            cloned_broadcaster.broadcast(BroadcastEvent::Reload).await;
+                        }
+                        Err(err) => {
+                            error!("error on reload: {}", err)
+                        }
+                    };
                 }
             }
-            trace!("receive all file changes: {:?}", all);
-            let guard = cloned_ledger.read().await;
-            let is_visited_file_updated = all
-                .into_iter()
-                .filter_map(|event| event.ok())
-                .filter(|event| {
-                    let include_visited_files = event.paths.iter().any(|path| has_path_visited(&guard.visited_files, path));
-                    include_visited_files && event.kind.is_modify()
-                })
-                .count()
-                > 0;
+        });
+    }
 
-            drop(guard);
-
-            if is_visited_file_updated {
-                debug!("gotcha event, start reloading...");
-                let mut guard = cloned_ledger.write().await;
-                debug!("watcher: got the lock");
-                info!("receive file event and reload ledger");
-                let start_time = Instant::now();
-                match guard.reload() {
-                    Ok(_) => {
-                        let duration = start_time.elapsed();
-                        info!("ledger is reloaded successfully in {:?}", duration);
-                        cloned_broadcaster.broadcast(BroadcastEvent::Reload).await;
-                    }
-                    Err(err) => {
-                        error!("error on reload: {}", err)
-                    }
-                };
-            }
-        }
-    });
     let update_checker_broadcaster = broadcaster.clone();
     tokio::spawn(async move {
         let mut report_interval = tokio::time::interval(Duration::from_secs(60));
@@ -182,89 +184,85 @@ pub async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, b
 
     let basic_credential = opts.auth_credential.map(|credential| {
         let token_part = credential.splitn(2, ':').map(|it| it.to_owned()).collect_vec();
-        Basic::new(
+        (
             token_part.get(0).cloned().expect("cannot retrieve credential user_id"),
             token_part.get(1).cloned(),
         )
     });
-    if basic_credential.is_some() {
-        info!("web basic auth is enabled");
+    let axum_ledger = ledger_data.clone();
+
+    #[derive(Clone)]
+    struct AppState {
+        ledger: Arc<RwLock<Ledger>>,
+        broadcaster: Arc<Broadcaster>,
     }
-    let exporter: Data<dyn AppendableExporter> = Data::from(opts.exporter);
-    let server = HttpServer::new(move || {
-        let auth = HttpAuthentication::basic(|req, credentials| async move {
-            let option = req.app_data::<Data<Option<Basic>>>().unwrap();
-            let mut hasher = Sha3_256::new();
-            hasher.update(credentials.password().unwrap_or_default().as_bytes());
-            let array = hasher.finalize();
-            let hex_hash = &array[..].iter().map(|it| format!("{:02x}", it)).join("");
-            if let Some(basic) = option.as_ref() {
-                let pass = credentials.user_id().eq(basic.user_id()) && hex_hash.eq(basic.password().unwrap_or_default());
-                if pass {
-                    Ok(req)
-                } else {
-                    warn!(
-                        "web basic auth validation fail with user_id: {}, password: {}",
-                        credentials.user_id(),
-                        credentials.password().unwrap_or_default()
-                    );
-                    Err((AuthenticationError::new(BasicChangelle::new()).into(), req))
-                }
-            } else {
-                Ok(req)
-            }
+
+    impl FromRef<AppState> for Arc<RwLock<Ledger>> {
+        fn from_ref(input: &AppState) -> Self {
+            input.ledger.clone()
+        }
+    }
+
+    impl FromRef<AppState> for Arc<Broadcaster> {
+        fn from_ref(input: &AppState) -> Self {
+            input.broadcaster.clone()
+        }
+    }
+    // todo duplicated path include
+
+    let app = Router::new()
+        .route("/api/sse", get(sse))
+        .route("/api/info", get(get_basic_info))
+        .route("/api/store", get(get_store_data))
+        .route("/api/options", get(get_all_options))
+        .route("/api/errors", get(get_errors))
+        .route("/api/files", get(get_files))
+        .route("/api/files/:file_path", get(get_file_content))
+        .route("/api/files/:file_path", put(update_file_content))
+        .route("/api/for-new-transaction", get(get_info_for_new_transactions))
+        .route("/api/journals", get(get_journals))
+        .route("/api/transactions", get(create_new_transaction))
+        .route("/api/transactions/:transaction_id/documents", post(upload_transaction_document))
+        .route("/api/accounts", get(get_account_list))
+        .route("/api/accounts/:account_name", get(get_account_info))
+        .route("/api/accounts/:account_name/documents", post(upload_account_document))
+        .route("/api/accounts/:account_name/documents", get(get_account_documents))
+        .route("/api/accounts/:account_name/journals", get(get_account_journals))
+        .route("/api/accounts/:account_name/balances", post(create_account_balance))
+        .route("/api/accounts/batch-balances", post(create_batch_account_balances))
+        .route("/api/documents", get(get_documents))
+        .route("/api/documents/:file_path", get(download_document))
+        .route("/api/commodities", get(get_all_commodities))
+        .route("/api/commodities/:commodity_name", get(get_single_commodity))
+        .route("/api/statistic/summary", get(get_statistic_summary))
+        .route("/api/statistic/graph", get(get_statistic_graph))
+        .route("/api/statistic/:account_type", get(get_statistic_rank_detail_by_account_type))
+        .route("/api/budgets", get(get_budget_list))
+        .route("/api/budgets/:budget_name", get(get_budget_info))
+        .route("/api/budgets/:budget_name/interval/:year/:month", get(get_budget_interval_detail))
+        .layer(CorsLayer::permissive())
+        .layer(DefaultBodyLimit::disable())
+        .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */))
+        .with_state(AppState {
+            ledger: axum_ledger,
+            broadcaster,
         });
+    let app = if let Some((username, password)) = basic_credential {
+        info!("web basic auth is enabled with username {}", &username);
+        app.layer(ValidateRequestHeaderLayer::basic(&username, password.as_deref().unwrap_or_default()))
+    } else {
+        app
+    };
 
-        let web_auth = Condition::new(basic_credential.is_some(), auth);
-        let app = App::new()
-            .app_data(Data::new(basic_credential.clone()))
-            .wrap(Cors::permissive())
-            .wrap(web_auth)
-            .app_data(Data::from(broadcaster.clone()))
-            .app_data(Data::new(ledger_data.clone()))
-            .app_data(exporter.clone())
-            .service(get_basic_info)
-            .service(routes::common::get_store_data)
-            .service(get_info_for_new_transactions)
-            .service(get_journals)
-            .service(create_new_transaction)
-            .service(get_account_list)
-            .service(get_account_info)
-            .service(get_account_documents)
-            .service(get_account_journals)
-            .service(upload_account_document)
-            .service(upload_transaction_document)
-            .service(create_account_balance)
-            .service(create_batch_account_balances)
-            .service(get_documents)
-            .service(download_document)
-            .service(get_all_commodities)
-            .service(get_single_commodity)
-            .service(get_files)
-            .service(get_file_content)
-            .service(update_file_content)
-            .service(get_errors)
-            .service(get_all_options)
-            .service(routes::statistics::get_statistic_summary)
-            .service(routes::statistics::get_statistic_graph)
-            .service(routes::statistics::get_statistic_rank_detail_by_account_type)
-            .service(routes::budget::get_budget_list)
-            .service(routes::budget::get_budget_info)
-            .service(routes::budget::get_budget_interval_detail)
-            .service(sse);
+    #[cfg(feature = "frontend")]
+    {
+        let app = app.fallback(routes::frontend::serve_frontend);
+    }
 
-        #[cfg(feature = "frontend")]
-        {
-            app.default_service(actix_web::web::to(routes::frontend::serve_frontend))
-        }
-
-        #[cfg(not(feature = "frontend"))]
-        {
-            app
-        }
-    })
-    .bind(addr)?;
-    Ok(server.run().await?)
+    // run our app with hyper, listening globally on port 3000
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+    Ok(())
 }
 
 async fn version_report_task() -> ServerResult<()> {

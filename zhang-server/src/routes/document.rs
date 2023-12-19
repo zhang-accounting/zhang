@@ -1,28 +1,34 @@
 use std::sync::Arc;
 
 use actix_files::NamedFile;
-use actix_web::web::{Data, Path};
 use actix_web::{get, Responder};
+use axum::extract::{Path, State};
+use axum::http::header;
+use axum::response::{AppendHeaders, IntoResponse, Response};
+use bytes::Bytes;
 use itertools::Itertools;
 use tokio::sync::RwLock;
+use tower_http::body::Full;
 use zhang_core::ledger::Ledger;
 
 use crate::response::{DocumentResponse, ResponseWrapper};
 use crate::ApiResult;
 
-#[get("/api/documents/{file_path}")]
-pub async fn download_document(ledger: Data<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> impl Responder {
-    let encoded_file_path = path.into_inner().0;
+pub async fn download_document(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> impl IntoResponse {
+    let encoded_file_path = path.0 .0;
     let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
     let entry = &ledger.entry.0;
     let full_path = entry.join(filename);
-
-    NamedFile::open_async(full_path).await
+    let striped_path = full_path.strip_prefix(entry).unwrap();
+    let file_name = striped_path.file_name().unwrap().to_string_lossy().to_string();
+    let vec = ledger.transformer.get_content(striped_path.to_string_lossy().to_string()).unwrap();
+    let bytes = Bytes::from(vec);
+    let headers = AppendHeaders([(header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", file_name))]);
+    (headers, bytes)
 }
 
-#[get("/api/documents")]
-pub async fn get_documents(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<DocumentResponse>> {
+pub async fn get_documents(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<DocumentResponse>> {
     let ledger = ledger.read().await;
     let operations = ledger.operations();
     let store = operations.read();

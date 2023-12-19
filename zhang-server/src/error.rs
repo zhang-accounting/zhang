@@ -1,3 +1,7 @@
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use serde_json::json;
 use thiserror::Error;
 use zhang_ast::account::InvalidAccountError;
 use zhang_core::ZhangError;
@@ -20,5 +24,16 @@ pub enum ServerError {
 impl From<InvalidAccountError> for ServerError {
     fn from(_value: InvalidAccountError) -> Self {
         Self::CoreError(ZhangError::InvalidAccount)
+    }
+}
+
+impl IntoResponse for ServerError {
+    fn into_response(self) -> Response {
+        let payload = json!({
+            "message": format!("{}", self),
+            "origin": "with_rejection"
+        });
+
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(payload)).into_response()
     }
 }

@@ -43,8 +43,20 @@ mod test {
             let result: Vec<Spanned<Directive>> = parse_zhang(&string, file).expect("cannot read file");
             Ok(TransformResult {
                 directives: result,
-                visited_files: vec![Either::Left(Pattern::new("example.zhang").unwrap())],
+                visited_files: vec![PathBuf::from("example.zhang")],
             })
+        }
+
+        fn get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
+            todo!()
+        }
+
+        fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+            todo!()
+        }
+
+        fn save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+            todo!()
         }
     }
     fn load_from_text(content: &str) -> Ledger {

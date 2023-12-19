@@ -11,5 +11,6 @@
   - [文档系统 Document](document.md)
   - [预算系统 Budget](budget.md)
 - 开发者指南
+  - [项目结构与组件解释](project-structure.md)
   - [性能调优](optimization.md)
   - [报告 Bug](bug-report.md)
