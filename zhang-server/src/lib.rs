@@ -182,15 +182,19 @@ pub async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, b
     let addr = SocketAddrV4::new(opts.addr.parse()?, opts.port);
     info!("zhang is listening on http://{}:{}/", opts.addr, opts.port);
 
-    let basic_credential = opts.auth_credential.map(|credential| {
+    let app = create_server_app(ledger_data, broadcaster, opts.auth_credential);
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+    Ok(())
+}
+fn create_server_app(ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, auth_credential: Option<String>) -> Router {
+    let basic_credential = auth_credential.map(|credential| {
         let token_part = credential.splitn(2, ':').map(|it| it.to_owned()).collect_vec();
         (
             token_part.get(0).cloned().expect("cannot retrieve credential user_id"),
             token_part.get(1).cloned(),
         )
     });
-    let axum_ledger = ledger_data.clone();
-
     #[derive(Clone)]
     struct AppState {
         ledger: Arc<RwLock<Ledger>>,
@@ -208,7 +212,6 @@ pub async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, b
             input.broadcaster.clone()
         }
     }
-    // todo duplicated path include
 
     let app = Router::new()
         .route("/api/sse", get(sse))
@@ -243,10 +246,7 @@ pub async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, b
         .layer(CorsLayer::permissive())
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */))
-        .with_state(AppState {
-            ledger: axum_ledger,
-            broadcaster,
-        });
+        .with_state(AppState { ledger, broadcaster });
     let app = if let Some((username, password)) = basic_credential {
         info!("web basic auth is enabled with username {}", &username);
         app.layer(ValidateRequestHeaderLayer::basic(&username, password.as_deref().unwrap_or_default()))
@@ -258,11 +258,7 @@ pub async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, b
     {
         let app = app.fallback(routes::frontend::serve_frontend);
     }
-
-    // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
-    Ok(())
+    app
 }
 
 async fn version_report_task() -> ServerResult<()> {
