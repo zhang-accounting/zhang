@@ -11,7 +11,7 @@ use zhang_ast::{Directive, Include, Spanned, ZhangString};
 use zhang_core::exporter::Exporter;
 use zhang_core::ledger::Ledger;
 use zhang_core::text::exporter::TextExporter;
-use zhang_core::text::parser::parse;
+use zhang_core::text::parser::parse as zhang_parse;
 use zhang_core::transform::TextFileBasedTransformer;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{ZhangError, ZhangResult};
@@ -25,6 +25,7 @@ pub struct OpendalTextTransformer {
     // operator: Operator,
     operator: BlockingOperator,
     data_type: Box<dyn Exporter<Output = String> + 'static + Send + Sync>,
+    is_beancount: bool,
 }
 
 impl OpendalTextTransformer {
@@ -100,18 +101,24 @@ impl OpendalTextTransformer {
                 todo!()
             }
         };
-        let data_type: Box<dyn Exporter<Output = String> + Send + Sync> = match PathBuf::from(&x.endpoint)
+        let is_beancount = match PathBuf::from(&x.endpoint)
             .extension()
             .unwrap_or_default()
             .to_string_lossy()
             .to_string()
             .as_str()
         {
-            "bc" | "bean" => Box::new(Beancount {}),
-            "zhang" => Box::new(TextExporter {}),
+            "bc" | "bean" => true,
+            "zhang" => false,
             _ => unreachable!(),
         };
-        Self { operator, data_type }
+        let data_type: Box<dyn Exporter<Output = String> + Send + Sync> = if is_beancount { Box::new(Beancount {}) } else { Box::new(TextExporter {}) };
+
+        Self {
+            operator,
+            data_type,
+            is_beancount,
+        }
     }
 }
 
@@ -127,7 +134,15 @@ impl TextFileBasedTransformer for OpendalTextTransformer {
     }
 
     fn parse(&self, content: &str, path: PathBuf) -> ZhangResult<Vec<Self::FileOutput>> {
-        parse(content, path).map_err(|it| ZhangError::PestError(it.to_string()))
+        if self.is_beancount {
+            let beancount_parser = beancount::Beancount {};
+            beancount_parser
+                .parse(content, path)
+                .map_err(|it| ZhangError::PestError(it.to_string()))
+                .and_then(|data| beancount_parser.transform(data))
+        } else {
+            zhang_parse(content, path).map_err(|it| ZhangError::PestError(it.to_string()))
+        }
     }
 
     fn go_next(&self, directive: &Self::FileOutput) -> Option<String> {
