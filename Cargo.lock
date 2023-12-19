@@ -4236,11 +4236,15 @@ name = "zhang"
 version = "0.1.0-alpha.6"
 dependencies = [
  "actix-web",
+ "axum",
  "beancount",
  "clap",
  "env_logger",
+ "http 1.0.0",
+ "http-body-util",
  "jsonpath-rust",
  "log",
+ "mime",
  "opendal",
  "reqwest",
  "self_update",
@@ -4248,6 +4252,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util 0.6.9",
+ "tower",
  "zhang-ast",
  "zhang-core",
  "zhang-server",

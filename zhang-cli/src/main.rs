@@ -221,6 +221,9 @@ async fn main() {
 
 #[cfg(test)]
 mod test {
+    use axum::body::Body;
+    use axum::extract::Request;
+    use http::StatusCode;
     use std::io::{stdout, Write};
     use std::net::TcpStream;
     use std::sync::atomic::{AtomicU16, Ordering};
@@ -230,16 +233,28 @@ mod test {
     use jsonpath_rust::JsonPathQuery;
     use serde::Deserialize;
     use serde_json::Value;
+    use tokio::net::TcpListener;
     use tokio::sync::RwLock;
 
     use crate::opendal::OpendalTextTransformer;
     use zhang_core::ledger::Ledger;
     use zhang_server::broadcast::Broadcaster;
-    use zhang_server::ServeConfig;
+    use zhang_server::{create_server_app, ServeConfig};
 
     use crate::{DataSource, ServerOpts, SupportedFormat};
+    use http_body_util::BodyExt;
+    use tower::util::ServiceExt;
+    macro_rules! pprintln {
 
-    #[tokio::test]
+    ($($arg:tt)*) => {
+        {
+            let mut lock = stdout().lock();
+            writeln!(lock, $($arg)*).unwrap();
+        }
+
+    };
+}
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn integration_test() {
         env_logger::try_init().ok();
         type ValidationPoint = (String, serde_json::Value);
@@ -248,118 +263,71 @@ mod test {
             uri: String,
             validations: Vec<ValidationPoint>,
         }
-        let port = Arc::new(AtomicU16::new(19876));
         let paths = std::fs::read_dir("../integration-tests").unwrap();
 
         for path in paths {
             let path = path.unwrap();
-            if path.path().is_dir() {
-                {
-                    let mut lock = stdout().lock();
-                    writeln!(lock, "    \x1b[0;32mIntegration Test\x1b[0;0m: {}", path.path().display()).unwrap();
-                }
+            if !path.path().is_dir() {
+                continue;
+            }
+            pprintln!("    \x1b[0;32mIntegration Test\x1b[0;0m: {}", path.path().display());
 
-                let pathbuf = path.path();
-                port.clone().fetch_add(1, Ordering::SeqCst);
+            let pathbuf = path.path();
+            let validations_content = std::fs::read_to_string(path.path().join("validations.json")).unwrap();
+            let validations: Vec<Validation> = serde_json::from_str(&validations_content).unwrap();
 
-                loop {
-                    if TcpStream::connect(format!("127.0.0.1:{}", port.clone().load(Ordering::SeqCst))).is_ok() {
-                        port.fetch_add(1, Ordering::SeqCst);
-                    } else {
-                        break;
+            for validation in validations {
+                pprintln!("      \x1b[0;32mTesting\x1b[0;0m: {}", &validation.uri);
+
+                let transformer = OpendalTextTransformer::from_env(
+                    DataSource::Fs,
+                    &ServerOpts {
+                        path: pathbuf.clone(),
+                        endpoint: "main.zhang".to_owned(),
+                        addr: "".to_string(),
+                        port: 0,
+                        auth: None,
+                        source: None,
+                        no_report: false,
+                    },
+                )
+                .await;
+                let arc = Arc::new(transformer);
+                let ledger = Ledger::load_with_database(dbg!(pathbuf.clone()), "main.zhang".to_owned(), arc.clone()).expect("cannot load ledger");
+                let ledger_data = Arc::new(RwLock::new(ledger));
+                let broadcaster = Broadcaster::create();
+                let app = create_server_app(ledger_data, broadcaster, None);
+
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .method(http::Method::GET)
+                            .uri(&validation.uri)
+                            .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+
+                assert_eq!(response.status(), StatusCode::OK);
+
+                let body = response.into_body().collect().await.unwrap().to_bytes();
+                let res: Value = serde_json::from_slice(&body).unwrap();
+
+                for point in validation.validations {
+                    pprintln!(
+                        "        \x1b[0;32mValidating\x1b[0;0m: \x1b[0;34m{}\x1b[0;0m to be \x1b[0;34m{}\x1b[0;0m",
+                        point.0,
+                        &point.1
+                    );
+
+                    let value = res.clone().path(&point.0).unwrap();
+                    let expected_value = Value::Array(vec![point.1]);
+                    if !expected_value.eq(&value) {
+                        panic!("Validation fail: {} != {}", &expected_value, &value);
                     }
                 }
-                let cloned_port = port.clone();
-                let local = tokio::task::LocalSet::new();
-                local
-                    .run_until(async move {
-                        let transformer = OpendalTextTransformer::from_env(
-                            DataSource::Fs,
-                            &ServerOpts {
-                                path: pathbuf.clone(),
-                                endpoint: "main.zhang".to_owned(),
-                                addr: "".to_string(),
-                                port: 0,
-                                auth: None,
-                                source: None,
-                                no_report: false,
-                            },
-                        );
-
-                        let cc_port = cloned_port.clone();
-                        let server_handler = tokio::task::spawn_local(async move {
-                            let arc = Arc::new(transformer);
-                            let ledger = Ledger::load_with_database(dbg!(pathbuf.clone()), "main.zhang".to_owned(), arc.clone()).expect("cannot load ledger");
-                            let ledger_data = Arc::new(RwLock::new(ledger));
-                            let broadcaster = Broadcaster::create();
-
-                            zhang_server::start_server(
-                                ServeConfig {
-                                    path: pathbuf,
-                                    endpoint: "main.zhang".to_owned(),
-                                    addr: "127.0.0.1".to_string(),
-                                    port: cc_port.load(Ordering::SeqCst),
-                                    no_report: true,
-                                    transformer: arc,
-                                    auth_credential: None,
-                                },
-                                ledger_data,
-                                broadcaster,
-                            )
-                            .await
-                            .expect("cannot start server")
-                        });
-
-                        let mut times = 0;
-                        while times < 100 {
-                            if TcpStream::connect(format!("127.0.0.1:{}", cloned_port.clone().load(Ordering::SeqCst))).is_ok() {
-                                break;
-                            } else {
-                                times += 1;
-                                tokio::time::sleep(Duration::from_millis(10)).await;
-                            }
-                        }
-
-                        let validations_content = std::fs::read_to_string(path.path().join("validations.json")).unwrap();
-                        let validations: Vec<Validation> = serde_json::from_str(&validations_content).unwrap();
-
-                        for validation in validations {
-                            {
-                                let mut lock = stdout().lock();
-                                writeln!(lock, "      \x1b[0;32mTesting\x1b[0;0m: {}", &validation.uri).unwrap();
-                            }
-
-                            let client = reqwest::Client::new();
-                            let res: serde_json::Value = client
-                                .get(format!("http://127.0.0.1:{}{}", cloned_port.clone().load(Ordering::SeqCst), &validation.uri))
-                                .timeout(Duration::from_secs(10))
-                                .send()
-                                .await
-                                .expect("cannot connect to server")
-                                .json()
-                                .await
-                                .expect("cannot serde to json");
-                            for point in validation.validations {
-                                {
-                                    let mut lock = stdout().lock();
-                                    writeln!(
-                                        lock,
-                                        "        \x1b[0;32mValidating\x1b[0;0m: \x1b[0;34m{}\x1b[0;0m to be \x1b[0;34m{}\x1b[0;0m",
-                                        point.0, &point.1
-                                    )
-                                    .unwrap();
-                                }
-
-                                let value = res.clone().path(&point.0).unwrap();
-                                let expected_value = Value::Array(vec![point.1]);
-                                if !expected_value.eq(&value) {
-                                    panic!("Validation fail: {} != {}", &expected_value, &value);
-                                }
-                            }
-                        }
-                        server_handler.abort();
-                    })
-                    .await;
             }
         }
     }

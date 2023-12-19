@@ -187,7 +187,7 @@ pub async fn start_server(opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, b
     axum::serve(listener, app).await.unwrap();
     Ok(())
 }
-fn create_server_app(ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, auth_credential: Option<String>) -> Router {
+pub fn create_server_app(ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, auth_credential: Option<String>) -> Router {
     let basic_credential = auth_credential.map(|credential| {
         let token_part = credential.splitn(2, ':').map(|it| it.to_owned()).collect_vec();
         (
