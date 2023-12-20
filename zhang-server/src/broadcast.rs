@@ -18,7 +18,7 @@ pub enum BroadcastEvent {
 
 impl BroadcastEvent {
     pub fn to_data(&self) -> Event {
-        Event::default().json_data(&self).unwrap()
+        Event::default().json_data(self).unwrap()
     }
 }
 

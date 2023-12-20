@@ -21,10 +21,7 @@ pub async fn sse(broadcaster: State<Arc<Broadcaster>>) -> Sse<impl Stream<Item =
     let mut receiver = broadcaster.new_client().await;
     Sse::new(try_stream! {
         loop {
-            match receiver.recv().await {
-                Some(event) => { yield event; },
-                None => {}
-            }
+            if let Some(event) = receiver.recv().await { yield event; }
         }
     })
     .keep_alive(KeepAlive::default())

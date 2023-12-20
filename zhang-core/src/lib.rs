@@ -45,15 +45,15 @@ mod test {
             })
         }
 
-        fn get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
+        fn get_content(&self, _: String) -> ZhangResult<Vec<u8>> {
             todo!()
         }
 
-        fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        fn append_directives(&self, _: &Ledger, _: Vec<Directive>) -> ZhangResult<()> {
             todo!()
         }
 
-        fn save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+        fn save_content(&self, _: &Ledger, _: String, _: &[u8]) -> ZhangResult<()> {
             todo!()
         }
     }

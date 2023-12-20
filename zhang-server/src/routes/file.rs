@@ -15,7 +15,7 @@ pub async fn get_files(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Opti
 
     let mut ret = vec![];
     for path in &ledger.visited_files {
-        if let Some(striped_path) = path.strip_prefix(entry_path).ok() {
+        if let Ok(striped_path) = path.strip_prefix(entry_path) {
             ret.push(striped_path.to_str().map(|it| it.to_string()));
         }
     }

@@ -149,7 +149,7 @@ impl Opts {
             Opts::Serve(opts) => {
                 let data_source = opts.source.clone().or(DataSource::from_env()).unwrap_or(DataSource::Fs);
                 let transformer = OpendalTextTransformer::from_env(data_source.clone(), &opts).await;
-                let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(":"));
+                let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(':'));
                 zhang_server::serve(ServeConfig {
                     path: opts.path,
                     endpoint: opts.endpoint,
@@ -291,7 +291,7 @@ mod test {
                 let ledger = Ledger::load_with_database(pathbuf.clone(), "main.zhang".to_owned(), arc.clone()).expect("cannot load ledger");
                 let ledger_data = Arc::new(RwLock::new(ledger));
                 let broadcaster = Broadcaster::create();
-                let (tx, rx) = mpsc::channel(1);
+                let (tx, _) = mpsc::channel(1);
                 let reload_sender = Arc::new(ReloadSender(tx));
                 let app = create_server_app(ledger_data, broadcaster, reload_sender, None);
 

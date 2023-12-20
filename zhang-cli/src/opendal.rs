@@ -65,7 +65,7 @@ impl OpendalTextTransformer {
 
         ledger
             .transformer
-            .save_content(&ledger, striped_endpoint.to_string_lossy().to_string(), appended_content.as_bytes())?;
+            .save_content(ledger, striped_endpoint.to_string_lossy().to_string(), appended_content.as_bytes())?;
         Ok(())
     }
     pub async fn from_env(source: DataSource, x: &ServerOpts) -> OpendalTextTransformer {
@@ -80,8 +80,8 @@ impl OpendalTextTransformer {
                 let mut webdav_builder = Webdav::default();
                 webdav_builder.endpoint(&std::env::var("ZHANG_WEBDAV_ENDPOINT").expect("ZHANG_WEBDAV_ENDPOINT must be set"));
                 webdav_builder.root(&std::env::var("ZHANG_WEBDAV_ROOT").expect("ZHANG_WEBDAV_ROOT must be set"));
-                webdav_builder.username(&std::env::var("ZHANG_WEBDAV_USERNAME").ok().as_deref().unwrap_or_default());
-                webdav_builder.password(&std::env::var("ZHANG_WEBDAV_PASSWORD").ok().as_deref().unwrap_or_default());
+                webdav_builder.username(std::env::var("ZHANG_WEBDAV_USERNAME").ok().as_deref().unwrap_or_default());
+                webdav_builder.password(std::env::var("ZHANG_WEBDAV_PASSWORD").ok().as_deref().unwrap_or_default());
                 Operator::new(webdav_builder)
                     .unwrap()
                     .layer(BlockingLayer::create().unwrap())
@@ -167,6 +167,9 @@ impl TextFileBasedTransformer for OpendalTextTransformer {
     fn save_content(&self, _: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         info!("[opendal] save content path={}", &path);
         let vec = content.to_vec();
-        tokio::task::block_in_place(move || Ok(self.operator.write(&path, vec).unwrap()))
+        tokio::task::block_in_place(move || {
+            self.operator.write(&path, vec).unwrap();
+            Ok(())
+        })
     }
 }

@@ -57,7 +57,7 @@ impl TextTransformer {
 
         ledger
             .transformer
-            .save_content(&ledger, endpoint.to_string_lossy().to_string(), appended_content.as_bytes())?;
+            .save_content(ledger, endpoint.to_string_lossy().to_string(), appended_content.as_bytes())?;
         Ok(())
     }
 }

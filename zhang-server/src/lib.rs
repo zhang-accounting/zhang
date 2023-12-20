@@ -77,7 +77,7 @@ pub struct ServeConfig {
 pub struct ReloadSender(pub Sender<i32>);
 
 impl ReloadSender {
-    fn reload(&self) -> () {
+    fn reload(&self) {
         self.0.try_send(1).ok();
     }
 }
@@ -87,7 +87,7 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), opts.transformer.clone())?;
     let ledger_data = Arc::new(RwLock::new(ledger));
     let broadcaster = Broadcaster::create();
-    let (tx, mut rx) = mpsc::channel::<i32>(1);
+    let (tx, rx) = mpsc::channel::<i32>(1);
     let reload_sender = Arc::new(ReloadSender(tx));
 
     start_reload_listener(ledger_data.clone(), broadcaster.clone(), rx);
@@ -184,7 +184,7 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
 
 fn start_reload_listener(ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcaster: Arc<Broadcaster>, mut rx: Receiver<i32>) {
     tokio::spawn(async move {
-        while let Some(i) = rx.recv().await {
+        while rx.recv().await.is_some() {
             info!("start reloading...");
             let start_time = Instant::now();
             let mut guard = ledger_for_reload.write().await;
