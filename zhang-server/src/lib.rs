@@ -74,7 +74,7 @@ pub struct ServeConfig {
     pub is_local_fs: bool,
 }
 
-pub struct ReloadSender(Sender<i32>);
+pub struct ReloadSender(pub Sender<i32>);
 
 impl ReloadSender {
     fn reload(&self) -> () {
