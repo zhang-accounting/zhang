@@ -12,7 +12,7 @@ a plain text double-accounting tool.
 ![](https://img.shields.io/crates/l/zhang)
 
 - Online Demo: [Online Demo](https://zhang-accounting.zeabur.app/)
-- Documentation: [Documentation](zhang-accounting.github.io/zhang/)
+- Documentation: [Documentation](https://zhang-accounting.github.io/zhang/)
 
 ## Features
  - **Independent Direcitve**: all directives in zhang are independent, you can write them in any file with any order.
