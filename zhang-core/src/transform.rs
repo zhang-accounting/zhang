@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use log::debug;
+
 use zhang_ast::{Directive, Spanned};
 
 use crate::error::IoErrorIntoZhangError;
@@ -14,6 +15,7 @@ pub struct TransformResult {
     pub visited_files: Vec<PathBuf>,
 }
 
+#[async_trait::async_trait]
 pub trait Transformer
 where
     Self: Send + Sync,
@@ -24,7 +26,23 @@ where
     fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()>;
 
     fn save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()>;
+
+    async fn async_load(&self, entry: PathBuf, endpoint: String) -> ZhangResult<TransformResult> {
+        self.load(entry, endpoint)
+    }
+
+    async fn async_get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
+        self.get_content(path)
+    }
+    async fn async_append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        self.append_directives(ledger, directives)
+    }
+
+    async fn async_save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+        self.save_content(ledger, path, content)
+    }
 }
+
 pub trait TextFileBasedTransformer
 where
     Self: Send + Sync,

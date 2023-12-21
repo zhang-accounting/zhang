@@ -288,7 +288,9 @@ mod test {
                 )
                 .await;
                 let arc = Arc::new(transformer);
-                let ledger = Ledger::load_with_database(pathbuf.clone(), "main.zhang".to_owned(), arc.clone()).expect("cannot load ledger");
+                let ledger = Ledger::async_load(pathbuf.clone(), "main.zhang".to_owned(), arc.clone())
+                    .await
+                    .expect("cannot load ledger");
                 let ledger_data = Arc::new(RwLock::new(ledger));
                 let broadcaster = Broadcaster::create();
                 let (tx, _) = mpsc::channel(1);

@@ -9,7 +9,6 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-
 zhang-core = { version = "0.1", path = "../zhang-core" }
 zhang-ast = { version = "0.1", path = "../zhang-ast" }
 zhang-server = { version = "0.1.0-alpha.3", path = "../zhang-server" }
@@ -24,9 +23,9 @@ log = "0.4"
 self_update = "0.36"
 opendal = {version = "0.43", default-features = false, features = ["rustls", "services-fs", "services-s3", "services-webdav"]}
 
-
-
-
+#console-subscriber = { version = "0.2.0" }
+async-trait = "0.1.74"
+async-recursion = "1.0.5"
 
 
 [dev-dependencies]
@@ -38,3 +37,4 @@ tower = "0.4"
 mime = "0.3"
 http = { version = "1", features = [] }
 http-body-util = "0.1"
+

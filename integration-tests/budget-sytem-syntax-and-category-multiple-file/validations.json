@@ -126,5 +126,17 @@
         0
       ]
     ]
+  },
+  {
+    "uri": "/api/files",
+    "validations": [
+      [
+        "$.data",
+        [
+          "main.zhang",
+          "data.zhang"
+        ]
+      ]
+    ]
   }
 ]

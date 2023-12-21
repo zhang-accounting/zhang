@@ -175,7 +175,7 @@ pub async fn create_account_balance(
         }),
     };
 
-    ledger.transformer.append_directives(&ledger, vec![balance]).unwrap();
+    ledger.transformer.async_append_directives(&ledger, vec![balance]).await.unwrap();
     reload_sender.reload();
     ResponseWrapper::<()>::created()
 }
@@ -210,7 +210,7 @@ pub async fn create_batch_account_balances(
         directives.push(balance);
     }
 
-    ledger.transformer.append_directives(&ledger, directives)?;
+    ledger.transformer.async_append_directives(&ledger, directives).await?;
     reload_sender.reload();
     ResponseWrapper::<()>::created()
 }

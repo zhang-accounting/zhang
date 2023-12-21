@@ -10,7 +10,7 @@ import Settings from './pages/Settings';
 import SingleAccount from './pages/SingleAccount';
 import SingleCommodity from './pages/SingleCommodity';
 
-import { Badge, Box, createStyles, Group, MediaQuery, Navbar, px, Text, TextInput, UnstyledButton } from '@mantine/core';
+import { ActionIcon, Badge, Box, createStyles, Group, MediaQuery, Navbar, px, Text, TextInput, UnstyledButton } from '@mantine/core';
 import {
   IconBroadcast,
   IconCash,
@@ -21,6 +21,7 @@ import {
   IconList,
   IconNotebook,
   IconReceipt2,
+  IconRefresh,
   IconSearch,
   IconSettings,
   IconSmartHome,
@@ -40,7 +41,7 @@ import ToolList from './pages/tools/ToolList';
 import WechatExporter from './pages/tools/WechatExporter';
 import { useAppDispatch, useAppSelector } from './states';
 import { accountsSlice } from './states/account';
-import { basicInfoSlice, fetchBasicInfo } from './states/basic';
+import { basicInfoSlice, fetchBasicInfo, reloadLedger } from './states/basic';
 import { fetchCommodities } from './states/commodity';
 import { fetchError } from './states/errors';
 import { journalsSlice } from './states/journals';
@@ -188,7 +189,7 @@ export default function App() {
         case 'Reload':
           showNotification({
             id: 'reload',
-            title: 'Change Detected',
+            title: 'Ledger Reloaded',
             message: 'trigger ledger info reload',
           });
           dispatch(fetchBasicInfo());
@@ -224,6 +225,15 @@ export default function App() {
     };
   }, [dispatch]);
 
+  const sendReloadEvent = () => {
+    showNotification({
+      id: 'start-reload',
+      title: 'Ledger Reload Event is sent',
+      message: 'please wait for ledger reload',
+    });
+    dispatch(reloadLedger());
+  };
+
   const { total_number } = useAppSelector((state) => state.errors);
 
   const mainLinks = links.map((link) => (
@@ -258,6 +268,9 @@ export default function App() {
                     <IconBroadcast stroke={3} className={basicInfo.isOnline ? classes.onlineIcon : classes.offlineIcon} />
                     <Text lineClamp={1}>{basicInfo.title ?? 'Zhang Accounting'}</Text>
                   </Group>
+                  <ActionIcon size="sm" onClick={sendReloadEvent}>
+                    <IconRefresh size="1.125rem" />
+                  </ActionIcon>
                 </Group>
               </Navbar.Section>
 
@@ -286,6 +299,7 @@ export default function App() {
                   {mainLinks}
                 </div>
               </Navbar.Section>
+
               {basicInfo.updatableVersion && (
                 <Navbar.Section px="sm">
                   <Group position="center">

@@ -27,7 +27,7 @@ pub async fn get_file_content(ledger: State<Arc<RwLock<Ledger>>>, path: axum::ex
     let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
 
-    let content = ledger.transformer.get_content(filename.to_owned())?;
+    let content = ledger.transformer.async_get_content(filename.to_owned()).await?;
     let content = String::from_utf8(content).unwrap();
 
     ResponseWrapper::json(FileDetailResponse { path: filename, content })
@@ -43,7 +43,7 @@ pub async fn update_file_content(
 
     // todo(refact) check if the syntax valid
     // if parse_zhang(&payload.content, None).is_ok() {
-    ledger.transformer.save_content(&ledger, filename, payload.content.as_bytes())?;
+    ledger.transformer.async_save_content(&ledger, filename, payload.content.as_bytes()).await?;
     reload_sender.reload();
     ResponseWrapper::<()>::created()
 }

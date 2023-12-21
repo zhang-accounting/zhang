@@ -46,6 +46,12 @@ impl Ledger {
         let transform_result = transformer.load(entry.clone(), endpoint.clone())?;
         Ledger::process(transform_result.directives, (entry, endpoint), transform_result.visited_files, transformer)
     }
+    pub async fn async_load(entry: PathBuf, endpoint: String, transformer: Arc<dyn Transformer>) -> ZhangResult<Ledger> {
+        let entry = entry.canonicalize().with_path(&entry)?;
+
+        let transform_result = transformer.async_load(entry.clone(), endpoint.clone()).await?;
+        Ledger::process(transform_result.directives, (entry, endpoint), transform_result.visited_files, transformer)
+    }
 
     fn process(
         directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<PathBuf>, transformer: Arc<dyn Transformer>,
@@ -167,6 +173,19 @@ impl Ledger {
     pub fn reload(&mut self) -> ZhangResult<()> {
         let (entry, endpoint) = &mut self.entry;
         let transform_result = self.transformer.load(entry.clone(), endpoint.clone())?;
+        let reload_ledger = Ledger::process(
+            transform_result.directives,
+            (entry.clone(), endpoint.clone()),
+            transform_result.visited_files,
+            self.transformer.clone(),
+        )?;
+        *self = reload_ledger;
+        Ok(())
+    }
+
+    pub async fn async_reload(&mut self) -> ZhangResult<()> {
+        let (entry, endpoint) = &mut self.entry;
+        let transform_result = self.transformer.async_load(entry.clone(), endpoint.clone()).await?;
         let reload_ledger = Ledger::process(
             transform_result.directives,
             (entry.clone(), endpoint.clone()),

@@ -218,7 +218,7 @@ pub async fn create_new_transaction(ledger: State<Arc<RwLock<Ledger>>>, Json(pay
         meta: metas,
     });
 
-    ledger.transformer.append_directives(&ledger, vec![trx])?;
+    ledger.transformer.async_append_directives(&ledger, vec![trx]).await?;
 
     ResponseWrapper::json("Ok".to_string())
 }
@@ -243,7 +243,10 @@ pub async fn upload_transaction_document(
         info!("uploading document `{}`(id={}) to transaction {}", file_name, &v4.to_string(), &transaction_id);
         let content_buf = field.bytes().await.unwrap();
 
-        ledger.transformer.save_content(&ledger, buf.to_string_lossy().to_string(), &content_buf)?;
+        ledger
+            .transformer
+            .async_save_content(&ledger, buf.to_string_lossy().to_string(), &content_buf)
+            .await?;
 
         let path = match buf.strip_prefix(entry) {
             Ok(relative_path) => relative_path.to_str().unwrap(),
@@ -259,10 +262,10 @@ pub async fn upload_transaction_document(
         .join("\n");
 
     let source_file_path = span_info.source_file.to_string_lossy().to_string();
-    let mut content = String::from_utf8(ledger.transformer.get_content(source_file_path.clone())?).unwrap();
+    let mut content = String::from_utf8(ledger.transformer.async_get_content(source_file_path.clone()).await?).unwrap();
     content.insert(span_info.span_end, '\n');
     content.insert_str(span_info.span_end + 1, &metas_content);
-    ledger.transformer.save_content(&ledger, source_file_path, content.as_bytes())?;
+    ledger.transformer.async_save_content(&ledger, source_file_path, content.as_bytes()).await?;
     reload_sender.reload();
     ResponseWrapper::json("Ok".to_string())
 }

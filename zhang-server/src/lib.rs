@@ -84,7 +84,7 @@ impl ReloadSender {
 
 pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     info!("version: {}, build date: {}", env!("CARGO_PKG_VERSION"), env!("ZHANG_BUILD_DATE"));
-    let ledger = Ledger::load_with_database(opts.path.clone(), opts.endpoint.clone(), opts.transformer.clone())?;
+    let ledger = Ledger::async_load(opts.path.clone(), opts.endpoint.clone(), opts.transformer.clone()).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
     let broadcaster = Broadcaster::create();
     let (tx, rx) = mpsc::channel::<i32>(1);
@@ -188,7 +188,7 @@ fn start_reload_listener(ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcas
             info!("start reloading...");
             let start_time = Instant::now();
             let mut guard = ledger_for_reload.write().await;
-            match guard.reload() {
+            match guard.async_reload().await {
                 Ok(_) => {
                     let duration = start_time.elapsed();
                     info!("ledger is reloaded successfully in {:?}", duration);
@@ -200,6 +200,7 @@ fn start_reload_listener(ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcas
                     // todo: broadcast the error
                 }
             }
+            drop(guard);
         }
     });
 }
