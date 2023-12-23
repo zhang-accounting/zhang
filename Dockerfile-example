@@ -5,7 +5,7 @@ RUN mkdir /data
 RUN python3 main.py run > /data/main.zhang
 
 
-FROM rust:1.68.0 as build-env
+FROM rust:1.74.0 as build-env
 
 RUN mkdir /application
 WORKDIR /app
@@ -13,7 +13,7 @@ COPY . /app
 
 RUN cargo build --release --features frontend --bin zhang
 
-FROM rust:1.68.0
+FROM rust:1.74.0
 LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
 
 COPY --from=python-build /data /data
