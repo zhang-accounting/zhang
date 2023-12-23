@@ -1,7 +1,6 @@
+use axum::extract::{Path, State};
 use std::sync::Arc;
 
-use actix_web::get;
-use actix_web::web::{Data, Path};
 use itertools::Itertools;
 use tokio::sync::RwLock;
 use zhang_core::domains::schemas::CommodityDomain;
@@ -10,8 +9,7 @@ use zhang_core::ledger::Ledger;
 use crate::response::{CommodityDetailResponse, CommodityListItemResponse, CommodityLot, CommodityPrice, ResponseWrapper};
 use crate::ApiResult;
 
-#[get("/api/commodities")]
-pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<CommodityListItemResponse>> {
+pub async fn get_all_commodities(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<CommodityListItemResponse>> {
     let ledger = ledger.read().await;
 
     let operations = ledger.operations();
@@ -40,9 +38,8 @@ pub async fn get_all_commodities(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult
     ResponseWrapper::json(ret)
 }
 
-#[get("/api/commodities/{commodity_name}")]
-pub async fn get_single_commodity(ledger: Data<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<CommodityDetailResponse> {
-    let commodity_name = params.into_inner().0;
+pub async fn get_single_commodity(ledger: State<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<CommodityDetailResponse> {
+    let commodity_name = params.0 .0;
     let ledger = ledger.read().await;
     let operating_currency = ledger.options.operating_currency.clone();
 

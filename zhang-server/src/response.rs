@@ -1,17 +1,18 @@
 use std::collections::HashMap;
 
-use crate::{ServerError, ServerResult};
-use actix_web::body::EitherBody;
-use actix_web::http::StatusCode;
-use actix_web::{HttpRequest, HttpResponse, Responder, ResponseError};
+use axum::response::{IntoResponse, Response};
+use axum::Json;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
+
 use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::AccountType;
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, MetaDomain};
 use zhang_core::store::BudgetEvent;
+
+use crate::ServerResult;
 
 pub enum ResponseWrapper<T: Serialize> {
     Json(T),
@@ -31,10 +32,8 @@ impl<T: Serialize> ResponseWrapper<T> {
     }
 }
 
-impl<T: Serialize> Responder for ResponseWrapper<T> {
-    type Body = EitherBody<String>;
-
-    fn respond_to(self, req: &HttpRequest) -> HttpResponse<Self::Body> {
+impl<T: Serialize> IntoResponse for ResponseWrapper<T> {
+    fn into_response(self) -> Response {
         #[derive(Serialize)]
         pub struct SuccessWrapper<T: Serialize> {
             data: T,
@@ -42,18 +41,11 @@ impl<T: Serialize> Responder for ResponseWrapper<T> {
         match self {
             ResponseWrapper::Json(data) => {
                 let wrapper = SuccessWrapper { data };
-                let json = actix_web::web::Json(wrapper);
-                json.respond_to(req)
+                (axum::http::StatusCode::OK, Json(wrapper)).into_response()
             }
-            ResponseWrapper::Created => HttpResponse::Created().message_body(EitherBody::new("".to_string())).unwrap(),
-            ResponseWrapper::NotFound => HttpResponse::NotFound().message_body(EitherBody::new("".to_string())).unwrap(),
+            ResponseWrapper::Created => (axum::http::StatusCode::CREATED, "").into_response(),
+            ResponseWrapper::NotFound => (axum::http::StatusCode::NOT_FOUND, "").into_response(),
         }
-    }
-}
-
-impl ResponseError for ServerError {
-    fn status_code(&self) -> StatusCode {
-        StatusCode::INTERNAL_SERVER_ERROR
     }
 }
 

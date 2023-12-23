@@ -4,8 +4,7 @@ use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, RwLock};
 
 use bigdecimal::Zero;
-use glob::Pattern;
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use log::{error, info};
 use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
@@ -21,14 +20,14 @@ use crate::ZhangResult;
 pub struct Ledger {
     pub entry: (PathBuf, String),
 
-    pub visited_files: Vec<Either<Pattern, PathBuf>>,
+    pub visited_files: Vec<PathBuf>,
 
     pub options: InMemoryOptions,
 
     pub directives: Vec<Spanned<Directive>>,
     pub metas: Vec<Spanned<Directive>>,
 
-    transformer: Arc<dyn Transformer>,
+    pub transformer: Arc<dyn Transformer>,
 
     pub store: Arc<RwLock<Store>>,
 
@@ -47,9 +46,15 @@ impl Ledger {
         let transform_result = transformer.load(entry.clone(), endpoint.clone())?;
         Ledger::process(transform_result.directives, (entry, endpoint), transform_result.visited_files, transformer)
     }
+    pub async fn async_load(entry: PathBuf, endpoint: String, transformer: Arc<dyn Transformer>) -> ZhangResult<Ledger> {
+        let entry = entry.canonicalize().with_path(&entry)?;
+
+        let transform_result = transformer.async_load(entry.clone(), endpoint.clone()).await?;
+        Ledger::process(transform_result.directives, (entry, endpoint), transform_result.visited_files, transformer)
+    }
 
     fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<Either<Pattern, PathBuf>>, transformer: Arc<dyn Transformer>,
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<PathBuf>, transformer: Arc<dyn Transformer>,
     ) -> ZhangResult<Ledger> {
         let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
@@ -88,7 +93,7 @@ impl Ledger {
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
                 Directive::Plugin(_) => {}
-                Directive::Include(_) => {},
+                Directive::Include(_) => {}
                 Directive::Comment(_) => {}
                 Directive::Budget(budget) => budget.handler(&mut ret_ledger, &directive.span)?,
                 Directive::BudgetAdd(budget_add) => budget_add.handler(&mut ret_ledger, &directive.span)?,
@@ -178,6 +183,19 @@ impl Ledger {
         Ok(())
     }
 
+    pub async fn async_reload(&mut self) -> ZhangResult<()> {
+        let (entry, endpoint) = &mut self.entry;
+        let transform_result = self.transformer.async_load(entry.clone(), endpoint.clone()).await?;
+        let reload_ledger = Ledger::process(
+            transform_result.directives,
+            (entry.clone(), endpoint.clone()),
+            transform_result.visited_files,
+            self.transformer.clone(),
+        )?;
+        *self = reload_ledger;
+        Ok(())
+    }
+
     pub fn operations(&self) -> Operations {
         let timezone = self.options.timezone;
         Operations {
@@ -193,8 +211,6 @@ mod test {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use glob::Pattern;
-    use itertools::Either;
     use tempfile::tempdir;
     use zhang_ast::{Directive, SpanInfo, Spanned};
 
@@ -221,6 +237,18 @@ mod test {
         fn load(&self, _entry: PathBuf, _endpoint: String) -> ZhangResult<TransformResult> {
             todo!()
         }
+
+        fn get_content(&self, _: String) -> ZhangResult<Vec<u8>> {
+            todo!()
+        }
+
+        fn append_directives(&self, _: &Ledger, _: Vec<Directive>) -> ZhangResult<()> {
+            todo!()
+        }
+
+        fn save_content(&self, _: &Ledger, _: String, _: &[u8]) -> ZhangResult<()> {
+            todo!()
+        }
     }
     fn load_from_temp_str(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().into_path();
@@ -229,7 +257,7 @@ mod test {
         Ledger::process(
             test_parse_zhang(content),
             (temp_dir.clone(), "example.zhang".to_string()),
-            vec![Either::Left(Pattern::new(temp_dir.join("example.zhang").as_path().to_str().unwrap()).unwrap())],
+            vec![temp_dir.join("example.zhang")],
             Arc::new(TestTransformer {}),
         )
         .unwrap()

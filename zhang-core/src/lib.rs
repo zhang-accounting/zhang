@@ -23,8 +23,6 @@ mod test {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use glob::Pattern;
-    use itertools::Either;
     use serde_json_path::JsonPath;
     use tempfile::tempdir;
     use zhang_ast::{Directive, Spanned};
@@ -43,8 +41,20 @@ mod test {
             let result: Vec<Spanned<Directive>> = parse_zhang(&string, file).expect("cannot read file");
             Ok(TransformResult {
                 directives: result,
-                visited_files: vec![Either::Left(Pattern::new("example.zhang").unwrap())],
+                visited_files: vec![PathBuf::from("example.zhang")],
             })
+        }
+
+        fn get_content(&self, _: String) -> ZhangResult<Vec<u8>> {
+            todo!()
+        }
+
+        fn append_directives(&self, _: &Ledger, _: Vec<Directive>) -> ZhangResult<()> {
+            todo!()
+        }
+
+        fn save_content(&self, _: &Ledger, _: String, _: &[u8]) -> ZhangResult<()> {
+            todo!()
         }
     }
     fn load_from_text(content: &str) -> Ledger {

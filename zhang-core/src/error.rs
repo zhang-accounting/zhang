@@ -11,6 +11,8 @@ pub enum ZhangError {
     InvalidAccount,
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("fetch error")]
+    FetchError,
     #[error("file error: {e}")]
     FileError { e: std::io::Error, path: PathBuf },
     #[error("ip addr error: {0}")]
@@ -20,6 +22,9 @@ pub enum ZhangError {
     PestError(String),
     #[error("cannot found option given key: {0}")]
     OptionNotFound(String),
+
+    #[error("invalid content encoding: {0}")]
+    ContentEncodingError(#[from] std::string::FromUtf8Error),
 }
 
 pub trait IoErrorIntoZhangError<T> {

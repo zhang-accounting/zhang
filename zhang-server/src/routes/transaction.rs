@@ -1,23 +1,19 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::Write;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use actix_multipart::Multipart;
-use actix_web::web::{Data, Json, Path, Query};
-use actix_web::{get, post};
+use axum::extract::{Multipart, Path, Query, State};
+use axum::Json;
 use chrono::NaiveDateTime;
-use futures_util::StreamExt;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use log::info;
 use tokio::sync::RwLock;
 use uuid::Uuid;
+
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Date, Directive, Flag, Meta, Posting, Transaction, ZhangString};
 use zhang_core::domains::schemas::MetaType;
-use zhang_core::exporter::AppendableExporter;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::string_::StringExt;
 
@@ -26,11 +22,10 @@ use crate::response::{
     InfoForNewTransaction, JournalBalanceCheckItemResponse, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
     JournalTransactionPostingResponse, Pageable, ResponseWrapper,
 };
-use crate::{routes, ApiResult};
+use crate::{ApiResult, ReloadSender};
 
 // todo rename api
-#[get("/api/for-new-transaction")]
-pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) -> ApiResult<InfoForNewTransaction> {
+pub async fn get_info_for_new_transactions(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<InfoForNewTransaction> {
     let guard = ledger.read().await;
     let mut operations = guard.operations();
 
@@ -43,11 +38,10 @@ pub async fn get_info_for_new_transactions(ledger: Data<Arc<RwLock<Ledger>>>) ->
     })
 }
 
-#[get("/api/journals")]
-pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemResponse>> {
+pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemResponse>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
-    let params = params.into_inner();
+    let params = params.0;
 
     let total_count = operations.transaction_counts()?;
 
@@ -192,10 +186,7 @@ pub async fn get_journals(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Journ
     ResponseWrapper::json(Pageable::new(total_count as u32, params.page(), params.limit(), ret))
 }
 
-#[post("/api/transactions")]
-pub async fn create_new_transaction(
-    ledger: Data<Arc<RwLock<Ledger>>>, Json(payload): Json<CreateTransactionRequest>, exporter: Data<dyn AppendableExporter>,
-) -> ApiResult<String> {
+pub async fn create_new_transaction(ledger: State<Arc<RwLock<Ledger>>>, Json(payload): Json<CreateTransactionRequest>) -> ApiResult<String> {
     let ledger = ledger.read().await;
 
     let mut postings = vec![];
@@ -226,35 +217,37 @@ pub async fn create_new_transaction(
         postings,
         meta: metas,
     });
-    exporter.as_ref().append_directives(&ledger, vec![trx])?;
+
+    ledger.transformer.async_append_directives(&ledger, vec![trx]).await?;
 
     ResponseWrapper::json("Ok".to_string())
 }
 
 // todo(refact): use exporter to update transaction
-#[post("/api/transactions/{transaction_id}/documents")]
-pub async fn upload_transaction_document(ledger: Data<Arc<RwLock<Ledger>>>, mut multipart: Multipart, path: Path<(String,)>) -> ApiResult<String> {
-    let transaction_id = path.into_inner().0;
-    let ledger_stage = ledger.read().await;
-    let mut operations = ledger_stage.operations();
-    let entry = &ledger_stage.entry.0;
+pub async fn upload_transaction_document(
+    ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, path: Path<(String,)>, mut multipart: Multipart,
+) -> ApiResult<String> {
+    let transaction_id = path.0 .0;
+    let ledger = ledger.read().await;
+    let mut operations = ledger.operations();
+    let entry = &ledger.entry.0;
     let mut documents = vec![];
 
-    while let Some(item) = multipart.next().await {
-        let mut field = item.unwrap();
-        let _name = field.name().to_string();
-        let file_name = field.content_disposition().get_filename().unwrap().to_string();
-        let _content_type = field.content_type().type_().as_str().to_string();
+    while let Some(field) = multipart.next_field().await.unwrap() {
+        let _name = field.name().unwrap().to_string();
+        let file_name = field.file_name().unwrap().to_string();
+        let _content_type = field.content_type().unwrap().to_string();
 
         let v4 = Uuid::new_v4();
         let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
         info!("uploading document `{}`(id={}) to transaction {}", file_name, &v4.to_string(), &transaction_id);
-        routes::create_folder_if_not_exist(&buf);
-        let mut f = File::create(&buf).expect("Unable to create file");
-        while let Some(chunk) = field.next().await {
-            let data = chunk.unwrap();
-            f.write_all(&data).expect("cannot wirte content");
-        }
+        let content_buf = field.bytes().await.unwrap();
+
+        ledger
+            .transformer
+            .async_save_content(&ledger, buf.to_string_lossy().to_string(), &content_buf)
+            .await?;
+
         let path = match buf.strip_prefix(entry) {
             Ok(relative_path) => relative_path.to_str().unwrap(),
             Err(_) => buf.to_str().unwrap(),
@@ -267,7 +260,12 @@ pub async fn upload_transaction_document(ledger: Data<Arc<RwLock<Ledger>>>, mut 
         .into_iter()
         .map(|document| format!("  document: {}", document.to_plain_string()))
         .join("\n");
-    routes::insert_line(span_info.source_file, &metas_content, span_info.span_end)?;
-    // todo add update method in exporter
+
+    let source_file_path = span_info.source_file.to_string_lossy().to_string();
+    let mut content = String::from_utf8(ledger.transformer.async_get_content(source_file_path.clone()).await?).unwrap();
+    content.insert(span_info.span_end, '\n');
+    content.insert_str(span_info.span_end + 1, &metas_content);
+    ledger.transformer.async_save_content(&ledger, source_file_path, content.as_bytes()).await?;
+    reload_sender.reload();
     ResponseWrapper::json("Ok".to_string())
 }

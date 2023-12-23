@@ -2,25 +2,45 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use glob::{glob, Pattern};
-use itertools::Either;
 use log::debug;
+
 use zhang_ast::{Directive, Spanned};
 
 use crate::error::IoErrorIntoZhangError;
-use crate::utils::to_glob_or_path;
+use crate::ledger::Ledger;
 use crate::{utils, ZhangResult};
 
 pub struct TransformResult {
     pub directives: Vec<Spanned<Directive>>,
-    pub visited_files: Vec<Either<Pattern, PathBuf>>,
+    pub visited_files: Vec<PathBuf>,
 }
 
+#[async_trait::async_trait]
 pub trait Transformer
 where
     Self: Send + Sync,
 {
     fn load(&self, entry: PathBuf, endpoint: String) -> ZhangResult<TransformResult>;
+
+    fn get_content(&self, path: String) -> ZhangResult<Vec<u8>>;
+    fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()>;
+
+    fn save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()>;
+
+    async fn async_load(&self, entry: PathBuf, endpoint: String) -> ZhangResult<TransformResult> {
+        self.load(entry, endpoint)
+    }
+
+    async fn async_get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
+        self.get_content(path)
+    }
+    async fn async_append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        self.append_directives(ledger, directives)
+    }
+
+    async fn async_save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+        self.save_content(ledger, path, content)
+    }
 }
 
 pub trait TextFileBasedTransformer
@@ -35,6 +55,10 @@ where
     fn parse(&self, content: &str, path: PathBuf) -> ZhangResult<Vec<Self::FileOutput>>;
     fn go_next(&self, directive: &Self::FileOutput) -> Option<String>;
     fn transform(&self, directives: Vec<Self::FileOutput>) -> ZhangResult<Vec<Spanned<Directive>>>;
+
+    fn get_content(&self, path: String) -> ZhangResult<Vec<u8>>;
+    fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()>;
+    fn save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()>;
 }
 
 impl<T> Transformer for T
@@ -45,67 +69,48 @@ where
         let entry = entry.canonicalize().with_path(&entry)?;
         let main_endpoint = entry.join(endpoint);
         let main_endpoint = main_endpoint.canonicalize().with_path(&main_endpoint)?;
-        let mut load_queue: VecDeque<Either<Pattern, PathBuf>> = VecDeque::new();
-        let a = to_glob_or_path(main_endpoint);
-        load_queue.push_back(a);
 
-        let mut visited: Vec<Either<Pattern, PathBuf>> = Vec::new();
+        let mut load_queue: VecDeque<PathBuf> = VecDeque::new();
+        load_queue.push_back(main_endpoint);
+
+        let mut visited: Vec<PathBuf> = Vec::new();
         let mut directives = vec![];
-        while let Some(load_entity) = load_queue.pop_front() {
-            //            debug!("visited path pattern: {}", load_entity);
+        while let Some(pathbuf) = load_queue.pop_front() {
+            let striped_pathbuf = &pathbuf.strip_prefix(&entry).expect("Cannot strip entry").to_path_buf();
+            debug!("visited entry file: {:?}", striped_pathbuf.display());
 
-            match &load_entity {
-                Either::Left(pattern) => {
-                    for entry in glob(pattern.as_str()).unwrap() {
-                        match entry {
-                            Ok(path) => {
-                                debug!("visited entry file: {:?}", path.display());
-                                if utils::has_path_visited(&visited, &path) {
-                                    continue;
-                                }
-                                let file_content = self.get_file_content(path.clone())?;
-                                let entity_directives = self.parse(&file_content, path.clone())?;
-
-                                entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
-                                    let fullpath = if buf.starts_with('/') {
-                                        to_glob_or_path(PathBuf::from_str(&buf).unwrap())
-                                    } else {
-                                        path.parent().map(|it| it.join(buf)).map(to_glob_or_path).unwrap()
-                                    };
-                                    load_queue.push_back(fullpath);
-                                });
-                                directives.extend(entity_directives);
-                            }
-                            // if the path matched but was unreadable,
-                            // thereby preventing its contents from matching
-                            Err(e) => println!("{:?}", e),
-                        }
-                    }
-                }
-                Either::Right(pathbuf) => {
-                    debug!("visited entry file: {:?}", pathbuf.display());
-                    if utils::has_path_visited(&visited, pathbuf) {
-                        continue;
-                    }
-                    let file_content = self.get_file_content(pathbuf.clone())?;
-                    let entity_directives = self.parse(&file_content, pathbuf.clone())?;
-
-                    entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
-                        let fullpath = if buf.starts_with('/') {
-                            to_glob_or_path(PathBuf::from_str(&buf).unwrap())
-                        } else {
-                            pathbuf.parent().map(|it| it.join(buf)).map(to_glob_or_path).unwrap()
-                        };
-                        load_queue.push_back(fullpath);
-                    });
-                    directives.extend(entity_directives);
-                }
+            if utils::has_path_visited(&visited, &pathbuf) {
+                continue;
             }
-            visited.push(load_entity);
+            let file_content = self.get_file_content(striped_pathbuf.clone())?;
+            let entity_directives = self.parse(&file_content, striped_pathbuf.clone())?;
+
+            entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
+                let fullpath = if buf.starts_with('/') {
+                    PathBuf::from_str(&buf).unwrap()
+                } else {
+                    pathbuf.parent().map(|it| it.join(buf)).unwrap()
+                };
+                load_queue.push_back(fullpath);
+            });
+            directives.extend(entity_directives);
+            visited.push(pathbuf);
         }
         Ok(TransformResult {
             directives: self.transform(directives)?,
             visited_files: visited,
         })
+    }
+
+    fn get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
+        self.get_content(path)
+    }
+
+    fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        self.append_directives(ledger, directives)
+    }
+
+    fn save_content(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+        self.save_content(ledger, path, content)
     }
 }

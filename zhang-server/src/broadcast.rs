@@ -1,9 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use actix_web_lab::sse::{self, ChannelStream, Sse};
+use axum::response::sse::Event;
 use futures_util::future;
 use serde::Serialize;
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::Mutex;
 use tokio::time::interval;
 
@@ -16,8 +17,8 @@ pub enum BroadcastEvent {
 }
 
 impl BroadcastEvent {
-    pub fn to_data(&self) -> sse::Data {
-        sse::Data::new_json(self).unwrap()
+    pub fn to_data(&self) -> Event {
+        Event::default().json_data(self).unwrap()
     }
 }
 
@@ -27,7 +28,7 @@ pub struct Broadcaster {
 
 #[derive(Debug, Clone, Default)]
 struct BroadcasterInner {
-    clients: Vec<sse::Sender>,
+    clients: Vec<Sender<Event>>,
 }
 
 impl Broadcaster {
@@ -62,7 +63,7 @@ impl Broadcaster {
         let mut ok_clients = Vec::new();
 
         for client in clients {
-            if client.send(sse::Event::Comment("ping".into())).await.is_ok() {
+            if client.send(Event::default().comment("ping")).await.is_ok() {
                 ok_clients.push(client.clone());
             }
         }
@@ -71,8 +72,8 @@ impl Broadcaster {
     }
 
     /// Registers client with broadcaster, returning an SSE response body.
-    pub async fn new_client(&self) -> Sse<ChannelStream> {
-        let (tx, rx) = sse::channel(10);
+    pub async fn new_client(&self) -> Receiver<Event> {
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
 
         tx.send(BroadcastEvent::Connected.to_data()).await.unwrap();
 

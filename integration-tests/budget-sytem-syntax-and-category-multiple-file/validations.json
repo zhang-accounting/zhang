@@ -1,0 +1,142 @@
+[
+  {
+    "uri": "/api/store",
+    "validations": [
+      [
+        "$.data.budgets.game_expense.detail.202312.assigned_amount.number",
+        "200.1"
+      ],
+      [
+        "$.data.budgets.game_expense.detail.202312.activity_amount.number",
+        "0"
+      ],
+      [
+        "$.data.budgets.food.detail.202312.assigned_amount.number",
+        "1000"
+      ],
+      [
+        "$.data.budgets.food.detail.202312.activity_amount.number",
+        "50"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/budgets?year=2023&month=12",
+    "validations": [
+      [
+        "$.data[?(@.name=='game_expense')].assigned_amount.number",
+        "200.1"
+      ],
+      [
+        "$.data[?(@.name=='game_expense')].activity_amount.number",
+        "0"
+      ],
+      [
+        "$.data[?(@.name=='game_expense')].available_amount.number",
+        "200.1"
+      ],
+      [
+        "$.data[?(@.name=='food')].assigned_amount.number",
+        "1000"
+      ],
+      [
+        "$.data[?(@.name=='food')].activity_amount.number",
+        "50"
+      ],
+      [
+        "$.data[?(@.name=='food')].available_amount.number",
+        "950"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/budgets?year=2024&month=1",
+    "validations": [
+      [
+        "$.data[?(@.name=='game_expense')].assigned_amount.number",
+        "200.1"
+      ],
+      [
+        "$.data[?(@.name=='game_expense')].activity_amount.number",
+        "0"
+      ],
+      [
+        "$.data[?(@.name=='game_expense')].available_amount.number",
+        "200.1"
+      ],
+      [
+        "$.data[?(@.name=='food')].assigned_amount.number",
+        "950"
+      ],
+      [
+        "$.data[?(@.name=='food')].activity_amount.number",
+        "0"
+      ],
+      [
+        "$.data[?(@.name=='food')].available_amount.number",
+        "950"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/budgets?year=2023&month=11",
+    "validations": [
+      [
+        "$.data.length()",
+        1
+      ],
+      [
+        "$.data[?(@.name=='3C_Devices')].assigned_amount.number",
+        "0"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/budgets/food?year=2023&month=12",
+    "validations": [
+      [
+        "$.data.name",
+        "food"
+      ],
+      [
+        "$.data.assigned_amount.number",
+        "1000"
+      ],
+      [
+        "$.data.activity_amount.number",
+        "50"
+      ],
+      [
+        "$.data.available_amount.number",
+        "950"
+      ],
+      [
+        "$.data.related_accounts",
+        [
+          "Expenses:Food"
+        ]
+      ]
+    ]
+  },
+  {
+    "uri": "/api/budgets/game_expense",
+    "validations": [
+      [
+        "$.data.related_accounts.length()",
+        0
+      ]
+    ]
+  },
+  {
+    "uri": "/api/files",
+    "validations": [
+      [
+        "$.data",
+        [
+          "main.zhang",
+          "data.zhang"
+        ]
+      ]
+    ]
+  }
+]

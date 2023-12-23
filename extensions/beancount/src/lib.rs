@@ -7,7 +7,8 @@ use chrono::{Datelike, NaiveDate};
 use itertools::{Either, Itertools};
 use latestmap::LatestMap;
 use zhang_ast::*;
-use zhang_core::exporter::{AppendableExporter, Exporter};
+use zhang_core::error::IoErrorIntoZhangError;
+use zhang_core::exporter::Exporter;
 use zhang_core::ledger::Ledger;
 use zhang_core::text::exporter::{append_meta, TextExportable, TextExporter};
 use zhang_core::transform::TextFileBasedTransformer;
@@ -60,15 +61,6 @@ impl Beancount {
         let directive_content = format!("\n{}\n", self.export_directive(directive));
         let mut ledger_base_file = OpenOptions::new().append(true).create(true).open(&endpoint).unwrap();
         Ok(ledger_base_file.write_all(directive_content.as_bytes())?)
-    }
-}
-
-impl AppendableExporter for Beancount {
-    fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-        for directive in directives {
-            self.append_directive(ledger, directive, None, true)?;
-        }
-        Ok(())
     }
 }
 
@@ -332,6 +324,21 @@ impl TextFileBasedTransformer for Beancount {
             }
         }
         Ok(ret)
+    }
+
+    fn get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
+        Ok(std::fs::read(PathBuf::from(path))?)
+    }
+
+    fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        for directive in directives {
+            self.append_directive(ledger, directive, None, true)?;
+        }
+        Ok(())
+    }
+
+    fn save_content(&self, _: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+        std::fs::write(&path, content).with_path(PathBuf::from(path).as_path())
     }
 }
 

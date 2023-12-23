@@ -1,9 +1,8 @@
+use axum::extract::{Path, Query, State};
 use std::cmp::Reverse;
 use std::ops::Sub;
 use std::sync::Arc;
 
-use actix_web::get;
-use actix_web::web::{Data, Path, Query};
 use chrono::NaiveDate;
 use itertools::Itertools;
 use now::DateTimeNow;
@@ -17,8 +16,7 @@ use crate::request::BudgetListRequest;
 use crate::response::{BudgetInfoResponse, BudgetIntervalEventResponse, BudgetListItemResponse, ResponseWrapper};
 use crate::ApiResult;
 
-#[get("/api/budgets")]
-pub async fn get_budget_list(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<BudgetListRequest>) -> ApiResult<Vec<BudgetListItemResponse>> {
+pub async fn get_budget_list(ledger: State<Arc<RwLock<Ledger>>>, params: Query<BudgetListRequest>) -> ApiResult<Vec<BudgetListItemResponse>> {
     let interval = params.as_interval();
 
     let ledger = ledger.read().await;
@@ -41,9 +39,8 @@ pub async fn get_budget_list(ledger: Data<Arc<RwLock<Ledger>>>, params: Query<Bu
     ResponseWrapper::json(ret)
 }
 
-#[get("/api/budgets/{budget_name}")]
-pub async fn get_budget_info(ledger: Data<Arc<RwLock<Ledger>>>, paths: Path<(String,)>, params: Query<BudgetListRequest>) -> ApiResult<BudgetInfoResponse> {
-    let (budget_name,) = paths.into_inner();
+pub async fn get_budget_info(ledger: State<Arc<RwLock<Ledger>>>, paths: Path<(String,)>, params: Query<BudgetListRequest>) -> ApiResult<BudgetInfoResponse> {
+    let (budget_name,) = paths.0;
     let ledger = ledger.read().await;
     let operations = ledger.operations();
 
@@ -78,9 +75,8 @@ pub async fn get_budget_info(ledger: Data<Arc<RwLock<Ledger>>>, paths: Path<(Str
     })
 }
 
-#[get("/api/budgets/{budget_name}/interval/{year}/{month}")]
-pub async fn get_budget_interval_detail(ledger: Data<Arc<RwLock<Ledger>>>, paths: Path<(String, u32, u32)>) -> ApiResult<Vec<BudgetIntervalEventResponse>> {
-    let (budget_name, year, month) = paths.into_inner();
+pub async fn get_budget_interval_detail(ledger: State<Arc<RwLock<Ledger>>>, paths: Path<(String, u32, u32)>) -> ApiResult<Vec<BudgetIntervalEventResponse>> {
+    let (budget_name, year, month) = paths.0;
     let ledger = ledger.read().await;
     let operations = ledger.operations();
 

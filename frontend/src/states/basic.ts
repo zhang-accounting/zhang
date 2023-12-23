@@ -1,9 +1,14 @@
 import { PayloadAction, createAsyncThunk, createSlice } from '@reduxjs/toolkit';
-import { fetcher } from '..';
+import { axiosInstance, fetcher } from '..';
 import { LoadingState } from '../rest-model';
 
 export const fetchBasicInfo = createAsyncThunk('basic/fetch', async (thunkApi) => {
   const ret = await fetcher(`/api/info`);
+  return ret;
+});
+
+export const reloadLedger = createAsyncThunk('basic/fetch', async (thunkApi) => {
+  const ret = await axiosInstance.post('/api/reload');
   return ret;
 });
 
