@@ -13,6 +13,7 @@
     "@mantine/notifications": "^6.0.13",
     "@reduxjs/toolkit": "^1.9.5",
     "@tabler/icons": "^1",
+    "@uiw/react-codemirror": "^4.21.21",
     "axios": "^1.6.0",
     "bignumber.js": "^9.1.0",
     "buffer": "^6.0.3",
