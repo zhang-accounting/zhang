@@ -1,16 +1,23 @@
-import { Button, Textarea } from '@mantine/core';
+import { Button, createStyles } from '@mantine/core';
 import axios from 'axios';
 import { Buffer } from 'buffer';
 import { useEffect, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { fetcher, serverBaseUrl } from '..';
+import CodeMirror from '@uiw/react-codemirror';
 
+const useStyles = createStyles((theme) => ({
+  editor: {
+    fontFamily: 'ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace',
+  },
+}));
 interface Props {
   name?: string;
   path: string;
 }
 
 export default function SingleFileEdit({ path }: Props) {
+  const { classes } = useStyles();
   const { mutate } = useSWRConfig();
 
   let encodedPath = Buffer.from(path).toString('base64');
@@ -40,7 +47,14 @@ export default function SingleFileEdit({ path }: Props) {
 
   return (
     <div>
-      <Textarea ml="xs" minRows={30} value={content} onChange={(event) => setContent(event.target.value)} />
+      <CodeMirror
+        value={content}
+        height="85vh"
+        width="100%"
+        onChange={(value) => {
+          setContent(value);
+        }}
+      />
       <Button ml="xs" mt="xs" disabled={data.content === content} onClick={onUpdate}>
         Update
       </Button>
