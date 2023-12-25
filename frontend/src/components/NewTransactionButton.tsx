@@ -78,7 +78,7 @@ export default function NewTransactionButton() {
     axiosInstance
       .post(`/api/transactions`, {
         datetime: date?.toISOString(),
-        payee: payee,
+        payee: payee ?? '',
         narration: narration,
         postings: postings.map((it) => ({
           account: it.account,
