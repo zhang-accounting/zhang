@@ -1073,3 +1073,5 @@ option "operating_currency" "CNY"
   Assets:CitiBank:9999 -21 CNY
   Expenses:PersonalDiet:Lunch
 
+
+include "data/2023/12.zhang"
