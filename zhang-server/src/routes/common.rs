@@ -17,6 +17,12 @@ use crate::request::JournalRequest;
 use crate::response::{BasicInfo, Pageable, ResponseWrapper};
 use crate::{ApiResult, ReloadSender};
 
+pub async fn backend_only_info() -> &'static str {
+    "hello zhang,\n\
+    seems you are trying to access the frontend UI, but the feature of frontend is not enable.\n\
+    try to enable the feature and compile again"
+}
+
 pub async fn sse(broadcaster: State<Arc<Broadcaster>>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let mut receiver = broadcaster.new_client().await;
     Sse::new(try_stream! {

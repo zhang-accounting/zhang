@@ -303,7 +303,7 @@ pub fn create_server_app(
     }
     #[cfg(not(feature = "frontend"))]
     {
-        app
+        app.fallback(routes::common::backend_only_info)
     }
 }
 
