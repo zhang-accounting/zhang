@@ -1,4 +1,4 @@
-import { Button, createStyles } from '@mantine/core';
+import { Button } from '@mantine/core';
 import axios from 'axios';
 import { Buffer } from 'buffer';
 import { useEffect, useState } from 'react';
@@ -6,18 +6,12 @@ import useSWR, { useSWRConfig } from 'swr';
 import { fetcher, serverBaseUrl } from '..';
 import CodeMirror from '@uiw/react-codemirror';
 
-const useStyles = createStyles((theme) => ({
-  editor: {
-    fontFamily: 'ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace',
-  },
-}));
 interface Props {
   name?: string;
   path: string;
 }
 
 export default function SingleFileEdit({ path }: Props) {
-  const { classes } = useStyles();
   const { mutate } = useSWRConfig();
 
   let encodedPath = Buffer.from(path).toString('base64');
