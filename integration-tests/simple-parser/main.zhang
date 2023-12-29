@@ -1,2 +1,10 @@
-option "title" "My Accounting"
-option "operating_currency" "CNY"
+
+// comment for single line directive
+option "title" "My Accounting"  ; comment here
+option "operating_currency" "CNY"    // comment here
+
+plugin "name"     ; comment here
+plugin "name"    // comment here
+
+include "data.zhang"       ; comment here
+include "data.zhang"   // comment here
