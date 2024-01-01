@@ -9,7 +9,6 @@ use opendal::{ErrorKind, Operator};
 
 use beancount::Beancount;
 use zhang_ast::{Directive, Include, Spanned, ZhangString};
-use zhang_core::error::IoErrorIntoZhangError;
 use zhang_core::exporter::Exporter;
 use zhang_core::ledger::Ledger;
 use zhang_core::text::exporter::TextExporter;
@@ -72,27 +71,29 @@ impl OpendalTextTransformer {
             .await?;
         Ok(())
     }
-    pub async fn from_env(source: DataSource, x: &ServerOpts) -> OpendalTextTransformer {
+    pub async fn from_env(source: DataSource, server_opts: &mut ServerOpts) -> OpendalTextTransformer {
         let operator = match source {
             DataSource::Fs => {
                 let mut builder = Fs::default();
-                builder.root(x.path.to_string_lossy().to_string().as_str());
+                builder.root(server_opts.path.to_string_lossy().to_string().as_str());
                 // Operator::new(builder).unwrap().finish()
                 Operator::new(builder).unwrap().finish()
             }
             DataSource::WebDav => {
                 let mut webdav_builder = Webdav::default();
                 webdav_builder.endpoint(&std::env::var("ZHANG_WEBDAV_ENDPOINT").expect("ZHANG_WEBDAV_ENDPOINT must be set"));
-                webdav_builder.root(&std::env::var("ZHANG_WEBDAV_ROOT").expect("ZHANG_WEBDAV_ROOT must be set"));
+                let webdav_root = std::env::var("ZHANG_WEBDAV_ROOT").expect("ZHANG_WEBDAV_ROOT must be set");
+                webdav_builder.root(&webdav_root);
                 webdav_builder.username(std::env::var("ZHANG_WEBDAV_USERNAME").ok().as_deref().unwrap_or_default());
                 webdav_builder.password(std::env::var("ZHANG_WEBDAV_PASSWORD").ok().as_deref().unwrap_or_default());
+                server_opts.path = dbg!(PathBuf::from(&webdav_root));
                 Operator::new(webdav_builder).unwrap().finish()
             }
             _ => {
                 todo!()
             }
         };
-        let is_beancount = match PathBuf::from(&x.endpoint)
+        let is_beancount = match PathBuf::from(&server_opts.endpoint)
             .extension()
             .unwrap_or_default()
             .to_string_lossy()
@@ -159,13 +160,12 @@ impl Transformer for OpendalTextTransformer {
     }
 
     async fn async_load(&self, entry: PathBuf, endpoint: String) -> ZhangResult<TransformResult> {
-        let entry = entry.canonicalize().with_path(&entry)?;
         let main_endpoint = entry.join(endpoint);
-        let main_endpoint = main_endpoint.canonicalize().with_path(&main_endpoint)?;
 
         let mut load_queue: VecDeque<PathBuf> = VecDeque::new();
         load_queue.push_back(main_endpoint);
 
+        dbg!(&load_queue);
         let mut visited: Vec<PathBuf> = Vec::new();
         let mut directives = vec![];
         while let Some(pathbuf) = load_queue.pop_front() {

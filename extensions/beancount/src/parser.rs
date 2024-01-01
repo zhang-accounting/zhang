@@ -661,7 +661,7 @@ mod test {
             .unwrap();
             assert!(matches!(directive, Directive::Transaction(..)));
             if let Directive::Transaction(inner) = directive {
-                assert_eq!(inner.postings.get(0).unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
+                assert_eq!(inner.postings.first().unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
             }
         }
     }

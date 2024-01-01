@@ -5,7 +5,7 @@ RUN mkdir /data
 RUN python3 main.py run > /data/main.zhang
 
 
-FROM rust:1.74.0 as build-env
+FROM rust:1.75.0 as build-env
 
 RUN mkdir /application
 WORKDIR /app

@@ -27,7 +27,7 @@ impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
         Key: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        self.inner.get(key).and_then(|store| store.get(0))
+        self.inner.get(key).and_then(|store| store.first())
     }
 
     pub fn pop_one<Q>(&mut self, key: &Q) -> Option<Value>
