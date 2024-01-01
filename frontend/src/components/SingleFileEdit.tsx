@@ -1,9 +1,10 @@
-import { Button, Textarea } from '@mantine/core';
+import { Button } from '@mantine/core';
 import axios from 'axios';
 import { Buffer } from 'buffer';
 import { useEffect, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { fetcher, serverBaseUrl } from '..';
+import CodeMirror from '@uiw/react-codemirror';
 
 interface Props {
   name?: string;
@@ -40,7 +41,14 @@ export default function SingleFileEdit({ path }: Props) {
 
   return (
     <div>
-      <Textarea ml="xs" minRows={30} value={content} onChange={(event) => setContent(event.target.value)} />
+      <CodeMirror
+        value={content}
+        height="85vh"
+        width="100%"
+        onChange={(value) => {
+          setContent(value);
+        }}
+      />
       <Button ml="xs" mt="xs" disabled={data.content === content} onClick={onUpdate}>
         Update
       </Button>
