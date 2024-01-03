@@ -1,0 +1,17 @@
+1970-01-01 open Assets:1 CNY
+  booking_method: "STRICT"
+
+1970-01-01 open Assets:2 CNY
+  booking_method: "FIFO"
+
+1970-01-01 open Assets:3 CNY
+  booking_method: "LIFO"
+
+1970-01-01 open Assets:4 CNY
+  booking_method: "AVERAGE"
+
+1970-01-01 open Assets:5 CNY
+  booking_method: "AVERAGE_ONLY"
+
+1970-01-01 open Assets:6 CNY
+  booking_method: "NONE"

@@ -9,7 +9,7 @@
     - [WebDav](datasource-webdav.md)
 - 快速入门
   - [配置 Options](options.md)
-  - [账户 Account](account.md)
+  - [账户 Account](directive_account.md)
   - [货币 Commodity](commodity.md)
   - [对账 Balance](balance.md)
   - [文档系统 Document](document.md)
