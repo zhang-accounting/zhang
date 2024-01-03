@@ -3493,7 +3493,7 @@ checksum = "525b4ec142c6b68a2d10f01f7bbf6755599ca3f81ea53b8431b7dd348f5fdb2d"
 
 [[package]]
 name = "zhang"
-version = "0.1.0-alpha.6"
+version = "0.1.0-beta.2"
 dependencies = [
  "async-recursion",
  "async-trait",
@@ -3573,7 +3573,7 @@ dependencies = [
 
 [[package]]
 name = "zhang-server"
-version = "0.1.0-alpha.4"
+version = "0.1.0-beta.2"
 dependencies = [
  "async-stream",
  "axum",

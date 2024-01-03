@@ -4,13 +4,13 @@ item = { single_line_item | metable_item | transaction | empty_space_line }
 
 empty_space_line = { space+ }
 
-single_line_item = _{ (option | plugin | include | valuable_comment) ~ comment? }
+single_line_item = _{ (option | plugin | include | valuable_comment) ~ space* ~ comment? }
 option           =  { "option" ~ space+ ~ string ~ space+ ~ string }
 plugin           =  { "plugin" ~ space+ ~ string ~ (space+ ~ string)* }
 include          =  { "include" ~ space+ ~ quote_string }
 
 metable_item    = _{ metable_head ~ metas? }
-metable_head    =  { (open | close | note | balance | document | price | event | custom | commodity | budget | budget_add | budget_transfer | budget_close) ~ comment? }
+metable_head    =  { (open | close | note | balance | document | price | event | custom | commodity | budget | budget_add | budget_transfer | budget_close) ~ space* ~ comment? }
 commodity       =  { date ~ space+ ~ "commodity" ~ space+ ~ commodity_name ~ metas? }
 open            =  { date ~ space+ ~ "open" ~ space+ ~ account_name ~ (space+ ~ commodity_name ~ (space* ~ "," ~ space* ~ commodity_name)*)? }
 close           =  { date ~ space+ ~ "close" ~ space+ ~ account_name }
@@ -25,9 +25,9 @@ budget_add      =  { date ~ space+ ~ "budget-add" ~ space+ ~ unquote_string ~ sp
 budget_transfer =  { date ~ space+ ~ "budget-transfer" ~ space+ ~ unquote_string ~ space+ ~ unquote_string ~ space+ ~ posting_amount ~ metas? }
 budget_close    =  { date ~ space+ ~ "budget-close" ~ space+ ~ unquote_string ~ metas? }
 
-transaction = { date ~ transaction_flag? ~ (space+ ~ quote_string){0, 2} ~ tags? ~ links? ~ comment? ~ transaction_detail }
+transaction = { date ~ transaction_flag? ~ (space+ ~ quote_string){0, 2} ~ tags? ~ links? ~ space* ~ comment? ~ transaction_detail }
 
-comment          = _{ space* ~ (";" | "*" | "#" | "//") ~ (!line ~ ANY)* }
+comment          = _{(";" | "*" | "#" | "//") ~ (!line ~ ANY)* }
 valuable_comment =  { space* ~ comment_prefix ~ space* ~ comment_value }
 comment_prefix   =  { ";" | "*" | "#" | "//" }
 comment_value    =  { (!line ~ ANY)* }
@@ -39,7 +39,7 @@ links                 =  { (space* ~ link)* }
 link                  =  { "^" ~ unquote_string }
 transaction_detail    = _{ identation_push ~ transaction_lines ~ DROP }
 transaction_lines     =  { transaction_line ~ (transaction_next_line)* }
-transaction_line      =  { (transaction_posting | key_value_line) ~ valuable_comment? }
+transaction_line      =  { (transaction_posting | key_value_line) ~ space* ~ valuable_comment? }
 transaction_posting   =  { transaction_flag? ~ account_name ~ (space+ ~ posting_unit)? ~ metas? }
 transaction_next_line = _{ identation ~ transaction_line }
 
@@ -64,7 +64,7 @@ identation_push = _{ identation ~ PUSH(space+) }
 key_value_lines             = _{ key_value_line_with_comment ~ (key_value_next_line)* }
 key_value_next_line         = _{ identation ~ key_value_line_with_comment }
 key_value_line              =  { string ~ space* ~ ":" ~ space* ~ string }
-key_value_line_with_comment =  _{ key_value_line ~ comment? }
+key_value_line_with_comment =  _{ key_value_line ~ space* ~ comment? }
 
 date = { datetime | date_hour | date_only }
 
