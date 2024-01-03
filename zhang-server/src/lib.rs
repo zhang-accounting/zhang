@@ -17,6 +17,7 @@ use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
+use uuid::Uuid;
 
 use zhang_core::ledger::Ledger;
 use zhang_core::transform::Transformer;
@@ -108,12 +109,13 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
 }
 
 fn start_report_tasker() {
-    tokio::spawn(async {
+    let uuid = Uuid::new_v4();
+    tokio::spawn(async move {
         let mut report_interval = tokio::time::interval(Duration::from_secs(60 * 60));
-        info!("start zhang's version report task");
+        info!("start zhang's version report task, random uuid {} is generated", &uuid);
         loop {
             report_interval.tick().await;
-            match version_report_task().await {
+            match version_report_task(uuid).await {
                 Ok(_) => {
                     debug!("report zhang's version successfully");
                 }
@@ -310,19 +312,21 @@ pub fn create_server_app(
     }
 }
 
-async fn version_report_task() -> ServerResult<()> {
+async fn version_report_task(uuid: Uuid) -> ServerResult<()> {
     #[derive(Serialize)]
     struct VersionReport<'a> {
         version: &'a str,
         build_date: &'a str,
+        uuid: &'a Uuid,
     }
     debug!("reporting zhang's version");
     let client = reqwest::Client::new();
     client
-        .post("https://zhang-cloud.kilerd.me")
+        .post("https://zhang-cloud.kilerd.me/client_report")
         .json(&VersionReport {
             version: env!("CARGO_PKG_VERSION"),
             build_date: env!("ZHANG_BUILD_DATE"),
+            uuid: &uuid,
         })
         .timeout(Duration::from_secs(10))
         .send()
