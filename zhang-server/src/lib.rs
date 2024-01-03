@@ -222,7 +222,7 @@ pub fn create_server_app(
     let basic_credential = auth_credential.map(|credential| {
         let token_part = credential.splitn(2, ':').map(|it| it.to_owned()).collect_vec();
         (
-            token_part.get(0).cloned().expect("cannot retrieve credential user_id"),
+            token_part.first().cloned().expect("cannot retrieve credential user_id"),
             token_part.get(1).cloned(),
         )
     });

@@ -246,7 +246,7 @@ impl BeancountParer {
             [transaction_posting(posting)] => (Some(posting), None),
             [transaction_posting(posting), valuable_comment(c)] => (Some(posting.set_comment(c)), None),
             [key_value_line(meta)] => (None, Some(meta)),
-            [key_value_line(meta),  valuable_comment(c)] => (None, Some(meta)),
+            [key_value_line(meta),  valuable_comment(_)] => (None, Some(meta)),
 
         );
         Ok(ret)
@@ -460,7 +460,7 @@ impl BeancountParer {
 
     fn valuable_comment(input: Node) -> Result<String> {
         let content: String = match_nodes!(input.into_children();
-            [comment_prefix(p), comment_value(v)] => v,
+            [comment_prefix(_), comment_value(v)] => v,
         );
         Ok(content)
     }
@@ -688,7 +688,7 @@ mod test {
             .unwrap();
             assert!(matches!(directive, Directive::Transaction(..)));
             if let Directive::Transaction(inner) = directive {
-                assert_eq!(inner.postings.get(0).unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
+                assert_eq!(inner.postings.first().unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
             }
         }
 
@@ -713,7 +713,7 @@ mod test {
             .unwrap();
             assert!(matches!(directive, Directive::Transaction(..)));
             if let Directive::Transaction(inner) = directive {
-                assert_eq!(inner.postings.get(0).unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
+                assert_eq!(inner.postings.first().unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
                 assert_eq!(inner.postings.get(1).unwrap().comment.as_ref().unwrap(), "123213");
             }
         }

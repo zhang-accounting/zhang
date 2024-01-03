@@ -102,7 +102,7 @@ impl ZhangParser {
     }
     fn valuable_comment(input: Node) -> Result<String> {
         let content: String = match_nodes!(input.into_children();
-            [comment_prefix(p), comment_value(v)] => v,
+            [comment_prefix(_), comment_value(v)] => v,
         );
         Ok(content)
     }
@@ -264,7 +264,7 @@ impl ZhangParser {
             [transaction_posting(posting)] => (Some(posting), None),
             [transaction_posting(posting), valuable_comment(comment)] => (Some(posting.set_comment(comment)), None),
             [key_value_line(meta)] => (None, Some(meta)),
-            [key_value_line(meta), valuable_comment(c)] => (None, Some(meta)),
+            [key_value_line(meta), valuable_comment(_)] => (None, Some(meta)),
 
         );
         Ok(ret)
