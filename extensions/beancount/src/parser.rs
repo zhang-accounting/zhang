@@ -76,6 +76,11 @@ impl BeancountParer {
         Ok(Date::Date(date))
     }
 
+    fn booking_method(input: Node) -> Result<String> {
+        let content = input.as_str();
+        Ok(content[1..content.len() - 1].to_string())
+    }
+
     fn plugin(input: Node) -> Result<Directive> {
         let ret: (ZhangString, Vec<ZhangString>) = match_nodes!(input.into_children();
             [string(module), string(values)..] => (module, values.collect()),
@@ -96,17 +101,25 @@ impl BeancountParer {
     }
 
     fn open(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, Vec<String>, Meta) = match_nodes!(input.into_children();
-            [date(date), account_name(a), commodity_name(commodities).., metas(metas)] => (date, a, commodities.collect(), metas),
-            [date(date), account_name(a), commodity_name(commodities)..] => (date, a, commodities.collect(), Meta::default()),
-            [date(date), account_name(a), metas(metas)] => (date, a, vec![], metas),
+        let ret: (Date, Account, Vec<String>, Option<String>, Meta) = match_nodes!(input.into_children();
+            [date(date), account_name(a), commodity_name(commodities).., metas(metas)] => (date, a, commodities.collect(), None, metas),
+            [date(date), account_name(a), commodity_name(commodities)..] => (date, a, commodities.collect(), None,Meta::default()),
+            [date(date), account_name(a), metas(metas)] => (date, a, vec![], None, metas),
+
+            [date(date), account_name(a), commodity_name(commodities).., booking_method(booking_method), metas(metas)] => (date, a, commodities.collect(), Some(booking_method), metas),
+            [date(date), account_name(a), commodity_name(commodities).., booking_method(booking_method)] => (date, a, commodities.collect(), Some(booking_method), Meta::default()),
+            [date(date), account_name(a), booking_method(booking_method), metas(metas)] => (date, a, vec![], Some(booking_method), metas),
         );
 
+        let (date, account, commodities, booking_method, mut meta) = ret;
+        if let Some(booking_method) = booking_method {
+            meta.insert("booking_method".to_string(), ZhangString::quote(booking_method));
+        }
         let open = Open {
-            date: ret.0,
-            account: ret.1,
-            commodities: ret.2,
-            meta: ret.3,
+            date,
+            account,
+            commodities,
+            meta,
         };
         Ok(Directive::Open(open))
     }
@@ -876,6 +889,32 @@ mod test {
                 if let Directive::Option(inner) = directive {
                     assert_eq!(inner.key.as_str(), "title");
                     assert_eq!(inner.value.as_str(), "Accounting");
+                }
+            }
+        }
+
+        mod open {
+            use crate::parser::parse;
+            use indoc::indoc;
+            use zhang_ast::Directive;
+
+            #[test]
+            fn should_parse_with_booking_method() {
+                let directive = parse(
+                    indoc! {r#"
+                            1970-01-01 open Assets:Card CNY       "NONE"
+                        "#},
+                    None,
+                )
+                .unwrap()
+                .pop()
+                .unwrap()
+                .data
+                .left()
+                .unwrap();
+                assert!(matches!(directive, Directive::Open(..)));
+                if let Directive::Open(inner) = directive {
+                    assert_eq!(inner.meta.get_one("booking_method").unwrap().as_str(), "NONE");
                 }
             }
         }

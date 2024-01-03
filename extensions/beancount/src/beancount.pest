@@ -14,7 +14,7 @@ pop_tag          =  { "poptag" ~ space+ ~ tag }
 metable_item    = _{ metable_head ~ metas? }
 metable_head    =  { (open | close | note | balance | pad | document | price | event | commodity | budget | budget_add | budget_transfer | budget_close | custom) ~ space* ~ comment? }
 commodity       =  { date ~ space+ ~ "commodity" ~ space+ ~ commodity_name ~ metas? }
-open            =  { date ~ space+ ~ "open" ~ space+ ~ account_name ~ (space+ ~ commodity_name ~ (space* ~ "," ~ space* ~ commodity_name)*)? }
+open            =  { date ~ space+ ~ "open" ~ space+ ~ account_name ~ (space+ ~ commodity_name ~ (space* ~ "," ~ space* ~ commodity_name)*)? ~ (space+ ~ booking_method)? }
 close           =  { date ~ space+ ~ "close" ~ space+ ~ account_name }
 note            =  { date ~ space+ ~ "note" ~ space+ ~ account_name ~ space+ ~ string }
 pad             =  { date ~ space+ ~ "pad" ~ space+ ~ account_name ~ space+ ~ account_name }
@@ -28,7 +28,7 @@ budget_add      =  { date ~ space+ ~ "custom" ~ space+ ~ "budget-add" ~ space+ ~
 budget_transfer =  { date ~ space+ ~ "custom" ~ space+ ~ "budget-transfer" ~ space+ ~ unquote_string ~ space+ ~ unquote_string ~ space+ ~ posting_amount ~ metas? }
 budget_close    =  { date ~ space+ ~ "custom" ~ space+ ~ "budget-close" ~ space+ ~ unquote_string ~ metas? }
 
-comment          = _{(";" | "*" | "#" | "//") ~ (!line ~ ANY)* }
+comment          = _{ (";" | "*" | "#" | "//") ~ (!line ~ ANY)* }
 valuable_comment =  { space* ~ comment_prefix ~ space* ~ comment_value }
 comment_prefix   =  { ";" | "*" | "#" | "//" }
 comment_value    =  { (!line ~ ANY)* }
@@ -59,6 +59,8 @@ posting_total_price  = { "@@" ~ space+ ~ number ~ space+ ~ commodity_name }
 string_or_account = { account_name | string }
 
 metas = { identation_push ~ key_value_lines ~ DROP }
+
+booking_method = { "\"" ~ ("STRICT" | "FIFO" | "LIFO" | "AVERAGE" | "AVERAGE_ONLY" | "NONE") ~ "\"" }
 
 identation      = _{ line ~ PEEK_ALL }
 identation_push = _{ identation ~ PUSH(space+) }
