@@ -198,6 +198,7 @@ pub async fn create_new_transaction(ledger: State<Arc<RwLock<Ledger>>>, Json(pay
             cost: None,
             cost_date: None,
             price: None,
+            comment: None,
             meta: Default::default(),
         });
     }

@@ -100,6 +100,19 @@ impl ZhangParser {
             content: input.as_str().to_owned(),
         }))
     }
+    fn valuable_comment(input: Node) -> Result<String> {
+        let content: String = match_nodes!(input.into_children();
+            [comment_prefix(_), comment_value(v)] => v,
+        );
+        Ok(content)
+    }
+
+    fn comment_prefix(input: Node) -> Result<String> {
+        Ok(input.as_str().to_owned())
+    }
+    fn comment_value(input: Node) -> Result<String> {
+        Ok(input.as_str().to_owned())
+    }
 
     fn open(input: Node) -> Result<Directive> {
         let ret: (Date, Account, Vec<String>, Meta) = match_nodes!(input.into_children();
@@ -230,6 +243,7 @@ impl ZhangParser {
             cost: None,
             cost_date: None,
             price: None,
+            comment: None,
             meta,
         };
 
@@ -248,7 +262,9 @@ impl ZhangParser {
     fn transaction_line(input: Node) -> Result<(Option<Posting>, Option<(String, ZhangString)>)> {
         let ret: (Option<Posting>, Option<(String, ZhangString)>) = match_nodes!(input.into_children();
             [transaction_posting(posting)] => (Some(posting), None),
+            [transaction_posting(posting), valuable_comment(comment)] => (Some(posting.set_comment(comment)), None),
             [key_value_line(meta)] => (None, Some(meta)),
+            [key_value_line(meta), valuable_comment(_)] => (None, Some(meta)),
 
         );
         Ok(ret)
@@ -494,6 +510,25 @@ impl ZhangParser {
         }))
     }
 
+    fn metable_head(input: Node) -> Result<Directive> {
+        let ret: Directive = match_nodes!(input.into_children();
+            [open(item)] => item,
+            [close(item)] => item,
+            [note(item)] => item,
+            [event(item)] => item,
+            [document(item)] => item,
+            [balance(item)] => item,
+            [price(item)] => item,
+            [commodity(item)] => item,
+            [custom(item)] => item,
+            [comment(item)] => item,
+            [budget(item)] => item,
+            [budget_close(item)] => item,
+            [budget_add(item)] => item,
+            [budget_transfer(item)] => item,
+        );
+        Ok(ret)
+    }
     fn item(input: Node) -> Result<(Directive, SpanInfo)> {
         let span = input.as_span();
         let span_info = SpanInfo {
@@ -504,23 +539,16 @@ impl ZhangParser {
         };
         let ret: Directive = match_nodes!(input.into_children();
             [option(item)] => item,
-            [open(item)] => item,
             [plugin(item)] => item,
-            [close(item)] => item,
             [include(item)] => item,
-            [note(item)] => item,
-            [event(item)] => item,
-            [document(item)] => item,
-            [balance(item)] => item,
-            [price(item)] => item,
-            [commodity(item)] => item,
-            [custom(item)] => item,
-            [comment(item)] => item,
+            [valuable_comment(item)] => Directive::Comment(Comment { content:item }),
+
             [transaction(item)] => item,
-            [budget(item)] => item,
-            [budget_close(item)] => item,
-            [budget_add(item)] => item,
-            [budget_transfer(item)] => item,
+
+            [metable_head(head)] => head,
+            [metable_head(head), metas(meta)] => {
+                head.set_meta(meta)
+            },
         );
         Ok((ret, span_info))
     }

@@ -251,6 +251,7 @@ impl DirectiveProcess for BalancePad {
                     cost: None,
                     cost_date: None,
                     price: None,
+                    comment: None,
                     meta: Default::default(),
                 },
                 Posting {
@@ -260,6 +261,7 @@ impl DirectiveProcess for BalancePad {
                     cost: None,
                     cost_date: None,
                     price: None,
+                    comment: None,
                     meta: Default::default(),
                 },
             ],
@@ -310,6 +312,7 @@ impl DirectiveProcess for BalanceCheck {
                 cost: None,
                 cost_date: None,
                 price: None,
+                comment: None,
                 meta: Default::default(),
             }],
             meta: Default::default(),

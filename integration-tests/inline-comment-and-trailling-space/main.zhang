@@ -1,0 +1,24 @@
+
+// comment for single line directive
+option "title" "My Accounting"  ; comment here
+option "operating_currency" "CNY"    // comment here
+
+plugin "name"     ; comment here
+plugin "name"    // comment here
+
+include "data.zhang"       ; comment here
+include "data.zhang"   // comment here
+
+
+2023-12-02 "KFC" "VME50 Package" ;123213
+  Assets:BankCard -50 CNY ;123213123213
+  Expenses:Food
+  a: b ;        12312123
+  b: c
+1970-01-01 open Assets:A CNY
+  a: b ;123123
+
+1970-01-01 open Assets:A CNY
+  a: b ;123123
+1970-01-01 open Assets:A CNY  ; 123213
+option "123" "!23"

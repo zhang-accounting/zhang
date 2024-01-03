@@ -5,7 +5,7 @@ use strum::{Display, EnumString};
 use crate::account::Account;
 use crate::amount::Amount;
 use crate::data::{Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Plugin, Price, Transaction};
-use crate::{BalanceCheck, BalancePad, Budget, BudgetAdd, BudgetClose, BudgetTransfer};
+use crate::{BalanceCheck, BalancePad, Budget, BudgetAdd, BudgetClose, BudgetTransfer, Meta};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DirectiveType {
@@ -102,6 +102,31 @@ impl Directive {
             Directive::BudgetTransfer(_) => DirectiveType::BudgetTransfer,
             Directive::BudgetClose(_) => DirectiveType::BudgetClose,
         }
+    }
+
+    pub fn set_meta(mut self, meta: Meta) -> Self {
+        match &mut self {
+            Directive::Open(ref mut directive) => directive.meta = meta,
+            Directive::Close(ref mut directive) => directive.meta = meta,
+            Directive::Commodity(ref mut directive) => directive.meta = meta,
+            Directive::Transaction(ref mut directive) => directive.meta = meta,
+            Directive::BalancePad(ref mut directive) => directive.meta = meta,
+            Directive::BalanceCheck(ref mut directive) => directive.meta = meta,
+            Directive::Note(ref mut directive) => directive.meta = meta,
+            Directive::Document(ref mut directive) => directive.meta = meta,
+            Directive::Price(ref mut directive) => directive.meta = meta,
+            Directive::Event(ref mut directive) => directive.meta = meta,
+            Directive::Custom(ref mut directive) => directive.meta = meta,
+            Directive::Budget(ref mut directive) => directive.meta = meta,
+            Directive::BudgetAdd(ref mut directive) => directive.meta = meta,
+            Directive::BudgetTransfer(ref mut directive) => directive.meta = meta,
+            Directive::BudgetClose(ref mut directive) => directive.meta = meta,
+            Directive::Option(_) => {}
+            Directive::Plugin(_) => {}
+            Directive::Include(_) => {}
+            Directive::Comment(_) => {}
+        }
+        self
     }
 }
 
