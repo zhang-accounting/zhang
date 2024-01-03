@@ -225,6 +225,7 @@ impl BeancountParer {
             cost: None,
             cost_date: None,
             price: None,
+            comment: None,
             meta,
         };
 

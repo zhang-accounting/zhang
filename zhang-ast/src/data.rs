@@ -98,7 +98,14 @@ pub struct Posting {
     pub cost: Option<Amount>,
     pub cost_date: Option<Date>,
     pub price: Option<SingleTotalPrice>,
+    pub comment: Option<String>,
     pub meta: Meta,
+}
+impl Posting {
+    pub fn set_comment(mut self, comment: String) -> Self {
+        self.comment = Some(comment);
+        self
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
