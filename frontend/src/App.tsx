@@ -47,6 +47,7 @@ import { fetchError } from './states/errors';
 import { journalsSlice } from './states/journals';
 import Budgets from './pages/Budgets';
 import SingleBudget from './pages/SingleBudget';
+import { useSWRConfig } from 'swr';
 
 const useStyles = createStyles((theme) => ({
   onlineIcon: {
@@ -171,6 +172,7 @@ const links: LinkItem[] = [
 ];
 
 export default function App() {
+  const { mutate } = useSWRConfig();
   const { classes } = useStyles();
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
@@ -190,8 +192,9 @@ export default function App() {
           showNotification({
             id: 'reload',
             title: 'Ledger Reloaded',
-            message: 'trigger ledger info reload',
+            message: 'reloading latest ledger info',
           });
+          mutate('/api/for-new-transaction');
           dispatch(fetchBasicInfo());
           dispatch(fetchError(1));
           dispatch(fetchCommodities());

@@ -86,7 +86,7 @@ impl OpendalTextTransformer {
                 webdav_builder.root(&webdav_root);
                 webdav_builder.username(std::env::var("ZHANG_WEBDAV_USERNAME").ok().as_deref().unwrap_or_default());
                 webdav_builder.password(std::env::var("ZHANG_WEBDAV_PASSWORD").ok().as_deref().unwrap_or_default());
-                server_opts.path = dbg!(PathBuf::from(&webdav_root));
+                server_opts.path = PathBuf::from(&webdav_root);
                 Operator::new(webdav_builder).unwrap().finish()
             }
             _ => {
@@ -165,7 +165,6 @@ impl Transformer for OpendalTextTransformer {
         let mut load_queue: VecDeque<PathBuf> = VecDeque::new();
         load_queue.push_back(main_endpoint);
 
-        dbg!(&load_queue);
         let mut visited: Vec<PathBuf> = Vec::new();
         let mut directives = vec![];
         while let Some(pathbuf) = load_queue.pop_front() {
