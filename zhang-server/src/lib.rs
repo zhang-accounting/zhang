@@ -90,12 +90,15 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     let (tx, rx) = mpsc::channel::<i32>(1);
     let reload_sender = Arc::new(ReloadSender(tx));
 
+    info!("start reload listener");
     start_reload_listener(ledger_data.clone(), broadcaster.clone(), rx);
 
     if opts.is_local_fs {
+        info!("start fs event listener");
         start_fs_event_lisenter(ledger_data.clone(), reload_sender.clone());
     }
 
+    info!("start version report tasker");
     start_version_check_tasker(broadcaster.clone());
 
     if !opts.no_report {

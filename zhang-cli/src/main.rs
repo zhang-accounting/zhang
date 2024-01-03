@@ -146,12 +146,12 @@ impl Opts {
                 Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, format.transformer()).expect("Cannot load ledger");
             }
             Opts::Export(_) => todo!(),
-            Opts::Serve(opts) => {
+            Opts::Serve(mut opts) => {
                 let data_source = opts.source.clone().or(DataSource::from_env()).unwrap_or(DataSource::Fs);
-                let transformer = OpendalTextTransformer::from_env(data_source.clone(), &opts).await;
+                let transformer = OpendalTextTransformer::from_env(data_source.clone(), &mut opts).await;
                 let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(':'));
                 zhang_server::serve(ServeConfig {
-                    path: opts.path,
+                    path: dbg!(opts.path),
                     endpoint: opts.endpoint,
                     addr: opts.addr,
                     port: opts.port,
@@ -276,7 +276,7 @@ mod test {
 
                 let transformer = OpendalTextTransformer::from_env(
                     DataSource::Fs,
-                    &ServerOpts {
+                    &mut ServerOpts {
                         path: pathbuf.clone(),
                         endpoint: "main.zhang".to_owned(),
                         addr: "".to_string(),
