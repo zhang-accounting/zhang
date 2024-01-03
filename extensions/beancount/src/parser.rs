@@ -244,7 +244,9 @@ impl BeancountParer {
     fn transaction_line(input: Node) -> Result<(Option<Posting>, Option<(String, ZhangString)>)> {
         let ret: (Option<Posting>, Option<(String, ZhangString)>) = match_nodes!(input.into_children();
             [transaction_posting(posting)] => (Some(posting), None),
+            [transaction_posting(posting), valuable_comment(c)] => (Some(posting.set_comment(c)), None),
             [key_value_line(meta)] => (None, Some(meta)),
+            [key_value_line(meta),  valuable_comment(c)] => (None, Some(meta)),
 
         );
         Ok(ret)
@@ -449,7 +451,19 @@ impl BeancountParer {
         );
         Ok(BeancountOnlyDirective::PopTag(ret))
     }
+    fn comment_prefix(input: Node) -> Result<String> {
+        Ok(input.as_str().to_owned())
+    }
+    fn comment_value(input: Node) -> Result<String> {
+        Ok(input.as_str().to_owned())
+    }
 
+    fn valuable_comment(input: Node) -> Result<String> {
+        let content: String = match_nodes!(input.into_children();
+            [comment_prefix(p), comment_value(v)] => v,
+        );
+        Ok(content)
+    }
     fn budget(input: Node) -> Result<Directive> {
         let ret: (Date, ZhangString, String, Meta) = match_nodes!(input.into_children();
             [date(date), unquote_string(name), commodity_name(commodity)] => (date, name, commodity, Meta::default()),
@@ -500,6 +514,26 @@ impl BeancountParer {
             meta: ret.4,
         }))
     }
+    fn metable_head(input: Node) -> Result<BeancountDirective> {
+        let ret: BeancountDirective = match_nodes!(input.into_children();
+
+            [open(item)]            => Either::Left(item),
+            [close(item)]           => Either::Left(item),
+            [note(item)]            => Either::Left(item),
+            [event(item)]           => Either::Left(item),
+            [document(item)]        => Either::Left(item),
+            [balance(item)]         => Either::Right(item), // balance
+            [pad(item)]             => Either::Right(item), // pad
+            [price(item)]           => Either::Left(item),
+            [commodity(item)]       => Either::Left(item),
+            [custom(item)]          => Either::Left(item),
+            [budget(item)]          => Either::Left(item),
+            [budget_close(item)]    => Either::Left(item),
+            [budget_add(item)]      => Either::Left(item),
+            [budget_transfer(item)] => Either::Left(item)
+        );
+        Ok(ret)
+    }
 
     fn item(input: Node) -> Result<(BeancountDirective, SpanInfo)> {
         let span = input.as_span();
@@ -511,27 +545,19 @@ impl BeancountParer {
         };
         let ret: BeancountDirective = match_nodes!(input.into_children();
             [option(item)]          => Either::Left(item),
-            [open(item)]            => Either::Left(item),
             [plugin(item)]          => Either::Left(item),
-            [close(item)]           => Either::Left(item),
             [include(item)]         => Either::Left(item),
-            [note(item)]            => Either::Left(item),
-            [event(item)]           => Either::Left(item),
-            [document(item)]        => Either::Left(item),
-            [balance(item)]         => Either::Right(item), // balance
-            [pad(item)]             => Either::Right(item), // pad
             [push_tag(item)]        => Either::Right(item),
             [pop_tag(item)]         => Either::Right(item),
-            [price(item)]           => Either::Left(item),
-            [commodity(item)]       => Either::Left(item),
-            [custom(item)]          => Either::Left(item),
             [comment(item)]         => Either::Left(item),
+            [valuable_comment(item)] => Either::Left(Directive::Comment(Comment { content:item })),
+
+            [metable_head(head)]            => head,
+
             [transaction(item)]     => Either::Left(item),
-            [budget(item)]          => Either::Left(item),
-            [budget_close(item)]    => Either::Left(item),
-            [budget_add(item)]      => Either::Left(item),
-            [budget_transfer(item)] => Either::Left(item)
+
         );
+
         Ok((ret, span_info))
     }
 
@@ -665,6 +691,32 @@ mod test {
                 assert_eq!(inner.postings.get(0).unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
             }
         }
+
+        #[test]
+        fn should_parse_with_comment() {
+            let directive = parse(
+                indoc! {r#"
+                            1970-01-01 "Payee" "Norration" ; 123123
+                              Assets:Bank
+                                a: b
+                              Assets:Bank ;123213
+                              a: b
+                              b: c ;123123
+                        "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap()
+            .data
+            .left()
+            .unwrap();
+            assert!(matches!(directive, Directive::Transaction(..)));
+            if let Directive::Transaction(inner) = directive {
+                assert_eq!(inner.postings.get(0).unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
+                assert_eq!(inner.postings.get(1).unwrap().comment.as_ref().unwrap(), "123213");
+            }
+        }
     }
     mod budget {
         use crate::parser::parse;
@@ -776,6 +828,55 @@ mod test {
             assert!(matches!(directive, Directive::BudgetClose(..)));
             if let Directive::BudgetClose(inner) = directive {
                 assert_eq!(inner.name, "Diet");
+            }
+        }
+    }
+    mod single_line_item {
+        mod options {
+            use crate::parser::parse;
+            use indoc::indoc;
+            use zhang_ast::Directive;
+
+            #[test]
+            fn should_parse() {
+                let directive = parse(
+                    indoc! {r#"
+                            option "title" "Accounting"
+                        "#},
+                    None,
+                )
+                .unwrap()
+                .pop()
+                .unwrap()
+                .data
+                .left()
+                .unwrap();
+                assert!(matches!(directive, Directive::Option(..)));
+                if let Directive::Option(inner) = directive {
+                    assert_eq!(inner.key.as_str(), "title");
+                    assert_eq!(inner.value.as_str(), "Accounting");
+                }
+            }
+
+            #[test]
+            fn should_parse_with_comment() {
+                let directive = parse(
+                    indoc! {r#"
+                            option "title" "Accounting" ;123
+                        "#},
+                    None,
+                )
+                .unwrap()
+                .pop()
+                .unwrap()
+                .data
+                .left()
+                .unwrap();
+                assert!(matches!(directive, Directive::Option(..)));
+                if let Directive::Option(inner) = directive {
+                    assert_eq!(inner.key.as_str(), "title");
+                    assert_eq!(inner.value.as_str(), "Accounting");
+                }
             }
         }
     }
