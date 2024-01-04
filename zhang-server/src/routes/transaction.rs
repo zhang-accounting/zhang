@@ -186,7 +186,9 @@ pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<Jour
     ResponseWrapper::json(Pageable::new(total_count as u32, params.page(), params.limit(), ret))
 }
 
-pub async fn create_new_transaction(ledger: State<Arc<RwLock<Ledger>>>, Json(payload): Json<CreateTransactionRequest>) -> ApiResult<String> {
+pub async fn create_new_transaction(
+    ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, Json(payload): Json<CreateTransactionRequest>,
+) -> ApiResult<String> {
     let ledger = ledger.read().await;
 
     let mut postings = vec![];
@@ -220,7 +222,7 @@ pub async fn create_new_transaction(ledger: State<Arc<RwLock<Ledger>>>, Json(pay
     });
 
     ledger.transformer.async_append_directives(&ledger, vec![trx]).await?;
-
+    reload_sender.reload();
     ResponseWrapper::json("Ok".to_string())
 }
 

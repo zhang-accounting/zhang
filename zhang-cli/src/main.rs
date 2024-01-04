@@ -151,7 +151,7 @@ impl Opts {
                 let transformer = OpendalTextTransformer::from_env(data_source.clone(), &mut opts).await;
                 let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(':'));
                 zhang_server::serve(ServeConfig {
-                    path: dbg!(opts.path),
+                    path: opts.path,
                     endpoint: opts.endpoint,
                     addr: opts.addr,
                     port: opts.port,
