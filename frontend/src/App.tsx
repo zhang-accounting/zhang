@@ -226,7 +226,7 @@ export default function App() {
         message: 'Client can not connect to server',
       });
     };
-  }, [dispatch]);
+  }, [dispatch, mutate]);
 
   const sendReloadEvent = () => {
     showNotification({
