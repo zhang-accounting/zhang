@@ -243,13 +243,12 @@ pub async fn upload_transaction_document(
 
         let v4 = Uuid::new_v4();
         let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
+        let striped_buf = buf.strip_prefix(entry).unwrap();
+        let striped_path_string = striped_buf.to_string_lossy().to_string();
         info!("uploading document `{}`(id={}) to transaction {}", file_name, &v4.to_string(), &transaction_id);
         let content_buf = field.bytes().await.unwrap();
 
-        ledger
-            .transformer
-            .async_save_content(&ledger, buf.to_string_lossy().to_string(), &content_buf)
-            .await?;
+        ledger.transformer.async_save_content(&ledger, striped_path_string, &content_buf).await?;
 
         let path = match buf.strip_prefix(entry) {
             Ok(relative_path) => relative_path.to_str().unwrap(),
