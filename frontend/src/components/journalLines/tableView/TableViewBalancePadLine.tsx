@@ -49,7 +49,6 @@ interface Props {
 export default function TableViewBalancePadLine({ data, onClick }: Props) {
   const { classes } = useStyles();
 
-  const date = format(new Date(data.datetime), 'yyyy-MM-dd');
   const time = format(new Date(data.datetime), 'HH:mm:ss');
 
   const openPreviewModal = (e: any) => {
@@ -67,9 +66,7 @@ export default function TableViewBalancePadLine({ data, onClick }: Props) {
   // const isBalanced = new BigNumber(data.postings[0].account_after_number) === new BigNumber(data.postings[0].account_before_number)
   return (
     <tr className={classes.actionHider}>
-      <td>
-        {date} {time}
-      </td>
+      <td>{time}</td>
       <td>
         <Badge size="xs" variant="outline">
           Pad
