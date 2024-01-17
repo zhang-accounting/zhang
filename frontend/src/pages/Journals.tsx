@@ -36,11 +36,11 @@ function Journals() {
           {t('REFRESH')}
         </Button>
       </Group>
-      <Table verticalSpacing="xs" highlightOnHover withBorder>
+      <Table verticalSpacing="xs" withBorder>
         <thead>
           <tr>
-            <th style={{ width: '200px' }}>Date</th>
-            <th>Type</th>
+            <th style={{ width: '100px' }}>Date</th>
+            <th style={{ width: '10px' }}>Type</th>
             <th>Payee</th>
             <th>Narration</th>
             <th style={{ textAlign: 'right' }}>Amount</th>
@@ -51,8 +51,15 @@ function Journals() {
           {Object.entries(groupedRecords).map((entry) => {
             return (
               <>
+                <tr>
+                  <td colSpan={6}>
+                    <b>{entry[0]}</b>
+                  </td>
+                </tr>
                 {entry[1].map((journal) => (
-                  <TableViewJournalLine key={journal.id} data={journal} />
+                  <>
+                    <TableViewJournalLine key={journal.id} data={journal} />
+                  </>
                 ))}
               </>
             );

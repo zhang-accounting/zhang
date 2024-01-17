@@ -69,9 +69,7 @@ export default function TableViewTransactionLine({ data }: Props) {
   const hasDocuments = data.metas.some((meta) => meta.key === 'document');
   return (
     <tr className={`${classes.actionHider} ${!data.is_balanced ? classes.notBalance : ''}`}>
-      <td>
-        {date} {time}
-      </td>
+      <td>{time}</td>
       <td>
         <Badge color="gray" size="xs" variant="outline">
           TRX
