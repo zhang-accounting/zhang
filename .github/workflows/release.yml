@@ -47,7 +47,8 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
+      - name: create version file
+        run: echo ${${{github.ref_name}}:1} >> .build_version
       - name: frontend install
         run: yarn install
         working-directory: ./frontend
@@ -69,7 +70,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
-
+      - name: create version file
+        run: echo ${${{github.ref_name}}:1} >> .build_version
       - name: frontend install
         run: yarn install
         working-directory: ./frontend
