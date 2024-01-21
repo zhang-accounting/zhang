@@ -1,6 +1,6 @@
 [package]
 name = "zhang"
-version = "0.0.0"
+version = "0.1.0"
 authors = ["Kilerd <blove694@gmail.com>"]
 description = "a plain text double-accounting tool which is compatible with beancount but more powerful"
 edition = "2018"
