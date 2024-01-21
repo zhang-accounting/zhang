@@ -44,7 +44,7 @@ pub async fn get_basic_info(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Bas
 
     ResponseWrapper::json(BasicInfo {
         title: operations.option("title")?.map(|it| it.value),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: env!("ZHANG_BUILD_VERSION").to_string(),
         build_date: env!("ZHANG_BUILD_DATE").to_string(),
     })
 }

@@ -84,7 +84,7 @@ impl ReloadSender {
 }
 
 pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
-    info!("version: {}, build date: {}", env!("CARGO_PKG_VERSION"), env!("ZHANG_BUILD_DATE"));
+    info!("version: {}, build date: {}", env!("ZHANG_BUILD_VERSION"), env!("ZHANG_BUILD_DATE"));
     let ledger = Ledger::async_load(opts.path.clone(), opts.endpoint.clone(), opts.transformer.clone()).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
     let broadcaster = Broadcaster::create();
@@ -324,7 +324,7 @@ async fn version_report_task(uuid: Uuid) -> ServerResult<()> {
     client
         .post("https://zhang-cloud.kilerd.me/client_report")
         .json(&VersionReport {
-            version: env!("CARGO_PKG_VERSION"),
+            version: env!("ZHANG_BUILD_VERSION"),
             build_date: env!("ZHANG_BUILD_DATE"),
             uuid: &uuid,
         })
@@ -344,7 +344,7 @@ async fn update_checker(broadcast: Arc<Broadcaster>) -> ServerResult<()> {
             .repo_owner("zhang-accounting")
             .repo_name("zhang")
             .bin_name("zhang")
-            .current_version(env!("CARGO_PKG_VERSION"))
+            .current_version(env!("ZHANG_BUILD_VERSION"))
             .build()
             .unwrap()
             .get_latest_release()
@@ -352,7 +352,7 @@ async fn update_checker(broadcast: Arc<Broadcaster>) -> ServerResult<()> {
     .await
     .expect("cannot spawn update checker task");
     if let Ok(release) = latest_release {
-        if bump_is_greater(env!("CARGO_PKG_VERSION"), &release.version).unwrap_or(false) {
+        if bump_is_greater(env!("ZHANG_BUILD_VERSION"), &release.version).unwrap_or(false) {
             broadcast.broadcast(BroadcastEvent::NewVersionFound { version: release.version }).await;
         }
     }
