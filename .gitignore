@@ -8,3 +8,4 @@ zhang-frontend/.parcel-cache
 zhang-frontend/.DS_Store
 .DS_Store
 .env
+.build_version

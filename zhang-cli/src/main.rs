@@ -165,7 +165,7 @@ impl Opts {
             }
             Opts::Update { verbose } => {
                 info!("performing self update");
-                info!("current version is {}", env!("CARGO_PKG_VERSION"));
+                info!("current version is {}", env!("ZHANG_BUILD_VERSION"));
                 let update_result = spawn_blocking(move || {
                     self_update::backends::github::Update::configure()
                         .repo_owner("zhang-accounting")
@@ -173,7 +173,7 @@ impl Opts {
                         .bin_name("zhang")
                         .show_download_progress(verbose)
                         .show_output(verbose)
-                        .current_version(env!("CARGO_PKG_VERSION"))
+                        .current_version(env!("ZHANG_BUILD_VERSION"))
                         .build()
                         .unwrap()
                         .update()
