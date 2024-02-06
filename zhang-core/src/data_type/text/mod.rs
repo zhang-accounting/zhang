@@ -1,0 +1,28 @@
+use crate::data_type::text::exporter::TextExportable;
+use crate::data_type::text::parser::parse;
+use crate::data_type::DataType;
+use crate::{ZhangError, ZhangResult};
+use std::path::PathBuf;
+use zhang_ast::{Directive, Spanned};
+
+#[allow(clippy::upper_case_acronyms)]
+#[allow(clippy::type_complexity)]
+pub mod parser;
+
+pub mod exporter;
+pub mod transformer;
+
+pub struct ZhangDataType {}
+
+impl DataType for ZhangDataType {
+    type Carrier = String;
+
+    fn transform<Source: Into<Option<String>>>(&self, raw_data: Self::Carrier, source: Source) -> ZhangResult<Vec<Spanned<Directive>>> {
+        let file = source.into().map(|it| PathBuf::from(it));
+        parse(&raw_data, file).map_err(|it| ZhangError::PestError(it.to_string()))
+    }
+
+    fn export(&self, directive: Spanned<Directive>) -> Self::Carrier {
+        directive.data.export()
+    }
+}

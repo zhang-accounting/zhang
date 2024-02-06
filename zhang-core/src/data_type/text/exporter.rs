@@ -357,8 +357,8 @@ mod test {
 
     use indoc::indoc;
 
-    use crate::text::exporter::TextExportable;
-    use crate::text::parser::parse;
+    use crate::data_type::text::exporter::TextExportable;
+    use crate::data_type::text::parser::parse;
 
     fn parse_and_export(from: &str) -> String {
         let directive = parse(from, None).unwrap().into_iter().next().unwrap();

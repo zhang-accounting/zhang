@@ -212,8 +212,8 @@ mod test {
     use tempfile::tempdir;
     use zhang_ast::{Directive, SpanInfo, Spanned};
 
+    use crate::data_type::text::parser::parse as parse_zhang;
     use crate::ledger::Ledger;
-    use crate::text::parser::parse as parse_zhang;
     use crate::transform::{TransformResult, Transformer};
     use crate::ZhangResult;
 

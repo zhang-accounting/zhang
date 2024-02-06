@@ -12,7 +12,9 @@ pub mod transform;
 pub mod utils;
 
 pub mod store;
-pub mod text;
+
+pub mod data_source;
+pub mod data_type;
 
 pub type ZhangResult<T> = Result<T, ZhangError>;
 pub use error::ZhangError;
@@ -27,8 +29,8 @@ mod test {
     use tempfile::tempdir;
     use zhang_ast::{Directive, Spanned};
 
+    use crate::data_type::text::parser::parse as parse_zhang;
     use crate::ledger::Ledger;
-    use crate::text::parser::parse as parse_zhang;
     use crate::transform::{TransformResult, Transformer};
     use crate::ZhangResult;
 
