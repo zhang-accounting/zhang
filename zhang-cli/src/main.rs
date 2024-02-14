@@ -9,12 +9,12 @@ use self_update::Status;
 use tokio::task::spawn_blocking;
 
 use beancount::Beancount;
+use zhang_core::data_type::text::transformer::TextTransformer;
 use zhang_core::ledger::Ledger;
-use zhang_core::text::transformer::TextTransformer;
 use zhang_core::transform::Transformer;
 use zhang_server::ServeConfig;
 
-use crate::opendal::OpendalTextTransformer;
+use crate::opendal::OpendalDataSource;
 
 pub mod opendal;
 
@@ -70,18 +70,18 @@ pub enum Exporter {
     Beancount,
 }
 #[derive(Debug, Clone, PartialEq, clap::ValueEnum)]
-pub enum DataSource {
+pub enum DataStoreSource {
     Fs,
     S3,
     WebDav,
 }
 
-impl DataSource {
-    fn from_env() -> Option<DataSource> {
+impl DataStoreSource {
+    fn from_env() -> Option<DataStoreSource> {
         match std::env::var("ZHANG_DATA_SOURCE").as_deref() {
-            Ok("fs") => Some(DataSource::Fs),
-            Ok("s3") => Some(DataSource::S3),
-            Ok("web-dav") => Some(DataSource::WebDav),
+            Ok("fs") => Some(DataStoreSource::Fs),
+            Ok("s3") => Some(DataStoreSource::S3),
+            Ok("web-dav") => Some(DataStoreSource::WebDav),
             _ => None,
         }
     }
@@ -110,7 +110,7 @@ pub struct ServerOpts {
 
     /// data source type, default is fs, or enable it via env ZHANG_AUTH
     #[clap(long)]
-    pub source: Option<DataSource>,
+    pub source: Option<DataStoreSource>,
 
     /// whether the server report version info for anonymous statistics
     #[clap(long)]
@@ -143,12 +143,13 @@ impl Opts {
         match self {
             Opts::Parse(parse_opts) => {
                 let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");
-                Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, format.transformer()).expect("Cannot load ledger");
+                // todo: fix parse
+                // Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, format.transformer()).expect("Cannot load ledger");
             }
             Opts::Export(_) => todo!(),
             Opts::Serve(mut opts) => {
-                let data_source = opts.source.clone().or(DataSource::from_env()).unwrap_or(DataSource::Fs);
-                let transformer = OpendalTextTransformer::from_env(data_source.clone(), &mut opts).await;
+                let data_source = opts.source.clone().or(DataStoreSource::from_env()).unwrap_or(DataStoreSource::Fs);
+                let transformer = OpendalDataSource::from_env(data_source.clone(), &mut opts).await;
                 let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(':'));
                 zhang_server::serve(ServeConfig {
                     path: opts.path,
@@ -156,7 +157,7 @@ impl Opts {
                     addr: opts.addr,
                     port: opts.port,
                     auth_credential,
-                    is_local_fs: data_source == DataSource::Fs,
+                    is_local_fs: data_source == DataStoreSource::Fs,
                     no_report: opts.no_report,
                     transformer: Arc::new(transformer),
                 })
@@ -236,8 +237,8 @@ mod test {
     use zhang_server::broadcast::Broadcaster;
     use zhang_server::{create_server_app, ReloadSender};
 
-    use crate::opendal::OpendalTextTransformer;
-    use crate::{DataSource, ServerOpts};
+    use crate::opendal::OpendalDataSource;
+    use crate::{DataStoreSource, ServerOpts};
 
     macro_rules! pprintln {
 
@@ -274,8 +275,8 @@ mod test {
             for validation in validations {
                 pprintln!("      \x1b[0;32mTesting\x1b[0;0m: {}", &validation.uri);
 
-                let transformer = OpendalTextTransformer::from_env(
-                    DataSource::Fs,
+                let transformer = OpendalDataSource::from_env(
+                    DataStoreSource::Fs,
                     &mut ServerOpts {
                         path: pathbuf.clone(),
                         endpoint: "main.zhang".to_owned(),

@@ -43,6 +43,8 @@ use routes::document::*;
 use routes::file::*;
 use routes::statistics::*;
 use routes::transaction::*;
+use zhang_core::data_source::DataSource;
+
 pub type ServerResult<T> = Result<T, ServerError>;
 
 pub type LedgerState = Arc<RwLock<Ledger>>;
@@ -70,7 +72,7 @@ pub struct ServeConfig {
     pub addr: String,
     pub port: u16,
     pub no_report: bool,
-    pub transformer: Arc<dyn Transformer>,
+    pub transformer: Arc<dyn DataSource>,
     pub auth_credential: Option<String>,
     pub is_local_fs: bool,
 }

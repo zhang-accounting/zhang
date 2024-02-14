@@ -54,7 +54,7 @@ where
     }
     fn parse(&self, content: &str, path: PathBuf) -> ZhangResult<Vec<Self::FileOutput>>;
     fn go_next(&self, directive: &Self::FileOutput) -> Option<String>;
-    fn transform(&self, directives: Vec<Self::FileOutput>) -> ZhangResult<Vec<Spanned<Directive>>>;
+    fn transform_old(&self, directives: Vec<Self::FileOutput>) -> ZhangResult<Vec<Spanned<Directive>>>;
 
     fn get_content(&self, path: String) -> ZhangResult<Vec<u8>>;
     fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()>;
@@ -97,7 +97,7 @@ where
             visited.push(pathbuf);
         }
         Ok(TransformResult {
-            directives: self.transform(directives)?,
+            directives: self.transform_old(directives)?,
             visited_files: visited,
         })
     }

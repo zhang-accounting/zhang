@@ -25,6 +25,7 @@ mod test {
     use std::path::PathBuf;
     use std::sync::Arc;
 
+    use crate::data_source::DataSource;
     use serde_json_path::JsonPath;
     use tempfile::tempdir;
     use zhang_ast::{Directive, Spanned};
@@ -36,8 +37,13 @@ mod test {
 
     struct TestTransformer {}
 
-    impl Transformer for TestTransformer {
-        fn load(&self, entry: PathBuf, endpoint: String) -> ZhangResult<TransformResult> {
+    impl DataSource for TestTransformer {
+        fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
+            todo!()
+        }
+
+        fn load(&self, entry: String, endpoint: String) -> ZhangResult<TransformResult> {
+            let entry = PathBuf::from(entry);
             let file = entry.join(endpoint);
             let string = std::fs::read_to_string(&file).unwrap();
             let result: Vec<Spanned<Directive>> = parse_zhang(&string, file).expect("cannot read file");
@@ -47,18 +53,15 @@ mod test {
             })
         }
 
-        fn get_content(&self, _: String) -> ZhangResult<Vec<u8>> {
+        fn save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
             todo!()
         }
 
-        fn append_directives(&self, _: &Ledger, _: Vec<Directive>) -> ZhangResult<()> {
-            todo!()
-        }
-
-        fn save_content(&self, _: &Ledger, _: String, _: &[u8]) -> ZhangResult<()> {
+        fn append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
             todo!()
         }
     }
+
     fn load_from_text(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().into_path();
         let example = temp_dir.join("example.zhang");

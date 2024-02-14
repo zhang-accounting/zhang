@@ -50,14 +50,14 @@ impl TextTransformer {
             )?;
         }
 
-        let content_buf = ledger.transformer.get_content(endpoint.to_string_lossy().to_string())?;
+        let content_buf = ledger.transformer.get(endpoint.to_string_lossy().to_string())?;
         let content = String::from_utf8(content_buf)?;
 
         let appended_content = format!("{}\n{}\n", content, self.exporter.export_directive(directive));
 
         ledger
             .transformer
-            .save_content(ledger, endpoint.to_string_lossy().to_string(), appended_content.as_bytes())?;
+            .save(ledger, endpoint.to_string_lossy().to_string(), appended_content.as_bytes())?;
         Ok(())
     }
 }
@@ -75,7 +75,7 @@ impl TextFileBasedTransformer for TextTransformer {
             _ => None,
         }
     }
-    fn transform(&self, directives: Vec<Self::FileOutput>) -> ZhangResult<Vec<Spanned<Directive>>> {
+    fn transform_old(&self, directives: Vec<Self::FileOutput>) -> ZhangResult<Vec<Spanned<Directive>>> {
         Ok(directives)
     }
 

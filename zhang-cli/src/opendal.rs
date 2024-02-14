@@ -8,24 +8,62 @@ use opendal::services::{Fs, Webdav};
 use opendal::{ErrorKind, Operator};
 
 use beancount::Beancount;
-use zhang_ast::{Directive, Include, Spanned, ZhangString};
+use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
+use zhang_core::data_source::DataSource;
+use zhang_core::data_type::text::exporter::TextExporter;
+use zhang_core::data_type::text::parser::parse as zhang_parse;
+use zhang_core::data_type::text::ZhangDataType;
+use zhang_core::data_type::DataType;
 use zhang_core::exporter::Exporter;
 use zhang_core::ledger::Ledger;
-use zhang_core::text::exporter::TextExporter;
-use zhang_core::text::parser::parse as zhang_parse;
 use zhang_core::transform::{TextFileBasedTransformer, TransformResult, Transformer};
 use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
 
-use crate::{DataSource, ServerOpts};
+use crate::{DataStoreSource, ServerOpts};
 
-pub struct OpendalTextTransformer {
+pub struct OpendalDataSource {
     operator: Operator,
-    data_type: Box<dyn Exporter<Output = String> + 'static + Send + Sync>,
+    new_data_type: Box<dyn DataType<Carrier = String> + 'static + Send + Sync>,
     is_beancount: bool,
 }
 
-impl OpendalTextTransformer {
+#[async_trait::async_trait]
+impl DataSource for OpendalDataSource {
+    fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
+        todo!()
+    }
+
+    fn load(&self, entry: String, path: String) -> ZhangResult<TransformResult> {
+        todo!()
+    }
+
+    fn save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+        todo!()
+    }
+
+    fn append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        todo!()
+    }
+
+    async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<TransformResult> {
+        todo!()
+    }
+
+    async fn async_get(&self, path: String) -> ZhangResult<Vec<u8>> {
+        todo!()
+    }
+
+    async fn async_append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        todo!()
+    }
+
+    async fn async_save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+        todo!()
+    }
+}
+
+impl OpendalDataSource {
     #[async_recursion]
     async fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, check_file_visit: bool) -> ZhangResult<()> {
         let (entry, main_file_endpoint) = &ledger.entry;
@@ -60,26 +98,26 @@ impl OpendalTextTransformer {
             .await?;
         }
 
-        let content_buf = ledger.transformer.async_get_content(striped_endpoint.to_string_lossy().to_string()).await?;
+        let content_buf = ledger.transformer.async_get(striped_endpoint.to_string_lossy().to_string()).await?;
         let content = String::from_utf8(content_buf)?;
 
-        let appended_content = format!("{}\n{}\n", content, self.data_type.export_directive(directive));
+        let appended_content = format!("{}\n{}\n", content, self.new_data_type.export(Spanned::new(directive, SpanInfo::default())));
 
         ledger
             .transformer
-            .async_save_content(ledger, striped_endpoint.to_string_lossy().to_string(), appended_content.as_bytes())
+            .async_save(ledger, striped_endpoint.to_string_lossy().to_string(), appended_content.as_bytes())
             .await?;
         Ok(())
     }
-    pub async fn from_env(source: DataSource, server_opts: &mut ServerOpts) -> OpendalTextTransformer {
+    pub async fn from_env(source: DataStoreSource, server_opts: &mut ServerOpts) -> OpendalDataSource {
         let operator = match source {
-            DataSource::Fs => {
+            DataStoreSource::Fs => {
                 let mut builder = Fs::default();
                 builder.root(server_opts.path.to_string_lossy().to_string().as_str());
                 // Operator::new(builder).unwrap().finish()
                 Operator::new(builder).unwrap().finish()
             }
-            DataSource::WebDav => {
+            DataStoreSource::WebDav => {
                 let mut webdav_builder = Webdav::default();
                 webdav_builder.endpoint(&std::env::var("ZHANG_WEBDAV_ENDPOINT").expect("ZHANG_WEBDAV_ENDPOINT must be set"));
                 let webdav_root = std::env::var("ZHANG_WEBDAV_ROOT").expect("ZHANG_WEBDAV_ROOT must be set");
@@ -104,11 +142,10 @@ impl OpendalTextTransformer {
             "zhang" => false,
             _ => unreachable!(),
         };
-        let data_type: Box<dyn Exporter<Output = String> + Send + Sync> = if is_beancount { Box::new(Beancount {}) } else { Box::new(TextExporter {}) };
-
+        let new_data_type: Box<dyn DataType<Carrier = String> + Send + Sync> = if is_beancount { Box::new(Beancount {}) } else { Box::new(ZhangDataType {}) };
         Self {
             operator,
-            data_type,
+            new_data_type,
             is_beancount,
         }
     }
@@ -119,7 +156,7 @@ impl OpendalTextTransformer {
             beancount_parser
                 .parse(content, path)
                 .map_err(|it| ZhangError::PestError(it.to_string()))
-                .and_then(|data| beancount_parser.transform(data))
+                .and_then(|data| beancount_parser.transform_old(data))
         } else {
             zhang_parse(content, path).map_err(|it| ZhangError::PestError(it.to_string()))
         }
@@ -142,7 +179,7 @@ impl OpendalTextTransformer {
 }
 
 #[async_trait::async_trait]
-impl Transformer for OpendalTextTransformer {
+impl Transformer for OpendalDataSource {
     fn load(&self, _entry: PathBuf, _endpoint: String) -> ZhangResult<TransformResult> {
         unimplemented!()
     }

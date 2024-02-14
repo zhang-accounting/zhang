@@ -9,12 +9,14 @@ use crate::ZhangResult;
 /// The Data Source have two capabilities:
 /// - given the endpoint, `DataSource` need to retrieve the raw data from source and feed it to associated `DataType` and get the directives from `DataType` processor.
 /// - given the directive, `DataSource` need to update or insert the given directive into source, which is the place where the raw data is stored.
-pub trait DataSource {
-    type DataType: DataType;
-
+#[async_trait::async_trait]
+pub trait DataSource
+where
+    Self: Send + Sync,
+{
     fn get(&self, path: String) -> ZhangResult<Vec<u8>>;
 
-    fn load(&self, entry: String, path: String) -> ZhangResult<TransformResult>;
+    fn load(&self, entry: String, endpoint: String) -> ZhangResult<TransformResult>;
 
     fn save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()>;
 

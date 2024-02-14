@@ -17,8 +17,8 @@ pub struct ZhangDataType {}
 impl DataType for ZhangDataType {
     type Carrier = String;
 
-    fn transform<Source: Into<Option<String>>>(&self, raw_data: Self::Carrier, source: Source) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let file = source.into().map(|it| PathBuf::from(it));
+    fn transform(&self, raw_data: Self::Carrier, source: Option<String>) -> ZhangResult<Vec<Spanned<Directive>>> {
+        let file = source.map(|it| PathBuf::from(it));
         parse(&raw_data, file).map_err(|it| ZhangError::PestError(it.to_string()))
     }
 
