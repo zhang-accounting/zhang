@@ -140,7 +140,7 @@ impl OpendalDataSource {
         {
             "bc" | "bean" => true,
             "zhang" => false,
-            _ => unreachable!(),
+            _ => unreachable!("not supported data format"),
         };
         let new_data_type: Box<dyn DataType<Carrier = String> + Send + Sync> = if is_beancount { Box::new(Beancount {}) } else { Box::new(ZhangDataType {}) };
         Self {

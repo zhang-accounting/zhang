@@ -338,7 +338,7 @@ impl TextFileBasedTransformer for Beancount {
         }
     }
     fn transform_old(&self, directives: Vec<Self::FileOutput>) -> ZhangResult<Vec<Spanned<Directive>>> {
-        unreachable!()
+        unreachable!(" transform old function should be removed and not triggered")
     }
 
     fn get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
@@ -400,7 +400,7 @@ mod test {
         let mut directive = test_parse_zhang! {"1970-01-01 open Assets:BankAccount"};
         match &mut directive {
             Directive::Open(ref mut open) => open.date = Date::Datetime(open.date.naive_date().and_hms_nano_opt(1, 1, 1, 0).unwrap()),
-            _ => unreachable!(),
+            _ => unreachable!("only open directive"),
         }
 
         let beancount_exporter = Beancount {};
@@ -426,7 +426,7 @@ mod test {
                 pad: Account::from_str("Equity:Open-Balances").unwrap(),
                 meta: Default::default(),
             }),
-            _ => unreachable!(),
+            _ => unreachable!("should only have balance directive"),
         };
 
         let beancount_exporter = Beancount {};
@@ -443,6 +443,7 @@ mod test {
     #[test]
     fn should_append_tag_to_transaction_directive_given_push_tag_directive() {
         let transformer = Beancount::default();
+
         let mut directives = transformer
             .transform_old(vec![
                 Spanned::new(BeancountDirective::Right(BeancountOnlyDirective::PushTag("onetag".to_string())), fake_span()),
@@ -466,7 +467,7 @@ mod test {
         let directive = directives.pop().unwrap().data;
         match directive {
             Directive::Transaction(mut trx) => assert_eq!("onetag", trx.tags.pop().unwrap()),
-            _ => unreachable!(),
+            _ => unreachable!("find other directives than txn directive"),
         }
     }
 
@@ -497,7 +498,7 @@ mod test {
         let directive = directives.pop().unwrap().data;
         match directive {
             Directive::Transaction(mut trx) => assert_eq!(None, trx.tags.pop()),
-            _ => unreachable!(),
+            _ => unreachable!("find other directives than txn directive"),
         }
     }
 

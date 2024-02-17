@@ -894,7 +894,7 @@ mod test {
                 let directive = parse(content, None).unwrap().pop().unwrap();
                 match directive.data {
                     Directive::Transaction(trx) => trx,
-                    _ => unreachable!(),
+                    _ => unreachable!("find other directives than txn directive"),
                 }
             }
             #[test]
