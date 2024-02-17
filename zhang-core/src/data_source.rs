@@ -21,13 +21,21 @@ pub trait DataSource
 where
     Self: Send + Sync,
 {
-    fn get(&self, path: String) -> ZhangResult<Vec<u8>>;
+    fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
+        unimplemented!()
+    }
 
-    fn load(&self, entry: String, endpoint: String) -> ZhangResult<TransformResult>;
+    fn load(&self, entry: String, endpoint: String) -> ZhangResult<TransformResult> {
+        unimplemented!()
+    }
 
-    fn save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()>;
+    fn save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+        unimplemented!()
+    }
 
-    fn append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()>;
+    fn append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        unimplemented!()
+    }
 
     async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<TransformResult> {
         self.load(entry, endpoint)
