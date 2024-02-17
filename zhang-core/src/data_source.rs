@@ -1,4 +1,4 @@
-use chrono::Datelike;
+use chrono::{Datelike, Local};
 use log::debug;
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -50,6 +50,11 @@ pub struct LocalFileSystemDataSource {
 }
 
 impl LocalFileSystemDataSource {
+    pub fn new<DT: DataType<Carrier = String> + Send + Sync + 'static>(data_type: DT) -> Self {
+        LocalFileSystemDataSource {
+            data_type: Box::new(data_type),
+        }
+    }
     fn go_next(&self, directive: &Spanned<Directive>) -> Option<String> {
         match &directive.data {
             Directive::Include(include) => Some(include.file.clone().to_plain_string()),

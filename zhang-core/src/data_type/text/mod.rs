@@ -12,6 +12,7 @@ pub mod parser;
 pub mod exporter;
 pub mod transformer;
 
+#[derive(Default)]
 pub struct ZhangDataType {}
 
 impl DataType for ZhangDataType {

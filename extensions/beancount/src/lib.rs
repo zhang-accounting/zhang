@@ -13,7 +13,6 @@ use zhang_core::data_type::DataType;
 use zhang_core::error::IoErrorIntoZhangError;
 use zhang_core::exporter::Exporter;
 use zhang_core::ledger::Ledger;
-use zhang_core::transform::TextFileBasedTransformer;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{ZhangError, ZhangResult};
 
@@ -323,39 +322,39 @@ impl Beancount {
         }
     }
 }
-
-impl TextFileBasedTransformer for Beancount {
-    type FileOutput = Spanned<BeancountDirective>;
-
-    fn parse(&self, content: &str, path: PathBuf) -> ZhangResult<Vec<Self::FileOutput>> {
-        parse(content, path).map_err(|it| ZhangError::PestError(it.to_string()))
-    }
-
-    fn go_next(&self, directive: &Self::FileOutput) -> Option<String> {
-        match &directive.data {
-            Either::Left(Directive::Include(include)) => Some(include.file.clone().to_plain_string()),
-            _ => None,
-        }
-    }
-    fn transform_old(&self, directives: Vec<Self::FileOutput>) -> ZhangResult<Vec<Spanned<Directive>>> {
-        unreachable!(" transform old function should be removed and not triggered")
-    }
-
-    fn get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
-        Ok(std::fs::read(PathBuf::from(path))?)
-    }
-
-    fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-        for directive in directives {
-            self.append_directive(ledger, directive, None, true)?;
-        }
-        Ok(())
-    }
-
-    fn save_content(&self, _: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
-        std::fs::write(&path, content).with_path(PathBuf::from(path).as_path())
-    }
-}
+//
+// impl TextFileBasedTransformer for Beancount {
+//     type FileOutput = Spanned<BeancountDirective>;
+//
+//     fn parse(&self, content: &str, path: PathBuf) -> ZhangResult<Vec<Self::FileOutput>> {
+//         parse(content, path).map_err(|it| ZhangError::PestError(it.to_string()))
+//     }
+//
+//     fn go_next(&self, directive: &Self::FileOutput) -> Option<String> {
+//         match &directive.data {
+//             Either::Left(Directive::Include(include)) => Some(include.file.clone().to_plain_string()),
+//             _ => None,
+//         }
+//     }
+//     fn transform_old(&self, directives: Vec<Self::FileOutput>) -> ZhangResult<Vec<Spanned<Directive>>> {
+//         unreachable!(" transform old function should be removed and not triggered")
+//     }
+//
+//     fn get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
+//         Ok(std::fs::read(PathBuf::from(path))?)
+//     }
+//
+//     fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+//         for directive in directives {
+//             self.append_directive(ledger, directive, None, true)?;
+//         }
+//         Ok(())
+//     }
+//
+//     fn save_content(&self, _: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+//         std::fs::write(&path, content).with_path(PathBuf::from(path).as_path())
+//     }
+// }
 
 #[cfg(test)]
 mod test {
@@ -366,9 +365,9 @@ mod test {
     use indoc::indoc;
     use zhang_ast::amount::Amount;
     use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned, Transaction, ZhangString};
+    use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::data_type::DataType;
     use zhang_core::exporter::Exporter;
-    use zhang_core::transform::TextFileBasedTransformer;
 
     use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
     use crate::{parse, Beancount};
@@ -443,26 +442,18 @@ mod test {
     #[test]
     fn should_append_tag_to_transaction_directive_given_push_tag_directive() {
         let transformer = Beancount::default();
-
         let mut directives = transformer
-            .transform_old(vec![
-                Spanned::new(BeancountDirective::Right(BeancountOnlyDirective::PushTag("onetag".to_string())), fake_span()),
-                Spanned::new(
-                    BeancountDirective::Left(Directive::Transaction(Transaction {
-                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
-                        flag: None,
-                        payee: None,
-                        narration: None,
-                        tags: Default::default(),
-                        links: Default::default(),
-                        postings: vec![],
-                        meta: Default::default(),
-                    })),
-                    fake_span(),
-                ),
-            ])
+            .transform(
+                indoc! {r#"
+                pushtag #onetag
+                1970-01-01 "payee" "narration"
+                  Assets:BancCard -100 CNY
+            "#}
+                .to_string(),
+                None,
+            )
             .unwrap();
-
+        dbg!(&directives);
         assert_eq!(directives.len(), 1);
         let directive = directives.pop().unwrap().data;
         match directive {
@@ -474,24 +465,18 @@ mod test {
     #[test]
     fn should_not_append_tag_to_transaction_directive_given_push_tag_directive() {
         let transformer = Beancount::default();
+
         let mut directives = transformer
-            .transform_old(vec![
-                Spanned::new(BeancountDirective::Right(BeancountOnlyDirective::PushTag("onetag".to_string())), fake_span()),
-                Spanned::new(BeancountDirective::Right(BeancountOnlyDirective::PopTag("onetag".to_string())), fake_span()),
-                Spanned::new(
-                    BeancountDirective::Left(Directive::Transaction(Transaction {
-                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
-                        flag: None,
-                        payee: None,
-                        narration: None,
-                        tags: Default::default(),
-                        links: Default::default(),
-                        postings: vec![],
-                        meta: Default::default(),
-                    })),
-                    fake_span(),
-                ),
-            ])
+            .transform(
+                indoc! {r#"
+                pushtag #onetag
+                poptag #onetag
+                1970-01-01 "payee" "narration"
+                  Assets:BancCard -100 CNY
+            "#}
+                .to_string(),
+                None,
+            )
             .unwrap();
 
         assert_eq!(directives.len(), 1);
@@ -506,15 +491,13 @@ mod test {
     fn should_transform_to_non_given_pad_directive() {
         let transformer = Beancount::default();
         let directives = transformer
-            .transform_old(vec![Spanned::new(
-                BeancountDirective::Right(BeancountOnlyDirective::Pad(PadDirective {
-                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
-                    account: Account::from_str("Assets::BankAccount").unwrap(),
-                    pad: Account::from_str("Equity::Open-Balances").unwrap(),
-                    meta: Default::default(),
-                })),
-                fake_span(),
-            )])
+            .transform(
+                indoc! {r#"
+                1970-01-01 pad Assets:BankAccount Equity:Open-Balances
+            "#}
+                .to_string(),
+                None,
+            )
             .unwrap();
 
         assert_eq!(directives.len(), 0);
@@ -524,15 +507,13 @@ mod test {
     fn should_transform_to_balance_check_directive_given_balance_directive() {
         let transformer = Beancount::default();
         let mut directives = transformer
-            .transform_old(vec![Spanned::new(
-                BeancountDirective::Right(BeancountOnlyDirective::Balance(BalanceDirective {
-                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
-                    account: Account::from_str("Assets::BankAccount").unwrap(),
-                    meta: Default::default(),
-                    amount: Amount::new(BigDecimal::from(100i32), "CNY"),
-                })),
-                fake_span(),
-            )])
+            .transform(
+                indoc! {r#"
+                1970-01-02 balance Assets:BankAccount 100 CNY
+            "#}
+                .to_string(),
+                None,
+            )
             .unwrap();
 
         assert_eq!(directives.len(), 1);
@@ -543,7 +524,7 @@ mod test {
             balance_pad_directive,
             Directive::BalanceCheck(BalanceCheck {
                 date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
-                account: Account::from_str("Assets::BankAccount").unwrap(),
+                account: Account::from_str("Assets:BankAccount").unwrap(),
                 amount: Amount::new(BigDecimal::from(100i32), "CNY"),
                 meta: Default::default(),
             })
@@ -554,26 +535,14 @@ mod test {
     fn should_transform_to_balance_pad_directive_given_pad_and_balance_directive() {
         let transformer = Beancount::default();
         let mut directives = transformer
-            .transform_old(vec![
-                Spanned::new(
-                    BeancountDirective::Right(BeancountOnlyDirective::Pad(PadDirective {
-                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
-                        account: Account::from_str("Assets::BankAccount").unwrap(),
-                        pad: Account::from_str("Equity::Open-Balances").unwrap(),
-                        meta: Default::default(),
-                    })),
-                    fake_span(),
-                ),
-                Spanned::new(
-                    BeancountDirective::Right(BeancountOnlyDirective::Balance(BalanceDirective {
-                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
-                        account: Account::from_str("Assets::BankAccount").unwrap(),
-                        meta: Default::default(),
-                        amount: Amount::new(BigDecimal::from(100i32), "CNY"),
-                    })),
-                    fake_span(),
-                ),
-            ])
+            .transform(
+                indoc! {r#"
+                1970-01-01 pad Assets:BankAccount Equity:Open-Balances
+                1970-01-02 balance Assets:BankAccount 100 CNY
+            "#}
+                .to_string(),
+                None,
+            )
             .unwrap();
 
         assert_eq!(directives.len(), 1);
@@ -584,9 +553,9 @@ mod test {
             balance_pad_directive,
             Directive::BalancePad(BalancePad {
                 date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
-                account: Account::from_str("Assets::BankAccount").unwrap(),
+                account: Account::from_str("Assets:BankAccount").unwrap(),
                 amount: Amount::new(BigDecimal::from(100i32), "CNY"),
-                pad: Account::from_str("Equity::Open-Balances").unwrap(),
+                pad: Account::from_str("Equity:Open-Balances").unwrap(),
                 meta: Default::default(),
             })
         );
@@ -596,18 +565,15 @@ mod test {
     fn should_parse_time_from_meta() {
         let transformer = Beancount::default();
 
-        let mut meta = Meta::default();
-        meta.insert("time".to_string(), ZhangString::quote("01:02:03"));
         let mut directives = transformer
-            .transform_old(vec![Spanned::new(
-                BeancountDirective::Left(Directive::Open(Open {
-                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
-                    account: Account::from_str("Assets::BankAccount").unwrap(),
-                    commodities: vec![],
-                    meta,
-                })),
-                fake_span(),
-            )])
+            .transform(
+                indoc! {r#"
+                1970-01-02 open Assets:BankAccount
+                  time: "01:02:03"
+            "#}
+                .to_string(),
+                None,
+            )
             .unwrap();
 
         assert_eq!(directives.len(), 1);
@@ -618,7 +584,7 @@ mod test {
             balance_pad_directive,
             Directive::Open(Open {
                 date: Date::Datetime(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap().and_hms_micro_opt(1, 2, 3, 0).unwrap()),
-                account: Account::from_str("Assets::BankAccount").unwrap(),
+                account: Account::from_str("Assets:BankAccount").unwrap(),
                 commodities: vec![],
                 meta: Meta::default(),
             })

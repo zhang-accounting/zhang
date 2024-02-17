@@ -16,7 +16,7 @@ use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::exporter::Exporter;
 use zhang_core::ledger::Ledger;
-use zhang_core::transform::{TextFileBasedTransformer, TransformResult, Transformer};
+use zhang_core::transform::{TransformResult, Transformer};
 use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
 
@@ -154,9 +154,8 @@ impl OpendalDataSource {
         if self.is_beancount {
             let beancount_parser = beancount::Beancount {};
             beancount_parser
-                .parse(content, path)
+                .transform(content.to_string(), Some(path.to_string_lossy().to_string()))
                 .map_err(|it| ZhangError::PestError(it.to_string()))
-                .and_then(|data| beancount_parser.transform_old(data))
         } else {
             zhang_parse(content, path).map_err(|it| ZhangError::PestError(it.to_string()))
         }

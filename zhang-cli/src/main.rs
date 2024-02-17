@@ -10,6 +10,8 @@ use tokio::task::spawn_blocking;
 
 use beancount::Beancount;
 use zhang_core::data_type::text::transformer::TextTransformer;
+use zhang_core::data_type::text::ZhangDataType;
+use zhang_core::data_type::DataType;
 use zhang_core::ledger::Ledger;
 use zhang_core::transform::Transformer;
 use zhang_server::ServeConfig;
@@ -130,9 +132,9 @@ impl SupportedFormat {
             _ => None,
         })
     }
-    fn transformer(&self) -> Arc<dyn Transformer + 'static> {
+    fn data_type(&self) -> Arc<dyn DataType<Carrier = String> + 'static> {
         match self {
-            SupportedFormat::Zhang => Arc::new(TextTransformer::default()),
+            SupportedFormat::Zhang => Arc::new(ZhangDataType::default()),
             SupportedFormat::Beancount => Arc::new(Beancount::default()),
         }
     }

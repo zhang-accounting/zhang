@@ -566,6 +566,10 @@ impl BeancountParer {
             [valuable_comment(item)] => Either::Left(Directive::Comment(Comment { content:item })),
 
             [metable_head(head)]            => head,
+            [metable_head(head), metas(meta)]  => {match head {
+                Either::Left(directive) => Either::Left(directive.set_meta(meta)),
+                Either::Right(directive) => Either::Right(directive.set_meta(meta)),
+            }},
 
             [transaction(item)]     => Either::Left(item),
 
