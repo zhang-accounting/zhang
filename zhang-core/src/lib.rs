@@ -6,7 +6,6 @@ pub mod error;
 pub mod ledger;
 pub mod options;
 
-pub mod exporter;
 pub(crate) mod process;
 pub mod transform;
 pub mod utils;

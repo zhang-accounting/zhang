@@ -6,7 +6,7 @@ use itertools::{Either, Itertools};
 use latestmap::LatestMap;
 
 use zhang_ast::*;
-use zhang_core::data_type::text::exporter::{append_meta, TextExportable};
+use zhang_core::data_type::text::exporter::{append_meta, ZhangDataTypeExportable};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::{ZhangError, ZhangResult};
@@ -189,10 +189,10 @@ trait BeancountOnlyExportable {
 impl BeancountOnlyExportable for BalanceDirective {
     fn bc_to_string(self) -> String {
         let line = [
-            TextExportable::export(self.date),
+            ZhangDataTypeExportable::export(self.date),
             "balance".to_string(),
-            TextExportable::export(self.account),
-            TextExportable::export(self.amount),
+            ZhangDataTypeExportable::export(self.account),
+            ZhangDataTypeExportable::export(self.amount),
         ]
         .join(" ");
         append_meta(self.meta, line)
@@ -202,10 +202,10 @@ impl BeancountOnlyExportable for BalanceDirective {
 impl BeancountOnlyExportable for PadDirective {
     fn bc_to_string(self) -> String {
         let line = [
-            TextExportable::export(self.date),
+            ZhangDataTypeExportable::export(self.date),
             "pad".to_string(),
-            TextExportable::export(self.account),
-            TextExportable::export(self.pad),
+            ZhangDataTypeExportable::export(self.account),
+            ZhangDataTypeExportable::export(self.pad),
         ]
         .join(" ");
         append_meta(self.meta, line)
