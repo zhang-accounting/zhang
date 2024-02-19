@@ -3,22 +3,10 @@ use itertools::Itertools;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 
-use crate::exporter::Exporter;
 use crate::ledger::Ledger;
 use crate::utils::string_::escape_with_quote;
 
-#[derive(Clone, Default)]
-pub struct TextExporter {}
-
-impl Exporter for TextExporter {
-    type Output = String;
-
-    fn export_directive(&self, directive: Directive) -> Self::Output {
-        directive.export()
-    }
-}
-
-pub trait TextExportable {
+pub trait ZhangDataTypeExportable {
     type Output;
     fn export(self) -> Self::Output;
 }
@@ -29,7 +17,7 @@ pub fn append_meta(meta: Meta, string: String) -> String {
     metas.join("\n")
 }
 
-impl TextExportable for Date {
+impl ZhangDataTypeExportable for Date {
     type Output = String;
     fn export(self) -> String {
         match self {
@@ -40,27 +28,27 @@ impl TextExportable for Date {
     }
 }
 
-impl TextExportable for Flag {
+impl ZhangDataTypeExportable for Flag {
     type Output = String;
     fn export(self) -> String {
         self.to_string()
     }
 }
 
-impl TextExportable for Account {
+impl ZhangDataTypeExportable for Account {
     type Output = String;
     fn export(self) -> String {
         self.content
     }
 }
-impl TextExportable for Amount {
+impl ZhangDataTypeExportable for Amount {
     type Output = String;
     fn export(self) -> String {
         format!("{} {}", self.number, self.currency)
     }
 }
 
-impl TextExportable for Meta {
+impl ZhangDataTypeExportable for Meta {
     type Output = Vec<String>;
     fn export(self) -> Vec<String> {
         self.get_flatten()
@@ -71,7 +59,7 @@ impl TextExportable for Meta {
     }
 }
 
-impl TextExportable for ZhangString {
+impl ZhangDataTypeExportable for ZhangString {
     type Output = String;
     fn export(self) -> String {
         match self {
@@ -81,7 +69,7 @@ impl TextExportable for ZhangString {
     }
 }
 
-impl TextExportable for StringOrAccount {
+impl ZhangDataTypeExportable for StringOrAccount {
     type Output = String;
     fn export(self) -> String {
         match self {
@@ -91,7 +79,7 @@ impl TextExportable for StringOrAccount {
     }
 }
 
-impl TextExportable for Transaction {
+impl ZhangDataTypeExportable for Transaction {
     type Output = String;
     fn export(self) -> String {
         let mut header = vec![
@@ -119,7 +107,7 @@ impl TextExportable for Transaction {
     }
 }
 
-impl TextExportable for Posting {
+impl ZhangDataTypeExportable for Posting {
     type Output = Vec<String>;
     fn export(self) -> Vec<String> {
         // todo cost and price
@@ -143,7 +131,7 @@ impl TextExportable for Posting {
     }
 }
 
-impl TextExportable for SingleTotalPrice {
+impl ZhangDataTypeExportable for SingleTotalPrice {
     type Output = String;
     fn export(self) -> String {
         match self {
@@ -157,7 +145,7 @@ impl TextExportable for SingleTotalPrice {
     }
 }
 
-impl TextExportable for Open {
+impl ZhangDataTypeExportable for Open {
     type Output = String;
     fn export(self) -> String {
         let mut line = vec![self.date.export(), "open".to_string(), self.account.export()];
@@ -170,7 +158,7 @@ impl TextExportable for Open {
     }
 }
 
-impl TextExportable for Close {
+impl ZhangDataTypeExportable for Close {
     type Output = String;
     fn export(self) -> String {
         let line = vec![self.date.export(), "close".to_string(), self.account.export()];
@@ -178,7 +166,7 @@ impl TextExportable for Close {
     }
 }
 
-impl TextExportable for Commodity {
+impl ZhangDataTypeExportable for Commodity {
     type Output = String;
     fn export(self) -> String {
         let line = vec![self.date.export(), "commodity".to_string(), self.currency];
@@ -186,7 +174,7 @@ impl TextExportable for Commodity {
     }
 }
 
-impl TextExportable for BalancePad {
+impl ZhangDataTypeExportable for BalancePad {
     type Output = String;
     fn export(self) -> String {
         let line = vec![
@@ -200,7 +188,7 @@ impl TextExportable for BalancePad {
         append_meta(self.meta, line.join(" "))
     }
 }
-impl TextExportable for BalanceCheck {
+impl ZhangDataTypeExportable for BalanceCheck {
     type Output = String;
     fn export(self) -> String {
         let line = vec![self.date.export(), "balance".to_string(), self.account.export(), self.amount.export()];
@@ -208,7 +196,7 @@ impl TextExportable for BalanceCheck {
     }
 }
 
-impl TextExportable for Note {
+impl ZhangDataTypeExportable for Note {
     type Output = String;
     fn export(self) -> String {
         let line = vec![self.date.export(), "note".to_string(), self.account.export(), self.comment.export()];
@@ -216,7 +204,7 @@ impl TextExportable for Note {
     }
 }
 
-impl TextExportable for Document {
+impl ZhangDataTypeExportable for Document {
     type Output = String;
     fn export(self) -> String {
         let line = vec![self.date.export(), "document".to_string(), self.account.export(), self.filename.export()];
@@ -224,7 +212,7 @@ impl TextExportable for Document {
     }
 }
 
-impl TextExportable for Price {
+impl ZhangDataTypeExportable for Price {
     type Output = String;
     fn export(self) -> String {
         let line = vec![self.date.export(), "price".to_string(), self.currency, self.amount.export()];
@@ -232,7 +220,7 @@ impl TextExportable for Price {
     }
 }
 
-impl TextExportable for Event {
+impl ZhangDataTypeExportable for Event {
     type Output = String;
     fn export(self) -> String {
         let line = vec![self.date.export(), "event".to_string(), self.event_type.export(), self.description.export()];
@@ -240,7 +228,7 @@ impl TextExportable for Event {
     }
 }
 
-impl TextExportable for Custom {
+impl ZhangDataTypeExportable for Custom {
     type Output = String;
     fn export(self) -> String {
         let mut line = vec![self.date.export(), "custom".to_string(), self.custom_type.export()];
@@ -250,14 +238,14 @@ impl TextExportable for Custom {
     }
 }
 
-impl TextExportable for Options {
+impl ZhangDataTypeExportable for Options {
     type Output = String;
     fn export(self) -> String {
         let line = vec!["option".to_string(), self.key.export(), self.value.export()];
         line.join(" ")
     }
 }
-impl TextExportable for Plugin {
+impl ZhangDataTypeExportable for Plugin {
     type Output = String;
     fn export(self) -> String {
         let mut line = vec!["plugin".to_string(), self.module.export()];
@@ -266,7 +254,7 @@ impl TextExportable for Plugin {
         line.join(" ")
     }
 }
-impl TextExportable for Include {
+impl ZhangDataTypeExportable for Include {
     type Output = String;
     fn export(self) -> String {
         let line = vec!["include".to_string(), self.file.export()];
@@ -274,14 +262,14 @@ impl TextExportable for Include {
     }
 }
 
-impl TextExportable for Comment {
+impl ZhangDataTypeExportable for Comment {
     type Output = String;
     fn export(self) -> String {
         self.content
     }
 }
 
-impl TextExportable for Budget {
+impl ZhangDataTypeExportable for Budget {
     type Output = String;
 
     fn export(self) -> Self::Output {
@@ -289,7 +277,7 @@ impl TextExportable for Budget {
         append_meta(self.meta, line.join(" "))
     }
 }
-impl TextExportable for BudgetClose {
+impl ZhangDataTypeExportable for BudgetClose {
     type Output = String;
 
     fn export(self) -> Self::Output {
@@ -298,7 +286,7 @@ impl TextExportable for BudgetClose {
     }
 }
 
-impl TextExportable for BudgetAdd {
+impl ZhangDataTypeExportable for BudgetAdd {
     type Output = String;
 
     fn export(self) -> Self::Output {
@@ -307,7 +295,7 @@ impl TextExportable for BudgetAdd {
     }
 }
 
-impl TextExportable for BudgetTransfer {
+impl ZhangDataTypeExportable for BudgetTransfer {
     type Output = String;
 
     fn export(self) -> Self::Output {
@@ -316,7 +304,7 @@ impl TextExportable for BudgetTransfer {
     }
 }
 
-impl TextExportable for Directive {
+impl ZhangDataTypeExportable for Directive {
     type Output = String;
     fn export(self) -> String {
         match self {
@@ -343,7 +331,7 @@ impl TextExportable for Directive {
     }
 }
 
-impl TextExportable for Ledger {
+impl ZhangDataTypeExportable for Ledger {
     type Output = String;
     fn export(self) -> String {
         let vec = self.directives.into_iter().map(|it| it.data.export()).collect_vec();
@@ -355,14 +343,15 @@ impl TextExportable for Ledger {
 mod test {
     use std::option::Option::None;
 
+    use crate::data_type::DataType;
     use indoc::indoc;
 
-    use crate::text::exporter::TextExportable;
-    use crate::text::parser::parse;
+    use crate::data_type::text::ZhangDataType;
 
     fn parse_and_export(from: &str) -> String {
-        let directive = parse(from, None).unwrap().into_iter().next().unwrap();
-        directive.data.export()
+        let data_type = ZhangDataType {};
+        let directive = data_type.transform(from.to_owned(), None).unwrap().into_iter().next().unwrap();
+        data_type.export(directive)
     }
 
     macro_rules! assert_parse {

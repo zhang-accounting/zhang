@@ -20,7 +20,6 @@ use tower_http::validate_request::ValidateRequestHeaderLayer;
 use uuid::Uuid;
 
 use zhang_core::ledger::Ledger;
-use zhang_core::transform::Transformer;
 use zhang_core::utils::has_path_visited;
 use zhang_core::ZhangResult;
 
@@ -43,6 +42,8 @@ use routes::document::*;
 use routes::file::*;
 use routes::statistics::*;
 use routes::transaction::*;
+use zhang_core::data_source::DataSource;
+
 pub type ServerResult<T> = Result<T, ServerError>;
 
 pub type LedgerState = Arc<RwLock<Ledger>>;
@@ -70,7 +71,7 @@ pub struct ServeConfig {
     pub addr: String,
     pub port: u16,
     pub no_report: bool,
-    pub transformer: Arc<dyn Transformer>,
+    pub data_source: Arc<dyn DataSource>,
     pub auth_credential: Option<String>,
     pub is_local_fs: bool,
 }
@@ -85,7 +86,7 @@ impl ReloadSender {
 
 pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     info!("version: {}, build date: {}", env!("ZHANG_BUILD_VERSION"), env!("ZHANG_BUILD_DATE"));
-    let ledger = Ledger::async_load(opts.path.clone(), opts.endpoint.clone(), opts.transformer.clone()).await?;
+    let ledger = Ledger::async_load(opts.path.clone(), opts.endpoint.clone(), opts.data_source.clone()).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
     let broadcaster = Broadcaster::create();
     let (tx, rx) = mpsc::channel::<i32>(1);

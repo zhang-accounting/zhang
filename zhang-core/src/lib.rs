@@ -1,74 +1,44 @@
-pub mod constants;
+pub use error::ZhangError;
 
-pub mod database;
+pub mod constants;
+pub mod data_source;
+pub mod data_type;
 pub mod domains;
 pub mod error;
 pub mod ledger;
 pub mod options;
-
-pub mod exporter;
 pub(crate) mod process;
-pub mod transform;
+pub mod store;
 pub mod utils;
 
-pub mod store;
-pub mod text;
-
 pub type ZhangResult<T> = Result<T, ZhangError>;
-pub use error::ZhangError;
 
 #[cfg(test)]
 mod test {
     use std::ops::Deref;
-    use std::path::PathBuf;
     use std::sync::Arc;
 
     use serde_json_path::JsonPath;
     use tempfile::tempdir;
-    use zhang_ast::{Directive, Spanned};
 
+    use crate::data_source::LocalFileSystemDataSource;
+    use crate::data_type::text::ZhangDataType;
     use crate::ledger::Ledger;
-    use crate::text::parser::parse as parse_zhang;
-    use crate::transform::{TransformResult, Transformer};
-    use crate::ZhangResult;
 
-    struct TestTransformer {}
-
-    impl Transformer for TestTransformer {
-        fn load(&self, entry: PathBuf, endpoint: String) -> ZhangResult<TransformResult> {
-            let file = entry.join(endpoint);
-            let string = std::fs::read_to_string(&file).unwrap();
-            let result: Vec<Spanned<Directive>> = parse_zhang(&string, file).expect("cannot read file");
-            Ok(TransformResult {
-                directives: result,
-                visited_files: vec![PathBuf::from("example.zhang")],
-            })
-        }
-
-        fn get_content(&self, _: String) -> ZhangResult<Vec<u8>> {
-            todo!()
-        }
-
-        fn append_directives(&self, _: &Ledger, _: Vec<Directive>) -> ZhangResult<()> {
-            todo!()
-        }
-
-        fn save_content(&self, _: &Ledger, _: String, _: &[u8]) -> ZhangResult<()> {
-            todo!()
-        }
-    }
     fn load_from_text(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().into_path();
         let example = temp_dir.join("example.zhang");
         std::fs::write(example, content).unwrap();
-        Ledger::load_with_database(temp_dir, "example.zhang".to_string(), Arc::new(TestTransformer {})).unwrap()
+        let source = LocalFileSystemDataSource::new(ZhangDataType {});
+        Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap()
     }
     fn load_store(content: &str) -> StoreTest {
         let temp_dir = tempdir().unwrap().into_path();
         let example = temp_dir.join("example.zhang");
         std::fs::write(example, content).unwrap();
+        let source = LocalFileSystemDataSource::new(ZhangDataType {});
         StoreTest {
-            ledger: Ledger::load_with_database(temp_dir, "example.zhang".to_string(), Arc::new(TestTransformer {})).unwrap(),
+            ledger: Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap(),
         }
     }
 

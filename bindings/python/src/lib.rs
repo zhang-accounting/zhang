@@ -1,11 +1,9 @@
 use std::collections::HashMap;
-use std::env::temp_dir;
-use std::path::PathBuf;
 use std::str::FromStr;
 
 use pyo3::prelude::*;
+
 use zhang_ast::{Account, Spanned};
-use zhang_core::text::transformer::TextTransformer;
 
 use crate::domain::CommodityDomain;
 
@@ -19,23 +17,23 @@ pub struct Ledger(zhang_core::ledger::Ledger);
 
 #[pymethods]
 impl Ledger {
-    #[new]
-    pub fn new(path: &str, endpoint: &str) -> PyResult<Self> {
-        let pathbuf = PathBuf::from_str(path)?;
-        Ok(Ledger(
-            zhang_core::ledger::Ledger::load::<TextTransformer>(pathbuf, endpoint.to_owned()).unwrap(),
-        ))
-    }
-
-    #[staticmethod]
-    pub fn from_string(content: &str) -> PyResult<Self> {
-        let t_dir = temp_dir();
-        let endpoint = t_dir.join("main.zhang");
-        std::fs::write(endpoint, content)?;
-        Ok(Ledger(
-            zhang_core::ledger::Ledger::load::<TextTransformer>(t_dir, "main.zhang".to_owned()).unwrap(),
-        ))
-    }
+    // #[new]
+    // pub fn new(path: &str, endpoint: &str) -> PyResult<Self> {
+    //     let pathbuf = PathBuf::from_str(path)?;
+    //     Ok(Ledger(
+    //         zhang_core::ledger::Ledger::load::<TextTransformer>(pathbuf, endpoint.to_owned()).unwrap(),
+    //     ))
+    // }
+    //
+    // #[staticmethod]
+    // pub fn from_string(content: &str) -> PyResult<Self> {
+    //     let t_dir = temp_dir();
+    //     let endpoint = t_dir.join("main.zhang");
+    //     std::fs::write(endpoint, content)?;
+    //     Ok(Ledger(
+    //         zhang_core::ledger::Ledger::load::<TextTransformer>(t_dir, "main.zhang".to_owned()).unwrap(),
+    //     ))
+    // }
 
     #[getter]
     pub fn options(&self) -> PyResult<HashMap<String, String>> {

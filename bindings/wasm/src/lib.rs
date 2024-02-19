@@ -1,11 +1,9 @@
-mod utils;
-
-use std::path::PathBuf;
-use std::str::FromStr;
-
 use wasm_bindgen::prelude::*;
-use zhang_core::text::transformer::TextTransformer;
-use zhang_core::transform::TextFileBasedTransformer;
+
+use zhang_core::data_type::text::ZhangDataType;
+use zhang_core::data_type::DataType;
+
+mod utils;
 
 // use console_error_panic_hook::hook;
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -26,7 +24,7 @@ pub fn greet() {
 
 #[wasm_bindgen]
 pub fn parse(content: &str) -> String {
-    let transformer = TextTransformer::default();
-    let _result = transformer.parse(content, PathBuf::from_str("hello").unwrap());
+    let zhang_data_type = ZhangDataType {};
+    let _result = zhang_data_type.transform(content.to_owned(), Some("main.zhang".to_owned()));
     "OK".to_owned()
 }

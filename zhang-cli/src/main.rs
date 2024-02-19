@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::{Args, Parser};
@@ -8,13 +8,9 @@ use log::{error, info, LevelFilter};
 use self_update::Status;
 use tokio::task::spawn_blocking;
 
-use beancount::Beancount;
-use zhang_core::ledger::Ledger;
-use zhang_core::text::transformer::TextTransformer;
-use zhang_core::transform::Transformer;
 use zhang_server::ServeConfig;
 
-use crate::opendal::OpendalTextTransformer;
+use crate::opendal::OpendalDataSource;
 
 pub mod opendal;
 
@@ -70,18 +66,18 @@ pub enum Exporter {
     Beancount,
 }
 #[derive(Debug, Clone, PartialEq, clap::ValueEnum)]
-pub enum DataSource {
+pub enum FileSystem {
     Fs,
     S3,
     WebDav,
 }
 
-impl DataSource {
-    fn from_env() -> Option<DataSource> {
+impl FileSystem {
+    fn from_env() -> Option<FileSystem> {
         match std::env::var("ZHANG_DATA_SOURCE").as_deref() {
-            Ok("fs") => Some(DataSource::Fs),
-            Ok("s3") => Some(DataSource::S3),
-            Ok("web-dav") => Some(DataSource::WebDav),
+            Ok("fs") => Some(FileSystem::Fs),
+            Ok("s3") => Some(FileSystem::S3),
+            Ok("web-dav") => Some(FileSystem::WebDav),
             _ => None,
         }
     }
@@ -110,45 +106,25 @@ pub struct ServerOpts {
 
     /// data source type, default is fs, or enable it via env ZHANG_AUTH
     #[clap(long)]
-    pub source: Option<DataSource>,
+    pub source: Option<FileSystem>,
 
     /// whether the server report version info for anonymous statistics
     #[clap(long)]
     pub no_report: bool,
 }
 
-enum SupportedFormat {
-    Zhang,
-    Beancount,
-}
-
-impl SupportedFormat {
-    fn from_path(path: impl AsRef<Path>) -> Option<SupportedFormat> {
-        path.as_ref().extension().and_then(|it| it.to_str()).and_then(|ext| match ext {
-            "bc" | "bean" => Some(SupportedFormat::Beancount),
-            "zhang" => Some(SupportedFormat::Zhang),
-            _ => None,
-        })
-    }
-    fn transformer(&self) -> Arc<dyn Transformer + 'static> {
-        match self {
-            SupportedFormat::Zhang => Arc::new(TextTransformer::default()),
-            SupportedFormat::Beancount => Arc::new(Beancount::default()),
-        }
-    }
-}
-
 impl Opts {
     pub async fn run(self) {
         match self {
-            Opts::Parse(parse_opts) => {
-                let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");
-                Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, format.transformer()).expect("Cannot load ledger");
+            Opts::Parse(_parse_opts) => {
+                // let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");
+                // todo: fix parse
+                // Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, format.transformer()).expect("Cannot load ledger");
             }
             Opts::Export(_) => todo!(),
             Opts::Serve(mut opts) => {
-                let data_source = opts.source.clone().or(DataSource::from_env()).unwrap_or(DataSource::Fs);
-                let transformer = OpendalTextTransformer::from_env(data_source.clone(), &mut opts).await;
+                let file_system = opts.source.clone().or(FileSystem::from_env()).unwrap_or(FileSystem::Fs);
+                let data_source = OpendalDataSource::from_env(file_system.clone(), &mut opts).await;
                 let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(':'));
                 zhang_server::serve(ServeConfig {
                     path: opts.path,
@@ -156,9 +132,9 @@ impl Opts {
                     addr: opts.addr,
                     port: opts.port,
                     auth_credential,
-                    is_local_fs: data_source == DataSource::Fs,
+                    is_local_fs: file_system == FileSystem::Fs,
                     no_report: opts.no_report,
-                    transformer: Arc::new(transformer),
+                    data_source: Arc::new(data_source),
                 })
                 .await
                 .expect("cannot serve")
@@ -189,20 +165,6 @@ impl Opts {
         }
     }
 }
-
-// impl ExportOpts {
-//     pub async fn run(self) {
-//         let result = match self {
-//             ExportOpts::Beancount { file, output } => exporter::beancount::run(file, output).await,
-//         };
-//         match result {
-//             Ok(_) => {}
-//             Err(error) => {
-//                 eprintln!("{}", error)
-//             }
-//         }
-//     }
-// }
 
 #[tokio::main]
 async fn main() {
@@ -236,8 +198,8 @@ mod test {
     use zhang_server::broadcast::Broadcaster;
     use zhang_server::{create_server_app, ReloadSender};
 
-    use crate::opendal::OpendalTextTransformer;
-    use crate::{DataSource, ServerOpts};
+    use crate::opendal::OpendalDataSource;
+    use crate::{FileSystem, ServerOpts};
 
     macro_rules! pprintln {
 
@@ -274,8 +236,8 @@ mod test {
             for validation in validations {
                 pprintln!("      \x1b[0;32mTesting\x1b[0;0m: {}", &validation.uri);
 
-                let transformer = OpendalTextTransformer::from_env(
-                    DataSource::Fs,
+                let data_source = OpendalDataSource::from_env(
+                    FileSystem::Fs,
                     &mut ServerOpts {
                         path: pathbuf.clone(),
                         endpoint: "main.zhang".to_owned(),
@@ -287,8 +249,8 @@ mod test {
                     },
                 )
                 .await;
-                let arc = Arc::new(transformer);
-                let ledger = Ledger::async_load(pathbuf.clone(), "main.zhang".to_owned(), arc.clone())
+                let data_source = Arc::new(data_source);
+                let ledger = Ledger::async_load(pathbuf.clone(), "main.zhang".to_owned(), data_source.clone())
                     .await
                     .expect("cannot load ledger");
                 let ledger_data = Arc::new(RwLock::new(ledger));

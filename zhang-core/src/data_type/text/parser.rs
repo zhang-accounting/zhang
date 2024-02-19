@@ -14,7 +14,7 @@ type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 
 #[derive(Parser)]
-#[grammar = "text/zhang.pest"]
+#[grammar = "data_type/text/zhang.pest"]
 pub struct ZhangParser;
 
 #[pest_consume::parser]
@@ -626,7 +626,7 @@ mod test {
         use zhang_ast::amount::Amount;
         use zhang_ast::*;
 
-        use crate::text::parser::parse;
+        use crate::data_type::text::parser::parse;
 
         #[test]
         fn should_parse_date_hour() {
@@ -677,7 +677,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::*;
 
-        use crate::text::parser::parse;
+        use crate::data_type::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -704,7 +704,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::Directive;
 
-        use crate::text::parser::parse;
+        use crate::data_type::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -732,7 +732,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::Directive;
 
-        use crate::text::parser::parse;
+        use crate::data_type::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -760,7 +760,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::Directive;
 
-        use crate::text::parser::parse;
+        use crate::data_type::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -787,7 +787,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::Directive;
 
-        use crate::text::parser::parse;
+        use crate::data_type::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -814,7 +814,7 @@ mod test {
         use indoc::indoc;
         use zhang_ast::{Directive, StringOrAccount};
 
-        use crate::text::parser::parse;
+        use crate::data_type::text::parser::parse;
 
         #[test]
         fn should_parse() {
@@ -865,7 +865,7 @@ mod test {
 
         use indoc::indoc;
 
-        use crate::text::parser::parse;
+        use crate::data_type::text::parser::parse;
 
         #[test]
         fn should_support_trailing_space() {
@@ -888,13 +888,13 @@ mod test {
             use zhang_ast::amount::Amount;
             use zhang_ast::{Date, Directive, SingleTotalPrice, Transaction};
 
-            use crate::text::parser::parse;
+            use crate::data_type::text::parser::parse;
 
             fn get_first_posting(content: &str) -> Transaction {
                 let directive = parse(content, None).unwrap().pop().unwrap();
                 match directive.data {
                     Directive::Transaction(trx) => trx,
-                    _ => unreachable!(),
+                    _ => unreachable!("find other directives than txn directive"),
                 }
             }
             #[test]
@@ -1005,7 +1005,7 @@ mod test {
         }
     }
     mod budget {
-        use crate::text::parser::parse;
+        use crate::data_type::text::parser::parse;
         use bigdecimal::{BigDecimal, One};
         use indoc::indoc;
         use zhang_ast::amount::Amount;

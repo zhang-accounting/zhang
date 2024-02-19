@@ -1,18 +1,14 @@
 use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::PathBuf;
 
-use chrono::{Datelike, NaiveDate};
+use chrono::NaiveDate;
 use itertools::{Either, Itertools};
 use latestmap::LatestMap;
+
 use zhang_ast::*;
-use zhang_core::error::IoErrorIntoZhangError;
-use zhang_core::exporter::Exporter;
-use zhang_core::ledger::Ledger;
-use zhang_core::text::exporter::{append_meta, TextExportable, TextExporter};
-use zhang_core::transform::TextFileBasedTransformer;
-use zhang_core::utils::has_path_visited;
+use zhang_core::data_type::text::exporter::{append_meta, ZhangDataTypeExportable};
+use zhang_core::data_type::text::ZhangDataType;
+use zhang_core::data_type::DataType;
 use zhang_core::{ZhangError, ZhangResult};
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
@@ -24,241 +20,16 @@ pub mod parser;
 
 pub mod directives;
 
-pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
-    std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
-}
-
 #[derive(Clone, Default)]
 pub struct Beancount {}
 
-impl Beancount {
-    fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, check_file_visit: bool) -> ZhangResult<()> {
-        let (entry, main_file_endpoint) = &ledger.entry;
+impl DataType for Beancount {
+    type Carrier = String;
 
-        let endpoint = file.unwrap_or_else(|| {
-            if let Some(datetime) = directive.datetime() {
-                entry.join(PathBuf::from(format!("data/{}/{}.bean", datetime.date().year(), datetime.date().month())))
-            } else {
-                entry.join(main_file_endpoint)
-            }
-        });
-        create_folder_if_not_exist(&endpoint);
+    fn transform(&self, raw_data: Self::Carrier, source: Option<String>) -> ZhangResult<Vec<Spanned<Directive>>> {
+        let path = source.map(PathBuf::from);
+        let directives = parse(&raw_data, path).map_err(|it| ZhangError::PestError(it.to_string()))?;
 
-        if !has_path_visited(&ledger.visited_files, &endpoint) && check_file_visit {
-            let path = match endpoint.strip_prefix(entry) {
-                Ok(relative_path) => relative_path.to_str().unwrap(),
-                Err(_) => endpoint.to_str().unwrap(),
-            };
-            self.append_directive(
-                ledger,
-                Directive::Include(Include {
-                    file: ZhangString::QuoteString(path.to_string()),
-                }),
-                None,
-                false,
-            )?;
-        }
-        let directive_content = format!("\n{}\n", self.export_directive(directive));
-        let mut ledger_base_file = OpenOptions::new().append(true).create(true).open(&endpoint).unwrap();
-        Ok(ledger_base_file.write_all(directive_content.as_bytes())?)
-    }
-}
-
-impl Exporter for Beancount {
-    type Output = String;
-
-    fn export_directive(&self, directive: Directive) -> Self::Output {
-        let text_exporter = TextExporter {};
-        let directive = convert_datetime_to_date(directive);
-        match directive {
-            Directive::BalanceCheck(check) => {
-                let balance_directive = BalanceDirective {
-                    date: check.date,
-                    account: check.account,
-                    amount: check.amount,
-
-                    meta: check.meta,
-                };
-                BeancountOnlyExportable::export(balance_directive)
-            }
-            Directive::BalancePad(pad) => {
-                let balance_date = pad.date.naive_date();
-                let pad_date = balance_date.pred_opt().unwrap_or(balance_date);
-                let pad_directive = PadDirective {
-                    date: Date::Date(pad_date),
-                    account: pad.account.clone(),
-                    pad: pad.pad,
-                    meta: Meta::default(),
-                };
-                let balance_directive = BalanceDirective {
-                    date: pad.date,
-                    account: pad.account,
-                    amount: pad.amount,
-
-                    meta: pad.meta,
-                };
-                [
-                    BeancountOnlyExportable::export(pad_directive),
-                    BeancountOnlyExportable::export(balance_directive),
-                ]
-                .join("\n")
-            }
-            Directive::Budget(budget) => Directive::Custom(Custom {
-                date: budget.date,
-                custom_type: ZhangString::unquote("budget"),
-                values: vec![
-                    StringOrAccount::String(ZhangString::unquote(budget.name)),
-                    StringOrAccount::String(ZhangString::unquote(budget.commodity)),
-                ],
-                meta: budget.meta,
-            })
-            .export(),
-            Directive::BudgetAdd(budget) => Directive::Custom(Custom {
-                date: budget.date,
-                custom_type: ZhangString::unquote("budget-add"),
-                values: vec![
-                    StringOrAccount::String(ZhangString::unquote(budget.name)),
-                    StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
-                    StringOrAccount::String(ZhangString::unquote(budget.amount.currency)),
-                ],
-                meta: budget.meta,
-            })
-            .export(),
-            Directive::BudgetTransfer(budget) => Directive::Custom(Custom {
-                date: budget.date,
-                custom_type: ZhangString::unquote("budget-transfer"),
-                values: vec![
-                    StringOrAccount::String(ZhangString::unquote(budget.from)),
-                    StringOrAccount::String(ZhangString::unquote(budget.to)),
-                    StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
-                    StringOrAccount::String(ZhangString::unquote(budget.amount.currency)),
-                ],
-                meta: budget.meta,
-            })
-            .export(),
-            Directive::BudgetClose(budget) => Directive::Custom(Custom {
-                date: budget.date,
-                custom_type: ZhangString::unquote("budget-close"),
-                values: vec![StringOrAccount::String(ZhangString::unquote(budget.name))],
-                meta: budget.meta,
-            })
-            .export(),
-            _ => text_exporter.export_directive(directive),
-        }
-    }
-}
-
-trait BeancountOnlyExportable {
-    fn export(self) -> String;
-}
-
-impl BeancountOnlyExportable for BalanceDirective {
-    fn export(self) -> String {
-        let line = [
-            TextExportable::export(self.date),
-            "balance".to_string(),
-            TextExportable::export(self.account),
-            TextExportable::export(self.amount),
-        ]
-        .join(" ");
-        append_meta(self.meta, line)
-    }
-}
-
-impl BeancountOnlyExportable for PadDirective {
-    fn export(self) -> String {
-        let line = [
-            TextExportable::export(self.date),
-            "pad".to_string(),
-            TextExportable::export(self.account),
-            TextExportable::export(self.pad),
-        ]
-        .join(" ");
-        append_meta(self.meta, line)
-    }
-}
-
-macro_rules! convert_to_datetime {
-    ($directive: expr) => {
-        if let Date::Datetime(datetime) = $directive.date {
-            let (date, time) = (datetime.date(), datetime.time());
-            $directive.date = Date::Date(date);
-            $directive
-                .meta
-                .insert("time".to_string(), ZhangString::QuoteString(time.format("%H:%M:%S").to_string()));
-            $directive
-        } else {
-            $directive
-        }
-    };
-}
-
-fn convert_datetime_to_date(directive: Directive) -> Directive {
-    match directive {
-        Directive::Open(mut directive) => Directive::Open(convert_to_datetime!(directive)),
-        Directive::Close(mut directive) => Directive::Close(convert_to_datetime!(directive)),
-        Directive::Commodity(mut directive) => Directive::Commodity(convert_to_datetime!(directive)),
-        Directive::Transaction(mut directive) => Directive::Transaction(convert_to_datetime!(directive)),
-        Directive::BalanceCheck(mut directive) => Directive::BalanceCheck(convert_to_datetime!(directive)),
-        Directive::BalancePad(mut directive) => Directive::BalancePad(convert_to_datetime!(directive)),
-        Directive::Note(mut directive) => Directive::Note(convert_to_datetime!(directive)),
-        Directive::Document(mut directive) => Directive::Document(convert_to_datetime!(directive)),
-        Directive::Price(mut directive) => Directive::Price(convert_to_datetime!(directive)),
-        Directive::Event(mut directive) => Directive::Event(convert_to_datetime!(directive)),
-        Directive::Custom(mut directive) => Directive::Custom(convert_to_datetime!(directive)),
-        _ => directive,
-    }
-}
-
-macro_rules! extract_time {
-    ($directive: tt) => {{
-        let time = $directive.meta.pop_one("time").and_then(|it| parse_time(it.as_str()).ok());
-        if let Some(time) = time {
-            $directive.date = Date::Datetime($directive.date.naive_date().and_time(time));
-        }
-    }};
-}
-
-impl Beancount {
-    fn extract_time_from_meta(&self, directive: &mut BeancountDirective) {
-        match directive {
-            Either::Left(zhang_directive) => match zhang_directive {
-                Directive::Open(directive) => extract_time!(directive),
-                Directive::Close(directive) => extract_time!(directive),
-                Directive::Commodity(directive) => extract_time!(directive),
-                Directive::Transaction(directive) => extract_time!(directive),
-                Directive::BalanceCheck(balance_check) => extract_time!(balance_check),
-                Directive::BalancePad(balance_pad) => extract_time!(balance_pad),
-                Directive::Note(directive) => extract_time!(directive),
-                Directive::Document(directive) => extract_time!(directive),
-                Directive::Price(directive) => extract_time!(directive),
-                Directive::Event(directive) => extract_time!(directive),
-                Directive::Custom(directive) => extract_time!(directive),
-                _ => {}
-            },
-            Either::Right(beancount_onyly_directive) => match beancount_onyly_directive {
-                BeancountOnlyDirective::Pad(directive) => extract_time!(directive),
-                BeancountOnlyDirective::Balance(directive) => extract_time!(directive),
-                _ => {}
-            },
-        }
-    }
-}
-
-impl TextFileBasedTransformer for Beancount {
-    type FileOutput = Spanned<BeancountDirective>;
-
-    fn parse(&self, content: &str, path: PathBuf) -> ZhangResult<Vec<Self::FileOutput>> {
-        parse(content, path).map_err(|it| ZhangError::PestError(it.to_string()))
-    }
-
-    fn go_next(&self, directive: &Self::FileOutput) -> Option<String> {
-        match &directive.data {
-            Either::Left(Directive::Include(include)) => Some(include.file.clone().to_plain_string()),
-            _ => None,
-        }
-    }
-    fn transform(&self, directives: Vec<Self::FileOutput>) -> ZhangResult<Vec<Spanned<Directive>>> {
         let mut ret = vec![];
         let mut tags_stack: Vec<String> = vec![];
 
@@ -326,19 +97,187 @@ impl TextFileBasedTransformer for Beancount {
         Ok(ret)
     }
 
-    fn get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
-        Ok(std::fs::read(PathBuf::from(path))?)
-    }
+    fn export(&self, directive: Spanned<Directive>) -> Self::Carrier {
+        let zhang_data_type = ZhangDataType {};
+        let directive = convert_datetime_to_date(directive);
 
-    fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-        for directive in directives {
-            self.append_directive(ledger, directive, None, true)?;
+        let Spanned { data, span } = directive;
+        match data {
+            Directive::BalanceCheck(check) => BalanceDirective {
+                date: check.date,
+                account: check.account,
+                amount: check.amount,
+
+                meta: check.meta,
+            }
+            .bc_to_string(),
+            Directive::BalancePad(pad) => {
+                let balance_date = pad.date.naive_date();
+                let pad_date = balance_date.pred_opt().unwrap_or(balance_date);
+                let pad_directive = PadDirective {
+                    date: Date::Date(pad_date),
+                    account: pad.account.clone(),
+                    pad: pad.pad,
+                    meta: Meta::default(),
+                };
+                let balance_directive = BalanceDirective {
+                    date: pad.date,
+                    account: pad.account,
+                    amount: pad.amount,
+
+                    meta: pad.meta,
+                };
+                [pad_directive.bc_to_string(), balance_directive.bc_to_string()].join("\n")
+            }
+            Directive::Budget(budget) => zhang_data_type.export(Spanned::new(
+                Directive::Custom(Custom {
+                    date: budget.date,
+                    custom_type: ZhangString::unquote("budget"),
+                    values: vec![
+                        StringOrAccount::String(ZhangString::unquote(budget.name)),
+                        StringOrAccount::String(ZhangString::unquote(budget.commodity)),
+                    ],
+                    meta: budget.meta,
+                }),
+                span,
+            )),
+            Directive::BudgetAdd(budget) => zhang_data_type.export(Spanned::new(
+                Directive::Custom(Custom {
+                    date: budget.date,
+                    custom_type: ZhangString::unquote("budget-add"),
+                    values: vec![
+                        StringOrAccount::String(ZhangString::unquote(budget.name)),
+                        StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
+                        StringOrAccount::String(ZhangString::unquote(budget.amount.currency)),
+                    ],
+                    meta: budget.meta,
+                }),
+                span,
+            )),
+            Directive::BudgetTransfer(budget) => zhang_data_type.export(Spanned::new(
+                Directive::Custom(Custom {
+                    date: budget.date,
+                    custom_type: ZhangString::unquote("budget-transfer"),
+                    values: vec![
+                        StringOrAccount::String(ZhangString::unquote(budget.from)),
+                        StringOrAccount::String(ZhangString::unquote(budget.to)),
+                        StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
+                        StringOrAccount::String(ZhangString::unquote(budget.amount.currency)),
+                    ],
+                    meta: budget.meta,
+                }),
+                span,
+            )),
+            Directive::BudgetClose(budget) => zhang_data_type.export(Spanned::new(
+                Directive::Custom(Custom {
+                    date: budget.date,
+                    custom_type: ZhangString::unquote("budget-close"),
+                    values: vec![StringOrAccount::String(ZhangString::unquote(budget.name))],
+                    meta: budget.meta,
+                }),
+                span,
+            )),
+            _ => zhang_data_type.export(Spanned::new(data, span)),
         }
-        Ok(())
     }
+}
 
-    fn save_content(&self, _: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
-        std::fs::write(&path, content).with_path(PathBuf::from(path).as_path())
+trait BeancountOnlyExportable {
+    fn bc_to_string(self) -> String;
+}
+
+impl BeancountOnlyExportable for BalanceDirective {
+    fn bc_to_string(self) -> String {
+        let line = [
+            ZhangDataTypeExportable::export(self.date),
+            "balance".to_string(),
+            ZhangDataTypeExportable::export(self.account),
+            ZhangDataTypeExportable::export(self.amount),
+        ]
+        .join(" ");
+        append_meta(self.meta, line)
+    }
+}
+
+impl BeancountOnlyExportable for PadDirective {
+    fn bc_to_string(self) -> String {
+        let line = [
+            ZhangDataTypeExportable::export(self.date),
+            "pad".to_string(),
+            ZhangDataTypeExportable::export(self.account),
+            ZhangDataTypeExportable::export(self.pad),
+        ]
+        .join(" ");
+        append_meta(self.meta, line)
+    }
+}
+
+macro_rules! convert_to_datetime {
+    ($directive: expr) => {
+        if let Date::Datetime(datetime) = $directive.date {
+            let (date, time) = (datetime.date(), datetime.time());
+            $directive.date = Date::Date(date);
+            $directive
+                .meta
+                .insert("time".to_string(), ZhangString::QuoteString(time.format("%H:%M:%S").to_string()));
+            $directive
+        } else {
+            $directive
+        }
+    };
+}
+
+fn convert_datetime_to_date(directive: Spanned<Directive>) -> Spanned<Directive> {
+    let Spanned { data, span } = directive;
+    let data = match data {
+        Directive::Open(mut directive) => Directive::Open(convert_to_datetime!(directive)),
+        Directive::Close(mut directive) => Directive::Close(convert_to_datetime!(directive)),
+        Directive::Commodity(mut directive) => Directive::Commodity(convert_to_datetime!(directive)),
+        Directive::Transaction(mut directive) => Directive::Transaction(convert_to_datetime!(directive)),
+        Directive::BalanceCheck(mut directive) => Directive::BalanceCheck(convert_to_datetime!(directive)),
+        Directive::BalancePad(mut directive) => Directive::BalancePad(convert_to_datetime!(directive)),
+        Directive::Note(mut directive) => Directive::Note(convert_to_datetime!(directive)),
+        Directive::Document(mut directive) => Directive::Document(convert_to_datetime!(directive)),
+        Directive::Price(mut directive) => Directive::Price(convert_to_datetime!(directive)),
+        Directive::Event(mut directive) => Directive::Event(convert_to_datetime!(directive)),
+        Directive::Custom(mut directive) => Directive::Custom(convert_to_datetime!(directive)),
+        _ => data,
+    };
+    Spanned::new(data, span)
+}
+
+macro_rules! extract_time {
+    ($directive: tt) => {{
+        let time = $directive.meta.pop_one("time").and_then(|it| parse_time(it.as_str()).ok());
+        if let Some(time) = time {
+            $directive.date = Date::Datetime($directive.date.naive_date().and_time(time));
+        }
+    }};
+}
+
+impl Beancount {
+    fn extract_time_from_meta(&self, directive: &mut BeancountDirective) {
+        match directive {
+            Either::Left(zhang_directive) => match zhang_directive {
+                Directive::Open(directive) => extract_time!(directive),
+                Directive::Close(directive) => extract_time!(directive),
+                Directive::Commodity(directive) => extract_time!(directive),
+                Directive::Transaction(directive) => extract_time!(directive),
+                Directive::BalanceCheck(balance_check) => extract_time!(balance_check),
+                Directive::BalancePad(balance_pad) => extract_time!(balance_pad),
+                Directive::Note(directive) => extract_time!(directive),
+                Directive::Document(directive) => extract_time!(directive),
+                Directive::Price(directive) => extract_time!(directive),
+                Directive::Event(directive) => extract_time!(directive),
+                Directive::Custom(directive) => extract_time!(directive),
+                _ => {}
+            },
+            Either::Right(beancount_onyly_directive) => match beancount_onyly_directive {
+                BeancountOnlyDirective::Pad(directive) => extract_time!(directive),
+                BeancountOnlyDirective::Balance(directive) => extract_time!(directive),
+                _ => {}
+            },
+        }
     }
 }
 
@@ -349,12 +288,12 @@ mod test {
     use bigdecimal::BigDecimal;
     use chrono::NaiveDate;
     use indoc::indoc;
-    use zhang_ast::amount::Amount;
-    use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned, Transaction, ZhangString};
-    use zhang_core::exporter::Exporter;
-    use zhang_core::transform::TextFileBasedTransformer;
 
-    use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
+    use zhang_ast::amount::Amount;
+    use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned};
+    use zhang_core::data_type::DataType;
+
+    use crate::directives::BeancountOnlyDirective;
     use crate::{parse, Beancount};
 
     macro_rules! test_parse_zhang {
@@ -370,21 +309,12 @@ mod test {
         }};
     }
 
-    fn fake_span() -> SpanInfo {
-        SpanInfo {
-            start: 0,
-            end: 0,
-            content: "".to_string(),
-            filename: None,
-        }
-    }
-
     #[test]
     fn should_keep_time_into_meta_for_open_directive() {
         let mut directive = test_parse_zhang! {"1970-01-01 open Assets:BankAccount"};
         match &mut directive {
             Directive::Open(ref mut open) => open.date = Date::Datetime(open.date.naive_date().and_hms_nano_opt(1, 1, 1, 0).unwrap()),
-            _ => unreachable!(),
+            _ => unreachable!("only open directive"),
         }
 
         let beancount_exporter = Beancount {};
@@ -394,7 +324,7 @@ mod test {
                   time: "01:01:01"
             "#}
             .trim(),
-            beancount_exporter.export_directive(directive),
+            beancount_exporter.export(Spanned::new(directive, SpanInfo::default())),
             "should persist time into meta"
         );
     }
@@ -410,7 +340,7 @@ mod test {
                 pad: Account::from_str("Equity:Open-Balances").unwrap(),
                 meta: Default::default(),
             }),
-            _ => unreachable!(),
+            _ => unreachable!("should only have balance directive"),
         };
 
         let beancount_exporter = Beancount {};
@@ -420,84 +350,68 @@ mod test {
                 1970-01-02 balance Assets:BankAccount 2 CNY
             "#}
             .trim(),
-            beancount_exporter.export_directive(directive),
+            beancount_exporter.export(Spanned::new(directive, SpanInfo::default())),
         );
     }
 
     #[test]
     fn should_append_tag_to_transaction_directive_given_push_tag_directive() {
-        let transformer = Beancount::default();
-        let mut directives = transformer
-            .transform(vec![
-                Spanned::new(BeancountDirective::Right(BeancountOnlyDirective::PushTag("onetag".to_string())), fake_span()),
-                Spanned::new(
-                    BeancountDirective::Left(Directive::Transaction(Transaction {
-                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
-                        flag: None,
-                        payee: None,
-                        narration: None,
-                        tags: Default::default(),
-                        links: Default::default(),
-                        postings: vec![],
-                        meta: Default::default(),
-                    })),
-                    fake_span(),
-                ),
-            ])
+        let beancount_data_type = Beancount::default();
+        let mut directives = beancount_data_type
+            .transform(
+                indoc! {r#"
+                pushtag #onetag
+                1970-01-01 "payee" "narration"
+                  Assets:BancCard -100 CNY
+            "#}
+                .to_string(),
+                None,
+            )
             .unwrap();
-
         assert_eq!(directives.len(), 1);
         let directive = directives.pop().unwrap().data;
         match directive {
             Directive::Transaction(mut trx) => assert_eq!("onetag", trx.tags.pop().unwrap()),
-            _ => unreachable!(),
+            _ => unreachable!("find other directives than txn directive"),
         }
     }
 
     #[test]
     fn should_not_append_tag_to_transaction_directive_given_push_tag_directive() {
-        let transformer = Beancount::default();
-        let mut directives = transformer
-            .transform(vec![
-                Spanned::new(BeancountDirective::Right(BeancountOnlyDirective::PushTag("onetag".to_string())), fake_span()),
-                Spanned::new(BeancountDirective::Right(BeancountOnlyDirective::PopTag("onetag".to_string())), fake_span()),
-                Spanned::new(
-                    BeancountDirective::Left(Directive::Transaction(Transaction {
-                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
-                        flag: None,
-                        payee: None,
-                        narration: None,
-                        tags: Default::default(),
-                        links: Default::default(),
-                        postings: vec![],
-                        meta: Default::default(),
-                    })),
-                    fake_span(),
-                ),
-            ])
+        let beancount_data_type = Beancount::default();
+
+        let mut directives = beancount_data_type
+            .transform(
+                indoc! {r#"
+                pushtag #onetag
+                poptag #onetag
+                1970-01-01 "payee" "narration"
+                  Assets:BancCard -100 CNY
+            "#}
+                .to_string(),
+                None,
+            )
             .unwrap();
 
         assert_eq!(directives.len(), 1);
         let directive = directives.pop().unwrap().data;
         match directive {
             Directive::Transaction(mut trx) => assert_eq!(None, trx.tags.pop()),
-            _ => unreachable!(),
+            _ => unreachable!("find other directives than txn directive"),
         }
     }
 
     #[test]
     fn should_transform_to_non_given_pad_directive() {
-        let transformer = Beancount::default();
-        let directives = transformer
-            .transform(vec![Spanned::new(
-                BeancountDirective::Right(BeancountOnlyDirective::Pad(PadDirective {
-                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
-                    account: Account::from_str("Assets::BankAccount").unwrap(),
-                    pad: Account::from_str("Equity::Open-Balances").unwrap(),
-                    meta: Default::default(),
-                })),
-                fake_span(),
-            )])
+        let beancount_data_type = Beancount::default();
+        let directives = beancount_data_type
+            .transform(
+                indoc! {r#"
+                1970-01-01 pad Assets:BankAccount Equity:Open-Balances
+            "#}
+                .to_string(),
+                None,
+            )
             .unwrap();
 
         assert_eq!(directives.len(), 0);
@@ -505,17 +419,15 @@ mod test {
 
     #[test]
     fn should_transform_to_balance_check_directive_given_balance_directive() {
-        let transformer = Beancount::default();
-        let mut directives = transformer
-            .transform(vec![Spanned::new(
-                BeancountDirective::Right(BeancountOnlyDirective::Balance(BalanceDirective {
-                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
-                    account: Account::from_str("Assets::BankAccount").unwrap(),
-                    meta: Default::default(),
-                    amount: Amount::new(BigDecimal::from(100i32), "CNY"),
-                })),
-                fake_span(),
-            )])
+        let beancount_data_type = Beancount::default();
+        let mut directives = beancount_data_type
+            .transform(
+                indoc! {r#"
+                1970-01-02 balance Assets:BankAccount 100 CNY
+            "#}
+                .to_string(),
+                None,
+            )
             .unwrap();
 
         assert_eq!(directives.len(), 1);
@@ -526,7 +438,7 @@ mod test {
             balance_pad_directive,
             Directive::BalanceCheck(BalanceCheck {
                 date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
-                account: Account::from_str("Assets::BankAccount").unwrap(),
+                account: Account::from_str("Assets:BankAccount").unwrap(),
                 amount: Amount::new(BigDecimal::from(100i32), "CNY"),
                 meta: Default::default(),
             })
@@ -535,28 +447,16 @@ mod test {
 
     #[test]
     fn should_transform_to_balance_pad_directive_given_pad_and_balance_directive() {
-        let transformer = Beancount::default();
-        let mut directives = transformer
-            .transform(vec![
-                Spanned::new(
-                    BeancountDirective::Right(BeancountOnlyDirective::Pad(PadDirective {
-                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
-                        account: Account::from_str("Assets::BankAccount").unwrap(),
-                        pad: Account::from_str("Equity::Open-Balances").unwrap(),
-                        meta: Default::default(),
-                    })),
-                    fake_span(),
-                ),
-                Spanned::new(
-                    BeancountDirective::Right(BeancountOnlyDirective::Balance(BalanceDirective {
-                        date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
-                        account: Account::from_str("Assets::BankAccount").unwrap(),
-                        meta: Default::default(),
-                        amount: Amount::new(BigDecimal::from(100i32), "CNY"),
-                    })),
-                    fake_span(),
-                ),
-            ])
+        let beancount_data_type = Beancount::default();
+        let mut directives = beancount_data_type
+            .transform(
+                indoc! {r#"
+                1970-01-01 pad Assets:BankAccount Equity:Open-Balances
+                1970-01-02 balance Assets:BankAccount 100 CNY
+            "#}
+                .to_string(),
+                None,
+            )
             .unwrap();
 
         assert_eq!(directives.len(), 1);
@@ -567,9 +467,9 @@ mod test {
             balance_pad_directive,
             Directive::BalancePad(BalancePad {
                 date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
-                account: Account::from_str("Assets::BankAccount").unwrap(),
+                account: Account::from_str("Assets:BankAccount").unwrap(),
                 amount: Amount::new(BigDecimal::from(100i32), "CNY"),
-                pad: Account::from_str("Equity::Open-Balances").unwrap(),
+                pad: Account::from_str("Equity:Open-Balances").unwrap(),
                 meta: Default::default(),
             })
         );
@@ -577,20 +477,17 @@ mod test {
 
     #[test]
     fn should_parse_time_from_meta() {
-        let transformer = Beancount::default();
+        let beancount_data_type = Beancount::default();
 
-        let mut meta = Meta::default();
-        meta.insert("time".to_string(), ZhangString::quote("01:02:03"));
-        let mut directives = transformer
-            .transform(vec![Spanned::new(
-                BeancountDirective::Left(Directive::Open(Open {
-                    date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
-                    account: Account::from_str("Assets::BankAccount").unwrap(),
-                    commodities: vec![],
-                    meta,
-                })),
-                fake_span(),
-            )])
+        let mut directives = beancount_data_type
+            .transform(
+                indoc! {r#"
+                1970-01-02 open Assets:BankAccount
+                  time: "01:02:03"
+            "#}
+                .to_string(),
+                None,
+            )
             .unwrap();
 
         assert_eq!(directives.len(), 1);
@@ -601,7 +498,7 @@ mod test {
             balance_pad_directive,
             Directive::Open(Open {
                 date: Date::Datetime(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap().and_hms_micro_opt(1, 2, 3, 0).unwrap()),
-                account: Account::from_str("Assets::BankAccount").unwrap(),
+                account: Account::from_str("Assets:BankAccount").unwrap(),
                 commodities: vec![],
                 meta: Meta::default(),
             })

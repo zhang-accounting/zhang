@@ -6,14 +6,15 @@ use std::sync::{Arc, RwLock};
 use bigdecimal::Zero;
 use itertools::Itertools;
 use log::{error, info};
+
 use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
+use crate::data_source::DataSource;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::process::DirectiveProcess;
 use crate::store::Store;
-use crate::transform::Transformer;
 use crate::utils::bigdecimal_ext::BigDecimalExt;
 use crate::ZhangResult;
 
@@ -27,7 +28,7 @@ pub struct Ledger {
     pub directives: Vec<Spanned<Directive>>,
     pub metas: Vec<Spanned<Directive>>,
 
-    pub transformer: Arc<dyn Transformer>,
+    pub data_source: Arc<dyn DataSource>,
 
     pub store: Arc<RwLock<Store>>,
 
@@ -35,24 +36,24 @@ pub struct Ledger {
 }
 
 impl Ledger {
-    pub fn load<T: Transformer + Default + 'static>(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
-        let transformer = Arc::new(T::default());
-        Ledger::load_with_database(entry, endpoint, transformer)
+    pub fn load<T: DataSource + Default + 'static>(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
+        let data_source = Arc::new(T::default());
+        Ledger::load_with_data_source(entry, endpoint, data_source)
     }
 
-    pub fn load_with_database(entry: PathBuf, endpoint: String, transformer: Arc<dyn Transformer>) -> ZhangResult<Ledger> {
+    pub fn load_with_data_source(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
         let entry = entry.canonicalize().with_path(&entry)?;
 
-        let transform_result = transformer.load(entry.clone(), endpoint.clone())?;
-        Ledger::process(transform_result.directives, (entry, endpoint), transform_result.visited_files, transformer)
+        let load_result = data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
+        Ledger::process(load_result.directives, (entry, endpoint), load_result.visited_files, data_source)
     }
-    pub async fn async_load(entry: PathBuf, endpoint: String, transformer: Arc<dyn Transformer>) -> ZhangResult<Ledger> {
-        let transform_result = transformer.async_load(entry.clone(), endpoint.clone()).await?;
-        Ledger::process(transform_result.directives, (entry, endpoint), transform_result.visited_files, transformer)
+    pub async fn async_load(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
+        let load_result = data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
+        Ledger::process(load_result.directives, (entry, endpoint), load_result.visited_files, data_source)
     }
 
     fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<PathBuf>, transformer: Arc<dyn Transformer>,
+        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<PathBuf>, data_source: Arc<dyn DataSource>,
     ) -> ZhangResult<Ledger> {
         let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
@@ -63,7 +64,7 @@ impl Ledger {
             visited_files,
             directives: vec![],
             metas: vec![],
-            transformer,
+            data_source,
             store: Default::default(),
             trx_counter: AtomicI32::new(1),
         };
@@ -170,12 +171,12 @@ impl Ledger {
 
     pub fn reload(&mut self) -> ZhangResult<()> {
         let (entry, endpoint) = &mut self.entry;
-        let transform_result = self.transformer.load(entry.clone(), endpoint.clone())?;
+        let transform_result = self.data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
         let reload_ledger = Ledger::process(
             transform_result.directives,
             (entry.clone(), endpoint.clone()),
             transform_result.visited_files,
-            self.transformer.clone(),
+            self.data_source.clone(),
         )?;
         *self = reload_ledger;
         Ok(())
@@ -183,12 +184,12 @@ impl Ledger {
 
     pub async fn async_reload(&mut self) -> ZhangResult<()> {
         let (entry, endpoint) = &mut self.entry;
-        let transform_result = self.transformer.async_load(entry.clone(), endpoint.clone()).await?;
+        let transform_result = self.data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
         let reload_ledger = Ledger::process(
             transform_result.directives,
             (entry.clone(), endpoint.clone()),
             transform_result.visited_files,
-            self.transformer.clone(),
+            self.data_source.clone(),
         )?;
         *self = reload_ledger;
         Ok(())
@@ -206,16 +207,16 @@ impl Ledger {
 #[cfg(test)]
 mod test {
     use std::option::Option::None;
-    use std::path::PathBuf;
     use std::sync::Arc;
 
     use tempfile::tempdir;
+
     use zhang_ast::{Directive, SpanInfo, Spanned};
 
+    use crate::data_source::LocalFileSystemDataSource;
+    use crate::data_type::text::ZhangDataType;
+    use crate::data_type::DataType;
     use crate::ledger::Ledger;
-    use crate::text::parser::parse as parse_zhang;
-    use crate::transform::{TransformResult, Transformer};
-    use crate::ZhangResult;
 
     fn fake_span_info() -> SpanInfo {
         SpanInfo {
@@ -225,45 +226,23 @@ mod test {
             filename: None,
         }
     }
-
     fn test_parse_zhang(content: &str) -> Vec<Spanned<Directive>> {
-        parse_zhang(content, None).expect("cannot parse zhang")
+        let data_type = ZhangDataType {};
+        data_type.transform(content.to_owned(), None).unwrap()
     }
-    struct TestTransformer {}
 
-    impl Transformer for TestTransformer {
-        fn load(&self, _entry: PathBuf, _endpoint: String) -> ZhangResult<TransformResult> {
-            todo!()
-        }
-
-        fn get_content(&self, _: String) -> ZhangResult<Vec<u8>> {
-            todo!()
-        }
-
-        fn append_directives(&self, _: &Ledger, _: Vec<Directive>) -> ZhangResult<()> {
-            todo!()
-        }
-
-        fn save_content(&self, _: &Ledger, _: String, _: &[u8]) -> ZhangResult<()> {
-            todo!()
-        }
-    }
     fn load_from_temp_str(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().into_path();
         let example = temp_dir.join("example.zhang");
         std::fs::write(example, content).unwrap();
-        Ledger::process(
-            test_parse_zhang(content),
-            (temp_dir.clone(), "example.zhang".to_string()),
-            vec![temp_dir.join("example.zhang")],
-            Arc::new(TestTransformer {}),
-        )
-        .unwrap()
+        let source = LocalFileSystemDataSource::new(ZhangDataType {});
+        Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap()
     }
 
     mod sort_directive_datetime {
         use indoc::indoc;
         use itertools::Itertools;
+
         use zhang_ast::{Directive, Options, Spanned, ZhangString};
 
         use crate::ledger::test::{fake_span_info, test_parse_zhang};
@@ -465,7 +444,6 @@ mod test {
     }
 
     mod extract_info {
-
         use indoc::indoc;
 
         use crate::domains::schemas::AccountStatus;

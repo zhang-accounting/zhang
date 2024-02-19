@@ -189,7 +189,7 @@ impl<'a> TxnPosting<'a> {
                 .partition(|it| it.0.is_some());
 
             match non_trade_amount_postings.len() {
-                0 => unreachable!(),
+                0 => unreachable!("txn should not have zero posting"),
                 1 => {
                     let mut inventory = Inventory {
                         currencies: Default::default(),
