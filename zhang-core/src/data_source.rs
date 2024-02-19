@@ -10,7 +10,7 @@ use crate::data_type::DataType;
 use crate::error::IoErrorIntoZhangError;
 use crate::ledger::Ledger;
 use crate::utils::has_path_visited;
-use crate::{utils, ZhangResult};
+use crate::ZhangResult;
 
 /// `DataSource` is the protocol to describe how the `DataType` be stored and be transformed into standard directives.
 /// The Data Source have two capabilities:
@@ -132,17 +132,16 @@ impl DataSource for LocalFileSystemDataSource {
         let mut visited: Vec<PathBuf> = Vec::new();
         let mut directives = vec![];
         while let Some(pathbuf) = load_queue.pop_front() {
-            let striped_pathbuf = &pathbuf.strip_prefix(&entry).expect("Cannot strip entry").to_path_buf();
-            debug!("visited entry file: {:?}", striped_pathbuf.display());
+            debug!("visited entry file: {:?}", pathbuf.display());
 
-            if utils::has_path_visited(&visited, &pathbuf) {
+            if has_path_visited(&visited, &pathbuf) {
                 continue;
             }
-            let file_content = self.get(striped_pathbuf.to_string_lossy().to_string())?;
+            let file_content = self.get(pathbuf.to_string_lossy().to_string())?;
             //todo: remove utf8 string unwrap
             let entity_directives = self
                 .data_type
-                .transform(String::from_utf8(file_content).unwrap(), Some(striped_pathbuf.to_string_lossy().to_string()))?;
+                .transform(String::from_utf8(file_content).unwrap(), Some(pathbuf.to_string_lossy().to_string()))?;
 
             entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
                 let fullpath = if buf.starts_with('/') {

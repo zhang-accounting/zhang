@@ -213,8 +213,9 @@ mod test {
 
     use zhang_ast::{Directive, SpanInfo, Spanned};
 
-    use crate::data_source::DataSource;
-    use crate::data_type::text::parser::parse as parse_zhang;
+    use crate::data_source::LocalFileSystemDataSource;
+    use crate::data_type::text::ZhangDataType;
+    use crate::data_type::DataType;
     use crate::ledger::Ledger;
 
     fn fake_span_info() -> SpanInfo {
@@ -225,25 +226,17 @@ mod test {
             filename: None,
         }
     }
-
     fn test_parse_zhang(content: &str) -> Vec<Spanned<Directive>> {
-        parse_zhang(content, None).expect("cannot parse zhang")
+        let data_type = ZhangDataType {};
+        data_type.transform(content.to_owned(), None).unwrap()
     }
-    struct TestDataSource {}
-
-    impl DataSource for TestDataSource {}
 
     fn load_from_temp_str(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().into_path();
         let example = temp_dir.join("example.zhang");
         std::fs::write(example, content).unwrap();
-        Ledger::process(
-            test_parse_zhang(content),
-            (temp_dir.clone(), "example.zhang".to_string()),
-            vec![temp_dir.join("example.zhang")],
-            Arc::new(TestDataSource {}),
-        )
-        .unwrap()
+        let source = LocalFileSystemDataSource::new(ZhangDataType {});
+        Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap()
     }
 
     mod sort_directive_datetime {

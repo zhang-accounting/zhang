@@ -343,14 +343,15 @@ impl ZhangDataTypeExportable for Ledger {
 mod test {
     use std::option::Option::None;
 
+    use crate::data_type::DataType;
     use indoc::indoc;
 
-    use crate::data_type::text::exporter::ZhangDataTypeExportable;
-    use crate::data_type::text::parser::parse;
+    use crate::data_type::text::ZhangDataType;
 
     fn parse_and_export(from: &str) -> String {
-        let directive = parse(from, None).unwrap().into_iter().next().unwrap();
-        directive.data.export()
+        let data_type = ZhangDataType {};
+        let directive = data_type.transform(from.to_owned(), None).unwrap().into_iter().next().unwrap();
+        data_type.export(directive)
     }
 
     macro_rules! assert_parse {
