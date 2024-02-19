@@ -1,10 +1,11 @@
-use chrono::{Datelike, Local};
-use log::debug;
 use std::collections::VecDeque;
 use std::path::PathBuf;
+
+use chrono::Datelike;
+use log::debug;
+
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 
-use crate::data_type::text::transformer::create_folder_if_not_exist;
 use crate::data_type::DataType;
 use crate::error::IoErrorIntoZhangError;
 use crate::ledger::Ledger;
@@ -21,19 +22,19 @@ pub trait DataSource
 where
     Self: Send + Sync,
 {
-    fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
+    fn get(&self, _path: String) -> ZhangResult<Vec<u8>> {
         unimplemented!()
     }
 
-    fn load(&self, entry: String, endpoint: String) -> ZhangResult<TransformResult> {
+    fn load(&self, _entry: String, _endpoint: String) -> ZhangResult<TransformResult> {
         unimplemented!()
     }
 
-    fn save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+    fn save(&self, _ledger: &Ledger, _path: String, _content: &[u8]) -> ZhangResult<()> {
         unimplemented!()
     }
 
-    fn append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+    fn append(&self, _ledger: &Ledger, _directives: Vec<Directive>) -> ZhangResult<()> {
         unimplemented!()
     }
 
@@ -70,6 +71,10 @@ impl LocalFileSystemDataSource {
         }
     }
 
+    pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
+        std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
+    }
+
     fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, check_file_visit: bool) -> ZhangResult<()> {
         let (entry, main_file_endpoint) = &ledger.entry;
 
@@ -81,7 +86,7 @@ impl LocalFileSystemDataSource {
             }
         });
 
-        create_folder_if_not_exist(&endpoint);
+        LocalFileSystemDataSource::create_folder_if_not_exist(&endpoint);
 
         if !has_path_visited(&ledger.visited_files, &endpoint) && check_file_visit {
             let path = match endpoint.strip_prefix(entry) {
@@ -157,7 +162,7 @@ impl DataSource for LocalFileSystemDataSource {
         })
     }
 
-    fn save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+    fn save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         std::fs::write(&path, content).with_path(PathBuf::from(path).as_path())
     }
 

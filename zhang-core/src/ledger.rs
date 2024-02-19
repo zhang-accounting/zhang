@@ -3,18 +3,18 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, RwLock};
 
-use crate::data_source::DataSource;
 use bigdecimal::Zero;
 use itertools::Itertools;
 use log::{error, info};
+
 use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
+use crate::data_source::DataSource;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::process::DirectiveProcess;
 use crate::store::Store;
-use crate::transform::Transformer;
 use crate::utils::bigdecimal_ext::BigDecimalExt;
 use crate::ZhangResult;
 
@@ -207,17 +207,15 @@ impl Ledger {
 #[cfg(test)]
 mod test {
     use std::option::Option::None;
-    use std::path::PathBuf;
     use std::sync::Arc;
 
-    use crate::data_source::DataSource;
     use tempfile::tempdir;
+
     use zhang_ast::{Directive, SpanInfo, Spanned};
 
+    use crate::data_source::DataSource;
     use crate::data_type::text::parser::parse as parse_zhang;
     use crate::ledger::Ledger;
-    use crate::transform::{TransformResult, Transformer};
-    use crate::ZhangResult;
 
     fn fake_span_info() -> SpanInfo {
         SpanInfo {
@@ -233,23 +231,7 @@ mod test {
     }
     struct TestTransformer {}
 
-    impl DataSource for TestTransformer {
-        fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
-            todo!()
-        }
-
-        fn load(&self, entry: String, path: String) -> ZhangResult<TransformResult> {
-            todo!()
-        }
-
-        fn save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
-            todo!()
-        }
-
-        fn append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-            todo!()
-        }
-    }
+    impl DataSource for TestTransformer {}
 
     fn load_from_temp_str(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().into_path();
@@ -267,6 +249,7 @@ mod test {
     mod sort_directive_datetime {
         use indoc::indoc;
         use itertools::Itertools;
+
         use zhang_ast::{Directive, Options, Spanned, ZhangString};
 
         use crate::ledger::test::{fake_span_info, test_parse_zhang};
@@ -468,7 +451,6 @@ mod test {
     }
 
     mod extract_info {
-
         use indoc::indoc;
 
         use crate::domains::schemas::AccountStatus;

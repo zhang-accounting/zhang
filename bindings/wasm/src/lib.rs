@@ -1,11 +1,9 @@
-mod utils;
-
-use std::path::PathBuf;
-use std::str::FromStr;
-
 use wasm_bindgen::prelude::*;
+
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
+
+mod utils;
 
 // use console_error_panic_hook::hook;
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global

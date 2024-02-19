@@ -1,19 +1,14 @@
 use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::PathBuf;
 
-use chrono::{Datelike, NaiveDate};
+use chrono::NaiveDate;
 use itertools::{Either, Itertools};
 use latestmap::LatestMap;
+
 use zhang_ast::*;
 use zhang_core::data_type::text::exporter::{append_meta, TextExportable};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
-use zhang_core::error::IoErrorIntoZhangError;
-use zhang_core::exporter::Exporter;
-use zhang_core::ledger::Ledger;
-use zhang_core::utils::has_path_visited;
 use zhang_core::{ZhangError, ZhangResult};
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
@@ -25,10 +20,6 @@ pub mod parser;
 
 pub mod directives;
 
-pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
-    std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
-}
-
 #[derive(Clone, Default)]
 pub struct Beancount {}
 
@@ -36,7 +27,7 @@ impl DataType for Beancount {
     type Carrier = String;
 
     fn transform(&self, raw_data: Self::Carrier, source: Option<String>) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let path = source.map(|it| PathBuf::from(it));
+        let path = source.map(PathBuf::from);
         let directives = parse(&raw_data, path).map_err(|it| ZhangError::PestError(it.to_string()))?;
 
         let mut ret = vec![];
@@ -191,39 +182,6 @@ impl DataType for Beancount {
     }
 }
 
-impl Beancount {
-    fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, check_file_visit: bool) -> ZhangResult<()> {
-        let (entry, main_file_endpoint) = &ledger.entry;
-
-        let endpoint = file.unwrap_or_else(|| {
-            if let Some(datetime) = directive.datetime() {
-                entry.join(PathBuf::from(format!("data/{}/{}.bean", datetime.date().year(), datetime.date().month())))
-            } else {
-                entry.join(main_file_endpoint)
-            }
-        });
-        create_folder_if_not_exist(&endpoint);
-
-        if !has_path_visited(&ledger.visited_files, &endpoint) && check_file_visit {
-            let path = match endpoint.strip_prefix(entry) {
-                Ok(relative_path) => relative_path.to_str().unwrap(),
-                Err(_) => endpoint.to_str().unwrap(),
-            };
-            self.append_directive(
-                ledger,
-                Directive::Include(Include {
-                    file: ZhangString::QuoteString(path.to_string()),
-                }),
-                None,
-                false,
-            )?;
-        }
-        let directive_content = format!("\n{}\n", self.export(Spanned::new(directive, SpanInfo::default())));
-        let mut ledger_base_file = OpenOptions::new().append(true).create(true).open(&endpoint).unwrap();
-        Ok(ledger_base_file.write_all(directive_content.as_bytes())?)
-    }
-}
-
 trait BeancountOnlyExportable {
     fn bc_to_string(self) -> String;
 }
@@ -363,13 +321,12 @@ mod test {
     use bigdecimal::BigDecimal;
     use chrono::NaiveDate;
     use indoc::indoc;
-    use zhang_ast::amount::Amount;
-    use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned, Transaction, ZhangString};
-    use zhang_core::data_source::LocalFileSystemDataSource;
-    use zhang_core::data_type::DataType;
-    use zhang_core::exporter::Exporter;
 
-    use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
+    use zhang_ast::amount::Amount;
+    use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned};
+    use zhang_core::data_type::DataType;
+
+    use crate::directives::BeancountOnlyDirective;
     use crate::{parse, Beancount};
 
     macro_rules! test_parse_zhang {
@@ -383,15 +340,6 @@ mod test {
             let directive = parse($content, None).unwrap().into_iter().next().unwrap().data;
             directive.right().unwrap()
         }};
-    }
-
-    fn fake_span() -> SpanInfo {
-        SpanInfo {
-            start: 0,
-            end: 0,
-            content: "".to_string(),
-            filename: None,
-        }
     }
 
     #[test]
@@ -453,7 +401,6 @@ mod test {
                 None,
             )
             .unwrap();
-        dbg!(&directives);
         assert_eq!(directives.len(), 1);
         let directive = directives.pop().unwrap().data;
         match directive {

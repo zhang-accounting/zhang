@@ -1,11 +1,9 @@
 use std::collections::HashMap;
-use std::env::temp_dir;
-use std::path::PathBuf;
 use std::str::FromStr;
 
 use pyo3::prelude::*;
+
 use zhang_ast::{Account, Spanned};
-use zhang_core::data_type::text::transformer::TextTransformer;
 
 use crate::domain::CommodityDomain;
 

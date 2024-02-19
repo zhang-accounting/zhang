@@ -10,13 +10,11 @@ use opendal::{ErrorKind, Operator};
 use beancount::Beancount;
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 use zhang_core::data_source::DataSource;
-use zhang_core::data_type::text::exporter::TextExporter;
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
-use zhang_core::exporter::Exporter;
 use zhang_core::ledger::Ledger;
-use zhang_core::transform::{TransformResult, Transformer};
+use zhang_core::transform::TransformResult;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
 
@@ -89,7 +87,7 @@ impl DataSource for OpendalDataSource {
         Ok(())
     }
 
-    async fn async_save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+    async fn async_save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         info!("[opendal] save content path={}", &path);
         let vec = content.to_vec();
 
@@ -211,88 +209,3 @@ impl OpendalDataSource {
         Ok(String::from_utf8(vec).expect("invalid utf8 content"))
     }
 }
-//
-// #[async_trait::async_trait]
-// impl Transformer for OpendalDataSource {
-//     fn load(&self, _entry: PathBuf, _endpoint: String) -> ZhangResult<TransformResult> {
-//         unimplemented!()
-//     }
-//
-//     fn get_content(&self, _path: String) -> ZhangResult<Vec<u8>> {
-//         unimplemented!()
-//     }
-//
-//     fn append_directives(&self, _ledger: &Ledger, _directives: Vec<Directive>) -> ZhangResult<()> {
-//         unimplemented!()
-//     }
-//
-//     fn save_content(&self, _ledger: &Ledger, _path: String, _content: &[u8]) -> ZhangResult<()> {
-//         unimplemented!()
-//     }
-//
-//     async fn async_load(&self, entry: PathBuf, endpoint: String) -> ZhangResult<TransformResult> {
-//         let main_endpoint = entry.join(endpoint);
-//
-//         let mut load_queue: VecDeque<PathBuf> = VecDeque::new();
-//         load_queue.push_back(main_endpoint);
-//
-//         let mut visited: Vec<PathBuf> = Vec::new();
-//         let mut directives = vec![];
-//         while let Some(pathbuf) = load_queue.pop_front() {
-//             let striped_pathbuf = &pathbuf.strip_prefix(&entry).expect("Cannot strip entry").to_path_buf();
-//             debug!("visited entry file: {:?}", striped_pathbuf.display());
-//
-//             if utils::has_path_visited(&visited, &pathbuf) {
-//                 continue;
-//             }
-//             let file_content = self.get_file_content(striped_pathbuf.clone()).await?;
-//             let entity_directives = self.parse(&file_content, striped_pathbuf.clone())?;
-//
-//             entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
-//                 let fullpath = if buf.starts_with('/') {
-//                     PathBuf::from_str(&buf).unwrap()
-//                 } else {
-//                     pathbuf.parent().map(|it| it.join(buf)).unwrap()
-//                 };
-//                 load_queue.push_back(fullpath);
-//             });
-//             directives.extend(entity_directives);
-//             visited.push(pathbuf);
-//         }
-//         Ok(TransformResult {
-//             directives: self.transform(directives)?,
-//             visited_files: visited,
-//         })
-//     }
-//
-//     async fn async_get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
-//         let path_for_read = path.to_owned();
-//         let result = self.operator.read(&path_for_read).await;
-//         match result {
-//             Ok(data) => Ok(data),
-//             Err(err) => {
-//                 if err.kind() == ErrorKind::NotFound {
-//                     Ok(Vec::new())
-//                 } else {
-//                     error!("cannot get content from {}", &path);
-//                     Ok(Vec::new())
-//                 }
-//             }
-//         }
-//     }
-//
-//     async fn async_append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-//         for directive in directives {
-//             self.append_directive(ledger, directive, None, true).await?;
-//         }
-//         Ok(())
-//     }
-//
-//     async fn async_save_content(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
-//         info!("[opendal] save content path={}", &path);
-//         let vec = content.to_vec();
-//
-//         self.operator.write(&path, vec).await.expect("cannot write");
-//         Ok(())
-//     }
-// }

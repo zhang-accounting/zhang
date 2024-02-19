@@ -32,16 +32,13 @@ mod test {
 
     use crate::data_type::text::parser::parse as parse_zhang;
     use crate::ledger::Ledger;
-    use crate::transform::{TransformResult, Transformer};
+    use crate::transform::TransformResult;
     use crate::ZhangResult;
 
     struct TestTransformer {}
 
+    #[async_trait::async_trait]
     impl DataSource for TestTransformer {
-        fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
-            todo!()
-        }
-
         fn load(&self, entry: String, endpoint: String) -> ZhangResult<TransformResult> {
             let entry = PathBuf::from(entry);
             let file = entry.join(endpoint);
@@ -51,14 +48,6 @@ mod test {
                 directives: result,
                 visited_files: vec![PathBuf::from("example.zhang")],
             })
-        }
-
-        fn save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
-            todo!()
-        }
-
-        fn append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-            todo!()
         }
     }
 

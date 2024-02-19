@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::{Args, Parser};
@@ -8,12 +8,6 @@ use log::{error, info, LevelFilter};
 use self_update::Status;
 use tokio::task::spawn_blocking;
 
-use beancount::Beancount;
-use zhang_core::data_type::text::transformer::TextTransformer;
-use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::data_type::DataType;
-use zhang_core::ledger::Ledger;
-use zhang_core::transform::Transformer;
 use zhang_server::ServeConfig;
 
 use crate::opendal::OpendalDataSource;
@@ -119,32 +113,11 @@ pub struct ServerOpts {
     pub no_report: bool,
 }
 
-enum SupportedFormat {
-    Zhang,
-    Beancount,
-}
-
-impl SupportedFormat {
-    fn from_path(path: impl AsRef<Path>) -> Option<SupportedFormat> {
-        path.as_ref().extension().and_then(|it| it.to_str()).and_then(|ext| match ext {
-            "bc" | "bean" => Some(SupportedFormat::Beancount),
-            "zhang" => Some(SupportedFormat::Zhang),
-            _ => None,
-        })
-    }
-    fn data_type(&self) -> Arc<dyn DataType<Carrier = String> + 'static> {
-        match self {
-            SupportedFormat::Zhang => Arc::new(ZhangDataType::default()),
-            SupportedFormat::Beancount => Arc::new(Beancount::default()),
-        }
-    }
-}
-
 impl Opts {
     pub async fn run(self) {
         match self {
-            Opts::Parse(parse_opts) => {
-                let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");
+            Opts::Parse(_parse_opts) => {
+                // let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");
                 // todo: fix parse
                 // Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, format.transformer()).expect("Cannot load ledger");
             }

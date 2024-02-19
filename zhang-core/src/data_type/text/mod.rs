@@ -10,7 +10,6 @@ use zhang_ast::{Directive, Spanned};
 pub mod parser;
 
 pub mod exporter;
-pub mod transformer;
 
 #[derive(Default)]
 pub struct ZhangDataType {}
@@ -19,7 +18,7 @@ impl DataType for ZhangDataType {
     type Carrier = String;
 
     fn transform(&self, raw_data: Self::Carrier, source: Option<String>) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let file = source.map(|it| PathBuf::from(it));
+        let file = source.map(PathBuf::from);
         parse(&raw_data, file).map_err(|it| ZhangError::PestError(it.to_string()))
     }
 
