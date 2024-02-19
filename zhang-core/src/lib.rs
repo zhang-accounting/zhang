@@ -1,22 +1,18 @@
-pub mod constants;
+pub use error::ZhangError;
 
+pub mod constants;
+pub mod data_source;
+pub mod data_type;
 pub mod database;
 pub mod domains;
 pub mod error;
 pub mod ledger;
 pub mod options;
-
 pub(crate) mod process;
-pub mod transform;
+pub mod store;
 pub mod utils;
 
-pub mod store;
-
-pub mod data_source;
-pub mod data_type;
-
 pub type ZhangResult<T> = Result<T, ZhangError>;
-pub use error::ZhangError;
 
 #[cfg(test)]
 mod test {
@@ -24,14 +20,15 @@ mod test {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use crate::data_source::DataSource;
     use serde_json_path::JsonPath;
     use tempfile::tempdir;
+
     use zhang_ast::{Directive, Spanned};
 
+    use crate::data_source::DataSource;
+    use crate::data_source::LoadResult;
     use crate::data_type::text::parser::parse as parse_zhang;
     use crate::ledger::Ledger;
-    use crate::transform::LoadResult;
     use crate::ZhangResult;
 
     struct TestDataSource {}

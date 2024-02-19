@@ -10,11 +10,11 @@ use opendal::{ErrorKind, Operator};
 use beancount::Beancount;
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 use zhang_core::data_source::DataSource;
+use zhang_core::data_source::LoadResult;
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::ledger::Ledger;
-use zhang_core::transform::LoadResult;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
 

@@ -9,7 +9,6 @@ use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 use crate::data_type::DataType;
 use crate::error::IoErrorIntoZhangError;
 use crate::ledger::Ledger;
-use crate::transform::LoadResult;
 use crate::utils::has_path_visited;
 use crate::{utils, ZhangResult};
 
@@ -172,4 +171,9 @@ impl DataSource for LocalFileSystemDataSource {
         }
         Ok(())
     }
+}
+
+pub struct LoadResult {
+    pub directives: Vec<Spanned<Directive>>,
+    pub visited_files: Vec<PathBuf>,
 }
