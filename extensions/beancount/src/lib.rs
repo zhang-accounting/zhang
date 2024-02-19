@@ -280,39 +280,6 @@ impl Beancount {
         }
     }
 }
-//
-// impl TextFileBasedTransformer for Beancount {
-//     type FileOutput = Spanned<BeancountDirective>;
-//
-//     fn parse(&self, content: &str, path: PathBuf) -> ZhangResult<Vec<Self::FileOutput>> {
-//         parse(content, path).map_err(|it| ZhangError::PestError(it.to_string()))
-//     }
-//
-//     fn go_next(&self, directive: &Self::FileOutput) -> Option<String> {
-//         match &directive.data {
-//             Either::Left(Directive::Include(include)) => Some(include.file.clone().to_plain_string()),
-//             _ => None,
-//         }
-//     }
-//     fn transform_old(&self, directives: Vec<Self::FileOutput>) -> ZhangResult<Vec<Spanned<Directive>>> {
-//         unreachable!(" transform old function should be removed and not triggered")
-//     }
-//
-//     fn get_content(&self, path: String) -> ZhangResult<Vec<u8>> {
-//         Ok(std::fs::read(PathBuf::from(path))?)
-//     }
-//
-//     fn append_directives(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-//         for directive in directives {
-//             self.append_directive(ledger, directive, None, true)?;
-//         }
-//         Ok(())
-//     }
-//
-//     fn save_content(&self, _: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
-//         std::fs::write(&path, content).with_path(PathBuf::from(path).as_path())
-//     }
-// }
 
 #[cfg(test)]
 mod test {
@@ -389,8 +356,8 @@ mod test {
 
     #[test]
     fn should_append_tag_to_transaction_directive_given_push_tag_directive() {
-        let transformer = Beancount::default();
-        let mut directives = transformer
+        let beancount_data_type = Beancount::default();
+        let mut directives = beancount_data_type
             .transform(
                 indoc! {r#"
                 pushtag #onetag
@@ -411,9 +378,9 @@ mod test {
 
     #[test]
     fn should_not_append_tag_to_transaction_directive_given_push_tag_directive() {
-        let transformer = Beancount::default();
+        let beancount_data_type = Beancount::default();
 
-        let mut directives = transformer
+        let mut directives = beancount_data_type
             .transform(
                 indoc! {r#"
                 pushtag #onetag
@@ -436,8 +403,8 @@ mod test {
 
     #[test]
     fn should_transform_to_non_given_pad_directive() {
-        let transformer = Beancount::default();
-        let directives = transformer
+        let beancount_data_type = Beancount::default();
+        let directives = beancount_data_type
             .transform(
                 indoc! {r#"
                 1970-01-01 pad Assets:BankAccount Equity:Open-Balances
@@ -452,8 +419,8 @@ mod test {
 
     #[test]
     fn should_transform_to_balance_check_directive_given_balance_directive() {
-        let transformer = Beancount::default();
-        let mut directives = transformer
+        let beancount_data_type = Beancount::default();
+        let mut directives = beancount_data_type
             .transform(
                 indoc! {r#"
                 1970-01-02 balance Assets:BankAccount 100 CNY
@@ -480,8 +447,8 @@ mod test {
 
     #[test]
     fn should_transform_to_balance_pad_directive_given_pad_and_balance_directive() {
-        let transformer = Beancount::default();
-        let mut directives = transformer
+        let beancount_data_type = Beancount::default();
+        let mut directives = beancount_data_type
             .transform(
                 indoc! {r#"
                 1970-01-01 pad Assets:BankAccount Equity:Open-Balances
@@ -510,9 +477,9 @@ mod test {
 
     #[test]
     fn should_parse_time_from_meta() {
-        let transformer = Beancount::default();
+        let beancount_data_type = Beancount::default();
 
-        let mut directives = transformer
+        let mut directives = beancount_data_type
             .transform(
                 indoc! {r#"
                 1970-01-02 open Assets:BankAccount

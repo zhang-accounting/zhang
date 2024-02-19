@@ -71,7 +71,7 @@ pub struct ServeConfig {
     pub addr: String,
     pub port: u16,
     pub no_report: bool,
-    pub transformer: Arc<dyn DataSource>,
+    pub data_source: Arc<dyn DataSource>,
     pub auth_credential: Option<String>,
     pub is_local_fs: bool,
 }
@@ -86,7 +86,7 @@ impl ReloadSender {
 
 pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     info!("version: {}, build date: {}", env!("ZHANG_BUILD_VERSION"), env!("ZHANG_BUILD_DATE"));
-    let ledger = Ledger::async_load(opts.path.clone(), opts.endpoint.clone(), opts.transformer.clone()).await?;
+    let ledger = Ledger::async_load(opts.path.clone(), opts.endpoint.clone(), opts.data_source.clone()).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
     let broadcaster = Broadcaster::create();
     let (tx, rx) = mpsc::channel::<i32>(1);

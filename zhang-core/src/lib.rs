@@ -31,19 +31,19 @@ mod test {
 
     use crate::data_type::text::parser::parse as parse_zhang;
     use crate::ledger::Ledger;
-    use crate::transform::TransformResult;
+    use crate::transform::LoadResult;
     use crate::ZhangResult;
 
-    struct TestTransformer {}
+    struct TestDataSource {}
 
     #[async_trait::async_trait]
-    impl DataSource for TestTransformer {
-        fn load(&self, entry: String, endpoint: String) -> ZhangResult<TransformResult> {
+    impl DataSource for TestDataSource {
+        fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
             let entry = PathBuf::from(entry);
             let file = entry.join(endpoint);
             let string = std::fs::read_to_string(&file).unwrap();
             let result: Vec<Spanned<Directive>> = parse_zhang(&string, file).expect("cannot read file");
-            Ok(TransformResult {
+            Ok(LoadResult {
                 directives: result,
                 visited_files: vec![PathBuf::from("example.zhang")],
             })
@@ -54,14 +54,14 @@ mod test {
         let temp_dir = tempdir().unwrap().into_path();
         let example = temp_dir.join("example.zhang");
         std::fs::write(example, content).unwrap();
-        Ledger::load_with_database(temp_dir, "example.zhang".to_string(), Arc::new(TestTransformer {})).unwrap()
+        Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(TestDataSource {})).unwrap()
     }
     fn load_store(content: &str) -> StoreTest {
         let temp_dir = tempdir().unwrap().into_path();
         let example = temp_dir.join("example.zhang");
         std::fs::write(example, content).unwrap();
         StoreTest {
-            ledger: Ledger::load_with_database(temp_dir, "example.zhang".to_string(), Arc::new(TestTransformer {})).unwrap(),
+            ledger: Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(TestDataSource {})).unwrap(),
         }
     }
 

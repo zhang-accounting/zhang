@@ -14,11 +14,11 @@ use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::ledger::Ledger;
-use zhang_core::transform::TransformResult;
+use zhang_core::transform::LoadResult;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
 
-use crate::{DataStoreSource, ServerOpts};
+use crate::{FileSystem, ServerOpts};
 
 pub struct OpendalDataSource {
     operator: Operator,
@@ -28,7 +28,7 @@ pub struct OpendalDataSource {
 
 #[async_trait::async_trait]
 impl DataSource for OpendalDataSource {
-    async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<TransformResult> {
+    async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
         let entry = PathBuf::from(entry);
         let main_endpoint = entry.join(endpoint);
 
@@ -58,7 +58,7 @@ impl DataSource for OpendalDataSource {
             directives.extend(entity_directives);
             visited.push(pathbuf);
         }
-        Ok(TransformResult {
+        Ok(LoadResult {
             directives: self.transform(directives)?,
             visited_files: visited,
         })
@@ -131,26 +131,26 @@ impl OpendalDataSource {
             .await?;
         }
 
-        let content_buf = ledger.transformer.async_get(striped_endpoint.to_string_lossy().to_string()).await?;
+        let content_buf = ledger.data_source.async_get(striped_endpoint.to_string_lossy().to_string()).await?;
         let content = String::from_utf8(content_buf)?;
 
         let appended_content = format!("{}\n{}\n", content, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
 
         ledger
-            .transformer
+            .data_source
             .async_save(ledger, striped_endpoint.to_string_lossy().to_string(), appended_content.as_bytes())
             .await?;
         Ok(())
     }
-    pub async fn from_env(source: DataStoreSource, server_opts: &mut ServerOpts) -> OpendalDataSource {
+    pub async fn from_env(source: FileSystem, server_opts: &mut ServerOpts) -> OpendalDataSource {
         let operator = match source {
-            DataStoreSource::Fs => {
+            FileSystem::Fs => {
                 let mut builder = Fs::default();
                 builder.root(server_opts.path.to_string_lossy().to_string().as_str());
                 // Operator::new(builder).unwrap().finish()
                 Operator::new(builder).unwrap().finish()
             }
-            DataStoreSource::WebDav => {
+            FileSystem::WebDav => {
                 let mut webdav_builder = Webdav::default();
                 webdav_builder.endpoint(&std::env::var("ZHANG_WEBDAV_ENDPOINT").expect("ZHANG_WEBDAV_ENDPOINT must be set"));
                 let webdav_root = std::env::var("ZHANG_WEBDAV_ROOT").expect("ZHANG_WEBDAV_ROOT must be set");

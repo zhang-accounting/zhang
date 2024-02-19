@@ -66,18 +66,18 @@ pub enum Exporter {
     Beancount,
 }
 #[derive(Debug, Clone, PartialEq, clap::ValueEnum)]
-pub enum DataStoreSource {
+pub enum FileSystem {
     Fs,
     S3,
     WebDav,
 }
 
-impl DataStoreSource {
-    fn from_env() -> Option<DataStoreSource> {
+impl FileSystem {
+    fn from_env() -> Option<FileSystem> {
         match std::env::var("ZHANG_DATA_SOURCE").as_deref() {
-            Ok("fs") => Some(DataStoreSource::Fs),
-            Ok("s3") => Some(DataStoreSource::S3),
-            Ok("web-dav") => Some(DataStoreSource::WebDav),
+            Ok("fs") => Some(FileSystem::Fs),
+            Ok("s3") => Some(FileSystem::S3),
+            Ok("web-dav") => Some(FileSystem::WebDav),
             _ => None,
         }
     }
@@ -106,7 +106,7 @@ pub struct ServerOpts {
 
     /// data source type, default is fs, or enable it via env ZHANG_AUTH
     #[clap(long)]
-    pub source: Option<DataStoreSource>,
+    pub source: Option<FileSystem>,
 
     /// whether the server report version info for anonymous statistics
     #[clap(long)]
@@ -123,8 +123,8 @@ impl Opts {
             }
             Opts::Export(_) => todo!(),
             Opts::Serve(mut opts) => {
-                let data_source = opts.source.clone().or(DataStoreSource::from_env()).unwrap_or(DataStoreSource::Fs);
-                let transformer = OpendalDataSource::from_env(data_source.clone(), &mut opts).await;
+                let file_system = opts.source.clone().or(FileSystem::from_env()).unwrap_or(FileSystem::Fs);
+                let data_source = OpendalDataSource::from_env(file_system.clone(), &mut opts).await;
                 let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(':'));
                 zhang_server::serve(ServeConfig {
                     path: opts.path,
@@ -132,9 +132,9 @@ impl Opts {
                     addr: opts.addr,
                     port: opts.port,
                     auth_credential,
-                    is_local_fs: data_source == DataStoreSource::Fs,
+                    is_local_fs: file_system == FileSystem::Fs,
                     no_report: opts.no_report,
-                    transformer: Arc::new(transformer),
+                    data_source: Arc::new(data_source),
                 })
                 .await
                 .expect("cannot serve")
@@ -165,20 +165,6 @@ impl Opts {
         }
     }
 }
-
-// impl ExportOpts {
-//     pub async fn run(self) {
-//         let result = match self {
-//             ExportOpts::Beancount { file, output } => exporter::beancount::run(file, output).await,
-//         };
-//         match result {
-//             Ok(_) => {}
-//             Err(error) => {
-//                 eprintln!("{}", error)
-//             }
-//         }
-//     }
-// }
 
 #[tokio::main]
 async fn main() {
@@ -213,7 +199,7 @@ mod test {
     use zhang_server::{create_server_app, ReloadSender};
 
     use crate::opendal::OpendalDataSource;
-    use crate::{DataStoreSource, ServerOpts};
+    use crate::{FileSystem, ServerOpts};
 
     macro_rules! pprintln {
 
@@ -250,8 +236,8 @@ mod test {
             for validation in validations {
                 pprintln!("      \x1b[0;32mTesting\x1b[0;0m: {}", &validation.uri);
 
-                let transformer = OpendalDataSource::from_env(
-                    DataStoreSource::Fs,
+                let data_source = OpendalDataSource::from_env(
+                    FileSystem::Fs,
                     &mut ServerOpts {
                         path: pathbuf.clone(),
                         endpoint: "main.zhang".to_owned(),
@@ -263,8 +249,8 @@ mod test {
                     },
                 )
                 .await;
-                let arc = Arc::new(transformer);
-                let ledger = Ledger::async_load(pathbuf.clone(), "main.zhang".to_owned(), arc.clone())
+                let data_source = Arc::new(data_source);
+                let ledger = Ledger::async_load(pathbuf.clone(), "main.zhang".to_owned(), data_source.clone())
                     .await
                     .expect("cannot load ledger");
                 let ledger_data = Arc::new(RwLock::new(ledger));

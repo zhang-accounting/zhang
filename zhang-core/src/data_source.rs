@@ -9,7 +9,7 @@ use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 use crate::data_type::DataType;
 use crate::error::IoErrorIntoZhangError;
 use crate::ledger::Ledger;
-use crate::transform::TransformResult;
+use crate::transform::LoadResult;
 use crate::utils::has_path_visited;
 use crate::{utils, ZhangResult};
 
@@ -26,7 +26,7 @@ where
         unimplemented!()
     }
 
-    fn load(&self, _entry: String, _endpoint: String) -> ZhangResult<TransformResult> {
+    fn load(&self, _entry: String, _endpoint: String) -> ZhangResult<LoadResult> {
         unimplemented!()
     }
 
@@ -38,7 +38,7 @@ where
         unimplemented!()
     }
 
-    async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<TransformResult> {
+    async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
         self.load(entry, endpoint)
     }
 
@@ -103,13 +103,13 @@ impl LocalFileSystemDataSource {
             )?;
         }
 
-        let content_buf = ledger.transformer.get(endpoint.to_string_lossy().to_string())?;
+        let content_buf = ledger.data_source.get(endpoint.to_string_lossy().to_string())?;
         let content = String::from_utf8(content_buf)?;
 
         let appended_content = format!("{}\n{}\n", content, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
 
         ledger
-            .transformer
+            .data_source
             .save(ledger, endpoint.to_string_lossy().to_string(), appended_content.as_bytes())?;
         Ok(())
     }
@@ -121,7 +121,7 @@ impl DataSource for LocalFileSystemDataSource {
         Ok(std::fs::read(PathBuf::from(path))?)
     }
 
-    fn load(&self, entry: String, endpoint: String) -> ZhangResult<TransformResult> {
+    fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
         let entry = PathBuf::from(entry);
         let entry = entry.canonicalize().with_path(&entry)?;
         let main_endpoint = entry.join(endpoint);
@@ -156,7 +156,7 @@ impl DataSource for LocalFileSystemDataSource {
             directives.extend(entity_directives);
             visited.push(pathbuf);
         }
-        Ok(TransformResult {
+        Ok(LoadResult {
             directives,
             visited_files: visited,
         })

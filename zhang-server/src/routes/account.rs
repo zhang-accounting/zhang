@@ -94,7 +94,7 @@ pub async fn upload_account_document(
 
         let striped_path_string = striped_buf.to_string_lossy().to_string();
         ledger_stage
-            .transformer
+            .data_source
             .async_save(&ledger_stage, striped_path_string.to_owned(), &content_buf)
             .await?;
 
@@ -108,7 +108,7 @@ pub async fn upload_account_document(
         }));
     }
 
-    ledger_stage.transformer.async_append(&ledger_stage, documents).await?;
+    ledger_stage.data_source.async_append(&ledger_stage, documents).await?;
     reload_sender.reload();
     ResponseWrapper::<()>::created()
 }
@@ -176,7 +176,7 @@ pub async fn create_account_balance(
         }),
     };
 
-    ledger.transformer.async_append(&ledger, vec![balance]).await.unwrap();
+    ledger.data_source.async_append(&ledger, vec![balance]).await.unwrap();
     reload_sender.reload();
     ResponseWrapper::<()>::created()
 }
@@ -211,7 +211,7 @@ pub async fn create_batch_account_balances(
         directives.push(balance);
     }
 
-    ledger.transformer.async_append(&ledger, directives).await?;
+    ledger.data_source.async_append(&ledger, directives).await?;
     reload_sender.reload();
     ResponseWrapper::<()>::created()
 }
