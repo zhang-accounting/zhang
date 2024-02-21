@@ -305,7 +305,7 @@ export default function App() {
 
               {basicInfo.updatableVersion && (
                 <Navbar.Section className={classes.section}>
-                  <Group position="center" spacing={"sm"}>
+                  <Group position="center" spacing={'sm'}>
                     <Anchor href="https://github.com/zhang-accounting/zhang/wiki/Guide-of-Updating" target="_blank">
                       🎉 New Version is available!
                     </Anchor>
