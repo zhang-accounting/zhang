@@ -10,7 +10,7 @@ import Settings from './pages/Settings';
 import SingleAccount from './pages/SingleAccount';
 import SingleCommodity from './pages/SingleCommodity';
 
-import { ActionIcon, Badge, Box, createStyles, Group, MediaQuery, Navbar, px, Text, TextInput, UnstyledButton } from '@mantine/core';
+import { ActionIcon, Badge, Box, createStyles, Group, MediaQuery, Navbar, px, Text, TextInput, UnstyledButton, Anchor } from '@mantine/core';
 import {
   IconBroadcast,
   IconCash,
@@ -304,9 +304,11 @@ export default function App() {
               </Navbar.Section>
 
               {basicInfo.updatableVersion && (
-                <Navbar.Section px="sm">
-                  <Group position="center">
-                    <a href="https://github.com/zhang-accounting/zhang/wiki/Guide-of-Updating">🎉 New Version is available!</a>
+                <Navbar.Section className={classes.section}>
+                  <Group position="center" spacing={"sm"}>
+                    <Anchor href="https://github.com/zhang-accounting/zhang/wiki/Guide-of-Updating" target="_blank">
+                      🎉 New Version is available!
+                    </Anchor>
                   </Group>
                 </Navbar.Section>
               )}
