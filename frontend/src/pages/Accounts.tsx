@@ -42,7 +42,7 @@ export default function Accounts() {
         <Checkbox checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)} label={'Hide closed accounts'} />
       </Group>
 
-      <Table verticalSpacing="xs" highlightOnHover>
+      <Table verticalSpacing="xs" highlightOnHover withBorder>
         <thead>
           <tr>
             <th>Name</th>
