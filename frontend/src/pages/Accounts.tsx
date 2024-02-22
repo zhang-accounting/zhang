@@ -1,4 +1,4 @@
-import { Button, Chip, Container, Group, Table } from '@mantine/core';
+import { Button, Chip, Container, Group, Table, Checkbox } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import AccountLine from '../components/AccountLine';
@@ -28,9 +28,7 @@ export default function Accounts() {
         <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => dispatch(fetchAccounts())}>
           {t('REFRESH')}
         </Button>
-        <Chip checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)}>
-          Hide closed accounts
-        </Chip>
+        <Checkbox checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)} label={'Hide closed accounts'} />
       </Group>
       <Table verticalSpacing="xs" highlightOnHover>
         <thead>
