@@ -27,5 +27,8 @@
     "TransactionDoesNotBalance": "Transaction does not balance",
     "CommodityDoesNotDefine": "Try to use a undefined commodity",
     "TransactionHasMultipleImplicitPosting": "Transaction has more than one implicit posting unit",
-    "CloseNonZeroAccount": "Trying to close an account with non zero balance"
+    "CloseNonZeroAccount": "Trying to close an account with non zero balance",
+
+    "ACCOUNT_FILTER_PLACEHOLDER": "filter by keyword...",
+    "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "clean account filter keyword"
 }

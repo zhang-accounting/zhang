@@ -1,19 +1,21 @@
-import { Button, Chip, Container, Group, Table, Checkbox } from '@mantine/core';
-import { useLocalStorage } from '@mantine/hooks';
-import { useEffect } from 'react';
+import { Button, Chip, Container, Group, Table, Checkbox, Input, UnstyledButton, CloseButton } from '@mantine/core';
+import { useLocalStorage, useInputState } from '@mantine/hooks';
+import { useEffect, useState } from 'react';
 import AccountLine from '../components/AccountLine';
 import { LoadingState } from '../rest-model';
 import { useAppDispatch, useAppSelector } from '../states';
 import { fetchAccounts, getAccountsTrie } from '../states/account';
 import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
+import { IconX, IconFilter } from '@tabler/icons';
 
 export default function Accounts() {
   const { t } = useTranslation();
+  const [filterKeyword, setFilterKeyword] = useInputState('');
   const [hideClosedAccount, setHideClosedAccount] = useLocalStorage({ key: 'hideClosedAccount', defaultValue: false });
   const dispatch = useAppDispatch();
   const accountStatus = useAppSelector((state) => state.accounts.status);
-  const accountTrie = useAppSelector(getAccountsTrie(hideClosedAccount));
+  const accountTrie = useAppSelector(getAccountsTrie(hideClosedAccount, filterKeyword));
 
   useEffect(() => {
     if (accountStatus === LoadingState.NotReady) {
@@ -25,11 +27,21 @@ export default function Accounts() {
     <Container fluid>
       <Heading title={`Accounts`}></Heading>
       <Group my="lg">
+        <Input
+          icon={<IconFilter size="1rem" />}
+          placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
+          value={filterKeyword}
+          onChange={setFilterKeyword}
+          rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')} onClick={() => setFilterKeyword('')} />}
+        />
+      </Group>
+      <Group my="lg">
         <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => dispatch(fetchAccounts())}>
           {t('REFRESH')}
         </Button>
         <Checkbox checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)} label={'Hide closed accounts'} />
       </Group>
+
       <Table verticalSpacing="xs" highlightOnHover>
         <thead>
           <tr>

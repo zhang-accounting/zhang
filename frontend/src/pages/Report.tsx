@@ -27,9 +27,7 @@ export default function Report() {
   ]);
 
   useEffect(() => {
-    console.log('value is ', value);
     if (value[0] !== null && value[1] !== null) {
-      console.log('update value', value);
       setDateRange([value[0], value[1]]);
     }
   }, [value]);

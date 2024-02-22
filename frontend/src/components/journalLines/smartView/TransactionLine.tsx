@@ -40,7 +40,6 @@ export default function TransactionLine({ data, onClick }: Props) {
   // const date = format(new Date(data.datetime), 'yyyy-MM-dd');
   const time = format(new Date(data.datetime), 'hh:mm');
   const trClick = () => {
-    console.log('clock');
     if (onClick) {
       onClick(data);
     }

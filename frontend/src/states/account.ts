@@ -43,11 +43,18 @@ export const accountsSlice = createSlice({
 });
 
 export const getAccountByName = (name: string) => (state: RootState) => state.accounts.dataMap[name];
-export const getAccountsTrie = (hideClosedAccount: boolean) => (state: RootState) => {
+export const getAccountsTrie = (hideClosedAccount: boolean, filterKeyword: string) => (state: RootState) => {
   const data = state.accounts.data;
   let trie = new AccountTrie();
   for (let account of data.filter((it) => (hideClosedAccount ? it.status === AccountStatus.Open : true))) {
-    trie.insert(account);
+    let trimmedKeyword = filterKeyword.trim();
+    if (trimmedKeyword !== '') {
+      if (account.name.includes(trimmedKeyword) || (account.alias ?? '').includes(trimmedKeyword)) {
+        trie.insert(account);
+      }
+    } else {
+      trie.insert(account);
+    }
   }
   return trie;
 };
