@@ -41,10 +41,11 @@ pub struct ReportRequest {
     pub to: DateTime<Utc>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct JournalRequest {
-    page: Option<u32>,
-    size: Option<u32>,
+    pub page: Option<u32>,
+    pub size: Option<u32>,
+    pub keyword: Option<String>,
 }
 impl JournalRequest {
     pub fn page(&self) -> u32 {

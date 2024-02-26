@@ -9,6 +9,7 @@ import Report from './pages/Report';
 import Settings from './pages/Settings';
 import SingleAccount from './pages/SingleAccount';
 import SingleCommodity from './pages/SingleCommodity';
+import { matchPath, useLocation } from 'react-router';
 
 import { ActionIcon, Badge, Box, createStyles, Group, MediaQuery, Navbar, px, Text, TextInput, UnstyledButton, Anchor } from '@mantine/core';
 import {
@@ -93,15 +94,21 @@ const useStyles = createStyles((theme) => ({
     alignItems: 'center',
     width: '100%',
     fontSize: theme.fontSizes.sm,
-    padding: `${px(theme.spacing.sm)}px ${px(theme.spacing.xs)}px`,
+    margin: `${px(theme.spacing.sm) * 0.25}px 0`,
+    padding: `${px(theme.spacing.sm) * 0.75}px ${px(theme.spacing.xs)}px`,
     borderRadius: theme.radius.sm,
     fontWeight: 500,
     color: theme.colorScheme === 'dark' ? theme.colors.dark[0] : theme.colors.gray[7],
-
+    border: `2px solid transparent`,
     '&:hover': {
       backgroundColor: theme.colorScheme === 'dark' ? theme.colors.dark[6] : theme.colors.gray[0],
+      borderColor: theme.colors[theme.primaryColor][6],
       color: theme.colorScheme === 'dark' ? theme.white : theme.black,
     },
+  },
+
+  activeMainLink: {
+    borderColor: theme.colors[theme.primaryColor][6],
   },
 
   mainLinkInner: {
@@ -177,6 +184,7 @@ export default function App() {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const basicInfo = useAppSelector((state) => state.basic);
+  const location = useLocation();
 
   useEffect(() => {
     dispatch(fetchError(1));
@@ -240,7 +248,12 @@ export default function App() {
   const { total_number } = useAppSelector((state) => state.errors);
 
   const mainLinks = links.map((link) => (
-    <UnstyledButton component={RouteLink} to={link.uri} key={link.label} className={classes.mainLink}>
+    <UnstyledButton
+      component={RouteLink}
+      to={link.uri}
+      key={link.label}
+      className={`${classes.mainLink} ${matchPath(location.pathname, link.uri) ? classes.activeMainLink : ''}`}
+    >
       <div className={classes.mainLinkInner}>
         <link.icon size={20} className={classes.mainLinkIcon} stroke={1.5} />
         <span>{t(link.label)}</span>
@@ -288,7 +301,12 @@ export default function App() {
 
               <Navbar.Section grow className={classes.section} mx="sm">
                 <div className={classes.mainLinks}>
-                  <UnstyledButton component={RouteLink} to={'/'} key={'NAV_HOME'} className={classes.mainLink}>
+                  <UnstyledButton
+                    component={RouteLink}
+                    to={'/'}
+                    key={'NAV_HOME'}
+                    className={`${classes.mainLink} ${matchPath(location.pathname, '/') ? classes.activeMainLink : ''}`}
+                  >
                     <div className={classes.mainLinkInner}>
                       <IconSmartHome size={20} className={classes.mainLinkIcon} stroke={1.5} />
                       <span>{t('NAV_HOME')}</span>
@@ -305,7 +323,7 @@ export default function App() {
 
               {basicInfo.updatableVersion && (
                 <Navbar.Section className={classes.section}>
-                  <Group position="center" spacing={"sm"}>
+                  <Group position="center" spacing={'sm'}>
                     <Anchor href="https://github.com/zhang-accounting/zhang/wiki/Guide-of-Updating" target="_blank">
                       🎉 New Version is available!
                     </Anchor>

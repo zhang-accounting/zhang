@@ -1,0 +1,89 @@
+[
+  {
+    "uri": "/api/journals",
+    "validations": [
+      [
+        "$.data.records.length()",
+        1
+      ],
+      [
+        "$.data.records[0].postings.length()",
+        2
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals?keyword=KF",
+    "validations": [
+      [
+        "$.data.records.length()",
+        1
+      ],
+      [
+        "$.data.records[0].postings.length()",
+        2
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals?keyword=kf",
+    "validations": [
+      [
+        "$.data.records.length()",
+        1
+      ],
+      [
+        "$.data.records[0].postings.length()",
+        2
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals?keyword=VME50",
+    "validations": [
+      [
+        "$.data.records.length()",
+        1
+      ],
+      [
+        "$.data.records[0].postings.length()",
+        2
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals?keyword=BankCard",
+    "validations": [
+      [
+        "$.data.records.length()",
+        1
+      ],
+      [
+        "$.data.records[0].postings.length()",
+        2
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals?keyword=Food",
+    "validations": [
+      [
+        "$.data.records.length()",
+        1
+      ],
+      [
+        "$.data.records[0].postings.length()",
+        2
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals?keyword=KFCC",
+    "validations": [
+      [
+        "$.data.records.length()",
+        0
+      ]
+    ]
+  }
+]

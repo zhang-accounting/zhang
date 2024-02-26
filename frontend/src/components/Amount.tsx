@@ -32,7 +32,6 @@ export default function Amount({ amount, currency, negetive, mask, className }: 
   const shouldMask = mask || false;
   const shouldDisplayCurrencyName = !commodity?.prefix && !commodity?.suffix;
 
-  console.log('shouldDisplayCurrencyName', shouldDisplayCurrencyName, commodity, currency);
   let parsedValue: BigNumber;
   if (typeof amount === 'string') {
     parsedValue = new BigNumber(amount);

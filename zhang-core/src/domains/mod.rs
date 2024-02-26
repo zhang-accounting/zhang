@@ -19,8 +19,7 @@ use crate::domains::schemas::{
     MetaType, OptionDomain, PriceDomain, TransactionInfoDomain,
 };
 use crate::store::{
-    BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store,
-    TransactionHeaderDomain,
+    BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionDomain,
 };
 use crate::{ZhangError, ZhangResult};
 
@@ -128,7 +127,7 @@ impl Operations {
 
         store.transactions.insert(
             *id,
-            TransactionHeaderDomain {
+            TransactionDomain {
                 id: *id,
                 sequence,
                 datetime,
@@ -138,6 +137,7 @@ impl Operations {
                 span: span.clone(),
                 tags,
                 links,
+                postings: vec![],
             },
         );
 
@@ -152,8 +152,12 @@ impl Operations {
     ) -> ZhangResult<()> {
         let mut store = self.write();
 
-        let trx = store.transactions.get(trx_id).cloned().expect("cannot find trx");
-        store.postings.push(PostingDomain {
+        let trx = store
+            .transactions
+            .get(trx_id)
+            .cloned()
+            .expect("invalid context: cannot find txn header when inserting postings");
+        let posting = PostingDomain {
             id: Uuid::new_v4(),
             trx_id: *trx_id,
             trx_sequence: trx.sequence,
@@ -164,7 +168,13 @@ impl Operations {
             inferred_amount,
             previous_amount,
             after_amount,
-        });
+        };
+        store.postings.push(posting.clone());
+        let txn_header = store
+            .transactions
+            .get_mut(trx_id)
+            .expect("invalid context: cannot find txn header when inserting postings");
+        txn_header.postings.push(posting);
         Ok(())
     }
 

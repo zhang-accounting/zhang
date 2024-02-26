@@ -12,7 +12,6 @@ export default function AccountDocumentUpload(props: Props) {
   const [files, setFiles] = useState<FileWithPath[]>([]);
 
   useEffect(() => {
-    console.log('files', files);
     if (files.length > 0) {
       const formData = new FormData();
       files.forEach((file) => formData.append('file', file));

@@ -19,5 +19,7 @@
     "NAV_RAW_EDITING": "编辑",
     "NAV_TOOLS": "工具",
     "NAV_SETTING": "设置",
-    "NAV_BUDGETS": "预算"
+    "NAV_BUDGETS": "预算",
+    "ACCOUNT_FILTER_PLACEHOLDER": "按关键字过滤...",
+    "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "清空过滤关键字"
 }

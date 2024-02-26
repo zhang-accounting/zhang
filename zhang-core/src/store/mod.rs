@@ -15,7 +15,7 @@ pub struct Store {
     pub options: HashMap<String, String>,
     pub accounts: HashMap<String, AccountDomain>,
     pub commodities: HashMap<String, CommodityDomain>,
-    pub transactions: HashMap<Uuid, TransactionHeaderDomain>,
+    pub transactions: HashMap<Uuid, TransactionDomain>,
     pub postings: Vec<PostingDomain>,
 
     pub prices: Vec<PriceDomain>,
@@ -33,7 +33,7 @@ pub struct Store {
 }
 
 #[derive(Clone, serde::Serialize)]
-pub struct TransactionHeaderDomain {
+pub struct TransactionDomain {
     pub id: Uuid,
     pub sequence: i32,
     pub datetime: DateTime<Tz>,
@@ -43,6 +43,29 @@ pub struct TransactionHeaderDomain {
     pub span: SpanInfo,
     pub tags: Vec<String>,
     pub links: Vec<String>,
+    pub postings: Vec<PostingDomain>,
+}
+
+impl TransactionDomain {
+    pub fn contains_keyword(&self, keyword: &str) -> bool {
+        let keyword = keyword.to_lowercase();
+        ({
+            let is_payee_matched = self.payee.as_ref().map(|it| it.to_lowercase().contains(&keyword)).unwrap_or(false);
+            is_payee_matched
+        }) || ({
+            let is_narration_matched = self.narration.as_ref().map(|it| it.to_lowercase().contains(&keyword)).unwrap_or(false);
+            is_narration_matched
+        }) || ({
+            let is_any_tags_matched = self.tags.iter().any(|it| it.to_lowercase().contains(&keyword));
+            is_any_tags_matched
+        }) || ({
+            let is_any_links_matched = self.links.iter().any(|it| it.to_lowercase().contains(&keyword));
+            is_any_links_matched
+        }) || ({
+            let is_any_posting_account_matched = self.postings.iter().any(|posting| posting.account.name().to_lowercase().contains(&keyword));
+            is_any_posting_account_matched
+        })
+    }
 }
 
 #[derive(Clone, serde::Serialize)]
