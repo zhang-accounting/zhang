@@ -66,7 +66,7 @@ impl CommodityDomain {
 }
 
 #[pyclass]
-pub struct TransactionHeaderDomain(pub zhang_core::store::TransactionHeaderDomain);
+pub struct TransactionHeaderDomain(pub zhang_core::store::TransactionDomain);
 
 #[pymethods]
 impl TransactionHeaderDomain {

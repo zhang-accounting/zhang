@@ -45,6 +45,7 @@ pub struct ReportRequest {
 pub struct JournalRequest {
     page: Option<u32>,
     size: Option<u32>,
+    keyword: Option<String>,
 }
 impl JournalRequest {
     pub fn page(&self) -> u32 {
