@@ -3,9 +3,10 @@ import { RootState } from '.';
 import { fetcher } from '..';
 import { LoadingState } from '../rest-model';
 
-export const fetchJournals = createAsyncThunk('journals/fetch', async (args, { getState }) => {
+export const fetchJournals = createAsyncThunk('journals/fetch', async (keyword: string, { getState }) => {
   const current_page = (getState() as RootState).journals.current_page;
-  const ret = await fetcher(`/api/journals?page=${current_page}`);
+  const url = keyword.trim() === '' ? `/api/journals?page=${current_page}` : `/api/journals?page=${current_page}&keyword=${keyword.trim()}`;
+  const ret = await fetcher(url);
   return ret;
 });
 

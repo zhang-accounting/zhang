@@ -1,30 +1,36 @@
-import { Button, Group, Pagination, Table } from '@mantine/core';
+import { Button, CloseButton, Group, Input, Pagination, Table } from '@mantine/core';
 import { format } from 'date-fns';
 import { groupBy } from 'lodash';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import TableViewJournalLine from '../components/journalLines/tableView/TableViewJournalLine';
 import { LoadingState } from '../rest-model';
 import { useAppDispatch, useAppSelector } from '../states';
 import { fetchJournals, journalsSlice } from '../states/journals';
 import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
+import { useDebouncedValue } from '@mantine/hooks';
+import { IconFilter } from '@tabler/icons';
 
 function Journals() {
   const { t } = useTranslation();
+  const [filter, setFilter] = useState('');
+  const [debouncedFilter] = useDebouncedValue(filter, 200);
   const { current_page, status: journalStatus, items, total_number, total_page } = useAppSelector((state) => state.journals);
   const dispatch = useAppDispatch();
   useEffect(() => {
     if (journalStatus === LoadingState.NotReady) {
-      dispatch(fetchJournals());
+      dispatch(fetchJournals(debouncedFilter));
     }
-  }, [dispatch, journalStatus]);
+  }, [dispatch, journalStatus, debouncedFilter]);
+
+  useEffect(() => {
+    dispatch(fetchJournals(debouncedFilter));
+  }, [dispatch, debouncedFilter]);
 
   const onPage = (page: number) => {
     dispatch(journalsSlice.actions.setPage({ current_page: page }));
-    dispatch(fetchJournals());
+    dispatch(fetchJournals(debouncedFilter));
   };
-
-  if (journalStatus === LoadingState.Loading || journalStatus === LoadingState.NotReady) return <>loading</>;
 
   const groupedRecords = groupBy(items, (record) => format(new Date(record.datetime), 'yyyy-MM-dd'));
 
@@ -32,9 +38,16 @@ function Journals() {
     <>
       <Heading title={`${total_number} Journals`}></Heading>
       <Group my="lg" px="sm">
-        <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => dispatch(fetchJournals())}>
+        <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => dispatch(fetchJournals(filter))}>
           {t('REFRESH')}
         </Button>
+        <Input
+          icon={<IconFilter size="1rem" />}
+          placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
+          value={filter}
+          onChange={(event: any) => setFilter(event.currentTarget.value)}
+          rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')} onClick={() => setFilter('')} />}
+        />
       </Group>
       <Table verticalSpacing="xs" withBorder>
         <thead>
@@ -48,24 +61,27 @@ function Journals() {
           </tr>
         </thead>
         <tbody>
-          {Object.entries(groupedRecords).map((entry) => {
-            return (
-              <>
-                <tr>
-                  <td colSpan={6}>
-                    <b>{entry[0]}</b>
-                  </td>
-                </tr>
-                {entry[1].map((journal) => (
-                  <>
-                    <TableViewJournalLine key={journal.id} data={journal} />
-                  </>
-                ))}
-              </>
-            );
-          })}
+          {journalStatus === LoadingState.Success &&
+            Object.entries(groupedRecords).map((entry) => {
+              return (
+                <>
+                  <tr>
+                    <td colSpan={6}>
+                      <b>{entry[0]}</b>
+                    </td>
+                  </tr>
+                  {entry[1].map((journal) => (
+                    <>
+                      <TableViewJournalLine key={journal.id} data={journal} />
+                    </>
+                  ))}
+                </>
+              );
+            })}
         </tbody>
       </Table>
+
+      {(journalStatus === LoadingState.Loading || journalStatus === LoadingState.NotReady) && <p>loading</p>}
       <Pagination my="xs" total={total_page} value={current_page} onChange={onPage} position="center" />
     </>
   );
