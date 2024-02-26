@@ -46,6 +46,27 @@ pub struct TransactionDomain {
     pub postings: Vec<PostingDomain>,
 }
 
+impl TransactionDomain {
+    pub fn contains_keyword(&self, keyword: &str) -> bool {
+        ({
+            let is_payee_matched = self.payee.as_ref().map(|it| it.contains(keyword)).unwrap_or(false);
+            is_payee_matched
+        }) || ({
+            let is_narration_matched = self.narration.as_ref().map(|it| it.contains(keyword)).unwrap_or(false);
+            is_narration_matched
+        }) || ({
+            let is_any_tags_matched = self.tags.iter().any(|it| it.contains(keyword));
+            is_any_tags_matched
+        }) || ({
+            let is_any_links_matched = self.links.iter().any(|it| it.contains(keyword));
+            is_any_links_matched
+        }) || ({
+            let is_any_posting_account_matched = self.postings.iter().any(|posting| posting.account.name().contains(keyword));
+            is_any_posting_account_matched
+        })
+    }
+}
+
 #[derive(Clone, serde::Serialize)]
 pub struct PostingDomain {
     pub id: Uuid,

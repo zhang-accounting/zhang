@@ -55,9 +55,11 @@ pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<Jour
         narration: Option<String>,
     }
     let store = operations.read();
+
     let journal_headers = store
         .transactions
         .values()
+        .filter(|it| params.keyword.as_ref().map(|keyword| it.contains_keyword(keyword)).unwrap_or(true))
         .sorted_by_key(|it| -it.sequence)
         .skip(params.offset() as usize)
         .take(params.limit() as usize)
