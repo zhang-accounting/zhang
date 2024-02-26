@@ -49,7 +49,7 @@ export const getAccountsTrie = (hideClosedAccount: boolean, filterKeyword: strin
   for (let account of data.filter((it) => (hideClosedAccount ? it.status === AccountStatus.Open : true))) {
     let trimmedKeyword = filterKeyword.trim();
     if (trimmedKeyword !== '') {
-      if (account.name.includes(trimmedKeyword) || (account.alias ?? '').includes(trimmedKeyword)) {
+      if (account.name.toLowerCase().includes(trimmedKeyword.toLowerCase()) || (account.alias?.toLowerCase() ?? '').includes(trimmedKeyword.toLowerCase())) {
         trie.insert(account);
       }
     } else {
