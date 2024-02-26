@@ -1,13 +1,13 @@
-import { Button, Chip, Container, Group, Table, Checkbox, Input, UnstyledButton, CloseButton } from '@mantine/core';
-import { useLocalStorage, useInputState } from '@mantine/hooks';
-import { useEffect, useState } from 'react';
+import { Button, Checkbox, CloseButton, Container, Group, Input, Table } from '@mantine/core';
+import { useInputState, useLocalStorage } from '@mantine/hooks';
+import { useEffect } from 'react';
 import AccountLine from '../components/AccountLine';
 import { LoadingState } from '../rest-model';
 import { useAppDispatch, useAppSelector } from '../states';
 import { fetchAccounts, getAccountsTrie } from '../states/account';
 import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
-import { IconX, IconFilter } from '@tabler/icons';
+import { IconFilter } from '@tabler/icons';
 
 export default function Accounts() {
   const { t } = useTranslation();
