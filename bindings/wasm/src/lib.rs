@@ -54,7 +54,7 @@ impl ParseResult {
         self.msg.clone()
     }
     pub fn store(&self) -> JsValue {
-        self.store.clone().unwrap_or(JsValue::default())
+        self.store.clone().unwrap_or_default()
     }
 }
 

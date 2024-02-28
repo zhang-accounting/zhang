@@ -557,7 +557,7 @@ impl ZhangParser {
     }
     fn entry(input: Node) -> Result<Vec<Spanned<Directive>>> {
         let ret: Vec<(Directive, SpanInfo)> = match_nodes!(input.into_children();
-            [item(items).., _] => items.filter_map(|it|it).collect(),
+            [item(items).., _] => items.flatten().collect(),
         );
         Ok(ret
             .into_iter()

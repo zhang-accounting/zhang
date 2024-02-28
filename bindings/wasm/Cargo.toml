@@ -1,6 +1,6 @@
 [package]
 name = "zhang-wasm"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Kilerd <blove694@gmail.com>"]
 edition = "2018"
 
