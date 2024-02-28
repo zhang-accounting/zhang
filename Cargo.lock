@@ -3266,7 +3266,7 @@ dependencies = [
 
 [[package]]
 name = "zhang-wasm"
-version = "0.1.0-beta.2"
+version = "0.1.0"
 dependencies = [
  "beancount",
  "console_error_panic_hook",
