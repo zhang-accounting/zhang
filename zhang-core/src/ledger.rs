@@ -52,7 +52,7 @@ impl Ledger {
         Ledger::process(load_result.directives, (entry, endpoint), load_result.visited_files, data_source)
     }
 
-    fn process(
+    pub fn process(
         directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<PathBuf>, data_source: Arc<dyn DataSource>,
     ) -> ZhangResult<Ledger> {
         let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
