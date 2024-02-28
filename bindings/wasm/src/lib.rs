@@ -61,6 +61,8 @@ impl ParseResult {
 #[wasm_bindgen]
 extern "C" {
     fn alert(s: &str);
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
 }
 
 #[wasm_bindgen]
@@ -70,6 +72,7 @@ pub fn greet() {
 
 #[wasm_bindgen]
 pub fn parse(content: &str) -> PlayGroundParse {
+    console_error_panic_hook::set_once();
     let zhang_data_type = ZhangDataType {};
     let beancount_data_type = Beancount::default();
 
@@ -78,14 +81,11 @@ pub fn parse(content: &str) -> PlayGroundParse {
     });
     let zhang_parse_result = zhang_data_type.transform(content.to_owned(), None);
     let beancount_parse_result = beancount_data_type.transform(content.to_owned(), None);
-    // let ledger = Ledger::load_with_data_source(content.to_owned(), "".to_owned(), source)?;
-
     let (is_zhang_pass, zhang_store, zhang_error_msg) = match zhang_parse_result {
         Ok(data) => {
             let result = Ledger::process(data, (PathBuf::from("/"), "".to_owned()), vec![], source.clone()).unwrap();
             let result1 = result.store.read().unwrap();
             let store_js_value = serde_wasm_bindgen::to_value(&*result1).unwrap();
-
             (true, Some(store_js_value), None)
         }
         Err(e) => (false, None, Some(e.to_string())),
@@ -96,7 +96,6 @@ pub fn parse(content: &str) -> PlayGroundParse {
             let result = Ledger::process(data, (PathBuf::from("/"), "".to_owned()), vec![], source.clone()).unwrap();
             let result1 = result.store.read().unwrap();
             let store_js_value = serde_wasm_bindgen::to_value(&*result1).unwrap();
-
             (true, Some(store_js_value), None)
         }
         Err(e) => (false, None, Some(e.to_string())),
