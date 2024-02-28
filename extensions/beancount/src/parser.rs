@@ -547,8 +547,11 @@ impl BeancountParer {
         );
         Ok(ret)
     }
+    fn empty_space_line(input: Node) -> Result<()> {
+        Ok(())
+    }
 
-    fn item(input: Node) -> Result<(BeancountDirective, SpanInfo)> {
+    fn item(input: Node) -> Result<Option<(BeancountDirective, SpanInfo)>> {
         let span = input.as_span();
         let span_info = SpanInfo {
             start: span.start_pos().pos(),
@@ -556,26 +559,27 @@ impl BeancountParer {
             content: span.as_str().to_string(),
             filename: None,
         };
-        let ret: BeancountDirective = match_nodes!(input.into_children();
-            [option(item)]          => Either::Left(item),
-            [plugin(item)]          => Either::Left(item),
-            [include(item)]         => Either::Left(item),
-            [push_tag(item)]        => Either::Right(item),
-            [pop_tag(item)]         => Either::Right(item),
-            [comment(item)]         => Either::Left(item),
-            [valuable_comment(item)] => Either::Left(Directive::Comment(Comment { content:item })),
+        let ret: Option<BeancountDirective> = match_nodes!(input.into_children();
+            [option(item)]          => Some(Either::Left(item)),
+            [plugin(item)]          => Some(Either::Left(item)),
+            [include(item)]         => Some(Either::Left(item)),
+            [push_tag(item)]        => Some(Either::Right(item)),
+            [pop_tag(item)]         => Some(Either::Right(item)),
+            [comment(item)]         => Some(Either::Left(item)),
+            [valuable_comment(item)] => Some(Either::Left(Directive::Comment(Comment { content:item }))),
 
-            [metable_head(head)]            => head,
-            [metable_head(head), metas(meta)]  => {match head {
+            [empty_space_line(_)] => None,
+
+            [metable_head(head)]            => Some(head),
+            [metable_head(head), metas(meta)]  => {Some(match head {
                 Either::Left(directive) => Either::Left(directive.set_meta(meta)),
                 Either::Right(directive) => Either::Right(directive.set_meta(meta)),
-            }},
+            })},
 
-            [transaction(item)]     => Either::Left(item),
+            [transaction(item)]     => Some(Either::Left(item)),
 
         );
-
-        Ok((ret, span_info))
+        Ok(ret.map(|it| (it, span_info)))
     }
 
     fn time_part(input: Node) -> Result<u32> {
@@ -591,7 +595,7 @@ impl BeancountParer {
 
     fn entry(input: Node) -> Result<Vec<Spanned<BeancountDirective>>> {
         let ret: Vec<(BeancountDirective, SpanInfo)> = match_nodes!(input.into_children();
-            [item(items).., _] => items.collect(),
+            [item(items).., _] => items.flatten().collect(),
         );
         Ok(ret
             .into_iter()

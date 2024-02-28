@@ -529,7 +529,10 @@ impl ZhangParser {
         );
         Ok(ret)
     }
-    fn item(input: Node) -> Result<(Directive, SpanInfo)> {
+    fn empty_space_line(input: Node) -> Result<()> {
+        Ok(())
+    }
+    fn item(input: Node) -> Result<Option<(Directive, SpanInfo)>> {
         let span = input.as_span();
         let span_info = SpanInfo {
             start: span.start_pos().pos(),
@@ -537,24 +540,24 @@ impl ZhangParser {
             content: span.as_str().to_string(),
             filename: None,
         };
-        let ret: Directive = match_nodes!(input.into_children();
-            [option(item)] => item,
-            [plugin(item)] => item,
-            [include(item)] => item,
-            [valuable_comment(item)] => Directive::Comment(Comment { content:item }),
+        let ret: Option<Directive> = match_nodes!(input.into_children();
+            [option(item)] => Some(item),
+            [plugin(item)] => Some(item),
+            [include(item)] => Some(item),
+            [valuable_comment(item)] => Some(Directive::Comment(Comment { content:item })),
 
-            [transaction(item)] => item,
-
-            [metable_head(head)] => head,
+            [transaction(item)] => Some(item),
+            [empty_space_line(_)] => None,
+            [metable_head(head)] => Some(head),
             [metable_head(head), metas(meta)] => {
-                head.set_meta(meta)
+                Some(head.set_meta(meta))
             },
         );
-        Ok((ret, span_info))
+        Ok(ret.map(|it| (it, span_info)))
     }
     fn entry(input: Node) -> Result<Vec<Spanned<Directive>>> {
         let ret: Vec<(Directive, SpanInfo)> = match_nodes!(input.into_children();
-            [item(items).., _] => items.collect(),
+            [item(items).., _] => items.flatten().collect(),
         );
         Ok(ret
             .into_iter()

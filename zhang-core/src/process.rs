@@ -3,12 +3,11 @@ use std::ops::{Add, Mul, Sub};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
-use std::time::Instant;
 
 use bigdecimal::{BigDecimal, Zero};
 use itertools::Itertools;
-use log::debug;
 use uuid::Uuid;
+
 use zhang_ast::amount::Amount;
 use zhang_ast::utils::inventory::LotInfo;
 use zhang_ast::*;
@@ -24,11 +23,7 @@ use crate::ZhangResult;
 
 pub(crate) trait DirectiveProcess {
     fn handler(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        let start_time = Instant::now();
-        let result = DirectiveProcess::process(self, ledger, span);
-        let duration = start_time.elapsed();
-        debug!("directive process is done in {:?}", duration);
-        result
+        DirectiveProcess::process(self, ledger, span)
     }
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()>;
 }
