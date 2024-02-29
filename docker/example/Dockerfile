@@ -28,4 +28,3 @@ WORKDIR application
 EXPOSE 8000
 
 ENTRYPOINT ["./zhang", "serve", "/data", "--port", "8000"]
-
