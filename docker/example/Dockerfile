@@ -9,7 +9,7 @@ FROM rust:1.75.0 as build-env
 
 RUN mkdir /application
 WORKDIR /app
-COPY . /app
+COPY ../.. /app
 
 RUN cargo build --release --features frontend --bin zhang
 
