@@ -61,13 +61,13 @@ const useStyles = createStyles((theme, _params, getRef) => ({
 
 export interface Props extends Document {}
 
-export const EXTENSIONS_SUPPORT_PREVIEW = ['PNG', 'JPG', 'JPEG', 'GIF'];
+export const EXTENSIONS_SUPPORT_PREVIEW = ['image/png', 'image/jpg', 'image/jpeg', 'image/gif'];
 
 export default function AccountDocumentLine(props: Props) {
   const { classes } = useStyles();
 
-  const extension = (props.extension ?? '').toUpperCase();
-
+  const extension = (props.extension ?? '').toLowerCase();
+  console.log(props, extension);
   const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
   const openPreviewModal = () => {
     if (canPreview) {

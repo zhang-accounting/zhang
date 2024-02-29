@@ -54,7 +54,7 @@ export default function Documents() {
               </Title>
               <SimpleGrid
                 key={`grid=${idx}`}
-                cols={6}
+                cols={4}
                 spacing="lg"
                 breakpoints={[
                   { maxWidth: 'lg', cols: 4, spacing: 'md' },

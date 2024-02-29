@@ -2,8 +2,8 @@ import { Box, createStyles } from '@mantine/core';
 import { openContextModal } from '@mantine/modals';
 import { Buffer } from 'buffer';
 import { serverBaseUrl } from '../..';
-import { EXTENSIONS_SUPPORT_PREVIEW } from '../documentLines/AccountDocumentLine';
 
+export const EXTENSIONS_SUPPORT_PREVIEW = ['png', 'jpg', 'jpeg', 'gif'];
 const useStyles = createStyles((theme, _params, getRef) => ({
   imgBox: {
     overflow: 'hidden',
@@ -59,13 +59,15 @@ const useStyles = createStyles((theme, _params, getRef) => ({
     marginTop: theme.spacing.sm,
   },
 }));
+
 interface Props {
   uri: string;
   filename: string;
 }
+
 export default function DocumentPreview({ filename }: Props) {
   const { classes } = useStyles();
-  const extension = filename.split('.').pop()?.toUpperCase() || '';
+  const extension = filename.split('.').pop()?.toLocaleLowerCase() || '';
   const simpleFilename = filename.split('/').pop() || '';
   const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
 
