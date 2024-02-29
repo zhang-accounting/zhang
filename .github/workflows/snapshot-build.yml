@@ -66,3 +66,18 @@ jobs:
           push: true
           tags: |
             kilerd/zhang:snapshot
+      - name: Echo git commit hash to file
+        run: |
+          mkdir example-deployment
+          echo "${GITHUB_SHA}" > ./example-deployment/git_sha
+      - name: Pushes to another repository
+        uses: cpina/github-action-push-to-another-repository@main
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
+        with:
+          source-directory: 'example-deployment'
+          destination-github-username: 'zhang-accounting'
+          destination-repository-name: 'zhang-example'
+          target-directory: 'example-deployment'
+          user-email: blove694@gmail.com
+          target-branch: main
