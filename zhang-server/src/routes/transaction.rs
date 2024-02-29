@@ -14,7 +14,7 @@ use zhang_ast::{Account, Date, Directive, Flag, Meta, Posting, Transaction, Zhan
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::TransactionDomain;
-use zhang_core::utils::string_::StringExt;
+use zhang_core::utils::string_::{escape_with_quote, StringExt};
 
 use crate::request::{CreateTransactionRequest, JournalRequest};
 use crate::response::{
@@ -238,7 +238,7 @@ pub async fn upload_transaction_document(
     let span_info = operations.transaction_span(&transaction_id)?;
     let metas_content = documents
         .into_iter()
-        .map(|document| format!("  document: {}", document.to_plain_string()))
+        .map(|document| format!("  document: {}", escape_with_quote(document.as_str())))
         .join("\n");
 
     let source_file_path = span_info.source_file.to_string_lossy().to_string();
