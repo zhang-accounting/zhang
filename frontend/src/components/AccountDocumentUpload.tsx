@@ -28,7 +28,7 @@ export default function AccountDocumentUpload(props: Props) {
           mutate(props.url);
         });
     }
-  }, [files, props.url]);
+  }, [files, props.url, mutate]);
 
   const filesDom = files.map((file: FileWithPath) => (
     <li key={file.path}>

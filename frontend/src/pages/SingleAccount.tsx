@@ -9,10 +9,8 @@ import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
 import LoadingComponent from '../components/basic/LoadingComponent';
 import PayeeNarration from '../components/basic/PayeeNarration';
-import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import { AccountInfo, AccountJournalItem, Document } from '../rest-model';
 import DocumentPreview from '../components/journalPreview/DocumentPreview';
-import Section from '../components/Section';
 
 const useStyles = createStyles((theme) => ({
   calculatedAmount: {
