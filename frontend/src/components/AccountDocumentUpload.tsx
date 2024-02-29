@@ -3,6 +3,7 @@ import { Dropzone } from '@mantine/dropzone';
 import { useEffect, useState } from 'react';
 import { FileWithPath } from 'react-dropzone';
 import { axiosInstance } from '../index';
+import { useSWRConfig } from 'swr';
 
 interface Props {
   url: string;
@@ -10,7 +11,7 @@ interface Props {
 
 export default function AccountDocumentUpload(props: Props) {
   const [files, setFiles] = useState<FileWithPath[]>([]);
-
+  const { mutate } = useSWRConfig();
   useEffect(() => {
     if (files.length > 0) {
       const formData = new FormData();
@@ -24,6 +25,7 @@ export default function AccountDocumentUpload(props: Props) {
         })
         .then(() => {
           setFiles([]);
+          mutate(props.url);
         });
     }
   }, [files, props.url]);
