@@ -1,16 +1,19 @@
-import { Badge, Button, Container, Group, SimpleGrid, Table, Title } from '@mantine/core';
+import { Button, Container, Group, SimpleGrid, Table, Title } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { openContextModal } from '@mantine/modals';
 import { IconLayout2, IconListDetails } from '@tabler/icons';
 import { format } from 'date-fns';
-import { groupBy } from 'lodash';
 import useSWR from 'swr';
 import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import { fetcher } from '../index';
 import { Document } from '../rest-model';
 import { Heading } from '../components/basic/Heading';
+import { groupBy, reverse, sortBy } from 'lodash-es';
+import { TextBadge } from '../components/basic/TextBadge';
+import { useNavigate } from 'react-router';
 
 export default function Documents() {
+  let navigate = useNavigate();
   const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
 
   const { data: documents, error } = useSWR<Document[]>('/api/documents', fetcher);
@@ -30,7 +33,13 @@ export default function Documents() {
     });
   };
 
-  const groupedDocuments = groupBy(documents, (document) => format(new Date(document.datetime), 'yyyy-MM'));
+  const groupedDocuments = reverse(
+    sortBy(
+      groupBy(documents, (document) => format(new Date(document.datetime), 'yyyy-MM')),
+      (it) => it[0].datetime,
+    ),
+  );
+  console.log(groupedDocuments);
   return (
     <Container fluid>
       <Group position="apart">
@@ -47,14 +56,14 @@ export default function Documents() {
 
       {layout === 'Grid' ? (
         <>
-          {Object.values(groupedDocuments).map((targetMonthDocuments, idx) => (
+          {groupedDocuments.map((targetMonthDocuments, idx) => (
             <>
               <Title key={`title=${idx}`} order={3} mt={'lg'} mb="sm">
                 {format(new Date(targetMonthDocuments[0].datetime), 'MMM yyyy')}
               </Title>
               <SimpleGrid
                 key={`grid=${idx}`}
-                cols={6}
+                cols={4}
                 spacing="lg"
                 breakpoints={[
                   { maxWidth: 'lg', cols: 4, spacing: 'md' },
@@ -84,15 +93,10 @@ export default function Documents() {
               <tr>
                 <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
                   <div>{document.filename}</div>
-                  <Badge color="dark">{document.filename.split('.').pop()}</Badge>
                 </td>
                 <td>
-                  {document.account && <Badge variant="dot">{document.account}</Badge>}
-                  {document.trx_id && (
-                    <Badge key={idx} variant="dot" color="violet">
-                      {document.trx_id}
-                    </Badge>
-                  )}
+                  {document.account && <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
+                  {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
                 </td>
                 <td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
                 <td></td>

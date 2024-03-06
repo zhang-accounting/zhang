@@ -1,4 +1,4 @@
-import { Badge, Container, createStyles, Group, px, Stack, Table, Tabs, Text, Title } from '@mantine/core';
+import { Badge, Container, createStyles, Group, px, SimpleGrid, Stack, Table, Tabs, Text, Title } from '@mantine/core';
 import { IconMessageCircle, IconPhoto, IconSettings } from '@tabler/icons';
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
@@ -9,8 +9,8 @@ import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
 import LoadingComponent from '../components/basic/LoadingComponent';
 import PayeeNarration from '../components/basic/PayeeNarration';
-import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import { AccountInfo, AccountJournalItem, Document } from '../rest-model';
+import DocumentPreview from '../components/journalPreview/DocumentPreview';
 
 const useStyles = createStyles((theme) => ({
   calculatedAmount: {
@@ -110,10 +110,20 @@ function SingleAccount() {
             skeleton={<div>loading</div>}
             render={(data: Document[]) => (
               <>
-                <AccountDocumentUpload url={`/api/accounts/${accountName}/documents`} />
-                {data.map((document, idx) => (
-                  <AccountDocumentLine key={idx} {...document} />
-                ))}
+                <SimpleGrid
+                  cols={4}
+                  spacing="sm"
+                  breakpoints={[
+                    { maxWidth: 'md', cols: 3, spacing: 'md' },
+                    { maxWidth: 'sm', cols: 2, spacing: 'sm' },
+                    { maxWidth: 'xs', cols: 1, spacing: 'sm' },
+                  ]}
+                >
+                  <AccountDocumentUpload url={`/api/accounts/${accountName}/documents`} />
+                  {data.map((document, idx) => (
+                    <DocumentPreview key={idx} uri={document.path} filename={document.path} />
+                  ))}
+                </SimpleGrid>
               </>
             )}
           ></LoadingComponent>

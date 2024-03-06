@@ -35,11 +35,12 @@ pub async fn get_documents(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<
         .documents
         .iter()
         .cloned()
+        .rev()
         .map(|doc| DocumentResponse {
             datetime: doc.datetime.naive_local(),
             filename: doc.filename.unwrap_or_default(),
-            path: doc.path,
-            extension: None,
+            path: doc.path.clone(),
+            extension: mime_guess::from_path(doc.path).first().map(|it| it.to_string()),
             account: doc.document_type.as_account(),
             trx_id: doc.document_type.as_trx(),
         })
