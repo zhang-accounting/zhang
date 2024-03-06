@@ -35,6 +35,7 @@ pub async fn get_documents(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<
         .documents
         .iter()
         .cloned()
+        .rev()
         .map(|doc| DocumentResponse {
             datetime: doc.datetime.naive_local(),
             filename: doc.filename.unwrap_or_default(),

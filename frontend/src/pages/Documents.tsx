@@ -1,4 +1,4 @@
-import { Badge, Button, Container, Group, SimpleGrid, Table, Title } from '@mantine/core';
+import { Button, Container, Group, SimpleGrid, Table, Title } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { openContextModal } from '@mantine/modals';
 import { IconLayout2, IconListDetails } from '@tabler/icons';
@@ -8,9 +8,12 @@ import AccountDocumentLine from '../components/documentLines/AccountDocumentLine
 import { fetcher } from '../index';
 import { Document } from '../rest-model';
 import { Heading } from '../components/basic/Heading';
-import { reverse, groupBy, sortBy } from 'lodash-es';
+import { groupBy, reverse, sortBy } from 'lodash-es';
+import { TextBadge } from '../components/basic/TextBadge';
+import { useNavigate } from 'react-router';
 
 export default function Documents() {
+  let navigate = useNavigate();
   const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
 
   const { data: documents, error } = useSWR<Document[]>('/api/documents', fetcher);
@@ -90,15 +93,10 @@ export default function Documents() {
               <tr>
                 <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
                   <div>{document.filename}</div>
-                  <Badge color="dark">{document.filename.split('.').pop()}</Badge>
                 </td>
                 <td>
-                  {document.account && <Badge variant="dot">{document.account}</Badge>}
-                  {document.trx_id && (
-                    <Badge key={idx} variant="dot" color="violet">
-                      {document.trx_id}
-                    </Badge>
-                  )}
+                  {document.account && <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
+                  {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
                 </td>
                 <td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
                 <td></td>

@@ -11,13 +11,25 @@ const useStyles = createStyles((theme) => ({
     borderRadius: '99px',
     border: `1px solid ${theme.colorScheme === 'dark' ? theme.colors.dark[4] : theme.colors.gray[3]}`,
   },
+  clickableBadge: {
+    cursor: 'pointer',
+    '&:hover': {
+      borderColor: theme.colorScheme === 'dark' ? theme.colors.dark[6] : theme.colors.gray[5],
+    },
+  },
 }));
 
 interface Props {
   children: string;
+  onClick?: () => void;
 }
+
 export function TextBadge(props: Props) {
   const { classes } = useStyles();
 
-  return <div className={classes.badge}>{props.children}</div>;
+  return (
+    <div onClick={props.onClick} className={`${classes.badge} ${!!props.onClick ? classes.clickableBadge : ''}`}>
+      {props.children}
+    </div>
+  );
 }
