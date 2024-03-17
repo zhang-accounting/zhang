@@ -21,19 +21,21 @@ type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 #[grammar = "beancount.pest"]
 pub struct BeancountParser;
 
+/// Construct a global [PrattParser] to handle number expressions.
 fn pratt_number_parser() -> &'static PrattParser<Rule> {
     static PARSER: OnceCell<PrattParser<Rule>> = OnceCell::new();
     PARSER.get_or_init(|| {
         use pest::pratt_parser::{Assoc::*, Op};
         use Rule::*;
-        let parser = PrattParser::new()
+        PrattParser::new()
             .op(Op::infix(add, Left) | Op::infix(subtract, Left))
             .op(Op::infix(multiply, Left) | Op::infix(divide, Left))
-            .op(Op::prefix(unary_minus));
-        parser
+            .op(Op::prefix(unary_minus))
     })
 }
 
+/// Define parsing rules for [number_expr] nodes.
+/// Each expression is calculated in-place and reduced to one [BigDecimal].
 fn parse_number_expr(pairs: Pairs<Rule>) -> Result<BigDecimal> {
     pratt_number_parser()
         .map_primary(|primary| match primary.as_rule() {
@@ -62,8 +64,7 @@ impl BeancountParser {
         Ok(())
     }
     fn number_expr(input: Node) -> Result<BigDecimal> {
-        let pairs: Pairs<'_, Rule> = input.into_pair().into_inner();
-        parse_number_expr(pairs)
+        parse_number_expr(input.into_pair().into_inner())
     }
     fn quote_string(input: Node) -> Result<ZhangString> {
         let string = input.as_str();
