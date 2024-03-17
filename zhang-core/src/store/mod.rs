@@ -4,7 +4,6 @@ use bigdecimal::BigDecimal;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use uuid::Uuid;
-
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Flag, SpanInfo};
 
@@ -164,7 +163,6 @@ mod test {
     use std::str::FromStr;
 
     use uuid::Uuid;
-
     use zhang_ast::Account;
 
     use crate::store::DocumentType;

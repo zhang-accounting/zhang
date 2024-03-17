@@ -1,6 +1,6 @@
-use axum::extract::{Path, State};
 use std::sync::Arc;
 
+use axum::extract::{Path, State};
 use itertools::Itertools;
 use tokio::sync::RwLock;
 use zhang_core::domains::schemas::CommodityDomain;

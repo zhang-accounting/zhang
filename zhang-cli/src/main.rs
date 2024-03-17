@@ -7,7 +7,6 @@ use env_logger::Env;
 use log::{error, info, LevelFilter};
 use self_update::Status;
 use tokio::task::spawn_blocking;
-
 use zhang_server::ServeConfig;
 
 use crate::opendal::OpendalDataSource;
@@ -193,7 +192,6 @@ mod test {
     use serde_json::Value;
     use tokio::sync::{mpsc, RwLock};
     use tower::util::ServiceExt;
-
     use zhang_core::ledger::Ledger;
     use zhang_server::broadcast::Broadcaster;
     use zhang_server::{create_server_app, ReloadSender};

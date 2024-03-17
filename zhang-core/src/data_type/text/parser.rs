@@ -1008,11 +1008,12 @@ mod test {
         }
     }
     mod budget {
-        use crate::data_type::text::parser::parse;
         use bigdecimal::{BigDecimal, One};
         use indoc::indoc;
         use zhang_ast::amount::Amount;
         use zhang_ast::Directive;
+
+        use crate::data_type::text::parser::parse;
 
         #[test]
         fn should_parse_budget_without_meta() {

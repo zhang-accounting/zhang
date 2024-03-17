@@ -6,7 +6,6 @@ use axum::response::{AppendHeaders, IntoResponse};
 use bytes::Bytes;
 use itertools::Itertools;
 use tokio::sync::RwLock;
-
 use zhang_core::ledger::Ledger;
 
 use crate::response::{DocumentResponse, ResponseWrapper};

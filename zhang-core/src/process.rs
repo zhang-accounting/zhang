@@ -7,7 +7,6 @@ use std::sync::atomic::Ordering;
 use bigdecimal::{BigDecimal, Zero};
 use itertools::Itertools;
 use uuid::Uuid;
-
 use zhang_ast::amount::Amount;
 use zhang_ast::utils::inventory::LotInfo;
 use zhang_ast::*;

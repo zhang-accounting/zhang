@@ -1,5 +1,4 @@
 use itertools::Itertools;
-
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 
@@ -343,10 +342,10 @@ impl ZhangDataTypeExportable for Ledger {
 mod test {
     use std::option::Option::None;
 
-    use crate::data_type::DataType;
     use indoc::indoc;
 
     use crate::data_type::text::ZhangDataType;
+    use crate::data_type::DataType;
 
     fn parse_and_export(from: &str) -> String {
         let data_type = ZhangDataType {};

@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use pyo3::prelude::*;
-
 use zhang_ast::{Account, Spanned};
 
 use crate::domain::CommodityDomain;
