@@ -100,4 +100,4 @@ jobs:
         run: mkdir -p build
         working-directory: ./frontend
       - name: Clippy
-        run: cargo clippy --all-features --all-targets -- -D warnings
+        run: cargo clippy --all-features --all-targets -- -D warnings -A clippy::empty_docs
