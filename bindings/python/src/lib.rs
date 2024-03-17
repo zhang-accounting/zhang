@@ -8,6 +8,7 @@ use crate::domain::CommodityDomain;
 
 pub mod ast;
 pub mod domain;
+#[allow(dead_code)]
 #[pyclass]
 pub struct Directive(Spanned<zhang_ast::Directive>);
 

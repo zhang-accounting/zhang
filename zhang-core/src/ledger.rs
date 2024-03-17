@@ -205,7 +205,7 @@ impl Ledger {
 
 #[cfg(test)]
 mod test {
-    use std::option::Option::None;
+
     use std::sync::Arc;
 
     use tempfile::tempdir;
