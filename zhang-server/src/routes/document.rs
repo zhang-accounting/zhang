@@ -3,6 +3,7 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use axum::http::header;
 use axum::response::{AppendHeaders, IntoResponse};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use bytes::Bytes;
 use itertools::Itertools;
 use tokio::sync::RwLock;
@@ -13,7 +14,7 @@ use crate::ApiResult;
 
 pub async fn download_document(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> impl IntoResponse {
     let encoded_file_path = path.0 .0;
-    let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
+    let filename = String::from_utf8(BASE64_STANDARD.decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
     let entry = &ledger.entry.0;
     let full_path = entry.join(filename);
