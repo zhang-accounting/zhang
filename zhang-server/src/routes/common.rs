@@ -8,7 +8,6 @@ use axum::response::Sse;
 use futures_util::Stream;
 use itertools::Itertools;
 use tokio::sync::RwLock;
-
 use zhang_core::domains::schemas::{ErrorDomain, OptionDomain};
 use zhang_core::ledger::Ledger;
 

@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use axum::extract::State;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine as _;
 use tokio::sync::RwLock;
-
 use zhang_core::ledger::Ledger;
 
 use crate::request::FileUpdateRequest;
@@ -24,7 +25,7 @@ pub async fn get_files(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Opti
 
 pub async fn get_file_content(ledger: State<Arc<RwLock<Ledger>>>, path: axum::extract::Path<(String,)>) -> ApiResult<FileDetailResponse> {
     let encoded_file_path = path.0 .0;
-    let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
+    let filename = String::from_utf8(BASE64_STANDARD.decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
 
     let content = ledger.data_source.async_get(filename.to_owned()).await?;
@@ -38,7 +39,7 @@ pub async fn update_file_content(
     axum::extract::Json(payload): axum::extract::Json<FileUpdateRequest>,
 ) -> ApiResult<()> {
     let encoded_file_path = path.0 .0;
-    let filename = String::from_utf8(base64::decode(encoded_file_path).unwrap()).unwrap();
+    let filename = String::from_utf8(BASE64_STANDARD.decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
 
     // todo(refact) check if the syntax valid

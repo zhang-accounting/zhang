@@ -6,7 +6,6 @@ use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
-
 use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::AccountType;
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, MetaDomain};

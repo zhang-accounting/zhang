@@ -6,7 +6,6 @@ use std::sync::{Arc, RwLock};
 use bigdecimal::Zero;
 use itertools::Itertools;
 use log::{error, info};
-
 use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
 
 use crate::data_source::DataSource;
@@ -206,11 +205,10 @@ impl Ledger {
 
 #[cfg(test)]
 mod test {
-    use std::option::Option::None;
+
     use std::sync::Arc;
 
     use tempfile::tempdir;
-
     use zhang_ast::{Directive, SpanInfo, Spanned};
 
     use crate::data_source::LocalFileSystemDataSource;
@@ -242,7 +240,6 @@ mod test {
     mod sort_directive_datetime {
         use indoc::indoc;
         use itertools::Itertools;
-
         use zhang_ast::{Directive, Options, Spanned, ZhangString};
 
         use crate::ledger::test::{fake_span_info, test_parse_zhang};

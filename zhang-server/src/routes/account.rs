@@ -8,7 +8,6 @@ use itertools::Itertools;
 use log::info;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Document, ZhangString};
 use zhang_core::domains::schemas::AccountJournalDomain;

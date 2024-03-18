@@ -1,5 +1,4 @@
 use itertools::Itertools;
-
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 
@@ -161,7 +160,7 @@ impl ZhangDataTypeExportable for Open {
 impl ZhangDataTypeExportable for Close {
     type Output = String;
     fn export(self) -> String {
-        let line = vec![self.date.export(), "close".to_string(), self.account.export()];
+        let line = [self.date.export(), "close".to_string(), self.account.export()];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -169,7 +168,7 @@ impl ZhangDataTypeExportable for Close {
 impl ZhangDataTypeExportable for Commodity {
     type Output = String;
     fn export(self) -> String {
-        let line = vec![self.date.export(), "commodity".to_string(), self.currency];
+        let line = [self.date.export(), "commodity".to_string(), self.currency];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -177,7 +176,7 @@ impl ZhangDataTypeExportable for Commodity {
 impl ZhangDataTypeExportable for BalancePad {
     type Output = String;
     fn export(self) -> String {
-        let line = vec![
+        let line = [
             self.date.export(),
             "balance".to_string(),
             self.account.export(),
@@ -191,7 +190,7 @@ impl ZhangDataTypeExportable for BalancePad {
 impl ZhangDataTypeExportable for BalanceCheck {
     type Output = String;
     fn export(self) -> String {
-        let line = vec![self.date.export(), "balance".to_string(), self.account.export(), self.amount.export()];
+        let line = [self.date.export(), "balance".to_string(), self.account.export(), self.amount.export()];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -199,7 +198,7 @@ impl ZhangDataTypeExportable for BalanceCheck {
 impl ZhangDataTypeExportable for Note {
     type Output = String;
     fn export(self) -> String {
-        let line = vec![self.date.export(), "note".to_string(), self.account.export(), self.comment.export()];
+        let line = [self.date.export(), "note".to_string(), self.account.export(), self.comment.export()];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -207,7 +206,7 @@ impl ZhangDataTypeExportable for Note {
 impl ZhangDataTypeExportable for Document {
     type Output = String;
     fn export(self) -> String {
-        let line = vec![self.date.export(), "document".to_string(), self.account.export(), self.filename.export()];
+        let line = [self.date.export(), "document".to_string(), self.account.export(), self.filename.export()];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -215,7 +214,7 @@ impl ZhangDataTypeExportable for Document {
 impl ZhangDataTypeExportable for Price {
     type Output = String;
     fn export(self) -> String {
-        let line = vec![self.date.export(), "price".to_string(), self.currency, self.amount.export()];
+        let line = [self.date.export(), "price".to_string(), self.currency, self.amount.export()];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -223,7 +222,7 @@ impl ZhangDataTypeExportable for Price {
 impl ZhangDataTypeExportable for Event {
     type Output = String;
     fn export(self) -> String {
-        let line = vec![self.date.export(), "event".to_string(), self.event_type.export(), self.description.export()];
+        let line = [self.date.export(), "event".to_string(), self.event_type.export(), self.description.export()];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -241,7 +240,7 @@ impl ZhangDataTypeExportable for Custom {
 impl ZhangDataTypeExportable for Options {
     type Output = String;
     fn export(self) -> String {
-        let line = vec!["option".to_string(), self.key.export(), self.value.export()];
+        let line = ["option".to_string(), self.key.export(), self.value.export()];
         line.join(" ")
     }
 }
@@ -257,7 +256,7 @@ impl ZhangDataTypeExportable for Plugin {
 impl ZhangDataTypeExportable for Include {
     type Output = String;
     fn export(self) -> String {
-        let line = vec!["include".to_string(), self.file.export()];
+        let line = ["include".to_string(), self.file.export()];
         line.join(" ")
     }
 }
@@ -273,7 +272,7 @@ impl ZhangDataTypeExportable for Budget {
     type Output = String;
 
     fn export(self) -> Self::Output {
-        let line = vec![self.date.export(), "budget".to_owned(), self.name, self.commodity];
+        let line = [self.date.export(), "budget".to_owned(), self.name, self.commodity];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -281,7 +280,7 @@ impl ZhangDataTypeExportable for BudgetClose {
     type Output = String;
 
     fn export(self) -> Self::Output {
-        let line = vec![self.date.export(), "budget-close".to_owned(), self.name];
+        let line = [self.date.export(), "budget-close".to_owned(), self.name];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -290,7 +289,7 @@ impl ZhangDataTypeExportable for BudgetAdd {
     type Output = String;
 
     fn export(self) -> Self::Output {
-        let line = vec![self.date.export(), "budget-add".to_owned(), self.name, self.amount.export()];
+        let line = [self.date.export(), "budget-add".to_owned(), self.name, self.amount.export()];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -299,7 +298,7 @@ impl ZhangDataTypeExportable for BudgetTransfer {
     type Output = String;
 
     fn export(self) -> Self::Output {
-        let line = vec![self.date.export(), "budget-transfer".to_owned(), self.from, self.to, self.amount.export()];
+        let line = [self.date.export(), "budget-transfer".to_owned(), self.from, self.to, self.amount.export()];
         append_meta(self.meta, line.join(" "))
     }
 }
@@ -341,12 +340,11 @@ impl ZhangDataTypeExportable for Ledger {
 
 #[cfg(test)]
 mod test {
-    use std::option::Option::None;
 
-    use crate::data_type::DataType;
     use indoc::indoc;
 
     use crate::data_type::text::ZhangDataType;
+    use crate::data_type::DataType;
 
     fn parse_and_export(from: &str) -> String {
         let data_type = ZhangDataType {};

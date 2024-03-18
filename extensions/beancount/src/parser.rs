@@ -5,7 +5,8 @@ use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveTime};
 use itertools::{Either, Itertools};
 use once_cell::sync::OnceCell;
-use pest::{iterators::Pairs, pratt_parser::PrattParser};
+use pest::iterators::Pairs;
+use pest::pratt_parser::PrattParser;
 use pest_consume::{match_nodes, Error, Parser};
 use snailquote::unescape;
 use zhang_ast::amount::Amount;
@@ -25,7 +26,8 @@ pub struct BeancountParser;
 fn pratt_number_parser() -> &'static PrattParser<Rule> {
     static PARSER: OnceCell<PrattParser<Rule>> = OnceCell::new();
     PARSER.get_or_init(|| {
-        use pest::pratt_parser::{Assoc::*, Op};
+        use pest::pratt_parser::Assoc::*;
+        use pest::pratt_parser::Op;
         use Rule::*;
         PrattParser::new()
             .op(Op::infix(add, Left) | Op::infix(subtract, Left))
@@ -650,7 +652,7 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
     let inputs = BeancountParser::parse(Rule::entry, input_str)?;
     let input = inputs.single()?;
     BeancountParser::entry(input).map(|mut directives| {
-        directives.iter_mut().for_each(|directive| directive.span.filename = file.clone());
+        directives.iter_mut().for_each(|directive| directive.span.filename.clone_from(&file));
         directives
     })
 }
@@ -725,10 +727,11 @@ mod test {
         }
     }
     mod txn {
-        use crate::parser::parse;
         use bigdecimal::BigDecimal;
         use indoc::indoc;
         use zhang_ast::Directive;
+
+        use crate::parser::parse;
 
         #[test]
         fn should_parse_posting_meta() {
@@ -801,11 +804,12 @@ mod test {
         }
     }
     mod budget {
-        use crate::parser::parse;
         use bigdecimal::{BigDecimal, One};
         use indoc::indoc;
         use zhang_ast::amount::Amount;
         use zhang_ast::Directive;
+
+        use crate::parser::parse;
 
         #[test]
         fn should_parse_budget_without_meta() {
@@ -915,9 +919,10 @@ mod test {
     }
     mod single_line_item {
         mod options {
-            use crate::parser::parse;
             use indoc::indoc;
             use zhang_ast::Directive;
+
+            use crate::parser::parse;
 
             #[test]
             fn should_parse() {
@@ -963,9 +968,10 @@ mod test {
         }
 
         mod open {
-            use crate::parser::parse;
             use indoc::indoc;
             use zhang_ast::Directive;
+
+            use crate::parser::parse;
 
             #[test]
             fn should_parse_with_booking_method() {

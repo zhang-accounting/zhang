@@ -113,9 +113,9 @@ impl Amount {
 /// assert_eq!(Amount::new(BigDecimal::from(-100i32), "CNY").to_string(), "-100 CNY");
 /// assert_eq!(Amount::new(BigDecimal::from(100i32), "CNY").to_string(), "100 CNY");
 /// ```
-impl ToString for Amount {
-    fn to_string(&self) -> String {
-        format!("{} {}", self.number, self.currency)
+impl std::fmt::Display for Amount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.number, self.currency)
     }
 }
 

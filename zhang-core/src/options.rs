@@ -1,5 +1,4 @@
 use std::str::FromStr;
-use std::string::ToString;
 
 use chrono_tz::Tz;
 use itertools::Itertools;
@@ -83,7 +82,7 @@ impl InMemoryOptions {
 
                     operation.insert_commodity(&value, precision, prefix, suffix, rounding.map(|it| it.to_string()))?;
 
-                    self.operating_currency = value.to_owned();
+                    value.clone_into(&mut self.operating_currency);
                 }
                 BuiltinOption::DefaultRounding => {
                     self.default_rounding = Rounding::from_str(&value).unwrap();

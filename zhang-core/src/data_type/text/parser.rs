@@ -574,7 +574,7 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
     let inputs = ZhangParser::parse(Rule::entry, input_str)?;
     let input = inputs.single()?;
     ZhangParser::entry(input).map(|mut directives| {
-        directives.iter_mut().for_each(|directive| directive.span.filename = file.clone());
+        directives.iter_mut().for_each(|directive| directive.span.filename.clone_from(&file));
         directives
     })
 }
@@ -621,7 +621,7 @@ mod test {
     }
 
     mod date_time_support {
-        use std::option::Option::None;
+
         use std::str::FromStr;
 
         use bigdecimal::BigDecimal;
@@ -675,7 +675,6 @@ mod test {
         }
     }
     mod options {
-        use std::option::Option::None;
 
         use indoc::indoc;
         use zhang_ast::*;
@@ -702,7 +701,6 @@ mod test {
         }
     }
     mod document {
-        use std::option::Option::None;
 
         use indoc::indoc;
         use zhang_ast::Directive;
@@ -729,7 +727,6 @@ mod test {
         }
     }
     mod price {
-        use std::option::Option::None;
 
         use bigdecimal::BigDecimal;
         use indoc::indoc;
@@ -758,7 +755,6 @@ mod test {
         }
     }
     mod event {
-        use std::option::Option::None;
 
         use indoc::indoc;
         use zhang_ast::Directive;
@@ -785,7 +781,6 @@ mod test {
         }
     }
     mod plugin {
-        use std::option::Option::None;
 
         use indoc::indoc;
         use zhang_ast::Directive;
@@ -812,7 +807,6 @@ mod test {
     }
 
     mod custom {
-        use std::option::Option::None;
 
         use indoc::indoc;
         use zhang_ast::{Directive, StringOrAccount};
@@ -864,7 +858,6 @@ mod test {
     }
 
     mod transaction {
-        use std::option::Option::None;
 
         use indoc::indoc;
 
@@ -885,7 +878,9 @@ mod test {
         }
 
         mod posting {
-            use bigdecimal::{BigDecimal, FromPrimitive};
+            use std::str::FromStr;
+
+            use bigdecimal::BigDecimal;
             use chrono::NaiveDate;
             use indoc::indoc;
             use zhang_ast::amount::Amount;
@@ -991,7 +986,7 @@ mod test {
                 "#});
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(Some(Amount::new(BigDecimal::from_f32(6.9).unwrap(), "CNY")), posting.cost);
+                assert_eq!(Some(Amount::new(BigDecimal::from_str("6.9").unwrap(), "CNY")), posting.cost);
                 assert_eq!(None, posting.cost_date);
                 assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
             }
@@ -1008,11 +1003,12 @@ mod test {
         }
     }
     mod budget {
-        use crate::data_type::text::parser::parse;
         use bigdecimal::{BigDecimal, One};
         use indoc::indoc;
         use zhang_ast::amount::Amount;
         use zhang_ast::Directive;
+
+        use crate::data_type::text::parser::parse;
 
         #[test]
         fn should_parse_budget_without_meta() {

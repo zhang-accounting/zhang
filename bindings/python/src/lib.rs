@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use pyo3::prelude::*;
-
 use zhang_ast::{Account, Spanned};
 
 use crate::domain::CommodityDomain;
 
 pub mod ast;
 pub mod domain;
+#[allow(dead_code)]
 #[pyclass]
 pub struct Directive(Spanned<zhang_ast::Directive>);
 
