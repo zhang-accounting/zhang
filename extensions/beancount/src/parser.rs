@@ -730,8 +730,6 @@ mod test {
         use indoc::indoc;
         use zhang_ast::Directive;
 
-        use crate::parser::parse;
-
         #[test]
         fn should_parse_posting_meta() {
             let directive = parse(

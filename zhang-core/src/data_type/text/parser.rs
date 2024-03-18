@@ -878,7 +878,9 @@ mod test {
         }
 
         mod posting {
-            use bigdecimal::{BigDecimal, FromPrimitive};
+            use std::str::FromStr;
+
+            use bigdecimal::BigDecimal;
             use chrono::NaiveDate;
             use indoc::indoc;
             use zhang_ast::amount::Amount;
@@ -984,7 +986,7 @@ mod test {
                 "#});
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(Some(Amount::new(BigDecimal::from_f32(6.9).unwrap(), "CNY")), posting.cost);
+                assert_eq!(Some(Amount::new(BigDecimal::from_str("6.9").unwrap(), "CNY")), posting.cost);
                 assert_eq!(None, posting.cost_date);
                 assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
             }
