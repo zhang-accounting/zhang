@@ -17,6 +17,7 @@ chrono = { version = "0.4", features = ["serde"] }
 bigdecimal = { version = "0.3", features = ["serde"] }
 snailquote = "0.3"
 latestmap = "0.1"
+once_cell = "1.19"
 
 [dev-dependencies]
 indoc = "1"
