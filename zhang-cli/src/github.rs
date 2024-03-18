@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use http::{Request, Response, StatusCode};
+use http2::{Request, Response, StatusCode};
 use log::info;
 use opendal::raw::oio::WriteBuf;
 use opendal::raw::{
