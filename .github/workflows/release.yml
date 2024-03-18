@@ -65,6 +65,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: create version file
         run: echo "${{github.ref_name}}" | tail -c+2  >> .build_version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts'
+          cache: 'yarn'
+          cache-dependency-path: frontend/yarn.lock
+
       - name: frontend install
         run: yarn install
         working-directory: ./frontend
