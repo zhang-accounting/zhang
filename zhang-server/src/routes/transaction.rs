@@ -8,7 +8,6 @@ use itertools::Itertools;
 use log::info;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Date, Directive, Flag, Meta, Posting, Transaction, ZhangString};
 use zhang_core::domains::schemas::MetaType;

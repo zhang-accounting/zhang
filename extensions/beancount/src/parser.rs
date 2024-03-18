@@ -4,6 +4,9 @@ use std::str::FromStr;
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveTime};
 use itertools::{Either, Itertools};
+use once_cell::sync::OnceCell;
+use pest::iterators::Pairs;
+use pest::pratt_parser::PrattParser;
 use pest_consume::{match_nodes, Error, Parser};
 use snailquote::unescape;
 use zhang_ast::amount::Amount;
@@ -17,16 +20,53 @@ type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 
 #[derive(Parser)]
 #[grammar = "beancount.pest"]
-pub struct BeancountParer;
+pub struct BeancountParser;
+
+/// Construct a global [PrattParser] to handle number expressions.
+fn pratt_number_parser() -> &'static PrattParser<Rule> {
+    static PARSER: OnceCell<PrattParser<Rule>> = OnceCell::new();
+    PARSER.get_or_init(|| {
+        use pest::pratt_parser::Assoc::*;
+        use pest::pratt_parser::Op;
+        use Rule::*;
+        PrattParser::new()
+            .op(Op::infix(add, Left) | Op::infix(subtract, Left))
+            .op(Op::infix(multiply, Left) | Op::infix(divide, Left))
+            .op(Op::prefix(unary_minus))
+    })
+}
+
+/// Define parsing rules for [number_expr] nodes.
+/// Each expression is calculated in-place and reduced to one [BigDecimal].
+fn parse_number_expr(pairs: Pairs<Rule>) -> Result<BigDecimal> {
+    pratt_number_parser()
+        .map_primary(|primary| match primary.as_rule() {
+            Rule::number => Ok(BigDecimal::from_str(primary.as_str()).unwrap()),
+            Rule::number_expr => parse_number_expr(primary.into_inner()),
+            rule => unreachable!("Unexpected number expr {:?}", rule),
+        })
+        .map_infix(|lhs, op, rhs| match op.as_rule() {
+            Rule::add => Ok(lhs? + rhs?),
+            Rule::subtract => Ok(lhs? - rhs?),
+            Rule::multiply => Ok(lhs? * rhs?),
+            Rule::divide => Ok(lhs? / rhs?),
+            rule => unreachable!("Unexpected infix operation {:?}", rule),
+        })
+        .map_prefix(|op, rhs| match op.as_rule() {
+            Rule::unary_minus => Ok(-rhs?),
+            rule => unreachable!("Unexpected prefix operation {:?}", rule),
+        })
+        .parse(pairs)
+}
 
 #[pest_consume::parser]
-impl BeancountParer {
+impl BeancountParser {
     #[allow(dead_code)]
     fn EOI(_input: Node) -> Result<()> {
         Ok(())
     }
-    fn number(input: Node) -> Result<BigDecimal> {
-        Ok(BigDecimal::from_str(input.as_str()).unwrap())
+    fn number_expr(input: Node) -> Result<BigDecimal> {
+        parse_number_expr(input.into_pair().into_inner())
     }
     fn quote_string(input: Node) -> Result<ZhangString> {
         let string = input.as_str();
@@ -165,26 +205,26 @@ impl BeancountParer {
 
     fn posting_cost(input: Node) -> Result<Amount> {
         let ret: Amount = match_nodes!(input.into_children();
-            [number(amount), commodity_name(c)] => Amount::new(amount, c),
+            [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
         );
         Ok(ret)
     }
     fn posting_total_price(input: Node) -> Result<Amount> {
         let ret: Amount = match_nodes!(input.into_children();
-            [number(amount), commodity_name(c)] => Amount::new(amount, c),
+            [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
         );
         Ok(ret)
     }
     fn posting_single_price(input: Node) -> Result<Amount> {
         let ret: Amount = match_nodes!(input.into_children();
-            [number(amount), commodity_name(c)] => Amount::new(amount, c),
+            [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
         );
         Ok(ret)
     }
 
     fn posting_amount(input: Node) -> Result<Amount> {
         let ret: Amount = match_nodes!(input.into_children();
-            [number(amount), commodity_name(c)] => Amount::new(amount, c),
+            [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
         );
         Ok(ret)
     }
@@ -406,7 +446,7 @@ impl BeancountParer {
 
     fn balance(input: Node) -> Result<BeancountOnlyDirective> {
         let (date, account, amount, commodity): (Date, Account, BigDecimal, String) = match_nodes!(input.into_children();
-            [date(date), account_name(name), number(amount), commodity_name(commodity)] => (date, name, amount, commodity),
+            [date(date), account_name(name), number_expr(amount), commodity_name(commodity)] => (date, name, amount, commodity),
         );
         Ok(BeancountOnlyDirective::Balance(BalanceDirective {
             date,
@@ -443,7 +483,7 @@ impl BeancountParer {
 
     fn price(input: Node) -> Result<Directive> {
         let ret: (Date, String, BigDecimal, String) = match_nodes!(input.into_children();
-            [date(date), commodity_name(source), number(price), commodity_name(target)] => (date, source, price, target)
+            [date(date), commodity_name(source), number_expr(price), commodity_name(target)] => (date, source, price, target)
         );
         Ok(Directive::Price(Price {
             date: ret.0,
@@ -609,17 +649,17 @@ impl BeancountParer {
 
 pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<BeancountDirective>>> {
     let file = file.into();
-    let inputs = BeancountParer::parse(Rule::entry, input_str)?;
+    let inputs = BeancountParser::parse(Rule::entry, input_str)?;
     let input = inputs.single()?;
-    BeancountParer::entry(input).map(|mut directives| {
-        directives.iter_mut().for_each(|directive| directive.span.filename = file.clone());
+    BeancountParser::entry(input).map(|mut directives| {
+        directives.iter_mut().for_each(|directive| directive.span.filename.clone_from(&file));
         directives
     })
 }
 pub fn parse_time(input_str: &str) -> Result<NaiveTime> {
-    let inputs = BeancountParer::parse(Rule::time, input_str)?;
+    let inputs = BeancountParser::parse(Rule::time, input_str)?;
     let input = inputs.single()?;
-    BeancountParer::time(input)
+    BeancountParser::time(input)
 }
 
 #[cfg(test)]
@@ -687,15 +727,17 @@ mod test {
         }
     }
     mod txn {
-        use crate::parser::parse;
+        use bigdecimal::BigDecimal;
         use indoc::indoc;
         use zhang_ast::Directive;
+
+        use crate::parser::parse;
 
         #[test]
         fn should_parse_posting_meta() {
             let directive = parse(
                 indoc! {r#"
-                            1970-01-01 "Payee" "Norration"
+                            1970-01-01 "Payee" "Narration"
                               Assets:Bank
                                 a: b
                         "#},
@@ -717,7 +759,7 @@ mod test {
         fn should_parse_with_comment() {
             let directive = parse(
                 indoc! {r#"
-                            1970-01-01 "Payee" "Norration" ; 123123
+                            1970-01-01 "Payee" "Narration" ; 123123
                               Assets:Bank
                                 a: b
                               Assets:Bank ;123213
@@ -738,13 +780,36 @@ mod test {
                 assert_eq!(inner.postings.get(1).unwrap().comment.as_ref().unwrap(), "123213");
             }
         }
+
+        #[test]
+        fn should_support_arithmetic_expression_in_amount() {
+            use indoc::indoc;
+            let directive = parse(
+                indoc! {r#"
+                            1970-01-01 "Payee" "Narration"
+                              Assets:Bank -(120/10) + 1000 * (25--2) CNY
+                        "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap()
+            .data
+            .left()
+            .unwrap();
+            assert!(matches!(directive, Directive::Transaction(..)));
+            if let Directive::Transaction(inner) = directive {
+                assert_eq!(inner.postings.first().unwrap().to_owned().units.unwrap().number, BigDecimal::from(26988));
+            }
+        }
     }
     mod budget {
-        use crate::parser::parse;
         use bigdecimal::{BigDecimal, One};
         use indoc::indoc;
         use zhang_ast::amount::Amount;
         use zhang_ast::Directive;
+
+        use crate::parser::parse;
 
         #[test]
         fn should_parse_budget_without_meta() {
@@ -854,9 +919,10 @@ mod test {
     }
     mod single_line_item {
         mod options {
-            use crate::parser::parse;
             use indoc::indoc;
             use zhang_ast::Directive;
+
+            use crate::parser::parse;
 
             #[test]
             fn should_parse() {
@@ -902,9 +968,10 @@ mod test {
         }
 
         mod open {
-            use crate::parser::parse;
             use indoc::indoc;
             use zhang_ast::Directive;
+
+            use crate::parser::parse;
 
             #[test]
             fn should_parse_with_booking_method() {

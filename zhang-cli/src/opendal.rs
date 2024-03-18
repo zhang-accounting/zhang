@@ -4,14 +4,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_recursion::async_recursion;
+use beancount::Beancount;
 use log::{debug, error, info};
 use opendal::services::{Fs, Webdav};
 use opendal::{ErrorKind, Operator};
-
-use beancount::Beancount;
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
-use zhang_core::data_source::DataSource;
-use zhang_core::data_source::LoadResult;
+use zhang_core::data_source::{DataSource, LoadResult};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;

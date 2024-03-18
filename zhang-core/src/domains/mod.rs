@@ -10,7 +10,6 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::Deserialize;
 use uuid::Uuid;
-
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, SpanInfo};
 

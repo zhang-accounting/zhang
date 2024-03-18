@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use chrono::NaiveDate;
 use itertools::{Either, Itertools};
 use latestmap::LatestMap;
-
 use zhang_ast::*;
 use zhang_core::data_type::text::exporter::{append_meta, ZhangDataTypeExportable};
 use zhang_core::data_type::text::ZhangDataType;
@@ -288,7 +287,6 @@ mod test {
     use bigdecimal::BigDecimal;
     use chrono::NaiveDate;
     use indoc::indoc;
-
     use zhang_ast::amount::Amount;
     use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned};
     use zhang_core::data_type::DataType;

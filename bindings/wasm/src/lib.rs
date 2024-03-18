@@ -1,9 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use wasm_bindgen::prelude::*;
-
 use beancount::Beancount;
+use wasm_bindgen::prelude::*;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::ledger::Ledger;

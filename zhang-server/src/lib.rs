@@ -18,7 +18,6 @@ use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 use uuid::Uuid;
-
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
 use zhang_core::ZhangResult;
