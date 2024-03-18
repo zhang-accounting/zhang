@@ -3,13 +3,16 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use http::{Request, StatusCode};
+use http::{Request, Response, StatusCode};
+use log::info;
 use opendal::raw::oio::WriteBuf;
 use opendal::raw::{
-    new_request_build_error, oio, parse_content_length, parse_content_range, Accessor, AccessorInfo, AsyncBody, HttpClient, IncomingAsyncBody, OpCopy,
-    OpCreateDir, OpDelete, OpList, OpRead, OpRename, OpStat, OpWrite, RpCopy, RpCreateDir, RpDelete, RpList, RpRead, RpRename, RpStat, RpWrite,
+    new_request_build_error, oio, parse_content_length, parse_content_range, parse_etag, parse_into_metadata, Accessor, AccessorInfo, AsyncBody, HttpClient,
+    IncomingAsyncBody, OpCopy, OpCreateDir, OpDelete, OpList, OpRead, OpRename, OpStat, OpWrite, RpCopy, RpCreateDir, RpDelete, RpList, RpRead, RpRename,
+    RpStat, RpWrite,
 };
 use opendal::{Builder, Capability, EntryMode, Metadata, Scheme};
+use serde::Serialize;
 
 #[derive(Debug, Default)]
 pub struct GithubBuilder {
@@ -48,7 +51,7 @@ impl GithubCore {
                 .unwrap(),
             user,
             repo,
-            token,
+            token: format!("Bearer {token}"),
         }
     }
 }
@@ -58,9 +61,11 @@ pub struct GithubAccessor {
     pub core: Arc<GithubCore>,
 }
 
+#[derive(Serialize)]
 pub struct CreateOrUpdateFileRequest {
     message: String,
     content: String,
+    sha: Option<String>,
 }
 #[async_trait::async_trait]
 impl Accessor for GithubAccessor {
@@ -77,11 +82,8 @@ impl Accessor for GithubAccessor {
             stat: true,
 
             read: true,
-            read_can_next: false,
-            read_with_range: false,
 
             write: true,
-            write_can_empty: true,
 
             create_dir: true,
             delete: false,
@@ -108,23 +110,16 @@ impl Accessor for GithubAccessor {
             &self.core.user, &self.core.repo, &path
         ))
         .header("accept", "application/vnd.github+json")
-        .header("authorization", &self.core.token)
+        .header("Authorization", &self.core.token)
         .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "zhang-server")
         .body(AsyncBody::Empty)
         .map_err(new_request_build_error)?;
 
         let resp = self.core.client.send(req).await?;
-        let status = resp.status();
-        match status {
-            StatusCode::OK => {
-                let x = resp.into_body().bytes().await?;
-                let response_body = String::from_utf8_lossy(&x);
-                if response_body.starts_with('[') {
-                    Ok(RpStat::new(Metadata::new(EntryMode::DIR)))
-                } else {
-                    Ok(RpStat::new(Metadata::new(EntryMode::FILE)))
-                }
-            }
+        let status = dbg!(resp.status());
+        match dbg!(status) {
+            StatusCode::OK => parse_into_metadata(&path, resp.headers()).map(RpStat::new),
             StatusCode::NOT_FOUND => Err(opendal::Error::new(opendal::ErrorKind::NotFound, "not found")),
             StatusCode::FORBIDDEN => Err(opendal::Error::new(opendal::ErrorKind::PermissionDenied, "Forbidden")),
             _ => Err(opendal::Error::new(opendal::ErrorKind::Unexpected, "Unexpected")),
@@ -135,19 +130,21 @@ impl Accessor for GithubAccessor {
     }
 
     async fn read(&self, path: &str, args: OpRead) -> opendal::Result<(RpRead, Self::Reader)> {
+        info!("read");
         let path = urlencoding::encode(path);
-        let req = Request::get(format!(
+        let req = Request::get(dbg!(format!(
             "https://api.github.com/repos/{}/{}/contents/{}",
             &self.core.user, &self.core.repo, &path
-        ))
+        )))
         .header("accept", "application/vnd.github.raw")
-        .header("authorization", &self.core.token)
+        .header("Authorization", &self.core.token)
         .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "zhang-server")
         .body(AsyncBody::Empty)
         .map_err(new_request_build_error)?;
 
         let resp = self.core.client.send(req).await?;
-        let status = resp.status();
+        let status = dbg!(resp.status());
         match status {
             StatusCode::OK => {
                 let size = parse_content_length(resp.headers())?;
@@ -202,8 +199,12 @@ impl oio::OneShotWrite for GithubWriter {
     async fn write_once(&self, bs: &dyn WriteBuf) -> opendal::Result<()> {
         let bytes = bs.bytes(bs.remaining());
         let encoded_content = base64::encode(bytes);
-
-        let request_body = format!(r#"{{"message":"updated by zhang", "contnt": "{}"}}"#, encoded_content);
+        let sha = self.core.get_file_sha(&self.path).await?;
+        let request_body = CreateOrUpdateFileRequest {
+            message: "updated by zhang-server".to_string(),
+            content: encoded_content,
+            sha,
+        };
 
         let path = urlencoding::encode(&self.path);
         let req = Request::put(format!(
@@ -213,18 +214,58 @@ impl oio::OneShotWrite for GithubWriter {
         .header("accept", "application/vnd.github+json")
         .header("authorization", &self.core.token)
         .header("X-GitHub-Api-Version", "2022-11-28")
-        .body(AsyncBody::Bytes(Bytes::from(request_body)))
+        .header("User-Agent", "zhang-server")
+        .body(AsyncBody::Bytes(Bytes::from(serde_json::to_vec(&request_body).unwrap())))
         .map_err(new_request_build_error)?;
 
         let resp = self.core.client.send(req).await?;
 
-        let status = resp.status();
+        let status = dbg!(resp.status());
 
         match status {
             StatusCode::CREATED | StatusCode::OK | StatusCode::NO_CONTENT => {
                 resp.into_body().consume().await?;
                 Ok(())
             }
+            _ => {
+                let x = resp.into_body().bytes().await?;
+                let cow = String::from_utf8_lossy(&x);
+                Err(opendal::Error::new(opendal::ErrorKind::Unexpected, cow.as_ref()))
+            }
+        }
+    }
+}
+
+impl GithubCore {
+    pub async fn stat(&self, path: &str) -> opendal::Result<Response<IncomingAsyncBody>> {
+        let path = urlencoding::encode(path);
+        let req = Request::get(dbg!(format!("https://api.github.com/repos/{}/{}/contents/{}", &self.user, &self.repo, &path)))
+            .header("accept", "application/vnd.github.raw")
+            .header("Authorization", &self.token)
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "zhang-server")
+            .body(AsyncBody::Empty)
+            .map_err(new_request_build_error)?;
+
+        let resp = self.client.send(req).await?;
+        Ok(resp)
+    }
+    pub async fn get_file_sha(&self, path: &str) -> Result<Option<String>, opendal::Error> {
+        let resp = self.stat(path).await?;
+
+        match resp.status() {
+            StatusCode::OK => {
+                let headers = resp.headers();
+
+                let sha = parse_etag(headers)?;
+
+                let Some(sha) = sha else {
+                    return Err(opendal::Error::new(opendal::ErrorKind::Unexpected, "No ETag found in response headers"));
+                };
+
+                Ok(Some(sha.trim_matches('"').to_string()))
+            }
+            StatusCode::NOT_FOUND => Ok(None),
             _ => Err(opendal::Error::new(opendal::ErrorKind::Unexpected, "Unexpected")),
         }
     }
