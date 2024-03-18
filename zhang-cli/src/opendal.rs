@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use async_recursion::async_recursion;
 use log::{debug, error, info};
@@ -18,6 +19,7 @@ use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
 
+use crate::github::{GithubAccessor, GithubBuilder, GithubCore};
 use crate::{FileSystem, ServerOpts};
 
 pub struct OpendalDataSource {
@@ -73,7 +75,7 @@ impl DataSource for OpendalDataSource {
                 if err.kind() == ErrorKind::NotFound {
                     Ok(Vec::new())
                 } else {
-                    error!("cannot get content from {}", &path);
+                    error!("cannot get content from {}: {}", &path, &err);
                     Ok(Vec::new())
                 }
             }
@@ -159,6 +161,14 @@ impl OpendalDataSource {
                 webdav_builder.password(std::env::var("ZHANG_WEBDAV_PASSWORD").ok().as_deref().unwrap_or_default());
                 server_opts.path = PathBuf::from(&webdav_root);
                 Operator::new(webdav_builder).unwrap().finish()
+            }
+            FileSystem::Github => {
+                let builder = GithubBuilder {
+                    user: std::env::var("ZHANG_GITHUB_USER").expect("ZHANG_GITHUB_USER must be set"),
+                    repo: std::env::var("ZHANG_GITHUB_REPO").expect("ZHANG_GITHUB_REPO must be set"),
+                    token: std::env::var("ZHANG_GITHUB_TOKEN").expect("ZHANG_GITHUB_TOKEN must be set"),
+                };
+                Operator::new(builder).unwrap().finish()
             }
             _ => {
                 todo!()

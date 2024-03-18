@@ -96,19 +96,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ad32ce52e4161730f7098c077cd2ed6229b5804ccf99e5366be1ab72a98b4e1"
 
 [[package]]
-name = "async-compat"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f68a707c1feb095d8c07f8a65b9f506b117d30af431cab89374357de7c11461b"
-dependencies = [
- "futures-core",
- "futures-io",
- "once_cell",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
 name = "async-recursion"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -810,7 +797,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-util",
- "http 0.2.11",
+ "http 0.2.12",
  "indexmap 2.2.3",
  "slab",
  "tokio",
@@ -896,9 +883,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "0.2.11"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8947b1a6fad4393052c7ba1f4cd97bed3e953a95c79c92ad9b051a04611d9fbb"
+checksum = "601cbb57e577e2f5ef5be8e7b83f0f63994f25aa94d673e54a92d5c516d101f1"
 dependencies = [
  "bytes",
  "fnv",
@@ -923,7 +910,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ceab25649e9960c0311ea418d17bee82c0dcec1bd053b5f9a66e265a693bed2"
 dependencies = [
  "bytes",
- "http 0.2.11",
+ "http 0.2.12",
  "pin-project-lite",
 ]
 
@@ -979,7 +966,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2 0.3.24",
- "http 0.2.11",
+ "http 0.2.12",
  "http-body 0.4.6",
  "httparse",
  "httpdate",
@@ -1467,12 +1454,11 @@ checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
 name = "opendal"
-version = "0.43.0"
+version = "0.45.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c04ac25bc94e2b572a0f41bcc650cb39dd09255efce72b68eb5dc188b018c52a"
+checksum = "52c17c077f23fa2d2c25d9d22af98baa43b8bbe2ef0de80cf66339aa70401467"
 dependencies = [
  "anyhow",
- "async-compat",
  "async-trait",
  "backon",
  "base64 0.21.7",
@@ -1480,14 +1466,13 @@ dependencies = [
  "chrono",
  "flagset",
  "futures",
- "http 0.2.11",
+ "getrandom",
+ "http 0.2.12",
  "log",
  "md-5",
  "once_cell",
- "parking_lot",
  "percent-encoding",
- "pin-project",
- "quick-xml 0.30.0",
+ "quick-xml 0.31.0",
  "reqsign",
  "reqwest",
  "serde",
@@ -1823,16 +1808,6 @@ dependencies = [
 
 [[package]]
 name = "quick-xml"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eff6510e86862b57b210fd8cbe8ed3f0d7d600b9c2863cd4549a2e033c66e956"
-dependencies = [
- "memchr",
- "serde",
-]
-
-[[package]]
-name = "quick-xml"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1004a344b30a54e2ee58d66a71b32d2db2feb0a31f9a2d302bf0536f15de2a33"
@@ -1933,7 +1908,7 @@ dependencies = [
  "hex",
  "hmac",
  "home",
- "http 0.2.11",
+ "http 0.2.12",
  "log",
  "percent-encoding",
  "quick-xml 0.31.0",
@@ -1958,7 +1933,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2 0.3.24",
- "http 0.2.11",
+ "http 0.2.12",
  "http-body 0.4.6",
  "hyper 0.14.28",
  "hyper-tls",
@@ -3156,9 +3131,12 @@ dependencies = [
  "async-recursion",
  "async-trait",
  "axum",
+ "base64 0.13.1",
  "beancount",
+ "bytes",
  "clap",
  "env_logger",
+ "http 0.2.12",
  "http 1.0.0",
  "http-body-util",
  "jsonpath-rust",
@@ -3171,6 +3149,7 @@ dependencies = [
  "tokio",
  "tokio-util 0.6.10",
  "tower",
+ "urlencoding",
  "zhang-ast",
  "zhang-core",
  "zhang-server",
