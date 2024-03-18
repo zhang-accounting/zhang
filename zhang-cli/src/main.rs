@@ -1,4 +1,3 @@
-use ::opendal::Operator;
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::Arc;

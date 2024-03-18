@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
 
 use async_recursion::async_recursion;
 use beancount::Beancount;
@@ -17,7 +16,7 @@ use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
 
-use crate::github::{GithubAccessor, GithubBuilder, GithubCore};
+use crate::github::GithubBuilder;
 use crate::{FileSystem, ServerOpts};
 
 pub struct OpendalDataSource {

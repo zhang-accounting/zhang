@@ -8,10 +8,9 @@ use log::info;
 use opendal::raw::oio::WriteBuf;
 use opendal::raw::{
     new_request_build_error, oio, parse_content_length, parse_content_range, parse_etag, parse_into_metadata, Accessor, AccessorInfo, AsyncBody, HttpClient,
-    IncomingAsyncBody, OpCopy, OpCreateDir, OpDelete, OpList, OpRead, OpRename, OpStat, OpWrite, RpCopy, RpCreateDir, RpDelete, RpList, RpRead, RpRename,
-    RpStat, RpWrite,
+    IncomingAsyncBody, OpCreateDir, OpRead, OpStat, OpWrite, RpCreateDir, RpRead, RpStat, RpWrite,
 };
-use opendal::{Builder, Capability, EntryMode, Metadata, Scheme};
+use opendal::{Builder, Capability, Scheme};
 use serde::Serialize;
 
 #[derive(Debug, Default)]
@@ -25,7 +24,7 @@ impl Builder for GithubBuilder {
     const SCHEME: Scheme = Scheme::Custom("github");
     type Accessor = GithubAccessor;
 
-    fn from_map(map: HashMap<String, String>) -> Self {
+    fn from_map(_map: HashMap<String, String>) -> Self {
         todo!()
     }
 
@@ -70,10 +69,10 @@ pub struct CreateOrUpdateFileRequest {
 #[async_trait::async_trait]
 impl Accessor for GithubAccessor {
     type Reader = IncomingAsyncBody;
-    type BlockingReader = ();
     type Writer = oio::OneShotWriter<GithubWriter>;
-    type BlockingWriter = ();
     type Lister = ();
+    type BlockingReader = ();
+    type BlockingWriter = ();
     type BlockingLister = ();
 
     fn info(&self) -> AccessorInfo {
@@ -101,6 +100,9 @@ impl Accessor for GithubAccessor {
         ma
     }
 
+    async fn create_dir(&self, _path: &str, _args: OpCreateDir) -> opendal::Result<RpCreateDir> {
+        Ok(RpCreateDir {})
+    }
     async fn stat(&self, path: &str, args: OpStat) -> opendal::Result<RpStat> {
         let (_, _) = (path, args);
 
@@ -125,11 +127,8 @@ impl Accessor for GithubAccessor {
             _ => Err(opendal::Error::new(opendal::ErrorKind::Unexpected, "Unexpected")),
         }
     }
-    async fn create_dir(&self, path: &str, args: OpCreateDir) -> opendal::Result<RpCreateDir> {
-        Ok(RpCreateDir {})
-    }
 
-    async fn read(&self, path: &str, args: OpRead) -> opendal::Result<(RpRead, Self::Reader)> {
+    async fn read(&self, path: &str, _args: OpRead) -> opendal::Result<(RpRead, Self::Reader)> {
         info!("read");
         let path = urlencoding::encode(path);
         let req = Request::get(dbg!(format!(
@@ -163,34 +162,16 @@ impl Accessor for GithubAccessor {
             oio::OneShotWriter::new(GithubWriter::new(self.core.clone(), args, path.to_string())),
         ))
     }
-
-    async fn copy(&self, from: &str, to: &str, args: OpCopy) -> opendal::Result<RpCopy> {
-        todo!()
-    }
-
-    async fn rename(&self, from: &str, to: &str, args: OpRename) -> opendal::Result<RpRename> {
-        todo!()
-    }
-
-    async fn delete(&self, path: &str, args: OpDelete) -> opendal::Result<RpDelete> {
-        todo!()
-    }
-
-    async fn list(&self, path: &str, args: OpList) -> opendal::Result<(RpList, Self::Lister)> {
-        todo!()
-    }
 }
 
 pub struct GithubWriter {
     core: Arc<GithubCore>,
-
-    op: OpWrite,
     path: String,
 }
 
 impl GithubWriter {
-    pub fn new(core: Arc<GithubCore>, op: OpWrite, path: String) -> Self {
-        GithubWriter { core, op, path }
+    pub fn new(core: Arc<GithubCore>, _op: OpWrite, path: String) -> Self {
+        GithubWriter { core, path }
     }
 }
 
