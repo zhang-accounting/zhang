@@ -11,6 +11,7 @@ use zhang_server::ServeConfig;
 
 use crate::opendal::OpendalDataSource;
 
+pub mod github;
 pub mod opendal;
 
 #[derive(Parser, Debug)]
@@ -69,6 +70,7 @@ pub enum FileSystem {
     Fs,
     S3,
     WebDav,
+    Github,
 }
 
 impl FileSystem {
