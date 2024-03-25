@@ -5,7 +5,8 @@ use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
-use pest::{iterators::Pairs, pratt_parser::PrattParser};
+use pest::iterators::Pairs;
+use pest::pratt_parser::PrattParser;
 use pest_consume::{match_nodes, Error, Parser};
 use snailquote::unescape;
 use zhang_ast::amount::Amount;
@@ -23,7 +24,8 @@ pub struct ZhangParser;
 fn pratt_number_parser() -> &'static PrattParser<Rule> {
     static PARSER: OnceCell<PrattParser<Rule>> = OnceCell::new();
     PARSER.get_or_init(|| {
-        use pest::pratt_parser::{Assoc::*, Op};
+        use pest::pratt_parser::Assoc::*;
+        use pest::pratt_parser::Op;
         use Rule::*;
         PrattParser::new()
             .op(Op::infix(add, Left) | Op::infix(subtract, Left))
@@ -896,9 +898,10 @@ mod test {
     }
 
     mod transaction {
+        use std::str::FromStr;
+
         use bigdecimal::BigDecimal;
         use indoc::indoc;
-        use std::str::FromStr;
         use zhang_ast::Directive;
 
         use crate::data_type::text::parser::parse;
