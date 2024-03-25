@@ -933,7 +933,7 @@ mod test {
             .data;
             match directive {
                 Directive::Transaction(trx) => {
-                    let posting = trx.postings.get(0).unwrap().clone();
+                    let posting = trx.postings.first().unwrap().clone();
                     assert_eq!(BigDecimal::from_str("27012").unwrap(), posting.units.unwrap().number)
                 }
                 _ => unreachable!("find other directives than txn directive"),
