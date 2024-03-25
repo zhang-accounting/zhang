@@ -30,6 +30,7 @@ pest_derive = "2.1"
 snailquote = "0.3"
 indexmap = "2"
 async-trait = "0.1.74"
+once_cell = "1.19"
 
 [dev-dependencies]
 indoc = "2"

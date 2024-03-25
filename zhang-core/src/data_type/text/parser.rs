@@ -4,6 +4,9 @@ use std::str::FromStr;
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use itertools::Itertools;
+use once_cell::sync::OnceCell;
+use pest::iterators::Pairs;
+use pest::pratt_parser::PrattParser;
 use pest_consume::{match_nodes, Error, Parser};
 use snailquote::unescape;
 use zhang_ast::amount::Amount;
@@ -17,14 +20,51 @@ type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 #[grammar = "data_type/text/zhang.pest"]
 pub struct ZhangParser;
 
+/// Construct a global [PrattParser] to handle number expressions.
+fn pratt_number_parser() -> &'static PrattParser<Rule> {
+    static PARSER: OnceCell<PrattParser<Rule>> = OnceCell::new();
+    PARSER.get_or_init(|| {
+        use pest::pratt_parser::Assoc::*;
+        use pest::pratt_parser::Op;
+        use Rule::*;
+        PrattParser::new()
+            .op(Op::infix(add, Left) | Op::infix(subtract, Left))
+            .op(Op::infix(multiply, Left) | Op::infix(divide, Left))
+            .op(Op::prefix(unary_minus))
+    })
+}
+
+/// Define parsing rules for [number_expr] nodes.
+/// Each expression is calculated in-place and reduced to one [BigDecimal].
+fn parse_number_expr(pairs: Pairs<Rule>) -> Result<BigDecimal> {
+    pratt_number_parser()
+        .map_primary(|primary| match primary.as_rule() {
+            Rule::number => Ok(BigDecimal::from_str(primary.as_str()).unwrap()),
+            Rule::number_expr => parse_number_expr(primary.into_inner()),
+            rule => unreachable!("Unexpected number expr {:?}", rule),
+        })
+        .map_infix(|lhs, op, rhs| match op.as_rule() {
+            Rule::add => Ok(lhs? + rhs?),
+            Rule::subtract => Ok(lhs? - rhs?),
+            Rule::multiply => Ok(lhs? * rhs?),
+            Rule::divide => Ok(lhs? / rhs?),
+            rule => unreachable!("Unexpected infix operation {:?}", rule),
+        })
+        .map_prefix(|op, rhs| match op.as_rule() {
+            Rule::unary_minus => Ok(-rhs?),
+            rule => unreachable!("Unexpected prefix operation {:?}", rule),
+        })
+        .parse(pairs)
+}
+
 #[pest_consume::parser]
 impl ZhangParser {
     #[allow(dead_code)]
     fn EOI(_input: Node) -> Result<()> {
         Ok(())
     }
-    fn number(input: Node) -> Result<BigDecimal> {
-        Ok(BigDecimal::from_str(input.as_str()).unwrap())
+    fn number_expr(input: Node) -> Result<BigDecimal> {
+        parse_number_expr(input.into_pair().into_inner())
     }
     fn quote_string(input: Node) -> Result<ZhangString> {
         let string = input.as_str();
@@ -170,26 +210,26 @@ impl ZhangParser {
 
     fn posting_cost(input: Node) -> Result<Amount> {
         let ret: Amount = match_nodes!(input.into_children();
-            [number(amount), commodity_name(c)] => Amount::new(amount, c),
+            [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
         );
         Ok(ret)
     }
     fn posting_total_price(input: Node) -> Result<Amount> {
         let ret: Amount = match_nodes!(input.into_children();
-            [number(amount), commodity_name(c)] => Amount::new(amount, c),
+            [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
         );
         Ok(ret)
     }
     fn posting_single_price(input: Node) -> Result<Amount> {
         let ret: Amount = match_nodes!(input.into_children();
-            [number(amount), commodity_name(c)] => Amount::new(amount, c),
+            [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
         );
         Ok(ret)
     }
 
     fn posting_amount(input: Node) -> Result<Amount> {
         let ret: Amount = match_nodes!(input.into_children();
-            [number(amount), commodity_name(c)] => Amount::new(amount, c),
+            [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
         );
         Ok(ret)
     }
@@ -412,8 +452,8 @@ impl ZhangParser {
 
     fn balance(input: Node) -> Result<Directive> {
         let ret: (Date, Account, BigDecimal, String, Option<Account>) = match_nodes!(input.into_children();
-            [date(date), account_name(name), number(amount), commodity_name(commodity)] => (date, name, amount, commodity, None),
-            [date(date), account_name(name), number(amount), commodity_name(commodity), account_name(pad)] => (date, name, amount, commodity, Some(pad)),
+            [date(date), account_name(name), number_expr(amount), commodity_name(commodity)] => (date, name, amount, commodity, None),
+            [date(date), account_name(name), number_expr(amount), commodity_name(commodity), account_name(pad)] => (date, name, amount, commodity, Some(pad)),
         );
         if let Some(pad) = ret.4 {
             Ok(Directive::BalancePad(BalancePad {
@@ -449,7 +489,7 @@ impl ZhangParser {
 
     fn price(input: Node) -> Result<Directive> {
         let ret: (Date, String, BigDecimal, String) = match_nodes!(input.into_children();
-            [date(date), commodity_name(source), number(price), commodity_name(target)] => (date, source, price, target)
+            [date(date), commodity_name(source), number_expr(price), commodity_name(target)] => (date, source, price, target)
         );
         Ok(Directive::Price(Price {
             date: ret.0,
@@ -858,8 +898,11 @@ mod test {
     }
 
     mod transaction {
+        use std::str::FromStr;
 
+        use bigdecimal::BigDecimal;
         use indoc::indoc;
+        use zhang_ast::Directive;
 
         use crate::data_type::text::parser::parse;
 
@@ -875,6 +918,29 @@ mod test {
             )
             .unwrap();
             assert_eq!(vec.len(), 1);
+        }
+
+        #[test]
+        fn should_support_arithmetic_in_postings() {
+            let directive = parse(
+                indoc! {r#"
+                            2022-03-24 11:38:56 ""
+                              Assets:B 120/10 + 1000 * (25--2) CNY
+                              Assets:B
+                        "#},
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap()
+            .data;
+            match directive {
+                Directive::Transaction(trx) => {
+                    let posting = trx.postings.first().unwrap().clone();
+                    assert_eq!(BigDecimal::from_str("27012").unwrap(), posting.units.unwrap().number)
+                }
+                _ => unreachable!("find other directives than txn directive"),
+            }
         }
 
         mod posting {

@@ -15,9 +15,9 @@ commodity       =  { date ~ space+ ~ "commodity" ~ space+ ~ commodity_name ~ met
 open            =  { date ~ space+ ~ "open" ~ space+ ~ account_name ~ (space+ ~ commodity_name ~ (space* ~ "," ~ space* ~ commodity_name)*)? }
 close           =  { date ~ space+ ~ "close" ~ space+ ~ account_name }
 note            =  { date ~ space+ ~ "note" ~ space+ ~ account_name ~ space+ ~ string }
-balance         =  { date ~ space+ ~ "balance" ~ space+ ~ account_name ~ space+ ~ number ~ space+ ~ commodity_name ~ (space+ ~ "with" ~ space+ ~ "pad" ~ space+ ~ account_name)? }
+balance         =  { date ~ space+ ~ "balance" ~ space+ ~ account_name ~ space+ ~ number_expr ~ space+ ~ commodity_name ~ (space+ ~ "with" ~ space+ ~ "pad" ~ space+ ~ account_name)? }
 document        =  { date ~ space+ ~ "document" ~ space+ ~ account_name ~ space+ ~ string }
-price           =  { date ~ space+ ~ "price" ~ space+ ~ commodity_name ~ space+ ~ number ~ space+ ~ commodity_name }
+price           =  { date ~ space+ ~ "price" ~ space+ ~ commodity_name ~ space+ ~ number_expr ~ space+ ~ commodity_name }
 event           =  { date ~ space+ ~ "event" ~ space+ ~ string ~ space+ ~ string }
 custom          =  { date ~ space+ ~ "custom" ~ space+ ~ string ~ (space+ ~ string_or_account)+ ~ metas? }
 budget          =  { date ~ space+ ~ "budget" ~ space+ ~ unquote_string ~ space+ ~ commodity_name ~ metas? }
@@ -44,15 +44,15 @@ transaction_posting   =  { transaction_flag? ~ account_name ~ (space+ ~ posting_
 transaction_next_line = _{ identation ~ transaction_line }
 
 posting_unit   = { (posting_amount)? ~ posting_meta }
-posting_amount = { number ~ space+ ~ commodity_name }
+posting_amount = { number_expr ~ space+ ~ commodity_name }
 posting_meta   = { (space+ ~ "{" ~ space* ~ posting_cost ~ price_cost_date? ~ space* ~ "}")? ~ space* ~ posting_price? }
 
-posting_cost    =  { number ~ space+ ~ commodity_name }
+posting_cost    =  { number_expr ~ space+ ~ commodity_name }
 price_cost_date = _{ space* ~ "," ~ space* ~ date }
 posting_price   =  { posting_single_price | posting_total_price }
 
-posting_single_price = { "@" ~ space+ ~ number ~ space+ ~ commodity_name }
-posting_total_price  = { "@@" ~ space+ ~ number ~ space+ ~ commodity_name }
+posting_single_price = { "@" ~ space+ ~ number_expr ~ space+ ~ commodity_name }
+posting_total_price  = { "@@" ~ space+ ~ number_expr ~ space+ ~ commodity_name }
 
 string_or_account = { account_name | string }
 
@@ -90,6 +90,17 @@ char  =  {
 space = _{ " " | "\t" }
 line  = _{ NEWLINE }
 
+
+number_expr  =  { expr_atom ~ (space* ~ expr_bin_op ~ space* ~ expr_atom)* }
+expr_atom    = _{ unary_minus? ~ space* ~ expr_primary }
+expr_primary = _{ number | "(" ~ space* ~ number_expr ~ space* ~ ")" }
+expr_bin_op  = _{ add | subtract | multiply | divide }
+unary_minus  =  { "-" }
+add          =  { "+" }
+subtract     =  { "-" }
+multiply     =  { "*" }
+divide       =  { "/" }
+
 number = @{
-    "-"? ~ ("0" | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*) ~ ("." ~ ASCII_DIGIT*)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
+    ("0" | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*) ~ ("." ~ ASCII_DIGIT*)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
 }

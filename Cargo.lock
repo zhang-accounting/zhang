@@ -3112,6 +3112,7 @@ dependencies = [
  "indoc 2.0.4",
  "itertools",
  "log",
+ "once_cell",
  "pest",
  "pest_consume",
  "pest_derive",
