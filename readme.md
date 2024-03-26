@@ -1,5 +1,5 @@
 <div align="center">
-  <img  width="256" height="256" src="/docs/logo.jpg" />
+  <img  width="256" height="256" src="/docs/src/assets/logo-without-bg.png" />
   <h1>账 Zhang</h1>
   <p>a plain text double-accounting tool.</p>
 </div>
