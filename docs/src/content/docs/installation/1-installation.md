@@ -1,4 +1,8 @@
-# 如何安装
+---
+title: 如何安装
+description: This is a page in my Starlight-powered site
+---
+
 
 目前zhang只推荐使用 docker 的方式进行部署，你可以通过一下的命令拉取镜像
 
