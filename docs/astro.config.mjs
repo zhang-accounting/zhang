@@ -8,6 +8,7 @@ export default defineConfig({
             title: 'Zhang Accounting',
             social: {
                 github: 'https://github.com/zhang-accounting/zhang',
+                discord: 'https://discord.gg/mcZpvmFeRV',
             },
             defaultLocale: 'root',
             locales: {
