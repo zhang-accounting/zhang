@@ -115,3 +115,35 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  release-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: update wasm version
+        run: sed -i 's/version = "0.1.1"/version = "${{github.ref_name}}"/' Cargo.toml
+        working-directory: ./bindings/wasm
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          # Optional version of wasm-pack to install(eg. 'v0.9.1', 'latest')
+          version: 'v0.12.1'
+
+      - name: build wasm
+        run: wasm-pack build
+        working-directory: ./bindings/wasm
+
+      - name: pack wasm
+        run: wasm-pack pack
+        working-directory: ./bindings/wasm
+
+      - name: setup npm token
+        run: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: publish to npm
+        run: wasm-pack build
+        working-directory: ./bindings/wasm
