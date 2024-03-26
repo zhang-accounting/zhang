@@ -102,5 +102,5 @@ multiply     =  { "*" }
 divide       =  { "/" }
 
 number = @{
-    ("0" | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*) ~ ("." ~ ASCII_DIGIT*)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
+    ("0" | ASCII_NONZERO_DIGIT ~ (ASCII_DIGIT | "," | "_")*) ~ ("." ~ ASCII_DIGIT*)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
 }

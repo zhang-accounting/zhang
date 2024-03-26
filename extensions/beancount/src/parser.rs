@@ -41,7 +41,7 @@ fn pratt_number_parser() -> &'static PrattParser<Rule> {
 fn parse_number_expr(pairs: Pairs<Rule>) -> Result<BigDecimal> {
     pratt_number_parser()
         .map_primary(|primary| match primary.as_rule() {
-            Rule::number => Ok(BigDecimal::from_str(primary.as_str()).unwrap()),
+            Rule::number => BeancountParser::number(Node::new(primary)),
             Rule::number_expr => parse_number_expr(primary.into_inner()),
             rule => unreachable!("Unexpected number expr {:?}", rule),
         })
@@ -67,6 +67,11 @@ impl BeancountParser {
     }
     fn number_expr(input: Node) -> Result<BigDecimal> {
         parse_number_expr(input.into_pair().into_inner())
+    }
+
+    fn number(input: Node) -> Result<BigDecimal> {
+        let pure_number = input.as_str().replace([',', '_'], "");
+        Ok(BigDecimal::from_str(&pure_number).unwrap())
     }
     fn quote_string(input: Node) -> Result<ZhangString> {
         let string = input.as_str();
@@ -664,7 +669,24 @@ pub fn parse_time(input_str: &str) -> Result<NaiveTime> {
 
 #[cfg(test)]
 mod test {
+    use zhang_ast::{Directive, Transaction};
 
+    use crate::directives::BeancountOnlyDirective;
+    use crate::parser::parse;
+
+    fn get_left_directive(content: &str) -> Directive {
+        parse(content, None).unwrap().pop().unwrap().data.left().unwrap()
+    }
+    fn get_txn(content: &str) -> Transaction {
+        let directive = parse(content, None).unwrap().pop().unwrap().data.left().unwrap();
+        match directive {
+            Directive::Transaction(txn) => txn,
+            _ => unreachable!("should get txn, but other directive is found"),
+        }
+    }
+    fn get_right_directive(content: &str) -> BeancountOnlyDirective {
+        parse(content, None).unwrap().pop().unwrap().data.right().unwrap()
+    }
     mod tag {
         use std::str::FromStr;
 
@@ -674,28 +696,22 @@ mod test {
         use zhang_ast::{Account, Date};
 
         use crate::directives::{BalanceDirective, BeancountOnlyDirective, PadDirective};
-        use crate::parser::parse;
+        use crate::parser::test::get_right_directive;
 
         #[test]
         fn should_support_push_tag() {
-            let directive = parse("pushtag #mytag", None).unwrap().pop().unwrap().data.right().unwrap();
+            let directive = get_right_directive("pushtag #mytag");
             assert_eq!(BeancountOnlyDirective::PushTag("mytag".to_string()), directive);
         }
         #[test]
         fn should_support_pop_tag() {
-            let directive = parse("poptag #mytag", None).unwrap().pop().unwrap().data.right().unwrap();
+            let directive = get_right_directive("poptag #mytag");
             assert_eq!(BeancountOnlyDirective::PopTag("mytag".to_string()), directive);
         }
 
         #[test]
         fn should_parse_balance() {
-            let directive = parse("1970-01-01 balance Assets:BankAccount 2 CNY", None)
-                .unwrap()
-                .pop()
-                .unwrap()
-                .data
-                .right()
-                .unwrap();
+            let directive = get_right_directive("1970-01-01 balance Assets:BankAccount 2 CNY");
             assert_eq!(
                 BeancountOnlyDirective::Balance(BalanceDirective {
                     date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
@@ -708,13 +724,7 @@ mod test {
         }
         #[test]
         fn should_parse_pad() {
-            let directive = parse("1970-01-01 pad Assets:BankAccount Assets:BankAccount2", None)
-                .unwrap()
-                .pop()
-                .unwrap()
-                .data
-                .right()
-                .unwrap();
+            let directive = get_right_directive("1970-01-01 pad Assets:BankAccount Assets:BankAccount2");
             assert_eq!(
                 BeancountOnlyDirective::Pad(PadDirective {
                     date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
@@ -727,80 +737,90 @@ mod test {
         }
     }
     mod txn {
+        use std::str::FromStr;
+
         use bigdecimal::BigDecimal;
         use indoc::indoc;
-        use zhang_ast::Directive;
 
-        use crate::parser::parse;
+        use crate::parser::test::get_txn;
 
         #[test]
         fn should_parse_posting_meta() {
-            let directive = parse(
-                indoc! {r#"
+            let directive = get_txn(indoc! {r#"
                             1970-01-01 "Payee" "Narration"
                               Assets:Bank
                                 a: b
-                        "#},
-                None,
-            )
-            .unwrap()
-            .pop()
-            .unwrap()
-            .data
-            .left()
-            .unwrap();
-            assert!(matches!(directive, Directive::Transaction(..)));
-            if let Directive::Transaction(inner) = directive {
-                assert_eq!(inner.postings.first().unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
-            }
+                        "#});
+            assert_eq!(directive.postings.first().unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
         }
 
         #[test]
         fn should_parse_with_comment() {
-            let directive = parse(
-                indoc! {r#"
+            let directive = get_txn(indoc! {r#"
                             1970-01-01 "Payee" "Narration" ; 123123
                               Assets:Bank
                                 a: b
                               Assets:Bank ;123213
                               a: b
                               b: c ;123123
-                        "#},
-                None,
-            )
-            .unwrap()
-            .pop()
-            .unwrap()
-            .data
-            .left()
-            .unwrap();
-            assert!(matches!(directive, Directive::Transaction(..)));
-            if let Directive::Transaction(inner) = directive {
-                assert_eq!(inner.postings.first().unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
-                assert_eq!(inner.postings.get(1).unwrap().comment.as_ref().unwrap(), "123213");
-            }
+                        "#});
+            assert_eq!(directive.postings.first().unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
+            assert_eq!(directive.postings.get(1).unwrap().comment.as_ref().unwrap(), "123213");
         }
 
         #[test]
         fn should_support_arithmetic_expression_in_amount() {
             use indoc::indoc;
-            let directive = parse(
-                indoc! {r#"
+            let directive = get_txn(indoc! {r#"
                             1970-01-01 "Payee" "Narration"
                               Assets:Bank -(120/10) + 1000 * (25--2) CNY
-                        "#},
-                None,
-            )
-            .unwrap()
-            .pop()
-            .unwrap()
-            .data
-            .left()
-            .unwrap();
-            assert!(matches!(directive, Directive::Transaction(..)));
-            if let Directive::Transaction(inner) = directive {
-                assert_eq!(inner.postings.first().unwrap().to_owned().units.unwrap().number, BigDecimal::from(26988));
-            }
+                        "#});
+            assert_eq!(directive.postings.first().unwrap().to_owned().units.unwrap().number, BigDecimal::from(26988));
+        }
+        #[test]
+        fn should_support_comma_char_for_human_readable_number() {
+            let mut trx = get_txn(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -1,000.00 USD
+                "#});
+            let posting = trx.postings.pop().unwrap();
+            assert_eq!(BigDecimal::from_str("-1000").unwrap(), posting.units.unwrap().number);
+        }
+        #[test]
+        fn should_support_underline_char_for_human_readable_number() {
+            let mut trx = get_txn(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -1_000.00 USD
+                "#});
+            let posting = trx.postings.pop().unwrap();
+            assert_eq!(BigDecimal::from_str("-1000").unwrap(), posting.units.unwrap().number);
+        }
+        #[test]
+        fn should_support_scientific_math() {
+            let mut trx = get_txn(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -1e9 USD
+                "#});
+            let posting = trx.postings.pop().unwrap();
+            assert_eq!(BigDecimal::from_str("-1000000000").unwrap(), posting.units.unwrap().number);
+        }
+        #[test]
+        fn should_support_scientific_math_with_plus_symbol() {
+            let mut trx = get_txn(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -1e+9 USD
+                "#});
+            let posting = trx.postings.pop().unwrap();
+            assert_eq!(BigDecimal::from_str("-1000000000").unwrap(), posting.units.unwrap().number);
+        }
+        #[test]
+        fn should_support_scientific_math_with_minus_symbol() {
+            let mut trx = get_txn(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -1e-9 USD
+                "#});
+            let posting = trx.postings.pop().unwrap();
+            assert_eq!(BigDecimal::from_str("-0.000000001").unwrap(), posting.units.unwrap().number);
         }
     }
     mod budget {
@@ -809,22 +829,13 @@ mod test {
         use zhang_ast::amount::Amount;
         use zhang_ast::Directive;
 
-        use crate::parser::parse;
+        use crate::parser::test::get_left_directive;
 
         #[test]
         fn should_parse_budget_without_meta() {
-            let directive = parse(
-                indoc! {r#"
+            let directive = get_left_directive(indoc! {r#"
                             1970-01-01 custom budget Diet CNY
-                        "#},
-                None,
-            )
-            .unwrap()
-            .pop()
-            .unwrap()
-            .data
-            .left()
-            .unwrap();
+                        "#});
             assert!(matches!(directive, Directive::Budget(..)));
             if let Directive::Budget(inner) = directive {
                 assert_eq!(inner.name, "Diet");
@@ -834,19 +845,10 @@ mod test {
 
         #[test]
         fn should_parse_budget_with_meta() {
-            let directive = parse(
-                indoc! {r#"
+            let directive = get_left_directive(indoc! {r#"
                             1970-01-01 custom budget Diet CNY
                               alias: "日常饮食"
-                        "#},
-                None,
-            )
-            .unwrap()
-            .pop()
-            .unwrap()
-            .data
-            .left()
-            .unwrap();
+                        "#});
             assert!(matches!(directive, Directive::Budget(..)));
             if let Directive::Budget(inner) = directive {
                 assert_eq!(inner.name, "Diet");
@@ -857,18 +859,9 @@ mod test {
 
         #[test]
         fn should_parse_budget_add() {
-            let directive = parse(
-                indoc! {r#"
+            let directive = get_left_directive(indoc! {r#"
                             1970-01-01 custom budget-add Diet 1 CNY
-                        "#},
-                None,
-            )
-            .unwrap()
-            .pop()
-            .unwrap()
-            .data
-            .left()
-            .unwrap();
+                        "#});
             assert!(matches!(directive, Directive::BudgetAdd(..)));
             if let Directive::BudgetAdd(inner) = directive {
                 assert_eq!(inner.name, "Diet");
@@ -877,18 +870,9 @@ mod test {
         }
         #[test]
         fn should_parse_budget_transfer() {
-            let directive = parse(
-                indoc! {r#"
+            let directive = get_left_directive(indoc! {r#"
                             1970-01-01 custom budget-transfer Diet Saving 1 CNY
-                        "#},
-                None,
-            )
-            .unwrap()
-            .pop()
-            .unwrap()
-            .data
-            .left()
-            .unwrap();
+                        "#});
             assert!(matches!(directive, Directive::BudgetTransfer(..)));
             if let Directive::BudgetTransfer(inner) = directive {
                 assert_eq!(inner.from, "Diet");
@@ -899,18 +883,9 @@ mod test {
 
         #[test]
         fn should_parse_budget_close() {
-            let directive = parse(
-                indoc! {r#"
+            let directive = get_left_directive(indoc! {r#"
                             1970-01-01 custom budget-close Diet
-                        "#},
-                None,
-            )
-            .unwrap()
-            .pop()
-            .unwrap()
-            .data
-            .left()
-            .unwrap();
+                        "#});
             assert!(matches!(directive, Directive::BudgetClose(..)));
             if let Directive::BudgetClose(inner) = directive {
                 assert_eq!(inner.name, "Diet");
@@ -922,22 +897,13 @@ mod test {
             use indoc::indoc;
             use zhang_ast::Directive;
 
-            use crate::parser::parse;
+            use crate::parser::test::get_left_directive;
 
             #[test]
             fn should_parse() {
-                let directive = parse(
-                    indoc! {r#"
+                let directive = get_left_directive(indoc! {r#"
                             option "title" "Accounting"
-                        "#},
-                    None,
-                )
-                .unwrap()
-                .pop()
-                .unwrap()
-                .data
-                .left()
-                .unwrap();
+                        "#});
                 assert!(matches!(directive, Directive::Option(..)));
                 if let Directive::Option(inner) = directive {
                     assert_eq!(inner.key.as_str(), "title");
@@ -947,18 +913,9 @@ mod test {
 
             #[test]
             fn should_parse_with_comment() {
-                let directive = parse(
-                    indoc! {r#"
+                let directive = get_left_directive(indoc! {r#"
                             option "title" "Accounting" ;123
-                        "#},
-                    None,
-                )
-                .unwrap()
-                .pop()
-                .unwrap()
-                .data
-                .left()
-                .unwrap();
+                        "#});
                 assert!(matches!(directive, Directive::Option(..)));
                 if let Directive::Option(inner) = directive {
                     assert_eq!(inner.key.as_str(), "title");
@@ -971,22 +928,13 @@ mod test {
             use indoc::indoc;
             use zhang_ast::Directive;
 
-            use crate::parser::parse;
+            use crate::parser::test::get_left_directive;
 
             #[test]
             fn should_parse_with_booking_method() {
-                let directive = parse(
-                    indoc! {r#"
+                let directive = get_left_directive(indoc! {r#"
                             1970-01-01 open Assets:Card CNY       "NONE"
-                        "#},
-                    None,
-                )
-                .unwrap()
-                .pop()
-                .unwrap()
-                .data
-                .left()
-                .unwrap();
+                        "#});
                 assert!(matches!(directive, Directive::Open(..)));
                 if let Directive::Open(inner) = directive {
                     assert_eq!(inner.meta.get_one("booking_method").unwrap().as_str(), "NONE");
