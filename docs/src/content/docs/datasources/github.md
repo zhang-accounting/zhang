@@ -27,7 +27,7 @@ Github 数据源使用了官方提供的[ Restful API](https://docs.github.com/e
 
 ## Docker 命令
 
-```shell
+```shell {2-5}
 
 docker run --name zhang \
     -e "ZHANG_DATA_SOURCE=github" \
