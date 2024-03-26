@@ -13,7 +13,7 @@
 
 - Online Playground: [Online Playground](https://zhang-playground.zeabur.app/)
 - Online Demo: [Online Demo](https://zhang-accounting.zeabur.app/)
-- Documentation: [Documentation](https://zhang-accounting.github.io/zhang/)
+- Documentation: [Documentation](https://zhang-accounting.kilerd.me/)
 
 ## Features
 
