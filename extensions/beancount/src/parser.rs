@@ -12,6 +12,7 @@ use snailquote::unescape;
 use zhang_ast::amount::Amount;
 use zhang_ast::utils::multi_value_map::MultiValueMap;
 use zhang_ast::*;
+use zhang_core::data_type::text::parser::ZhangParser;
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
 
@@ -41,7 +42,7 @@ fn pratt_number_parser() -> &'static PrattParser<Rule> {
 fn parse_number_expr(pairs: Pairs<Rule>) -> Result<BigDecimal> {
     pratt_number_parser()
         .map_primary(|primary| match primary.as_rule() {
-            Rule::number => Ok(BigDecimal::from_str(primary.as_str()).unwrap()),
+            Rule::number => BeancountParser::number(Node::new(primary)),
             Rule::number_expr => parse_number_expr(primary.into_inner()),
             rule => unreachable!("Unexpected number expr {:?}", rule),
         })
@@ -67,6 +68,11 @@ impl BeancountParser {
     }
     fn number_expr(input: Node) -> Result<BigDecimal> {
         parse_number_expr(input.into_pair().into_inner())
+    }
+
+    fn number(input: Node) -> Result<BigDecimal> {
+        let pure_number = input.as_str().replace(',', "").replace("_", "");
+        Ok(BigDecimal::from_str(&pure_number).unwrap())
     }
     fn quote_string(input: Node) -> Result<ZhangString> {
         let string = input.as_str();
@@ -664,7 +670,23 @@ pub fn parse_time(input_str: &str) -> Result<NaiveTime> {
 
 #[cfg(test)]
 mod test {
+    use crate::directives::BeancountOnlyDirective;
+    use crate::parser::parse;
+    use zhang_ast::{Directive, Transaction};
 
+    fn get_left_directive(content: &str) -> Directive {
+        parse(content, None).unwrap().pop().unwrap().data.left().unwrap()
+    }
+    fn get_txn(content: &str) -> Transaction {
+        let directive = parse(content, None).unwrap().pop().unwrap().data.left().unwrap();
+        match directive {
+            Directive::Transaction(txn) => txn,
+            _ => unreachable!("should get txn, but other directive is found"),
+        }
+    }
+    fn get_right_directive(content: &str) -> BeancountOnlyDirective {
+        parse(content, None).unwrap().pop().unwrap().data.right().unwrap()
+    }
     mod tag {
         use std::str::FromStr;
 
@@ -729,9 +751,11 @@ mod test {
     mod txn {
         use bigdecimal::BigDecimal;
         use indoc::indoc;
+        use std::str::FromStr;
         use zhang_ast::Directive;
 
         use crate::parser::parse;
+        use crate::parser::test::{get_left_directive, get_txn};
 
         #[test]
         fn should_parse_posting_meta() {
@@ -801,6 +825,51 @@ mod test {
             if let Directive::Transaction(inner) = directive {
                 assert_eq!(inner.postings.first().unwrap().to_owned().units.unwrap().number, BigDecimal::from(26988));
             }
+        }
+        #[test]
+        fn should_support_comma_char_for_human_readable_number() {
+            let mut trx = get_txn(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -1,000.00 USD
+                "#});
+            let posting = trx.postings.pop().unwrap();
+            assert_eq!(BigDecimal::from_str("-1000").unwrap(), posting.units.unwrap().number);
+        }
+        #[test]
+        fn should_support_underline_char_for_human_readable_number() {
+            let mut trx = get_txn(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -1_000.00 USD
+                "#});
+            let posting = trx.postings.pop().unwrap();
+            assert_eq!(BigDecimal::from_str("-1000").unwrap(), posting.units.unwrap().number);
+        }
+        #[test]
+        fn should_support_scientific_math() {
+            let mut trx = get_txn(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -1e9 USD
+                "#});
+            let posting = trx.postings.pop().unwrap();
+            assert_eq!(BigDecimal::from_str("-1000000000").unwrap(), posting.units.unwrap().number);
+        }
+        #[test]
+        fn should_support_scientific_math_with_plus_symbol() {
+            let mut trx = get_txn(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -1e+9 USD
+                "#});
+            let posting = trx.postings.pop().unwrap();
+            assert_eq!(BigDecimal::from_str("-1000000000").unwrap(), posting.units.unwrap().number);
+        }
+        #[test]
+        fn should_support_scientific_math_with_minus_symbol() {
+            let mut trx = get_txn(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -1e-9 USD
+                "#});
+            let posting = trx.postings.pop().unwrap();
+            assert_eq!(BigDecimal::from_str("-0.000000001").unwrap(), posting.units.unwrap().number);
         }
     }
     mod budget {
