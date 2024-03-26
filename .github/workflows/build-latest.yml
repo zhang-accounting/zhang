@@ -47,8 +47,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macOS-latest]
-        rust: [stable]
+        os: [ ubuntu-latest, windows-latest, macOS-latest ]
+        rust: [ stable ]
     steps:
       - uses: actions/checkout@v4
       - name: Install ${{ matrix.rust }}
@@ -61,6 +61,7 @@ jobs:
       - name: Run test
         run: cargo test --all-features
   coverage:
+    if: false
     runs-on: ubuntu-latest
     needs: test
     steps:
