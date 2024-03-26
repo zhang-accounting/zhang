@@ -68,7 +68,7 @@ impl ZhangParser {
     }
 
     fn number(input: Node) -> Result<BigDecimal> {
-        let pure_number = input.as_str().replace(',', "").replace("_", "");
+        let pure_number = input.as_str().replace([',', '_'], "");
         Ok(BigDecimal::from_str(&pure_number).unwrap())
     }
 
