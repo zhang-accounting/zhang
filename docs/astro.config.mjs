@@ -9,6 +9,14 @@ export default defineConfig({
             social: {
                 github: 'https://github.com/zhang-accounting/zhang',
             },
+            defaultLocale: 'root',
+            locales: {
+                root: {label: "English", lang: "en"},
+                'zh-cn': {
+                    label: "简体中文",
+                    lang: 'zh-CN'
+                }
+            },
             sidebar: [
                 {
                     label: 'Installation',

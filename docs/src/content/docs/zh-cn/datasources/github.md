@@ -1,5 +1,5 @@
 ---
-title: Github Datasource
+title: Github 数据源
 description: This is a page in my Starlight-powered site
 ---
 
