@@ -741,6 +741,7 @@ mod test {
 
         use bigdecimal::BigDecimal;
         use indoc::indoc;
+        use zhang_ast::Flag;
 
         use crate::parser::test::get_txn;
 
@@ -821,6 +822,23 @@ mod test {
                 "#});
             let posting = trx.postings.pop().unwrap();
             assert_eq!(BigDecimal::from_str("-0.000000001").unwrap(), posting.units.unwrap().number);
+        }
+
+        #[test]
+        fn should_support_any_upper_char_as_flag() {
+            let trx = get_txn(indoc! {r#"
+                2022-06-02 A "balanced transaction"
+                  Assets:Card -1e-9 USD
+                "#});
+            assert_eq!(trx.flag, Some(Flag::Custom("A".to_string())));
+        }
+        #[test]
+        fn should_support_hash_tag_as_flag() {
+            let trx = get_txn(indoc! {r#"
+                2022-06-02 # "balanced transaction"
+                  Assets:Card -1e-9 USD
+                "#});
+            assert_eq!(trx.flag, Some(Flag::Custom("#".to_string())));
         }
     }
     mod budget {
