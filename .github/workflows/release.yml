@@ -147,5 +147,5 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: publish to npm
-        run: wasm-pack build
+        run: wasm-pack publish
         working-directory: ./bindings/wasm
