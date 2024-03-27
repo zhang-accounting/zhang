@@ -127,7 +127,7 @@ impl Opts {
                 let file_system = opts.source.clone().or(FileSystem::from_env()).unwrap_or(FileSystem::Fs);
                 let data_source = OpendalDataSource::from_env(file_system.clone(), &mut opts).await;
                 let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(':'));
-                zhang_server::serve(ServeConfig {
+                let result = zhang_server::serve(ServeConfig {
                     path: opts.path,
                     endpoint: opts.endpoint,
                     addr: opts.addr,
@@ -137,8 +137,13 @@ impl Opts {
                     no_report: opts.no_report,
                     data_source: Arc::new(data_source),
                 })
-                .await
-                .expect("cannot serve")
+                .await;
+                match result {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("An error occur when serving zhang server: {}", e)
+                    }
+                }
             }
             Opts::Update { verbose } => {
                 info!("performing self update");
