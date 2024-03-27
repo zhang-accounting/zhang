@@ -627,7 +627,9 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
 
 #[cfg(test)]
 mod test {
+    use zhang_ast::{Directive, Transaction};
 
+    use crate::data_type::text::parser::parse;
     macro_rules! quote {
         ($s: expr) => {
             zhang_ast::ZhangString::QuoteString($s.to_string())
@@ -664,6 +666,14 @@ mod test {
             use std::str::FromStr;
             zhang_ast::account::Account::from_str($account).unwrap()
         }};
+    }
+
+    fn get_txn(content: &str) -> Transaction {
+        let directive = parse(content, None).unwrap().pop().unwrap().data;
+        match directive {
+            Directive::Transaction(txn) => txn,
+            _ => unreachable!("should get txn, but other directive is found"),
+        }
     }
 
     mod date_time_support {
@@ -908,9 +918,10 @@ mod test {
 
         use bigdecimal::BigDecimal;
         use indoc::indoc;
-        use zhang_ast::Directive;
+        use zhang_ast::{Directive, Flag};
 
         use crate::data_type::text::parser::parse;
+        use crate::data_type::text::parser::test::get_txn;
 
         #[test]
         fn should_support_trailing_space() {
@@ -947,6 +958,23 @@ mod test {
                 }
                 _ => unreachable!("find other directives than txn directive"),
             }
+        }
+
+        #[test]
+        fn should_support_any_upper_char_as_flag() {
+            let trx = get_txn(indoc! {r#"
+                2022-06-02 A "balanced transaction"
+                  Assets:Card -1e-9 USD
+                "#});
+            assert_eq!(trx.flag, Some(Flag::Custom("A".to_string())));
+        }
+        #[test]
+        fn should_support_hash_tag_as_flag() {
+            let trx = get_txn(indoc! {r#"
+                2022-06-02 # "balanced transaction"
+                  Assets:Card -1e-9 USD
+                "#});
+            assert_eq!(trx.flag, Some(Flag::Custom("#".to_string())));
         }
 
         mod posting {

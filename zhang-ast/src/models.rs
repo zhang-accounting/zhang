@@ -1,3 +1,6 @@
+use std::fmt::Display;
+use std::str::FromStr;
+
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
@@ -5,6 +8,7 @@ use strum::{Display, EnumString};
 use crate::account::Account;
 use crate::amount::Amount;
 use crate::data::{Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Plugin, Price, Transaction};
+use crate::error::ErrorKind;
 use crate::{BalanceCheck, BalancePad, Budget, BudgetAdd, BudgetClose, BudgetTransfer, Meta};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -169,18 +173,42 @@ pub enum SingleTotalPrice {
     Total(Amount),
 }
 
-#[derive(EnumString, Debug, PartialEq, Eq, Display, Deserialize, Serialize, Clone)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize, Clone)]
 pub enum Flag {
-    #[strum(serialize = "*")]
     Okay,
-    #[strum(serialize = "!")]
     Warning,
 
-    #[strum(serialize = "BalancePad")]
     BalancePad,
 
-    #[strum(serialize = "BalanceCheck")]
     BalanceCheck,
+
+    Custom(String),
+}
+
+impl FromStr for Flag {
+    type Err = ErrorKind;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "*" => Ok(Flag::Okay),
+            "!" => Ok(Flag::Warning),
+            "P" => Ok(Flag::BalancePad),
+            "C" => Ok(Flag::BalanceCheck),
+            _ => Ok(Flag::Custom(s.to_owned())),
+        }
+    }
+}
+impl Display for Flag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            Flag::Okay => "*".to_owned(),
+            Flag::Warning => "!".to_owned(),
+            Flag::BalancePad => "P".to_owned(),
+            Flag::BalanceCheck => "C".to_owned(),
+            Flag::Custom(s) => s.to_owned(),
+        };
+        write!(f, "{}", str)
+    }
 }
 
 #[derive(EnumString, Debug, PartialEq, Eq, Deserialize, Serialize, Clone, Copy, Display)]
@@ -197,5 +225,17 @@ impl Rounding {
             Rounding::RoundUp => true,
             Rounding::RoundDown => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+
+    use crate::Flag;
+
+    #[test]
+    fn should_parse_flag() {
+        assert_eq!(Flag::from_str("A").unwrap(), Flag::Custom("A".to_owned()))
     }
 }
