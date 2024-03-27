@@ -181,6 +181,8 @@ pub enum Flag {
 
     #[strum(serialize = "BalanceCheck")]
     BalanceCheck,
+
+    Custom(&'static str),
 }
 
 #[derive(EnumString, Debug, PartialEq, Eq, Deserialize, Serialize, Clone, Copy, Display)]
