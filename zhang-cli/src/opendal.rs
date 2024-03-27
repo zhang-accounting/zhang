@@ -191,13 +191,20 @@ impl OpendalDataSource {
     }
 
     fn parse(&self, content: &str, path: PathBuf) -> ZhangResult<Vec<Spanned<Directive>>> {
+        let path_string = path.to_string_lossy().to_string();
         if self.is_beancount {
             let beancount_parser = beancount::Beancount {};
             beancount_parser
-                .transform(content.to_string(), Some(path.to_string_lossy().to_string()))
-                .map_err(|it| ZhangError::PestError(it.to_string()))
+                .transform(content.to_string(), Some(path_string.clone()))
+                .map_err(|it| ZhangError::PestError {
+                    path: path_string,
+                    msg: it.to_string(),
+                })
         } else {
-            zhang_parse(content, path).map_err(|it| ZhangError::PestError(it.to_string()))
+            zhang_parse(content, path).map_err(|it| ZhangError::PestError {
+                path: path_string,
+                msg: it.to_string(),
+            })
         }
     }
     fn go_next(&self, directive: &Spanned<Directive>) -> Option<String> {

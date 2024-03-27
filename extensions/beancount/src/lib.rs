@@ -26,8 +26,11 @@ impl DataType for Beancount {
     type Carrier = String;
 
     fn transform(&self, raw_data: Self::Carrier, source: Option<String>) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let path = source.map(PathBuf::from);
-        let directives = parse(&raw_data, path).map_err(|it| ZhangError::PestError(it.to_string()))?;
+        let path = source.clone().map(PathBuf::from);
+        let directives = parse(&raw_data, path).map_err(|it| ZhangError::PestError {
+            path: source.unwrap_or_default(),
+            msg: it.to_string(),
+        })?;
 
         let mut ret = vec![];
         let mut tags_stack: Vec<String> = vec![];

@@ -18,8 +18,8 @@ pub enum ZhangError {
     #[error("ip addr error: {0}")]
     IpAddrError(#[from] AddrParseError),
 
-    #[error("pest error: {0}")]
-    PestError(String),
+    #[error("Parse Error \nPath: {path}{msg}")]
+    PestError { path: String, msg: String },
     #[error("cannot found option given key: {0}")]
     OptionNotFound(String),
 

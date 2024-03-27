@@ -20,8 +20,11 @@ impl DataType for ZhangDataType {
     type Carrier = String;
 
     fn transform(&self, raw_data: Self::Carrier, source: Option<String>) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let file = source.map(PathBuf::from);
-        parse(&raw_data, file).map_err(|it| ZhangError::PestError(it.to_string()))
+        let file = source.clone().map(PathBuf::from);
+        parse(&raw_data, file).map_err(|it| ZhangError::PestError {
+            path: source.unwrap_or_default(),
+            msg: it.to_string(),
+        })
     }
 
     fn export(&self, directive: Spanned<Directive>) -> Self::Carrier {
