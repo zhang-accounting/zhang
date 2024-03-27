@@ -32,7 +32,7 @@ valuable_comment =  { space* ~ comment_prefix ~ space* ~ comment_value }
 comment_prefix   =  { ";" | "*" | "#" | "//" }
 comment_value    =  { (!line ~ ANY)* }
 
-transaction_flag      =  { space+ ~ ("!" | "*") }
+transaction_flag      =  { space+ ~ ("!" | "*" | "#" | ASCII_ALPHA_UPPER) }
 tags                  =  { (space* ~ tag)* }
 tag                   =  { "#" ~ unquote_string }
 links                 =  { (space* ~ link)* }
