@@ -10,6 +10,7 @@ import Settings from './pages/Settings';
 import SingleAccount from './pages/SingleAccount';
 import SingleCommodity from './pages/SingleCommodity';
 import { matchPath, useLocation } from 'react-router';
+import { useLocalStorage } from '@mantine/hooks';
 
 import { ActionIcon, Badge, Box, createStyles, Group, MediaQuery, Navbar, px, Text, TextInput, UnstyledButton, Anchor } from '@mantine/core';
 import {
@@ -181,10 +182,17 @@ const links: LinkItem[] = [
 export default function App() {
   const { mutate } = useSWRConfig();
   const { classes } = useStyles();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const dispatch = useAppDispatch();
   const basicInfo = useAppSelector((state) => state.basic);
   const location = useLocation();
+  const [lang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
+
+  useEffect(() => {
+    if (i18n.language !== lang) {
+      i18n.changeLanguage(lang);
+    }
+  }, [i18n, lang]);
 
   useEffect(() => {
     dispatch(fetchError(1));

@@ -5,7 +5,7 @@ import { BudgetListItem } from '../rest-model';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 import { fetcher } from '../index';
-import { groupBy, sortBy } from 'lodash';
+import { groupBy, sortBy } from 'lodash-es';
 import BudgetCategory from '../components/budget/BudgetCategory';
 import { format } from 'date-fns';
 import { MonthPicker } from '@mantine/dates';

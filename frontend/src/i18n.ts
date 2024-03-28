@@ -10,6 +10,8 @@ i18n
     lng: 'en',
     fallbackLng: 'en',
     debug: isDevelopment,
+    returnEmptyString: false,
+    saveMissing: isDevelopment,
     interpolation: {
       escapeValue: false, // not needed for react as it escapes by default
     },

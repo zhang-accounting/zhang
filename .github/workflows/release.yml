@@ -42,12 +42,20 @@ jobs:
 
       - name: create version file
         run: echo "${{github.ref_name}}" | tail -c+2  >> .build_version
-      - name: frontend install
-        run: yarn install
-        working-directory: ./frontend
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 8
+      - name: frontend install
+        run: pnpm install
+        working-directory: ./frontend
       - name: frontend build
-        run: yarn run build
+        run: pnpm build
         working-directory: ./frontend
 
       # Build and upload the binary to the new release
@@ -69,15 +77,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
-          cache: 'yarn'
-          cache-dependency-path: frontend/yarn.lock
-
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 8
       - name: frontend install
-        run: yarn install
+        run: pnpm install
         working-directory: ./frontend
-
       - name: frontend build
-        run: yarn run build
+        run: pnpm build
         working-directory: ./frontend
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1

@@ -1,7 +1,7 @@
 import { Button, Chip, Container, Group, Select, Table, TextInput, Title } from '@mantine/core';
 import { useListState, useLocalStorage } from '@mantine/hooks';
 import { createSelector } from '@reduxjs/toolkit';
-import { cloneDeep, sortBy } from 'lodash';
+import { cloneDeep, sortBy } from 'lodash-es';
 import { useEffect } from 'react';
 import Amount from '../../components/Amount';
 import { Account, LoadingState } from '../../rest-model';
@@ -42,8 +42,14 @@ export default function BatchBalance() {
   const accountSelectItems = [...useAppSelector(getAccountSelectItems())];
   const [accounts, accountsHandler] = useListState<BalanceLineItem>(stateItems);
 
-  const [maskCurrentAmount, setMaskCurrentAmount] = useLocalStorage({ key: 'tool/maskCurrentAmount', defaultValue: false });
-  const [reflectOnUnbalancedAmount, setReflectOnUnbalancedAmount] = useLocalStorage({ key: 'tool/reflectOnUnbalancedAmount', defaultValue: true });
+  const [maskCurrentAmount, setMaskCurrentAmount] = useLocalStorage({
+    key: 'tool/maskCurrentAmount',
+    defaultValue: false,
+  });
+  const [reflectOnUnbalancedAmount, setReflectOnUnbalancedAmount] = useLocalStorage({
+    key: 'tool/reflectOnUnbalancedAmount',
+    defaultValue: true,
+  });
 
   useEffect(() => {
     if (accountStatus === LoadingState.NotReady) {
