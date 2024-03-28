@@ -70,7 +70,7 @@ export default function Settings() {
               </tr>
             ) : (
               data.map((option) => (
-                <tr>
+                <tr key={option.key}>
                   <td>{option.key}</td>
                   <td>{option.value}</td>
                 </tr>

@@ -1,6 +1,6 @@
 import { Button, CloseButton, Group, Input, Pagination, Table } from '@mantine/core';
 import { format } from 'date-fns';
-import { groupBy } from 'lodash';
+import { groupBy } from 'lodash-es';
 import { useEffect, useState } from 'react';
 import TableViewJournalLine from '../components/journalLines/tableView/TableViewJournalLine';
 import { LoadingState } from '../rest-model';

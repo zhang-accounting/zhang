@@ -21,12 +21,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: frontend install
-        run: yarn install
-        working-directory: ./frontend
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 8
+        
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
+      - name: frontend install
+        run: pnpm install
+        working-directory: ./frontend
       - name: frontend build
-        run: yarn run build
+        run: pnpm build
         working-directory: ./frontend
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1

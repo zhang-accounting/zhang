@@ -38,7 +38,12 @@ root.render(
   <React.StrictMode>
     <Provider store={store}>
       <MantineProvider withGlobalStyles withNormalizeCSS theme={themeConfig}>
-        <ModalsProvider modals={{ documentPreviewModal: DocumentPreviewModal, transactionPreviewModal: TransactionPreviewModal }}>
+        <ModalsProvider
+          modals={{
+            documentPreviewModal: DocumentPreviewModal,
+            transactionPreviewModal: TransactionPreviewModal,
+          }}
+        >
           <BrowserRouter>
             <Notifications />
             <App />

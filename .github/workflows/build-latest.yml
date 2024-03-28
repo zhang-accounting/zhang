@@ -17,31 +17,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 8
       - uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
-          cache: 'yarn'
-          cache-dependency-path: frontend/yarn.lock
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
       - name: frontend install
-        run: yarn install
+        run: pnpm install
         working-directory: ./frontend
       - name: frontend style check
-        run: yarn run prettier:check
+        run: pnpm run prettier:check
         working-directory: ./frontend
   frontend-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 8
       - uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
-          cache: 'yarn'
-          cache-dependency-path: frontend/yarn.lock
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
       - name: frontend install
-        run: yarn install
+        run: pnpm install
         working-directory: ./frontend
       - name: frontend build
-        run: yarn run build
+        run: pnpm build
         working-directory: ./frontend
   test:
     runs-on: ${{ matrix.os }}
