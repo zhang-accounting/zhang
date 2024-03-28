@@ -11,15 +11,17 @@ use itertools::Itertools;
 use serde::Deserialize;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, SpanInfo};
+use zhang_ast::error::ErrorKind;
+use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, Rounding, SpanInfo, Transaction};
 
 use crate::domains::schemas::{
-    AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, ErrorType, MetaDomain,
-    MetaType, OptionDomain, PriceDomain, TransactionInfoDomain,
+    AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType,
+    OptionDomain, PriceDomain, TransactionInfoDomain,
 };
 use crate::store::{
     BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionDomain,
 };
+use crate::utils::bigdecimal_ext::BigDecimalExt;
 use crate::{ZhangError, ZhangResult};
 
 pub mod schemas;
@@ -90,10 +92,10 @@ impl Operations {
 
 impl Operations {
     pub fn read(&self) -> RwLockReadGuard<Store> {
-        self.store.read().unwrap()
+        self.store.read().expect("poison lock detect")
     }
     pub fn write(&self) -> RwLockWriteGuard<Store> {
-        self.store.write().unwrap()
+        self.store.write().expect("poison lock detect")
     }
 }
 
@@ -141,6 +143,28 @@ impl Operations {
         );
 
         Ok(())
+    }
+
+    /// check whether transaction is valid or not, return the ErrorKind of the issue
+    pub(crate) fn check_transaction(&self, txn: &Transaction) -> ZhangResult<Option<ErrorKind>> {
+        if txn.flag == Some(Flag::BalanceCheck) {
+            return Ok(None);
+        }
+        match txn.get_postings_inventory() {
+            Ok(inventory) => {
+                for (currency, amount) in inventory.currencies.iter() {
+                    let commodity = self.commodity(currency)?.expect("cannot get commodity");
+                    let precision = commodity.precision;
+                    let rounding = commodity.rounding;
+                    let decimal = amount.total.round_with(precision as i64, rounding.is_up());
+                    if !decimal.is_zero() {
+                        return Ok(Some(ErrorKind::TransactionCannotInferTradeAmount));
+                    }
+                }
+                Ok(None)
+            }
+            Err(e) => Ok(Some(e)),
+        }
     }
 
     /// insert transaction postings
@@ -312,7 +336,7 @@ impl Operations {
         Ok(store.options.clone().into_iter().map(|(key, value)| OptionDomain { key, value }).collect_vec())
     }
 
-    pub fn option(&mut self, key: impl AsRef<str>) -> ZhangResult<Option<OptionDomain>> {
+    pub fn option(&self, key: impl AsRef<str>) -> ZhangResult<Option<OptionDomain>> {
         let store = self.read();
 
         Ok(store.options.get(key.as_ref()).map(|value| OptionDomain {
@@ -379,29 +403,21 @@ impl Operations {
             .collect_vec())
     }
 
-    pub fn trx_tags(&mut self, trx_id: impl AsRef<str>) -> ZhangResult<Vec<String>> {
+    pub fn trx_tags(&mut self, trx_id: &Uuid) -> ZhangResult<Vec<String>> {
         let store = self.read();
-        let tags = store
-            .transactions
-            .get(&Uuid::from_str(trx_id.as_ref()).unwrap())
-            .map(|it| it.tags.clone())
-            .unwrap_or_default();
+        let tags = store.transactions.get(trx_id).map(|it| it.tags.clone()).unwrap_or_default();
 
         Ok(tags)
     }
 
-    pub fn trx_links(&mut self, trx_id: impl AsRef<str>) -> ZhangResult<Vec<String>> {
+    pub fn trx_links(&mut self, trx_id: &Uuid) -> ZhangResult<Vec<String>> {
         let store = self.read();
-        let tags = store
-            .transactions
-            .get(&Uuid::from_str(trx_id.as_ref()).unwrap())
-            .map(|it| it.links.clone())
-            .unwrap_or_default();
+        let tags = store.transactions.get(trx_id).map(|it| it.links.clone()).unwrap_or_default();
 
         Ok(tags)
     }
 
-    pub fn commodity(&mut self, name: &str) -> ZhangResult<Option<CommodityDomain>> {
+    pub fn commodity(&self, name: &str) -> ZhangResult<Option<CommodityDomain>> {
         let store = self.read();
         Ok(store.commodities.get(name).cloned())
     }
@@ -419,18 +435,14 @@ impl Operations {
         Ok(store.transactions.len() as i64)
     }
 
-    pub fn transaction_span(&mut self, id: &str) -> ZhangResult<TransactionInfoDomain> {
+    pub fn transaction_span(&mut self, id: &Uuid) -> ZhangResult<Option<TransactionInfoDomain>> {
         let store = self.read();
-        Ok(store
-            .transactions
-            .get(&Uuid::from_str(id).unwrap())
-            .map(|it| TransactionInfoDomain {
-                id: it.id.to_string(),
-                source_file: it.span.filename.clone().unwrap(),
-                span_start: it.span.start,
-                span_end: it.span.end,
-            })
-            .unwrap())
+        Ok(store.transactions.get(id).map(|it| TransactionInfoDomain {
+            id: it.id.to_string(),
+            source_file: it.span.filename.clone().unwrap_or_default(),
+            span_start: it.span.start,
+            span_end: it.span.end,
+        }))
     }
 
     pub fn single_account_balances(&mut self, account_name: &str) -> ZhangResult<Vec<AccountBalanceDomain>> {
@@ -678,11 +690,11 @@ impl Operations {
 
 // for insert and new operations
 impl Operations {
-    pub fn new_error(&mut self, error_type: ErrorType, span: &SpanInfo, metas: HashMap<String, String>) -> ZhangResult<()> {
+    pub fn new_error(&mut self, error_kind: ErrorKind, span: &SpanInfo, metas: HashMap<String, String>) -> ZhangResult<()> {
         let mut store = self.write();
         store.errors.push(ErrorDomain {
             id: Uuid::new_v4().to_string(),
-            error_type,
+            error_type: error_kind,
             span: Some(span.clone()),
             metas,
         });
@@ -732,9 +744,7 @@ impl Operations {
         Ok(())
     }
 
-    pub fn insert_commodity(
-        &mut self, name: &String, precision: i32, prefix: Option<String>, suffix: Option<String>, rounding: Option<String>,
-    ) -> ZhangResult<()> {
+    pub fn insert_commodity(&mut self, name: &String, precision: i32, prefix: Option<String>, suffix: Option<String>, rounding: Rounding) -> ZhangResult<()> {
         let mut store = self.write();
         store.commodities.insert(
             name.to_owned(),

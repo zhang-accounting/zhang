@@ -10,7 +10,7 @@ use crate::constants::{
     DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN, DEFAULT_COMMODITY_PRECISION_PLAIN, DEFAULT_OPERATING_CURRENCY, DEFAULT_ROUNDING_PLAIN, DEFAULT_TIMEZONE,
 };
 use crate::domains::Operations;
-use crate::ZhangResult;
+use crate::{ZhangError, ZhangResult};
 
 #[derive(Debug)]
 pub struct InMemoryOptions {
@@ -78,14 +78,14 @@ impl InMemoryOptions {
                     let precision = self.default_balance_tolerance_precision;
                     let prefix: Option<String> = None;
                     let suffix: Option<String> = None;
-                    let rounding = Some(self.default_rounding);
+                    let rounding = self.default_rounding;
 
-                    operation.insert_commodity(&value, precision, prefix, suffix, rounding.map(|it| it.to_string()))?;
+                    operation.insert_commodity(&value, precision, prefix, suffix, rounding)?;
 
                     value.clone_into(&mut self.operating_currency);
                 }
                 BuiltinOption::DefaultRounding => {
-                    self.default_rounding = Rounding::from_str(&value).unwrap();
+                    self.default_rounding = Rounding::from_str(&value).map_err(|_| ZhangError::InvalidOptionValue)?;
                 }
                 BuiltinOption::DefaultBalanceTolerancePrecision => {
                     if let Ok(ret) = value.parse::<i32>() {
@@ -114,7 +114,7 @@ impl Default for InMemoryOptions {
             operating_currency: "CNY".to_string(),
             default_rounding: Rounding::RoundDown,
             default_balance_tolerance_precision: 2,
-            timezone: BuiltinOption::Timezone.default_value().parse().unwrap(),
+            timezone: BuiltinOption::Timezone.default_value().parse().expect("invalid timezone"),
         }
     }
 }

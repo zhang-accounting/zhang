@@ -27,7 +27,7 @@ pub async fn get_all_commodities(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResul
             precision: commodity.precision,
             prefix: commodity.prefix,
             suffix: commodity.suffix,
-            rounding: commodity.rounding,
+            rounding: commodity.rounding.to_string(),
             total_amount: amount,
             latest_price_date: latest_price.as_ref().map(|it| it.datetime),
             latest_price_amount: latest_price.as_ref().map(|it| it.amount.clone()),
@@ -43,7 +43,7 @@ pub async fn get_single_commodity(ledger: State<Arc<RwLock<Ledger>>>, params: Pa
     let ledger = ledger.read().await;
     let operating_currency = ledger.options.operating_currency.clone();
 
-    let mut operations = ledger.operations();
+    let operations = ledger.operations();
     let commodity = operations.commodity(&commodity_name)?.expect("cannot find commodity");
     let latest_price = operations.get_latest_price(&commodity_name, operating_currency)?;
 
@@ -53,7 +53,7 @@ pub async fn get_single_commodity(ledger: State<Arc<RwLock<Ledger>>>, params: Pa
         precision: commodity.precision,
         prefix: commodity.prefix,
         suffix: commodity.suffix,
-        rounding: commodity.rounding,
+        rounding: commodity.rounding.to_string(),
         total_amount: amount,
         latest_price_date: latest_price.as_ref().map(|it| it.datetime),
         latest_price_amount: latest_price.as_ref().map(|it| it.amount.clone()),

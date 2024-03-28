@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::ops::{Div, Mul, Neg};
 
+use bigdecimal::{BigDecimal, One};
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
@@ -31,7 +32,7 @@ impl Date {
     }
     pub(crate) fn naive_datetime(&self) -> NaiveDateTime {
         match self {
-            Date::Date(date) => date.and_hms_opt(0, 0, 0).unwrap(),
+            Date::Date(date) => date.and_hms_opt(0, 0, 0).expect("cannot construct naive datetime from naive date"),
             Date::DateHour(date_hour) => *date_hour,
             Date::Datetime(datetime) => *datetime,
         }
@@ -152,6 +153,7 @@ impl<'a> TxnPosting<'a> {
     pub fn units(&self) -> Option<Amount> {
         self.posting.units.clone()
     }
+
     /// if cost is not specified, and it can be indicated from price. e.g.
     /// `Assets:Card 1 CNY @ 10 AAA` then cost `10 AAA` can be indicated from single price`@ 10 AAA`
     pub fn costs(&self) -> Option<Amount> {
@@ -159,12 +161,19 @@ impl<'a> TxnPosting<'a> {
             self.posting.price.as_ref().map(|price| match price {
                 SingleTotalPrice::Single(single_price) => single_price.clone(),
                 SingleTotalPrice::Total(total_price) => Amount::new(
-                    (&total_price.number).div(&self.posting.units.as_ref().unwrap().number),
+                    (&total_price.number).div(self.posting.units.as_ref().map(|it| &it.number).unwrap_or(&BigDecimal::one())),
                     total_price.currency.clone(),
                 ),
             })
         })
     }
+    /// trade amount means the amount used for other postings to calculate balance
+    /// 1. if `unit` is null, return null
+    /// 2. if `unit` is present,
+    /// 2.1 return `unit * cost`, if cost is present
+    /// 2.2 return `unit * single_price`, if single price is present
+    /// 2.3 return `total_price`, if total price is present
+    /// 2.4 return `unit`, if both cost and price are not present.
     pub fn trade_amount(&self) -> Option<Amount> {
         self.posting
             .units
@@ -179,15 +188,16 @@ impl<'a> TxnPosting<'a> {
             })
     }
 
+    /// infer the trade amount based on other postings, if it's trade amount is null
     pub fn infer_trade_amount(&self) -> Result<Amount, ErrorKind> {
         self.trade_amount().map(Ok).unwrap_or_else(|| {
+            // get other postings' trade amount
             let (trade_amount_postings, non_trade_amount_postings): (Vec<AmountLotPair>, Vec<AmountLotPair>) = self
                 .txn
                 .txn_postings()
                 .iter()
                 .map(|it| (it.trade_amount(), it.lots()))
                 .partition(|it| it.0.is_some());
-
             match non_trade_amount_postings.len() {
                 0 => unreachable!("txn should not have zero posting"),
                 1 => {
@@ -200,10 +210,16 @@ impl<'a> TxnPosting<'a> {
                             inventory.add_lot(trade_amount, info);
                         }
                     }
-                    if inventory.size() > 1 {
-                        Err(ErrorKind::TransactionCannotInferTradeAmount)
-                    } else {
-                        Ok(inventory.pop().unwrap().neg())
+                    match inventory.size() {
+                        0 => Err(ErrorKind::TransactionCannotInferTradeAmount),
+                        1 => {
+                            if let Some(inventory_balance) = inventory.pop() {
+                                Ok(inventory_balance.neg())
+                            } else {
+                                Err(ErrorKind::TransactionCannotInferTradeAmount)
+                            }
+                        }
+                        _ => Err(ErrorKind::TransactionExplicitPostingHaveMultipleCommodity),
                     }
                 }
                 _ => Err(ErrorKind::TransactionHasMultipleImplicitPosting),

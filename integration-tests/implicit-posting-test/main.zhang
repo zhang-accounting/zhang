@@ -1,0 +1,10 @@
+option "title" "My Accounting"
+option "operating_currency" "CNY"
+
+
+2023-12-02 "KFC" "VME50 Package"
+  Assets:BankCard
+
+2023-12-02 "KFC" "VME50 Package"
+  Assets:BankCard
+  Assets:BankCard

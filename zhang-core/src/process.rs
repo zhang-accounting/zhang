@@ -8,17 +8,18 @@ use bigdecimal::{BigDecimal, Zero};
 use itertools::Itertools;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
+use zhang_ast::error::ErrorKind;
 use zhang_ast::utils::inventory::LotInfo;
 use zhang_ast::*;
 
-use crate::constants::{DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
-use crate::domains::schemas::{AccountStatus, ErrorType, MetaType};
+use crate::constants::{DEFAULT_COMMODITY_PRECISION, DEFAULT_ROUNDING, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
+use crate::domains::schemas::{AccountStatus, MetaType};
 use crate::domains::{AccountAmount, Operations};
 use crate::ledger::Ledger;
 use crate::store::{BudgetEventType, DocumentType};
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
-use crate::ZhangResult;
+use crate::{ZhangError, ZhangResult};
 
 pub(crate) trait DirectiveProcess {
     fn handler(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
@@ -32,7 +33,7 @@ fn check_account_existed(account_name: &str, ledger: &mut Ledger, span: &SpanInf
     let existed = operations.exist_account(account_name)?;
 
     if !existed {
-        operations.new_error(ErrorType::AccountDoesNotExist, span, HashMap::of("account_name", account_name.to_string()))?;
+        operations.new_error(ErrorKind::AccountDoesNotExist, span, HashMap::of("account_name", account_name.to_string()))?;
     }
     Ok(())
 }
@@ -42,7 +43,7 @@ fn check_account_closed(account_name: &str, ledger: &mut Ledger, span: &SpanInfo
 
     let account = operations.account(account_name)?;
     if let Some(true) = account.map(|it| it.status == AccountStatus::Close) {
-        operations.new_error(ErrorType::AccountClosed, span, HashMap::of("account_name", account_name.to_string()))?;
+        operations.new_error(ErrorKind::AccountClosed, span, HashMap::of("account_name", account_name.to_string()))?;
     }
     Ok(())
 }
@@ -52,7 +53,7 @@ fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span: &Span
     let existed = operations.exist_commodity(commodity_name)?;
     if !existed {
         operations.new_error(
-            ErrorType::CommodityDoesNotDefine,
+            ErrorKind::CommodityDoesNotDefine,
             span,
             HashMap::of("commodity_name", commodity_name.to_string()),
         )?;
@@ -99,7 +100,7 @@ impl DirectiveProcess for Close {
         let balances = operations.single_account_balances(self.account.name())?;
         let has_non_zero_balance = balances.into_iter().any(|balance| !balance.balance_number.is_zero());
         if has_non_zero_balance {
-            operations.new_error(ErrorType::CloseNonZeroAccount, span, HashMap::default())?;
+            operations.new_error(ErrorKind::CloseNonZeroAccount, span, HashMap::default())?;
         }
         operations.close_account(self.account.name())?;
         Ok(())
@@ -131,9 +132,10 @@ impl DirectiveProcess for Commodity {
             .or(default_rounding)
             .map(|it| Rounding::from_str(it.as_str()))
             .transpose()
-            .unwrap_or(None);
+            .map_err(|_| ZhangError::InvalidOptionValue)?
+            .unwrap_or(DEFAULT_ROUNDING);
 
-        operations.insert_commodity(&self.currency, precision, prefix, suffix, rounding.map(|it| it.to_string()))?;
+        operations.insert_commodity(&self.currency, precision, prefix, suffix, rounding)?;
         operations.insert_meta(MetaType::CommodityMeta, &self.currency, self.meta.clone())?;
 
         Ok(())
@@ -144,9 +146,22 @@ impl DirectiveProcess for Transaction {
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
 
-        if self.flag != Some(Flag::BalancePad) && self.flag != Some(Flag::BalanceCheck) && !ledger.is_transaction_balanced(self)? {
-            operations.new_error(ErrorType::TransactionDoesNotBalance, span, HashMap::default())?;
+        let txn_error = operations.check_transaction(self)?;
+        if let Some(txn_error) = txn_error {
+            match txn_error {
+                e @ (ErrorKind::TransactionHasMultipleImplicitPosting
+                | ErrorKind::TransactionCannotInferTradeAmount
+                | ErrorKind::TransactionExplicitPostingHaveMultipleCommodity) => {
+                    operations.new_error(e, span, HashMap::default())?;
+                    return Ok(());
+                }
+                ErrorKind::UnbalancedTransaction => {
+                    operations.new_error(ErrorKind::TransactionDoesNotBalance, span, HashMap::default())?;
+                }
+                e => unreachable!("getting error : {:?}", e),
+            }
         }
+
         let id = Uuid::from_span(span);
         let sequence = ledger.trx_counter.fetch_add(1, Ordering::Relaxed);
         operations.insert_transaction(
@@ -162,7 +177,7 @@ impl DirectiveProcess for Transaction {
         )?;
 
         for txn_posting in self.txn_postings() {
-            let inferred_amount = txn_posting.infer_trade_amount().unwrap();
+            let inferred_amount = txn_posting.infer_trade_amount().map_err(ZhangError::ProcessError)?;
 
             let option = operations.account_target_day_balance(
                 txn_posting.posting.account.name(),
@@ -193,7 +208,7 @@ impl DirectiveProcess for Transaction {
                 operations.budget_add_activity(budget, self.date.to_timezone_datetime(&ledger.options.timezone), budget_activity_amount)?;
             }
 
-            let amount = txn_posting.units().unwrap_or_else(|| txn_posting.infer_trade_amount().unwrap());
+            let amount = txn_posting.units().unwrap_or(inferred_amount);
             let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
             lot_add(txn_posting.account_name(), amount, lot_info, &mut operations)?;
         }
@@ -283,7 +298,7 @@ impl DirectiveProcess for BalanceCheck {
         let distance = Amount::new((&self.amount.number).sub(&current_balance_amount), self.amount.currency.clone());
         if !distance.is_zero() {
             operations.new_error(
-                ErrorType::AccountBalanceCheckError,
+                ErrorKind::AccountBalanceCheckError,
                 span,
                 HashMap::of("account_name", self.account.name().to_string()),
             )?;
@@ -373,7 +388,7 @@ impl DirectiveProcess for BudgetAdd {
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
         if !operations.contains_budget(&self.name) {
-            operations.new_error(ErrorType::BudgetDoesNotExist, span, HashMap::default())?;
+            operations.new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
         } else {
             operations.budget_add_assigned_amount(
                 &self.name,

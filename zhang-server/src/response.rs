@@ -13,10 +13,11 @@ use zhang_core::store::BudgetEvent;
 
 use crate::ServerResult;
 
-pub enum ResponseWrapper<T: Serialize> {
+pub enum ResponseWrapper<T: Serialize = ()> {
     Json(T),
     Created,
     NotFound,
+    BadRequest,
 }
 
 impl<T: Serialize> ResponseWrapper<T> {
@@ -28,6 +29,9 @@ impl<T: Serialize> ResponseWrapper<T> {
     }
     pub fn not_found() -> ServerResult<ResponseWrapper<T>> {
         Ok(ResponseWrapper::NotFound)
+    }
+    pub fn bad_request() -> ServerResult<ResponseWrapper<T>> {
+        Ok(ResponseWrapper::BadRequest)
     }
 }
 
@@ -44,6 +48,7 @@ impl<T: Serialize> IntoResponse for ResponseWrapper<T> {
             }
             ResponseWrapper::Created => (axum::http::StatusCode::CREATED, "").into_response(),
             ResponseWrapper::NotFound => (axum::http::StatusCode::NOT_FOUND, "").into_response(),
+            ResponseWrapper::BadRequest => (axum::http::StatusCode::BAD_REQUEST, "").into_response(),
         }
     }
 }
@@ -211,7 +216,7 @@ pub struct CommodityListItemResponse {
     pub precision: i32,
     pub prefix: Option<String>,
     pub suffix: Option<String>,
-    pub rounding: Option<String>,
+    pub rounding: String,
     pub total_amount: BigDecimal,
     pub latest_price_date: Option<NaiveDateTime>,
     pub latest_price_amount: Option<BigDecimal>,

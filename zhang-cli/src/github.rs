@@ -119,8 +119,8 @@ impl Accessor for GithubAccessor {
         .map_err(new_request_build_error)?;
 
         let resp = self.core.client.send(req).await?;
-        let status = dbg!(resp.status());
-        match dbg!(status) {
+        let status = resp.status();
+        match status {
             StatusCode::OK => parse_into_metadata(&path, resp.headers()).map(RpStat::new),
             StatusCode::NOT_FOUND => Err(opendal::Error::new(opendal::ErrorKind::NotFound, "not found")),
             StatusCode::FORBIDDEN => Err(opendal::Error::new(opendal::ErrorKind::PermissionDenied, "Forbidden")),
@@ -131,10 +131,10 @@ impl Accessor for GithubAccessor {
     async fn read(&self, path: &str, _args: OpRead) -> opendal::Result<(RpRead, Self::Reader)> {
         info!("read");
         let path = urlencoding::encode(path);
-        let req = Request::get(dbg!(format!(
+        let req = Request::get(format!(
             "https://api.github.com/repos/{}/{}/contents/{}",
             &self.core.user, &self.core.repo, &path
-        )))
+        ))
         .header("accept", "application/vnd.github.raw")
         .header("Authorization", &self.core.token)
         .header("X-GitHub-Api-Version", "2022-11-28")
@@ -143,7 +143,7 @@ impl Accessor for GithubAccessor {
         .map_err(new_request_build_error)?;
 
         let resp = self.core.client.send(req).await?;
-        let status = dbg!(resp.status());
+        let status = resp.status();
         match status {
             StatusCode::OK => {
                 let size = parse_content_length(resp.headers())?;
@@ -201,7 +201,7 @@ impl oio::OneShotWrite for GithubWriter {
 
         let resp = self.core.client.send(req).await?;
 
-        let status = dbg!(resp.status());
+        let status = resp.status();
 
         match status {
             StatusCode::CREATED | StatusCode::OK | StatusCode::NO_CONTENT => {
@@ -220,7 +220,7 @@ impl oio::OneShotWrite for GithubWriter {
 impl GithubCore {
     pub async fn stat(&self, path: &str) -> opendal::Result<Response<IncomingAsyncBody>> {
         let path = urlencoding::encode(path);
-        let req = Request::get(dbg!(format!("https://api.github.com/repos/{}/{}/contents/{}", &self.user, &self.repo, &path)))
+        let req = Request::get(format!("https://api.github.com/repos/{}/{}/contents/{}", &self.user, &self.repo, &path))
             .header("accept", "application/vnd.github.raw")
             .header("Authorization", &self.token)
             .header("X-GitHub-Api-Version", "2022-11-28")

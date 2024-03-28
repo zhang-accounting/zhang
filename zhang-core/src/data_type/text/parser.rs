@@ -69,12 +69,12 @@ impl ZhangParser {
 
     fn number(input: Node) -> Result<BigDecimal> {
         let pure_number = input.as_str().replace([',', '_'], "");
-        Ok(BigDecimal::from_str(&pure_number).unwrap())
+        Ok(BigDecimal::from_str(&pure_number).expect("invalid number detect"))
     }
 
     fn quote_string(input: Node) -> Result<ZhangString> {
         let string = input.as_str();
-        Ok(ZhangString::QuoteString(unescape(string).unwrap()))
+        Ok(ZhangString::QuoteString(unescape(string).expect("string contains invalid escape char")))
     }
 
     fn unquote_string(input: Node) -> Result<ZhangString> {
@@ -103,7 +103,7 @@ impl ZhangParser {
 
         );
         Ok(Account {
-            account_type: AccountType::from_str(&r.0).unwrap(),
+            account_type: AccountType::from_str(&r.0).expect("invalid account type"),
             content: format!("{}:{}", &r.0, r.1.join(":")),
             components: r.1,
         })
@@ -118,14 +118,18 @@ impl ZhangParser {
     }
 
     fn date_only(input: Node) -> Result<Date> {
-        let date = NaiveDate::parse_from_str(input.as_str(), "%Y-%m-%d").unwrap();
+        let date = NaiveDate::parse_from_str(input.as_str(), "%Y-%m-%d").expect("cannot construct naive date");
         Ok(Date::Date(date))
     }
     fn datetime(input: Node) -> Result<Date> {
-        Ok(Date::Datetime(NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M:%S").unwrap()))
+        Ok(Date::Datetime(
+            NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M:%S").expect("cannot construct naive datetime"),
+        ))
     }
     fn date_hour(input: Node) -> Result<Date> {
-        Ok(Date::DateHour(NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M").unwrap()))
+        Ok(Date::DateHour(
+            NaiveDateTime::parse_from_str(input.as_str(), "%Y-%m-%d %H:%M").expect("cannot construct naive date hour"),
+        ))
     }
 
     fn plugin(input: Node) -> Result<Directive> {
@@ -241,7 +245,7 @@ impl ZhangParser {
     }
 
     fn transaction_flag(input: Node) -> Result<Option<Flag>> {
-        Ok(Some(Flag::from_str(input.as_str().trim()).unwrap()))
+        Ok(Some(Flag::from_str(input.as_str().trim()).expect("cannot read node as str")))
     }
 
     fn posting_price(input: Node) -> Result<SingleTotalPrice> {

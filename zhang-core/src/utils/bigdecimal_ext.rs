@@ -13,7 +13,7 @@ impl BigDecimalExt for &BigDecimal {
             return self.clone();
         }
 
-        let mut number = bigint.to_i128().unwrap();
+        let mut number = bigint.to_i128().expect("invalid bigint");
         if number < 0 {
             number = -number;
         }
