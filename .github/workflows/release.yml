@@ -43,14 +43,15 @@ jobs:
       - name: create version file
         run: echo "${{github.ref_name}}" | tail -c+2  >> .build_version
 
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 8
       - uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - uses: pnpm/action-setup@v3
-        with:
-          version: 8
+
       - name: frontend install
         run: pnpm install
         working-directory: ./frontend
@@ -74,14 +75,15 @@ jobs:
       - name: create version file
         run: echo "${{github.ref_name}}" | tail -c+2  >> .build_version
 
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 8
       - uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - uses: pnpm/action-setup@v3
-        with:
-          version: 8
+
       - name: frontend install
         run: pnpm install
         working-directory: ./frontend
