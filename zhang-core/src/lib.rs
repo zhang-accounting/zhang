@@ -424,7 +424,7 @@ mod test {
 
             let mut operations = ledger.operations();
             let mut errors = operations.errors()?;
-            assert_eq!(dbg!(&errors).len(), 1);
+            assert_eq!(&errors.len(), 1);
             let domain = errors.pop().unwrap();
             assert_eq!(domain.error_type, ErrorKind::AccountBalanceCheckError);
             assert_eq!(domain.metas.get("account_name").unwrap(), "Assets:MyCard");
