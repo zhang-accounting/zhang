@@ -133,8 +133,8 @@ pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<Jour
                         account_after_commodity: arm.after_amount.currency,
                     })
                     .collect_vec();
-                let tags = operations.trx_tags(journal_item.id.to_string())?;
-                let links = operations.trx_links(journal_item.id.to_string())?;
+                let tags = operations.trx_tags(&journal_item.id)?;
+                let links = operations.trx_links(&journal_item.id)?;
                 let metas = operations
                     .metas(MetaType::TransactionMeta, journal_item.id.to_string())
                     .unwrap()
@@ -207,11 +207,16 @@ pub async fn create_new_transaction(
 pub async fn upload_transaction_document(
     ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, path: Path<(String,)>, mut multipart: Multipart,
 ) -> ApiResult<String> {
-    let transaction_id = path.0 .0;
+    let transaction_id = Uuid::from_str(&path.0 .0).expect("invalid txn id");
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
     let entry = &ledger.entry.0;
     let mut documents = vec![];
+
+    let span_info = operations.transaction_span(&transaction_id)?;
+    let Some(span_info) = span_info else {
+        return ResponseWrapper::bad_request();
+    };
 
     while let Some(field) = multipart.next_field().await.unwrap() {
         let _name = field.name().unwrap().to_string();
@@ -234,7 +239,7 @@ pub async fn upload_transaction_document(
 
         documents.push(ZhangString::QuoteString(path.to_string()));
     }
-    let span_info = operations.transaction_span(&transaction_id)?;
+
     let metas_content = documents
         .into_iter()
         .map(|document| format!("  document: {}", escape_with_quote(document.as_str())))

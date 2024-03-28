@@ -57,7 +57,7 @@ impl CommodityDomain {
     }
     #[getter]
     pub fn rounding(&self) -> Option<String> {
-        self.0.rounding.clone()
+        Some(self.0.rounding.to_string())
     }
 
     pub fn __repr__(&self) -> String {

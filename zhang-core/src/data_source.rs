@@ -137,10 +137,9 @@ impl DataSource for LocalFileSystemDataSource {
                 continue;
             }
             let file_content = self.get(pathbuf.to_string_lossy().to_string())?;
-            //todo: remove utf8 string unwrap
             let entity_directives = self
                 .data_type
-                .transform(String::from_utf8(file_content).unwrap(), Some(pathbuf.to_string_lossy().to_string()))?;
+                .transform(String::from_utf8_lossy(&file_content).to_string(), Some(pathbuf.to_string_lossy().to_string()))?;
 
             entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
                 let fullpath = if buf.starts_with('/') {

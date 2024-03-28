@@ -5,7 +5,8 @@ use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use serde::Serialize;
 use strum::{AsRefStr, EnumString};
-use zhang_ast::{Currency, SpanInfo};
+use zhang_ast::error::ErrorKind;
+use zhang_ast::{Currency, Rounding, SpanInfo};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, AsRefStr, EnumString)]
 pub enum MetaType {
@@ -75,7 +76,7 @@ pub struct CommodityDomain {
     pub precision: i32,
     pub prefix: Option<String>,
     pub suffix: Option<String>,
-    pub rounding: Option<String>,
+    pub rounding: Rounding,
 }
 
 #[derive(Debug, Clone)]
@@ -104,19 +105,6 @@ pub struct AccountJournalDomain {
 pub struct ErrorDomain {
     pub id: String,
     pub span: Option<SpanInfo>,
-    pub error_type: ErrorType,
+    pub error_type: ErrorKind,
     pub metas: HashMap<String, String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, AsRefStr, EnumString)]
-pub enum ErrorType {
-    AccountBalanceCheckError,
-    AccountDoesNotExist,
-    AccountClosed,
-    TransactionDoesNotBalance,
-    CommodityDoesNotDefine,
-    TransactionHasMultipleImplicitPosting,
-    CloseNonZeroAccount,
-
-    BudgetDoesNotExist,
 }

@@ -103,7 +103,7 @@ mod test {
             let ledger = load_from_text(indoc! {r#"
                  option "operating_currency" "USD"
             "#});
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
 
             assert_eq!(operations.option("operating_currency").unwrap().unwrap().value, "USD");
             Ok(())
@@ -282,7 +282,7 @@ mod test {
                 1970-01-01 commodity CNY
             "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
             let commodity = operations.commodity("CNY")?.unwrap();
             assert_eq!("CNY", commodity.name);
             assert_eq!(2, commodity.precision);
@@ -297,7 +297,7 @@ mod test {
                 1970-01-01 commodity CNY
             "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
             let commodity = operations.commodity("USD")?;
             assert!(commodity.is_none());
             Ok(())
@@ -310,7 +310,7 @@ mod test {
                 1970-01-01 commodity CNY
             "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
             let commodity = operations.commodity("CNY")?.unwrap();
             assert_eq!("CNY", commodity.name);
             assert_eq!(3, commodity.precision);
@@ -328,7 +328,7 @@ mod test {
                   suffix: "CNY"
             "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
             let commodity = operations.commodity("CNY")?.unwrap();
             assert_eq!("CNY", commodity.name);
             assert_eq!(3, commodity.precision);
@@ -344,7 +344,7 @@ mod test {
                   precision: "4"
             "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
             let commodity = operations.commodity("CNY")?.unwrap();
             assert_eq!("CNY", commodity.name);
             assert_eq!(4, commodity.precision);
@@ -361,7 +361,7 @@ mod test {
                   precision: "4"
             "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
             let commodity = operations.commodity("CNY")?.unwrap();
             assert_eq!("CNY", commodity.name);
             assert_eq!(4, commodity.precision);
@@ -372,14 +372,14 @@ mod test {
     }
     mod error {
         use indoc::indoc;
+        use zhang_ast::error::ErrorKind;
 
-        use crate::domains::schemas::ErrorType;
         use crate::test::load_from_text;
 
         mod close_non_zero_account {
             use indoc::indoc;
+            use zhang_ast::error::ErrorKind;
 
-            use crate::domains::schemas::ErrorType;
             use crate::test::load_from_text;
 
             #[test]
@@ -410,7 +410,7 @@ mod test {
                 let mut errors = operations.errors()?;
                 assert_eq!(errors.len(), 1);
                 let error = errors.pop().unwrap();
-                assert_eq!(error.error_type, ErrorType::CloseNonZeroAccount);
+                assert_eq!(error.error_type, ErrorKind::CloseNonZeroAccount);
                 Ok(())
             }
         }
@@ -426,7 +426,7 @@ mod test {
             let mut errors = operations.errors()?;
             assert_eq!(errors.len(), 1);
             let domain = errors.pop().unwrap();
-            assert_eq!(domain.error_type, ErrorType::AccountBalanceCheckError);
+            assert_eq!(domain.error_type, ErrorKind::AccountBalanceCheckError);
             assert_eq!(domain.metas.get("account_name").unwrap(), "Assets:MyCard");
             Ok(())
         }
@@ -442,7 +442,7 @@ mod test {
                     1970-01-01 open Assets:MyCard CNY
                 "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
             let timezone = operations.option("timezone")?.unwrap();
             assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone.value);
             Ok(())
@@ -454,7 +454,7 @@ mod test {
                     option "timezone" "MYZone"
                 "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
             let timezone = operations.option("timezone")?.unwrap();
             assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone.value);
             Ok(())
@@ -465,7 +465,7 @@ mod test {
                     option "timezone" "Antarctica/South_Pole"
                 "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
             let timezone = operations.option("timezone")?.unwrap();
             assert_eq!("Antarctica/South_Pole", timezone.value);
             assert_eq!(ledger.options.timezone, "Antarctica/South_Pole".parse().unwrap());

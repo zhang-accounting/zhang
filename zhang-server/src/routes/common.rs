@@ -39,7 +39,7 @@ pub async fn reload(reload_sender: State<Arc<ReloadSender>>) -> ApiResult<String
 
 pub async fn get_basic_info(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<BasicInfo> {
     let ledger = ledger.read().await;
-    let mut operations = ledger.operations();
+    let operations = ledger.operations();
 
     ResponseWrapper::json(BasicInfo {
         title: operations.option("title")?.map(|it| it.value),

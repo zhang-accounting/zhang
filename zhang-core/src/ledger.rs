@@ -3,10 +3,9 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, RwLock};
 
-use bigdecimal::Zero;
 use itertools::Itertools;
 use log::{error, info};
-use zhang_ast::{Directive, DirectiveType, Spanned, Transaction};
+use zhang_ast::{Directive, DirectiveType, Spanned};
 
 use crate::data_source::DataSource;
 use crate::domains::Operations;
@@ -14,7 +13,6 @@ use crate::error::IoErrorIntoZhangError;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::process::DirectiveProcess;
 use crate::store::Store;
-use crate::utils::bigdecimal_ext::BigDecimalExt;
 use crate::ZhangResult;
 
 pub struct Ledger {
@@ -140,32 +138,6 @@ impl Ledger {
             .collect_vec();
         self.directives = vec;
         self
-    }
-
-    pub fn is_transaction_balanced(&self, txn: &Transaction) -> ZhangResult<bool> {
-        // 1. get the txn's inventory
-        Ok(match txn.get_postings_inventory() {
-            Ok(inventory) => {
-                for (currency, amount) in inventory.currencies.iter() {
-                    let mut operations = self.operations();
-                    let commodity = operations.commodity(currency)?;
-                    let precision = commodity
-                        .as_ref()
-                        .map(|it| it.precision)
-                        .unwrap_or(self.options.default_balance_tolerance_precision);
-                    let rounding = commodity
-                        .and_then(|it| it.rounding)
-                        .map(|s| s.eq("RoundUp"))
-                        .unwrap_or_else(|| self.options.default_rounding.is_up());
-                    let decimal = amount.total.round_with(precision as i64, rounding);
-                    if !decimal.is_zero() {
-                        return Ok(false);
-                    }
-                }
-                true
-            }
-            Err(_) => false,
-        })
     }
 
     pub fn reload(&mut self) -> ZhangResult<()> {
@@ -431,7 +403,7 @@ mod test {
                     option "title" "Example Beancount file"
                     option "operating_currency" "USD"
                 "#});
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
 
             assert_eq!("Example Beancount file", operations.option("title")?.unwrap().value);
             assert_eq!("USD", operations.option("operating_currency")?.unwrap().value);

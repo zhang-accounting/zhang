@@ -1,0 +1,23 @@
+[
+  {
+    "uri": "/api/store",
+    "validations": [
+      [
+        "$.data.errors.length()",
+        2
+      ],
+      [
+        "$.data.errors[0].error_type",
+        "TransactionCannotInferTradeAmount"
+      ],
+      [
+        "$.data.errors[1].error_type",
+        "TransactionHasMultipleImplicitPosting"
+      ],
+      [
+        "$.data.transactions",
+        {}
+      ]
+    ]
+  }
+]

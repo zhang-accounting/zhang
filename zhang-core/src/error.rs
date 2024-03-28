@@ -9,6 +9,10 @@ pub enum ZhangError {
     InvalidDate,
     #[error("account is invalid")]
     InvalidAccount,
+
+    #[error("option value is invalid")]
+    InvalidOptionValue,
+
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),
     #[error("fetch error")]
@@ -20,6 +24,9 @@ pub enum ZhangError {
 
     #[error("Parse Error \nPath: {path}{msg}")]
     PestError { path: String, msg: String },
+    #[error("Process Error: {0}")]
+    ProcessError(zhang_ast::error::ErrorKind),
+
     #[error("cannot found option given key: {0}")]
     OptionNotFound(String),
 
