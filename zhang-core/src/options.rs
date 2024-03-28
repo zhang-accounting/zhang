@@ -1,9 +1,12 @@
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use chrono_tz::Tz;
 use itertools::Itertools;
 use log::{error, info, warn};
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
+use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
 use crate::constants::{
@@ -53,13 +56,14 @@ impl BuiltinOption {
     pub fn key(&self) -> &str {
         self.as_ref()
     }
-    pub fn default_options() -> Vec<Spanned<Directive>> {
+    pub fn default_options(options_key: HashSet<Cow<str>>) -> Vec<Spanned<Directive>> {
         BuiltinOption::iter()
-            .map(|key| {
+            .filter(|it| !options_key.contains(it.key()))
+            .map(|it| {
                 Spanned::new(
                     Directive::Option(Options {
-                        key: ZhangString::quote(key.as_ref()),
-                        value: ZhangString::quote(key.default_value()),
+                        key: ZhangString::quote(it.as_ref()),
+                        value: ZhangString::quote(it.default_value()),
                     }),
                     SpanInfo::default(),
                 )
@@ -69,7 +73,7 @@ impl BuiltinOption {
 }
 
 impl InMemoryOptions {
-    pub fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, operation: &mut Operations) -> ZhangResult<String> {
+    pub fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, operation: &mut Operations, span: &SpanInfo) -> ZhangResult<String> {
         let value = value.into();
         let key = key.into();
         if let Ok(option) = BuiltinOption::from_str(&key) {
@@ -80,6 +84,10 @@ impl InMemoryOptions {
                     let suffix: Option<String> = None;
                     let rounding = self.default_rounding;
 
+                    let has_operating_currency = operation.option(key)?.is_some();
+                    if has_operating_currency {
+                        operation.new_error(ErrorKind::MultipleOperatingCurrencyDetect, span, HashMap::default())?;
+                    }
                     operation.insert_commodity(&value, precision, prefix, suffix, rounding)?;
 
                     value.clone_into(&mut self.operating_currency);
