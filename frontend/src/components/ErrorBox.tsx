@@ -61,7 +61,7 @@ export default function ErrorBox() {
         onClose={() => setIsOpen(false)}
         title={`${selectError?.span.filename}:${selectError?.span.start}:${selectError?.span.end}`}
       >
-        <Text>{t(selectError?.error_type || '')}</Text>
+        <Text>{t(`ERROR.${selectError?.error_type || ''}`)}</Text>
         <Textarea
           value={selectErrorContent}
           onChange={(event) => {
@@ -70,17 +70,17 @@ export default function ErrorBox() {
         />
         <Group position="right">
           <Button onClick={onModalReset} variant="default">
-            {t('Reset')}
+            {t('RESET')}
           </Button>
           <Button onClick={saveErrorModfiyData} variant="default">
-            {t('Save')}
+            {t('SAVE')}
           </Button>
         </Group>
       </Modal>
       <Stack>
         {items.map((error, idx) => (
           <Text key={idx} onClick={() => toggleError(error)}>
-            {t(error.error_type)}
+            {t(`ERROR.${error.error_type}`)}
           </Text>
         ))}
 
