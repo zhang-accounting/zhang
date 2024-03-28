@@ -153,7 +153,10 @@ impl Operations {
         match txn.get_postings_inventory() {
             Ok(inventory) => {
                 for (currency, amount) in inventory.currencies.iter() {
-                    let commodity = self.commodity(currency)?.expect("cannot get commodity");
+                    let commodity = self.commodity(currency)?;
+                    let Some(commodity) = commodity else {
+                        return Ok(Some(ErrorKind::CommodityDoesNotDefine));
+                    };
                     let precision = commodity.precision;
                     let rounding = commodity.rounding;
                     let decimal = amount.total.round_with(precision as i64, rounding.is_up());

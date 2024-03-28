@@ -155,10 +155,9 @@ impl DirectiveProcess for Transaction {
                     operations.new_error(e, span, HashMap::default())?;
                     return Ok(());
                 }
-                ErrorKind::UnbalancedTransaction => {
-                    operations.new_error(ErrorKind::TransactionDoesNotBalance, span, HashMap::default())?;
+                e => {
+                    operations.new_error(e, span, HashMap::default())?;
                 }
-                e => unreachable!("getting error : {:?}", e),
             }
         }
 

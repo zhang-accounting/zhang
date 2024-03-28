@@ -1,0 +1,11 @@
+[
+  {
+    "uri": "/api/store",
+    "validations": [
+      [
+        "$.data.errors[0].error_type",
+        "CommodityDoesNotDefine"
+      ]
+    ]
+  }
+]
