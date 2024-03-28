@@ -1,4 +1,6 @@
+use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, RwLock};
@@ -65,14 +67,19 @@ impl Ledger {
             store: Default::default(),
             trx_counter: AtomicI32::new(1),
         };
-        let mut merged_metas = BuiltinOption::default_options()
+
+        let options_key: HashSet<Cow<str>> = meta_directives
+            .iter()
+            .filter_map(|it| match &it.data {
+                Directive::Option(option) => Some(Cow::Borrowed(option.key.as_str())),
+                _ => None,
+            })
+            .collect();
+
+        let mut merged_metas = BuiltinOption::default_options(options_key)
             .into_iter()
             .chain(meta_directives)
             .rev()
-            .dedup_by(|x, y| match (&x.data, &y.data) {
-                (Directive::Option(option_x), Directive::Option(option_y)) => option_x.key.eq(&option_y.key),
-                _ => false,
-            })
             .collect_vec();
         for directive in merged_metas.iter_mut().rev().chain(directives.iter_mut()) {
             match &mut directive.data {

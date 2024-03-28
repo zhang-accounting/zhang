@@ -1,0 +1,35 @@
+[
+  {
+    "uri": "/api/store",
+    "validations": [
+      [
+        "$.data.errors.length()",
+        2
+      ],
+      [
+        "$.data.errors[0].error_type",
+        "MultipleOperatingCurrencyDetect"
+      ],
+      [
+        "$.data.errors[1].error_type",
+        "MultipleOperatingCurrencyDetect"
+      ],
+      [
+        "$.data.options.operating_currency",
+        "EUR"
+      ],
+      [
+        "$.data.commodities.CNY.name",
+        "CNY"
+      ],
+      [
+        "$.data.commodities.USD.name",
+        "USD"
+      ],
+      [
+        "$.data.commodities.EUR.name",
+        "EUR"
+      ]
+    ]
+  }
+]
