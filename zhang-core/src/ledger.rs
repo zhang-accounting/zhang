@@ -412,9 +412,9 @@ mod test {
                 "#});
             let operations = ledger.operations();
 
-            assert_eq!("Example Beancount file", operations.option("title")?.unwrap().value);
-            assert_eq!("USD", operations.option("operating_currency")?.unwrap().value);
-            assert!(operations.option("operating_currency2")?.is_none());
+            assert_eq!("Example Beancount file", operations.option::<String>("title")?.unwrap());
+            assert_eq!("USD", operations.option::<String>("operating_currency")?.unwrap());
+            assert!(operations.option::<String>("operating_currency2")?.is_none());
             Ok(())
         }
     }

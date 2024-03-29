@@ -339,13 +339,19 @@ impl Operations {
         Ok(store.options.clone().into_iter().map(|(key, value)| OptionDomain { key, value }).collect_vec())
     }
 
-    pub fn option(&self, key: impl AsRef<str>) -> ZhangResult<Option<OptionDomain>> {
+    /// fetch option's value given option key,
+    /// the [T] means the type of option's value
+    pub fn option<T>(&self, key: impl AsRef<str>) -> ZhangResult<Option<T>>
+    where
+        T: FromStr,
+    {
         let store = self.read();
 
-        Ok(store.options.get(key.as_ref()).map(|value| OptionDomain {
-            key: key.as_ref().to_string(),
-            value: value.to_owned(),
-        }))
+        store
+            .options
+            .get(key.as_ref())
+            .map(|value| T::from_str(value).map_err(|_| ZhangError::InvalidOptionValue))
+            .transpose()
     }
 
     pub fn accounts_latest_balance(&mut self) -> ZhangResult<Vec<AccountDailyBalanceDomain>> {

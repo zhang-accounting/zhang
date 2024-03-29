@@ -84,7 +84,7 @@ impl InMemoryOptions {
                     let suffix: Option<String> = None;
                     let rounding = self.default_rounding;
 
-                    let has_operating_currency = operation.option(key)?.is_some();
+                    let has_operating_currency = operation.option::<String>(key)?.is_some();
                     if has_operating_currency {
                         operation.new_error(ErrorKind::MultipleOperatingCurrencyDetect, span, HashMap::default())?;
                     }

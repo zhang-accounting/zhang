@@ -16,7 +16,7 @@ pub trait Calculable {
 
 impl Calculable for Vec<Amount> {
     fn calculate(&self, date: DateTime<Tz>, operations: &mut Operations) -> ZhangResult<CalculatedAmount> {
-        let operating_currency = operations.option(KEY_OPERATING_CURRENCY)?.expect("cannot find operating currency").value;
+        let operating_currency: String = operations.option(KEY_OPERATING_CURRENCY)?.expect("cannot find operating currency");
 
         let mut total = BigDecimal::zero();
         let mut detail = HashMap::new();
