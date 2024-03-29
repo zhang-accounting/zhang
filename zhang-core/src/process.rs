@@ -111,17 +111,17 @@ impl DirectiveProcess for Commodity {
     fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
 
-        let default_precision = operations.option(KEY_DEFAULT_COMMODITY_PRECISION)?.map(|it| it.value);
-        let default_rounding = operations.option(KEY_DEFAULT_ROUNDING)?.map(|it| it.value);
+        let ledger_default_precision = operations.option::<i32>(KEY_DEFAULT_COMMODITY_PRECISION)?;
+        let ledger_default_rounding = operations.option::<Rounding>(KEY_DEFAULT_ROUNDING)?;
 
         let precision = self
             .meta
             .get_one("precision")
             .map(|it| it.as_str().to_owned())
-            .or(default_precision)
             .map(|it| it.as_str().parse::<i32>())
             .transpose()
             .unwrap_or(None)
+            .or(ledger_default_precision)
             .unwrap_or(DEFAULT_COMMODITY_PRECISION);
         let prefix = self.meta.get_one("prefix").map(|it| it.clone().to_plain_string());
         let suffix = self.meta.get_one("suffix").map(|it| it.clone().to_plain_string());
@@ -129,10 +129,10 @@ impl DirectiveProcess for Commodity {
             .meta
             .get_one("rounding")
             .map(|it| it.as_str().to_owned())
-            .or(default_rounding)
             .map(|it| Rounding::from_str(it.as_str()))
             .transpose()
             .map_err(|_| ZhangError::InvalidOptionValue)?
+            .or(ledger_default_rounding)
             .unwrap_or(DEFAULT_ROUNDING);
 
         operations.insert_commodity(&self.currency, precision, prefix, suffix, rounding)?;

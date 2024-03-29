@@ -105,7 +105,7 @@ mod test {
             "#});
             let operations = ledger.operations();
 
-            assert_eq!(operations.option("operating_currency").unwrap().unwrap().value, "USD");
+            assert_eq!(operations.option::<String>("operating_currency").unwrap().unwrap(), "USD");
             Ok(())
         }
 
@@ -443,8 +443,8 @@ mod test {
                 "#});
 
             let operations = ledger.operations();
-            let timezone = operations.option("timezone")?.unwrap();
-            assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone.value);
+            let timezone: String = operations.option("timezone")?.unwrap();
+            assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone);
             Ok(())
         }
 
@@ -455,8 +455,8 @@ mod test {
                 "#});
 
             let operations = ledger.operations();
-            let timezone = operations.option("timezone")?.unwrap();
-            assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone.value);
+            let timezone: String = operations.option("timezone")?.unwrap();
+            assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone);
             Ok(())
         }
         #[test]
@@ -466,8 +466,8 @@ mod test {
                 "#});
 
             let operations = ledger.operations();
-            let timezone = operations.option("timezone")?.unwrap();
-            assert_eq!("Antarctica/South_Pole", timezone.value);
+            let timezone: String = operations.option("timezone")?.unwrap();
+            assert_eq!("Antarctica/South_Pole", timezone);
             assert_eq!(ledger.options.timezone, "Antarctica/South_Pole".parse().unwrap());
             Ok(())
         }

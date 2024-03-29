@@ -42,7 +42,7 @@ pub async fn get_basic_info(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Bas
     let operations = ledger.operations();
 
     ResponseWrapper::json(BasicInfo {
-        title: operations.option("title")?.map(|it| it.value),
+        title: operations.option::<String>("title")?,
         version: env!("ZHANG_BUILD_VERSION").to_string(),
         build_date: env!("ZHANG_BUILD_DATE").to_string(),
     })
