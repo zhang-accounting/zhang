@@ -21,10 +21,25 @@ use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
+/// Directive Process is used to handle how a directive be validated, how we process directives and store the result into [Store]
 pub(crate) trait DirectiveProcess {
     fn handler(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        DirectiveProcess::process(self, ledger, span)
+        let should_process = DirectiveProcess::validate(self, ledger, span)?;
+        if should_process {
+            DirectiveProcess::process(self, ledger, span)
+        } else {
+            Ok(())
+        }
     }
+
+    /// validate method is used to check if the directive is invalid, or should the directive need to emit an error
+    /// if the directive is invalid, we need to use [operations::new_error] to emit a new error into [Store]
+    /// return `true` if the directive need to execute the [process] method
+    fn validate(&mut self, _ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<bool> {
+        Ok(true)
+    }
+
+    /// process method is to handle the directive, and generate the result for storing in [Store]
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()>;
 }
 
@@ -71,11 +86,15 @@ impl DirectiveProcess for Options {
 }
 
 impl DirectiveProcess for Open {
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        let mut operations = ledger.operations();
+    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
         for currency in &self.commodities {
             check_commodity_define(currency, ledger, span)?;
         }
+        Ok(true)
+    }
+
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
 
         operations.insert_or_update_account(
             self.date.to_timezone_datetime(&ledger.options.timezone),
@@ -91,8 +110,9 @@ impl DirectiveProcess for Open {
 }
 
 impl DirectiveProcess for Close {
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
         let mut operations = ledger.operations();
+
         // check if account exist
         check_account_existed(self.account.name(), ledger, span)?;
         check_account_closed(self.account.name(), ledger, span)?;
@@ -102,6 +122,12 @@ impl DirectiveProcess for Close {
         if has_non_zero_balance {
             operations.new_error(ErrorKind::CloseNonZeroAccount, span, HashMap::default())?;
         }
+        Ok(true)
+    }
+
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
+
         operations.close_account(self.account.name())?;
         Ok(())
     }
@@ -143,7 +169,7 @@ impl DirectiveProcess for Commodity {
 }
 
 impl DirectiveProcess for Transaction {
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
         let mut operations = ledger.operations();
 
         let txn_error = operations.check_transaction(self)?;
@@ -153,13 +179,19 @@ impl DirectiveProcess for Transaction {
                 | ErrorKind::TransactionCannotInferTradeAmount
                 | ErrorKind::TransactionExplicitPostingHaveMultipleCommodity) => {
                     operations.new_error(e, span, HashMap::default())?;
-                    return Ok(());
+                    return Ok(false);
                 }
                 e => {
                     operations.new_error(e, span, HashMap::default())?;
                 }
             }
         }
+
+        Ok(true)
+    }
+
+    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
 
         let id = Uuid::from_span(span);
         let sequence = ledger.trx_counter.fetch_add(1, Ordering::Relaxed);
@@ -228,12 +260,16 @@ impl DirectiveProcess for Transaction {
 }
 
 impl DirectiveProcess for BalancePad {
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        let mut operations = ledger.operations();
+    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
         check_account_existed(self.account.name(), ledger, span)?;
         check_account_existed(self.pad.name(), ledger, span)?;
         check_account_closed(self.account.name(), ledger, span)?;
         check_account_closed(self.pad.name(), ledger, span)?;
+        Ok(true)
+    }
+
+    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
 
         let option = operations.account_target_day_balance(
             self.account.name(),
@@ -284,6 +320,12 @@ impl DirectiveProcess for BalancePad {
 }
 
 impl DirectiveProcess for BalanceCheck {
+    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
+        check_account_existed(self.account.name(), ledger, span)?;
+        check_account_closed(self.account.name(), ledger, span)?;
+        Ok(true)
+    }
+
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
         let option = operations.account_target_day_balance(
@@ -302,9 +344,6 @@ impl DirectiveProcess for BalanceCheck {
                 HashMap::of("account_name", self.account.name().to_string()),
             )?;
         }
-
-        check_account_existed(self.account.name(), ledger, span)?;
-        check_account_closed(self.account.name(), ledger, span)?;
 
         let mut transformed_trx = Transaction {
             date: self.date.clone(),
@@ -332,10 +371,14 @@ impl DirectiveProcess for BalanceCheck {
 }
 
 impl DirectiveProcess for Document {
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        let mut operations = ledger.operations();
+    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
         check_account_existed(self.account.name(), ledger, span)?;
         check_account_closed(self.account.name(), ledger, span)?;
+        Ok(true)
+    }
+
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
 
         let path = self.filename.clone().to_plain_string();
 
@@ -351,10 +394,15 @@ impl DirectiveProcess for Document {
 }
 
 impl DirectiveProcess for Price {
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        let mut operations = ledger.operations();
+    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
         check_commodity_define(&self.currency, ledger, span)?;
         check_commodity_define(&self.amount.currency, ledger, span)?;
+        Ok(true)
+    }
+
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
+
         operations.insert_price(
             self.date.to_timezone_datetime(&ledger.options.timezone),
             &self.currency,
@@ -367,11 +415,18 @@ impl DirectiveProcess for Price {
 }
 
 impl DirectiveProcess for Budget {
-    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
         let mut operations = ledger.operations();
         if operations.contains_budget(&self.name) {
-            // todo: add budget existed warning
+            operations.new_error(ErrorKind::DefineDuplicatedBudget, span, HashMap::default())?;
+            Ok(false)
+        } else {
+            Ok(true)
         }
+    }
+
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
         operations.init_budget(
             &self.name,
             &self.commodity,
@@ -384,27 +439,46 @@ impl DirectiveProcess for Budget {
 }
 
 impl DirectiveProcess for BudgetAdd {
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
         let mut operations = ledger.operations();
         if !operations.contains_budget(&self.name) {
             operations.new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
+            Ok(false)
         } else {
-            operations.budget_add_assigned_amount(
-                &self.name,
-                self.date.to_timezone_datetime(&ledger.options.timezone),
-                BudgetEventType::AddAssignedAmount,
-                self.amount.clone(),
-            )?;
+            Ok(true)
         }
+    }
+
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+        let mut operations = ledger.operations();
+        operations.budget_add_assigned_amount(
+            &self.name,
+            self.date.to_timezone_datetime(&ledger.options.timezone),
+            BudgetEventType::AddAssignedAmount,
+            self.amount.clone(),
+        )?;
 
         Ok(())
     }
 }
 
 impl DirectiveProcess for BudgetTransfer {
+    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
+        let mut operations = ledger.operations();
+        if !operations.contains_budget(&self.from) {
+            operations.new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
+            return Ok(false);
+        };
+        if !operations.contains_budget(&self.to) {
+            operations.new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
+            return Ok(false);
+        };
+
+        Ok(true)
+    }
+
     fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
-        // todo: check if budget exists
         operations.budget_transfer(
             self.date.to_timezone_datetime(&ledger.options.timezone),
             &self.from,
@@ -416,9 +490,18 @@ impl DirectiveProcess for BudgetTransfer {
 }
 
 impl DirectiveProcess for BudgetClose {
+    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
+        let mut operations = ledger.operations();
+        if !operations.contains_budget(&self.name) {
+            operations.new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
+            Ok(false)
+        } else {
+            Ok(true)
+        }
+    }
+
     fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
-        // todo: check if budget exists
         // todo: check if budget is empty
 
         operations.budget_close(&self.name, self.date.clone())?;

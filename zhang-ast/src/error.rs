@@ -17,6 +17,7 @@ pub enum ErrorKind {
     CloseNonZeroAccount,
 
     BudgetDoesNotExist,
+    DefineDuplicatedBudget,
 
     MultipleOperatingCurrencyDetect,
 }
