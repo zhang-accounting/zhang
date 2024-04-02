@@ -1,4 +1,4 @@
-import { Box, Card, createStyles, Group, px, Stack, Text } from '@mantine/core';
+import { Box, createStyles, Group, px, Stack, Text } from '@mantine/core';
 import React from 'react';
 
 const useStyles = createStyles((theme) => ({
