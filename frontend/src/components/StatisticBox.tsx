@@ -1,11 +1,12 @@
-import { Card, createStyles, px, Text } from '@mantine/core';
+import { createStyles, px, Stack, Text } from '@mantine/core';
 import { useTranslation } from 'react-i18next';
 import Amount from './Amount';
 
 const useStyles = createStyles((theme) => ({
   card: {
-    backgroundColor: theme.colors[theme.primaryColor][5],
-    padding: theme.spacing.xl,
+    backgroundColor: 'transparent',
+    padding: theme.spacing.lg,
+    border: `2px solid ${theme.colors[theme.primaryColor][6]}`,
     borderRadius: theme.radius.sm,
   },
 
@@ -33,18 +34,17 @@ interface Props {
   negetive?: boolean;
   hint?: string;
 }
+
 export default function StatisticBox({ text, amount, currency, negetive, hint }: Props) {
   const { t } = useTranslation();
   const { classes } = useStyles();
   const displayBox = (
-    <Card px="xl" py="lg" radius="sm" mt="sm" className={classes.card}>
-      <div>
-        <Text className={classes.lead}>
-          <Amount amount={amount} negetive={negetive} currency={currency} />
-        </Text>
-        <Text className={classes.label}>{t(text)}</Text>
-      </div>
-    </Card>
+    <Stack mt="sm" spacing={'xs'} className={classes.card}>
+      <Text className={classes.lead}>
+        <Amount amount={amount} negetive={negetive} currency={currency} />
+      </Text>
+      <Text className={classes.label}>{t(text)}</Text>
+    </Stack>
   );
   return displayBox;
 }

@@ -15,7 +15,7 @@ export default function StatisticBar() {
   if (!data) return <>loading</>;
 
   return (
-    <SimpleGrid cols={6}>
+    <SimpleGrid cols={4}>
       <StatisticBox
         text={'ASSET_BLANACE'}
         amount={data.balance.calculated.number}
