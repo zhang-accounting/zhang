@@ -13,6 +13,7 @@ import { TransactionPreviewModal } from './components/modals/TransactionPreviewM
 import './i18n';
 import { store } from './states';
 import { themeConfig } from './theme';
+import './global.css';
 
 Chart.register(...registerables);
 // @ts-ignore
