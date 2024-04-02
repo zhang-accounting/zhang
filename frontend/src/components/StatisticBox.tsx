@@ -6,8 +6,11 @@ const useStyles = createStyles((theme) => ({
   card: {
     backgroundColor: 'transparent',
     padding: theme.spacing.lg,
-    border: `2px solid ${theme.colors[theme.primaryColor][6]}`,
+    border: `2px solid ${theme.colors.gray[1]}`,
     borderRadius: theme.radius.sm,
+    '&:hover': {
+      border: `2px solid ${theme.colors[theme.primaryColor][6]}`,
+    },
   },
 
   label: {
