@@ -126,7 +126,7 @@ impl Directive {
             Directive::BudgetTransfer(ref mut directive) => directive.meta = meta,
             Directive::BudgetClose(ref mut directive) => directive.meta = meta,
             Directive::Option(_) => {}
-            Directive::Plugin(_) => {}
+            Directive::Plugin(ref mut directive) => directive.meta = meta,
             Directive::Include(_) => {}
             Directive::Comment(_) => {}
         }

@@ -320,6 +320,8 @@ pub struct Options {
 pub struct Plugin {
     pub module: ZhangString,
     pub value: Vec<ZhangString>,
+
+    pub meta: Meta,
 }
 
 #[derive(Debug, PartialEq, Eq)]
