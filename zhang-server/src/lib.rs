@@ -17,7 +17,7 @@ use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
-use uuid::Uuid;
+use uuid::{uuid, Uuid};
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
 use zhang_core::ZhangResult;
@@ -109,7 +109,7 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
 }
 
 fn start_report_tasker() {
-    let uuid = Uuid::new_v4();
+    let uuid = uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8");
     tokio::spawn(async move {
         let mut report_interval = tokio::time::interval(Duration::from_secs(60 * 60));
         info!("start zhang's version report task, random uuid {} is generated", &uuid);

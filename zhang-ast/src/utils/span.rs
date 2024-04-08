@@ -2,9 +2,9 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct SpanInfo {
     pub start: usize,
     pub end: usize,
@@ -12,7 +12,7 @@ pub struct SpanInfo {
     pub filename: Option<PathBuf>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Spanned<T: Debug + PartialEq> {
     pub data: T,
     pub span: SpanInfo,

@@ -7,12 +7,13 @@ use std::sync::{Arc, RwLock};
 
 use itertools::Itertools;
 use log::{error, info};
-use zhang_ast::{Directive, DirectiveType, Spanned};
+use zhang_ast::{Directive, DirectiveType, Plugin, Spanned};
 
 use crate::data_source::DataSource;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::options::{BuiltinOption, InMemoryOptions};
+use crate::plugin::PluginStore;
 use crate::process::DirectiveProcess;
 use crate::store::Store;
 use crate::ZhangResult;
@@ -32,6 +33,8 @@ pub struct Ledger {
     pub store: Arc<RwLock<Store>>,
 
     pub(crate) trx_counter: AtomicI32,
+
+    pub(crate) plugins: PluginStore,
 }
 
 impl Ledger {
@@ -66,6 +69,7 @@ impl Ledger {
             data_source,
             store: Default::default(),
             trx_counter: AtomicI32::new(1),
+            plugins: PluginStore::default(),
         };
 
         let options_key: HashSet<Cow<str>> = meta_directives
@@ -81,7 +85,36 @@ impl Ledger {
             .chain(meta_directives)
             .rev()
             .collect_vec();
-        for directive in merged_metas.iter_mut().rev().chain(directives.iter_mut()) {
+        let grouped_directives = merged_metas.iter().rev().chain(directives.iter()).cloned().collect_vec();
+
+        let mut plugin_directives = vec![];
+        let mut other_directives = Vec::with_capacity(grouped_directives.len());
+
+        // extract plugins first before handling other directives
+        for directive in grouped_directives.into_iter() {
+            match directive.data {
+                Directive::Plugin(plugin) => {
+                    plugin_directives.push((plugin, directive.span));
+                }
+                _ => other_directives.push(directive),
+            }
+        }
+
+        // handle plugin
+        for (plugin, span) in plugin_directives.iter_mut() {
+            plugin.handler(&mut ret_ledger, &span)?;
+        }
+
+        // execute the plugins of processor type
+        #[cfg(feature = "plugin")]
+        for plugin in ret_ledger.plugins.processors.iter() {
+            other_directives = plugin.execute_as_processor(other_directives)?;
+        }
+
+        let mut other_directives = Ledger::sort_directives_datetime(other_directives);
+
+        // handle other directives
+        for directive in other_directives.iter_mut() {
             match &mut directive.data {
                 Directive::Option(option) => option.handler(&mut ret_ledger, &directive.span)?,
                 Directive::Open(open) => open.handler(&mut ret_ledger, &directive.span)?,
@@ -95,8 +128,8 @@ impl Ledger {
                 Directive::Price(price) => price.handler(&mut ret_ledger, &directive.span)?,
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
-                Directive::Plugin(_) => {}
-                Directive::Include(_) => {}
+                Directive::Plugin(_) => unreachable!("plugin directive should not be passed into the processor here"),
+                Directive::Include(_) => unreachable!("include directive should not be passed into the processor here"),
                 Directive::Comment(_) => {}
                 Directive::Budget(budget) => budget.handler(&mut ret_ledger, &directive.span)?,
                 Directive::BudgetAdd(budget_add) => budget_add.handler(&mut ret_ledger, &directive.span)?,

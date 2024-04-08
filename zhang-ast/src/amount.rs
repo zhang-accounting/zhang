@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use bigdecimal::{BigDecimal, Zero};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct CalculatedAmount {
@@ -21,7 +21,7 @@ impl CalculatedAmount {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Clone, Serialize)]
+#[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Amount {
     pub number: BigDecimal,
     pub currency: String,

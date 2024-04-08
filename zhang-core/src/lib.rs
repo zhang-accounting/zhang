@@ -7,9 +7,12 @@ pub mod domains;
 pub mod error;
 pub mod ledger;
 pub mod options;
+pub mod plugin;
 pub(crate) mod process;
 pub mod store;
 pub mod utils;
+
+pub use zhang_ast as ast;
 
 pub type ZhangResult<T> = Result<T, ZhangError>;
 

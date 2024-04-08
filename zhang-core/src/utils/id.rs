@@ -1,19 +1,27 @@
+use once_cell::sync::OnceCell;
+use pest::pratt_parser::PrattParser;
 use std::str::FromStr;
 
 use sha256::digest;
-use uuid::Uuid;
+use uuid::{Context, Timestamp, Uuid};
 use zhang_ast::SpanInfo;
 
 const DEFAULT_PATH: &str = "default_path";
 
 pub trait FromSpan {
     fn from_span(span: &SpanInfo) -> Uuid;
+    fn from_txn_posting(txn_id: &Uuid, idx: usize) -> Uuid;
 }
 
 impl FromSpan for Uuid {
     fn from_span(span: &SpanInfo) -> Uuid {
         let file = span.filename.as_ref().and_then(|buf| buf.to_str()).unwrap_or(DEFAULT_PATH);
         let string = digest(format!("{}-{}", &file, span.start));
+        Uuid::from_str(&string[0..32]).expect("invalid uuid")
+    }
+
+    fn from_txn_posting(txn_id: &Uuid, idx: usize) -> Uuid {
+        let string = digest(format!("{}-{}", &txn_id, idx));
         Uuid::from_str(&string[0..32]).expect("invalid uuid")
     }
 }

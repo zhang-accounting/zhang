@@ -5,8 +5,14 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 
 use bigdecimal::{BigDecimal, Zero};
+#[cfg(feature = "plugin")]
+use extism::convert::Json as WasmJson;
+#[cfg(feature = "plugin")]
+use extism::{Manifest, Plugin as WasmPlugin, Wasm};
 use itertools::Itertools;
+use log::info;
 use uuid::Uuid;
+
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::utils::inventory::LotInfo;
@@ -16,6 +22,7 @@ use crate::constants::{DEFAULT_COMMODITY_PRECISION, DEFAULT_ROUNDING, KEY_DEFAUL
 use crate::domains::schemas::{AccountStatus, MetaType};
 use crate::domains::{AccountAmount, Operations};
 use crate::ledger::Ledger;
+use crate::plugin::PluginType;
 use crate::store::{BudgetEventType, DocumentType};
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
@@ -207,7 +214,7 @@ impl DirectiveProcess for Transaction {
             span,
         )?;
 
-        for txn_posting in self.txn_postings() {
+        for (posting_idx, txn_posting) in self.txn_postings().into_iter().enumerate() {
             let inferred_amount = txn_posting.infer_trade_amount().map_err(ZhangError::ProcessError)?;
 
             let option = operations.account_target_day_balance(
@@ -224,6 +231,7 @@ impl DirectiveProcess for Transaction {
 
             operations.insert_transaction_posting(
                 &id,
+                posting_idx,
                 txn_posting.posting.account.name(),
                 txn_posting.posting.units.clone(),
                 txn_posting.posting.cost.clone(),
@@ -409,6 +417,25 @@ impl DirectiveProcess for Price {
             &self.amount.number,
             &self.amount.currency,
         )?;
+
+        Ok(())
+    }
+}
+
+impl DirectiveProcess for Plugin {
+    fn validate(&mut self, _ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<bool> {
+        // todo: validate the hash for given plugin
+
+        Ok(true)
+    }
+
+    // register plugin into ledger
+    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+        #[cfg(feature = "plugin")]
+        {
+            let module_bytes = ledger.data_source.get(self.module.as_str().to_string())?;
+            ledger.plugins.insert_plugin(&self, &module_bytes)?;
+        }
 
         Ok(())
     }

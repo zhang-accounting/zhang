@@ -13,7 +13,7 @@ serde = { version = "1.0.136", features = ["derive"] }
 strum = { version = "0.26", features = ["derive"] }
 indexmap = { version = "2.2", features = ["serde"] }
 itertools = "0.12"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 bigdecimal = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.8"
 

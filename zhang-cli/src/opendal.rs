@@ -27,6 +27,10 @@ pub struct OpendalDataSource {
 
 #[async_trait::async_trait]
 impl DataSource for OpendalDataSource {
+    fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
+        Ok(self.operator.blocking().read(path.as_str()).expect("cannot read file"))
+    }
+
     async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
         let entry = PathBuf::from(entry);
         let main_endpoint = entry.join(endpoint);

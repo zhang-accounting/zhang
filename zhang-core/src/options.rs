@@ -34,6 +34,22 @@ pub enum BuiltinOption {
     Timezone,
 }
 
+fn detect_timezone() -> String {
+    #[cfg(feature = "iana-time-zone")]
+    match iana_time_zone::get_timezone() {
+        Ok(timezone) => {
+            info!("detect system timezone is {}", timezone);
+            timezone
+        }
+        Err(e) => {
+            warn!("cannot get timezone, fall back to use GMT+8 as default timezone: {}", e);
+            DEFAULT_TIMEZONE.to_owned()
+        }
+    }
+    #[cfg(not(feature = "iana-time-zone"))]
+    crate::constants::DEFAULT_TIMEZONE.to_owned()
+}
+
 impl BuiltinOption {
     pub fn default_value(&self) -> String {
         match self {
@@ -41,16 +57,7 @@ impl BuiltinOption {
             BuiltinOption::DefaultRounding => DEFAULT_ROUNDING_PLAIN.to_owned(),
             BuiltinOption::DefaultBalanceTolerancePrecision => DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN.to_owned(),
             BuiltinOption::DefaultCommodityPrecision => DEFAULT_COMMODITY_PRECISION_PLAIN.to_owned(),
-            BuiltinOption::Timezone => match iana_time_zone::get_timezone() {
-                Ok(timezone) => {
-                    info!("detect system timezone is {}", timezone);
-                    timezone
-                }
-                Err(e) => {
-                    warn!("cannot get timezone, fall back to use GMT+8 as default timezone: {}", e);
-                    DEFAULT_TIMEZONE.to_owned()
-                }
-            },
+            BuiltinOption::Timezone => detect_timezone(),
         }
     }
     pub fn key(&self) -> &str {
