@@ -111,6 +111,16 @@ impl Ledger {
             other_directives = plugin.execute_as_processor(other_directives)?;
         }
 
+        #[cfg(feature = "plugin")]
+        let mut other_directives = Ledger::sort_directives_datetime(other_directives);
+
+        // execute the plugins of mapper type
+        #[cfg(feature = "plugin")]
+        for plugin in ret_ledger.plugins.mappers.iter() {
+            let plugin_ret: ZhangResult<Vec<Vec<Spanned<Directive>>>> = other_directives.into_iter().map(|d| plugin.execute_as_mapper(d)).collect();
+            other_directives = plugin_ret?.into_iter().flatten().collect_vec();
+        }
+        #[cfg(feature = "plugin")]
         let mut other_directives = Ledger::sort_directives_datetime(other_directives);
 
         // handle other directives
