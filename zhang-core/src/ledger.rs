@@ -114,7 +114,7 @@ impl Ledger {
         let mut other_directives = feature_enable!(
             ret_ledger.options.features.plugins,
             {
-                #[cfg(feature = "plugin")]
+                #[cfg(feature = "plugin_runtime")]
                 {
                     // execute the plugins of processor type
                     for plugin in ret_ledger.plugins.processors.iter() {
@@ -130,7 +130,7 @@ impl Ledger {
                     }
                     Ledger::sort_directives_datetime(other_directives)
                 }
-                #[cfg(not(feature = "plugin"))]
+                #[cfg(not(feature = "plugin_runtime"))]
                 other_directives
             },
             other_directives
