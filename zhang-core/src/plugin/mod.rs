@@ -1,16 +1,5 @@
-use crate::error::IoErrorIntoZhangError;
-use crate::ZhangResult;
-#[cfg(feature = "plugin")]
-use extism::convert::Json as WasmJson;
-#[cfg(feature = "plugin")]
-use extism::{Manifest, Plugin as WasmPlugin, Wasm};
-use log::info;
 pub use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::fmt::format;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use zhang_ast::{Directive, Plugin, Spanned};
 
 pub mod http;
 pub mod store;

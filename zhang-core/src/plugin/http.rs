@@ -1,12 +1,10 @@
-use http::request::Parts;
-use http::{HeaderMap, HeaderValue, Response, StatusCode};
-use http::{Method, Request, Uri};
+use http::{HeaderMap, HeaderValue, Method, Uri};
 
 pub struct PluginRequest<T> {
     pub method: Method,
     pub uri: Uri,
     pub headers: HeaderMap<HeaderValue>,
-    body: T,
+    pub body: T,
 }
 
 pub struct PluginResponse<T> {

@@ -1,9 +1,7 @@
-use once_cell::sync::OnceCell;
-use pest::pratt_parser::PrattParser;
 use std::str::FromStr;
 
 use sha256::digest;
-use uuid::{Context, Timestamp, Uuid};
+use uuid::Uuid;
 use zhang_ast::SpanInfo;
 
 const DEFAULT_PATH: &str = "default_path";

@@ -5,14 +5,8 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 
 use bigdecimal::{BigDecimal, Zero};
-#[cfg(feature = "plugin")]
-use extism::convert::Json as WasmJson;
-#[cfg(feature = "plugin")]
-use extism::{Manifest, Plugin as WasmPlugin, Wasm};
 use itertools::Itertools;
-use log::info;
 use uuid::Uuid;
-
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::utils::inventory::LotInfo;
@@ -22,7 +16,6 @@ use crate::constants::{DEFAULT_COMMODITY_PRECISION, DEFAULT_ROUNDING, KEY_DEFAUL
 use crate::domains::schemas::{AccountStatus, MetaType};
 use crate::domains::{AccountAmount, Operations};
 use crate::ledger::Ledger;
-use crate::plugin::PluginType;
 use crate::store::{BudgetEventType, DocumentType};
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
@@ -430,11 +423,11 @@ impl DirectiveProcess for Plugin {
     }
 
     // register plugin into ledger
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         #[cfg(feature = "plugin")]
         {
             let module_bytes = ledger.data_source.get(self.module.as_str().to_string())?;
-            ledger.plugins.insert_plugin(&self, &module_bytes)?;
+            ledger.plugins.insert_plugin(self, &module_bytes)?;
         }
 
         Ok(())

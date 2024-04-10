@@ -7,7 +7,7 @@ pub struct AccountDomain(pub zhang_core::domains::schemas::AccountDomain);
 impl AccountDomain {
     #[getter]
     pub fn datetime(&self) -> i64 {
-        self.0.date.timestamp()
+        self.0.date.and_utc().timestamp()
     }
     #[getter]
     pub fn r#type(&self) -> String {

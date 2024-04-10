@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 
 use itertools::Itertools;
 use log::{error, info};
-use zhang_ast::{Directive, DirectiveType, Plugin, Spanned};
+use zhang_ast::{Directive, DirectiveType, Spanned};
 
 use crate::data_source::DataSource;
 use crate::domains::Operations;
@@ -59,7 +59,7 @@ impl Ledger {
     ) -> ZhangResult<Ledger> {
         let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
-        let mut directives = Ledger::sort_directives_datetime(dated_directive);
+        let directives = Ledger::sort_directives_datetime(dated_directive);
         let mut ret_ledger = Self {
             options: InMemoryOptions::default(),
             entry,
@@ -80,7 +80,7 @@ impl Ledger {
             })
             .collect();
 
-        let mut merged_metas = BuiltinOption::default_options(options_key)
+        let merged_metas = BuiltinOption::default_options(options_key)
             .into_iter()
             .chain(meta_directives)
             .rev()
@@ -102,7 +102,7 @@ impl Ledger {
 
         // handle plugin
         for (plugin, span) in plugin_directives.iter_mut() {
-            plugin.handler(&mut ret_ledger, &span)?;
+            plugin.handler(&mut ret_ledger, span)?;
         }
 
         // execute the plugins of processor type

@@ -1,14 +1,16 @@
-use crate::error::IoErrorIntoZhangError;
-use crate::plugin::PluginType;
-use crate::ZhangResult;
+use std::path::PathBuf;
+use std::str::FromStr;
+
 #[cfg(feature = "plugin")]
 use extism::convert::Json as WasmJson;
 #[cfg(feature = "plugin")]
 use extism::{Manifest, Plugin as WasmPlugin, Wasm};
 use log::info;
-use std::path::PathBuf;
-use std::str::FromStr;
 use zhang_ast::{Directive, Plugin, Spanned};
+
+use crate::error::IoErrorIntoZhangError;
+use crate::plugin::PluginType;
+use crate::ZhangResult;
 
 #[derive(Default)]
 pub struct PluginStore {
@@ -19,10 +21,10 @@ pub struct PluginStore {
 
 impl PluginStore {
     #[cfg(feature = "plugin")]
-    pub fn insert_plugin(&mut self, plugin: &Plugin, content: &[u8]) -> ZhangResult<()> {
+    pub fn insert_plugin(&mut self, _plugin: &Plugin, content: &[u8]) -> ZhangResult<()> {
         let wasm = Wasm::data(content);
         let manifest = Manifest::new([wasm]);
-        let mut plugin = WasmPlugin::new(&manifest, [], true).unwrap();
+        let mut plugin = WasmPlugin::new(manifest, [], true).unwrap();
         let name = plugin.call::<(), WasmJson<String>>("name", ()).unwrap().0;
         let version = plugin.call::<(), WasmJson<String>>("version", ()).unwrap().0;
         let plugin_types = plugin.call::<(), WasmJson<Vec<PluginType>>>("supported_type", ()).unwrap().0;
@@ -34,8 +36,8 @@ impl PluginStore {
 
         // save the file into cache folder
         info!("saving the plugin into cache folder: .cache/plugins/{}-{}.wasm", name, version);
-        let wasm_cache_file = plugin_cache_folder.join(&format!("{}-{}.wasm", name, version));
-        std::fs::write(&wasm_cache_file, &content).with_path(wasm_cache_file.as_path())?;
+        let wasm_cache_file = plugin_cache_folder.join(format!("{}-{}.wasm", name, version));
+        std::fs::write(&wasm_cache_file, content).with_path(wasm_cache_file.as_path())?;
 
         let registered_plugin = RegisteredPlugin {
             name,
@@ -70,9 +72,9 @@ impl RegisteredPlugin {
         let module_bytes = std::fs::read(&self.path).with_path(self.path.as_path())?;
         let wasm = Wasm::data(module_bytes);
         let manifest = Manifest::new([wasm]);
-        let plugin = WasmPlugin::new(&manifest, [], true).unwrap();
+        let plugin = WasmPlugin::new(manifest, [], true).unwrap();
 
-        return Ok(plugin);
+        Ok(plugin)
     }
 
     #[cfg(feature = "plugin")]
