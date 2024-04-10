@@ -1,5 +1,8 @@
 pub use error::ZhangError;
 
+#[macro_use]
+pub mod utils;
+
 pub mod constants;
 pub mod data_source;
 pub mod data_type;
@@ -7,10 +10,12 @@ pub mod domains;
 pub mod error;
 pub mod ledger;
 pub mod options;
+#[cfg(feature = "plugin")]
 pub mod plugin;
 pub(crate) mod process;
 pub mod store;
-pub mod utils;
+
+pub mod features;
 
 pub use zhang_ast as ast;
 

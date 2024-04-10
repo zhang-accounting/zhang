@@ -424,11 +424,13 @@ impl DirectiveProcess for Plugin {
 
     // register plugin into ledger
     fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
-        #[cfg(feature = "plugin")]
-        {
-            let module_bytes = ledger.data_source.get(self.module.as_str().to_string())?;
-            ledger.plugins.insert_plugin(self, &module_bytes)?;
-        }
+        feature_enable!(ledger.options.features.plugins, {
+            #[cfg(feature = "plugin")]
+            {
+                let module_bytes = ledger.data_source.get(self.module.as_str().to_string())?;
+                ledger.plugins.insert_plugin(self, &module_bytes)?;
+            }
+        });
 
         Ok(())
     }

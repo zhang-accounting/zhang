@@ -9,10 +9,9 @@ use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
-use crate::constants::{
-    DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN, DEFAULT_COMMODITY_PRECISION_PLAIN, DEFAULT_OPERATING_CURRENCY, DEFAULT_ROUNDING_PLAIN, DEFAULT_TIMEZONE,
-};
+use crate::constants::*;
 use crate::domains::Operations;
+use crate::features::Features;
 use crate::{ZhangError, ZhangResult};
 
 #[derive(Debug)]
@@ -21,6 +20,7 @@ pub struct InMemoryOptions {
     pub default_rounding: Rounding,
     pub default_balance_tolerance_precision: i32,
     pub timezone: Tz,
+    pub features: Features,
 }
 
 #[derive(Debug, AsRefStr, EnumIter, EnumString)]
@@ -91,7 +91,7 @@ impl InMemoryOptions {
                     let suffix: Option<String> = None;
                     let rounding = self.default_rounding;
 
-                    let has_operating_currency = operation.option::<String>(key)?.is_some();
+                    let has_operating_currency = operation.option::<String>(&key)?.is_some();
                     if has_operating_currency {
                         operation.new_error(ErrorKind::MultipleOperatingCurrencyDetect, span, HashMap::default())?;
                     }
@@ -119,6 +119,8 @@ impl InMemoryOptions {
                 },
             }
         }
+        self.features.handle_options(&key, &value);
+
         Ok(value)
     }
 }
@@ -130,6 +132,7 @@ impl Default for InMemoryOptions {
             default_rounding: Rounding::RoundDown,
             default_balance_tolerance_precision: 2,
             timezone: BuiltinOption::Timezone.default_value().parse().expect("invalid timezone"),
+            features: Features::default(),
         }
     }
 }

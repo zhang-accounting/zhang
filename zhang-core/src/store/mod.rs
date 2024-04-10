@@ -162,7 +162,7 @@ pub enum BudgetEventType {
 mod test {
     use std::str::FromStr;
 
-    use uuid::{uuid, Uuid};
+    use uuid::uuid;
     use zhang_ast::Account;
 
     use crate::store::DocumentType;

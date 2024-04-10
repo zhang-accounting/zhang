@@ -20,7 +20,6 @@ pub struct PluginStore {
 }
 
 impl PluginStore {
-    #[cfg(feature = "plugin")]
     pub fn insert_plugin(&mut self, _plugin: &Plugin, content: &[u8]) -> ZhangResult<()> {
         let wasm = Wasm::data(content);
         let manifest = Manifest::new([wasm]);
@@ -66,7 +65,6 @@ pub struct RegisteredPlugin {
 }
 
 impl RegisteredPlugin {
-    #[cfg(feature = "plugin")]
     pub fn load_as_plugin(&self) -> ZhangResult<WasmPlugin> {
         info!("executing the processor plugin {} {}", &self.name, &self.version);
         let module_bytes = std::fs::read(&self.path).with_path(self.path.as_path())?;
@@ -77,7 +75,6 @@ impl RegisteredPlugin {
         Ok(plugin)
     }
 
-    #[cfg(feature = "plugin")]
     pub fn execute_as_processor(&self, directive: Vec<Spanned<Directive>>) -> ZhangResult<Vec<Spanned<Directive>>> {
         let mut plugin = self.load_as_plugin()?;
         let ret = plugin
@@ -87,7 +84,6 @@ impl RegisteredPlugin {
         Ok(ret)
     }
 
-    #[cfg(feature = "plugin")]
     pub fn execute_as_mapper(&self, directive: Spanned<Directive>) -> ZhangResult<Vec<Spanned<Directive>>> {
         let mut plugin = self.load_as_plugin()?;
         let ret = plugin
