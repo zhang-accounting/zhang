@@ -139,7 +139,7 @@ impl Ledger {
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
                 Directive::Plugin(_) => unreachable!("plugin directive should not be passed into the processor here"),
-                Directive::Include(_) => unreachable!("include directive should not be passed into the processor here"),
+                Directive::Include(_) => {}
                 Directive::Comment(_) => {}
                 Directive::Budget(budget) => budget.handler(&mut ret_ledger, &directive.span)?,
                 Directive::BudgetAdd(budget_add) => budget_add.handler(&mut ret_ledger, &directive.span)?,
