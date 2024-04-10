@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-#[cfg(feature = "plugin")]
+#[cfg(feature = "plugin_runtime")]
 use extism::convert::Json as WasmJson;
-#[cfg(feature = "plugin")]
+#[cfg(feature = "plugin_runtime")]
 use extism::{Manifest, Plugin as WasmPlugin, Wasm};
 use log::info;
 use zhang_ast::{Directive, Plugin, Spanned};

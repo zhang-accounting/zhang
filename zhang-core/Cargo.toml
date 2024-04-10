@@ -10,7 +10,7 @@ edition = "2021"
 [features]
 default = ["iana-time-zone"]
 wasm = []
-plugin = ["extism"]
+plugin_runtime = ["extism"]
 
 
 [dependencies]

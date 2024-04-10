@@ -10,7 +10,7 @@ pub mod domains;
 pub mod error;
 pub mod ledger;
 pub mod options;
-#[cfg(feature = "plugin")]
+#[cfg(feature = "plugin_runtime")]
 pub mod plugin;
 pub(crate) mod process;
 pub mod store;

@@ -33,7 +33,7 @@ pub struct Ledger {
 
     pub(crate) trx_counter: AtomicI32,
 
-    #[cfg(feature = "plugin")]
+    #[cfg(feature = "plugin_runtime")]
     pub(crate) plugins: crate::plugin::store::PluginStore,
 }
 
@@ -69,7 +69,7 @@ impl Ledger {
             data_source,
             store: Default::default(),
             trx_counter: AtomicI32::new(1),
-            #[cfg(feature = "plugin")]
+            #[cfg(feature = "plugin_runtime")]
             plugins: crate::plugin::store::PluginStore::default(),
         };
 
