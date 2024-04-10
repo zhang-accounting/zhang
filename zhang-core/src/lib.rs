@@ -8,7 +8,6 @@ pub mod error;
 pub mod ledger;
 pub mod options;
 pub mod plugin;
-mod plugin;
 pub(crate) mod process;
 pub mod store;
 pub mod utils;

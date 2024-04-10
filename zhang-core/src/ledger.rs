@@ -13,7 +13,7 @@ use crate::data_source::DataSource;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::options::{BuiltinOption, InMemoryOptions};
-use crate::plugin::PluginStore;
+use crate::plugin::store::PluginStore;
 use crate::process::DirectiveProcess;
 use crate::store::Store;
 use crate::ZhangResult;

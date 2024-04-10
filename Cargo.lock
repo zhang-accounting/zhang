@@ -4770,6 +4770,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "extism",
+ "http 1.1.0",
  "iana-time-zone",
  "indexmap 2.2.6",
  "indoc 2.0.5",
