@@ -27,9 +27,14 @@ impl PluginStore {
         let version = plugin.call::<(), WasmJson<String>>("version", ()).unwrap().0;
         let plugin_types = plugin.call::<(), WasmJson<Vec<PluginType>>>("supported_type", ()).unwrap().0;
 
+        let plugin_cache_folder = PathBuf::from_str(".cache/plugins").expect("Cannot create path");
+
+        // create plugin folder if not exist
+        std::fs::create_dir_all(&plugin_cache_folder).with_path(plugin_cache_folder.as_path())?;
+
         // save the file into cache folder
         info!("saving the plugin into cache folder: .cache/plugins/{}-{}.wasm", name, version);
-        let wasm_cache_file = PathBuf::from_str(&format!(".cache/plugins/{}-{}.wasm", name, version)).expect("invalid plugin name");
+        let wasm_cache_file = plugin_cache_folder.join(&format!("{}-{}.wasm", name, version));
         std::fs::write(&wasm_cache_file, &content).with_path(wasm_cache_file.as_path())?;
 
         let registered_plugin = RegisteredPlugin {
