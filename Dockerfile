@@ -3,7 +3,7 @@ WORKDIR /app
 COPY . /app
 
 RUN mkdir /data
-RUN cargo build --release --features frontend plugin --bin zhang
+RUN cargo build --release --features frontend plugin_runtime --bin zhang
 
 FROM gcr.io/distroless/cc-debian12
 LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
