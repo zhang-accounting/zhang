@@ -58,6 +58,7 @@ jobs:
       matrix:
         os: [ ubuntu-latest, windows-latest, macOS-latest ]
         rust: [ stable ]
+        features: [ default, plugin ]
     steps:
       - uses: actions/checkout@v4
       - name: Install ${{ matrix.rust }}
@@ -68,7 +69,7 @@ jobs:
         run: mkdir -p build
         working-directory: ./frontend
       - name: Run test
-        run: cargo test --all-features
+        run: cargo test --features ${{matrix.features}}
   coverage:
     if: false
     runs-on: ubuntu-latest
