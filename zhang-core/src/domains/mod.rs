@@ -445,6 +445,11 @@ impl Operations {
         Ok(store.transactions.len() as i64)
     }
 
+    pub fn single_transaction(&mut self, id: &Uuid) -> ZhangResult<Option<TransactionDomain>> {
+        let store = self.read();
+        Ok(store.transactions.get(id).cloned())
+    }
+
     pub fn transaction_span(&mut self, id: &Uuid) -> ZhangResult<Option<TransactionInfoDomain>> {
         let store = self.read();
         Ok(store.transactions.get(id).map(|it| TransactionInfoDomain {

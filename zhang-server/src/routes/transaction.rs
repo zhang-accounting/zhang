@@ -9,7 +9,7 @@ use log::info;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, Date, Directive, Flag, Meta, Posting, Transaction, ZhangString};
+use zhang_ast::{Account, Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::TransactionDomain;
@@ -252,4 +252,58 @@ pub async fn upload_transaction_document(
     ledger.data_source.async_save(&ledger, source_file_path, content.as_bytes()).await?;
     reload_sender.reload();
     ResponseWrapper::json("Ok".to_string())
+}
+
+pub async fn update_single_transaction(
+    ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, path: Path<(String,)>, Json(payload): Json<CreateTransactionRequest>,
+) -> ApiResult<()> {
+    let Ok(transaction_id) = Uuid::from_str(&path.0 .0) else {
+        return ResponseWrapper::bad_request();
+    };
+    let ledger = ledger.read().await;
+    let mut operations = ledger.operations();
+
+    let span_info = operations.transaction_span(&transaction_id)?;
+    let Some(span_info) = span_info else {
+        return ResponseWrapper::bad_request();
+    };
+
+    let mut postings = vec![];
+    for posting in payload.postings.into_iter() {
+        postings.push(Posting {
+            flag: None,
+            account: Account::from_str(&posting.account)?,
+            units: posting.unit.map(|unit| Amount::new(unit.number, unit.commodity)),
+            cost: None,
+            cost_date: None,
+            price: None,
+            comment: None,
+            meta: Default::default(),
+        });
+    }
+    let mut metas = Meta::default();
+    for meta in payload.metas {
+        metas.insert(meta.key, meta.value.to_quote());
+    }
+    let time = payload.datetime.with_timezone(&ledger.options.timezone).naive_local();
+    let trx = Directive::Transaction(Transaction {
+        date: Date::Datetime(time),
+        flag: payload.flag.map(|it| it.into()).or(Some(Flag::Okay)),
+        payee: Some(payload.payee.to_quote()),
+        narration: payload.narration.map(|it| it.to_quote()),
+        tags: IndexSet::from_iter(payload.tags.into_iter()),
+        links: IndexSet::from_iter(payload.links.into_iter()),
+        postings,
+        meta: metas,
+    });
+    let txn_content = ledger.data_source.export(trx)?;
+    let trx_content = String::from_utf8_lossy(&txn_content);
+    let source_file_path = span_info.source_file.to_string_lossy().to_string();
+
+    let mut content = String::from_utf8(ledger.data_source.async_get(source_file_path.clone()).await?).unwrap();
+    content.replace_by_span(&SpanInfo::simple(span_info.span_start, span_info.span_end), &trx_content);
+
+    ledger.data_source.async_save(&ledger, source_file_path, content.as_bytes()).await?;
+    reload_sender.reload();
+    ResponseWrapper::json(())
 }

@@ -14,6 +14,7 @@ import './i18n';
 import { store } from './states';
 import { themeConfig } from './theme';
 import './global.css';
+import { TransactionEditModal } from './components/modals/TransactionEditModal';
 
 Chart.register(...registerables);
 // @ts-ignore
@@ -43,6 +44,7 @@ root.render(
           modals={{
             documentPreviewModal: DocumentPreviewModal,
             transactionPreviewModal: TransactionPreviewModal,
+            transactionEditModal: TransactionEditModal,
           }}
         >
           <BrowserRouter>

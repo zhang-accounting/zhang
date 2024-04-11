@@ -1,13 +1,15 @@
 use std::borrow::Cow;
 
 use unicode_categories::UnicodeCategories;
-use zhang_ast::ZhangString;
+use zhang_ast::{SpanInfo, ZhangString};
 
 pub trait StringExt {
     fn to_quote(&self) -> ZhangString;
     fn to_unquote(&self) -> ZhangString;
     fn into_quote(self) -> ZhangString;
     fn into_unquote(self) -> ZhangString;
+
+    fn replace_by_span(&mut self, span: &SpanInfo, content: &str);
 }
 
 impl StringExt for String {
@@ -25,6 +27,11 @@ impl StringExt for String {
 
     fn into_unquote(self) -> ZhangString {
         ZhangString::UnquoteString(self)
+    }
+
+    fn replace_by_span(&mut self, span: &SpanInfo, content: &str) {
+        self.replace_range(span.start..span.end, "");
+        self.insert_str(span.start, content);
     }
 }
 
@@ -71,8 +78,9 @@ fn escape_character(c: char) -> String {
 
 #[cfg(test)]
 mod test {
+    use zhang_ast::SpanInfo;
 
-    use crate::utils::string_::escape_with_quote;
+    use crate::utils::string_::{escape_with_quote, StringExt};
 
     #[test]
     fn test_escapse_with_quote() {
@@ -83,5 +91,19 @@ mod test {
         assert_eq!(r#""a ""#, escape_with_quote("a "));
         assert_eq!(r#""\`""#, escape_with_quote("`"));
         assert_eq!(r#""\a\b\v\f\e""#, escape_with_quote("\u{07}\u{08}\u{0b}\u{0c}\u{1b}"));
+    }
+
+    #[test]
+    fn test_replace_by_span() {
+        let info = SpanInfo {
+            start: 1,
+            end: 4,
+            content: "".to_string(),
+            filename: None,
+        };
+
+        let mut origin = "helloworld".to_string();
+        origin.replace_by_span(&info, "new");
+        assert_eq!(origin, "hnewoworld");
     }
 }

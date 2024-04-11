@@ -1,10 +1,11 @@
 import { ActionIcon, Badge, createStyles, getStylesRef, Group } from '@mantine/core';
-import { IconFile, IconZoomExclamation } from '@tabler/icons';
+import { IconFile, IconPencil, IconZoomExclamation } from '@tabler/icons';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../../rest-model';
 import { calculate } from '../../../utils/trx-calculator';
 import Amount from '../../Amount';
 import { openContextModal } from '@mantine/modals';
+import PayeeNarration from '../../basic/PayeeNarration';
 
 const useStyles = createStyles((theme, _params, getRef) => ({
   payee: {
@@ -27,6 +28,9 @@ const useStyles = createStyles((theme, _params, getRef) => ({
   },
   notBalance: {
     borderLeft: '3px solid red',
+  },
+  warning: {
+    borderLeft: `3px solid ${theme.colors.orange[7]}`,
   },
   actionHider: {
     '&:hover': {
@@ -63,21 +67,31 @@ export default function TableViewTransactionLine({ data }: Props) {
       },
     });
   };
+  const openEditModel = (e: any) => {
+    openContextModal({
+      modal: 'transactionEditModal',
+      title: 'Transaction Detail',
+      size: 'lg',
+      centered: true,
+      innerProps: {
+        data: data,
+      },
+    });
+  };
 
   const summary = calculate(data);
   const hasDocuments = data.metas.some((meta) => meta.key === 'document');
   return (
-    <tr className={`${classes.actionHider} ${!data.is_balanced ? classes.notBalance : ''}`}>
+    <tr className={`${classes.actionHider} ${!data.is_balanced ? classes.notBalance : ''} ${data.flag === '!' ? classes.warning : ''}`}>
       <td>{time}</td>
       <td>
         <Badge color="gray" size="xs" variant="outline">
           TRX
         </Badge>
       </td>
-      <td>{data.payee}</td>
       <td>
         <Group align="center" spacing="xs">
-          <span>{data.narration}</span>
+          <PayeeNarration payee={data.payee} narration={data.narration} />
           {hasDocuments && <IconFile size={14} color={'gray'} stroke={1.5}></IconFile>}
         </Group>
       </td>
@@ -90,6 +104,9 @@ export default function TableViewTransactionLine({ data }: Props) {
       </td>
       <td>
         <div className={classes.actions}>
+          <ActionIcon size="sm" onClick={openEditModel}>
+            <IconPencil size="1.125rem" />
+          </ActionIcon>
           <ActionIcon size="sm" onClick={openPreviewModal}>
             <IconZoomExclamation size="1.125rem" />
           </ActionIcon>

@@ -20,6 +20,10 @@ pub trait DataSource
 where
     Self: Send + Sync,
 {
+    // used to export directive into u8 sequence, if the datasource support
+    fn export(&self, _directive: Directive) -> ZhangResult<Vec<u8>> {
+        unimplemented!()
+    }
     fn get(&self, _path: String) -> ZhangResult<Vec<u8>> {
         unimplemented!()
     }
@@ -115,6 +119,10 @@ impl LocalFileSystemDataSource {
 
 #[async_trait::async_trait]
 impl DataSource for LocalFileSystemDataSource {
+    fn export(&self, directive: Directive) -> ZhangResult<Vec<u8>> {
+        Ok(self.data_type.export(Spanned::new(directive, SpanInfo::default())).into_bytes())
+    }
+
     fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
         Ok(std::fs::read(PathBuf::from(path))?)
     }
