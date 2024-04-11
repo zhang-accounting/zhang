@@ -189,7 +189,7 @@ pub async fn create_new_transaction(
     let time = payload.datetime.with_timezone(&ledger.options.timezone).naive_local();
     let trx = Directive::Transaction(Transaction {
         date: Date::Datetime(time),
-        flag: Some(Flag::Okay),
+        flag: payload.flag.map(|it| it.into()).or(Some(Flag::Okay)),
         payee: Some(payload.payee.to_quote()),
         narration: payload.narration.map(|it| it.to_quote()),
         tags: IndexSet::from_iter(payload.tags.into_iter()),
