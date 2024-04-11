@@ -1,5 +1,5 @@
 import { ActionIcon, Badge, createStyles, getStylesRef, Group } from '@mantine/core';
-import { IconFile, IconZoomExclamation } from '@tabler/icons';
+import { IconFile, IconPencil, IconZoomExclamation } from '@tabler/icons';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../../rest-model';
 import { calculate } from '../../../utils/trx-calculator';
@@ -63,6 +63,17 @@ export default function TableViewTransactionLine({ data }: Props) {
       },
     });
   };
+  const openEditModel = (e: any) => {
+    openContextModal({
+      modal: 'transactionEditModal',
+      title: 'Transaction Detail',
+      size: 'lg',
+      centered: true,
+      innerProps: {
+        data: data,
+      },
+    });
+  };
 
   const summary = calculate(data);
   const hasDocuments = data.metas.some((meta) => meta.key === 'document');
@@ -90,6 +101,9 @@ export default function TableViewTransactionLine({ data }: Props) {
       </td>
       <td>
         <div className={classes.actions}>
+          <ActionIcon size="sm" onClick={openEditModel}>
+            <IconPencil size="1.125rem" />
+          </ActionIcon>
           <ActionIcon size="sm" onClick={openPreviewModal}>
             <IconZoomExclamation size="1.125rem" />
           </ActionIcon>

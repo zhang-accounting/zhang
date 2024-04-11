@@ -30,7 +30,7 @@ impl StringExt for String {
     }
 
     fn replace_by_span(&mut self, span: &SpanInfo, content: &str) {
-        self.replace_range(span.start..=span.end, "");
+        self.replace_range(span.start..span.end, "");
         self.insert_str(span.start, content);
     }
 }
