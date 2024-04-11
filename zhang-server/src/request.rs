@@ -83,9 +83,9 @@ pub enum FlagRequest {
     Custom(char),
 }
 
-impl Into<Flag> for FlagRequest {
-    fn into(self) -> Flag {
-        match self {
+impl From<FlagRequest> for Flag {
+    fn from(req: FlagRequest) -> Self {
+        match req {
             FlagRequest::Okay => Flag::Okay,
             FlagRequest::Warning => Flag::Warning,
             FlagRequest::BalancePad => Flag::BalancePad,
