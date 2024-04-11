@@ -104,6 +104,6 @@ mod test {
 
         let mut origin = "helloworld".to_string();
         origin.replace_by_span(&info, "new");
-        assert_eq!(origin, "hnew0world");
+        assert_eq!(origin, "hnewoworld");
     }
 }
