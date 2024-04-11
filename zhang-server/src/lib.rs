@@ -3,12 +3,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use axum::extract::{DefaultBodyLimit, FromRef};
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post, put};
 use axum::Router;
 use itertools::Itertools;
 use log::{debug, error, info, trace};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use routes::account::*;
+use routes::budget::*;
+use routes::commodity::*;
+use routes::common::*;
+use routes::document::*;
+use routes::file::*;
+use routes::statistics::*;
+use routes::transaction::*;
 use self_update::version::bump_is_greater;
 use serde::Serialize;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -18,6 +26,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 use uuid::{uuid, Uuid};
+use zhang_core::data_source::DataSource;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
 use zhang_core::ZhangResult;
@@ -25,6 +34,7 @@ use zhang_core::ZhangResult;
 use crate::broadcast::{BroadcastEvent, Broadcaster};
 use crate::error::ServerError;
 use crate::response::ResponseWrapper;
+use crate::state::AppState;
 
 pub mod broadcast;
 pub mod error;
@@ -33,15 +43,7 @@ pub mod response;
 pub mod routes;
 pub mod util;
 
-use routes::account::*;
-use routes::budget::*;
-use routes::commodity::*;
-use routes::common::*;
-use routes::document::*;
-use routes::file::*;
-use routes::statistics::*;
-use routes::transaction::*;
-use zhang_core::data_source::DataSource;
+pub mod state;
 
 pub type ServerResult<T> = Result<T, ServerError>;
 
@@ -231,29 +233,6 @@ pub fn create_server_app(
             token_part.get(1).cloned(),
         )
     });
-    #[derive(Clone)]
-    struct AppState {
-        ledger: Arc<RwLock<Ledger>>,
-        broadcaster: Arc<Broadcaster>,
-        reload_sender: Arc<ReloadSender>,
-    }
-
-    impl FromRef<AppState> for Arc<RwLock<Ledger>> {
-        fn from_ref(input: &AppState) -> Self {
-            input.ledger.clone()
-        }
-    }
-
-    impl FromRef<AppState> for Arc<Broadcaster> {
-        fn from_ref(input: &AppState) -> Self {
-            input.broadcaster.clone()
-        }
-    }
-    impl FromRef<AppState> for Arc<ReloadSender> {
-        fn from_ref(input: &AppState) -> Self {
-            input.reload_sender.clone()
-        }
-    }
 
     let app = Router::new()
         .route("/api/sse", get(sse))
