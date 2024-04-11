@@ -3,6 +3,7 @@ use std::cmp::max;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Datelike, Local, Utc};
 use serde::Deserialize;
+use zhang_ast::Flag;
 
 #[derive(Deserialize)]
 #[serde(tag = "type")]
@@ -64,11 +65,34 @@ impl JournalRequest {
 pub struct CreateTransactionRequest {
     pub datetime: DateTime<Utc>,
     pub payee: String,
+    pub flag: Option<FlagRequest>,
     pub narration: Option<String>,
     pub postings: Vec<CreateTransactionPostingRequest>,
     pub metas: Vec<MetaRequest>,
     pub tags: Vec<String>,
     pub links: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub enum FlagRequest {
+    Okay,
+    Warning,
+    BalancePad,
+    BalanceCheck,
+    #[serde(untagged)]
+    Custom(char),
+}
+
+impl From<FlagRequest> for Flag {
+    fn from(req: FlagRequest) -> Self {
+        match req {
+            FlagRequest::Okay => Flag::Okay,
+            FlagRequest::Warning => Flag::Warning,
+            FlagRequest::BalancePad => Flag::BalancePad,
+            FlagRequest::BalanceCheck => Flag::BalanceCheck,
+            FlagRequest::Custom(c) => Flag::Custom(c.to_string()),
+        }
+    }
 }
 
 #[derive(Deserialize)]
