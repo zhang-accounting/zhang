@@ -7,5 +7,7 @@ pub mod file;
 pub mod statistics;
 pub mod transaction;
 
+pub mod plugin;
+
 #[cfg(feature = "frontend")]
 pub mod frontend;

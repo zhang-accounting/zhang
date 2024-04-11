@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use std::hash::Hash;
 
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MultiValueMap<Key: Eq + Hash, Value> {
     inner: HashMap<Key, Vec<Value>>,
 }

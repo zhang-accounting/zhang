@@ -4,7 +4,7 @@ item = { single_line_item | metable_item | transaction | empty_space_line }
 
 empty_space_line = { space+ }
 
-single_line_item = _{ (option | plugin | include | push_tag | pop_tag | valuable_comment) ~ space* ~ comment? }
+single_line_item = _{ (option | include | push_tag | pop_tag | valuable_comment) ~ space* ~ comment? }
 option           =  { "option" ~ space+ ~ string ~ space+ ~ string }
 plugin           =  { "plugin" ~ space+ ~ string ~ (space+ ~ string)* }
 include          =  { "include" ~ space+ ~ quote_string }
@@ -12,7 +12,7 @@ push_tag         =  { "pushtag" ~ space+ ~ tag }
 pop_tag          =  { "poptag" ~ space+ ~ tag }
 
 metable_item    = _{ metable_head ~ metas? }
-metable_head    =  { (open | close | note | balance | pad | document | price | event | commodity | budget | budget_add | budget_transfer | budget_close | custom) ~ space* ~ comment? }
+metable_head    =  { (open | close | note | plugin | balance | pad | document | price | event | commodity | budget | budget_add | budget_transfer | budget_close | custom) ~ space* ~ comment? }
 commodity       =  { date ~ space+ ~ "commodity" ~ space+ ~ commodity_name ~ metas? }
 open            =  { date ~ space+ ~ "open" ~ space+ ~ account_name ~ (space+ ~ commodity_name ~ (space* ~ "," ~ space* ~ commodity_name)*)? ~ (space+ ~ booking_method)? }
 close           =  { date ~ space+ ~ "close" ~ space+ ~ account_name }

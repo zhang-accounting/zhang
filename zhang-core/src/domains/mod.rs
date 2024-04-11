@@ -22,6 +22,7 @@ use crate::store::{
     BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionDomain,
 };
 use crate::utils::bigdecimal_ext::BigDecimalExt;
+use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
 pub mod schemas;
@@ -173,8 +174,8 @@ impl Operations {
     /// insert transaction postings
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction_posting(
-        &mut self, trx_id: &Uuid, account_name: &str, unit: Option<Amount>, cost: Option<Amount>, inferred_amount: Amount, previous_amount: Amount,
-        after_amount: Amount,
+        &mut self, trx_id: &Uuid, posting_idx: usize, account_name: &str, unit: Option<Amount>, cost: Option<Amount>, inferred_amount: Amount,
+        previous_amount: Amount, after_amount: Amount,
     ) -> ZhangResult<()> {
         let mut store = self.write();
 
@@ -184,7 +185,7 @@ impl Operations {
             .cloned()
             .expect("invalid context: cannot find txn header when inserting postings");
         let posting = PostingDomain {
-            id: Uuid::new_v4(),
+            id: Uuid::from_txn_posting(trx_id, posting_idx),
             trx_id: *trx_id,
             trx_sequence: trx.sequence,
             trx_datetime: trx.datetime,
@@ -702,7 +703,7 @@ impl Operations {
     pub fn new_error(&mut self, error_kind: ErrorKind, span: &SpanInfo, metas: HashMap<String, String>) -> ZhangResult<()> {
         let mut store = self.write();
         store.errors.push(ErrorDomain {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::from_span(span).to_string(),
             error_type: error_kind,
             span: Some(span.clone()),
             metas,

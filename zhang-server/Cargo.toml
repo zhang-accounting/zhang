@@ -11,8 +11,8 @@ build = "build.rs"
 frontend = ["rust-embed"]
 
 [dependencies]
-zhang-core = {version="0.1", path="../zhang-core"}
-zhang-ast = {version="0.1", path="../zhang-ast"}
+zhang-core = { version = "0.1", path = "../zhang-core", features = ["plugin_runtime"] }
+zhang-ast = { version = "0.1", path = "../zhang-ast" }
 
 base64 = "0.22"
 crossbeam-channel = "0.5.2"

@@ -6,6 +6,7 @@ use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 
 use crate::amount::Amount;
 use crate::error::ErrorKind;
@@ -16,7 +17,7 @@ use crate::Account;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum Date {
     Date(NaiveDate),
     DateHour(NaiveDateTime),
@@ -52,7 +53,7 @@ impl Date {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Open {
     pub date: Date,
     pub account: Account,
@@ -60,28 +61,28 @@ pub struct Open {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Close {
     pub date: Date,
     pub account: Account,
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Commodity {
     pub date: Date,
     pub currency: String,
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BalanceCheck {
     pub date: Date,
     pub account: Account,
     pub amount: Amount,
     pub meta: Meta,
 }
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BalancePad {
     pub date: Date,
     pub account: Account,
@@ -91,7 +92,7 @@ pub struct BalancePad {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Posting {
     pub flag: Option<Flag>,
     pub account: Account,
@@ -109,7 +110,7 @@ impl Posting {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Transaction {
     pub date: Date,
     pub flag: Option<Flag>,
@@ -249,7 +250,7 @@ impl<'a> TxnPosting<'a> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Note {
     pub date: Date,
     pub account: Account,
@@ -260,7 +261,7 @@ pub struct Note {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub date: Date,
 
@@ -280,7 +281,7 @@ pub struct Query {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Price {
     pub date: Date,
 
@@ -290,7 +291,7 @@ pub struct Price {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Document {
     pub date: Date,
 
@@ -301,7 +302,7 @@ pub struct Document {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Custom {
     pub date: Date,
 
@@ -310,29 +311,30 @@ pub struct Custom {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Options {
     pub key: ZhangString,
     pub value: ZhangString,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Plugin {
     pub module: ZhangString,
     pub value: Vec<ZhangString>,
+    pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Include {
     pub file: ZhangString,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Comment {
     pub content: String,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Budget {
     pub date: Date,
     pub name: String,
@@ -341,7 +343,7 @@ pub struct Budget {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BudgetAdd {
     pub date: Date,
     pub name: String,
@@ -349,7 +351,7 @@ pub struct BudgetAdd {
 
     pub meta: Meta,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BudgetTransfer {
     pub date: Date,
     pub from: String,
@@ -359,7 +361,7 @@ pub struct BudgetTransfer {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BudgetClose {
     pub date: Date,
     pub name: String,

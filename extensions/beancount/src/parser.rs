@@ -130,7 +130,11 @@ impl BeancountParser {
         let ret: (ZhangString, Vec<ZhangString>) = match_nodes!(input.into_children();
             [string(module), string(values)..] => (module, values.collect()),
         );
-        Ok(Directive::Plugin(Plugin { module: ret.0, value: ret.1 }))
+        Ok(Directive::Plugin(Plugin {
+            module: ret.0,
+            value: ret.1,
+            meta: Meta::default(),
+        }))
     }
 
     fn option(input: Node) -> Result<Directive> {
@@ -588,7 +592,8 @@ impl BeancountParser {
             [budget(item)]          => Either::Left(item),
             [budget_close(item)]    => Either::Left(item),
             [budget_add(item)]      => Either::Left(item),
-            [budget_transfer(item)] => Either::Left(item)
+            [budget_transfer(item)] => Either::Left(item),
+            [plugin(item)]          => Either::Left(item)
         );
         Ok(ret)
     }
@@ -606,7 +611,6 @@ impl BeancountParser {
         };
         let ret: Option<BeancountDirective> = match_nodes!(input.into_children();
             [option(item)]          => Some(Either::Left(item)),
-            [plugin(item)]          => Some(Either::Left(item)),
             [include(item)]         => Some(Either::Left(item)),
             [push_tag(item)]        => Some(Either::Right(item)),
             [pop_tag(item)]         => Some(Either::Right(item)),

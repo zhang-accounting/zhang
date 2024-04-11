@@ -207,7 +207,7 @@ impl DirectiveProcess for Transaction {
             span,
         )?;
 
-        for txn_posting in self.txn_postings() {
+        for (posting_idx, txn_posting) in self.txn_postings().into_iter().enumerate() {
             let inferred_amount = txn_posting.infer_trade_amount().map_err(ZhangError::ProcessError)?;
 
             let option = operations.account_target_day_balance(
@@ -224,6 +224,7 @@ impl DirectiveProcess for Transaction {
 
             operations.insert_transaction_posting(
                 &id,
+                posting_idx,
                 txn_posting.posting.account.name(),
                 txn_posting.posting.units.clone(),
                 txn_posting.posting.cost.clone(),
@@ -409,6 +410,27 @@ impl DirectiveProcess for Price {
             &self.amount.number,
             &self.amount.currency,
         )?;
+
+        Ok(())
+    }
+}
+
+impl DirectiveProcess for Plugin {
+    fn validate(&mut self, _ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<bool> {
+        // todo: validate the hash for given plugin
+
+        Ok(true)
+    }
+
+    // register plugin into ledger
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+        feature_enable!(ledger.options.features.plugins, {
+            #[cfg(feature = "plugin_runtime")]
+            {
+                let module_bytes = ledger.data_source.get(self.module.as_str().to_string())?;
+                ledger.plugins.insert_plugin(self, &module_bytes)?;
+            }
+        });
 
         Ok(())
     }

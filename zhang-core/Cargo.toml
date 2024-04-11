@@ -5,8 +5,12 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+
+
 [features]
-wasm = ["uuid/js"]
+default = ["iana-time-zone"]
+wasm = []
+plugin_runtime = ["extism"]
 
 
 [dependencies]
@@ -16,21 +20,24 @@ log = "0.4"
 itertools = "0.12"
 bigdecimal = { version = "0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+uuid = { version = "1", default-features = false, features = ["v6", "serde"] }
 unicode_categories = "0.1"
 sha256 = { version = "1.5.0", features = [], default-features = false }
 serde_json = "1"
 strum = { version = "0.26", features = ["derive"] }
 chrono-tz = "0.8"
-iana-time-zone = "0.1"
+iana-time-zone = { version = "0.1", optional = true }
 pest = "2.1"
 pest_consume = "1.1"
 pest_derive = "2.1"
 snailquote = "0.3"
 indexmap = "2"
-async-trait = "0.1.74"
+async-trait = "0.1"
 once_cell = "1.19"
+extism = { version = "1.0", optional = true }
+semver = "1.0.22"
+http = "1.1"
 
 [dev-dependencies]
 indoc = "2"

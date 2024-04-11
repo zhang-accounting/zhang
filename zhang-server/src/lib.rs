@@ -3,36 +3,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use axum::extract::{DefaultBodyLimit, FromRef};
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post, put};
 use axum::Router;
 use itertools::Itertools;
 use log::{debug, error, info, trace};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use self_update::version::bump_is_greater;
-use serde::Serialize;
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::{mpsc, RwLock};
-use tower_http::cors::CorsLayer;
-use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::validate_request::ValidateRequestHeaderLayer;
-use uuid::Uuid;
-use zhang_core::ledger::Ledger;
-use zhang_core::utils::has_path_visited;
-use zhang_core::ZhangResult;
-
-use crate::broadcast::{BroadcastEvent, Broadcaster};
-use crate::error::ServerError;
-use crate::response::ResponseWrapper;
-
-pub mod broadcast;
-pub mod error;
-pub mod request;
-pub mod response;
-pub mod routes;
-pub mod util;
-
 use routes::account::*;
 use routes::budget::*;
 use routes::commodity::*;
@@ -41,7 +17,33 @@ use routes::document::*;
 use routes::file::*;
 use routes::statistics::*;
 use routes::transaction::*;
+use self_update::version::bump_is_greater;
+use serde::Serialize;
+use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::{mpsc, RwLock};
+use tower_http::cors::CorsLayer;
+use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::validate_request::ValidateRequestHeaderLayer;
+use uuid::{uuid, Uuid};
 use zhang_core::data_source::DataSource;
+use zhang_core::ledger::Ledger;
+use zhang_core::utils::has_path_visited;
+use zhang_core::ZhangResult;
+
+use crate::broadcast::{BroadcastEvent, Broadcaster};
+use crate::error::ServerError;
+use crate::response::ResponseWrapper;
+use crate::state::AppState;
+
+pub mod broadcast;
+pub mod error;
+pub mod request;
+pub mod response;
+pub mod routes;
+pub mod util;
+
+pub mod state;
 
 pub type ServerResult<T> = Result<T, ServerError>;
 
@@ -109,7 +111,7 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
 }
 
 fn start_report_tasker() {
-    let uuid = Uuid::new_v4();
+    let uuid = uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8");
     tokio::spawn(async move {
         let mut report_interval = tokio::time::interval(Duration::from_secs(60 * 60));
         info!("start zhang's version report task, random uuid {} is generated", &uuid);
@@ -231,29 +233,6 @@ pub fn create_server_app(
             token_part.get(1).cloned(),
         )
     });
-    #[derive(Clone)]
-    struct AppState {
-        ledger: Arc<RwLock<Ledger>>,
-        broadcaster: Arc<Broadcaster>,
-        reload_sender: Arc<ReloadSender>,
-    }
-
-    impl FromRef<AppState> for Arc<RwLock<Ledger>> {
-        fn from_ref(input: &AppState) -> Self {
-            input.ledger.clone()
-        }
-    }
-
-    impl FromRef<AppState> for Arc<Broadcaster> {
-        fn from_ref(input: &AppState) -> Self {
-            input.broadcaster.clone()
-        }
-    }
-    impl FromRef<AppState> for Arc<ReloadSender> {
-        fn from_ref(input: &AppState) -> Self {
-            input.reload_sender.clone()
-        }
-    }
 
     let app = Router::new()
         .route("/api/sse", get(sse))
@@ -286,6 +265,7 @@ pub fn create_server_app(
         .route("/api/budgets", get(get_budget_list))
         .route("/api/budgets/:budget_name", get(get_budget_info))
         .route("/api/budgets/:budget_name/interval/:year/:month", get(get_budget_interval_detail))
+        .route("/api/plugins", get(routes::plugin::plugin_list))
         .layer(CorsLayer::permissive())
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */))

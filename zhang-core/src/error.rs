@@ -17,7 +17,7 @@ pub enum ZhangError {
     IoError(#[from] std::io::Error),
     #[error("fetch error")]
     FetchError,
-    #[error("file error: {e}")]
+    #[error("error on file operation[{path}]: {e}")]
     FileError { e: std::io::Error, path: PathBuf },
     #[error("ip addr error: {0}")]
     IpAddrError(#[from] AddrParseError),

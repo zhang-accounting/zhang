@@ -162,14 +162,14 @@ pub enum BudgetEventType {
 mod test {
     use std::str::FromStr;
 
-    use uuid::Uuid;
+    use uuid::uuid;
     use zhang_ast::Account;
 
     use crate::store::DocumentType;
 
     #[test]
     fn should_match_document_type() {
-        let document_type = DocumentType::Trx(Uuid::new_v4());
+        let document_type = DocumentType::Trx(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"));
         assert!(!document_type.match_account("any"));
 
         let account_type = DocumentType::Account(Account::from_str("Assets:A").unwrap());
@@ -181,7 +181,7 @@ mod test {
 
     #[test]
     fn should_return_account() {
-        let document_type = DocumentType::Trx(Uuid::new_v4());
+        let document_type = DocumentType::Trx(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"));
         assert_eq!(None, document_type.as_account());
 
         let account_type = DocumentType::Account(Account::from_str("Assets:A").unwrap());
@@ -190,7 +190,7 @@ mod test {
 
     #[test]
     fn should_return_trx() {
-        let uuid = Uuid::new_v4();
+        let uuid = uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8");
         let document_type = DocumentType::Trx(uuid);
         assert_eq!(Some(uuid.to_string()), document_type.as_trx());
 

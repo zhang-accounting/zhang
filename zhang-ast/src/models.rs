@@ -35,7 +35,7 @@ pub enum DirectiveType {
     BudgetClose,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum Directive {
     Open(Open),
     Close(Close),
@@ -126,7 +126,7 @@ impl Directive {
             Directive::BudgetTransfer(ref mut directive) => directive.meta = meta,
             Directive::BudgetClose(ref mut directive) => directive.meta = meta,
             Directive::Option(_) => {}
-            Directive::Plugin(_) => {}
+            Directive::Plugin(ref mut directive) => directive.meta = meta,
             Directive::Include(_) => {}
             Directive::Comment(_) => {}
         }
@@ -134,13 +134,13 @@ impl Directive {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum StringOrAccount {
     String(ZhangString),
     Account(Account),
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub enum ZhangString {
     UnquoteString(String),
     QuoteString(String),
@@ -167,7 +167,7 @@ impl ZhangString {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum SingleTotalPrice {
     Single(Amount),
     Total(Amount),

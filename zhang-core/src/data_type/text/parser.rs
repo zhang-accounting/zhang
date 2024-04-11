@@ -136,7 +136,11 @@ impl ZhangParser {
         let ret: (ZhangString, Vec<ZhangString>) = match_nodes!(input.into_children();
             [string(module), string(values)..] => (module, values.collect()),
         );
-        Ok(Directive::Plugin(Plugin { module: ret.0, value: ret.1 }))
+        Ok(Directive::Plugin(Plugin {
+            module: ret.0,
+            value: ret.1,
+            meta: Meta::default(),
+        }))
     }
 
     fn option(input: Node) -> Result<Directive> {
@@ -576,6 +580,7 @@ impl ZhangParser {
             [budget_close(item)] => item,
             [budget_add(item)] => item,
             [budget_transfer(item)] => item,
+            [plugin(item)] => item,
         );
         Ok(ret)
     }
@@ -592,7 +597,6 @@ impl ZhangParser {
         };
         let ret: Option<Directive> = match_nodes!(input.into_children();
             [option(item)] => Some(item),
-            [plugin(item)] => Some(item),
             [include(item)] => Some(item),
             [valuable_comment(item)] => Some(Directive::Comment(Comment { content:item })),
 
@@ -862,6 +866,24 @@ mod test {
             if let Directive::Plugin(inner) = directive {
                 assert_eq!(inner.module, quote!("module"));
                 assert_eq!(inner.value, vec![quote!("123"), quote!("345")]);
+            }
+        }
+
+        #[test]
+        fn should_support_meta() {
+            let mut vec = parse(
+                indoc! {r#"
+                            plugin "module" "123" "345"
+                              a: "b"
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            assert!(matches!(directive, Directive::Plugin(..)));
+            if let Directive::Plugin(inner) = directive {
+                assert_eq!(inner.meta.get_one("a"), Some(&quote!("b")));
             }
         }
     }

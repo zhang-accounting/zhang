@@ -250,7 +250,8 @@ impl ZhangDataTypeExportable for Plugin {
         let mut line = vec!["plugin".to_string(), self.module.export()];
         let mut values = self.value.into_iter().map(|it| it.export()).collect_vec();
         line.append(&mut values);
-        line.join(" ")
+
+        append_meta(self.meta, line.join(" "))
     }
 }
 impl ZhangDataTypeExportable for Include {
@@ -599,6 +600,14 @@ mod test {
             "plugin without config",
             indoc! {r#"
             plugin "module name"
+        "#}
+        );
+
+        assert_parse!(
+            "plugin with meta",
+            indoc! {r#"
+            plugin "module name"
+              a: "b"
         "#}
         );
     }

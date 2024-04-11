@@ -25,7 +25,7 @@ impl AccountType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash, serde::Serialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct Account {
     pub account_type: AccountType,
     pub content: String,

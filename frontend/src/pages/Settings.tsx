@@ -1,4 +1,4 @@
-import { Container, Grid, SegmentedControl, Skeleton, Table } from '@mantine/core';
+import { Container, Grid, SegmentedControl, SimpleGrid, Skeleton, Table } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -7,13 +7,15 @@ import Section from '../components/Section';
 import { useAppSelector } from '../states';
 import useSWR from 'swr';
 import { fetcher } from '..';
-import { Option } from '../rest-model';
+import { Option, PluginResponse } from '../rest-model';
 import { Heading } from '../components/basic/Heading';
+import PluginBox from '../components/PluginBox';
 
 export default function Settings() {
   const { i18n } = useTranslation();
   const [lang, setLang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
   const { data } = useSWR<Option[]>('/api/options', fetcher);
+  const { data: plugins } = useSWR<PluginResponse[]>('/api/plugins', fetcher);
 
   const onLanguageChange = (lang: string) => {
     setLang(lang);
@@ -49,6 +51,13 @@ export default function Settings() {
             />
           </Grid.Col>
         </Grid>
+      </Section>
+      <Section title="Plugins">
+        <SimpleGrid cols={2}>
+          {(plugins ?? []).map((plugin) => (
+            <PluginBox name={plugin.name} version={plugin.version} plugin_type={plugin.plugin_type}></PluginBox>
+          ))}
+        </SimpleGrid>
       </Section>
       <Section title="Options">
         <Table verticalSpacing="xs" highlightOnHover>
