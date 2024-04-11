@@ -16,7 +16,7 @@ env:
   # Docker image version
   DOCKER_VERSION: 2.1.1479-p3869
 jobs:
-  release:
+  snapshot-release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +69,7 @@ jobs:
           push: true
           tags: |
             kilerd/zhang:snapshot
-            kilerd/zhang:${GITHUB_SHA}
+            kilerd/zhang:${{ env.GITHUB_SHA }}
       - name: Echo git commit hash to file
         run: |
           mkdir example-deployment
