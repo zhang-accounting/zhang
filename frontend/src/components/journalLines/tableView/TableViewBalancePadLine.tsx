@@ -5,6 +5,7 @@ import { JournalBlancePadItem, JournalItem } from '../../../rest-model';
 import Amount from '../../Amount';
 import { IconZoomExclamation } from '@tabler/icons';
 import { openContextModal } from '@mantine/modals';
+import PayeeNarration from '../../basic/PayeeNarration';
 
 const useStyles = createStyles((theme, _params, getRef) => ({
   payee: {
@@ -72,8 +73,9 @@ export default function TableViewBalancePadLine({ data, onClick }: Props) {
           Pad
         </Badge>
       </td>
-      <td>{data.payee}</td>
-      <td>{data.narration}</td>
+      <td>
+        <PayeeNarration payee={data.payee} narration={data.narration} />
+      </td>
       <td>
         <Group align="center" position="right" spacing="xs" className={classes.positiveAmount}>
           <Amount amount={data.postings[0].account_after_number} currency={data.postings[0].account_after_commodity} />

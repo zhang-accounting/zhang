@@ -5,6 +5,7 @@ import { JournalTransactionItem } from '../../../rest-model';
 import { calculate } from '../../../utils/trx-calculator';
 import Amount from '../../Amount';
 import { openContextModal } from '@mantine/modals';
+import PayeeNarration from '../../basic/PayeeNarration';
 
 const useStyles = createStyles((theme, _params, getRef) => ({
   payee: {
@@ -85,10 +86,9 @@ export default function TableViewTransactionLine({ data }: Props) {
           TRX
         </Badge>
       </td>
-      <td>{data.payee}</td>
       <td>
         <Group align="center" spacing="xs">
-          <span>{data.narration}</span>
+          <PayeeNarration payee={data.payee} narration={data.narration} />
           {hasDocuments && <IconFile size={14} color={'gray'} stroke={1.5}></IconFile>}
         </Group>
       </td>

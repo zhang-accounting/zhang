@@ -5,6 +5,7 @@ import Amount from '../../Amount';
 import BigNumber from 'bignumber.js';
 import { IconZoomExclamation } from '@tabler/icons';
 import { openContextModal } from '@mantine/modals';
+import PayeeNarration from '../../basic/PayeeNarration';
 
 const useStyles = createStyles((theme, _params, getRef) => ({
   payee: {
@@ -80,8 +81,9 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
           Check
         </Badge>
       </td>
-      <td>{data.payee}</td>
-      <td>{data.narration}</td>
+      <td>
+        <PayeeNarration payee={data.payee} narration={data.narration} />
+      </td>
       <td>
         <div className={classes.wrapper}>
           <div className={!isBalanced ? classes.negativeAmount : classes.positiveAmount}>
