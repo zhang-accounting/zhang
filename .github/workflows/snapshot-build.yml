@@ -69,7 +69,7 @@ jobs:
           push: true
           tags: |
             kilerd/zhang:snapshot
-            kilerd/zhang:${{ env.GITHUB_SHA }}
+            kilerd/zhang:snapshot-${{ github.sha }}
       - name: Echo git commit hash to file
         run: |
           mkdir example-deployment
