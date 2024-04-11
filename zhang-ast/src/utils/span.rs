@@ -12,6 +12,17 @@ pub struct SpanInfo {
     pub filename: Option<PathBuf>,
 }
 
+impl SpanInfo {
+    pub fn simple(start: usize, end: usize) -> Self {
+        Self {
+            start,
+            end,
+            content: "".to_string(),
+            filename: None,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Spanned<T: Debug + PartialEq> {
     pub data: T,

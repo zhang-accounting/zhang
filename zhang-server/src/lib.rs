@@ -247,6 +247,7 @@ pub fn create_server_app(
         .route("/api/for-new-transaction", get(get_info_for_new_transactions))
         .route("/api/journals", get(get_journals))
         .route("/api/transactions", post(create_new_transaction))
+        .route("/api/transactions/:transaction_id", put(routes::transaction::update_single_transaction))
         .route("/api/transactions/:transaction_id/documents", post(upload_transaction_document))
         .route("/api/accounts", get(get_account_list))
         .route("/api/accounts/:account_name", get(get_account_info))

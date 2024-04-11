@@ -27,6 +27,10 @@ pub struct OpendalDataSource {
 
 #[async_trait::async_trait]
 impl DataSource for OpendalDataSource {
+    fn export(&self, directive: Directive) -> ZhangResult<Vec<u8>> {
+        Ok(self.data_type.export(Spanned::new(directive, SpanInfo::default())).into_bytes())
+    }
+
     fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
         Ok(self.operator.blocking().read(path.as_str()).expect("cannot read file"))
     }
