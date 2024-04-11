@@ -29,6 +29,9 @@ const useStyles = createStyles((theme, _params, getRef) => ({
   notBalance: {
     borderLeft: '3px solid red',
   },
+  warning: {
+    borderLeft: `3px solid ${theme.colors.orange[7]}`,
+  },
   actionHider: {
     '&:hover': {
       [`& .${getStylesRef('actions')}`]: {
@@ -79,7 +82,7 @@ export default function TableViewTransactionLine({ data }: Props) {
   const summary = calculate(data);
   const hasDocuments = data.metas.some((meta) => meta.key === 'document');
   return (
-    <tr className={`${classes.actionHider} ${!data.is_balanced ? classes.notBalance : ''}`}>
+    <tr className={`${classes.actionHider} ${!data.is_balanced ? classes.notBalance : ''} ${data.flag === '!' ? classes.warning : ''}`}>
       <td>{time}</td>
       <td>
         <Badge color="gray" size="xs" variant="outline">
