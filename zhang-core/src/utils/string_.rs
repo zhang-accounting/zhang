@@ -78,8 +78,9 @@ fn escape_character(c: char) -> String {
 
 #[cfg(test)]
 mod test {
-    use crate::utils::string_::{escape_with_quote, StringExt};
     use zhang_ast::SpanInfo;
+
+    use crate::utils::string_::{escape_with_quote, StringExt};
 
     #[test]
     fn test_escapse_with_quote() {
