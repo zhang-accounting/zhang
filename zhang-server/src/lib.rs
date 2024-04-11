@@ -265,6 +265,7 @@ pub fn create_server_app(
         .route("/api/budgets", get(get_budget_list))
         .route("/api/budgets/:budget_name", get(get_budget_info))
         .route("/api/budgets/:budget_name/interval/:year/:month", get(get_budget_interval_detail))
+        .route("/api/plugins", get(routes::plugin::plugin_list))
         .layer(CorsLayer::permissive())
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */))

@@ -34,7 +34,7 @@ pub struct Ledger {
     pub(crate) trx_counter: AtomicI32,
 
     #[cfg(feature = "plugin_runtime")]
-    pub(crate) plugins: crate::plugin::store::PluginStore,
+    pub plugins: crate::plugin::store::PluginStore,
 }
 
 impl Ledger {

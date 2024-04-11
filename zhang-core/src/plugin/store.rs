@@ -14,9 +14,9 @@ use crate::ZhangResult;
 
 #[derive(Default)]
 pub struct PluginStore {
-    pub(crate) processors: Vec<RegisteredPlugin>,
-    pub(crate) mappers: Vec<RegisteredPlugin>,
-    pub(crate) routers: Vec<RegisteredPlugin>,
+    pub processors: Vec<RegisteredPlugin>,
+    pub mappers: Vec<RegisteredPlugin>,
+    pub routers: Vec<RegisteredPlugin>,
 }
 
 impl PluginStore {
@@ -59,8 +59,8 @@ impl PluginStore {
 
 #[derive(Clone)]
 pub struct RegisteredPlugin {
-    name: String,
-    version: String,
+    pub name: String,
+    pub version: String,
     path: PathBuf,
 }
 

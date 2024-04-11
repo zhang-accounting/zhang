@@ -252,3 +252,9 @@ export interface BudgetIntervalEventPostingResponse {
   inferred_unit_number: string;
   inferred_unit_commodity: string;
 }
+
+export interface PluginResponse {
+  name: string;
+  version: string;
+  plugin_type: string[];
+}

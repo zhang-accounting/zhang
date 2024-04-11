@@ -9,6 +9,7 @@ use uuid::Uuid;
 use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::AccountType;
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, MetaDomain};
+use zhang_core::plugin::PluginType;
 use zhang_core::store::BudgetEvent;
 
 use crate::ServerResult;
@@ -370,4 +371,11 @@ impl BudgetIntervalEventResponse {
             BudgetIntervalEventResponse::Posting(posting) => posting.datetime,
         }
     }
+}
+
+#[derive(Serialize)]
+pub struct PluginResponse {
+    pub name: String,
+    pub version: String,
+    pub plugin_type: Vec<PluginType>,
 }
