@@ -4,8 +4,10 @@ use std::str::FromStr;
 
 use chrono_tz::Tz;
 use itertools::Itertools;
-use log::{error, info, warn};
+use log::error;
+use once_cell::sync::OnceCell;
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
+
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
@@ -36,15 +38,20 @@ pub enum BuiltinOption {
 
 fn detect_timezone() -> String {
     #[cfg(feature = "iana-time-zone")]
-    match iana_time_zone::get_timezone() {
-        Ok(timezone) => {
-            info!("detect system timezone is {}", timezone);
-            timezone
-        }
-        Err(e) => {
-            warn!("cannot get timezone, fall back to use GMT+8 as default timezone: {}", e);
-            DEFAULT_TIMEZONE.to_owned()
-        }
+    {
+        static DETECTED_TZ: OnceCell<String> = OnceCell::new();
+        DETECTED_TZ
+            .get_or_init(|| match iana_time_zone::get_timezone() {
+                Ok(timezone) => {
+                    log::info!("detect system timezone is {}", timezone);
+                    timezone
+                }
+                Err(e) => {
+                    log::warn!("cannot get timezone, fall back to use GMT+8 as default timezone: {}", e);
+                    DEFAULT_TIMEZONE.to_owned()
+                }
+            })
+            .to_string()
     }
     #[cfg(not(feature = "iana-time-zone"))]
     crate::constants::DEFAULT_TIMEZONE.to_owned()
