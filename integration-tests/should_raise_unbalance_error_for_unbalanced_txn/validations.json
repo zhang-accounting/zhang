@@ -26,6 +26,10 @@
       [
         "$.data.records[0].postings[1].unit_number",
         "100"
+      ],
+      [
+        "$.data.records[0].is_balanced",
+        false
       ]
     ]
   }

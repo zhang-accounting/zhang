@@ -10,7 +10,7 @@ use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::AccountType;
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, MetaDomain};
 use zhang_core::plugin::PluginType;
-use zhang_core::store::BudgetEvent;
+use zhang_core::store::{BudgetEvent, PostingDomain};
 
 use crate::ServerResult;
 
@@ -166,6 +166,24 @@ pub struct JournalTransactionPostingResponse {
     pub account_before_commodity: String,
     pub account_after_number: BigDecimal,
     pub account_after_commodity: String,
+}
+
+impl From<PostingDomain> for JournalTransactionPostingResponse {
+    fn from(arm: PostingDomain) -> Self {
+        JournalTransactionPostingResponse {
+            account: arm.account.name().to_owned(),
+            unit_number: arm.unit.as_ref().map(|it| it.number.clone()),
+            unit_commodity: arm.unit.as_ref().map(|it| it.currency.clone()),
+            cost_number: arm.cost.as_ref().map(|it| it.number.clone()),
+            cost_commodity: arm.cost.as_ref().map(|it| it.currency.clone()),
+            inferred_unit_number: arm.inferred_amount.number,
+            inferred_unit_commodity: arm.inferred_amount.currency,
+            account_before_number: arm.previous_amount.number,
+            account_before_commodity: arm.previous_amount.currency,
+            account_after_number: arm.after_amount.number,
+            account_after_commodity: arm.after_amount.currency,
+        }
+    }
 }
 
 #[derive(Serialize)]

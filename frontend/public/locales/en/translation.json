@@ -28,7 +28,8 @@
     "TransactionHasMultipleImplicitPosting": "Transaction has more than one implicit posting unit",
     "CloseNonZeroAccount": "Trying to close an account with non zero balance",
     "MultipleOperatingCurrencyDetect": "Ledger contains multiple operating currency options, which is not recommended in zhang",
-    "DefineDuplicatedBudget": "Trying to define duplicated budget name"
+    "DefineDuplicatedBudget": "Trying to define duplicated budget name",
+    "UnbalancedTransaction": "Transaction is Unbalanced"
   },
   "ACCOUNT_FILTER_PLACEHOLDER": "filter by keyword...",
   "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "clean account filter keyword"
