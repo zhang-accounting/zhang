@@ -7,7 +7,6 @@ use itertools::Itertools;
 use log::error;
 use once_cell::sync::OnceCell;
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
-
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
