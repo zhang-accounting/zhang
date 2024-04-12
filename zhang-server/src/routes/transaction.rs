@@ -9,7 +9,9 @@ use log::info;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
+use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
+use zhang_core::constants::TXN_ID;
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::TransactionDomain;
@@ -60,23 +62,7 @@ pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<Jour
     for journal_item in journals {
         let item = match journal_item.flag {
             Flag::BalancePad => {
-                let postings = journal_item
-                    .postings
-                    .into_iter()
-                    .map(|arm| JournalTransactionPostingResponse {
-                        account: arm.account.name().to_owned(),
-                        unit_number: arm.unit.as_ref().map(|it| it.number.clone()),
-                        unit_commodity: arm.unit.as_ref().map(|it| it.currency.clone()),
-                        cost_number: arm.cost.as_ref().map(|it| it.number.clone()),
-                        cost_commodity: arm.cost.as_ref().map(|it| it.currency.clone()),
-                        inferred_unit_number: arm.inferred_amount.number,
-                        inferred_unit_commodity: arm.inferred_amount.currency,
-                        account_before_number: arm.previous_amount.number,
-                        account_before_commodity: arm.previous_amount.currency,
-                        account_after_number: arm.after_amount.number,
-                        account_after_commodity: arm.after_amount.currency,
-                    })
-                    .collect_vec();
+                let postings = journal_item.postings.into_iter().map(JournalTransactionPostingResponse::from).collect_vec();
                 JournalItemResponse::BalancePad(JournalBalancePadItemResponse {
                     id: journal_item.id,
                     sequence: journal_item.sequence,
@@ -88,23 +74,7 @@ pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<Jour
                 })
             }
             Flag::BalanceCheck => {
-                let postings = journal_item
-                    .postings
-                    .into_iter()
-                    .map(|arm| JournalTransactionPostingResponse {
-                        account: arm.account.name().to_owned(),
-                        unit_number: arm.unit.as_ref().map(|it| it.number.clone()),
-                        unit_commodity: arm.unit.as_ref().map(|it| it.currency.clone()),
-                        cost_number: arm.cost.as_ref().map(|it| it.number.clone()),
-                        cost_commodity: arm.cost.as_ref().map(|it| it.currency.clone()),
-                        inferred_unit_number: arm.inferred_amount.number,
-                        inferred_unit_commodity: arm.inferred_amount.currency,
-                        account_before_number: arm.previous_amount.number,
-                        account_before_commodity: arm.previous_amount.currency,
-                        account_after_number: arm.after_amount.number,
-                        account_after_commodity: arm.after_amount.currency,
-                    })
-                    .collect_vec();
+                let postings = journal_item.postings.into_iter().map(JournalTransactionPostingResponse::from).collect_vec();
                 JournalItemResponse::BalanceCheck(JournalBalanceCheckItemResponse {
                     id: journal_item.id,
                     sequence: journal_item.sequence,
@@ -116,41 +86,28 @@ pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<Jour
                 })
             }
             _ => {
-                let postings = journal_item
-                    .postings
-                    .into_iter()
-                    .map(|arm| JournalTransactionPostingResponse {
-                        account: arm.account.name().to_owned(),
-                        unit_number: arm.unit.as_ref().map(|it| it.number.clone()),
-                        unit_commodity: arm.unit.as_ref().map(|it| it.currency.clone()),
-                        cost_number: arm.cost.as_ref().map(|it| it.number.clone()),
-                        cost_commodity: arm.cost.as_ref().map(|it| it.currency.clone()),
-                        inferred_unit_number: arm.inferred_amount.number,
-                        inferred_unit_commodity: arm.inferred_amount.currency,
-                        account_before_number: arm.previous_amount.number,
-                        account_before_commodity: arm.previous_amount.currency,
-                        account_after_number: arm.after_amount.number,
-                        account_after_commodity: arm.after_amount.currency,
-                    })
-                    .collect_vec();
-                let tags = operations.trx_tags(&journal_item.id)?;
-                let links = operations.trx_links(&journal_item.id)?;
+                let postings = journal_item.postings.into_iter().map(JournalTransactionPostingResponse::from).collect_vec();
                 let metas = operations
                     .metas(MetaType::TransactionMeta, journal_item.id.to_string())
                     .unwrap()
                     .into_iter()
                     .map(|it| it.into())
                     .collect();
+                let has_unbalanced_error = operations
+                    .errors_by_meta(TXN_ID, &journal_item.id.to_string())?
+                    .iter()
+                    .any(|error| error.error_type == ErrorKind::UnbalancedTransaction);
+
                 JournalItemResponse::Transaction(JournalTransactionItemResponse {
                     id: journal_item.id,
                     sequence: journal_item.sequence,
                     datetime: journal_item.datetime.naive_local(),
                     payee: journal_item.payee.unwrap_or_default(),
                     narration: journal_item.narration,
-                    tags,
-                    links,
+                    tags: journal_item.tags,
+                    links: journal_item.links,
                     flag: journal_item.flag.to_string(),
-                    is_balanced: true,
+                    is_balanced: !has_unbalanced_error,
                     postings,
                     metas,
                 })

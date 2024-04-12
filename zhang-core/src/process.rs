@@ -12,7 +12,7 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::utils::inventory::LotInfo;
 use zhang_ast::*;
 
-use crate::constants::{DEFAULT_COMMODITY_PRECISION, DEFAULT_ROUNDING, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
+use crate::constants::{DEFAULT_COMMODITY_PRECISION, DEFAULT_ROUNDING, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING, TXN_ID};
 use crate::domains::schemas::{AccountStatus, MetaType};
 use crate::domains::{AccountAmount, Operations};
 use crate::ledger::Ledger;
@@ -171,18 +171,19 @@ impl DirectiveProcess for Commodity {
 impl DirectiveProcess for Transaction {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
         let mut operations = ledger.operations();
-
+        let id = Uuid::from_span(span);
         let txn_error = operations.check_transaction(self)?;
         if let Some(txn_error) = txn_error {
+            let meta = HashMap::of(TXN_ID, id.to_string());
             match txn_error {
                 e @ (ErrorKind::TransactionHasMultipleImplicitPosting
                 | ErrorKind::TransactionCannotInferTradeAmount
                 | ErrorKind::TransactionExplicitPostingHaveMultipleCommodity) => {
-                    operations.new_error(e, span, HashMap::default())?;
+                    operations.new_error(e, span, meta)?;
                     return Ok(false);
                 }
                 e => {
-                    operations.new_error(e, span, HashMap::default())?;
+                    operations.new_error(e, span, meta)?;
                 }
             }
         }

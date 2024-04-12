@@ -1,0 +1,13 @@
+option "title" "My Accounting"
+option "operating_currency" "CNY"
+
+
+
+1970-01-01 open Assets:A
+1970-01-01 open Expenses:B
+
+
+
+1970-01-02 "A" "A" ^group-txn-1970-01-02
+  Assets:A -10 CNY
+  Expenses:B 100 CNY

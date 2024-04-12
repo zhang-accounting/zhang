@@ -162,7 +162,7 @@ impl Operations {
                     let rounding = commodity.rounding;
                     let decimal = amount.total.round_with(precision as i64, rounding.is_up());
                     if !decimal.is_zero() {
-                        return Ok(Some(ErrorKind::TransactionCannotInferTradeAmount));
+                        return Ok(Some(ErrorKind::UnbalancedTransaction));
                     }
                 }
                 Ok(None)
@@ -597,6 +597,15 @@ impl Operations {
     pub fn errors(&mut self) -> ZhangResult<Vec<ErrorDomain>> {
         let store = self.read();
         Ok(store.errors.iter().cloned().collect_vec())
+    }
+    pub fn errors_by_meta(&mut self, key: &str, value: &str) -> ZhangResult<Vec<ErrorDomain>> {
+        let store = self.read();
+        Ok(store
+            .errors
+            .iter()
+            .filter(|error| error.metas.get(key).map(|v| v.eq(value)).unwrap_or(false))
+            .cloned()
+            .collect_vec())
     }
 
     pub fn account(&mut self, account_name: &str) -> ZhangResult<Option<AccountDomain>> {
