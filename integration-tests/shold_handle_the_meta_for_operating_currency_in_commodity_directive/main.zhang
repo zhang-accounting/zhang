@@ -1,0 +1,6 @@
+option "title" "My Accounting"
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+  precision: "3"
+  prefix: "¥"
