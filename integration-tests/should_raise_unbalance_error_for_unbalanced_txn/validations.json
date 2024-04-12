@@ -1,0 +1,32 @@
+[
+  {
+    "uri": "/api/store",
+    "validations": [
+      [
+        "$.data.errors[0].error_type",
+        "UnbalancedTransaction"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals",
+    "validations": [
+      [
+        "$.data.records.length()",
+        1
+      ],
+      [
+        "$.data.records[0].postings.length()",
+        2
+      ],
+      [
+        "$.data.records[0].postings[0].unit_number",
+        "-10"
+      ],
+      [
+        "$.data.records[0].postings[1].unit_number",
+        "100"
+      ]
+    ]
+  }
+]

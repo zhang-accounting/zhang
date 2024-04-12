@@ -162,7 +162,7 @@ impl Operations {
                     let rounding = commodity.rounding;
                     let decimal = amount.total.round_with(precision as i64, rounding.is_up());
                     if !decimal.is_zero() {
-                        return Ok(Some(ErrorKind::TransactionCannotInferTradeAmount));
+                        return Ok(Some(ErrorKind::UnbalancedTransaction));
                     }
                 }
                 Ok(None)
