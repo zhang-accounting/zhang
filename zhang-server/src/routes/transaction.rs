@@ -133,8 +133,6 @@ pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<Jour
                         account_after_commodity: arm.after_amount.currency,
                     })
                     .collect_vec();
-                let tags = operations.trx_tags(&journal_item.id)?;
-                let links = operations.trx_links(&journal_item.id)?;
                 let metas = operations
                     .metas(MetaType::TransactionMeta, journal_item.id.to_string())
                     .unwrap()
@@ -147,8 +145,8 @@ pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<Jour
                     datetime: journal_item.datetime.naive_local(),
                     payee: journal_item.payee.unwrap_or_default(),
                     narration: journal_item.narration,
-                    tags,
-                    links,
+                    tags: journal_item.tags,
+                    links: journal_item.links,
                     flag: journal_item.flag.to_string(),
                     is_balanced: true,
                     postings,
