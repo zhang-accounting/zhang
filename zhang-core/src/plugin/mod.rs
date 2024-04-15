@@ -1,4 +1,3 @@
-use crate::plugin::http::PluginRequest;
 pub use semver::Version;
 use serde::{Deserialize, Serialize};
 use zhang_ast::{Directive, Spanned};
