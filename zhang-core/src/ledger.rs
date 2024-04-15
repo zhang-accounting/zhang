@@ -101,7 +101,7 @@ impl Ledger {
             }
         }
 
-        // handle plugin
+        // handle option
         for (option, span) in options_directives.iter_mut() {
             option.handler(&mut ret_ledger, span)?;
         }
@@ -116,16 +116,19 @@ impl Ledger {
             {
                 #[cfg(feature = "plugin_runtime")]
                 {
+                    let options = ret_ledger.operations().options()?;
+
                     // execute the plugins of processor type
                     for plugin in ret_ledger.plugins.processors.iter() {
-                        other_directives = plugin.execute_as_processor(other_directives)?;
+                        other_directives = plugin.execute_as_processor(other_directives, &options)?;
                     }
 
                     let mut other_directives = Ledger::sort_directives_datetime(other_directives);
 
                     // execute the plugins of mapper type
                     for plugin in ret_ledger.plugins.mappers.iter() {
-                        let plugin_ret: ZhangResult<Vec<Vec<Spanned<Directive>>>> = other_directives.into_iter().map(|d| plugin.execute_as_mapper(d)).collect();
+                        let plugin_ret: ZhangResult<Vec<Vec<Spanned<Directive>>>> =
+                            other_directives.into_iter().map(|d| plugin.execute_as_mapper(d, &options)).collect();
                         other_directives = plugin_ret?.into_iter().flatten().collect_vec();
                     }
                     Ledger::sort_directives_datetime(other_directives)
