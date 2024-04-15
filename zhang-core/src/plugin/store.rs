@@ -5,9 +5,11 @@ use std::str::FromStr;
 use extism::convert::Json as WasmJson;
 #[cfg(feature = "plugin_runtime")]
 use extism::{Manifest, Plugin as WasmPlugin, Wasm};
+use itertools::Itertools;
 use log::info;
 use zhang_ast::{Directive, Plugin, Spanned};
 
+use crate::domains::schemas::OptionDomain;
 use crate::error::IoErrorIntoZhangError;
 use crate::plugin::PluginType;
 use crate::ZhangResult;
@@ -65,18 +67,19 @@ pub struct RegisteredPlugin {
 }
 
 impl RegisteredPlugin {
-    pub fn load_as_plugin(&self) -> ZhangResult<WasmPlugin> {
+    pub fn load_as_plugin(&self, options: &[OptionDomain]) -> ZhangResult<WasmPlugin> {
         info!("executing the processor plugin {} {}", &self.name, &self.version);
+        let options = options.iter().map(|it| (it.key.as_str(), it.value.as_str())).collect_vec();
         let module_bytes = std::fs::read(&self.path).with_path(self.path.as_path())?;
         let wasm = Wasm::data(module_bytes);
-        let manifest = Manifest::new([wasm]);
+        let manifest = Manifest::new([wasm]).with_config(options.into_iter());
         let plugin = WasmPlugin::new(manifest, [], true).unwrap();
 
         Ok(plugin)
     }
 
-    pub fn execute_as_processor(&self, directive: Vec<Spanned<Directive>>) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let mut plugin = self.load_as_plugin()?;
+    pub fn execute_as_processor(&self, directive: Vec<Spanned<Directive>>, options: &[OptionDomain]) -> ZhangResult<Vec<Spanned<Directive>>> {
+        let mut plugin = self.load_as_plugin(options)?;
         let ret = plugin
             .call::<WasmJson<Vec<Spanned<Directive>>>, WasmJson<Vec<Spanned<Directive>>>>("processor", WasmJson(directive))
             .unwrap()
@@ -84,8 +87,8 @@ impl RegisteredPlugin {
         Ok(ret)
     }
 
-    pub fn execute_as_mapper(&self, directive: Spanned<Directive>) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let mut plugin = self.load_as_plugin()?;
+    pub fn execute_as_mapper(&self, directive: Spanned<Directive>, options: &[OptionDomain]) -> ZhangResult<Vec<Spanned<Directive>>> {
+        let mut plugin = self.load_as_plugin(options)?;
         let ret = plugin
             .call::<WasmJson<Spanned<Directive>>, WasmJson<Vec<Spanned<Directive>>>>("mapper", WasmJson(directive))
             .unwrap()
