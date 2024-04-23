@@ -1,4 +1,4 @@
-name: Release
+name: a
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
 
 jobs:
   create-release:
+    if: ${{ !env.ACT }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,37 +16,15 @@ jobs:
           title: $version
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  upload-assets:
-    name: ${{ matrix.target }}
-    needs:
-      - create-release
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-          - target: aarch64-apple-darwin
-            os: macos-11
-          - target: x86_64-apple-darwin
-            os: macos-11
-
-    # The type of runner that the job will run on
-    # Runs on Ubuntu if other os is not specified above
-    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
-    timeout-minutes: 90
-    permissions:
-      contents: write
+  build-frontend:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: nightly
-
-      - name: create version file
-        run: echo "${{github.ref_name}}" | tail -c+2  >> .build_version
 
       - uses: pnpm/action-setup@v3
         with:
           version: 8
+
       - uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
@@ -55,19 +34,117 @@ jobs:
       - name: frontend install
         run: pnpm install
         working-directory: ./frontend
+
       - name: frontend build
         run: pnpm build
         working-directory: ./frontend
 
-      # Build and upload the binary to the new release
-      - uses: taiki-e/upload-rust-binary-action@v1
+      - uses: actions/upload-artifact@v4
+        name: Save frontend build artifact
         with:
-          bin: zhang
-          target: ${{ matrix.target }}
-          tar: all
-          features: 'frontend'
-          token: ${{ secrets.GITHUB_TOKEN }}
+          name: my-artifact
+          if-no-files-found: error
+          retention-days: 1
+          path: ./frontend/build
 
+  publish-binary-release:
+    name: Binary ${{ matrix.target }} (on ${{ matrix.os }})
+    needs:
+      - create-release
+      - build-frontend
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: ubuntu-latest
+            target: arm-unknown-linux-musleabihf
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: ubuntu-latest
+            target: riscv64gc-unknown-linux-gnu
+            compress: false
+            cargo_flags: "--features frontend"
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: windows-latest
+            target: i686-pc-windows-msvc
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            compress: false
+            cargo_flags: "--features frontend"
+          - os: ubuntu-latest
+            target: x86_64-unknown-freebsd
+            compress: false
+            cargo_flags: "--features frontend"
+
+    # The type of runner that the job will run on
+    # Runs on Ubuntu if other os is not specified above
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: create version file
+        run: echo "${{github.ref_name}}" | tail -c+2  >> .build_version
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - run: sudo apt install musl-tools
+        if: startsWith(matrix.os, 'ubuntu')
+
+      - name: cargo build
+        uses: houseabsolute/actions-rust-cross@v0
+        with:
+          command: build
+          args: --release --locked --bin zhang ${{ matrix.cargo_flags }}
+          target: ${{ matrix.target }}
+
+      - name: Set exe extension for Windows
+        run: echo "EXE=.exe" >> $env:GITHUB_ENV
+        if: startsWith(matrix.os, 'windows')
+
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/zhang{{ env.EXE }}
+
+  
   docker-image-release:
     runs-on: ubuntu-latest
     steps:
