@@ -42,7 +42,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         name: Save frontend build artifact
         with:
-          name: my-artifact
+          name: frontend-build
           if-no-files-found: error
           retention-days: 1
           path: ./frontend/build
@@ -120,6 +120,11 @@ jobs:
       - name: create version file
         run: echo "${{github.ref_name}}" | tail -c+2  >> .build_version
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: ./frontend/build
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -143,7 +148,7 @@ jobs:
         with:
           name: ${{ matrix.target }}
           path: target/${{ matrix.target }}/release/zhang{{ env.EXE }}
-
+  
   
   docker-image-release:
     runs-on: ubuntu-latest
