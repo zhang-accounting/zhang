@@ -118,6 +118,10 @@ jobs:
       - run: sudo apt install musl-tools
         if: startsWith(matrix.os, 'ubuntu')
 
+      - name: Install openssl
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt install pkg-config libssl-dev
+
       - name: cargo build
         uses: houseabsolute/actions-rust-cross@v0
         with:
