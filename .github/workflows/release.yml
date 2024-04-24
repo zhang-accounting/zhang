@@ -128,7 +128,8 @@ jobs:
           command: build
           args: --release --locked --bin zhang ${{ matrix.cargo_flags }}
           target: ${{ matrix.target }}
-
+        env:
+          PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig
       - name: Set exe extension for Windows
         run: echo "EXE=.exe" >> $env:GITHUB_ENV
         if: startsWith(matrix.os, 'windows')
