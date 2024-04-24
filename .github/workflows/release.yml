@@ -120,6 +120,12 @@ jobs:
       - name: create version file
         run: echo "${{github.ref_name}}" | tail -c+2  >> .build_version
 
+      - name: Get version from tag
+        id: extract_version
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        shell: bash
+
       - uses: actions/download-artifact@v4
         with:
           name: frontend-build
@@ -148,7 +154,17 @@ jobs:
         with:
           name: ${{ matrix.target }}
           path: target/${{ matrix.target }}/release/zhang{{ env.EXE }}
-  
+
+      - name: Release
+        uses: svenstaro/upload-release-action@v2
+        # only release if the commit is tagged with version
+        if: startsWith(github.ref_name, 'v') && github.ref_type == 'tag'
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: target/${{ matrix.target }}/release/zhang{{ env.EXE }}
+          tag: ${{ github.ref_name }}
+          asset_name: zhang-${{ steps.extract_version.outputs.version }}-${{ matrix.target }}${{ env.EXE }}
+
   
   docker-image-release:
     runs-on: ubuntu-latest
