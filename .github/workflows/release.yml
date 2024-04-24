@@ -1,13 +1,10 @@
-name: a
+name: Build/publish release
 
-on:
-  push:
-    tags:
-      - "v*"
+on: [ push, pull_request ]
 
 jobs:
   create-release:
-    if: ${{ !env.ACT }}
+    if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +47,6 @@ jobs:
   publish:
     name: Binary ${{ matrix.target }} (on ${{ matrix.os }})
     needs:
-      - create-release
       - build-frontend
     strategy:
       matrix:
@@ -118,6 +114,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: create version file
+        if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag')
         run: echo "${{github.ref_name}}" | tail -c+2  >> .build_version
 
       - name: Get version from tag
@@ -173,7 +170,6 @@ jobs:
     if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag') || github.event.repository.default_branch == github.ref_name
     steps:
       - uses: actions/checkout@v4
-
 
       - name: Download artifact aarch64-unknown-linux-gnu
         uses: actions/download-artifact@v3
@@ -234,8 +230,32 @@ jobs:
         run: podman manifest push zhang docker.io/kilerd/zhang:${{ needs.publish.outputs.version }}
         if: startsWith(github.ref_name, 'v')
 
+  notify-example-build:
+    runs-on: ubuntu-latest
+    needs: docker-image-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Echo git commit hash to file
+        run: |
+          mkdir example-deployment
+          echo "${GITHUB_SHA}" > ./example-deployment/git_sha
+
+      - name: Pushes to another repository
+        uses: cpina/github-action-push-to-another-repository@main
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
+        with:
+          source-directory: 'example-deployment'
+          destination-github-username: 'zhang-accounting'
+          destination-repository-name: 'zhang-example'
+          target-directory: 'example-deployment'
+          user-email: blove694@gmail.com
+          target-branch: main
+
   release-wasm:
     runs-on: ubuntu-latest
+    if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag')
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
