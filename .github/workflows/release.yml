@@ -72,14 +72,6 @@ jobs:
             compress: true
             cargo_flags: "--features frontend"
           - os: ubuntu-latest
-            target: armv7-unknown-linux-musleabihf
-            compress: true
-            cargo_flags: "--features frontend"
-          - os: ubuntu-latest
-            target: armv7-unknown-linux-gnueabihf
-            compress: true
-            cargo_flags: "--features frontend"
-          - os: ubuntu-latest
             target: riscv64gc-unknown-linux-gnu
             compress: false
             cargo_flags: "--features frontend"
@@ -183,12 +175,6 @@ jobs:
           name: x86_64-unknown-linux-gnu
           path: target/x86_64-unknown-linux-gnu/release
 
-      - name: Download artifact armv7-unknown-linux-gnueabihf
-        uses: actions/download-artifact@v3
-        with:
-          name: armv7-unknown-linux-gnueabihf
-          path: target/armv7-unknown-linux-gnueabihf/release
-
       - name: Download artifact aarch64-unknown-linux-musl
         uses: actions/download-artifact@v3
         with:
@@ -201,12 +187,6 @@ jobs:
           name: x86_64-unknown-linux-musl
           path: target/x86_64-unknown-linux-musl/release
 
-      - name: Download artifact armv7-unknown-linux-musleabihf
-        uses: actions/download-artifact@v3
-        with:
-          name: armv7-unknown-linux-musleabihf
-          path: target/armv7-unknown-linux-musleabihf/release
-
       - name: podman login
         run: podman login --username ${{ secrets.DOCKERHUB_USERNAME }} --password ${{ secrets.DOCKERHUB_TOKEN }} docker.io
 
@@ -215,9 +195,6 @@ jobs:
 
       - name: podman build linux/amd64
         run: podman build --format docker --platform linux/amd64 --manifest zhang -f Dockerfile target/x86_64-unknown-linux-gnu/release
-
-      - name: podman build linux/arm
-        run: podman build --format docker --platform linux/arm/v7 --manifest zhang -f Dockerfile target/armv7-unknown-linux-gnueabihf/release
 
       - name: podman manifest push latest
         run: podman manifest push zhang docker.io/kilerd/zhang:snapshot
