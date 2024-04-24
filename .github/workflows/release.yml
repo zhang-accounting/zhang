@@ -52,6 +52,7 @@ jobs:
     name: Binary ${{ matrix.target }} (on ${{ matrix.os }})
     needs:
       - build-frontend
+    continue-on-error: true
     strategy:
       matrix:
         include:
