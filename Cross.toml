@@ -3,3 +3,9 @@ pre-build = [
     "dpkg --add-architecture arm64",
     "apt-get update && apt-get install --assume-yes libssl-dev:arm64"
 ]
+
+[target.riscv64gc-unknown-linux-gnu]
+pre-build = [
+    "dpkg --add-architecture riscv64",
+    "apt-get update && apt-get install --assume-yes libssl-dev:riscv64"
+]

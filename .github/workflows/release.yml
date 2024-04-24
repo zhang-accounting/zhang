@@ -72,10 +72,6 @@ jobs:
             target: x86_64-pc-windows-msvc
             compress: true
             cargo_flags: "--features frontend"
-          - os: windows-latest
-            target: i686-pc-windows-msvc
-            compress: true
-            cargo_flags: "--features frontend"
           - os: macos-latest
             target: x86_64-apple-darwin
             compress: true
@@ -129,7 +125,7 @@ jobs:
           command: build
           args: --release --locked --bin zhang ${{ matrix.cargo_flags }}
           target: ${{ matrix.target }}
-   
+
       - name: Set exe extension for Windows
         run: echo "EXE=.exe" >> $env:GITHUB_ENV
         if: startsWith(matrix.os, 'windows')
