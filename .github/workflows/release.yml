@@ -47,7 +47,7 @@ jobs:
           retention-days: 1
           path: ./frontend/build
 
-  publish-binary-release:
+  publish:
     name: Binary ${{ matrix.target }} (on ${{ matrix.os }})
     needs:
       - create-release
@@ -164,66 +164,75 @@ jobs:
           file: target/${{ matrix.target }}/release/zhang{{ env.EXE }}
           tag: ${{ github.ref_name }}
           asset_name: zhang-${{ steps.extract_version.outputs.version }}-${{ matrix.target }}${{ env.EXE }}
-
+  
   
   docker-image-release:
     runs-on: ubuntu-latest
+    needs: publish
+    # Run for tags and pushes to the default branch
+    if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag') || github.event.repository.default_branch == github.ref_name
     steps:
       - uses: actions/checkout@v4
-      - name: create version file
-        run: echo "${{github.ref_name}}" | tail -c+2  >> .build_version
 
-      - uses: pnpm/action-setup@v3
+
+      - name: Download artifact aarch64-unknown-linux-gnu
+        uses: actions/download-artifact@v3
         with:
-          version: 8
-      - uses: actions/setup-node@v4
+          name: aarch64-unknown-linux-gnu
+          path: target/aarch64-unknown-linux-gnu/release
+
+      - name: Download artifact x86_64-unknown-linux-gnu
+        uses: actions/download-artifact@v3
         with:
-          node-version: 'lts/*'
-          cache: 'pnpm'
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          name: x86_64-unknown-linux-gnu
+          path: target/x86_64-unknown-linux-gnu/release
 
-      - name: frontend install
-        run: pnpm install
-        working-directory: ./frontend
-      - name: frontend build
-        run: pnpm build
-        working-directory: ./frontend
-
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Download artifact armv7-unknown-linux-gnueabihf
+        uses: actions/download-artifact@v3
         with:
-          toolchain: nightly
+          name: armv7-unknown-linux-gnueabihf
+          path: target/armv7-unknown-linux-gnueabihf/release
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to DockerHub
-        uses: docker/login-action@v3
+      - name: Download artifact aarch64-unknown-linux-musl
+        uses: actions/download-artifact@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          name: aarch64-unknown-linux-musl
+          path: target/aarch64-unknown-linux-musl/release
 
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Download artifact x86_64-unknown-linux-musl
+        uses: actions/download-artifact@v3
         with:
-          images: |
-            kilerd/zhang
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+          name: x86_64-unknown-linux-musl
+          path: target/x86_64-unknown-linux-musl/release
 
-      - name: Build and push
-        uses: docker/build-push-action@v5
+      - name: Download artifact armv7-unknown-linux-musleabihf
+        uses: actions/download-artifact@v3
         with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          name: armv7-unknown-linux-musleabihf
+          path: target/armv7-unknown-linux-musleabihf/release
+
+      - name: podman login
+        run: podman login --username ${{ secrets.DOCKERHUB_USERNAME }} --password ${{ secrets.DOCKERHUB_TOKEN }} docker.io
+
+      - name: podman build linux/arm64
+        run: podman build --format docker --platform linux/arm64/v8 --manifest zhang -f Dockerfile target/aarch64-unknown-linux-gnu/release
+
+      - name: podman build linux/amd64
+        run: podman build --format docker --platform linux/amd64 --manifest zhang -f Dockerfile target/x86_64-unknown-linux-gnu/release
+
+      - name: podman build linux/arm
+        run: podman build --format docker --platform linux/arm/v7 --manifest zhang -f Dockerfile target/armv7-unknown-linux-gnueabihf/release
+
+      - name: podman manifest push latest
+        run: podman manifest push zhang docker.io/kilerd/zhang:snapshot
+
+      - name: podman manifest push latest
+        run: podman manifest push zhang docker.io/kilerd/zhang:latest
+        if: startsWith(github.ref_name, 'v')
+
+      - name: podman manifest push tag version
+        run: podman manifest push zhang docker.io/kilerd/zhang:${{ needs.publish.outputs.version }}
+        if: startsWith(github.ref_name, 'v')
 
   release-wasm:
     runs-on: ubuntu-latest
