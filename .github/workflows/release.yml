@@ -76,10 +76,6 @@ jobs:
             compress: true
             cargo_flags: "--features frontend"
           - os: ubuntu-latest
-            target: arm-unknown-linux-musleabihf
-            compress: true
-            cargo_flags: "--features frontend"
-          - os: ubuntu-latest
             target: riscv64gc-unknown-linux-gnu
             compress: false
             cargo_flags: "--features frontend"
