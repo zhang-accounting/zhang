@@ -129,8 +129,7 @@ jobs:
           command: build
           args: --release --locked --bin zhang ${{ matrix.cargo_flags }}
           target: ${{ matrix.target }}
-        env:
-          PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig
+   
       - name: Set exe extension for Windows
         run: echo "EXE=.exe" >> $env:GITHUB_ENV
         if: startsWith(matrix.os, 'windows')
@@ -140,7 +139,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/zhang{{ env.EXE }}
+          path: target/${{ matrix.target }}/release/zhang${{ env.EXE }}
 
       - name: Release
         uses: svenstaro/upload-release-action@v2
@@ -148,7 +147,7 @@ jobs:
         if: startsWith(github.ref_name, 'v') && github.ref_type == 'tag'
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: target/${{ matrix.target }}/release/zhang{{ env.EXE }}
+          file: target/${{ matrix.target }}/release/zhang${{ env.EXE }}
           tag: ${{ github.ref_name }}
           asset_name: zhang-${{ steps.extract_version.outputs.version }}-${{ matrix.target }}${{ env.EXE }}
   
