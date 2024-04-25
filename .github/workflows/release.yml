@@ -64,10 +64,10 @@ jobs:
             target: aarch64-unknown-linux-gnu
             compress: true
             cargo_flags: "--features frontend"
-          - os: ubuntu-latest
-            target: riscv64gc-unknown-linux-gnu
-            compress: false
-            cargo_flags: "--features frontend"
+          #          - os: ubuntu-latest
+          #            target: riscv64gc-unknown-linux-gnu
+          #            compress: false
+          #            cargo_flags: "--features frontend"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             compress: true
