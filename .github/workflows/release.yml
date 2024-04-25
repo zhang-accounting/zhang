@@ -1,12 +1,14 @@
-name: Release
+name: Build/publish release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+  pull_request:
 
 jobs:
   create-release:
+    if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,18 +17,73 @@ jobs:
           title: $version
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  upload-assets:
-    name: ${{ matrix.target }}
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: frontend install
+        run: pnpm install
+        working-directory: ./frontend
+
+      - name: frontend build
+        run: pnpm build
+        working-directory: ./frontend
+
+      - uses: actions/upload-artifact@v4
+        name: Save frontend build artifact
+        with:
+          name: frontend-build
+          if-no-files-found: error
+          retention-days: 1
+          path: ./frontend/build
+
+  publish:
+    name: Binary ${{ matrix.target }} (on ${{ matrix.os }})
     needs:
-      - create-release
+      - build-frontend
+    continue-on-error: true
     strategy:
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-          - target: aarch64-apple-darwin
-            os: macos-11
-          - target: x86_64-apple-darwin
-            os: macos-11
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            compress: true
+            cargo_flags: "--features frontend"
+          #          - os: ubuntu-latest
+          #            target: riscv64gc-unknown-linux-gnu
+          #            compress: false
+          #            cargo_flags: "--features frontend"
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            compress: true
+            cargo_flags: "--features frontend"
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            compress: false
+            cargo_flags: "--features frontend"
+          - os: ubuntu-latest
+            target: x86_64-unknown-freebsd
+            compress: false
+            cargo_flags: "--features frontend"
 
     # The type of runner that the job will run on
     # Runs on Ubuntu if other os is not specified above
@@ -36,99 +93,128 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: nightly
 
       - name: create version file
+        if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag')
         run: echo "${{github.ref_name}}" | tail -c+2  >> .build_version
 
-      - uses: pnpm/action-setup@v3
-        with:
-          version: 8
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 'lts/*'
-          cache: 'pnpm'
-          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Get version from tag
+        id: extract_version
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        shell: bash
 
-      - name: frontend install
-        run: pnpm install
-        working-directory: ./frontend
-      - name: frontend build
-        run: pnpm build
-        working-directory: ./frontend
-
-      # Build and upload the binary to the new release
-      - uses: taiki-e/upload-rust-binary-action@v1
+      - uses: actions/download-artifact@v4
         with:
-          bin: zhang
+          name: frontend-build
+          path: ./frontend/build
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - run: sudo apt install musl-tools
+        if: startsWith(matrix.os, 'ubuntu')
+
+      - name: Install openssl
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt install pkg-config libssl-dev
+
+      - name: cargo build
+        uses: houseabsolute/actions-rust-cross@v0
+        with:
+          command: build
+          args: --release --locked --bin zhang ${{ matrix.cargo_flags }}
           target: ${{ matrix.target }}
-          tar: all
-          features: 'frontend'
-          token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set exe extension for Windows
+        run: echo "EXE=.exe" >> $env:GITHUB_ENV
+        if: startsWith(matrix.os, 'windows')
+
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/zhang${{ env.EXE }}
+
+      - name: Release
+        uses: svenstaro/upload-release-action@v2
+        # only release if the commit is tagged with version
+        if: startsWith(github.ref_name, 'v') && github.ref_type == 'tag'
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: target/${{ matrix.target }}/release/zhang${{ env.EXE }}
+          tag: ${{ github.ref_name }}
+          asset_name: zhang-${{ steps.extract_version.outputs.version }}-${{ matrix.target }}${{ env.EXE }}
+  
+  
   docker-image-release:
     runs-on: ubuntu-latest
+    needs: publish
+    # Run for tags and pushes to the default branch
+    if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag') || github.event.repository.default_branch == github.ref_name
     steps:
       - uses: actions/checkout@v4
-      - name: create version file
-        run: echo "${{github.ref_name}}" | tail -c+2  >> .build_version
 
-      - uses: pnpm/action-setup@v3
+      - name: Download artifact aarch64-unknown-linux-gnu
+        uses: actions/download-artifact@v3
         with:
-          version: 8
-      - uses: actions/setup-node@v4
+          name: aarch64-unknown-linux-gnu
+          path: target/aarch64-unknown-linux-gnu/release
+
+      - name: Download artifact x86_64-unknown-linux-gnu
+        uses: actions/download-artifact@v3
         with:
-          node-version: 'lts/*'
-          cache: 'pnpm'
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          name: x86_64-unknown-linux-gnu
+          path: target/x86_64-unknown-linux-gnu/release
 
-      - name: frontend install
-        run: pnpm install
-        working-directory: ./frontend
-      - name: frontend build
-        run: pnpm build
-        working-directory: ./frontend
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: podman login
+        run: podman login --username ${{ secrets.DOCKERHUB_USERNAME }} --password ${{ secrets.DOCKERHUB_TOKEN }} docker.io
+
+      - name: podman build linux/arm64
+        run: podman build --format docker --platform linux/arm64/v8 --manifest zhang -f Dockerfile target/aarch64-unknown-linux-gnu/release
+
+      - name: podman build linux/amd64
+        run: podman build --format docker --platform linux/amd64 --manifest zhang -f Dockerfile target/x86_64-unknown-linux-gnu/release
+
+      - name: podman manifest push latest
+        run: podman manifest push zhang docker.io/kilerd/zhang:snapshot
+
+      - name: podman manifest push latest
+        run: podman manifest push zhang docker.io/kilerd/zhang:latest
+        if: startsWith(github.ref_name, 'v')
+
+      - name: podman manifest push tag version
+        run: podman manifest push zhang docker.io/kilerd/zhang:${{ needs.publish.outputs.version }}
+        if: startsWith(github.ref_name, 'v')
+
+  notify-example-build:
+    runs-on: ubuntu-latest
+    needs: docker-image-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Echo git commit hash to file
+        run: |
+          mkdir example-deployment
+          echo "${GITHUB_SHA}" > ./example-deployment/git_sha
+
+      - name: Pushes to another repository
+        uses: cpina/github-action-push-to-another-repository@main
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
         with:
-          toolchain: nightly
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            kilerd/zhang
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          source-directory: 'example-deployment'
+          destination-github-username: 'zhang-accounting'
+          destination-repository-name: 'zhang-example'
+          target-directory: 'example-deployment'
+          user-email: blove694@gmail.com
+          target-branch: main
 
   release-wasm:
     runs-on: ubuntu-latest
+    if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag')
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
