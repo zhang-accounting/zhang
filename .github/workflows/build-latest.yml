@@ -1,4 +1,4 @@
-name: Develop Build
+name: Develop Check
 
 on:
   push:

@@ -2,7 +2,7 @@
 name = "zhang-wasm"
 version = "0.1.1"
 authors = ["Kilerd <blove694@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -28,12 +28,10 @@ wee_alloc = { version = "0.4.5", optional = true }
 zhang-core = { path = "../../zhang-core", features = ["wasm"] }
 zhang-ast = { path = "../../zhang-ast" }
 beancount = { path = "../../extensions/beancount" }
-serde_json = "1"
-serde = { version = "1.0", features = ["derive"] }
+serde_json = { workspace = true }
+serde = { workspace = true }
 serde-wasm-bindgen = "0.6"
 [dev-dependencies]
 wasm-bindgen-test = "0.3.13"
 
-[profile.release]
-# Tell `rustc` to optimize for small code size.
-opt-level = "s"
+

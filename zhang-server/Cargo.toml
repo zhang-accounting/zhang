@@ -14,32 +14,33 @@ frontend = ["rust-embed"]
 zhang-core = { version = "0.1", path = "../zhang-core", features = ["plugin_runtime"] }
 zhang-ast = { version = "0.1", path = "../zhang-ast" }
 
-base64 = "0.22"
+base64 = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+log = { workspace = true }
+itertools = { workspace = true }
+bigdecimal = { workspace = true }
+indexmap = { workspace = true }
+strum = { workspace = true }
+serde_json = { workspace = true }
+chrono-tz = { workspace = true }
+axum = { workspace = true }
+bytes = { workspace = true }
+
 crossbeam-channel = "0.5.2"
 rust-embed = { version = "8.3", optional = true }
-serde = { version = "1", features = ["derive"] }
-thiserror = "1"
-tokio = { version = "1", features = ['macros', "tracing", "rt-multi-thread"] }
-tokio-util = { version = "0.7", features = ["io", "compat"] }
-log = "0.4"
 futures = "0.3"
 futures-util = "0.3"
 notify = "6"
 now = "0.1"
 reqwest = { version = "0.11", features = ["json"] }
-itertools = "0.12"
-bigdecimal = { version = "0.4", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-indexmap = { version = "2.2", features = ["serde"] }
 mime_guess = "2"
 self_update = "0.39"
-strum = "0.26"
-serde_json = "1"
-chrono-tz = "0.8"
-axum = { version = "0.7", features = ["macros", "multipart"] }
 tower-http = { version = "0.5.0", features = ["cors", "limit", "auth"] }
-bytes = "1.4.0"
 async-stream = "0.3.5"
 
 [build-dependencies]

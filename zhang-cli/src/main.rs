@@ -182,7 +182,15 @@ async fn main() {
         .parse_env(env)
         .init();
     let opts = Opts::parse();
-    opts.run().await;
+
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            info!("receive ctrl+c, exit");
+        }
+        _ = opts.run() => {
+            println!("operation completed");
+        }
+    }
 }
 
 #[cfg(test)]
