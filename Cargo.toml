@@ -10,5 +10,37 @@ members = [
     "bindings/wasm",
 ]
 
+[workspace.dependencies]
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { version = "1", features = ['macros', "tracing", "rt-multi-thread"] }
+tokio-util = { version = "0.7", features = ["io", "compat"] }
+log = "0.4"
+itertools = "0.12"
+strum = { version = "0.26", features = ["derive"] }
+bigdecimal = { version = "0.4", features = ["serde"] }
+indexmap = { version = "2.2", features = ["serde"] }
+axum = { version = "0.7", features = ["macros", "multipart"] }
+bytes = "1.6.0"
+chrono-tz = "0.8"
+http = "1.1"
+async-trait = "0.1"
+
+pest = "2.1"
+pest_consume = "1.1"
+pest_derive = "2.1"
+
+openssl = { version = "0.10", features = ["vendored"] }
+
+
+
 [profile.dev]
 split-debuginfo = "unpacked"
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"
+
+
