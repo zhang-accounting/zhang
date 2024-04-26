@@ -9,13 +9,14 @@ edition = "2021"
 serde = ["chrono-tz/serde"]
 
 [dependencies]
-serde = { version = "1.0.136", features = ["derive"] }
-strum = { version = "0.26", features = ["derive"] }
-indexmap = { version = "2.2", features = ["serde"] }
-itertools = "0.12"
+serde = { workspace = true }
+itertools = { workspace = true }
+strum = { workspace = true }
+indexmap = { workspace = true }
+bigdecimal = { workspace = true }
+chrono-tz = { workspace = true }
+
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
-bigdecimal = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.8"
 
 [dev-dependencies]
 indoc = "2"

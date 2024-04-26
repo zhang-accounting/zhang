@@ -1,8 +1,6 @@
 FROM gcr.io/distroless/cc-debian12
 LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
 
-RUN mkdir /application
-RUN mkdir /data
 
 COPY --chmod=755 zhang /application/
 
