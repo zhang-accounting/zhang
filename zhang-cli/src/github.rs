@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use http2::{Request, Response, StatusCode};
 use log::info;
@@ -179,7 +180,7 @@ impl GithubWriter {
 impl oio::OneShotWrite for GithubWriter {
     async fn write_once(&self, bs: &dyn WriteBuf) -> opendal::Result<()> {
         let bytes = bs.bytes(bs.remaining());
-        let encoded_content = base64::encode(bytes);
+        let encoded_content = general_purpose::STANDARD.encode(bytes);
         let sha = self.core.get_file_sha(&self.path).await?;
         let request_body = CreateOrUpdateFileRequest {
             message: "updated by zhang-server".to_string(),
