@@ -11,18 +11,21 @@ use tokio::sync::RwLock;
 use zhang_core::ledger::Ledger;
 
 use crate::response::{DocumentResponse, ResponseWrapper};
+use crate::util::cacheable_data;
 use crate::ApiResult;
 
 pub async fn download_document(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> impl IntoResponse {
     let encoded_file_path = path.0 .0;
-    let filename = String::from_utf8(BASE64_STANDARD.decode(encoded_file_path).unwrap()).unwrap();
+    let filename = String::from_utf8(BASE64_STANDARD.decode(&encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
     let entry = &ledger.entry.0;
     let full_path = entry.join(filename);
     let striped_path = full_path.strip_prefix(entry).unwrap();
     let file_name = striped_path.file_name().unwrap().to_string_lossy().to_string();
-    let vec = ledger.data_source.async_get(striped_path.to_string_lossy().to_string()).await.unwrap();
-    let bytes = Bytes::from(vec);
+    let content = cacheable_data(&encoded_file_path, ledger.data_source.async_get(striped_path.to_string_lossy().to_string()))
+        .await
+        .expect("cannot get file data");
+    let bytes = Bytes::from(content);
     let headers = AppendHeaders([(header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", file_name))]);
     (headers, bytes)
 }
