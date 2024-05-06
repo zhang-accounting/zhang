@@ -6,7 +6,7 @@ use async_recursion::async_recursion;
 use beancount::Beancount;
 use log::{debug, error, info};
 use opendal::services::{Fs, Webdav};
-use opendal::{ErrorKind, Operator};
+use opendal::Operator;
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 use zhang_core::data_source::{DataSource, LoadResult};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
@@ -77,12 +77,8 @@ impl DataSource for OpendalDataSource {
         match result {
             Ok(data) => Ok(data),
             Err(err) => {
-                if err.kind() == ErrorKind::NotFound {
-                    Ok(Vec::new())
-                } else {
-                    error!("cannot get content from {}: {}", &path, &err);
-                    Ok(Vec::new())
-                }
+                error!("cannot get content from {}: {}", &path, &err);
+                Err(ZhangError::CustomError("error on getting file content"))
             }
         }
     }
