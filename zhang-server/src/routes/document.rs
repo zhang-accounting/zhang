@@ -7,6 +7,7 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use bytes::Bytes;
 use itertools::Itertools;
+use log::info;
 use tokio::sync::RwLock;
 use zhang_core::ledger::Ledger;
 
@@ -22,9 +23,12 @@ pub async fn download_document(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(S
     let full_path = entry.join(filename);
     let striped_path = full_path.strip_prefix(entry).unwrap();
     let file_name = striped_path.file_name().unwrap().to_string_lossy().to_string();
-    let content = cacheable_data(&encoded_file_path, ledger.data_source.async_get(striped_path.to_string_lossy().to_string()))
-        .await
-        .expect("cannot get file data");
+    let content = cacheable_data(&encoded_file_path, async {
+        info!("loading file [{:?}] data from remote...", &striped_path);
+        ledger.data_source.async_get(striped_path.to_string_lossy().to_string()).await
+    })
+    .await
+    .expect("cannot get file data");
     let bytes = Bytes::from(content);
     let headers = AppendHeaders([(header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", file_name))]);
     (headers, bytes)
