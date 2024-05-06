@@ -4,7 +4,6 @@ use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use zhang_core::domains::schemas::{AccountBalanceDomain, AccountDailyBalanceDomain};
-use zhang_core::error::IoErrorIntoZhangError;
 use zhang_core::ZhangResult;
 
 pub trait AmountLike {
@@ -41,15 +40,15 @@ where
     let data_cache_folder = PathBuf::from_str(".cache/data").expect("Cannot create path");
 
     // create data cache folder if not exist
-    std::fs::create_dir_all(&data_cache_folder).with_path(data_cache_folder.as_path())?;
+    tokio::fs::create_dir_all(&data_cache_folder).await?;
 
     let target_file = data_cache_folder.join(id);
 
-    let vec = match std::fs::read(&target_file) {
+    let vec = match tokio::fs::read(&target_file).await {
         Ok(data) => data,
         _ => {
             let fetched_data = miss_fn.await?;
-            std::fs::write(&target_file, &fetched_data).with_path(target_file.as_path())?;
+            tokio::fs::write(&target_file, &fetched_data).await?;
             fetched_data
         }
     };
