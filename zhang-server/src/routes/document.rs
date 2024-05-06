@@ -20,12 +20,12 @@ pub async fn download_document(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(S
     let filename = String::from_utf8(BASE64_STANDARD.decode(&encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
     let entry = &ledger.entry.0;
-    let full_path = entry.join(filename);
-    let striped_path = full_path.strip_prefix(entry).unwrap();
-    let file_name = striped_path.file_name().unwrap().to_string_lossy().to_string();
+    let full_path = dbg!(entry.join(filename));
+    let striped_path = dbg!(full_path.strip_prefix(entry).unwrap());
+    let file_name = dbg!(striped_path.file_name().unwrap().to_string_lossy().to_string());
     let content = cacheable_data(&encoded_file_path, async {
         info!("loading file [{:?}] data from remote...", &striped_path);
-        ledger.data_source.async_get(striped_path.to_string_lossy().to_string()).await
+        ledger.data_source.async_get(dbg!(striped_path.to_string_lossy().to_string())).await
     })
     .await
     .expect("cannot get file data");
