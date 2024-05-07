@@ -8,7 +8,6 @@ import BudgetLine from './BudgetLine';
 import BigNumber from 'bignumber.js';
 import Amount from '../Amount';
 import BackgroundProgress from '../basic/BackgroundProgress';
-import { max } from 'lodash-es';
 
 interface Props {
   name: string;
