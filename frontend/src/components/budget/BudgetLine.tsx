@@ -10,7 +10,9 @@ interface Props extends BudgetListItem {}
 
 export default function BudgetLine(props: Props) {
   const navigate = useNavigate();
-  let number = new BigNumber(props.activity_amount.number).div(new BigNumber(props.assigned_amount.number)).multipliedBy(100).toPrecision(2);
+  let number = BigNumber.minimum(new BigNumber(props.activity_amount.number).div(new BigNumber(props.assigned_amount.number)).multipliedBy(100), 100).toFormat(
+    2,
+  );
   return (
     <tr style={{ position: 'relative', zIndex: 1 }}>
       <td>
@@ -22,6 +24,7 @@ export default function BudgetLine(props: Props) {
           </div>
         </Group>
       </td>
+      <td style={{ textAlign: 'end' }}>{number} %</td>
       <td style={{ textAlign: 'end' }}>
         <Amount amount={props.assigned_amount.number} currency={props.assigned_amount.currency} />
       </td>

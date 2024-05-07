@@ -108,7 +108,7 @@ export default function TransactionEditForm(props: Props) {
   if (error) return <div>failed to load</div>;
   if (!data) return <div>loading...</div>;
 
-  const accountItems = data.account_name.map((singleAccountName) => {
+  const accountItems = data.account_name.sort().map((singleAccountName) => {
     const type = singleAccountName.split(':')[0];
     return {
       label: singleAccountName,

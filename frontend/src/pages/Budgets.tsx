@@ -61,6 +61,7 @@ export default function Budgets() {
         <thead>
           <tr>
             <th>Category</th>
+            <th style={{ textAlign: 'end' }}>Percentage</th>
             <th style={{ textAlign: 'end' }}>Assigned</th>
             <th style={{ textAlign: 'end' }}>Activity</th>
             <th style={{ textAlign: 'end' }}>Available</th>

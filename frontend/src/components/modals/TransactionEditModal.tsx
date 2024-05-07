@@ -23,6 +23,7 @@ export const TransactionEditModal = ({
           title: 'transaction is updated',
           message: '',
         });
+        context.closeModal('transactionEditModal');
       })
       .catch(function (error) {
         showNotification({
