@@ -8,6 +8,7 @@ import BudgetLine from './BudgetLine';
 import BigNumber from 'bignumber.js';
 import Amount from '../Amount';
 import BackgroundProgress from '../basic/BackgroundProgress';
+import { max } from 'lodash-es';
 
 interface Props {
   name: string;
@@ -42,7 +43,10 @@ export default function BudgetCategory(props: Props) {
     }),
     { number: new BigNumber(0), commodity: '' },
   );
-  let number = new BigNumber(activity_amount.number).div(new BigNumber(assigned_amount.number)).multipliedBy(100).toPrecision(2);
+  let number = BigNumber.minimum(
+    new BigNumber(activity_amount.number).div(new BigNumber(assigned_amount.number)).multipliedBy(100),
+    new BigNumber(100),
+  ).toFormat(2);
 
   return (
     <>
@@ -55,6 +59,9 @@ export default function BudgetCategory(props: Props) {
             </ActionIcon>{' '}
             <b>{props.name}</b>
           </div>
+        </td>
+        <td style={{ textAlign: 'end' }}>
+          <b>{number} %</b>
         </td>
         <td style={{ textAlign: 'end' }}>
           <b>
