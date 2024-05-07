@@ -33,6 +33,9 @@ pub enum ZhangError {
     #[error("invalid content encoding: {0}")]
     ContentEncodingError(#[from] std::string::FromUtf8Error),
 
+    #[error("file not found")]
+    FileNotFound,
+
     #[error("custom error: {0}")]
     CustomError(&'static str),
 }
