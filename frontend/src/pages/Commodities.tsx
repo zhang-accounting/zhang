@@ -20,7 +20,13 @@ export default function Commodities() {
 
       {FRONTEND_DEFAULT_GROUP in groupedCommodities && (
         <Box mt={'lg'}>
-          <SimpleGrid cols={4}>
+          <SimpleGrid
+            cols={4}
+            breakpoints={[
+              { maxWidth: 'md', cols: 2, spacing: 'md' },
+              { maxWidth: 'sm', cols: 1, spacing: 'sm' },
+            ]}
+          >
             {groupedCommodities[FRONTEND_DEFAULT_GROUP].map((commodity) => (
               <CommodityBox {...commodity} operating_currency={false}></CommodityBox>
             ))}
@@ -35,7 +41,13 @@ export default function Commodities() {
             <Title fw={500} order={5} color={'dimmed'}>
               {groupName}
             </Title>
-            <SimpleGrid cols={4}>
+            <SimpleGrid
+              cols={4}
+              breakpoints={[
+                { maxWidth: 'md', cols: 2, spacing: 'md' },
+                { maxWidth: 'sm', cols: 1, spacing: 'sm' },
+              ]}
+            >
               {groupedCommodities[groupName].map((commodity) => (
                 <CommodityBox {...commodity} operating_currency={false}></CommodityBox>
               ))}
