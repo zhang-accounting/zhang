@@ -236,6 +236,8 @@ pub struct CommodityListItemResponse {
     pub prefix: Option<String>,
     pub suffix: Option<String>,
     pub rounding: String,
+    pub group: Option<String>,
+
     pub total_amount: BigDecimal,
     pub latest_price_date: Option<NaiveDateTime>,
     pub latest_price_amount: Option<BigDecimal>,

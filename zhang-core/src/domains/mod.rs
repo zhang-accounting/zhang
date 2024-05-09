@@ -413,6 +413,17 @@ impl Operations {
             .collect_vec())
     }
 
+    pub fn meta(&self, type_: MetaType, type_identifier: impl AsRef<str>, key: impl AsRef<str>) -> ZhangResult<Option<MetaDomain>> {
+        let store = self.read();
+        Ok(store
+            .metas
+            .iter()
+            .filter(|meta| meta.meta_type.eq(type_.as_ref()))
+            .filter(|meta| meta.type_identifier.eq(type_identifier.as_ref()))
+            .find(|meta| meta.key.eq(key.as_ref()))
+            .cloned())
+    }
+
     pub fn trx_tags(&mut self, trx_id: &Uuid) -> ZhangResult<Vec<String>> {
         let store = self.read();
         let tags = store.transactions.get(trx_id).map(|it| it.tags.clone()).unwrap_or_default();
