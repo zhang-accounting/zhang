@@ -73,6 +73,7 @@ export interface CommodityListItem {
   suffix: string;
   rounding: string;
   total_amount: string;
+  group?: string;
   latest_price_date: string;
   latest_price_amount: string;
   latest_price_commodity: string;
