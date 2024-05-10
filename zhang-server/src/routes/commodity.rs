@@ -3,7 +3,8 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use itertools::Itertools;
 use tokio::sync::RwLock;
-use zhang_core::domains::schemas::CommodityDomain;
+use zhang_core::constants::COMMODITY_GROUP;
+use zhang_core::domains::schemas::{CommodityDomain, MetaType};
 use zhang_core::ledger::Ledger;
 
 use crate::response::{CommodityDetailResponse, CommodityListItemResponse, CommodityLot, CommodityPrice, ResponseWrapper};
@@ -21,17 +22,20 @@ pub async fn get_all_commodities(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResul
         let latest_price = operations.get_latest_price(&commodity.name, operating_currency)?;
 
         let amount = operations.get_commodity_balances(&commodity.name)?;
-
+        let group = operations
+            .meta(MetaType::CommodityMeta, commodity.name.as_str(), COMMODITY_GROUP)?
+            .map(|it| it.value);
         ret.push(CommodityListItemResponse {
             name: commodity.name,
             precision: commodity.precision,
             prefix: commodity.prefix,
             suffix: commodity.suffix,
             rounding: commodity.rounding.to_string(),
+            group,
             total_amount: amount,
             latest_price_date: latest_price.as_ref().map(|it| it.datetime),
             latest_price_amount: latest_price.as_ref().map(|it| it.amount.clone()),
-            latest_price_commodity: latest_price.map(|it| it.commodity),
+            latest_price_commodity: latest_price.map(|it| it.target_commodity),
         });
     }
 
@@ -48,6 +52,9 @@ pub async fn get_single_commodity(ledger: State<Arc<RwLock<Ledger>>>, params: Pa
     let latest_price = operations.get_latest_price(&commodity_name, operating_currency)?;
 
     let amount = operations.get_commodity_balances(&commodity_name)?;
+    let group = operations
+        .meta(MetaType::CommodityMeta, commodity.name.as_str(), COMMODITY_GROUP)?
+        .map(|it| it.value);
     let commodity_item = CommodityListItemResponse {
         name: commodity.name,
         precision: commodity.precision,
@@ -55,9 +62,10 @@ pub async fn get_single_commodity(ledger: State<Arc<RwLock<Ledger>>>, params: Pa
         suffix: commodity.suffix,
         rounding: commodity.rounding.to_string(),
         total_amount: amount,
+        group,
         latest_price_date: latest_price.as_ref().map(|it| it.datetime),
         latest_price_amount: latest_price.as_ref().map(|it| it.amount.clone()),
-        latest_price_commodity: latest_price.map(|it| it.commodity),
+        latest_price_commodity: latest_price.map(|it| it.target_commodity),
     };
 
     let lots = operations

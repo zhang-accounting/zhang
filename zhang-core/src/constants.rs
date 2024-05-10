@@ -21,3 +21,5 @@ pub const DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN: &str = "2";
 pub const TRUE: &str = "true";
 
 pub const TXN_ID: &str = "txn_id";
+
+pub const COMMODITY_GROUP: &str = "group";

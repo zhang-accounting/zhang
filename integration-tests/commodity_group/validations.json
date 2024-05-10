@@ -1,0 +1,57 @@
+[
+  {
+    "uri": "/api/commodities",
+    "validations": [
+      [
+        "$.data.[0].name",
+        "CNY"
+      ],
+      [
+        "$.data.[0].group",
+        null
+      ],
+      [
+        "$.data.[1].name",
+        "USD"
+      ],
+      [
+        "$.data.[1].group",
+        "Fiat currencies"
+      ],
+      [
+        "$.data.[2].name",
+        "BTC"
+      ],
+      [
+        "$.data.[2].group",
+        "Crypto currencies"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/commodities/CNY",
+    "validations": [
+      [
+        "$.data.info.name",
+        "CNY"
+      ],
+      [
+        "$.data.info.group",
+        null
+      ]
+    ]
+  },
+  {
+    "uri": "/api/commodities/USD",
+    "validations": [
+      [
+        "$.data.info.name",
+        "USD"
+      ],
+      [
+        "$.data.info.group",
+        "Fiat currencies"
+      ]
+    ]
+  }
+]

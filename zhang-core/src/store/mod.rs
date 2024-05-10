@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use bigdecimal::BigDecimal;
 use chrono::DateTime;
 use chrono_tz::Tz;
+use indexmap::IndexMap;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Flag, SpanInfo};
@@ -13,7 +14,7 @@ use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaD
 pub struct Store {
     pub options: HashMap<String, String>,
     pub accounts: HashMap<String, AccountDomain>,
-    pub commodities: HashMap<String, CommodityDomain>,
+    pub commodities: IndexMap<String, CommodityDomain>,
     pub transactions: HashMap<Uuid, TransactionDomain>,
     pub postings: Vec<PostingDomain>,
 
