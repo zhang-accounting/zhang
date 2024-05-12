@@ -16,7 +16,6 @@ export default function Commodities() {
   if (status === LoadingState.Loading || status === LoadingState.NotReady) return <>loading</>;
 
   const groupedCommodities = groupBy(commodities, (it) => it.group ?? FRONTEND_DEFAULT_GROUP);
-  console.log(groupedCommodities);
 
   return (
     <Container fluid>

@@ -67,7 +67,6 @@ export default function AccountDocumentLine(props: Props) {
   const { classes } = useStyles();
 
   const extension = (props.extension ?? '').toLowerCase();
-  console.log(props, extension);
   const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
   const openPreviewModal = () => {
     if (canPreview) {

@@ -43,7 +43,6 @@ export default function Documents() {
       (it) => it[0].datetime,
     ),
   );
-  console.log(groupedDocuments);
   return (
     <Container fluid>
       <Group position="apart">
