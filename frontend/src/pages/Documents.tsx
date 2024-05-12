@@ -16,11 +16,11 @@ import { useAppSelector } from '../states';
 export default function Documents() {
   let navigate = useNavigate();
   const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
+  const { data: documents, error } = useSWR<Document[]>('/api/documents', fetcher);
+
   const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
 
   useDocumentTitle(`Documents - ${ledgerTitle}`);
-
-  const { data: documents, error } = useSWR<Document[]>('/api/documents', fetcher);
 
   if (error) return <div>failed to load</div>;
   if (!documents) return <div>loading...</div>;
