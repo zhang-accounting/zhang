@@ -41,7 +41,6 @@ export const TransactionEditModal = ({
         data={innerProps.data}
         onChange={(data, isValid) => {
           setData(data);
-          console.log(isValid);
           setIsValid(isValid);
         }}
       ></TransactionEditForm>

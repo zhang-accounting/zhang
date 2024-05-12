@@ -6,10 +6,16 @@ import { fetcher } from '..';
 import Amount from '../components/Amount';
 import { CommodityDetail } from '../rest-model';
 import { Heading } from '../components/basic/Heading';
+import { useAppSelector } from '../states';
+import { useDocumentTitle } from '@mantine/hooks';
 
 export default function SingleCommodity() {
   let { commodityName } = useParams();
   const { data, error } = useSWR<CommodityDetail>(`/api/commodities/${commodityName}`, fetcher);
+
+  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
+
+  useDocumentTitle(`${commodityName} | Commodities - ${ledgerTitle}`);
 
   if (error) return <div>failed to load</div>;
   if (!data) return <div>loading123</div>;

@@ -1,5 +1,5 @@
 import { Container, Grid, SegmentedControl, SimpleGrid, Skeleton, Table } from '@mantine/core';
-import { useLocalStorage } from '@mantine/hooks';
+import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Setting } from '../components/basic/Setting';
@@ -16,6 +16,10 @@ export default function Settings() {
   const [lang, setLang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
   const { data } = useSWR<Option[]>('/api/options', fetcher);
   const { data: plugins } = useSWR<PluginResponse[]>('/api/plugins', fetcher);
+
+  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
+
+  useDocumentTitle(`Settings - ${ledgerTitle}`);
 
   const onLanguageChange = (lang: string) => {
     setLang(lang);

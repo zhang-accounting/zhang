@@ -4,10 +4,15 @@ import { fetcher } from '..';
 import SingleFileEdit from '../components/SingleFileEdit';
 import { TableOfContentsFloating, Tier, ZHANG_VALUE } from '../components/basic/TableOfContentsFloating';
 import { useState } from 'react';
+import { useAppSelector } from '../states';
+import { useDocumentTitle } from '@mantine/hooks';
 
 function RawEdit() {
   const { data, error } = useSWR<string[]>('/api/files', fetcher);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
+
+  useDocumentTitle(selectedFile ? `${selectedFile} | Raw Editing - ${ledgerTitle}` : `Raw Editing - ${ledgerTitle}`);
 
   if (error) return <div>failed to load</div>;
   if (!data) return <>loading</>;
