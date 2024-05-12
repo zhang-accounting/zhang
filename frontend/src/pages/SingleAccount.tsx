@@ -11,6 +11,8 @@ import LoadingComponent from '../components/basic/LoadingComponent';
 import PayeeNarration from '../components/basic/PayeeNarration';
 import { AccountInfo, AccountJournalItem, Document } from '../rest-model';
 import DocumentPreview from '../components/journalPreview/DocumentPreview';
+import { useAppSelector } from '../states';
+import { useDocumentTitle } from '@mantine/hooks';
 
 const useStyles = createStyles((theme) => ({
   calculatedAmount: {
@@ -27,6 +29,10 @@ function SingleAccount() {
   const { classes } = useStyles();
 
   const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
+
+  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
+
+  useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
 
   if (error) return <div>failed to load</div>;
   if (!account) return <div>{error}</div>;

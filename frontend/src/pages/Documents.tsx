@@ -1,5 +1,5 @@
 import { Button, Container, Group, SimpleGrid, Table, Title } from '@mantine/core';
-import { useLocalStorage } from '@mantine/hooks';
+import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
 import { openContextModal } from '@mantine/modals';
 import { IconLayout2, IconListDetails } from '@tabler/icons';
 import { format } from 'date-fns';
@@ -11,10 +11,14 @@ import { Heading } from '../components/basic/Heading';
 import { groupBy, reverse, sortBy } from 'lodash-es';
 import { TextBadge } from '../components/basic/TextBadge';
 import { useNavigate } from 'react-router';
+import { useAppSelector } from '../states';
 
 export default function Documents() {
   let navigate = useNavigate();
   const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
+  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
+
+  useDocumentTitle(`Documents - ${ledgerTitle}`);
 
   const { data: documents, error } = useSWR<Document[]>('/api/documents', fetcher);
 

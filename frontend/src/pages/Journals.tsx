@@ -8,7 +8,7 @@ import { useAppDispatch, useAppSelector } from '../states';
 import { fetchJournals, journalsSlice } from '../states/journals';
 import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
-import { useDebouncedValue } from '@mantine/hooks';
+import { useDebouncedValue, useDocumentTitle } from '@mantine/hooks';
 import { IconFilter } from '@tabler/icons';
 
 function Journals() {
@@ -17,6 +17,10 @@ function Journals() {
   const [debouncedFilter] = useDebouncedValue(filter, 200);
   const { current_page, status: journalStatus, items, total_number, total_page } = useAppSelector((state) => state.journals);
   const dispatch = useAppDispatch();
+  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
+
+  useDocumentTitle(`Journals - ${ledgerTitle}`);
+
   useEffect(() => {
     if (journalStatus === LoadingState.NotReady) {
       dispatch(fetchJournals(debouncedFilter));

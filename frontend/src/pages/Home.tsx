@@ -9,9 +9,14 @@ import { StatisticGraphResponse } from '../rest-model';
 import { useAppSelector } from '../states';
 import ReportGraph from '../components/ReportGraph';
 import { Heading } from '../components/basic/Heading';
+import { useDocumentTitle } from '@mantine/hooks';
 
 function Home() {
   const error_total_number = useAppSelector((state) => state.errors.total_number);
+  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
+
+  useDocumentTitle(`Dashboard - ${ledgerTitle}`);
+
   const now = new Date();
   const beginning_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 1);
   const end_time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);

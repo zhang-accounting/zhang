@@ -1,5 +1,5 @@
 import { ActionIcon, Button, Chip, Container, Group, Popover, Table, Title } from '@mantine/core';
-import { useLocalStorage } from '@mantine/hooks';
+import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
 import { useState } from 'react';
 import { BudgetListItem } from '../rest-model';
 import { useTranslation } from 'react-i18next';
@@ -10,6 +10,7 @@ import BudgetCategory from '../components/budget/BudgetCategory';
 import { format } from 'date-fns';
 import { MonthPicker } from '@mantine/dates';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons';
+import { useAppSelector } from '../states';
 
 export default function Budgets() {
   const { t } = useTranslation();
@@ -17,8 +18,10 @@ export default function Budgets() {
     key: 'hideZeroAssignBudget',
     defaultValue: false,
   });
-
   const [date, setDate] = useState<Date>(new Date());
+  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
+
+  useDocumentTitle(`Budgets - ${ledgerTitle}`);
 
   const { data: budgets, error } = useSWR<BudgetListItem[]>(`/api/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, fetcher);
   if (error) return <div>failed to load</div>;

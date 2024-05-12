@@ -1,5 +1,5 @@
 import { Button, Checkbox, CloseButton, Container, Group, Input, Table } from '@mantine/core';
-import { useInputState, useLocalStorage } from '@mantine/hooks';
+import { useDocumentTitle, useInputState, useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import AccountLine from '../components/AccountLine';
 import { LoadingState } from '../rest-model';
@@ -16,6 +16,9 @@ export default function Accounts() {
   const dispatch = useAppDispatch();
   const accountStatus = useAppSelector((state) => state.accounts.status);
   const accountTrie = useAppSelector(getAccountsTrie(hideClosedAccount, filterKeyword));
+  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
+
+  useDocumentTitle(`Accounts - ${ledgerTitle}`);
 
   useEffect(() => {
     if (accountStatus === LoadingState.NotReady) {

@@ -4,10 +4,14 @@ import { useAppSelector } from '../states';
 import { Heading } from '../components/basic/Heading';
 import { groupBy } from 'lodash-es';
 import CommodityBox from '../components/CommodityBox';
+import { useDocumentTitle } from '@mantine/hooks';
 
 const FRONTEND_DEFAULT_GROUP = '__ZHANG__FRONTEND_DEFAULT__GROUP__';
 export default function Commodities() {
   const { value: commodities, status } = useAppSelector((state) => state.commodities);
+  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
+
+  useDocumentTitle(`Commodities - ${ledgerTitle}`);
 
   if (status === LoadingState.Loading || status === LoadingState.NotReady) return <>loading</>;
 
