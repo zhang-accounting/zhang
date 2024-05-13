@@ -19,12 +19,12 @@ export function Router() {
   return (
     <Routes>
       <Route path="/" element={<Home />} />
-      <Route path="journals" element={<Journals />} />
-      <Route path="accounts" element={<Accounts />} />
+      <Route path="/journals" element={<Journals />} />
+      <Route path="/accounts" element={<Accounts />} />
       <Route path="/accounts/:accountName" element={<SingleAccount />} />
       <Route path="/commodities" element={<Commodities />} />
       <Route path="/commodities/:commodityName" element={<SingleCommodity />} />
-      <Route path="documents" element={<Documents />} />
+      <Route path="/documents" element={<Documents />} />
       <Route path="/budgets" element={<Budgets />} />
       <Route path="/budgets/:budgetName" element={<SingleBudget />} />
       <Route path="/edit" element={<RawEdit />} />
