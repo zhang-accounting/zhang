@@ -16,7 +16,7 @@ import { ActionIcon, Badge, Box, Group, px, Text, TextInput, UnstyledButton, Anc
 import {
   IconBroadcast,
   IconCash,
-  IconChartAreaLine,
+  IconChartAreaLine, IconCheck,
   IconCreditCard,
   IconCurrencyBitcoin,
   IconFiles,
@@ -33,7 +33,7 @@ import { Link as RouteLink } from 'react-router-dom';
 import NewTransactionButton from './components/NewTransactionButton';
 
 import { AppShell, Grid } from '@mantine/core';
-import { showNotification } from '@mantine/notifications';
+import { notifications } from '@mantine/notifications';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { serverBaseUrl } from './index';
@@ -241,10 +241,14 @@ export default function App() {
       const data = JSON.parse(event.data);
       switch (data?.type) {
         case 'Reload':
-          showNotification({
-            id: 'reload',
-            title: 'Ledger Reloaded',
+          notifications.update({
+            id: 'leger-reload',
+            title: '[Ledger Reload] reloaded',
             message: 'reloading latest ledger info',
+            icon:<IconCheck/>,
+            color: "teal",
+            loading: false,
+            autoClose: 3000
           });
           mutate('/api/for-new-transaction');
           dispatch(fetchBasicInfo());
@@ -254,7 +258,7 @@ export default function App() {
           dispatch(journalsSlice.actions.clear());
           break;
         case 'Connected':
-          showNotification({
+          notifications.show({
             title: 'Connected to server',
             icon: <IconBroadcast />,
             message: '',
@@ -270,7 +274,7 @@ export default function App() {
     };
     events.onerror = () => {
       dispatch(basicInfoSlice.actions.offline());
-      showNotification({
+      notifications.show({
         id: 'offline',
         title: 'Server Offline',
         icon: <IconBroadcast />,
@@ -281,10 +285,12 @@ export default function App() {
   }, [dispatch, mutate]);
 
   const sendReloadEvent = () => {
-    showNotification({
-      id: 'start-reload',
-      title: 'Ledger Reload Event is sent',
+    notifications.show({
+      id: 'leger-reload',
+      title: '[Ledger Reload] reload event is sent',
       message: 'please wait for ledger reload',
+      loading:true,
+      autoClose:false,
     });
     dispatch(reloadLedger());
   };

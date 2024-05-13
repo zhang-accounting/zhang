@@ -56,7 +56,6 @@ export default function TransactionEditForm(props: Props) {
   useEffect(() => {
     const newPayeeSelectItems: SelectItem[] = (data?.payee ?? []).map((item) => {
       return {
-        // todo group it
         label: item,
         value: item,
       };
