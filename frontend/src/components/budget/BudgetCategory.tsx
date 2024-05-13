@@ -1,4 +1,4 @@
-import { ActionIcon } from '@mantine/core';
+import { ActionIcon, Table } from '@mantine/core';
 import React from 'react';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useLocalStorage } from '@mantine/hooks';
@@ -49,8 +49,8 @@ export default function BudgetCategory(props: Props) {
 
   return (
     <>
-      <tr style={{ position: 'relative', zIndex: 1 }}>
-        <td>
+      <Table.Tr style={{ position: 'relative', zIndex: 1 }}>
+        <Table.Td>
           <BackgroundProgress percentage={number} />
           <div style={{ display: 'flex' }}>
             <ActionIcon size="sm" variant="transparent" onClick={() => setCollapse(!isShow)}>
@@ -58,26 +58,26 @@ export default function BudgetCategory(props: Props) {
             </ActionIcon>{' '}
             <b>{props.name}</b>
           </div>
-        </td>
-        <td style={{ textAlign: 'end' }}>
+        </Table.Td>
+        <Table.Td style={{ textAlign: 'end' }}>
           <b>{number} %</b>
-        </td>
-        <td style={{ textAlign: 'end' }}>
+        </Table.Td>
+        <Table.Td style={{ textAlign: 'end' }}>
           <b>
             <Amount amount={assigned_amount.number} currency={assigned_amount.commodity} />
           </b>
-        </td>
-        <td style={{ textAlign: 'end' }}>
+        </Table.Td>
+        <Table.Td style={{ textAlign: 'end' }}>
           <b>
             <Amount amount={activity_amount.number} currency={activity_amount.commodity} />
           </b>
-        </td>
-        <td style={{ textAlign: 'end' }}>
+        </Table.Td>
+        <Table.Td style={{ textAlign: 'end' }}>
           <b>
             <Amount amount={available_amount.number} currency={available_amount.commodity} />
           </b>
-        </td>
-      </tr>
+        </Table.Td>
+      </Table.Tr>
       {isShow && props.items.sort().map((item) => <BudgetLine key={`${item.name}`} {...item}></BudgetLine>)}
     </>
   );

@@ -94,36 +94,36 @@ function SingleBudget() {
 
       {/*todo withBorder*/}
       <Table verticalSpacing="xs">
-        <thead>
-        <tr>
-          <th>Date</th>
-          <th>Activity</th>
-          <th>Account</th>
-          <th style={{ textAlign: 'end' }}>Assigned Amount</th>
-          <th style={{ textAlign: 'end' }}>Activity Amount</th>
-        </tr>
-        </thead>
+        <Table.Thead>
+        <Table.Tr>
+          <Table.Th>Date</Table.Th>
+          <Table.Th>Activity</Table.Th>
+          <Table.Th>Account</Table.Th>
+          <Table.Th style={{ textAlign: 'end' }}>Assigned Amount</Table.Th>
+          <Table.Th style={{ textAlign: 'end' }}>Activity Amount</Table.Th>
+        </Table.Tr>
+        </Table.Thead>
         <tbody>
         {(budget_interval_event ?? []).map((it) => {
           return (
-            <tr>
-              <td>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</td>
-              <td>{'event_type' in it ? it.event_type :
-                <PayeeNarration payee={it.payee} narration={it.narration} />}</td>
-              <td>
+            <Table.Tr>
+              <Table.Td>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</Table.Td>
+              <Table.Td>{'event_type' in it ? it.event_type :
+                <PayeeNarration payee={it.payee} narration={it.narration} />}</Table.Td>
+              <Table.Td>
                 {!('event_type' in it) && (
                   <Badge color="pink" variant="filled">
                     {it.account}
                   </Badge>
                 )}
-              </td>
-              <td style={{ textAlign: 'end' }}>{'event_type' in it &&
-                <Amount amount={it.amount.number} currency={it.amount.currency} />}</td>
-              <td style={{ textAlign: 'end' }}>
+              </Table.Td>
+              <Table.Td style={{ textAlign: 'end' }}>{'event_type' in it &&
+                <Amount amount={it.amount.number} currency={it.amount.currency} />}</Table.Td>
+              <Table.Td style={{ textAlign: 'end' }}>
                 {!('event_type' in it) &&
                   <Amount amount={it.inferred_unit_number} currency={it.inferred_unit_commodity} />}
-              </td>
-            </tr>
+              </Table.Td>
+            </Table.Tr>
           );
         })}
         </tbody>

@@ -49,12 +49,12 @@ export default function Accounts() {
 
       {/*todo withBorder*/}
       <Table verticalSpacing="xs" highlightOnHover>
-        <thead>
-        <tr>
-          <th>Name</th>
-          <th style={{ textAlign: 'end' }}>Balance</th>
-        </tr>
-        </thead>
+        <Table.Thead>
+        <Table.Tr>
+          <Table.Th>Name</Table.Th>
+          <Table.Th style={{ textAlign: 'end' }}>Balance</Table.Th>
+        </Table.Tr>
+        </Table.Thead>
         <tbody>
         {Object.keys(accountTrie.children)
           .sort()

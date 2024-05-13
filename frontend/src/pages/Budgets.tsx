@@ -67,15 +67,15 @@ export default function Budgets() {
       </Group>
       {/*todo withBorder*/}
       <Table verticalSpacing="xs">
-        <thead>
-        <tr>
-          <th>Category</th>
-          <th style={{ textAlign: 'end' }}>Percentage</th>
-          <th style={{ textAlign: 'end' }}>Assigned</th>
-          <th style={{ textAlign: 'end' }}>Activity</th>
-          <th style={{ textAlign: 'end' }}>Available</th>
-        </tr>
-        </thead>
+        <Table.Thead>
+        <Table.Tr>
+          <Table.Th>Category</Table.Th>
+          <Table.Th style={{ textAlign: 'end' }}>Percentage</Table.Th>
+          <Table.Th style={{ textAlign: 'end' }}>Assigned</Table.Th>
+          <Table.Th style={{ textAlign: 'end' }}>Activity</Table.Th>
+          <Table.Th style={{ textAlign: 'end' }}>Available</Table.Th>
+        </Table.Tr>
+        </Table.Thead>
         <tbody>
         {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (
           <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]}

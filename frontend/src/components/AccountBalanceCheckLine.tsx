@@ -1,4 +1,4 @@
-import { TextInput, Button, Select, Group } from '@mantine/core';
+import { TextInput, Button, Select, Group, Table } from '@mantine/core';
 import { useState } from 'react';
 import { axiosInstance } from '../index';
 import { showNotification } from '@mantine/notifications';
@@ -51,17 +51,17 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
   };
   return (
     <>
-      <tr>
-        <td>{commodity}</td>
-        <td>
+      <Table.Tr>
+        <Table.Td>{commodity}</Table.Td>
+        <Table.Td>
           <Amount amount={currentAmount} currency={commodity} />
-        </td>
-        <td>{}</td>
-        <td>
+        </Table.Td>
+        <Table.Td>{}</Table.Td>
+        <Table.Td>
           <Select searchable clearable placeholder="Pad to" data={accountItems} value={padAccount}
                   onChange={(e) => setPadAccount(e)} />
-        </td>
-        <td>
+        </Table.Td>
+        <Table.Td>
           <Group gap={'xs'}>
             <TextInput placeholder={`Balanced ${commodity} Amount`} value={amount}
                        onChange={(e) => setAmount(e.target.value)}></TextInput>
@@ -69,8 +69,8 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
               {padAccount ? 'Pad' : 'Balance'}
             </Button>
           </Group>
-        </td>
-      </tr>
+        </Table.Td>
+      </Table.Tr>
     </>
   );
 }

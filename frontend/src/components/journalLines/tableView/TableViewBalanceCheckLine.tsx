@@ -1,5 +1,5 @@
 import { JournalBalanceCheckItem } from '../../../rest-model';
-import { ActionIcon, Badge, px } from '@mantine/core';
+import { ActionIcon, Badge, Table, px } from '@mantine/core';
 import { format } from 'date-fns';
 import Amount from '../../Amount';
 import BigNumber from 'bignumber.js';
@@ -75,17 +75,17 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
   };
   const isBalanced = new BigNumber(data.postings[0].account_after_number).eq(new BigNumber(data.postings[0].account_before_number));
   return (
-    <tr className={`${classes.actionHider} ${!isBalanced ? classes.notBalance : ''}`}>
-      <td>{time}</td>
-      <td>
+    <Table.Tr className={`${classes.actionHider} ${!isBalanced ? classes.notBalance : ''}`}>
+      <Table.Td>{time}</Table.Td>
+      <Table.Td>
         <Badge size="xs" variant="outline">
           Check
         </Badge>
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         <PayeeNarration payee={data.payee} narration={data.narration} />
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         <div className={classes.wrapper}>
           <div className={!isBalanced ? classes.negativeAmount : classes.positiveAmount}>
             <Amount amount={data.postings[0].account_after_number}
@@ -98,14 +98,14 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
             </span>
           )}
         </div>
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         <div className={classes.actions}>
           <ActionIcon  variant="white" size="sm" onClick={openPreviewModal}>
             <IconZoomExclamation size="1.125rem" />
           </ActionIcon>
         </div>
-      </td>
-    </tr>
+      </Table.Td>
+    </Table.Tr>
   );
 }

@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Divider, Group, HoverCard, Space, Stack, Text } from '@mantine/core';
+import { ActionIcon, Badge, Divider, Group, HoverCard, Space, Stack, Table, Text } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useNavigate } from 'react-router';
@@ -38,8 +38,8 @@ export default function AccountLine({ data, spacing }: Props) {
 
   return (
     <>
-      <tr>
-        <td>
+      <Table.Tr>
+        <Table.Td>
           <div style={{ display: 'flex' }}>
             <Space w={spacing * 22}></Space>
             {hasChildren ? (
@@ -66,8 +66,8 @@ export default function AccountLine({ data, spacing }: Props) {
               )}
             </div>
           </div>
-        </td>
-        <td>
+        </Table.Td>
+        <Table.Td>
           <Group justify="right">
             {haveMultipleCommodity ? (
               <HoverCard width={280} shadow="md" withArrow position="left">
@@ -98,8 +98,8 @@ export default function AccountLine({ data, spacing }: Props) {
               </Group>
             )}
           </Group>
-        </td>
-      </tr>
+        </Table.Td>
+      </Table.Tr>
 
       {isShow &&
         Object.keys(data.children)

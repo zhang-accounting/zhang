@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Group } from '@mantine/core';
+import { ActionIcon, Badge, Group, Table } from '@mantine/core';
 import { IconFile, IconPencil, IconZoomExclamation } from '@tabler/icons-react';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../../rest-model';
@@ -83,29 +83,29 @@ export default function TableViewTransactionLine({ data }: Props) {
   const summary = calculate(data);
   const hasDocuments = data.metas.some((meta) => meta.key === 'document');
   return (
-    <tr
+    <Table.Tr
       className={`${classes.actionHider} ${!data.is_balanced ? classes.notBalance : ''} ${data.flag === '!' ? classes.warning : ''}`}>
-      <td>{time}</td>
-      <td>
+      <Table.Td>{time}</Table.Td>
+      <Table.Td>
         <Badge color="gray" size="xs" variant="outline">
           TRX
         </Badge>
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         <Group align="center" gap="xs">
           <PayeeNarration payee={data.payee} narration={data.narration} />
           {hasDocuments && <IconFile size={14} color={'gray'} stroke={1.5}></IconFile>}
         </Group>
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         {Array.from(summary.values()).map((each) => (
           <Group align="center" justify="right" gap="xs"
                  className={each.number.isPositive() ? classes.positiveAmount : classes.negativeAmount}>
             <Amount amount={each.number} currency={each.currency} />
           </Group>
         ))}
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         <div className={classes.actions}>
           <ActionIcon  variant="white" size="sm" onClick={openEditModel}>
             <IconPencil size="1.125rem" />
@@ -114,7 +114,7 @@ export default function TableViewTransactionLine({ data }: Props) {
             <IconZoomExclamation size="1.125rem" />
           </ActionIcon>
         </div>
-      </td>
-    </tr>
+      </Table.Td>
+    </Table.Tr>
   );
 }

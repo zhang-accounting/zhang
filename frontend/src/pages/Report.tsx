@@ -131,26 +131,26 @@ export default function Report() {
             </Grid.Col>
             <Grid.Col span={12}>
               <Table verticalSpacing="xs" highlightOnHover>
-                <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Account</th>
-                  <th style={{}}>Payee & Narration</th>
-                  <th>Amount</th>
-                </tr>
-                </thead>
+                <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Date</Table.Th>
+                  <Table.Th>Account</Table.Th>
+                  <Table.Th style={{}}>Payee & Narration</Table.Th>
+                  <Table.Th>Amount</Table.Th>
+                </Table.Tr>
+                </Table.Thead>
                 <tbody>
                 {income_data?.top_transactions.map((journal) => (
-                  <tr>
-                    <td>{journal.datetime}</td>
-                    <td>{journal.account}</td>
-                    <td>
+                  <Table.Tr>
+                    <Table.Td>{journal.datetime}</Table.Td>
+                    <Table.Td>{journal.account}</Table.Td>
+                    <Table.Td>
                       <PayeeNarration payee={journal.payee} narration={journal.narration} />
-                    </td>
-                    <td>
+                    </Table.Td>
+                    <Table.Td>
                       <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
-                    </td>
-                  </tr>
+                    </Table.Td>
+                  </Table.Tr>
                 ))}
                 </tbody>
               </Table>
@@ -178,27 +178,27 @@ export default function Report() {
             </Grid.Col>
             <Grid.Col span={12}>
               <Table verticalSpacing="xs" highlightOnHover>
-                <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Account</th>
-                  <th style={{}}>Payee & Narration</th>
-                  <th>Amount</th>
-                </tr>
-                </thead>
+                <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Date</Table.Th>
+                  <Table.Th>Account</Table.Th>
+                  <Table.Th style={{}}>Payee & Narration</Table.Th>
+                  <Table.Th>Amount</Table.Th>
+                </Table.Tr>
+                </Table.Thead>
                 <tbody>
                 {expenses_data?.top_transactions.map((journal) => (
                   // <JournalLine key={idx} data={journal} />
-                  <tr>
-                    <td>{journal.datetime}</td>
-                    <td>{journal.account}</td>
-                    <td>
+                  <Table.Tr>
+                    <Table.Td>{journal.datetime}</Table.Td>
+                    <Table.Td>{journal.account}</Table.Td>
+                    <Table.Td>
                       {journal.payee} {journal.narration}
-                    </td>
-                    <td>
+                    </Table.Td>
+                    <Table.Td>
                       <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
-                    </td>
-                  </tr>
+                    </Table.Td>
+                  </Table.Tr>
                 ))}
                 </tbody>
               </Table>

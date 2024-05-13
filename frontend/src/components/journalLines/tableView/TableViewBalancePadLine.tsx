@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Group, px } from '@mantine/core';
+import { ActionIcon, Badge, Group, Table, px } from '@mantine/core';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
 import { JournalBlancePadItem, JournalItem } from '../../../rest-model';
@@ -67,17 +67,17 @@ export default function TableViewBalancePadLine({ data, onClick }: Props) {
 
   // const isBalanced = new BigNumber(data.postings[0].account_after_number) === new BigNumber(data.postings[0].account_before_number)
   return (
-    <tr className={classes.actionHider}>
-      <td>{time}</td>
-      <td>
+    <Table.Tr className={classes.actionHider}>
+      <Table.Td>{time}</Table.Td>
+      <Table.Td>
         <Badge size="xs" variant="outline">
           Pad
         </Badge>
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         <PayeeNarration payee={data.payee} narration={data.narration} />
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         <Group align="center" justify="right" gap="xs" className={classes.positiveAmount}>
           <Amount amount={data.postings[0].account_after_number} currency={data.postings[0].account_after_commodity} />
         </Group>
@@ -89,14 +89,14 @@ export default function TableViewBalancePadLine({ data, onClick }: Props) {
             current: <Amount amount={data.postings[0].account_before_number} currency={data.postings[0].account_before_commodity} />
           </div>
         } */}
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         <div className={classes.actions}>
           <ActionIcon  variant="white" size="sm" onClick={openPreviewModal}>
             <IconZoomExclamation size="1.125rem" />
           </ActionIcon>
         </div>
-      </td>
-    </tr>
+      </Table.Td>
+    </Table.Tr>
   );
 }

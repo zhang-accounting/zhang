@@ -70,28 +70,28 @@ export default function Documents() {
         </>
       ) : (
         <Table verticalSpacing="xs" highlightOnHover>
-          <thead>
-          <tr>
-            <th>Filename</th>
-            <th style={{}}>Linked Directive</th>
-            <th>Created Date</th>
-            <th>Operation</th>
-          </tr>
-          </thead>
+          <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Filename</Table.Th>
+            <Table.Th style={{}}>Linked Directive</Table.Th>
+            <Table.Th>Created Date</Table.Th>
+            <Table.Th>Operation</Table.Th>
+          </Table.Tr>
+          </Table.Thead>
           <tbody>
           {documents.map((document, idx) => (
-            <tr>
-              <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
+            <Table.Tr>
+              <Table.Td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
                 <div>{document.filename}</div>
-              </td>
-              <td>
+              </Table.Td>
+              <Table.Td>
                 {document.account &&
                   <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
                 {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
-              </td>
-              <td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
-              <td></td>
-            </tr>
+              </Table.Td>
+              <Table.Td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
+              <Table.Td></Table.Td>
+            </Table.Tr>
           ))}
           </tbody>
         </Table>

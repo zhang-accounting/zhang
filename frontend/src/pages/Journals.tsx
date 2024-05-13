@@ -62,25 +62,25 @@ function Journals() {
       </Group>
       {/*todo withBorder*/}
       <Table verticalSpacing="xs">
-        <thead>
-        <tr>
-          <th style={{ width: '100px' }}>Date</th>
-          <th style={{ width: '10px' }}>Type</th>
-          <th>Payee · Narration</th>
-          <th style={{ textAlign: 'right' }}>Amount</th>
-          <th style={{ textAlign: 'right' }}>Operation</th>
-        </tr>
-        </thead>
+        <Table.Thead>
+        <Table.Tr>
+          <Table.Th style={{ width: '100px' }}>Date</Table.Th>
+          <Table.Th style={{ width: '10px' }}>Type</Table.Th>
+          <Table.Th>Payee · Narration</Table.Th>
+          <Table.Th style={{ textAlign: 'right' }}>Amount</Table.Th>
+          <Table.Th style={{ textAlign: 'right' }}>Operation</Table.Th>
+        </Table.Tr>
+        </Table.Thead>
         <tbody>
         {journalStatus === LoadingState.Success &&
           Object.entries(groupedRecords).map((entry) => {
             return (
               <>
-                <tr>
-                  <td colSpan={6}>
+                <Table.Tr>
+                  <Table.Td colSpan={6}>
                     <b>{entry[0]}</b>
-                  </td>
-                </tr>
+                  </Table.Td>
+                </Table.Tr>
                 {entry[1].map((journal) => (
                   <>
                     <TableViewJournalLine key={journal.id} data={journal} />

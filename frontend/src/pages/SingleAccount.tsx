@@ -76,14 +76,14 @@ function SingleAccount() {
 
         <Tabs.Panel value="journals" pt="xs">
           <Table verticalSpacing="xs" highlightOnHover>
-            <thead>
-            <tr>
-              <th>Date</th>
-              <th>Payee & Narration</th>
-              <th style={{ textAlign: 'right' }}>Change Amount</th>
-              <th style={{ textAlign: 'right' }}>After Change Amount</th>
-            </tr>
-            </thead>
+            <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Date</Table.Th>
+              <Table.Th>Payee & Narration</Table.Th>
+              <Table.Th style={{ textAlign: 'right' }}>Change Amount</Table.Th>
+              <Table.Th style={{ textAlign: 'right' }}>After Change Amount</Table.Th>
+            </Table.Tr>
+            </Table.Thead>
             <tbody>
             <LoadingComponent
               url={`/api/accounts/${accountName}/journals`}
@@ -91,18 +91,18 @@ function SingleAccount() {
               render={(data: AccountJournalItem[]) => (
                 <>
                   {data.map((item) => (
-                    <tr>
-                      <td>{format(new Date(item.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
-                      <td>
+                    <Table.Tr>
+                      <Table.Td>{format(new Date(item.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
+                      <Table.Td>
                         <PayeeNarration payee={item.payee} narration={item.narration} />
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
+                      </Table.Td>
+                      <Table.Td style={{ textAlign: 'right' }}>
                         <Amount amount={item.inferred_unit_number} currency={item.inferred_unit_commodity} />
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
+                      </Table.Td>
+                      <Table.Td style={{ textAlign: 'right' }}>
                         <Amount amount={item.account_after_number} currency={item.account_after_commodity} />
-                      </td>
-                    </tr>
+                      </Table.Td>
+                    </Table.Tr>
                   ))}
                 </>
               )}
@@ -133,15 +133,15 @@ function SingleAccount() {
 
         <Tabs.Panel value="settings" pt="xs">
           <Table verticalSpacing="xs" highlightOnHover>
-            <thead>
-            <tr>
-              <th>Currency</th>
-              <th>Current Balance</th>
-              <th>Latest Balance Time</th>
-              <th>Pad Account</th>
-              <th>Distanation</th>
-            </tr>
-            </thead>
+            <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Currency</Table.Th>
+              <Table.Th>Current Balance</Table.Th>
+              <Table.Th>Latest Balance Time</Table.Th>
+              <Table.Th>Pad Account</Table.Th>
+              <Table.Th>Distanation</Table.Th>
+            </Table.Tr>
+            </Table.Thead>
             <tbody>
             {Object.entries(account?.amount.detail ?? []).map(([commodity, amount], idx) => (
               <AccountBalanceCheckLine currentAmount={amount} commodity={commodity} accountName={account.name} />

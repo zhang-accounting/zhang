@@ -122,24 +122,24 @@ export default function BatchBalance() {
         </Chip>
       </Group>
       <Table verticalSpacing="xs" highlightOnHover>
-        <thead>
-          <tr>
-            <th>Account</th>
-            <th>Commodity</th>
-            <th>Current Balance</th>
-            <th>Pad Account</th>
-            <th>Destination</th>
-          </tr>
-        </thead>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Account</Table.Th>
+            <Table.Th>Commodity</Table.Th>
+            <Table.Th>Current Balance</Table.Th>
+            <Table.Th>Pad Account</Table.Th>
+            <Table.Th>Destination</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
         <tbody>
           {accounts.map((account, idx) => (
-            <tr key={`${account.accountName}-${account.commodity}`}>
-              <td>{account.accountName}</td>
-              <td>{account.commodity}</td>
-              <td>
+            <Table.Tr key={`${account.accountName}-${account.commodity}`}>
+              <Table.Td>{account.accountName}</Table.Td>
+              <Table.Td>{account.commodity}</Table.Td>
+              <Table.Td>
                 <Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity}></Amount>
-              </td>
-              <td>
+              </Table.Td>
+              <Table.Td>
                 <Select
                   searchable
                   clearable
@@ -150,8 +150,8 @@ export default function BatchBalance() {
                     updateBalanceLineItem(idx, e ?? undefined, account.balanceAmount);
                   }}
                 />
-              </td>
-              <td>
+              </Table.Td>
+              <Table.Td>
                 <TextInput
                   error={account.error}
                   value={account.balanceAmount}
@@ -159,8 +159,8 @@ export default function BatchBalance() {
                     updateBalanceLineItem(idx, account.pad ?? undefined, e.target.value);
                   }}
                 ></TextInput>
-              </td>
-            </tr>
+              </Table.Td>
+            </Table.Tr>
           ))}
         </tbody>
       </Table>
