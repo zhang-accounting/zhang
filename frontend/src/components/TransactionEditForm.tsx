@@ -122,8 +122,6 @@ export default function TransactionEditForm(props: Props) {
             placeholder="Payee"
             data={payeeSelectItems}
             value={payee}
-            // todo getCreateLabel={(query) => `${t('NEW_TRANSACTION_PAYEE_CREATE')} ${query}`}
-            // todo onCreate={onPayeeCreate}
             onChange={setPayee}
           />
         </Grid.Col>
