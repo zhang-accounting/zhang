@@ -17,6 +17,7 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/dates/styles.css';
 import '@mantine/charts/styles.css';
+import '@mantine/dropzone/styles.css';
 import { TransactionEditModal } from './components/modals/TransactionEditModal';
 import { MantineEmotionProvider } from '@mantine/emotion';
 

@@ -91,7 +91,7 @@
   },
   "husky": {
     "hooks": {
-      "pre-commit": "lint-staged"
+      "pre-commit": "p run prettier:fix"
     }
   },
   "lint-staged": {

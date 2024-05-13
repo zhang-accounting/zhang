@@ -138,7 +138,7 @@ export default function TransactionPreview(props: Props) {
       )}
       <Box mx={1} my={4}>
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
-          <SimpleGrid cols={{ base: 4, md: 3, sm: 2, xs: 1 }} spacing={{ base: 'sm', md: 'md', sm: 'sm', xs: 'sm' }}>
+          <SimpleGrid cols={{ base: 1,  md: 2, lg: 4 }} spacing={{ base: 'sm', md: 'md', sm: 'sm', xs: 'sm' }}>
             {props.data.metas
               .filter((meta) => meta.key === 'document')
               .map((meta, idx) => (
