@@ -9,11 +9,12 @@ import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
 import LoadingComponent from '../components/basic/LoadingComponent';
 import PayeeNarration from '../components/basic/PayeeNarration';
-import { AccountInfo, AccountJournalItem, Document } from '../rest-model';
+import { AccountBalanceHistory, AccountInfo, AccountJournalItem, Document } from '../rest-model';
 import DocumentPreview from '../components/journalPreview/DocumentPreview';
 import { useAppSelector } from '../states';
 import { useDocumentTitle } from '@mantine/hooks';
 import { createStyles } from '@mantine/emotion';
+import { AccountBalanceHistoryGraph } from '../components/AccountBalanceHistoryGraph';
 
 const useStyles = createStyles((theme, _, u) => ({
   calculatedAmount: {
@@ -30,8 +31,10 @@ function SingleAccount() {
   const { classes } = useStyles();
 
   const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
+  const { data: account_balance_data } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
 
   console.log('account data', account);
+  console.log('account balance data', account_balance_data);
   const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
 
   useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
@@ -62,6 +65,8 @@ function SingleAccount() {
           )}
         </Stack>
       </Group>
+      <AccountBalanceHistoryGraph data={account_balance_data} />
+
       <Tabs keepMounted={false} variant="outline" defaultValue="journals" mt="lg">
         <Tabs.List>
           <Tabs.Tab value="journals" leftSection={<IconPhoto size={14} />}>

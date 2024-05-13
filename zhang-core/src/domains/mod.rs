@@ -471,7 +471,9 @@ impl Operations {
         }))
     }
 
-    pub fn single_account_balances(&mut self, account_name: &str) -> ZhangResult<Vec<AccountBalanceDomain>> {
+    /// get target account's latest balance
+    /// because the account can have multiple commodities, so the result is the array.
+    pub fn single_account_latest_balances(&self, account_name: &str) -> ZhangResult<Vec<AccountBalanceDomain>> {
         let store = self.read();
 
         let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
@@ -505,6 +507,32 @@ impl Operations {
                 }
             })
             .collect_vec())
+    }
+
+    /// get target account's all balance
+    /// because the account can have multiple commodities, so the result is the array.
+    pub fn single_account_all_balances(&self, account_name: &str) -> ZhangResult<HashMap<Currency, HashMap<NaiveDate, Amount>>> {
+        let store = self.read();
+
+        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
+
+        let mut ret: HashMap<Currency, HashMap<NaiveDate, Amount>> = HashMap::new();
+
+        for posting in store
+            .postings
+            .iter()
+            .filter(|posting| posting.account.eq(&account))
+            .cloned()
+            .sorted_by_key(|posting| posting.trx_datetime)
+        {
+            let posting: PostingDomain = posting;
+            let date = posting.trx_datetime.naive_local().date();
+
+            let dated_amount = ret.entry(posting.after_amount.currency.clone()).or_default();
+            dated_amount.insert(date, posting.after_amount);
+        }
+
+        Ok(ret)
     }
 
     pub fn account_journals(&mut self, account: &str) -> ZhangResult<Vec<AccountJournalDomain>> {

@@ -399,3 +399,9 @@ pub struct PluginResponse {
     pub version: String,
     pub plugin_type: Vec<PluginType>,
 }
+
+#[derive(Serialize)]
+pub struct AccountBalanceItemResponse {
+    pub date: NaiveDate,
+    pub balance: AmountResponse,
+}
