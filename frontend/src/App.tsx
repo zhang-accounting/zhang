@@ -347,7 +347,7 @@ export default function App() {
                 <IconBroadcast stroke={3} className={basicInfo.isOnline ? classes.onlineIcon : classes.offlineIcon} />
                 <Text lineClamp={1}>{basicInfo.title ?? 'Zhang Accounting'}</Text>
               </Group>
-              <ActionIcon variant="white" size="sm" onClick={sendReloadEvent}>
+              <ActionIcon variant="white" color="gray" size="sm" onClick={sendReloadEvent}>
                 <IconRefresh size="1.125rem" />
               </ActionIcon>
             </Group>

@@ -99,7 +99,7 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
       </Table.Td>
       <Table.Td>
         <div className={classes.actions}>
-          <ActionIcon variant="white" size="sm" onClick={openPreviewModal}>
+          <ActionIcon color="gray" variant="white" size="sm" onClick={openPreviewModal}>
             <IconZoomExclamation size="1.125rem" />
           </ActionIcon>
         </div>

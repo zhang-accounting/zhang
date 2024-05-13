@@ -53,7 +53,7 @@ export default function BudgetCategory(props: Props) {
         <Table.Td>
           <BackgroundProgress percentage={number} />
           <div style={{ display: 'flex' }}>
-            <ActionIcon size="sm" variant="transparent" onClick={() => setCollapse(!isShow)}>
+            <ActionIcon size="sm" color="gray" variant="transparent" onClick={() => setCollapse(!isShow)}>
               {isShow ? <IconChevronDown size={28} /> : <IconChevronRight size={48} />}
             </ActionIcon>{' '}
             <b>{props.name}</b>

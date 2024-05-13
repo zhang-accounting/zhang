@@ -13,7 +13,7 @@ export default function DividerWithAction({ value, icon, onActionClick }: Props)
         <Divider label={value} size="xs"></Divider>
       </Grid.Col>
       <Grid.Col span={1}>
-        <ActionIcon variant="white" onClick={onActionClick}>
+        <ActionIcon variant="white" color="gray" onClick={onActionClick}>
           {icon}
         </ActionIcon>
       </Grid.Col>

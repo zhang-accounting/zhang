@@ -105,10 +105,10 @@ export default function TableViewTransactionLine({ data }: Props) {
       </Table.Td>
       <Table.Td>
         <div className={classes.actions}>
-          <ActionIcon variant="white" size="sm" onClick={openEditModel}>
+          <ActionIcon color="gray" variant="white" size="sm" onClick={openEditModel}>
             <IconPencil size="1.125rem" />
           </ActionIcon>
-          <ActionIcon variant="white" size="sm" onClick={openPreviewModal}>
+          <ActionIcon color="gray" variant="white" size="sm" onClick={openPreviewModal}>
             <IconZoomExclamation size="1.125rem" />
           </ActionIcon>
         </div>

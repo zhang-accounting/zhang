@@ -115,7 +115,7 @@ export default function TransactionEditForm(props: Props) {
     <Container>
       <Grid>
         <Grid.Col span={{ lg: 4, sm: 12 }}>
-          <DateInput placeholder="Transaction Date" value={date} onChange={setDate} withAsterisk />
+          <DateInput firstDayOfWeek={0} placeholder="Transaction Date" value={date} onChange={setDate} withAsterisk />
         </Grid.Col>
         <Grid.Col span={{ lg: 4, sm: 12 }}>
           <Autocomplete
@@ -158,7 +158,7 @@ export default function TransactionEditForm(props: Props) {
             <TextInput placeholder="Amount" value={posting.amount} onChange={(e) => postingsHandler.setItemProp(idx, 'amount', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={1}>
-            <ActionIcon variant="white" disabled={postings.length <= 2} onClick={() => postingsHandler.remove(idx)}>
+            <ActionIcon variant="white" color="gray" disabled={postings.length <= 2} onClick={() => postingsHandler.remove(idx)}>
               <IconTrashX />
             </ActionIcon>
           </Grid.Col>
@@ -182,7 +182,7 @@ export default function TransactionEditForm(props: Props) {
             <TextInput placeholder="value" value={meta.value} onChange={(e) => metaHandler.setItemProp(idx, 'value', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={1}>
-            <ActionIcon variant="white" onClick={() => metaHandler.remove(idx)}>
+            <ActionIcon variant="white" color="gray" onClick={() => metaHandler.remove(idx)}>
               <IconTrashX />
             </ActionIcon>
           </Grid.Col>

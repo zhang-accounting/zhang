@@ -43,7 +43,7 @@ export default function AccountLine({ data, spacing }: Props) {
           <div style={{ display: 'flex' }}>
             <Space w={spacing * 22}></Space>
             {hasChildren ? (
-              <ActionIcon size="sm" variant="transparent" onClick={() => setCollapse(!isShow)}>
+              <ActionIcon size="sm" color="gray" variant="transparent" onClick={() => setCollapse(!isShow)}>
                 {isShow ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
               </ActionIcon>
             ) : (
