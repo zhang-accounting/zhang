@@ -1,11 +1,12 @@
-import { Badge, Box, Group, Text, createStyles } from '@mantine/core';
+import { Badge, Box, Group, Text } from '@mantine/core';
 import { format } from 'date-fns';
 import { JournalBlancePadItem } from '../../rest-model';
 import Amount from '../Amount';
 import DashLine from '../DashedLine';
 import Section from '../Section';
+import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
   amount: {
     display: 'flex',
     flexDirection: 'column',
@@ -20,6 +21,7 @@ const useStyles = createStyles((theme) => ({
 interface Props {
   data: JournalBlancePadItem;
 }
+
 export default function BalancePadPreview(props: Props) {
   const { classes } = useStyles();
   return (
@@ -56,7 +58,7 @@ export default function BalancePadPreview(props: Props) {
               Links
             </Text>
             <Text lineClamp={1}>
-              <Group mx={1} my={2} spacing="sm">
+              <Group mx={1} my={2} gap="sm">
                 {(props.data.links || []).map((link) => (
                   <Badge key={link} size="lg" variant="dot">
                     {link}
@@ -73,7 +75,7 @@ export default function BalancePadPreview(props: Props) {
               Tags
             </Text>
             <Text lineClamp={1}>
-              <Group mx={1} my={2} spacing="sm">
+              <Group mx={1} my={2} gap="sm">
                 {(props.data.tags || []).map((tag) => (
                   <Badge key={tag} size="lg" color="orange" variant="dot">
                     {tag}

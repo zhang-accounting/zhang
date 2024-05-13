@@ -1,9 +1,11 @@
 import { NavLink } from '@mantine/core';
-import { IconFileInvoice, IconFolder } from '@tabler/icons';
+import { IconFileInvoice, IconFolder } from '@tabler/icons-react';
 
 export const ZHANG_VALUE = Symbol();
+
 export interface Tier {
   [ZHANG_VALUE]?: string;
+
   [key: string]: Tier;
 }
 
@@ -22,7 +24,7 @@ export function TableOfContentsFloating({ files, onChange }: TableOfContentsFloa
         <>
           <NavLink
             label={key}
-            icon={isFile ? <IconFileInvoice size={16} stroke={1.5} /> : <IconFolder size={16} stroke={1.5} />}
+            leftSection={isFile ? <IconFileInvoice size={16} stroke={1.5} /> : <IconFolder size={16} stroke={1.5} />}
             childrenOffset={14}
             onClick={() => {
               if (isFile) {

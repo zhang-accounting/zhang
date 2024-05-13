@@ -1,3 +1,7 @@
 * {
-  transition: border-top-color 100ms, border-bottom-color 100ms, border-left-color 100ms, border-right-color 100ms;
+  transition:
+    border-top-color 100ms,
+    border-bottom-color 100ms,
+    border-left-color 100ms,
+    border-right-color 100ms;
 }

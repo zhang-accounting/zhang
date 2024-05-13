@@ -1,4 +1,4 @@
-import { TextInput, Button, Select, Group } from '@mantine/core';
+import { Autocomplete, Button, Group, Table, TextInput } from '@mantine/core';
 import { useState } from 'react';
 import { axiosInstance } from '../index';
 import { showNotification } from '@mantine/notifications';
@@ -14,10 +14,11 @@ interface Props {
 
 export default function AccountBalanceCheckLine({ currentAmount, commodity, accountName }: Props) {
   const [amount, setAmount] = useState('');
-  const [padAccount, setPadAccount] = useState<string | null>(null);
+  const [padAccount, setPadAccount] = useState<string>('');
   const dispatch = useAppDispatch();
 
   const accountItems = [...useAppSelector(getAccountSelectItems())];
+  console.log('accountItems', accountItems);
 
   const onSave = async () => {
     try {
@@ -51,24 +52,24 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
   };
   return (
     <>
-      <tr>
-        <td>{commodity}</td>
-        <td>
+      <Table.Tr>
+        <Table.Td>{commodity}</Table.Td>
+        <Table.Td>
           <Amount amount={currentAmount} currency={commodity} />
-        </td>
-        <td>{}</td>
-        <td>
-          <Select searchable clearable placeholder="Pad to" data={accountItems} value={padAccount} onChange={(e) => setPadAccount(e)} />
-        </td>
-        <td>
-          <Group spacing={'xs'}>
+        </Table.Td>
+        <Table.Td>{}</Table.Td>
+        <Table.Td>
+          <Autocomplete placeholder="Pad to" data={accountItems} value={padAccount} onChange={setPadAccount} />
+        </Table.Td>
+        <Table.Td>
+          <Group gap={'xs'}>
             <TextInput placeholder={`Balanced ${commodity} Amount`} value={amount} onChange={(e) => setAmount(e.target.value)}></TextInput>
             <Button size="sm" onClick={submitCheck} disabled={amount.length === 0}>
               {padAccount ? 'Pad' : 'Balance'}
             </Button>
           </Group>
-        </td>
-      </tr>
+        </Table.Td>
+      </Table.Tr>
     </>
   );
 }

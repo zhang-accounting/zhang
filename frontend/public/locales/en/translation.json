@@ -11,7 +11,7 @@
   "NAV_HOME": "Home",
   "NAV_JOURNALS": "Journals",
   "NAV_ACCOUNTS": "Accounts",
-  "NAV_COMMDOITIES": "Commodities",
+  "NAV_COMMODITIES": "Commodities",
   "NAV_DOCUMENTS": "Documents",
   "NAV_REPORT": "Report",
   "NAV_LIABILITY": "Liability",
@@ -19,6 +19,7 @@
   "NAV_TOOLS": "Tools",
   "NAV_SETTING": "Setting",
   "NAV_BUDGETS": "Budget",
+  "TXN_EDIT_PREVIEW": "Preview",
   "ERROR": {
     "AccountDoesNotExist": "Account does not exist",
     "AccountBalanceCheckError": " Account does not pass the balance check",

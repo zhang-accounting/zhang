@@ -1,4 +1,4 @@
-import { Container, Grid, SegmentedControl, SimpleGrid, Skeleton, Table } from '@mantine/core';
+import { Box, Container, SegmentedControl, SimpleGrid, Skeleton, Table } from '@mantine/core';
 import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -35,14 +35,10 @@ export default function Settings() {
     <Container fluid>
       <Heading title={`Settings`}></Heading>
       <Section title="Basic Setting">
-        <Grid>
-          <Grid.Col sm={12} md={6} lg={4}>
-            <Setting title="title" uppercase value={basicInfo.title} />
-          </Grid.Col>
-          <Grid.Col sm={12} md={6} lg={4}>
-            <Setting title="version" uppercase value={basicInfo.version} />
-          </Grid.Col>
-          <Grid.Col sm={12} md={6} lg={4}>
+        <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }}>
+          <Setting title="title" uppercase value={basicInfo.title} />
+          <Setting title="version" uppercase value={basicInfo.version} />
+          <Box>
             <Setting title="language" uppercase />
             <SegmentedControl
               value={lang}
@@ -53,8 +49,8 @@ export default function Settings() {
                 { label: 'English', value: 'en' },
               ]}
             />
-          </Grid.Col>
-        </Grid>
+          </Box>
+        </SimpleGrid>
       </Section>
       <Section title="Plugins">
         <SimpleGrid cols={2}>
@@ -65,28 +61,28 @@ export default function Settings() {
       </Section>
       <Section title="Options">
         <Table verticalSpacing="xs" highlightOnHover>
-          <thead>
-            <tr>
-              <th>Key</th>
-              <th>Value</th>
-            </tr>
-          </thead>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Key</Table.Th>
+              <Table.Th>Value</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
           <tbody>
             {!data ? (
-              <tr>
-                <td>
+              <Table.Tr>
+                <Table.Td>
                   <Skeleton height={20} mt={10} radius="xs" />
-                </td>
-                <td>
+                </Table.Td>
+                <Table.Td>
                   <Skeleton height={20} mt={10} radius="xs" />
-                </td>
-              </tr>
+                </Table.Td>
+              </Table.Tr>
             ) : (
               data.map((option) => (
-                <tr key={option.key}>
-                  <td>{option.key}</td>
-                  <td>{option.value}</td>
-                </tr>
+                <Table.Tr key={option.key}>
+                  <Table.Td>{option.key}</Table.Td>
+                  <Table.Td>{option.value}</Table.Td>
+                </Table.Tr>
               ))
             )}
           </tbody>

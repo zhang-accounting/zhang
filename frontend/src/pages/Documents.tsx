@@ -44,7 +44,7 @@ export default function Documents() {
   );
   return (
     <Container fluid>
-      <Group position="apart">
+      <Group justify="space-between">
         <Heading title={`${documents.length} Documents`}></Heading>
         <SegmentedControl value={layout} onChange={setLayout} data={['Grid', 'Table']} />
       </Group>
@@ -56,16 +56,7 @@ export default function Documents() {
               <Title key={`title=${idx}`} order={3} mt={'lg'} mb="sm">
                 {format(new Date(targetMonthDocuments[0].datetime), 'MMM yyyy')}
               </Title>
-              <SimpleGrid
-                key={`grid=${idx}`}
-                cols={4}
-                spacing="lg"
-                breakpoints={[
-                  { maxWidth: 'lg', cols: 4, spacing: 'md' },
-                  { maxWidth: 'sm', cols: 2, spacing: 'sm' },
-                  { maxWidth: 'xs', cols: 1, spacing: 'sm' },
-                ]}
-              >
+              <SimpleGrid key={`grid=${idx}`} cols={{ base: 1, sm: 2, md: 4 }} spacing={{ base: 'ms', md: 'md', lg: 'lg' }}>
                 {targetMonthDocuments.map((document, idx) => (
                   <AccountDocumentLine key={idx} {...document} />
                 ))}
@@ -75,27 +66,27 @@ export default function Documents() {
         </>
       ) : (
         <Table verticalSpacing="xs" highlightOnHover>
-          <thead>
-            <tr>
-              <th>Filename</th>
-              <th style={{}}>Linked Directive</th>
-              <th>Created Date</th>
-              <th>Operation</th>
-            </tr>
-          </thead>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Filename</Table.Th>
+              <Table.Th style={{}}>Linked Directive</Table.Th>
+              <Table.Th>Created Date</Table.Th>
+              <Table.Th>Operation</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
           <tbody>
             {documents.map((document, idx) => (
-              <tr>
-                <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
+              <Table.Tr>
+                <Table.Td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
                   <div>{document.filename}</div>
-                </td>
-                <td>
+                </Table.Td>
+                <Table.Td>
                   {document.account && <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
                   {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
-                </td>
-                <td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
-                <td></td>
-              </tr>
+                </Table.Td>
+                <Table.Td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
+                <Table.Td></Table.Td>
+              </Table.Tr>
             ))}
           </tbody>
         </Table>

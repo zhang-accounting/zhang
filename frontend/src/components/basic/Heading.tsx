@@ -9,7 +9,7 @@ interface Props {
 
 export function Heading(props: Props) {
   return (
-    <Group position="apart" py="md" px="xs" align="baseline">
+    <Group justify="space-between" py="md" px="xs" align="baseline">
       <Title order={2}>{props.title}</Title>
       {props.rightSection}
     </Group>

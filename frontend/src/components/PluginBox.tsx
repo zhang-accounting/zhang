@@ -1,7 +1,8 @@
 import { PluginResponse } from '../rest-model';
-import { Badge, createStyles, Group, Stack, Text } from '@mantine/core';
+import { Badge, Group, Stack, Text } from '@mantine/core';
+import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
   card: {
     backgroundColor: 'transparent',
     padding: theme.spacing.sm,
@@ -15,8 +16,8 @@ interface Props extends PluginResponse {}
 export default function PluginBox(props: Props) {
   const { classes } = useStyles();
   return (
-    <Stack className={classes.card} spacing={'xs'}>
-      <Group position={'apart'}>
+    <Stack className={classes.card} gap={'xs'}>
+      <Group justify={'space-between'}>
         <Text>{props.name}</Text>
         <Badge variant={'filled'}>{props.version}</Badge>
       </Group>

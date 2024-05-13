@@ -1,10 +1,11 @@
-import { Box, createStyles } from '@mantine/core';
+import { Box } from '@mantine/core';
 import { openContextModal } from '@mantine/modals';
 import { Buffer } from 'buffer';
 import { serverBaseUrl } from '../..';
+import { createStyles } from '@mantine/emotion';
 
 export const EXTENSIONS_SUPPORT_PREVIEW = ['png', 'jpg', 'jpeg', 'gif'];
-const useStyles = createStyles((theme, _params, getRef) => ({
+const useStyles = createStyles((theme, _, u) => ({
   imgBox: {
     overflow: 'hidden',
     position: 'relative',

@@ -2,7 +2,7 @@ import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import { useState } from 'react';
 
 import { Button, Container, Group, Modal } from '@mantine/core';
-import { IconSquarePlus } from '@tabler/icons';
+import { IconSquarePlus } from '@tabler/icons-react';
 import { axiosInstance } from '..';
 import { showNotification } from '@mantine/notifications';
 import TransactionEditForm from './TransactionEditForm';
@@ -37,7 +37,7 @@ export default function NewTransactionButton() {
 
   return (
     <>
-      <Button size="xs" fullWidth leftIcon={<IconSquarePlus />} onClick={() => isOpenHandler.open()}>
+      <Button size="xs" fullWidth leftSection={<IconSquarePlus />} onClick={() => isOpenHandler.open()}>
         NEW TRANSACTION
       </Button>
 
@@ -60,7 +60,7 @@ export default function NewTransactionButton() {
             }}
           ></TransactionEditForm>
 
-          <Group position="right" my="md">
+          <Group justify="right" my="md">
             <Button variant="outline" onClick={isOpenHandler.close}>
               Cancel
             </Button>

@@ -1,9 +1,10 @@
-import { Button, Group, Modal, Pagination, Skeleton, Stack, Text, Textarea } from '@mantine/core';
+import { Button, Group, Modal, Pagination, Stack, Text, Textarea } from '@mantine/core';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LoadingState } from '../rest-model';
 import { useAppDispatch, useAppSelector } from '../states';
-import { LedgerError, fetchError } from '../states/errors';
+import { fetchError, LedgerError } from '../states/errors';
+import { ErrorsSkeleton } from './skeletons/errorsSkeleton';
 
 export default function ErrorBox() {
   const { t } = useTranslation();
@@ -18,14 +19,7 @@ export default function ErrorBox() {
   const [selectErrorContent, setSelectErrorContent] = useState<string>('');
 
   if (status === LoadingState.Loading || status === LoadingState.NotReady) {
-    return (
-      <>
-        <Skeleton height={20} radius="xs" />
-        <Skeleton height={20} mt={10} radius="xs" />
-        <Skeleton height={20} mt={10} radius="xs" />
-        <Skeleton height={20} mt={10} radius="xs" />
-      </>
-    );
+    return <ErrorsSkeleton />;
   }
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
@@ -68,7 +62,7 @@ export default function ErrorBox() {
             setSelectErrorContent(event.target.value);
           }}
         />
-        <Group position="right">
+        <Group justify="right">
           <Button onClick={onModalReset} variant="default">
             {t('RESET')}
           </Button>
@@ -84,7 +78,9 @@ export default function ErrorBox() {
           </Text>
         ))}
 
-        <Pagination mt="xs" total={total_page} value={page} onChange={handlePageChange} position="center" />
+        <Group justify="center">
+          <Pagination mt="xs" total={total_page} value={page} onChange={handlePageChange} />
+        </Group>
       </Stack>
     </>
   );

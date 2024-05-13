@@ -44,7 +44,7 @@ export default function AccountDocumentUpload(props: Props) {
         </div>
       ) : (
         <div style={{ pointerEvents: 'none' }}>
-          <Text align="center" weight={700} size="md" mt="md">
+          <Text ta="center" fw={700} size="md" mt="md">
             <Dropzone.Accept>Drop files here</Dropzone.Accept>
             <Dropzone.Reject>Pdf file less than 30mb</Dropzone.Reject>
             <Dropzone.Idle>Upload Document</Dropzone.Idle>

@@ -1,4 +1,4 @@
-import { Group, Space } from '@mantine/core';
+import { Group, Space, Table } from '@mantine/core';
 import React from 'react';
 import { BudgetListItem } from '../../rest-model';
 import Amount from '../Amount';
@@ -14,26 +14,26 @@ export default function BudgetLine(props: Props) {
     2,
   );
   return (
-    <tr style={{ position: 'relative', zIndex: 1 }}>
-      <td>
+    <Table.Tr style={{ position: 'relative', zIndex: 1 }}>
+      <Table.Td>
         <BackgroundProgress percentage={number} />
         <Group>
-          <Space w={6}></Space>
-          <div style={{ cursor: 'pointer' }} onClick={() => navigate(props.name)}>
+          <Space w={16}></Space>
+          <span style={{ cursor: 'pointer' }} onClick={() => navigate(props.name)}>
             {props.alias ?? props.name}
-          </div>
+          </span>
         </Group>
-      </td>
-      <td style={{ textAlign: 'end' }}>{number} %</td>
-      <td style={{ textAlign: 'end' }}>
+      </Table.Td>
+      <Table.Td style={{ textAlign: 'end' }}>{number} %</Table.Td>
+      <Table.Td style={{ textAlign: 'end' }}>
         <Amount amount={props.assigned_amount.number} currency={props.assigned_amount.currency} />
-      </td>
-      <td style={{ textAlign: 'end' }}>
+      </Table.Td>
+      <Table.Td style={{ textAlign: 'end' }}>
         <Amount amount={props.activity_amount.number} currency={props.activity_amount.currency} />
-      </td>
-      <td style={{ textAlign: 'end' }}>
+      </Table.Td>
+      <Table.Td style={{ textAlign: 'end' }}>
         <Amount amount={props.available_amount.number} currency={props.available_amount.currency} />
-      </td>
-    </tr>
+      </Table.Td>
+    </Table.Tr>
   );
 }

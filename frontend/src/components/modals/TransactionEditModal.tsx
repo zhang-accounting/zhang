@@ -45,7 +45,7 @@ export const TransactionEditModal = ({
         }}
       ></TransactionEditForm>
 
-      <Group position="right" my="md">
+      <Group justify="right" my="md">
         <Button mr={3} onClick={onUpdate} disabled={!isValid}>
           Save
         </Button>

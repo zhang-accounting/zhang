@@ -1,4 +1,4 @@
-import { Button, CloseButton, Group, Input, Pagination, Table } from '@mantine/core';
+import { Button, CloseButton, Group, Input, Pagination, Table, Text } from '@mantine/core';
 import { format } from 'date-fns';
 import { groupBy } from 'lodash-es';
 import { useEffect, useState } from 'react';
@@ -9,7 +9,8 @@ import { fetchJournals, journalsSlice } from '../states/journals';
 import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
 import { useDebouncedValue, useDocumentTitle } from '@mantine/hooks';
-import { IconFilter } from '@tabler/icons';
+import { IconFilter } from '@tabler/icons-react';
+import { JournalListSkeleton } from '../components/skeletons/journalListSkeleton';
 
 function Journals() {
   const { t } = useTranslation();
@@ -46,46 +47,48 @@ function Journals() {
           {t('REFRESH')}
         </Button>
         <Input
-          icon={<IconFilter size="1rem" />}
+          leftSection={<IconFilter size="1rem" />}
           placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
           value={filter}
           onChange={(event: any) => setFilter(event.currentTarget.value)}
           rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')} onClick={() => setFilter('')} />}
         />
       </Group>
-      <Table verticalSpacing="xs" withBorder>
-        <thead>
-          <tr>
-            <th style={{ width: '100px' }}>Date</th>
-            <th style={{ width: '10px' }}>Type</th>
-            <th>Payee · Narration</th>
-            <th style={{ textAlign: 'right' }}>Amount</th>
-            <th style={{ textAlign: 'right' }}>Operation</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table verticalSpacing="xs" withTableBorder>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th style={{ width: '100px' }}>Date</Table.Th>
+            <Table.Th style={{ width: '10px' }}>Type</Table.Th>
+            <Table.Th>Payee · Narration</Table.Th>
+            <Table.Th style={{ textAlign: 'right' }}>Amount</Table.Th>
+            <Table.Th style={{ textAlign: 'right' }}>Operation</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {(journalStatus === LoadingState.Loading || journalStatus === LoadingState.NotReady) && <JournalListSkeleton />}
           {journalStatus === LoadingState.Success &&
             Object.entries(groupedRecords).map((entry) => {
               return (
                 <>
-                  <tr>
-                    <td colSpan={6}>
-                      <b>{entry[0]}</b>
-                    </td>
-                  </tr>
+                  <Table.Tr>
+                    <Table.Td colSpan={6}>
+                      <Text c={'dimmed'} size={'sm'}>
+                        {entry[0]}
+                      </Text>
+                    </Table.Td>
+                  </Table.Tr>
                   {entry[1].map((journal) => (
-                    <>
-                      <TableViewJournalLine key={journal.id} data={journal} />
-                    </>
+                    <TableViewJournalLine key={journal.id} data={journal} />
                   ))}
                 </>
               );
             })}
-        </tbody>
+        </Table.Tbody>
       </Table>
 
-      {(journalStatus === LoadingState.Loading || journalStatus === LoadingState.NotReady) && <p>loading</p>}
-      <Pagination my="xs" total={total_page} value={current_page} onChange={onPage} position="center" />
+      <Group justify={'center'}>
+        <Pagination my="xs" total={total_page} value={current_page} onChange={onPage} />
+      </Group>
     </>
   );
 }

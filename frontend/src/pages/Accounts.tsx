@@ -7,7 +7,8 @@ import { useAppDispatch, useAppSelector } from '../states';
 import { fetchAccounts, getAccountsTrie } from '../states/account';
 import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
-import { IconFilter } from '@tabler/icons';
+import { IconFilter } from '@tabler/icons-react';
+import { AccountListSkeleton } from '../components/skeletons/accountListSkeleton';
 
 export default function Accounts() {
   const { t } = useTranslation();
@@ -31,7 +32,7 @@ export default function Accounts() {
       <Heading title={`Accounts`}></Heading>
       <Group my="lg">
         <Input
-          icon={<IconFilter size="1rem" />}
+          leftSection={<IconFilter size="1rem" />}
           placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
           value={filterKeyword}
           onChange={setFilterKeyword}
@@ -45,20 +46,22 @@ export default function Accounts() {
         <Checkbox checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)} label={'Hide closed accounts'} />
       </Group>
 
-      <Table verticalSpacing="xs" highlightOnHover withBorder>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th style={{ textAlign: 'end' }}>Balance</th>
-          </tr>
-        </thead>
-        <tbody>
-          {Object.keys(accountTrie.children)
-            .sort()
-            .map((item) => (
-              <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
-            ))}
-        </tbody>
+      <Table verticalSpacing="xs" withTableBorder highlightOnHover>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Name</Table.Th>
+            <Table.Th style={{ textAlign: 'end' }}>Balance</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {accountStatus !== LoadingState.Success ? (
+            <AccountListSkeleton />
+          ) : (
+            Object.keys(accountTrie.children)
+              .sort()
+              .map((item) => <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />)
+          )}
+        </Table.Tbody>
       </Table>
     </Container>
   );

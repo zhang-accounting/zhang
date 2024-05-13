@@ -1,19 +1,14 @@
-import { ActionIcon, Badge, createStyles, getStylesRef, Group } from '@mantine/core';
-import { IconFile, IconPencil, IconZoomExclamation } from '@tabler/icons';
+import { ActionIcon, Badge, Group, Table } from '@mantine/core';
+import { IconFile, IconPencil, IconZoomExclamation } from '@tabler/icons-react';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../../rest-model';
 import { calculate } from '../../../utils/trx-calculator';
 import Amount from '../../Amount';
 import { openContextModal } from '@mantine/modals';
 import PayeeNarration from '../../basic/PayeeNarration';
+import { createStyles, getStylesRef } from '@mantine/emotion';
 
-const useStyles = createStyles((theme, _params, getRef) => ({
-  payee: {
-    fontWeight: 'bold',
-  },
-  narration: {
-    // marginLeft: theme.spacing.xs*0.5,
-  },
+const useStyles = createStyles((theme, _, u) => ({
   positiveAmount: {
     color: theme.colors.green[8],
     fontWeight: 'bold',
@@ -82,36 +77,36 @@ export default function TableViewTransactionLine({ data }: Props) {
   const summary = calculate(data);
   const hasDocuments = data.metas.some((meta) => meta.key === 'document');
   return (
-    <tr className={`${classes.actionHider} ${!data.is_balanced ? classes.notBalance : ''} ${data.flag === '!' ? classes.warning : ''}`}>
-      <td>{time}</td>
-      <td>
+    <Table.Tr className={`${classes.actionHider} ${!data.is_balanced ? classes.notBalance : ''} ${data.flag === '!' ? classes.warning : ''}`}>
+      <Table.Td>{time}</Table.Td>
+      <Table.Td>
         <Badge color="gray" size="xs" variant="outline">
           TRX
         </Badge>
-      </td>
-      <td>
-        <Group align="center" spacing="xs">
+      </Table.Td>
+      <Table.Td>
+        <Group align="center" gap="xs">
           <PayeeNarration payee={data.payee} narration={data.narration} />
-          {hasDocuments && <IconFile size={14} color={'gray'} stroke={1.5}></IconFile>}
+          {hasDocuments && <IconFile size="1rem" color={'gray'} stroke={1}></IconFile>}
         </Group>
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         {Array.from(summary.values()).map((each) => (
-          <Group align="center" position="right" spacing="xs" className={each.number.isPositive() ? classes.positiveAmount : classes.negativeAmount}>
+          <Group align="center" justify="right" gap="xs" className={each.number.isPositive() ? classes.positiveAmount : classes.negativeAmount}>
             <Amount amount={each.number} currency={each.currency} />
           </Group>
         ))}
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         <div className={classes.actions}>
-          <ActionIcon size="sm" onClick={openEditModel}>
-            <IconPencil size="1.125rem" />
+          <ActionIcon color="gray" variant="white" size="sm" onClick={openEditModel}>
+            <IconPencil size="1rem" />
           </ActionIcon>
-          <ActionIcon size="sm" onClick={openPreviewModal}>
-            <IconZoomExclamation size="1.125rem" />
+          <ActionIcon color="gray" variant="white" size="sm" onClick={openPreviewModal}>
+            <IconZoomExclamation size="1rem" />
           </ActionIcon>
         </div>
-      </td>
-    </tr>
+      </Table.Td>
+    </Table.Tr>
   );
 }

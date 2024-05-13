@@ -11,7 +11,7 @@
   "NAV_HOME": "仪表台",
   "NAV_JOURNALS": "流水",
   "NAV_ACCOUNTS": "账户",
-  "NAV_COMMDOITIES": "货币",
+  "NAV_COMMODITIES": "货币",
   "NAV_DOCUMENTS": "文档",
   "NAV_REPORT": "报表",
   "NAV_LIABILITY": "负债",
@@ -21,6 +21,7 @@
   "NAV_BUDGETS": "预算",
   "ACCOUNT_FILTER_PLACEHOLDER": "按关键字过滤...",
   "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "清空过滤关键字",
+  "TXN_EDIT_PREVIEW": "预览",
   "ERROR": {
     "AccountDoesNotExist": "对应账户不存在",
     "AccountBalanceCheckError": "账户定期对账不通过",

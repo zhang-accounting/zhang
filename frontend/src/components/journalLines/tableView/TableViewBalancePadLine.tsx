@@ -1,13 +1,14 @@
-import { ActionIcon, Badge, createStyles, Group, px, getStylesRef } from '@mantine/core';
+import { ActionIcon, Badge, Group, Table } from '@mantine/core';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
 import { JournalBlancePadItem, JournalItem } from '../../../rest-model';
 import Amount from '../../Amount';
-import { IconZoomExclamation } from '@tabler/icons';
+import { IconZoomExclamation } from '@tabler/icons-react';
 import { openContextModal } from '@mantine/modals';
 import PayeeNarration from '../../basic/PayeeNarration';
+import { createStyles, getStylesRef } from '@mantine/emotion';
 
-const useStyles = createStyles((theme, _params, getRef) => ({
+const useStyles = createStyles((theme, _, u) => ({
   payee: {
     fontWeight: 'bold',
   },
@@ -16,7 +17,7 @@ const useStyles = createStyles((theme, _params, getRef) => ({
     color: theme.colors.gray[7],
     fontWeight: 'bold',
     fontFeatureSettings: 'tnum',
-    fontSize: px(theme.fontSizes.sm) * 0.95,
+    fontSize: `calc(${theme.fontSizes.sm} * 0.95)`,
   },
   negativeAmount: {
     color: theme.colors.red[5],
@@ -66,18 +67,18 @@ export default function TableViewBalancePadLine({ data, onClick }: Props) {
 
   // const isBalanced = new BigNumber(data.postings[0].account_after_number) === new BigNumber(data.postings[0].account_before_number)
   return (
-    <tr className={classes.actionHider}>
-      <td>{time}</td>
-      <td>
+    <Table.Tr className={classes.actionHider}>
+      <Table.Td>{time}</Table.Td>
+      <Table.Td>
         <Badge size="xs" variant="outline">
           Pad
         </Badge>
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         <PayeeNarration payee={data.payee} narration={data.narration} />
-      </td>
-      <td>
-        <Group align="center" position="right" spacing="xs" className={classes.positiveAmount}>
+      </Table.Td>
+      <Table.Td>
+        <Group align="center" justify="right" gap="xs" className={classes.positiveAmount}>
           <Amount amount={data.postings[0].account_after_number} currency={data.postings[0].account_after_commodity} />
         </Group>
         {/* <span className={isBalanced ? classes.positiveAmount : classes.negativeAmount}>
@@ -88,14 +89,14 @@ export default function TableViewBalancePadLine({ data, onClick }: Props) {
             current: <Amount amount={data.postings[0].account_before_number} currency={data.postings[0].account_before_commodity} />
           </div>
         } */}
-      </td>
-      <td>
+      </Table.Td>
+      <Table.Td>
         <div className={classes.actions}>
-          <ActionIcon size="sm" onClick={openPreviewModal}>
+          <ActionIcon color="gray" variant="white" size="sm" onClick={openPreviewModal}>
             <IconZoomExclamation size="1.125rem" />
           </ActionIcon>
         </div>
-      </td>
-    </tr>
+      </Table.Td>
+    </Table.Tr>
   );
 }

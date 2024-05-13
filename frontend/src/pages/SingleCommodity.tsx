@@ -23,7 +23,7 @@ export default function SingleCommodity() {
   return (
     <Container fluid>
       <Heading title={commodityName!}></Heading>
-      <Tabs defaultValue="lots" mt="lg">
+      <Tabs keepMounted={false} variant="outline" defaultValue="lots" mt="lg">
         <Tabs.List>
           <Tabs.Tab value="lots">Lots</Tabs.Tab>
           <Tabs.Tab value="price_history">Price History</Tabs.Tab>
@@ -31,22 +31,22 @@ export default function SingleCommodity() {
 
         <Tabs.Panel value="lots" pt="xs">
           <Table verticalSpacing="xs" highlightOnHover>
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th>Lot</th>
-                <th>Balance</th>
-              </tr>
-            </thead>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Account</Table.Th>
+                <Table.Th>Lot</Table.Th>
+                <Table.Th>Balance</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
             <tbody>
               {data.lots.map((it, idx) => (
-                <tr key={idx}>
-                  <td>{it.account}</td>
-                  <td>
+                <Table.Tr key={idx}>
+                  <Table.Td>{it.account}</Table.Td>
+                  <Table.Td>
                     {it.price_amount} {it.price_commodity}
-                  </td>
-                  <td>{it.amount}</td>
-                </tr>
+                  </Table.Td>
+                  <Table.Td>{it.amount}</Table.Td>
+                </Table.Tr>
               ))}
             </tbody>
           </Table>
@@ -54,20 +54,20 @@ export default function SingleCommodity() {
 
         <Tabs.Panel value="price_history" pt="xs">
           <Table verticalSpacing="xs" highlightOnHover>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Price</th>
-              </tr>
-            </thead>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Date</Table.Th>
+                <Table.Th>Price</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
             <tbody>
               {data.prices.map((it, idx) => (
-                <tr key={idx}>
-                  <td>{format(new Date(it.datetime), 'yyyy-MM-dd')}</td>
-                  <td>
+                <Table.Tr key={idx}>
+                  <Table.Td>{format(new Date(it.datetime), 'yyyy-MM-dd')}</Table.Td>
+                  <Table.Td>
                     <Amount amount={it.amount} currency={it.target_commodity} />
-                  </td>
-                </tr>
+                  </Table.Td>
+                </Table.Tr>
               ))}
             </tbody>
           </Table>

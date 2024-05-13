@@ -3,6 +3,7 @@ import { RootState } from '.';
 import { fetcher } from '..';
 import { Account, AccountStatus, LoadingState } from '../rest-model';
 import AccountTrie from '../utils/AccountTrie';
+import { groupBy } from 'lodash-es';
 
 export const fetchAccounts = createAsyncThunk('accounts/fetch', async (thunkApi) => {
   const ret = await fetcher(`/api/accounts`);
@@ -60,12 +61,14 @@ export const getAccountsTrie = (hideClosedAccount: boolean, filterKeyword: strin
 };
 
 export const getAccountSelectItems = () => (state: RootState) => {
-  return state.accounts.data.map((account) => {
-    const type = account.name.split(':')[0];
-    return {
-      label: account.name,
-      value: account.name,
-      group: type,
-    };
-  });
+  const groupedAccount = groupBy(
+    state.accounts.data.map((account) => account.name),
+    (it) => it.split(':')[0],
+  );
+  return Object.keys(groupedAccount)
+    .sort()
+    .map((groupName) => ({
+      group: groupName,
+      items: groupedAccount[groupName],
+    }));
 };

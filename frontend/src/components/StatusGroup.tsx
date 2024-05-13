@@ -1,7 +1,8 @@
-import { createStyles, SimpleGrid, Text } from '@mantine/core';
+import { SimpleGrid, Text } from '@mantine/core';
 import Amount from './Amount';
+import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
   root: {
     backgroundImage: `linear-gradient(-60deg, ${theme.colors[theme.primaryColor][4]} 0%, ${theme.colors[theme.primaryColor][7]} 100%)`,
     padding: theme.spacing.xl,
@@ -50,15 +51,7 @@ export default function StatsGroup({ data }: StatsGroupProps) {
     </div>
   ));
   return (
-    <SimpleGrid
-      cols={data.length}
-      breakpoints={[
-        { maxWidth: 'md', cols: 2, spacing: 'sm' },
-        { maxWidth: 'sm', cols: 2, spacing: 'sm' },
-        { maxWidth: 'xs', cols: 1, spacing: 'sm' },
-      ]}
-      className={classes.root}
-    >
+    <SimpleGrid cols={{ base: 1, sm: 2, lg: data.length }} className={classes.root}>
       {stats}
     </SimpleGrid>
   );
