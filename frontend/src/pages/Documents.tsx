@@ -76,28 +76,27 @@ export default function Documents() {
       ) : (
         <Table verticalSpacing="xs" highlightOnHover>
           <thead>
-          <tr>
-            <th>Filename</th>
-            <th style={{}}>Linked Directive</th>
-            <th>Created Date</th>
-            <th>Operation</th>
-          </tr>
+            <tr>
+              <th>Filename</th>
+              <th style={{}}>Linked Directive</th>
+              <th>Created Date</th>
+              <th>Operation</th>
+            </tr>
           </thead>
           <tbody>
-          {documents.map((document, idx) => (
-            <tr>
-              <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
-                <div>{document.filename}</div>
-              </td>
-              <td>
-                {document.account &&
-                  <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
-                {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
-              </td>
-              <td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
-              <td></td>
-            </tr>
-          ))}
+            {documents.map((document, idx) => (
+              <tr>
+                <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
+                  <div>{document.filename}</div>
+                </td>
+                <td>
+                  {document.account && <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
+                  {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
+                </td>
+                <td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
+                <td></td>
+              </tr>
+            ))}
           </tbody>
         </Table>
       )}
