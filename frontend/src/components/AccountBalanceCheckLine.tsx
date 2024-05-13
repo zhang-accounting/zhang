@@ -1,4 +1,4 @@
-import { TextInput, Button, Select, Group, Table } from '@mantine/core';
+import { Autocomplete, Button, Group, Table, TextInput } from '@mantine/core';
 import { useState } from 'react';
 import { axiosInstance } from '../index';
 import { showNotification } from '@mantine/notifications';
@@ -14,10 +14,11 @@ interface Props {
 
 export default function AccountBalanceCheckLine({ currentAmount, commodity, accountName }: Props) {
   const [amount, setAmount] = useState('');
-  const [padAccount, setPadAccount] = useState<string | null>(null);
+  const [padAccount, setPadAccount] = useState<string>('');
   const dispatch = useAppDispatch();
 
   const accountItems = [...useAppSelector(getAccountSelectItems())];
+  console.log('accountItems', accountItems);
 
   const onSave = async () => {
     try {
@@ -58,8 +59,8 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
         </Table.Td>
         <Table.Td>{}</Table.Td>
         <Table.Td>
-          <Select searchable clearable placeholder="Pad to" data={accountItems} value={padAccount}
-                  onChange={(e) => setPadAccount(e)} />
+          <Autocomplete placeholder="Pad to" data={accountItems} value={padAccount}
+                        onChange={setPadAccount} />
         </Table.Td>
         <Table.Td>
           <Group gap={'xs'}>

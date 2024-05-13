@@ -51,7 +51,7 @@ import BatchBalance from './pages/tools/BatchBalance';
 import ToolList from './pages/tools/ToolList';
 import WechatExporter from './pages/tools/WechatExporter';
 import { useAppDispatch, useAppSelector } from './states';
-import { accountsSlice } from './states/account';
+import { accountsSlice, fetchAccounts } from './states/account';
 import { basicInfoSlice, fetchBasicInfo, reloadLedger } from './states/basic';
 import { fetchCommodities } from './states/commodity';
 import { fetchError } from './states/errors';
@@ -245,6 +245,7 @@ export default function App() {
     dispatch(fetchError(1));
     dispatch(fetchCommodities());
     dispatch(fetchBasicInfo());
+    dispatch(fetchAccounts());
 
     let events = new EventSource(serverBaseUrl + '/api/sse');
     events.onmessage = (event) => {

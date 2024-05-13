@@ -31,6 +31,7 @@ function SingleAccount() {
 
   const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
 
+  console.log("account data", account);
   const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
 
   useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
@@ -54,7 +55,7 @@ function SingleAccount() {
           </Group>
           {Object.keys(account.amount.detail).length > 1 && (
             <>
-              {Object.entries(account.amount.detail).map(([key, value]) => (
+              {Object.entries(account.amount.detail ?? {}).map(([key, value]) => (
                 <Amount key={key} className={classes.detailAmount} amount={value} currency={key}></Amount>
               ))}
             </>
@@ -90,7 +91,7 @@ function SingleAccount() {
               skeleton={<div>loading</div>}
               render={(data: AccountJournalItem[]) => (
                 <>
-                  {data.map((item) => (
+                  {(data ?? []).map((item) => (
                     <Table.Tr>
                       <Table.Td>{format(new Date(item.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
                       <Table.Td>
@@ -122,7 +123,7 @@ function SingleAccount() {
                   spacing={{ base: 'sm', md: 'md', sm: 'sm' }}
                 >
                   <AccountDocumentUpload url={`/api/accounts/${accountName}/documents`} />
-                  {data.map((document, idx) => (
+                  {(data).map((document, idx) => (
                     <DocumentPreview key={idx} uri={document.path} filename={document.path} />
                   ))}
                 </SimpleGrid>
@@ -143,7 +144,7 @@ function SingleAccount() {
             </Table.Tr>
             </Table.Thead>
             <tbody>
-            {Object.entries(account?.amount.detail ?? []).map(([commodity, amount], idx) => (
+            {Object.entries(account?.amount.detail ?? {}).map(([commodity, amount], idx) => (
               <AccountBalanceCheckLine currentAmount={amount} commodity={commodity} accountName={account.name} />
             ))}
             </tbody>
