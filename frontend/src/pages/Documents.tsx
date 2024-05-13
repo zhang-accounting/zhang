@@ -1,7 +1,6 @@
-import { Button, Container, Group, SimpleGrid, Table, Title } from '@mantine/core';
+import { Container, Group, SegmentedControl, SimpleGrid, Table, Title } from '@mantine/core';
 import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
 import { openContextModal } from '@mantine/modals';
-import { IconLayout2, IconListDetails } from '@tabler/icons';
 import { format } from 'date-fns';
 import useSWR from 'swr';
 import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
@@ -47,14 +46,7 @@ export default function Documents() {
     <Container fluid>
       <Group position="apart">
         <Heading title={`${documents.length} Documents`}></Heading>
-        <Button.Group>
-          <Button disabled={layout === 'Grid'} leftIcon={<IconLayout2 size={14} />} variant="default" onClick={() => setLayout('Grid')}>
-            Grid
-          </Button>
-          <Button disabled={layout === 'Table'} leftIcon={<IconListDetails size={14} />} variant="default" onClick={() => setLayout('Table')}>
-            Table
-          </Button>
-        </Button.Group>
+        <SegmentedControl value={layout} onChange={setLayout} data={['Grid', 'Table']} />
       </Group>
 
       {layout === 'Grid' ? (
@@ -84,27 +76,28 @@ export default function Documents() {
       ) : (
         <Table verticalSpacing="xs" highlightOnHover>
           <thead>
-            <tr>
-              <th>Filename</th>
-              <th style={{}}>Linked Directive</th>
-              <th>Created Date</th>
-              <th>Operation</th>
-            </tr>
+          <tr>
+            <th>Filename</th>
+            <th style={{}}>Linked Directive</th>
+            <th>Created Date</th>
+            <th>Operation</th>
+          </tr>
           </thead>
           <tbody>
-            {documents.map((document, idx) => (
-              <tr>
-                <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
-                  <div>{document.filename}</div>
-                </td>
-                <td>
-                  {document.account && <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
-                  {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
-                </td>
-                <td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
-                <td></td>
-              </tr>
-            ))}
+          {documents.map((document, idx) => (
+            <tr>
+              <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
+                <div>{document.filename}</div>
+              </td>
+              <td>
+                {document.account &&
+                  <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
+                {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
+              </td>
+              <td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
+              <td></td>
+            </tr>
+          ))}
           </tbody>
         </Table>
       )}
