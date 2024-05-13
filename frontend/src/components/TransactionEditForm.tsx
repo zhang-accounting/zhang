@@ -69,16 +69,19 @@ export default function TransactionEditForm(props: Props) {
         datetime: date?.toISOString(),
         payee: payee ?? '',
         narration: narration,
-        postings: postings.map((it) => ({
-          account: it.account,
-          unit:
-            it.amount.trim() === ''
-              ? null
-              : {
-                  number: it.amount.split(' ')[0],
-                  commodity: it.amount.split(' ')[1],
-                },
-        })),
+        postings: postings.map((it) => {
+          let splitAmount = it.amount.trim().split(' ');
+          return {
+            account: it.account,
+            unit:
+              splitAmount[0] === ''
+                ? null
+                : {
+                    number: splitAmount[0],
+                    commodity: splitAmount[1],
+                  },
+          };
+        }),
         tags: [],
         links: [],
         metas: metas,
@@ -175,7 +178,7 @@ export default function TransactionEditForm(props: Props) {
           </Grid.Col>
         </Grid>
       ))}
-      <Divider label={t("TXN_EDIT_PREVIEW")} labelPosition="left" size="xs" my="md"></Divider>
+      <Divider label={t('TXN_EDIT_PREVIEW')} labelPosition="left" size="xs" my="md"></Divider>
       <Code block>{preview()}</Code>
     </Container>
   );

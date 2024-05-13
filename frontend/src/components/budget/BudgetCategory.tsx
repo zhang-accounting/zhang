@@ -52,7 +52,7 @@ export default function BudgetCategory(props: Props) {
       <Table.Tr style={{ position: 'relative', zIndex: 1 }}>
         <Table.Td>
           <BackgroundProgress percentage={number} />
-          <Group gap={"xs"}>
+          <Group gap={'xs'}>
             <ActionIcon size="sm" color="gray" variant="transparent" onClick={() => setCollapse(!isShow)}>
               {isShow ? <IconChevronDown size={28} /> : <IconChevronRight size={48} />}
             </ActionIcon>{' '}

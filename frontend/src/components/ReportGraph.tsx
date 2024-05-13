@@ -7,11 +7,11 @@ import { Paper, Text } from '@mantine/core';
 import Amount from './Amount';
 
 function ChartTooltip({
-                        label,
-                        payload,
-                        total_min,
-                        commodity,
-                      }: ChartTooltipProps & {
+  label,
+  payload,
+  total_min,
+  commodity,
+}: ChartTooltipProps & {
   total_min: number;
   commodity: string;
 }) {
@@ -24,14 +24,12 @@ function ChartTooltip({
       </Text>
       {payload.map((item: any) => (
         <Text key={item.name} c={item.color} fz="sm">
-          {item.name}: <Amount amount={item.name !== 'total' ? item.value - total_min : item.value}
-                               currency={commodity}></Amount>
+          {item.name}: <Amount amount={item.name !== 'total' ? item.value - total_min : item.value} currency={commodity}></Amount>
         </Text>
       ))}
     </Paper>
   );
 }
-
 
 interface Props {
   data: StatisticGraphResponse;
@@ -75,9 +73,7 @@ export default function ReportGraph(props: Props) {
         withLegend
         tooltipProps={{
           content: ({ label, payload }) => (
-            <ChartTooltip total_min={total_domain[0]}
-                          commodity={Object.values(props.data.balances)[0].calculated.currency} label={label}
-                          payload={payload} />
+            <ChartTooltip total_min={total_domain[0]} commodity={Object.values(props.data.balances)[0].calculated.currency} label={label} payload={payload} />
           ),
         }}
         yAxisProps={{ type: 'number', scale: 'log', domain: total_domain }}
@@ -89,7 +85,6 @@ export default function ReportGraph(props: Props) {
         connectNulls
         curveType="bump"
       />
-
     </>
   );
 }
