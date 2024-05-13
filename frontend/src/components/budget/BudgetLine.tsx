@@ -18,10 +18,10 @@ export default function BudgetLine(props: Props) {
       <Table.Td>
         <BackgroundProgress percentage={number} />
         <Group>
-          <Space w={6}></Space>
-          <div style={{ cursor: 'pointer' }} onClick={() => navigate(props.name)}>
+          <Space w={16}></Space>
+          <span style={{ cursor: 'pointer' }} onClick={() => navigate(props.name)}>
             {props.alias ?? props.name}
-          </div>
+          </span>
         </Group>
       </Table.Td>
       <Table.Td style={{ textAlign: 'end' }}>{number} %</Table.Td>

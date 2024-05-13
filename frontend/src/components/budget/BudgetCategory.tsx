@@ -1,4 +1,4 @@
-import { ActionIcon, Table } from '@mantine/core';
+import { ActionIcon, Group, Table } from '@mantine/core';
 import React from 'react';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useLocalStorage } from '@mantine/hooks';
@@ -52,12 +52,12 @@ export default function BudgetCategory(props: Props) {
       <Table.Tr style={{ position: 'relative', zIndex: 1 }}>
         <Table.Td>
           <BackgroundProgress percentage={number} />
-          <div style={{ display: 'flex' }}>
+          <Group gap={"xs"}>
             <ActionIcon size="sm" color="gray" variant="transparent" onClick={() => setCollapse(!isShow)}>
               {isShow ? <IconChevronDown size={28} /> : <IconChevronRight size={48} />}
             </ActionIcon>{' '}
             <b>{props.name}</b>
-          </div>
+          </Group>
         </Table.Td>
         <Table.Td style={{ textAlign: 'end' }}>
           <b>{number} %</b>
