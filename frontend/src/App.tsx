@@ -1,22 +1,25 @@
-import { Route, Routes } from 'react-router-dom';
-import Accounts from './pages/Accounts';
-import Commodities from './pages/Commodities';
-import Documents from './pages/Documents';
-import Home from './pages/Home';
-import Journals from './pages/Journals';
-import RawEdit from './pages/RawEdit';
-import Report from './pages/Report';
-import Settings from './pages/Settings';
-import SingleAccount from './pages/SingleAccount';
-import SingleCommodity from './pages/SingleCommodity';
+import { Link as RouteLink } from 'react-router-dom';
 import { matchPath, useLocation } from 'react-router';
-import { useLocalStorage, useDisclosure, useMediaQuery } from '@mantine/hooks';
+import { useDisclosure, useLocalStorage, useMediaQuery } from '@mantine/hooks';
 
-import { ActionIcon, Badge, Box, Group, px, Text, TextInput, UnstyledButton, Anchor, Stack } from '@mantine/core';
+import {
+  ActionIcon,
+  Anchor,
+  AppShell,
+  Badge,
+  Box,
+  Group,
+  px,
+  Stack,
+  Text,
+  TextInput,
+  UnstyledButton,
+} from '@mantine/core';
 import {
   IconBroadcast,
   IconCash,
-  IconChartAreaLine, IconCheck,
+  IconChartAreaLine,
+  IconCheck,
   IconCreditCard,
   IconCurrencyBitcoin,
   IconFiles,
@@ -29,27 +32,20 @@ import {
   IconSmartHome,
   IconTools,
 } from '@tabler/icons-react';
-import { Link as RouteLink } from 'react-router-dom';
 import NewTransactionButton from './components/NewTransactionButton';
-
-import { AppShell, Grid } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { serverBaseUrl } from './index';
-import BatchBalance from './pages/tools/BatchBalance';
-import ToolList from './pages/tools/ToolList';
-import WechatExporter from './pages/tools/WechatExporter';
 import { useAppDispatch, useAppSelector } from './states';
 import { accountsSlice, fetchAccounts } from './states/account';
 import { basicInfoSlice, fetchBasicInfo, reloadLedger } from './states/basic';
 import { fetchCommodities } from './states/commodity';
 import { fetchError } from './states/errors';
 import { journalsSlice } from './states/journals';
-import Budgets from './pages/Budgets';
-import SingleBudget from './pages/SingleBudget';
 import { useSWRConfig } from 'swr';
 import { createStyles } from '@mantine/emotion';
+import { Router } from './router';
 
 const useStyles = createStyles((theme, _, u) => ({
   onlineIcon: {
@@ -391,23 +387,7 @@ export default function App() {
       </AppShell.Navbar>
 
       <AppShell.Main>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="journals" element={<Journals />} />
-          <Route path="accounts" element={<Accounts />} />
-          <Route path="/accounts/:accountName" element={<SingleAccount />} />
-          <Route path="/commodities" element={<Commodities />} />
-          <Route path="/commodities/:commodityName" element={<SingleCommodity />} />
-          <Route path="documents" element={<Documents />} />
-          <Route path="/budgets" element={<Budgets />} />
-          <Route path="/budgets/:budgetName" element={<SingleBudget />} />
-          <Route path="/edit" element={<RawEdit />} />
-          <Route path="/report" element={<Report />} />
-          <Route path="/tools" element={<ToolList />} />
-          <Route path="/tools/wechat-exporter" element={<WechatExporter />} />
-          <Route path="/tools/batch-balance" element={<BatchBalance />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
+        <Router />
       </AppShell.Main>
     </AppShell>
   );
