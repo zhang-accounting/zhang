@@ -29,7 +29,7 @@ export default function BackgroundProgress(props: Props) {
         position: 'absolute',
         top: '95%',
         left: 0,
-        bottom: 0,
+        bottom: "-1px",
         backgroundColor: color,
         zIndex: -999,
       }}
