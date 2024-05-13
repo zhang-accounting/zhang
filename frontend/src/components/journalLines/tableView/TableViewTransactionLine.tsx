@@ -9,12 +9,6 @@ import PayeeNarration from '../../basic/PayeeNarration';
 import { createStyles, getStylesRef } from '@mantine/emotion';
 
 const useStyles = createStyles((theme, _, u) => ({
-  payee: {
-    fontWeight: 'bold',
-  },
-  narration: {
-    // marginLeft: theme.spacing.xs*0.5,
-  },
   positiveAmount: {
     color: theme.colors.green[8],
     fontWeight: 'bold',
@@ -93,7 +87,7 @@ export default function TableViewTransactionLine({ data }: Props) {
       <Table.Td>
         <Group align="center" gap="xs">
           <PayeeNarration payee={data.payee} narration={data.narration} />
-          {hasDocuments && <IconFile size={14} color={'gray'} stroke={1.5}></IconFile>}
+          {hasDocuments && <IconFile size="1rem" color={'gray'} stroke={1}></IconFile>}
         </Group>
       </Table.Td>
       <Table.Td>
@@ -106,10 +100,10 @@ export default function TableViewTransactionLine({ data }: Props) {
       <Table.Td>
         <div className={classes.actions}>
           <ActionIcon color="gray" variant="white" size="sm" onClick={openEditModel}>
-            <IconPencil size="1.125rem" />
+            <IconPencil size="1rem" />
           </ActionIcon>
           <ActionIcon color="gray" variant="white" size="sm" onClick={openPreviewModal}>
-            <IconZoomExclamation size="1.125rem" />
+            <IconZoomExclamation size="1rem" />
           </ActionIcon>
         </div>
       </Table.Td>

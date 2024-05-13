@@ -24,7 +24,7 @@ const useStyles = createStyles((theme, _, u) => ({
 
   lead: {
     fontWeight: 700,
-    fontSize: `calc(${px(theme.fontSizes.xl)}  * 1.15)`,
+    fontSize: `calc(${theme.fontSizes.xl}  * 1.15)`,
     lineHeight: 1,
     color: theme.colors.gray[9],
   },
@@ -45,7 +45,7 @@ export default function StatisticBox({ text, amount, currency, negetive, hint }:
   const displayBox = (
     <Stack mt="sm" gap={'xs'} className={classes.card}>
       <Text className={classes.lead}>
-        <Amount amount={amount} negetive={negetive} currency={currency} />
+        <Amount amount={amount} negative={negetive} currency={currency} />
       </Text>
       <Text className={classes.label}>{t(text)}</Text>
     </Stack>

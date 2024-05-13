@@ -17,7 +17,7 @@ const useStyles = createStyles((theme, _, u) => ({
     color: theme.colors.gray[7],
     fontWeight: 'bold',
     fontFeatureSettings: 'tnum',
-    fontSize: `calc(${px(theme.fontSizes.sm)} * 0.95)`,
+    fontSize: `calc(${theme.fontSizes.sm} * 0.95)`,
   },
   negativeAmount: {
     color: theme.colors.red[5],

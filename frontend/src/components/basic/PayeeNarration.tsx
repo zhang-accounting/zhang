@@ -25,8 +25,8 @@ export default function PayeeNarration(props: Props) {
   const { classes } = useStyles();
   return (
     <Group gap="xs">
-      {props.payee && <Text className={classes.payee}>{props.payee}</Text>}
-      <Text className={classes.narration}>{props.narration ?? ''}</Text>
+      {props.payee && <span className={classes.payee}>{props.payee}</span>}
+      <span className={classes.narration}>{props.narration ?? ''}</span>
     </Group>
   );
 }

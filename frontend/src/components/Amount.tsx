@@ -1,4 +1,4 @@
-import { px, Text } from '@mantine/core';
+import { Text } from '@mantine/core';
 import BigNumber from 'bignumber.js';
 import { useAppSelector } from '../states';
 import { getCommodityByName } from '../states/commodity';
@@ -7,7 +7,7 @@ import { createStyles } from '@mantine/emotion';
 const useStyles = createStyles((theme, _, u) => ({
   wrapper: {
     display: 'inline-flex',
-    gap: `calc(${px(theme.spacing.xs)} * 0.25)`,
+    gap: `calc(${theme.spacing.xs} * 0.25)`,
   },
   number: {
     fontFeatureSettings: '"tnum" 1',
@@ -20,16 +20,16 @@ const useStyles = createStyles((theme, _, u) => ({
 interface Props {
   amount: string | number | BigNumber;
   currency: string;
-  negetive?: boolean;
+  negative?: boolean;
   mask?: boolean;
   className?: string;
 }
 
-export default function Amount({ amount, currency, negetive, mask, className }: Props) {
+export default function Amount({ amount, currency, negative, mask, className }: Props) {
   const { classes } = useStyles();
   const commodity = useAppSelector(getCommodityByName(currency));
 
-  const flag = negetive || false ? -1 : 1;
+  const flag = negative || false ? -1 : 1;
   const shouldMask = mask || false;
   const shouldDisplayCurrencyName = !commodity?.prefix && !commodity?.suffix;
 
@@ -49,23 +49,23 @@ export default function Amount({ amount, currency, negetive, mask, className }: 
   return (
     <span className={`${classes.wrapper} ${className}`}>
       {isNegative && (
-        <Text mx={1} className={classes.part}>
+        <span className={classes.part}>
           -
-        </Text>
+        </span>
       )}
-      <Text className={classes.number}>
+      <span className={classes.number}>
         {commodity?.prefix}
         {maskedValue}
-      </Text>
+      </span>
       {commodity?.suffix && (
-        <Text mx={1} className={classes.part}>
+        <span className={classes.part}>
           {commodity?.suffix}
-        </Text>
+        </span>
       )}
       {shouldDisplayCurrencyName && (
-        <Text mx={1} className={classes.part}>
+        <span className={classes.part}>
           {currency}
-        </Text>
+        </span>
       )}
     </span>
   );

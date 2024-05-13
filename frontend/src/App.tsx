@@ -111,7 +111,7 @@ const useStyles = createStyles((theme, _, u) => ({
     width: '100%',
     fontSize: theme.fontSizes.sm,
     margin: `calc(${theme.spacing.sm} * 0.25) 0`,
-    padding: `calc(${theme.spacing.sm} * 0.75) ${px(theme.spacing.xs)}px`,
+    padding: `calc(${theme.spacing.sm} * 0.75) ${theme.spacing.xs}`,
     borderRadius: theme.radius.sm,
     fontWeight: 500,
     border: `2px solid transparent`,

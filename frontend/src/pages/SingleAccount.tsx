@@ -17,7 +17,7 @@ import { createStyles } from '@mantine/emotion';
 
 const useStyles = createStyles((theme, _, u) => ({
   calculatedAmount: {
-    fontSize: `calc(${px(theme.fontSizes.xl)} * 1.1)`,
+    fontSize: `calc(${theme.fontSizes.xl} * 1.1)`,
     fontWeight: 500,
   },
   detailAmount: {
