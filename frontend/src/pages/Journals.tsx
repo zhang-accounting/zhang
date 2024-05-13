@@ -10,6 +10,7 @@ import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
 import { useDebouncedValue, useDocumentTitle } from '@mantine/hooks';
 import { IconFilter } from '@tabler/icons-react';
+import { JournalListSkeleton } from '../components/skeletons/journalListSkeleton';
 
 function Journals() {
   const { t } = useTranslation();
@@ -63,26 +64,28 @@ function Journals() {
             <Table.Th style={{ textAlign: 'right' }}>Operation</Table.Th>
           </Table.Tr>
         </Table.Thead>
-        <tbody>
+        <Table.Tbody>
+          {(journalStatus === LoadingState.Loading || journalStatus === LoadingState.NotReady) && <JournalListSkeleton />}
           {journalStatus === LoadingState.Success &&
             Object.entries(groupedRecords).map((entry) => {
               return (
                 <>
                   <Table.Tr>
                     <Table.Td colSpan={6}>
-                      <Text c={"dimmed"} size={"sm"} >{entry[0]}</Text>
+                      <Text c={'dimmed'} size={'sm'}>
+                        {entry[0]}
+                      </Text>
                     </Table.Td>
                   </Table.Tr>
                   {entry[1].map((journal) => (
-                      <TableViewJournalLine key={journal.id} data={journal} />
+                    <TableViewJournalLine key={journal.id} data={journal} />
                   ))}
                 </>
               );
             })}
-        </tbody>
+        </Table.Tbody>
       </Table>
 
-      {(journalStatus === LoadingState.Loading || journalStatus === LoadingState.NotReady) && <p>loading</p>}
       <Group justify={'center'}>
         <Pagination my="xs" total={total_page} value={current_page} onChange={onPage} />
       </Group>

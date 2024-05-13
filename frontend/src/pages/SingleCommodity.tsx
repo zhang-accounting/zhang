@@ -23,7 +23,7 @@ export default function SingleCommodity() {
   return (
     <Container fluid>
       <Heading title={commodityName!}></Heading>
-      <Tabs defaultValue="lots" mt="lg">
+      <Tabs keepMounted={false} variant="outline" defaultValue="lots" mt="lg">
         <Tabs.List>
           <Tabs.Tab value="lots">Lots</Tabs.Tab>
           <Tabs.Tab value="price_history">Price History</Tabs.Tab>

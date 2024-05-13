@@ -2,19 +2,7 @@ import { Link as RouteLink } from 'react-router-dom';
 import { matchPath, useLocation } from 'react-router';
 import { useDisclosure, useLocalStorage, useMediaQuery } from '@mantine/hooks';
 
-import {
-  ActionIcon,
-  Anchor,
-  AppShell,
-  Badge,
-  Box,
-  Group,
-  px,
-  Stack,
-  Text,
-  TextInput,
-  UnstyledButton,
-} from '@mantine/core';
+import { ActionIcon, Anchor, AppShell, Badge, Box, Group, px, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
 import {
   IconBroadcast,
   IconCash,
@@ -241,10 +229,10 @@ export default function App() {
             id: 'leger-reload',
             title: '[Ledger Reload] reloaded',
             message: 'reloading latest ledger info',
-            icon:<IconCheck/>,
-            color: "teal",
+            icon: <IconCheck />,
+            color: 'teal',
             loading: false,
-            autoClose: 3000
+            autoClose: 3000,
           });
           mutate('/api/for-new-transaction');
           dispatch(fetchBasicInfo());
@@ -285,8 +273,8 @@ export default function App() {
       id: 'leger-reload',
       title: '[Ledger Reload] reload event is sent',
       message: 'please wait for ledger reload',
-      loading:true,
-      autoClose:false,
+      loading: true,
+      autoClose: false,
     });
     dispatch(reloadLedger());
   };

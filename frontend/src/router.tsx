@@ -16,7 +16,7 @@ import BatchBalance from './pages/tools/BatchBalance';
 import Settings from './pages/Settings';
 
 export function Router() {
-  return(
+  return (
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="journals" element={<Journals />} />
@@ -34,5 +34,5 @@ export function Router() {
       <Route path="/tools/batch-balance" element={<BatchBalance />} />
       <Route path="/settings" element={<Settings />} />
     </Routes>
-  )
+  );
 }

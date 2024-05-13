@@ -8,6 +8,7 @@
     "@emotion/serialize": "^1.1.4",
     "@emotion/styled": "^11.11.5",
     "@emotion/utils": "^1.2.1",
+    "@mantine/charts": "^7.9.1",
     "@mantine/core": "^7.9.1",
     "@mantine/dates": "^7.9.1",
     "@mantine/dropzone": "^7.9.1",
@@ -39,6 +40,7 @@
     "react-router-dom": "^6.23.1",
     "react-scripts": "5.0.1",
     "react-select": "^5.8.0",
+    "recharts": "2",
     "swr": "^2.2.5",
     "typescript": "^5.4.5",
     "web-vitals": "^3.5.2"

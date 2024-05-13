@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { LoadingState } from '../rest-model';
 import { useAppDispatch, useAppSelector } from '../states';
 import { LedgerError, fetchError } from '../states/errors';
+import { ErrorsSkeleton } from './skeletons/errorsSkeleton';
 
 export default function ErrorBox() {
   const { t } = useTranslation();
@@ -18,14 +19,7 @@ export default function ErrorBox() {
   const [selectErrorContent, setSelectErrorContent] = useState<string>('');
 
   if (status === LoadingState.Loading || status === LoadingState.NotReady) {
-    return (
-      <>
-        <Skeleton height={20} radius="xs" />
-        <Skeleton height={20} mt={10} radius="xs" />
-        <Skeleton height={20} mt={10} radius="xs" />
-        <Skeleton height={20} mt={10} radius="xs" />
-      </>
-    );
+    return <ErrorsSkeleton />;
   }
   const handlePageChange = (newPage: number) => {
     setPage(newPage);

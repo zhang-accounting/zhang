@@ -8,6 +8,7 @@ import { fetchAccounts, getAccountsTrie } from '../states/account';
 import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
 import { IconFilter } from '@tabler/icons-react';
+import { AccountListSkeleton } from '../components/skeletons/accountListSkeleton';
 
 export default function Accounts() {
   const { t } = useTranslation();
@@ -52,13 +53,15 @@ export default function Accounts() {
             <Table.Th style={{ textAlign: 'end' }}>Balance</Table.Th>
           </Table.Tr>
         </Table.Thead>
-        <tbody>
-          {Object.keys(accountTrie.children)
-            .sort()
-            .map((item) => (
-              <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
-            ))}
-        </tbody>
+        <Table.Tbody>
+          {accountStatus !== LoadingState.Success ? <AccountListSkeleton />:
+            Object.keys(accountTrie.children)
+              .sort()
+              .map((item) => (
+                <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
+              ))
+          }
+        </Table.Tbody>
       </Table>
     </Container>
   );

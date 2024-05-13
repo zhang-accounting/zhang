@@ -48,25 +48,13 @@ export default function Amount({ amount, currency, negative, mask, className }: 
   const maskedValue = shouldMask ? displayedValue.replace(/\d/g, '*') : displayedValue;
   return (
     <span className={`${classes.wrapper} ${className}`}>
-      {isNegative && (
-        <span className={classes.part}>
-          -
-        </span>
-      )}
+      {isNegative && <span className={classes.part}>-</span>}
       <span className={classes.number}>
         {commodity?.prefix}
         {maskedValue}
       </span>
-      {commodity?.suffix && (
-        <span className={classes.part}>
-          {commodity?.suffix}
-        </span>
-      )}
-      {shouldDisplayCurrencyName && (
-        <span className={classes.part}>
-          {currency}
-        </span>
-      )}
+      {commodity?.suffix && <span className={classes.part}>{commodity?.suffix}</span>}
+      {shouldDisplayCurrencyName && <span className={classes.part}>{currency}</span>}
     </span>
   );
 }

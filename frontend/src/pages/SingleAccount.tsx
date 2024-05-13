@@ -62,7 +62,7 @@ function SingleAccount() {
           )}
         </Stack>
       </Group>
-      <Tabs defaultValue="journals" mt="lg">
+      <Tabs keepMounted={false} variant="outline" defaultValue="journals" mt="lg">
         <Tabs.List>
           <Tabs.Tab value="journals" leftSection={<IconPhoto size={14} />}>
             Journals

@@ -118,12 +118,7 @@ export default function TransactionEditForm(props: Props) {
           <DateInput firstDayOfWeek={0} placeholder="Transaction Date" value={date} onChange={setDate} withAsterisk />
         </Grid.Col>
         <Grid.Col span={{ lg: 4, sm: 12 }}>
-          <Autocomplete
-            placeholder="Payee"
-            data={payeeSelectItems}
-            value={payee}
-            onChange={setPayee}
-          />
+          <Autocomplete placeholder="Payee" data={payeeSelectItems} value={payee} onChange={setPayee} />
         </Grid.Col>
         <Grid.Col span={{ lg: 4, sm: 12 }}>
           <TextInput placeholder="Narration" value={narration} onChange={(e) => setNarration(e.target.value)} />
