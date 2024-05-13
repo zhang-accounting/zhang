@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Group, Table, px } from '@mantine/core';
+import { ActionIcon, Badge, Group, Table } from '@mantine/core';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
 import { JournalBlancePadItem, JournalItem } from '../../../rest-model';

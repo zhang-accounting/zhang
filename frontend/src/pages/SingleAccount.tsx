@@ -1,4 +1,4 @@
-import { Badge, Container, Group, px, SimpleGrid, Stack, Table, Tabs, Text, Title } from '@mantine/core';
+import { Badge, Container, Group, SimpleGrid, Stack, Table, Tabs, Text, Title } from '@mantine/core';
 import { IconMessageCircle, IconPhoto, IconSettings } from '@tabler/icons-react';
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
@@ -21,7 +21,7 @@ const useStyles = createStyles((theme, _, u) => ({
     fontWeight: 500,
   },
   detailAmount: {
-    fontSize: px(theme.fontSizes.lg),
+    fontSize: theme.fontSizes.lg,
   },
 }));
 

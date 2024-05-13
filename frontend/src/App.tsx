@@ -156,7 +156,7 @@ const useStyles = createStyles((theme, _, u) => ({
     [u.light]: { color: theme.colors.gray[7] },
 
     display: 'block',
-    padding: `8px ${theme.spacing.xs}px`,
+    padding: `8px ${theme.spacing.xs}`,
     textDecoration: 'none',
     borderRadius: theme.radius.sm,
     fontSize: theme.fontSizes.xs,

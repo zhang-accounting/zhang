@@ -1,4 +1,4 @@
-import { Box, Group, px, Stack, Text } from '@mantine/core';
+import { Box, Group, Stack, Text } from '@mantine/core';
 import React from 'react';
 import { createStyles } from '@mantine/emotion';
 
@@ -14,7 +14,7 @@ const useStyles = createStyles((theme, _, u) => ({
   },
 
   lead: {
-    fontSize: px(theme.fontSizes.md),
+    fontSize: theme.fontSizes.md,
     lineHeight: 1,
     color: theme.colors.gray[9],
     paddingBottom: theme.spacing.sm,

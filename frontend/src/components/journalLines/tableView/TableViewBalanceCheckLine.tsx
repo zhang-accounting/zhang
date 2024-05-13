@@ -1,5 +1,5 @@
 import { JournalBalanceCheckItem } from '../../../rest-model';
-import { ActionIcon, Badge, Table, px } from '@mantine/core';
+import { ActionIcon, Badge, Table } from '@mantine/core';
 import { format } from 'date-fns';
 import Amount from '../../Amount';
 import BigNumber from 'bignumber.js';
