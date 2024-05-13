@@ -53,8 +53,6 @@ export function JournalListSkeleton() {
           <Skeleton height={20} mt={10} radius="xs" />
         </Table.Td>
       </Table.Tr>
-
-
     </>
   );
 }

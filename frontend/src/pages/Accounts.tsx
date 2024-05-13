@@ -54,13 +54,13 @@ export default function Accounts() {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {accountStatus !== LoadingState.Success ? <AccountListSkeleton />:
+          {accountStatus !== LoadingState.Success ? (
+            <AccountListSkeleton />
+          ) : (
             Object.keys(accountTrie.children)
               .sort()
-              .map((item) => (
-                <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
-              ))
-          }
+              .map((item) => <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />)
+          )}
         </Table.Tbody>
       </Table>
     </Container>

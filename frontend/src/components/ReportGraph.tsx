@@ -1,126 +1,37 @@
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
-import { sortBy } from 'lodash-es';
-import { Chart } from 'react-chartjs-2';
+import { max, min, sortBy } from 'lodash-es';
 import { AccountType, StatisticGraphResponse } from '../rest-model';
+import { ChartTooltipProps, LineChart } from '@mantine/charts';
+import { Paper, Text } from '@mantine/core';
+import Amount from './Amount';
 
-const options = (meta: { isLogarithmic: boolean; offset: number; max: number }) => ({
-  responsive: true,
-  interaction: {
-    mode: 'index' as const,
-    intersect: false,
-  },
-  stacked: false,
-  plugins: {
-    tooltip: {
-      position: 'nearest' as const,
-      callbacks: {
-        title: (item: any) => {
-          return item[0].label;
-        },
-        label: (item: any) => {
-          if (item.dataset.label === 'total') {
-            const valueWithOffset = parseFloat(item.formattedValue) + meta.offset;
-            return `${item.dataset.label}: ${valueWithOffset} CNY`;
-          }
-          return `${item.dataset.label}: ${item.formattedValue} CNY`;
-        },
-      },
-    },
-  },
-  scales: {
-    x: {
-      display: true,
-      grid: {
-        display: false,
-      },
-    },
-    total: {
-      type: meta.isLogarithmic ? ('logarithmic' as const) : ('linear' as const),
-      display: false,
-      position: 'left' as const,
-      beginAtZero: false,
-      suggestedMax: meta.max,
-      ticks: {
-        callback: function (value: any, _index: any, _ticks: any) {
-          return parseFloat(value) + meta.offset;
-        },
-      },
-    },
-    bar: {
-      type: 'linear' as const,
-      display: false,
-      position: 'right' as const,
-      grid: {
-        drawOnChartArea: false,
-      },
-    },
-  },
-});
-const build_chart_data = (data: StatisticGraphResponse) => {
-  const dates = sortBy(
-    Object.keys(data.balances).map((date) => [date, new Date(date)]),
-    (item) => item[1],
+function ChartTooltip({
+                        label,
+                        payload,
+                        total_min,
+                        commodity,
+                      }: ChartTooltipProps & {
+  total_min: number;
+  commodity: string;
+}) {
+  if (!payload) return null;
+
+  return (
+    <Paper px="md" py="sm" withBorder shadow="md" radius="md">
+      <Text fw={500} mb={5}>
+        {label}
+      </Text>
+      {payload.map((item: any) => (
+        <Text key={item.name} c={item.color} fz="sm">
+          {item.name}: <Amount amount={item.name !== 'total' ? item.value - total_min : item.value}
+                               currency={commodity}></Amount>
+        </Text>
+      ))}
+    </Paper>
   );
+}
 
-  const sequencedDate = dates.map((date) => date[0] as string);
-
-  const labels = dates.map((date) => format(date[1] as Date, 'MMM dd'));
-
-  let total_dataset = sequencedDate.map((date) => {
-    const target_day = data.balances[date];
-    return new BigNumber(target_day.calculated.number).toNumber();
-  });
-  const isLogarithmic = total_dataset.every((item) => item >= 0);
-  let min = 0;
-  let max = Math.max.apply(0, total_dataset) + 50;
-
-  if (isLogarithmic) {
-    min = Math.min.apply(0, total_dataset) - 50;
-    max = max - min;
-    total_dataset = total_dataset.map((item) => item - min);
-  }
-
-  const income_dataset = sequencedDate.map((date) => -1 * (new BigNumber(data.changes[date]?.[AccountType.Income]?.calculated.number).toNumber() ?? 0));
-  const expense_dataset = sequencedDate.map((date) => new BigNumber(data.changes[date]?.[AccountType.Expenses]?.calculated.number).toNumber() ?? 0);
-  return {
-    data: {
-      labels,
-      datasets: [
-        {
-          type: 'line' as const,
-          label: 'total',
-          borderColor: '#2E94B9',
-          borderWidth: 2,
-          data: total_dataset,
-          pointRadius: 0,
-          hoverBackgroundColor: '#2E94B9',
-          yAxisID: 'total',
-        },
-        {
-          type: 'bar' as const,
-          label: 'income',
-          backgroundColor: 'rgba(46,148,185,0.5)',
-          hoverBackgroundColor: 'rgba(46,148,185,0.85)',
-          data: income_dataset,
-          borderColor: 'white',
-          borderRadius: 2,
-          yAxisID: 'bar',
-        },
-        {
-          type: 'bar' as const,
-          label: 'expense',
-          backgroundColor: 'rgba(210,85,101,0.5)',
-          hoverBackgroundColor: 'rgba(210,85,101,0.85)',
-          borderRadius: 2,
-          data: expense_dataset,
-          yAxisID: 'bar',
-        },
-      ],
-    },
-    meta: { isLogarithmic, offset: min, max },
-  };
-};
 
 interface Props {
   data: StatisticGraphResponse;
@@ -128,6 +39,64 @@ interface Props {
 }
 
 export default function ReportGraph(props: Props) {
-  const { data, meta } = build_chart_data(props.data);
-  return <Chart type="line" height={props.height} data={data} options={options(meta)} />;
+  // const { data, meta } = build_chart_data(props.data);
+  const dates = sortBy(
+    Object.keys(props.data.balances).map((date) => [date, new Date(date)]),
+    (item) => item[1],
+  );
+
+  const sequencedDate = dates.map((date) => date[0] as string);
+
+  const labels = dates.map((date) => format(date[1] as Date, 'MMM dd'));
+  let total_dataset = sequencedDate.map((date) => {
+    const target_day = props.data.balances[date];
+    return new BigNumber(target_day.calculated.number).toNumber();
+  });
+  let total_domain = [min(total_dataset) ?? 0, max(total_dataset) ?? 0];
+
+  const income_dataset = sequencedDate
+    .map((date) => props.data.changes[date]?.[AccountType.Income])
+    .map((amount) => -1 * new BigNumber(amount?.calculated.number ?? '0').toNumber())
+    .map((amount) => amount + total_domain[0]);
+
+  const expense_dataset = sequencedDate
+    .map((date) => props.data.changes[date]?.[AccountType.Expenses])
+    .map((amount) => new BigNumber(amount?.calculated.number ?? '0').toNumber())
+    .map((amount) => amount + total_domain[0]);
+  console.log('total_dataset', total_dataset);
+  const data = labels.map((label, idx) => ({
+    date: label,
+    total: total_dataset[idx],
+    income: income_dataset[idx],
+    expense: expense_dataset[idx],
+  }));
+
+  return (
+    <>
+      <LineChart
+        h={300}
+        data={data}
+        dataKey="date"
+        withDots={false}
+        withYAxis={false}
+        withLegend
+        tooltipProps={{
+          content: ({ label, payload }) => (
+            <ChartTooltip total_min={total_domain[0]}
+                          commodity={Object.values(props.data.balances)[0].calculated.currency} label={label}
+                          payload={payload} />
+          ),
+        }}
+        yAxisProps={{ type: 'number', scale: 'log', domain: total_domain }}
+        series={[
+          { name: 'total', color: 'violet.6' },
+          { name: 'income', color: 'indigo.6' },
+          { name: 'expense', color: 'pink' },
+        ]}
+        connectNulls
+        curveType="bump"
+      />
+
+    </>
+  );
 }

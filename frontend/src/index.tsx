@@ -17,8 +17,9 @@ import './global.css';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/dates/styles.css';
+import '@mantine/charts/styles.css';
 import { TransactionEditModal } from './components/modals/TransactionEditModal';
-import { emotionTransform, MantineEmotionProvider } from '@mantine/emotion';
+import { MantineEmotionProvider } from '@mantine/emotion';
 
 Chart.register(...registerables);
 // @ts-ignore
