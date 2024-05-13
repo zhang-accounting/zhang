@@ -58,8 +58,8 @@ export default function Documents() {
               </Title>
               <SimpleGrid
                 key={`grid=${idx}`}
-                cols={{ base: 4, sm: 2, xs: 1 }}
-                spacing={{ base: 'lg', lg: 'md', sm: 'sm' }}
+                cols={{ base: 1, sm: 2, md: 4 }}
+                spacing={{ base: 'ms', md: 'md', lg: 'lg' }}
               >
                 {targetMonthDocuments.map((document, idx) => (
                   <AccountDocumentLine key={idx} {...document} />

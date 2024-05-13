@@ -18,7 +18,7 @@ export default function PluginBox(props: Props) {
   const { classes } = useStyles();
   return (
     <Stack className={classes.card} gap={'xs'}>
-      <Group justify={'apart'}>
+      <Group justify={'space-between'}>
         <Text>{props.name}</Text>
         <Badge variant={'filled'}>{props.version}</Badge>
       </Group>

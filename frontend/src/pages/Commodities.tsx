@@ -24,8 +24,8 @@ export default function Commodities() {
       {FRONTEND_DEFAULT_GROUP in groupedCommodities && (
         <Box mt={'lg'}>
           <SimpleGrid
-            cols={{ base: 4, md: 2, sm: 1 }}
-            spacing={{ base: 'md', sm: 'sm' }}
+            cols={{ base: 1, md: 2, lg: 4 }}
+            spacing={{ base: 'sm', md: 'md' }}
           >
             {groupedCommodities[FRONTEND_DEFAULT_GROUP].map((commodity) => (
               <CommodityBox {...commodity} operating_currency={false}></CommodityBox>
@@ -42,8 +42,8 @@ export default function Commodities() {
               {groupName}
             </Title>
             <SimpleGrid
-              cols={{ base: 4, md: 2, sm: 1 }}
-              spacing={{ base: 'md', sm: 'sm' }}
+              cols={{ base: 1, md: 2, lg: 4 }}
+              spacing={{ base: 'sm', md: 'md' }}
             >
               {groupedCommodities[groupName].map((commodity) => (
                 <CommodityBox {...commodity} operating_currency={false}></CommodityBox>
