@@ -2,7 +2,7 @@ import { Link as RouteLink } from 'react-router-dom';
 import { matchPath, useLocation } from 'react-router';
 import { useDisclosure, useLocalStorage, useMediaQuery } from '@mantine/hooks';
 
-import { ActionIcon, Anchor, AppShell, Badge, Box, Group, px, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
+import { ActionIcon, Anchor, AppShell, Badge, Box, Group, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
 import {
   IconBroadcast,
   IconCash,

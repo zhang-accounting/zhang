@@ -1,4 +1,3 @@
-import { Text } from '@mantine/core';
 import BigNumber from 'bignumber.js';
 import { useAppSelector } from '../states';
 import { getCommodityByName } from '../states/commodity';

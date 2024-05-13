@@ -1,9 +1,9 @@
-import { Button, Group, Modal, Pagination, Skeleton, Stack, Text, Textarea } from '@mantine/core';
+import { Button, Group, Modal, Pagination, Stack, Text, Textarea } from '@mantine/core';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LoadingState } from '../rest-model';
 import { useAppDispatch, useAppSelector } from '../states';
-import { LedgerError, fetchError } from '../states/errors';
+import { fetchError, LedgerError } from '../states/errors';
 import { ErrorsSkeleton } from './skeletons/errorsSkeleton';
 
 export default function ErrorBox() {

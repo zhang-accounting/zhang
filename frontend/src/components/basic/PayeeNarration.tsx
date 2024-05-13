@@ -1,4 +1,4 @@
-import { Group, Text } from '@mantine/core';
+import { Group } from '@mantine/core';
 import { createStyles } from '@mantine/emotion';
 
 const useStyles = createStyles((theme, _, u) => ({

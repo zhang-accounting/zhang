@@ -1,4 +1,4 @@
-import { Skeleton, Table, Text } from '@mantine/core';
+import { Skeleton, Table } from '@mantine/core';
 
 export function AccountListSkeleton() {
   return (

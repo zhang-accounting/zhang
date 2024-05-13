@@ -21,6 +21,7 @@
   "NAV_BUDGETS": "预算",
   "ACCOUNT_FILTER_PLACEHOLDER": "按关键字过滤...",
   "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "清空过滤关键字",
+  "TXN_EDIT_PREVIEW": "预览",
   "ERROR": {
     "AccountDoesNotExist": "对应账户不存在",
     "AccountBalanceCheckError": "账户定期对账不通过",

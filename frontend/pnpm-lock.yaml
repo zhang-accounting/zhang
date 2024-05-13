@@ -62,9 +62,6 @@ dependencies:
   buffer:
     specifier: ^6.0.3
     version: 6.0.3
-  chart.js:
-    specifier: ^4.4.2
-    version: 4.4.2
   date-fns:
     specifier: ^3.6.0
     version: 3.6.0
@@ -86,9 +83,6 @@ dependencies:
   react:
     specifier: ^18.3.1
     version: 18.3.1
-  react-chartjs-2:
-    specifier: ^5.2.0
-    version: 5.2.0(chart.js@4.4.2)(react@18.3.1)
   react-dom:
     specifier: ^18.3.1
     version: 18.3.1(react@18.3.1)
@@ -2579,10 +2573,6 @@ packages:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.4.15
 
-  /@kurkle/color@0.3.2:
-    resolution: {integrity: sha512-fuscdXJ9G1qb7W8VdHi+IwRqij3lBkosAm4ydQtEmbY58OzHXqQhvlxqEkoz0yssNVn38bcpRWgA9PP+OGoisw==}
-    dev: false
-
   /@leichtgewicht/ip-codec@2.0.5:
     resolution: {integrity: sha512-Vo+PSpZG2/fmgmiNzYK9qWRh8h/CHrwD0mo1h1DzL4yzHNSfWYujGTYsWGreD000gcgmZ7K4Ys6Tx9TxtsKdDw==}
     dev: false
@@ -4567,13 +4557,6 @@ packages:
   /char-regex@2.0.1:
     resolution: {integrity: sha512-oSvEeo6ZUD7NepqAat3RqoucZ5SeqLJgOvVIwkafu6IP3V0pO38s/ypdVUmDDK6qIIHNlYHJAKX9E7R7HoKElw==}
     engines: {node: '>=12.20'}
-    dev: false
-
-  /chart.js@4.4.2:
-    resolution: {integrity: sha512-6GD7iKwFpP5kbSD4MeRRRlTnQvxfQREy36uEtm1hzHzcOqwWx0YEHuspuoNlslu+nciLIB7fjjsHkUv/FzFcOg==}
-    engines: {pnpm: '>=8'}
-    dependencies:
-      '@kurkle/color': 0.3.2
     dev: false
 
   /check-types@11.2.3:
@@ -10120,16 +10103,6 @@ packages:
       raf: 3.4.1
       regenerator-runtime: 0.13.11
       whatwg-fetch: 3.6.20
-    dev: false
-
-  /react-chartjs-2@5.2.0(chart.js@4.4.2)(react@18.3.1):
-    resolution: {integrity: sha512-98iN5aguJyVSxp5U3CblRLH67J8gkfyGNbiK3c+l1QI/G4irHMPQw44aEPmjVag+YKTyQ260NcF82GTQ3bdscA==}
-    peerDependencies:
-      chart.js: ^4.1.1
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0
-    dependencies:
-      chart.js: 4.4.2
-      react: 18.3.1
     dev: false
 
   /react-dev-utils@12.0.1(eslint@8.57.0)(typescript@5.4.5)(webpack@5.91.0):

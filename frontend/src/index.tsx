@@ -2,7 +2,6 @@ import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { Notifications } from '@mantine/notifications';
 import axios from 'axios';
-import { Chart, registerables } from 'chart.js';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider } from 'react-redux';
@@ -21,7 +20,6 @@ import '@mantine/charts/styles.css';
 import { TransactionEditModal } from './components/modals/TransactionEditModal';
 import { MantineEmotionProvider } from '@mantine/emotion';
 
-Chart.register(...registerables);
 // @ts-ignore
 export const fetcher = (...args) => axiosInstance.get(...args).then((res) => res.data.data);
 const development: boolean = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';

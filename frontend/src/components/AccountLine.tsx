@@ -84,7 +84,7 @@ export default function AccountLine({ data, spacing }: Props) {
                         <Amount amount={value} currency={key}></Amount>
                       </Group>
                     ))}
-                    <Divider variant="dashed" />
+                    <Divider variant="dashed" labelPosition="left" />
                     <Group justify="space-between">
                       <Text>=</Text>
                       <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>

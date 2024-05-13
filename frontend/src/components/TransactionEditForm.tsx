@@ -1,4 +1,4 @@
-import { ActionIcon, Code, Container, Divider, Grid, Select, Autocomplete, TextInput } from '@mantine/core';
+import { ActionIcon, Autocomplete, Code, Container, Divider, Grid, Select, TextInput } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import DividerWithAction from './basic/DividerWithAction';
 import { IconTextPlus, IconTrashX } from '@tabler/icons-react';
@@ -103,12 +103,6 @@ export default function TransactionEditForm(props: Props) {
     return postings.every((posting) => posting.account !== null) && postings.filter((posting) => posting.amount.trim().length === 0).length <= 1;
   };
 
-  const onPayeeCreate = (query: string) => {
-    const newPayee = { label: query, value: query };
-    setPayeeSelectItems([...payeeSelectItems, newPayee]);
-    return newPayee;
-  };
-
   if (error) return <div>failed to load</div>;
   if (!data) return <div>loading...</div>;
   return (
@@ -181,7 +175,7 @@ export default function TransactionEditForm(props: Props) {
           </Grid.Col>
         </Grid>
       ))}
-      <Divider label="Preview" size="xs" my="md"></Divider>
+      <Divider label={t("TXN_EDIT_PREVIEW")} labelPosition="left" size="xs" my="md"></Divider>
       <Code block>{preview()}</Code>
     </Container>
   );

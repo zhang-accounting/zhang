@@ -1,4 +1,4 @@
-import { px, Stack, Text } from '@mantine/core';
+import { Stack, Text } from '@mantine/core';
 import { useTranslation } from 'react-i18next';
 import Amount from './Amount';
 import { createStyles } from '@mantine/emotion';

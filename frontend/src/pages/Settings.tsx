@@ -1,4 +1,4 @@
-import { Box, Container, Grid, SegmentedControl, SimpleGrid, Skeleton, Table } from '@mantine/core';
+import { Box, Container, SegmentedControl, SimpleGrid, Skeleton, Table } from '@mantine/core';
 import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';

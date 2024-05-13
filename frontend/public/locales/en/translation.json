@@ -19,6 +19,7 @@
   "NAV_TOOLS": "Tools",
   "NAV_SETTING": "Setting",
   "NAV_BUDGETS": "Budget",
+  "TXN_EDIT_PREVIEW": "Preview",
   "ERROR": {
     "AccountDoesNotExist": "Account does not exist",
     "AccountBalanceCheckError": " Account does not pass the balance check",
