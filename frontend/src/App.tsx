@@ -198,7 +198,7 @@ interface LinkItem {
 const links: LinkItem[] = [
   { icon: IconList, label: 'NAV_JOURNALS', uri: '/journals' },
   { icon: IconCash, label: 'NAV_ACCOUNTS', uri: '/accounts' },
-  { icon: IconCurrencyBitcoin, label: 'NAV_COMMDOITIES', uri: '/commodities' },
+  { icon: IconCurrencyBitcoin, label: 'NAV_COMMODITIES', uri: '/commodities' },
   { icon: IconCurrencyBitcoin, label: 'NAV_BUDGETS', uri: '/budgets' },
   { icon: IconFiles, label: 'NAV_DOCUMENTS', uri: '/documents' },
   { icon: IconChartAreaLine, label: 'NAV_REPORT', uri: '/report' },
@@ -216,7 +216,7 @@ export default function App() {
   const basicInfo = useAppSelector((state) => state.basic);
   const location = useLocation();
   const [lang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
-  const [opened, { toggle }] = useDisclosure();
+  const [opened] = useDisclosure();
   const isMobile = useMediaQuery('(max-width: 768px)');
 
   useEffect(() => {
