@@ -51,7 +51,7 @@ export default function StatsGroup({ data }: StatsGroupProps) {
     </div>
   ));
   return (
-    <SimpleGrid cols={{ base: data.length, md: 2, sm: 2, xs: 1 }} className={classes.root}>
+    <SimpleGrid cols={{ base: 1, sm: 2, lg:data.length }} className={classes.root}>
       {stats}
     </SimpleGrid>
   );

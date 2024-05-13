@@ -1,4 +1,4 @@
-import { Button, CloseButton, Group, Input, Pagination, Table } from '@mantine/core';
+import { Button, CloseButton, Group, Input, Pagination, Table, Text } from '@mantine/core';
 import { format } from 'date-fns';
 import { groupBy } from 'lodash-es';
 import { useEffect, useState } from 'react';
@@ -53,8 +53,7 @@ function Journals() {
           rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')} onClick={() => setFilter('')} />}
         />
       </Group>
-      {/*todo withBorder*/}
-      <Table verticalSpacing="xs">
+      <Table verticalSpacing="xs" withTableBorder>
         <Table.Thead>
           <Table.Tr>
             <Table.Th style={{ width: '100px' }}>Date</Table.Th>
@@ -71,13 +70,11 @@ function Journals() {
                 <>
                   <Table.Tr>
                     <Table.Td colSpan={6}>
-                      <b>{entry[0]}</b>
+                      <Text c={"dimmed"} size={"sm"} >{entry[0]}</Text>
                     </Table.Td>
                   </Table.Tr>
                   {entry[1].map((journal) => (
-                    <>
                       <TableViewJournalLine key={journal.id} data={journal} />
-                    </>
                   ))}
                 </>
               );

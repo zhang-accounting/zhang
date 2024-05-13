@@ -64,8 +64,7 @@ export default function Budgets() {
           Hide Zero Amount Assigned Budget
         </Chip>
       </Group>
-      {/*todo withBorder*/}
-      <Table verticalSpacing="xs">
+      <Table verticalSpacing="xs" withTableBorder>
         <Table.Thead>
           <Table.Tr>
             <Table.Th>Category</Table.Th>

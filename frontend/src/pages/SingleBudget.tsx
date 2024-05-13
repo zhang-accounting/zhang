@@ -91,8 +91,7 @@ function SingleBudget() {
         </ActionIcon>
       </Group>
 
-      {/*todo withBorder*/}
-      <Table verticalSpacing="xs">
+      <Table verticalSpacing="xs" withTableBorder>
         <Table.Thead>
           <Table.Tr>
             <Table.Th>Date</Table.Th>
