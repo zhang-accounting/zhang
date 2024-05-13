@@ -225,7 +225,7 @@ mod test {
                 1970-01-01 open Assets:MyCard
             "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
 
             let result = operations.single_account_latest_balances("Assets:MyCard")?;
             assert_eq!(0, result.len());
@@ -242,7 +242,7 @@ mod test {
                   Expenses:Lunch 50 CNY
             "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
 
             let lunch_balance = operations.single_account_latest_balances("Expenses:Lunch")?.pop().unwrap();
             assert_eq!(lunch_balance.account, "Expenses:Lunch");
@@ -271,7 +271,7 @@ mod test {
                     Expenses:B
             "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
 
             let mut result = operations.single_account_latest_balances("Assets:A").unwrap();
             let balance = result.pop().unwrap();
