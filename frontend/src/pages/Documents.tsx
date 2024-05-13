@@ -44,7 +44,7 @@ export default function Documents() {
   );
   return (
     <Container fluid>
-      <Group position="apart">
+      <Group justify="space-between">
         <Heading title={`${documents.length} Documents`}></Heading>
         <SegmentedControl value={layout} onChange={setLayout} data={['Grid', 'Table']} />
       </Group>
@@ -58,13 +58,8 @@ export default function Documents() {
               </Title>
               <SimpleGrid
                 key={`grid=${idx}`}
-                cols={4}
-                spacing="lg"
-                breakpoints={[
-                  { maxWidth: 'lg', cols: 4, spacing: 'md' },
-                  { maxWidth: 'sm', cols: 2, spacing: 'sm' },
-                  { maxWidth: 'xs', cols: 1, spacing: 'sm' },
-                ]}
+                cols={{ base: 4, sm: 2, xs: 1 }}
+                spacing={{ base: 'lg', lg: 'md', sm: 'sm' }}
               >
                 {targetMonthDocuments.map((document, idx) => (
                   <AccountDocumentLine key={idx} {...document} />
@@ -76,27 +71,28 @@ export default function Documents() {
       ) : (
         <Table verticalSpacing="xs" highlightOnHover>
           <thead>
-            <tr>
-              <th>Filename</th>
-              <th style={{}}>Linked Directive</th>
-              <th>Created Date</th>
-              <th>Operation</th>
-            </tr>
+          <tr>
+            <th>Filename</th>
+            <th style={{}}>Linked Directive</th>
+            <th>Created Date</th>
+            <th>Operation</th>
+          </tr>
           </thead>
           <tbody>
-            {documents.map((document, idx) => (
-              <tr>
-                <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
-                  <div>{document.filename}</div>
-                </td>
-                <td>
-                  {document.account && <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
-                  {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
-                </td>
-                <td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
-                <td></td>
-              </tr>
-            ))}
+          {documents.map((document, idx) => (
+            <tr>
+              <td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
+                <div>{document.filename}</div>
+              </td>
+              <td>
+                {document.account &&
+                  <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
+                {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
+              </td>
+              <td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</td>
+              <td></td>
+            </tr>
+          ))}
           </tbody>
         </Table>
       )}

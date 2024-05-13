@@ -1,7 +1,8 @@
-import { createStyles, SimpleGrid, Text } from '@mantine/core';
+import { SimpleGrid, Text } from '@mantine/core';
 import Amount from './Amount';
+import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
   root: {
     backgroundImage: `linear-gradient(-60deg, ${theme.colors[theme.primaryColor][4]} 0%, ${theme.colors[theme.primaryColor][7]} 100%)`,
     padding: theme.spacing.xl,
@@ -44,19 +45,15 @@ export default function StatsGroup({ data }: StatsGroupProps) {
   const stats = data.map((stat) => (
     <div key={stat.title} className={classes.stat}>
       <Text className={classes.count}>
-        {stat.number !== undefined ? <Text>{stat.number}</Text> : <Amount amount={stat.amount!} currency={stat.currency!} />}
+        {stat.number !== undefined ? <Text>{stat.number}</Text> :
+          <Amount amount={stat.amount!} currency={stat.currency!} />}
       </Text>
       <Text className={classes.title}>{stat.title}</Text>
     </div>
   ));
   return (
     <SimpleGrid
-      cols={data.length}
-      breakpoints={[
-        { maxWidth: 'md', cols: 2, spacing: 'sm' },
-        { maxWidth: 'sm', cols: 2, spacing: 'sm' },
-        { maxWidth: 'xs', cols: 1, spacing: 'sm' },
-      ]}
+      cols={{ base: data.length, md: 2, sm: 2, xs: 1 }}
       className={classes.root}
     >
       {stats}

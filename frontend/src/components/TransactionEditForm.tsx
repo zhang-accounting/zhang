@@ -1,7 +1,7 @@
-import { ActionIcon, Code, Container, Divider, Grid, Select, TextInput } from '@mantine/core';
+import { ActionIcon, Code, Container, Divider, Grid, Select, Autocomplete, TextInput } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import DividerWithAction from './basic/DividerWithAction';
-import { IconTextPlus, IconTrashX } from '@tabler/icons';
+import { IconTextPlus, IconTrashX } from '@tabler/icons-react';
 import { useListState } from '@mantine/hooks';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
@@ -34,7 +34,7 @@ export default function TransactionEditForm(props: Props) {
 
   const [dateOnly] = useState(true);
   const [date, setDate] = useState<Date | null>(props.data?.datetime ? new Date(props.data?.datetime) : new Date());
-  const [payee, setPayee] = useState<string | null>(props.data?.payee ?? null);
+  const [payee, setPayee] = useState<string | undefined>(props.data?.payee ?? undefined);
   const [narration, setNarration] = useState(props.data?.narration ?? '');
   const [postings, postingsHandler] = useListState<Posting>(
     props.data?.postings?.map((item) => ({
@@ -52,6 +52,7 @@ export default function TransactionEditForm(props: Props) {
   useEffect(() => {
     const newPayeeSelectItems: SelectItem[] = (data?.payee ?? []).map((item) => {
       return {
+        // todo group it
         label: item,
         value: item,
       };
@@ -71,9 +72,9 @@ export default function TransactionEditForm(props: Props) {
             it.amount.trim() === ''
               ? null
               : {
-                  number: it.amount.split(' ')[0],
-                  commodity: it.amount.split(' ')[1],
-                },
+                number: it.amount.split(' ')[0],
+                commodity: it.amount.split(' ')[1],
+              },
         })),
         tags: [],
         links: [],
@@ -119,22 +120,20 @@ export default function TransactionEditForm(props: Props) {
   return (
     <Container>
       <Grid>
-        <Grid.Col sm={12} lg={4}>
+        <Grid.Col span={{ lg: 4, sm: 12 }}>
           <DateInput placeholder="Transaction Date" value={date} onChange={setDate} withAsterisk />
         </Grid.Col>
-        <Grid.Col sm={12} lg={4}>
-          <Select
+        <Grid.Col span={{ lg: 4, sm: 12 }}>
+          <Autocomplete
             placeholder="Payee"
             data={payeeSelectItems}
             value={payee}
-            searchable
-            creatable
-            getCreateLabel={(query) => `${t('NEW_TRANSACTION_PAYEE_CREATE')} ${query}`}
-            onCreate={onPayeeCreate}
+            // todo getCreateLabel={(query) => `${t('NEW_TRANSACTION_PAYEE_CREATE')} ${query}`}
+            // todo onCreate={onPayeeCreate}
             onChange={setPayee}
           />
         </Grid.Col>
-        <Grid.Col sm={12} lg={4}>
+        <Grid.Col span={{ lg: 4, sm: 12 }}>
           <TextInput placeholder="Narration" value={narration} onChange={(e) => setNarration(e.target.value)} />
         </Grid.Col>
       </Grid>
@@ -162,10 +161,11 @@ export default function TransactionEditForm(props: Props) {
             />
           </Grid.Col>
           <Grid.Col span={3}>
-            <TextInput placeholder="Amount" value={posting.amount} onChange={(e) => postingsHandler.setItemProp(idx, 'amount', e.target.value)} />
+            <TextInput placeholder="Amount" value={posting.amount}
+                       onChange={(e) => postingsHandler.setItemProp(idx, 'amount', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={1}>
-            <ActionIcon disabled={postings.length <= 2} onClick={() => postingsHandler.remove(idx)}>
+            <ActionIcon  variant="white" disabled={postings.length <= 2} onClick={() => postingsHandler.remove(idx)}>
               <IconTrashX />
             </ActionIcon>
           </Grid.Col>
@@ -183,13 +183,15 @@ export default function TransactionEditForm(props: Props) {
       {metas.map((meta, idx) => (
         <Grid align="center" key={idx}>
           <Grid.Col span={4}>
-            <TextInput placeholder="key" value={meta.key} onChange={(e) => metaHandler.setItemProp(idx, 'key', e.target.value)} />
+            <TextInput placeholder="key" value={meta.key}
+                       onChange={(e) => metaHandler.setItemProp(idx, 'key', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={7}>
-            <TextInput placeholder="value" value={meta.value} onChange={(e) => metaHandler.setItemProp(idx, 'value', e.target.value)} />
+            <TextInput placeholder="value" value={meta.value}
+                       onChange={(e) => metaHandler.setItemProp(idx, 'value', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={1}>
-            <ActionIcon onClick={() => metaHandler.remove(idx)}>
+            <ActionIcon  variant="white" onClick={() => metaHandler.remove(idx)}>
               <IconTrashX />
             </ActionIcon>
           </Grid.Col>

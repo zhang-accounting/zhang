@@ -36,13 +36,13 @@ export default function Settings() {
       <Heading title={`Settings`}></Heading>
       <Section title="Basic Setting">
         <Grid>
-          <Grid.Col sm={12} md={6} lg={4}>
+          <Grid.Col span={{ base: 4, md: 6, sm: 12 }}>
             <Setting title="title" uppercase value={basicInfo.title} />
           </Grid.Col>
-          <Grid.Col sm={12} md={6} lg={4}>
+          <Grid.Col span={{ base: 4, md: 6, sm: 12 }}>
             <Setting title="version" uppercase value={basicInfo.version} />
           </Grid.Col>
-          <Grid.Col sm={12} md={6} lg={4}>
+          <Grid.Col span={{ base: 4, md: 6, sm: 12 }}>
             <Setting title="language" uppercase />
             <SegmentedControl
               value={lang}
@@ -66,29 +66,29 @@ export default function Settings() {
       <Section title="Options">
         <Table verticalSpacing="xs" highlightOnHover>
           <thead>
-            <tr>
-              <th>Key</th>
-              <th>Value</th>
-            </tr>
+          <tr>
+            <th>Key</th>
+            <th>Value</th>
+          </tr>
           </thead>
           <tbody>
-            {!data ? (
-              <tr>
-                <td>
-                  <Skeleton height={20} mt={10} radius="xs" />
-                </td>
-                <td>
-                  <Skeleton height={20} mt={10} radius="xs" />
-                </td>
+          {!data ? (
+            <tr>
+              <td>
+                <Skeleton height={20} mt={10} radius="xs" />
+              </td>
+              <td>
+                <Skeleton height={20} mt={10} radius="xs" />
+              </td>
+            </tr>
+          ) : (
+            data.map((option) => (
+              <tr key={option.key}>
+                <td>{option.key}</td>
+                <td>{option.value}</td>
               </tr>
-            ) : (
-              data.map((option) => (
-                <tr key={option.key}>
-                  <td>{option.key}</td>
-                  <td>{option.value}</td>
-                </tr>
-              ))
-            )}
+            ))
+          )}
           </tbody>
         </Table>
       </Section>

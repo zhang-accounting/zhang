@@ -9,7 +9,7 @@ import { groupBy, sortBy } from 'lodash-es';
 import BudgetCategory from '../components/budget/BudgetCategory';
 import { format } from 'date-fns';
 import { MonthPicker } from '@mantine/dates';
-import { IconChevronLeft, IconChevronRight } from '@tabler/icons';
+import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import { useAppSelector } from '../states';
 
 export default function Budgets() {
@@ -23,7 +23,10 @@ export default function Budgets() {
 
   useDocumentTitle(`Budgets - ${ledgerTitle}`);
 
-  const { data: budgets, error } = useSWR<BudgetListItem[]>(`/api/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, fetcher);
+  const {
+    data: budgets,
+    error,
+  } = useSWR<BudgetListItem[]>(`/api/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, fetcher);
   if (error) return <div>failed to load</div>;
   if (!budgets) return <div>loading...</div>;
 
@@ -36,18 +39,20 @@ export default function Budgets() {
   return (
     <Container fluid>
       <Group>
-        <ActionIcon onClick={() => goToMonth(-1)}>
+        <ActionIcon  variant="white" onClick={() => goToMonth(-1)}>
           <IconChevronLeft size="1.125rem" />
         </ActionIcon>
         <Popover position="bottom" withArrow shadow="md">
           <Popover.Target>
-            <Title style={{ display: 'inline-block', cursor: 'pointer' }} order={2} py="md" px="xs">{`${format(date, 'MMM, yyyy')}`}</Title>
+            <Title style={{ display: 'inline-block', cursor: 'pointer' }} order={2} py="md"
+                   px="xs">{`${format(date, 'MMM, yyyy')}`}</Title>
           </Popover.Target>
           <Popover.Dropdown>
             <MonthPicker value={date} maxDate={new Date()} onChange={(newDate) => setDate(newDate ?? new Date())} />
           </Popover.Dropdown>
         </Popover>
-        <ActionIcon onClick={() => goToMonth(1)} disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}>
+        <ActionIcon  variant="white" onClick={() => goToMonth(1)}
+                    disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}>
           <IconChevronRight size="1.125rem" />
         </ActionIcon>
       </Group>
@@ -60,20 +65,22 @@ export default function Budgets() {
           Hide Zero Amount Assigned Budget
         </Chip>
       </Group>
-      <Table verticalSpacing="xs" withBorder>
+      {/*todo withBorder*/}
+      <Table verticalSpacing="xs">
         <thead>
-          <tr>
-            <th>Category</th>
-            <th style={{ textAlign: 'end' }}>Percentage</th>
-            <th style={{ textAlign: 'end' }}>Assigned</th>
-            <th style={{ textAlign: 'end' }}>Activity</th>
-            <th style={{ textAlign: 'end' }}>Available</th>
-          </tr>
+        <tr>
+          <th>Category</th>
+          <th style={{ textAlign: 'end' }}>Percentage</th>
+          <th style={{ textAlign: 'end' }}>Assigned</th>
+          <th style={{ textAlign: 'end' }}>Activity</th>
+          <th style={{ textAlign: 'end' }}>Available</th>
+        </tr>
         </thead>
         <tbody>
-          {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (
-            <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]} items={entry[1]}></BudgetCategory>
-          ))}
+        {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (
+          <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]}
+                          items={entry[1]}></BudgetCategory>
+        ))}
         </tbody>
       </Table>
     </Container>

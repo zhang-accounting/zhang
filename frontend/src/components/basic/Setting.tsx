@@ -7,11 +7,12 @@ interface Props {
   uppercase?: boolean;
   children?: ReactElement | ReactElement[];
 }
+
 export function Setting({ title, value, children, uppercase }: Props) {
   const shouldUppercase = uppercase ?? false;
   return (
     <div>
-      <Text color="gray" fw="700" fz="sm">
+      <Text c="gray" fw="700" fz="sm">
         {shouldUppercase ? title.toUpperCase() : title}
       </Text>
       {value && <Text>{value}</Text>}

@@ -1,5 +1,6 @@
-import { Box, Container, createStyles, SimpleGrid, Text, Title, UnstyledButton } from '@mantine/core';
-import { IconRelationOneToMany } from '@tabler/icons';
+import { Box, Container, SimpleGrid, Text, Title, UnstyledButton } from '@mantine/core';
+import { createStyles } from '@mantine/emotion';
+import { IconRelationOneToMany } from '@tabler/icons-react';
 import { Link as RouteLink } from 'react-router-dom';
 
 const toolItems = [
@@ -11,10 +12,16 @@ const toolItems = [
   },
 ];
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
   item: {
+    [u.dark]: {
+      backgroundColor: theme.colors.dark[7],
+    },
+    [u.light]: {
+      backgroundColor: theme.colors.gray[0],
+
+    },
     borderRadius: theme.radius.md,
-    backgroundColor: theme.colorScheme === 'dark' ? theme.colors.dark[7] : theme.colors.gray[0],
     transition: 'box-shadow 150ms ease, transform 100ms ease',
     position: 'relative',
     '&:after': {

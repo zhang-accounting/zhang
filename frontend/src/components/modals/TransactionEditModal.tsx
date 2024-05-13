@@ -7,10 +7,10 @@ import { axiosInstance } from '../../index';
 import { showNotification } from '@mantine/notifications';
 
 export const TransactionEditModal = ({
-  context,
-  id,
-  innerProps,
-}: ContextModalProps<{
+                                       context,
+                                       id,
+                                       innerProps,
+                                     }: ContextModalProps<{
   data: JournalTransactionItem;
 }>) => {
   const [data, setData] = useState<any>({});
@@ -25,7 +25,7 @@ export const TransactionEditModal = ({
         });
         context.closeModal('transactionEditModal');
       })
-      .catch(function (error) {
+      .catch(function(error) {
         showNotification({
           title: 'Fail to update new Transaction',
           color: 'red',
@@ -45,7 +45,7 @@ export const TransactionEditModal = ({
         }}
       ></TransactionEditForm>
 
-      <Group position="right" my="md">
+      <Group justify="right" my="md">
         <Button mr={3} onClick={onUpdate} disabled={!isValid}>
           Save
         </Button>

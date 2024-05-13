@@ -58,11 +58,13 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
         </td>
         <td>{}</td>
         <td>
-          <Select searchable clearable placeholder="Pad to" data={accountItems} value={padAccount} onChange={(e) => setPadAccount(e)} />
+          <Select searchable clearable placeholder="Pad to" data={accountItems} value={padAccount}
+                  onChange={(e) => setPadAccount(e)} />
         </td>
         <td>
-          <Group spacing={'xs'}>
-            <TextInput placeholder={`Balanced ${commodity} Amount`} value={amount} onChange={(e) => setAmount(e.target.value)}></TextInput>
+          <Group gap={'xs'}>
+            <TextInput placeholder={`Balanced ${commodity} Amount`} value={amount}
+                       onChange={(e) => setAmount(e.target.value)}></TextInput>
             <Button size="sm" onClick={submitCheck} disabled={amount.length === 0}>
               {padAccount ? 'Pad' : 'Balance'}
             </Button>

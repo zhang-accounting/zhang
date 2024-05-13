@@ -14,7 +14,12 @@ import './i18n';
 import { store } from './states';
 import { themeConfig } from './theme';
 import './global.css';
+import '@mantine/core/styles.css';
 import { TransactionEditModal } from './components/modals/TransactionEditModal';
+import {
+  emotionTransform,
+  MantineEmotionProvider,
+} from '@mantine/emotion';
 
 Chart.register(...registerables);
 // @ts-ignore
@@ -39,19 +44,21 @@ const root = createRoot(container!);
 root.render(
   <React.StrictMode>
     <Provider store={store}>
-      <MantineProvider withGlobalStyles withNormalizeCSS theme={themeConfig}>
-        <ModalsProvider
-          modals={{
-            documentPreviewModal: DocumentPreviewModal,
-            transactionPreviewModal: TransactionPreviewModal,
-            transactionEditModal: TransactionEditModal,
-          }}
-        >
-          <BrowserRouter>
-            <Notifications />
-            <App />
-          </BrowserRouter>
-        </ModalsProvider>
+      <MantineProvider theme={themeConfig}>
+        <MantineEmotionProvider>
+          <ModalsProvider
+            modals={{
+              documentPreviewModal: DocumentPreviewModal,
+              transactionPreviewModal: TransactionPreviewModal,
+              transactionEditModal: TransactionEditModal,
+            }}
+          >
+            <BrowserRouter>
+              <Notifications />
+              <App />
+            </BrowserRouter>
+          </ModalsProvider>
+        </MantineEmotionProvider>
       </MantineProvider>
     </Provider>
   </React.StrictMode>,

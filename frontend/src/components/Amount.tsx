@@ -1,12 +1,13 @@
-import { createStyles, px, Text } from '@mantine/core';
+import { px, Text } from '@mantine/core';
 import BigNumber from 'bignumber.js';
 import { useAppSelector } from '../states';
 import { getCommodityByName } from '../states/commodity';
+import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
   wrapper: {
     display: 'inline-flex',
-    gap: px(theme.spacing.xs) * 0.25,
+    gap: `calc(${px(theme.spacing.xs)} * 0.25)`,
   },
   number: {
     fontFeatureSettings: '"tnum" 1',

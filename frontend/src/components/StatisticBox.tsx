@@ -1,8 +1,9 @@
-import { createStyles, px, Stack, Text } from '@mantine/core';
+import { px, Stack, Text } from '@mantine/core';
 import { useTranslation } from 'react-i18next';
 import Amount from './Amount';
+import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
   card: {
     backgroundColor: 'transparent',
     padding: theme.spacing.lg,
@@ -23,7 +24,7 @@ const useStyles = createStyles((theme) => ({
 
   lead: {
     fontWeight: 700,
-    fontSize: px(theme.fontSizes.xl) * 1.15,
+    fontSize: `calc(${px(theme.fontSizes.xl)}  * 1.15)`,
     lineHeight: 1,
     color: theme.colors.gray[9],
   },
@@ -42,7 +43,7 @@ export default function StatisticBox({ text, amount, currency, negetive, hint }:
   const { t } = useTranslation();
   const { classes } = useStyles();
   const displayBox = (
-    <Stack mt="sm" spacing={'xs'} className={classes.card}>
+    <Stack mt="sm" gap={'xs'} className={classes.card}>
       <Text className={classes.lead}>
         <Amount amount={amount} negetive={negetive} currency={currency} />
       </Text>

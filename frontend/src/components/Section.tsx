@@ -1,7 +1,8 @@
-import { Box, createStyles, Group, px, Stack, Text } from '@mantine/core';
+import { Box, Group, px, Stack, Text } from '@mantine/core';
 import React from 'react';
+import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
   card: {
     backgroundColor: 'transparent',
     padding: theme.spacing.sm,
@@ -31,8 +32,8 @@ export default function Section({ children, title, rightSection }: Props) {
   const { classes } = useStyles();
   return (
     <Stack className={classes.card} mt="sm">
-      <Group position="apart" className={classes.lead}>
-        <Text weight={500}>{title}</Text>
+      <Group justify="space-between" className={classes.lead}>
+        <Text fw={500}>{title}</Text>
         {rightSection}
       </Group>
       <Box>{children}</Box>

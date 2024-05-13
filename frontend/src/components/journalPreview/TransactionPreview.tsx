@@ -1,4 +1,4 @@
-import { Badge, Box, Group, SimpleGrid, Text, createStyles } from '@mantine/core';
+import { Badge, Box, Group, SimpleGrid, Text } from '@mantine/core';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../rest-model';
 import Amount from '../Amount';
@@ -6,7 +6,9 @@ import DashLine from '../DashedLine';
 import Section from '../Section';
 import DocumentPreview from './DocumentPreview';
 import AccountDocumentUpload from '../AccountDocumentUpload';
-const useStyles = createStyles((theme) => ({
+import { createStyles } from '@mantine/emotion';
+
+const useStyles = createStyles((theme, _, u) => ({
   amount: {
     display: 'flex',
     flexDirection: 'column',
@@ -17,9 +19,11 @@ const useStyles = createStyles((theme) => ({
     color: theme.colors.gray[7],
   },
 }));
+
 interface Props {
   data: JournalTransactionItem;
 }
+
 export default function TransactionPreview(props: Props) {
   const { classes } = useStyles();
   return (
@@ -70,7 +74,7 @@ export default function TransactionPreview(props: Props) {
               Links
             </Text>
             <Text lineClamp={1}>
-              <Group mx={1} my={2} spacing="sm">
+              <Group mx={1} my={2} gap="sm">
                 {(props.data.links || []).map((link) => (
                   <Badge key={link} size="lg" variant="dot">
                     {link}
@@ -87,7 +91,7 @@ export default function TransactionPreview(props: Props) {
               Tags
             </Text>
             <Text lineClamp={1}>
-              <Group mx={1} my={2} spacing="sm">
+              <Group mx={1} my={2} gap="sm">
                 {(props.data.tags || []).map((tag) => (
                   <Badge key={tag} size="lg" color="orange" variant="dot">
                     {tag}
@@ -135,13 +139,8 @@ export default function TransactionPreview(props: Props) {
       <Box mx={1} my={4}>
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
           <SimpleGrid
-            cols={4}
-            spacing="sm"
-            breakpoints={[
-              { maxWidth: 'md', cols: 3, spacing: 'md' },
-              { maxWidth: 'sm', cols: 2, spacing: 'sm' },
-              { maxWidth: 'xs', cols: 1, spacing: 'sm' },
-            ]}
+            cols={{ base: 4, md: 3, sm: 2, xs: 1 }}
+            spacing={{ base: 'sm', md: 'md', sm: 'sm', xs: 'sm' }}
           >
             {props.data.metas
               .filter((meta) => meta.key === 'document')

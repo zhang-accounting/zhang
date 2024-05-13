@@ -1,13 +1,14 @@
 import { JournalBalanceCheckItem } from '../../../rest-model';
-import { ActionIcon, Badge, createStyles, getStylesRef, px } from '@mantine/core';
+import { ActionIcon, Badge, px } from '@mantine/core';
 import { format } from 'date-fns';
 import Amount from '../../Amount';
 import BigNumber from 'bignumber.js';
-import { IconZoomExclamation } from '@tabler/icons';
+import { IconZoomExclamation } from '@tabler/icons-react';
 import { openContextModal } from '@mantine/modals';
 import PayeeNarration from '../../basic/PayeeNarration';
+import { createStyles, getStylesRef } from '@mantine/emotion';
 
-const useStyles = createStyles((theme, _params, getRef) => ({
+const useStyles = createStyles((theme, _, u) => ({
   payee: {
     fontWeight: 'bold',
   },
@@ -15,13 +16,13 @@ const useStyles = createStyles((theme, _params, getRef) => ({
   accumulated: {
     color: theme.colors.gray[7],
     fontFeatureSettings: 'tnum',
-    fontSize: px(theme.fontSizes.sm) * 0.75,
+    fontSize: `calc(${px(theme.fontSizes.sm)} * 0.75)`,
   },
   positiveAmount: {
     color: theme.colors.gray[7],
     fontWeight: 'bold',
     fontFeatureSettings: 'tnum',
-    fontSize: px(theme.fontSizes.sm) * 0.95,
+    fontSize: `calc(${px(theme.fontSizes.sm)} * 0.95)`,
   },
   negativeAmount: {
     color: theme.colors.red[5],
@@ -87,18 +88,20 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
       <td>
         <div className={classes.wrapper}>
           <div className={!isBalanced ? classes.negativeAmount : classes.positiveAmount}>
-            <Amount amount={data.postings[0].account_after_number} currency={data.postings[0].account_after_commodity} />
+            <Amount amount={data.postings[0].account_after_number}
+                    currency={data.postings[0].account_after_commodity} />
           </div>
           {!isBalanced && (
             <span className={classes.accumulated}>
-              accumulated: <Amount amount={data.postings[0].account_before_number} currency={data.postings[0].account_before_commodity} />
+              accumulated: <Amount amount={data.postings[0].account_before_number}
+                                   currency={data.postings[0].account_before_commodity} />
             </span>
           )}
         </div>
       </td>
       <td>
         <div className={classes.actions}>
-          <ActionIcon size="sm" onClick={openPreviewModal}>
+          <ActionIcon  variant="white" size="sm" onClick={openPreviewModal}>
             <IconZoomExclamation size="1.125rem" />
           </ActionIcon>
         </div>

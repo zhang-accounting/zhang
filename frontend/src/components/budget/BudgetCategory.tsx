@@ -1,6 +1,6 @@
 import { ActionIcon } from '@mantine/core';
 import React from 'react';
-import { IconChevronDown, IconChevronRight } from '@tabler/icons';
+import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useLocalStorage } from '@mantine/hooks';
 import { BudgetListItem } from '../../rest-model';
 import { Buffer } from 'buffer';

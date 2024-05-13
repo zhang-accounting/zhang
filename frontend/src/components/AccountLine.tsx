@@ -1,12 +1,13 @@
-import { ActionIcon, Badge, Divider, Group, HoverCard, Space, Stack, Text, createStyles } from '@mantine/core';
+import { ActionIcon, Badge, Divider, Group, HoverCard, Space, Stack, Text } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
-import { IconChevronDown, IconChevronRight } from '@tabler/icons';
+import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useNavigate } from 'react-router';
 import { AccountStatus } from '../rest-model';
 import AccountTrie from '../utils/AccountTrie';
 import Amount from './Amount';
+import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
   leaf: {
     cursor: 'pointer',
   },
@@ -67,24 +68,24 @@ export default function AccountLine({ data, spacing }: Props) {
           </div>
         </td>
         <td>
-          <Group position="right">
+          <Group justify="right">
             {haveMultipleCommodity ? (
               <HoverCard width={280} shadow="md" withArrow position="left">
                 <HoverCard.Target>
-                  <Group spacing="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
+                  <Group gap="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
                     <Text>≈</Text> <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
                   </Group>
                 </HoverCard.Target>
                 <HoverCard.Dropdown>
-                  <Stack spacing="xs">
+                  <Stack gap="xs">
                     {Object.entries(data.amount.data).map(([key, value]) => (
-                      <Group position="apart">
+                      <Group justify="space-between">
                         <Text>+</Text>
                         <Amount amount={value} currency={key}></Amount>
                       </Group>
                     ))}
                     <Divider variant="dashed" />
-                    <Group position="apart">
+                    <Group justify="space-between">
                       <Text>=</Text>
                       <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
                     </Group>
@@ -92,7 +93,7 @@ export default function AccountLine({ data, spacing }: Props) {
                 </HoverCard.Dropdown>
               </HoverCard>
             ) : (
-              <Group spacing="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
+              <Group gap="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
                 <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
               </Group>
             )}
@@ -103,7 +104,8 @@ export default function AccountLine({ data, spacing }: Props) {
       {isShow &&
         Object.keys(data.children)
           .sort()
-          .map((child) => <AccountLine key={data.children[child].path} data={data.children[child]} spacing={spacing + 1} />)}
+          .map((child) => <AccountLine key={data.children[child].path} data={data.children[child]}
+                                       spacing={spacing + 1} />)}
     </>
   );
 }

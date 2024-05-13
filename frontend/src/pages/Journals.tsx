@@ -9,13 +9,19 @@ import { fetchJournals, journalsSlice } from '../states/journals';
 import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
 import { useDebouncedValue, useDocumentTitle } from '@mantine/hooks';
-import { IconFilter } from '@tabler/icons';
+import { IconFilter } from '@tabler/icons-react';
 
 function Journals() {
   const { t } = useTranslation();
   const [filter, setFilter] = useState('');
   const [debouncedFilter] = useDebouncedValue(filter, 200);
-  const { current_page, status: journalStatus, items, total_number, total_page } = useAppSelector((state) => state.journals);
+  const {
+    current_page,
+    status: journalStatus,
+    items,
+    total_number,
+    total_page,
+  } = useAppSelector((state) => state.journals);
   const dispatch = useAppDispatch();
   const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
 
@@ -46,46 +52,49 @@ function Journals() {
           {t('REFRESH')}
         </Button>
         <Input
-          icon={<IconFilter size="1rem" />}
+          leftSection={<IconFilter size="1rem" />}
           placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
           value={filter}
           onChange={(event: any) => setFilter(event.currentTarget.value)}
-          rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')} onClick={() => setFilter('')} />}
+          rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')}
+                                     onClick={() => setFilter('')} />}
         />
       </Group>
-      <Table verticalSpacing="xs" withBorder>
+      {/*todo withBorder*/}
+      <Table verticalSpacing="xs">
         <thead>
-          <tr>
-            <th style={{ width: '100px' }}>Date</th>
-            <th style={{ width: '10px' }}>Type</th>
-            <th>Payee · Narration</th>
-            <th style={{ textAlign: 'right' }}>Amount</th>
-            <th style={{ textAlign: 'right' }}>Operation</th>
-          </tr>
+        <tr>
+          <th style={{ width: '100px' }}>Date</th>
+          <th style={{ width: '10px' }}>Type</th>
+          <th>Payee · Narration</th>
+          <th style={{ textAlign: 'right' }}>Amount</th>
+          <th style={{ textAlign: 'right' }}>Operation</th>
+        </tr>
         </thead>
         <tbody>
-          {journalStatus === LoadingState.Success &&
-            Object.entries(groupedRecords).map((entry) => {
-              return (
-                <>
-                  <tr>
-                    <td colSpan={6}>
-                      <b>{entry[0]}</b>
-                    </td>
-                  </tr>
-                  {entry[1].map((journal) => (
-                    <>
-                      <TableViewJournalLine key={journal.id} data={journal} />
-                    </>
-                  ))}
-                </>
-              );
-            })}
+        {journalStatus === LoadingState.Success &&
+          Object.entries(groupedRecords).map((entry) => {
+            return (
+              <>
+                <tr>
+                  <td colSpan={6}>
+                    <b>{entry[0]}</b>
+                  </td>
+                </tr>
+                {entry[1].map((journal) => (
+                  <>
+                    <TableViewJournalLine key={journal.id} data={journal} />
+                  </>
+                ))}
+              </>
+            );
+          })}
         </tbody>
       </Table>
 
       {(journalStatus === LoadingState.Loading || journalStatus === LoadingState.NotReady) && <p>loading</p>}
-      <Pagination my="xs" total={total_page} value={current_page} onChange={onPage} position="center" />
+      {/*todo  position="center"*/}
+      <Pagination my="xs" total={total_page} value={current_page} onChange={onPage} />
     </>
   );
 }

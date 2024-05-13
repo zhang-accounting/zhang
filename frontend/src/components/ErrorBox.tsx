@@ -68,7 +68,7 @@ export default function ErrorBox() {
             setSelectErrorContent(event.target.value);
           }}
         />
-        <Group position="right">
+        <Group justify="right">
           <Button onClick={onModalReset} variant="default">
             {t('RESET')}
           </Button>
@@ -84,7 +84,8 @@ export default function ErrorBox() {
           </Text>
         ))}
 
-        <Pagination mt="xs" total={total_page} value={page} onChange={handlePageChange} position="center" />
+        {/*todo  position="center"*/}
+        <Pagination mt="xs" total={total_page} value={page} onChange={handlePageChange} />
       </Stack>
     </>
   );

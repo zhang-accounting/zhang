@@ -1,10 +1,11 @@
-import { Box, Card, createStyles, Text } from '@mantine/core';
+import { Box, Card, Text } from '@mantine/core';
 import { openContextModal } from '@mantine/modals';
 import { Buffer } from 'buffer';
 import { serverBaseUrl } from '../../index';
 import { Document } from '../../rest-model';
+import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme, _params, getRef) => ({
+const useStyles = createStyles((theme, _, u) => ({
   imgBox: {
     overflow: 'hidden',
     position: 'relative',
@@ -59,7 +60,8 @@ const useStyles = createStyles((theme, _params, getRef) => ({
   },
 }));
 
-export interface Props extends Document {}
+export interface Props extends Document {
+}
 
 export const EXTENSIONS_SUPPORT_PREVIEW = ['image/png', 'image/jpg', 'image/jpeg', 'image/gif'];
 
@@ -96,7 +98,7 @@ export default function AccountDocumentLine(props: Props) {
         )}
       </Card.Section>
 
-      <Text weight={500} lineClamp={1} className={classes.title}>
+      <Text fw={500} lineClamp={1} className={classes.title}>
         {props.filename}
       </Text>
     </Card>

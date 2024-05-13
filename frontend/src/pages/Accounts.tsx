@@ -7,7 +7,7 @@ import { useAppDispatch, useAppSelector } from '../states';
 import { fetchAccounts, getAccountsTrie } from '../states/account';
 import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
-import { IconFilter } from '@tabler/icons';
+import { IconFilter } from '@tabler/icons-react';
 
 export default function Accounts() {
   const { t } = useTranslation();
@@ -31,33 +31,36 @@ export default function Accounts() {
       <Heading title={`Accounts`}></Heading>
       <Group my="lg">
         <Input
-          icon={<IconFilter size="1rem" />}
+          leftSection={<IconFilter size="1rem" />}
           placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
           value={filterKeyword}
           onChange={setFilterKeyword}
-          rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')} onClick={() => setFilterKeyword('')} />}
+          rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')}
+                                     onClick={() => setFilterKeyword('')} />}
         />
       </Group>
       <Group my="lg">
         <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => dispatch(fetchAccounts())}>
           {t('REFRESH')}
         </Button>
-        <Checkbox checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)} label={'Hide closed accounts'} />
+        <Checkbox checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)}
+                  label={'Hide closed accounts'} />
       </Group>
 
-      <Table verticalSpacing="xs" highlightOnHover withBorder>
+      {/*todo withBorder*/}
+      <Table verticalSpacing="xs" highlightOnHover>
         <thead>
-          <tr>
-            <th>Name</th>
-            <th style={{ textAlign: 'end' }}>Balance</th>
-          </tr>
+        <tr>
+          <th>Name</th>
+          <th style={{ textAlign: 'end' }}>Balance</th>
+        </tr>
         </thead>
         <tbody>
-          {Object.keys(accountTrie.children)
-            .sort()
-            .map((item) => (
-              <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
-            ))}
+        {Object.keys(accountTrie.children)
+          .sort()
+          .map((item) => (
+            <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
+          ))}
         </tbody>
       </Table>
     </Container>
