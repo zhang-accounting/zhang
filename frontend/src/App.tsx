@@ -12,17 +12,7 @@ import SingleCommodity from './pages/SingleCommodity';
 import { matchPath, useLocation } from 'react-router';
 import { useLocalStorage, useDisclosure, useMediaQuery } from '@mantine/hooks';
 
-import {
-  ActionIcon,
-  Badge,
-  Box,
-  Group,
-  px,
-  Text,
-  TextInput,
-  UnstyledButton,
-  Anchor, Stack,
-} from '@mantine/core';
+import { ActionIcon, Badge, Box, Group, px, Text, TextInput, UnstyledButton, Anchor, Stack } from '@mantine/core';
 import {
   IconBroadcast,
   IconCash,
@@ -181,7 +171,6 @@ const useStyles = createStyles((theme, _, u) => ({
     [u.dark]: { color: theme.colors.dark[0] },
     [u.light]: { color: theme.colors.gray[7] },
 
-
     display: 'block',
     padding: `8px ${theme.spacing.xs}px`,
     textDecoration: 'none',
@@ -199,7 +188,6 @@ const useStyles = createStyles((theme, _, u) => ({
         backgroundColor: theme.colors.gray[0],
         color: theme.black,
       },
-
     },
   },
 }));
@@ -328,12 +316,8 @@ export default function App() {
     </UnstyledButton>
   ));
   return (
-    <AppShell
-      padding="xs"
-      header={{ height: 128, collapsed: !isMobile }}
-      navbar={{ width: 240, breakpoint: 'sm', collapsed: { mobile: !opened } }}
-    >
-      {isMobile &&
+    <AppShell padding="xs" header={{ height: 128, collapsed: !isMobile }} navbar={{ width: 240, breakpoint: 'sm', collapsed: { mobile: !opened } }}>
+      {isMobile && (
         <AppShell.Header>
           <Box m="xs">
             <Group justify="space-between">
@@ -347,26 +331,23 @@ export default function App() {
               {mobileMainLinks}
             </Group>
           </Box>
-        </AppShell.Header>}
+        </AppShell.Header>
+      )}
       <AppShell.Navbar>
         <AppShell.Section className={classes.header}>
-
           <Stack>
             <Group justify="space-between">
               <Group gap="xs" justify="left">
-                <IconBroadcast stroke={3}
-                               className={basicInfo.isOnline ? classes.onlineIcon : classes.offlineIcon} />
+                <IconBroadcast stroke={3} className={basicInfo.isOnline ? classes.onlineIcon : classes.offlineIcon} />
                 <Text lineClamp={1}>{basicInfo.title ?? 'Zhang Accounting'}</Text>
               </Group>
               <ActionIcon variant="white" size="sm" onClick={sendReloadEvent}>
                 <IconRefresh size="1.125rem" />
               </ActionIcon>
             </Group>
-            <TextInput placeholder="Search" size="xs" leftSectionPointerEvents="none"
-                       leftSection={<IconSearch size={12} stroke={1.5} />} />
+            <TextInput placeholder="Search" size="xs" leftSectionPointerEvents="none" leftSection={<IconSearch size={12} stroke={1.5} />} />
             <NewTransactionButton />
           </Stack>
-
         </AppShell.Section>
 
         {/*<Navbar.Section grow className={classes.section} >*/}
@@ -401,8 +382,6 @@ export default function App() {
             </Group>
           </AppShell.Section>
         )}
-
-
       </AppShell.Navbar>
 
       <AppShell.Main>
@@ -424,7 +403,6 @@ export default function App() {
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </AppShell.Main>
-
     </AppShell>
   );
 }

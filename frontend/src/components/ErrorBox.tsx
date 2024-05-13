@@ -84,8 +84,9 @@ export default function ErrorBox() {
           </Text>
         ))}
 
-        {/*todo  position="center"*/}
-        <Pagination mt="xs" total={total_page} value={page} onChange={handlePageChange} />
+        <Group justify="center">
+          <Pagination mt="xs" total={total_page} value={page} onChange={handlePageChange} />
+        </Group>
       </Stack>
     </>
   );

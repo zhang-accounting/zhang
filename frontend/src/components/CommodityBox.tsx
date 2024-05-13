@@ -39,7 +39,7 @@ export default function CommodityBox(props: Props) {
   return (
     <Stack className={classes.card} mt="sm">
       <Stack gap={'xs'}>
-        <Group justify={"space-between"}>
+        <Group justify={'space-between'}>
           <Text className={classes.commodity} size="lg" fw={500} onClick={() => onCommodityClick(props.name)}>
             {props.name}
           </Text>
@@ -50,8 +50,7 @@ export default function CommodityBox(props: Props) {
           <Group justify={'space-between'}>
             <div></div>
             <Text size={'xs'} c={'dimmed'}>
-              <Amount amount={1} currency={props.name} /> = <Amount amount={props.latest_price_amount}
-                                                                    currency={props.latest_price_commodity!} />
+              <Amount amount={1} currency={props.name} /> = <Amount amount={props.latest_price_amount} currency={props.latest_price_commodity!} />
             </Text>
           </Group>
         )}

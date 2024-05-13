@@ -104,8 +104,7 @@ export default function AccountLine({ data, spacing }: Props) {
       {isShow &&
         Object.keys(data.children)
           .sort()
-          .map((child) => <AccountLine key={data.children[child].path} data={data.children[child]}
-                                       spacing={spacing + 1} />)}
+          .map((child) => <AccountLine key={data.children[child].path} data={data.children[child]} spacing={spacing + 1} />)}
     </>
   );
 }

@@ -45,17 +45,13 @@ export default function StatsGroup({ data }: StatsGroupProps) {
   const stats = data.map((stat) => (
     <div key={stat.title} className={classes.stat}>
       <Text className={classes.count}>
-        {stat.number !== undefined ? <Text>{stat.number}</Text> :
-          <Amount amount={stat.amount!} currency={stat.currency!} />}
+        {stat.number !== undefined ? <Text>{stat.number}</Text> : <Amount amount={stat.amount!} currency={stat.currency!} />}
       </Text>
       <Text className={classes.title}>{stat.title}</Text>
     </div>
   ));
   return (
-    <SimpleGrid
-      cols={{ base: data.length, md: 2, sm: 2, xs: 1 }}
-      className={classes.root}
-    >
+    <SimpleGrid cols={{ base: data.length, md: 2, sm: 2, xs: 1 }} className={classes.root}>
       {stats}
     </SimpleGrid>
   );

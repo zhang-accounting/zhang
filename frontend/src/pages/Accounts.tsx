@@ -35,32 +35,30 @@ export default function Accounts() {
           placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
           value={filterKeyword}
           onChange={setFilterKeyword}
-          rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')}
-                                     onClick={() => setFilterKeyword('')} />}
+          rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')} onClick={() => setFilterKeyword('')} />}
         />
       </Group>
       <Group my="lg">
         <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => dispatch(fetchAccounts())}>
           {t('REFRESH')}
         </Button>
-        <Checkbox checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)}
-                  label={'Hide closed accounts'} />
+        <Checkbox checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)} label={'Hide closed accounts'} />
       </Group>
 
       {/*todo withBorder*/}
       <Table verticalSpacing="xs" highlightOnHover>
         <Table.Thead>
-        <Table.Tr>
-          <Table.Th>Name</Table.Th>
-          <Table.Th style={{ textAlign: 'end' }}>Balance</Table.Th>
-        </Table.Tr>
+          <Table.Tr>
+            <Table.Th>Name</Table.Th>
+            <Table.Th style={{ textAlign: 'end' }}>Balance</Table.Th>
+          </Table.Tr>
         </Table.Thead>
         <tbody>
-        {Object.keys(accountTrie.children)
-          .sort()
-          .map((item) => (
-            <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
-          ))}
+          {Object.keys(accountTrie.children)
+            .sort()
+            .map((item) => (
+              <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
+            ))}
         </tbody>
       </Table>
     </Container>

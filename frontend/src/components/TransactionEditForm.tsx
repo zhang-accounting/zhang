@@ -9,6 +9,8 @@ import { InfoForNewTransaction, JournalTransactionItem } from '../rest-model';
 import { fetcher } from '../index';
 import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
+import { useAppSelector } from '../states';
+import { getAccountSelectItems } from '../states/account';
 
 interface Posting {
   account: string | null;
@@ -49,6 +51,8 @@ export default function TransactionEditForm(props: Props) {
   const [metas, metaHandler] = useListState<{ key: string; value: string }>(props.data?.metas ?? []);
 
   const [payeeSelectItems, setPayeeSelectItems] = useState<SelectItem[]>([]);
+  const accountItems = [...useAppSelector(getAccountSelectItems())];
+
   useEffect(() => {
     const newPayeeSelectItems: SelectItem[] = (data?.payee ?? []).map((item) => {
       return {
@@ -72,9 +76,9 @@ export default function TransactionEditForm(props: Props) {
             it.amount.trim() === ''
               ? null
               : {
-                number: it.amount.split(' ')[0],
-                commodity: it.amount.split(' ')[1],
-              },
+                  number: it.amount.split(' ')[0],
+                  commodity: it.amount.split(' ')[1],
+                },
         })),
         tags: [],
         links: [],
@@ -108,15 +112,6 @@ export default function TransactionEditForm(props: Props) {
 
   if (error) return <div>failed to load</div>;
   if (!data) return <div>loading...</div>;
-
-  const accountItems = data.account_name.sort().map((singleAccountName) => {
-    const type = singleAccountName.split(':')[0];
-    return {
-      label: singleAccountName,
-      value: singleAccountName,
-      group: type,
-    };
-  });
   return (
     <Container>
       <Grid>
@@ -161,11 +156,10 @@ export default function TransactionEditForm(props: Props) {
             />
           </Grid.Col>
           <Grid.Col span={3}>
-            <TextInput placeholder="Amount" value={posting.amount}
-                       onChange={(e) => postingsHandler.setItemProp(idx, 'amount', e.target.value)} />
+            <TextInput placeholder="Amount" value={posting.amount} onChange={(e) => postingsHandler.setItemProp(idx, 'amount', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={1}>
-            <ActionIcon  variant="white" disabled={postings.length <= 2} onClick={() => postingsHandler.remove(idx)}>
+            <ActionIcon variant="white" disabled={postings.length <= 2} onClick={() => postingsHandler.remove(idx)}>
               <IconTrashX />
             </ActionIcon>
           </Grid.Col>
@@ -183,15 +177,13 @@ export default function TransactionEditForm(props: Props) {
       {metas.map((meta, idx) => (
         <Grid align="center" key={idx}>
           <Grid.Col span={4}>
-            <TextInput placeholder="key" value={meta.key}
-                       onChange={(e) => metaHandler.setItemProp(idx, 'key', e.target.value)} />
+            <TextInput placeholder="key" value={meta.key} onChange={(e) => metaHandler.setItemProp(idx, 'key', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={7}>
-            <TextInput placeholder="value" value={meta.value}
-                       onChange={(e) => metaHandler.setItemProp(idx, 'value', e.target.value)} />
+            <TextInput placeholder="value" value={meta.value} onChange={(e) => metaHandler.setItemProp(idx, 'value', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={1}>
-            <ActionIcon  variant="white" onClick={() => metaHandler.remove(idx)}>
+            <ActionIcon variant="white" onClick={() => metaHandler.remove(idx)}>
               <IconTrashX />
             </ActionIcon>
           </Grid.Col>

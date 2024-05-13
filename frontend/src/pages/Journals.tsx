@@ -15,13 +15,7 @@ function Journals() {
   const { t } = useTranslation();
   const [filter, setFilter] = useState('');
   const [debouncedFilter] = useDebouncedValue(filter, 200);
-  const {
-    current_page,
-    status: journalStatus,
-    items,
-    total_number,
-    total_page,
-  } = useAppSelector((state) => state.journals);
+  const { current_page, status: journalStatus, items, total_number, total_page } = useAppSelector((state) => state.journals);
   const dispatch = useAppDispatch();
   const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
 
@@ -56,45 +50,45 @@ function Journals() {
           placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
           value={filter}
           onChange={(event: any) => setFilter(event.currentTarget.value)}
-          rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')}
-                                     onClick={() => setFilter('')} />}
+          rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')} onClick={() => setFilter('')} />}
         />
       </Group>
       {/*todo withBorder*/}
       <Table verticalSpacing="xs">
         <Table.Thead>
-        <Table.Tr>
-          <Table.Th style={{ width: '100px' }}>Date</Table.Th>
-          <Table.Th style={{ width: '10px' }}>Type</Table.Th>
-          <Table.Th>Payee · Narration</Table.Th>
-          <Table.Th style={{ textAlign: 'right' }}>Amount</Table.Th>
-          <Table.Th style={{ textAlign: 'right' }}>Operation</Table.Th>
-        </Table.Tr>
+          <Table.Tr>
+            <Table.Th style={{ width: '100px' }}>Date</Table.Th>
+            <Table.Th style={{ width: '10px' }}>Type</Table.Th>
+            <Table.Th>Payee · Narration</Table.Th>
+            <Table.Th style={{ textAlign: 'right' }}>Amount</Table.Th>
+            <Table.Th style={{ textAlign: 'right' }}>Operation</Table.Th>
+          </Table.Tr>
         </Table.Thead>
         <tbody>
-        {journalStatus === LoadingState.Success &&
-          Object.entries(groupedRecords).map((entry) => {
-            return (
-              <>
-                <Table.Tr>
-                  <Table.Td colSpan={6}>
-                    <b>{entry[0]}</b>
-                  </Table.Td>
-                </Table.Tr>
-                {entry[1].map((journal) => (
-                  <>
-                    <TableViewJournalLine key={journal.id} data={journal} />
-                  </>
-                ))}
-              </>
-            );
-          })}
+          {journalStatus === LoadingState.Success &&
+            Object.entries(groupedRecords).map((entry) => {
+              return (
+                <>
+                  <Table.Tr>
+                    <Table.Td colSpan={6}>
+                      <b>{entry[0]}</b>
+                    </Table.Td>
+                  </Table.Tr>
+                  {entry[1].map((journal) => (
+                    <>
+                      <TableViewJournalLine key={journal.id} data={journal} />
+                    </>
+                  ))}
+                </>
+              );
+            })}
         </tbody>
       </Table>
 
       {(journalStatus === LoadingState.Loading || journalStatus === LoadingState.NotReady) && <p>loading</p>}
-      {/*todo  position="center"*/}
-      <Pagination my="xs" total={total_page} value={current_page} onChange={onPage} />
+      <Group justify={'center'}>
+        <Pagination my="xs" total={total_page} value={current_page} onChange={onPage} />
+      </Group>
     </>
   );
 }

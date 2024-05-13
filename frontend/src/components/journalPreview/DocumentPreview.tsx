@@ -87,8 +87,7 @@ export default function DocumentPreview({ filename }: Props) {
   return (
     <Box className={classes.imgBox} onClick={openDocumentModal}>
       {canPreview ? (
-        <img className={classes.img} alt={filename}
-             src={canPreview ? `${serverBaseUrl}/api/documents/${Buffer.from(filename).toString('base64')}` : ''} />
+        <img className={classes.img} alt={filename} src={canPreview ? `${serverBaseUrl}/api/documents/${Buffer.from(filename).toString('base64')}` : ''} />
       ) : (
         <Box className={classes.empty}>This document cannot be previewed</Box>
       )}

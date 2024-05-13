@@ -59,13 +59,11 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
         </Table.Td>
         <Table.Td>{}</Table.Td>
         <Table.Td>
-          <Autocomplete placeholder="Pad to" data={accountItems} value={padAccount}
-                        onChange={setPadAccount} />
+          <Autocomplete placeholder="Pad to" data={accountItems} value={padAccount} onChange={setPadAccount} />
         </Table.Td>
         <Table.Td>
           <Group gap={'xs'}>
-            <TextInput placeholder={`Balanced ${commodity} Amount`} value={amount}
-                       onChange={(e) => setAmount(e.target.value)}></TextInput>
+            <TextInput placeholder={`Balanced ${commodity} Amount`} value={amount} onChange={(e) => setAmount(e.target.value)}></TextInput>
             <Button size="sm" onClick={submitCheck} disabled={amount.length === 0}>
               {padAccount ? 'Pad' : 'Balance'}
             </Button>

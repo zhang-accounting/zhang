@@ -19,7 +19,6 @@ const useStyles = createStyles((theme, _, u) => ({
     },
     [u.light]: {
       backgroundColor: theme.colors.gray[0],
-
     },
     borderRadius: theme.radius.md,
     transition: 'box-shadow 150ms ease, transform 100ms ease',

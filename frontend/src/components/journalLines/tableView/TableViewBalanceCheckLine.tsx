@@ -88,20 +88,18 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
       <Table.Td>
         <div className={classes.wrapper}>
           <div className={!isBalanced ? classes.negativeAmount : classes.positiveAmount}>
-            <Amount amount={data.postings[0].account_after_number}
-                    currency={data.postings[0].account_after_commodity} />
+            <Amount amount={data.postings[0].account_after_number} currency={data.postings[0].account_after_commodity} />
           </div>
           {!isBalanced && (
             <span className={classes.accumulated}>
-              accumulated: <Amount amount={data.postings[0].account_before_number}
-                                   currency={data.postings[0].account_before_commodity} />
+              accumulated: <Amount amount={data.postings[0].account_before_number} currency={data.postings[0].account_before_commodity} />
             </span>
           )}
         </div>
       </Table.Td>
       <Table.Td>
         <div className={classes.actions}>
-          <ActionIcon  variant="white" size="sm" onClick={openPreviewModal}>
+          <ActionIcon variant="white" size="sm" onClick={openPreviewModal}>
             <IconZoomExclamation size="1.125rem" />
           </ActionIcon>
         </div>

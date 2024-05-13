@@ -61,10 +61,14 @@ export const getAccountsTrie = (hideClosedAccount: boolean, filterKeyword: strin
 };
 
 export const getAccountSelectItems = () => (state: RootState) => {
-
-  const groupedAccount = groupBy(state.accounts.data.map(account =>account.name), it =>it.split(':')[0]);
-  return Object.keys(groupedAccount).sort().map(groupName => ({
-    group: groupName, items: groupedAccount[groupName]
-  }))
-
+  const groupedAccount = groupBy(
+    state.accounts.data.map((account) => account.name),
+    (it) => it.split(':')[0],
+  );
+  return Object.keys(groupedAccount)
+    .sort()
+    .map((groupName) => ({
+      group: groupName,
+      items: groupedAccount[groupName],
+    }));
 };

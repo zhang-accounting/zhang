@@ -11,8 +11,7 @@ const useStyles = createStyles((theme, _, u) => ({
   },
 }));
 
-interface Props extends PluginResponse {
-}
+interface Props extends PluginResponse {}
 
 export default function PluginBox(props: Props) {
   const { classes } = useStyles();

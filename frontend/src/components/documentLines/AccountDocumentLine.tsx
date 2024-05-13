@@ -60,8 +60,7 @@ const useStyles = createStyles((theme, _, u) => ({
   },
 }));
 
-export interface Props extends Document {
-}
+export interface Props extends Document {}
 
 export const EXTENSIONS_SUPPORT_PREVIEW = ['image/png', 'image/jpg', 'image/jpeg', 'image/gif'];
 

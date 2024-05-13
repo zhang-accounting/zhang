@@ -114,44 +114,42 @@ export default function Report() {
         <Section title="Incomes">
           <Grid>
             <Grid.Col span={12}>
-              <Progress.Root
-                radius="sm"
-                size={24}
-              >
+              <Progress.Root radius="sm" size={24}>
                 {income_data?.detail.map((item, idx) => (
                   <Tooltip label={`${item.account} - ${item.amount.calculated.number}`}>
                     <Progress.Section
                       value={new BigNumber(item.amount.calculated.number).div(income_total).multipliedBy(100).toNumber()}
-                      color={color_set[idx % color_set.length]}>
+                      color={color_set[idx % color_set.length]}
+                    >
                       <Progress.Label>{item.account}</Progress.Label>
                     </Progress.Section>
-                  </Tooltip>))}
-
+                  </Tooltip>
+                ))}
               </Progress.Root>
             </Grid.Col>
             <Grid.Col span={12}>
               <Table verticalSpacing="xs" highlightOnHover>
                 <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Date</Table.Th>
-                  <Table.Th>Account</Table.Th>
-                  <Table.Th style={{}}>Payee & Narration</Table.Th>
-                  <Table.Th>Amount</Table.Th>
-                </Table.Tr>
+                  <Table.Tr>
+                    <Table.Th>Date</Table.Th>
+                    <Table.Th>Account</Table.Th>
+                    <Table.Th style={{}}>Payee & Narration</Table.Th>
+                    <Table.Th>Amount</Table.Th>
+                  </Table.Tr>
                 </Table.Thead>
                 <tbody>
-                {income_data?.top_transactions.map((journal) => (
-                  <Table.Tr>
-                    <Table.Td>{journal.datetime}</Table.Td>
-                    <Table.Td>{journal.account}</Table.Td>
-                    <Table.Td>
-                      <PayeeNarration payee={journal.payee} narration={journal.narration} />
-                    </Table.Td>
-                    <Table.Td>
-                      <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
+                  {income_data?.top_transactions.map((journal) => (
+                    <Table.Tr>
+                      <Table.Td>{journal.datetime}</Table.Td>
+                      <Table.Td>{journal.account}</Table.Td>
+                      <Table.Td>
+                        <PayeeNarration payee={journal.payee} narration={journal.narration} />
+                      </Table.Td>
+                      <Table.Td>
+                        <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
                 </tbody>
               </Table>
             </Grid.Col>
@@ -161,45 +159,43 @@ export default function Report() {
         <Section title="Expenses">
           <Grid>
             <Grid.Col span={12}>
-
-              <Progress.Root
-                radius="sm"
-                size={24}
-              >
+              <Progress.Root radius="sm" size={24}>
                 {expenses_data?.detail.map((item, idx) => (
                   <Tooltip label={`${item.account} - ${item.amount.calculated.number}`}>
                     <Progress.Section
                       value={new BigNumber(item.amount.calculated.number).div(expense_total).multipliedBy(100).toNumber()}
-                      color={color_set[idx % color_set.length]}>
+                      color={color_set[idx % color_set.length]}
+                    >
                       <Progress.Label>{item.account}</Progress.Label>
                     </Progress.Section>
-                  </Tooltip>))}
+                  </Tooltip>
+                ))}
               </Progress.Root>
             </Grid.Col>
             <Grid.Col span={12}>
               <Table verticalSpacing="xs" highlightOnHover>
                 <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Date</Table.Th>
-                  <Table.Th>Account</Table.Th>
-                  <Table.Th style={{}}>Payee & Narration</Table.Th>
-                  <Table.Th>Amount</Table.Th>
-                </Table.Tr>
+                  <Table.Tr>
+                    <Table.Th>Date</Table.Th>
+                    <Table.Th>Account</Table.Th>
+                    <Table.Th style={{}}>Payee & Narration</Table.Th>
+                    <Table.Th>Amount</Table.Th>
+                  </Table.Tr>
                 </Table.Thead>
                 <tbody>
-                {expenses_data?.top_transactions.map((journal) => (
-                  // <JournalLine key={idx} data={journal} />
-                  <Table.Tr>
-                    <Table.Td>{journal.datetime}</Table.Td>
-                    <Table.Td>{journal.account}</Table.Td>
-                    <Table.Td>
-                      {journal.payee} {journal.narration}
-                    </Table.Td>
-                    <Table.Td>
-                      <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
+                  {expenses_data?.top_transactions.map((journal) => (
+                    // <JournalLine key={idx} data={journal} />
+                    <Table.Tr>
+                      <Table.Td>{journal.datetime}</Table.Td>
+                      <Table.Td>{journal.account}</Table.Td>
+                      <Table.Td>
+                        {journal.payee} {journal.narration}
+                      </Table.Td>
+                      <Table.Td>
+                        <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
                 </tbody>
               </Table>
             </Grid.Col>

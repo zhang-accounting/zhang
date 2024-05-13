@@ -23,10 +23,7 @@ export default function Budgets() {
 
   useDocumentTitle(`Budgets - ${ledgerTitle}`);
 
-  const {
-    data: budgets,
-    error,
-  } = useSWR<BudgetListItem[]>(`/api/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, fetcher);
+  const { data: budgets, error } = useSWR<BudgetListItem[]>(`/api/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, fetcher);
   if (error) return <div>failed to load</div>;
   if (!budgets) return <div>loading...</div>;
 
@@ -39,20 +36,22 @@ export default function Budgets() {
   return (
     <Container fluid>
       <Group>
-        <ActionIcon  variant="white" onClick={() => goToMonth(-1)}>
+        <ActionIcon variant="white" onClick={() => goToMonth(-1)}>
           <IconChevronLeft size="1.125rem" />
         </ActionIcon>
         <Popover position="bottom" withArrow shadow="md">
           <Popover.Target>
-            <Title style={{ display: 'inline-block', cursor: 'pointer' }} order={2} py="md"
-                   px="xs">{`${format(date, 'MMM, yyyy')}`}</Title>
+            <Title style={{ display: 'inline-block', cursor: 'pointer' }} order={2} py="md" px="xs">{`${format(date, 'MMM, yyyy')}`}</Title>
           </Popover.Target>
           <Popover.Dropdown>
             <MonthPicker value={date} maxDate={new Date()} onChange={(newDate) => setDate(newDate ?? new Date())} />
           </Popover.Dropdown>
         </Popover>
-        <ActionIcon  variant="white" onClick={() => goToMonth(1)}
-                    disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}>
+        <ActionIcon
+          variant="white"
+          onClick={() => goToMonth(1)}
+          disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}
+        >
           <IconChevronRight size="1.125rem" />
         </ActionIcon>
       </Group>
@@ -68,19 +67,18 @@ export default function Budgets() {
       {/*todo withBorder*/}
       <Table verticalSpacing="xs">
         <Table.Thead>
-        <Table.Tr>
-          <Table.Th>Category</Table.Th>
-          <Table.Th style={{ textAlign: 'end' }}>Percentage</Table.Th>
-          <Table.Th style={{ textAlign: 'end' }}>Assigned</Table.Th>
-          <Table.Th style={{ textAlign: 'end' }}>Activity</Table.Th>
-          <Table.Th style={{ textAlign: 'end' }}>Available</Table.Th>
-        </Table.Tr>
+          <Table.Tr>
+            <Table.Th>Category</Table.Th>
+            <Table.Th style={{ textAlign: 'end' }}>Percentage</Table.Th>
+            <Table.Th style={{ textAlign: 'end' }}>Assigned</Table.Th>
+            <Table.Th style={{ textAlign: 'end' }}>Activity</Table.Th>
+            <Table.Th style={{ textAlign: 'end' }}>Available</Table.Th>
+          </Table.Tr>
         </Table.Thead>
         <tbody>
-        {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (
-          <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]}
-                          items={entry[1]}></BudgetCategory>
-        ))}
+          {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (
+            <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]} items={entry[1]}></BudgetCategory>
+          ))}
         </tbody>
       </Table>
     </Container>

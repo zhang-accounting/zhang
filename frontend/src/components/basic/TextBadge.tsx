@@ -17,14 +17,12 @@ const useStyles = createStyles((theme, _, u) => ({
     },
 
     borderRadius: '99px',
-
   },
   clickableBadge: {
     cursor: 'pointer',
     '&:hover': {
       [u.dark]: { borderColor: theme.colors.dark[6] },
       [u.light]: { borderColor: theme.colors.gray[5] },
-
     },
   },
 }));

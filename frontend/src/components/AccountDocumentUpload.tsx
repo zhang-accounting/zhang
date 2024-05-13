@@ -21,8 +21,7 @@ export default function AccountDocumentUpload(props: Props) {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
-          onUploadProgress: () => {
-          },
+          onUploadProgress: () => {},
         })
         .then(() => {
           setFiles([]);

@@ -31,7 +31,7 @@ function SingleAccount() {
 
   const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
 
-  console.log("account data", account);
+  console.log('account data', account);
   const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
 
   useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
@@ -78,36 +78,36 @@ function SingleAccount() {
         <Tabs.Panel value="journals" pt="xs">
           <Table verticalSpacing="xs" highlightOnHover>
             <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Date</Table.Th>
-              <Table.Th>Payee & Narration</Table.Th>
-              <Table.Th style={{ textAlign: 'right' }}>Change Amount</Table.Th>
-              <Table.Th style={{ textAlign: 'right' }}>After Change Amount</Table.Th>
-            </Table.Tr>
+              <Table.Tr>
+                <Table.Th>Date</Table.Th>
+                <Table.Th>Payee & Narration</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>Change Amount</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>After Change Amount</Table.Th>
+              </Table.Tr>
             </Table.Thead>
             <tbody>
-            <LoadingComponent
-              url={`/api/accounts/${accountName}/journals`}
-              skeleton={<div>loading</div>}
-              render={(data: AccountJournalItem[]) => (
-                <>
-                  {(data ?? []).map((item) => (
-                    <Table.Tr>
-                      <Table.Td>{format(new Date(item.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
-                      <Table.Td>
-                        <PayeeNarration payee={item.payee} narration={item.narration} />
-                      </Table.Td>
-                      <Table.Td style={{ textAlign: 'right' }}>
-                        <Amount amount={item.inferred_unit_number} currency={item.inferred_unit_commodity} />
-                      </Table.Td>
-                      <Table.Td style={{ textAlign: 'right' }}>
-                        <Amount amount={item.account_after_number} currency={item.account_after_commodity} />
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </>
-              )}
-            />
+              <LoadingComponent
+                url={`/api/accounts/${accountName}/journals`}
+                skeleton={<div>loading</div>}
+                render={(data: AccountJournalItem[]) => (
+                  <>
+                    {(data ?? []).map((item) => (
+                      <Table.Tr>
+                        <Table.Td>{format(new Date(item.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
+                        <Table.Td>
+                          <PayeeNarration payee={item.payee} narration={item.narration} />
+                        </Table.Td>
+                        <Table.Td style={{ textAlign: 'right' }}>
+                          <Amount amount={item.inferred_unit_number} currency={item.inferred_unit_commodity} />
+                        </Table.Td>
+                        <Table.Td style={{ textAlign: 'right' }}>
+                          <Amount amount={item.account_after_number} currency={item.account_after_commodity} />
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </>
+                )}
+              />
             </tbody>
           </Table>
         </Tabs.Panel>
@@ -118,12 +118,9 @@ function SingleAccount() {
             skeleton={<div>loading</div>}
             render={(data: Document[]) => (
               <>
-                <SimpleGrid
-                  cols={{ base: 4, md: 3, sm: 2, xs: 1 }}
-                  spacing={{ base: 'sm', md: 'md', sm: 'sm' }}
-                >
+                <SimpleGrid cols={{ base: 4, md: 3, sm: 2, xs: 1 }} spacing={{ base: 'sm', md: 'md', sm: 'sm' }}>
                   <AccountDocumentUpload url={`/api/accounts/${accountName}/documents`} />
-                  {(data).map((document, idx) => (
+                  {data.map((document, idx) => (
                     <DocumentPreview key={idx} uri={document.path} filename={document.path} />
                   ))}
                 </SimpleGrid>
@@ -135,18 +132,18 @@ function SingleAccount() {
         <Tabs.Panel value="settings" pt="xs">
           <Table verticalSpacing="xs" highlightOnHover>
             <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Currency</Table.Th>
-              <Table.Th>Current Balance</Table.Th>
-              <Table.Th>Latest Balance Time</Table.Th>
-              <Table.Th>Pad Account</Table.Th>
-              <Table.Th>Distanation</Table.Th>
-            </Table.Tr>
+              <Table.Tr>
+                <Table.Th>Currency</Table.Th>
+                <Table.Th>Current Balance</Table.Th>
+                <Table.Th>Latest Balance Time</Table.Th>
+                <Table.Th>Pad Account</Table.Th>
+                <Table.Th>Distanation</Table.Th>
+              </Table.Tr>
             </Table.Thead>
             <tbody>
-            {Object.entries(account?.amount.detail ?? {}).map(([commodity, amount], idx) => (
-              <AccountBalanceCheckLine currentAmount={amount} commodity={commodity} accountName={account.name} />
-            ))}
+              {Object.entries(account?.amount.detail ?? {}).map(([commodity, amount], idx) => (
+                <AccountBalanceCheckLine currentAmount={amount} commodity={commodity} accountName={account.name} />
+              ))}
             </tbody>
           </Table>
         </Tabs.Panel>

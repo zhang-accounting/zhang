@@ -56,11 +56,7 @@ export default function Documents() {
               <Title key={`title=${idx}`} order={3} mt={'lg'} mb="sm">
                 {format(new Date(targetMonthDocuments[0].datetime), 'MMM yyyy')}
               </Title>
-              <SimpleGrid
-                key={`grid=${idx}`}
-                cols={{ base: 1, sm: 2, md: 4 }}
-                spacing={{ base: 'ms', md: 'md', lg: 'lg' }}
-              >
+              <SimpleGrid key={`grid=${idx}`} cols={{ base: 1, sm: 2, md: 4 }} spacing={{ base: 'ms', md: 'md', lg: 'lg' }}>
                 {targetMonthDocuments.map((document, idx) => (
                   <AccountDocumentLine key={idx} {...document} />
                 ))}
@@ -71,28 +67,27 @@ export default function Documents() {
       ) : (
         <Table verticalSpacing="xs" highlightOnHover>
           <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Filename</Table.Th>
-            <Table.Th style={{}}>Linked Directive</Table.Th>
-            <Table.Th>Created Date</Table.Th>
-            <Table.Th>Operation</Table.Th>
-          </Table.Tr>
+            <Table.Tr>
+              <Table.Th>Filename</Table.Th>
+              <Table.Th style={{}}>Linked Directive</Table.Th>
+              <Table.Th>Created Date</Table.Th>
+              <Table.Th>Operation</Table.Th>
+            </Table.Tr>
           </Table.Thead>
           <tbody>
-          {documents.map((document, idx) => (
-            <Table.Tr>
-              <Table.Td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
-                <div>{document.filename}</div>
-              </Table.Td>
-              <Table.Td>
-                {document.account &&
-                  <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
-                {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
-              </Table.Td>
-              <Table.Td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
-              <Table.Td></Table.Td>
-            </Table.Tr>
-          ))}
+            {documents.map((document, idx) => (
+              <Table.Tr>
+                <Table.Td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
+                  <div>{document.filename}</div>
+                </Table.Td>
+                <Table.Td>
+                  {document.account && <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
+                  {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
+                </Table.Td>
+                <Table.Td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
+                <Table.Td></Table.Td>
+              </Table.Tr>
+            ))}
           </tbody>
         </Table>
       )}

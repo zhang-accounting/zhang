@@ -24,7 +24,7 @@ export default function NewTransactionButton() {
           message: '',
         });
       })
-      .catch(function(error) {
+      .catch(function (error) {
         showNotification({
           title: 'Fail to create new Transaction',
           color: 'red',

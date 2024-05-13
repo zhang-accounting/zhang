@@ -83,8 +83,7 @@ export default function TableViewTransactionLine({ data }: Props) {
   const summary = calculate(data);
   const hasDocuments = data.metas.some((meta) => meta.key === 'document');
   return (
-    <Table.Tr
-      className={`${classes.actionHider} ${!data.is_balanced ? classes.notBalance : ''} ${data.flag === '!' ? classes.warning : ''}`}>
+    <Table.Tr className={`${classes.actionHider} ${!data.is_balanced ? classes.notBalance : ''} ${data.flag === '!' ? classes.warning : ''}`}>
       <Table.Td>{time}</Table.Td>
       <Table.Td>
         <Badge color="gray" size="xs" variant="outline">
@@ -99,18 +98,17 @@ export default function TableViewTransactionLine({ data }: Props) {
       </Table.Td>
       <Table.Td>
         {Array.from(summary.values()).map((each) => (
-          <Group align="center" justify="right" gap="xs"
-                 className={each.number.isPositive() ? classes.positiveAmount : classes.negativeAmount}>
+          <Group align="center" justify="right" gap="xs" className={each.number.isPositive() ? classes.positiveAmount : classes.negativeAmount}>
             <Amount amount={each.number} currency={each.currency} />
           </Group>
         ))}
       </Table.Td>
       <Table.Td>
         <div className={classes.actions}>
-          <ActionIcon  variant="white" size="sm" onClick={openEditModel}>
+          <ActionIcon variant="white" size="sm" onClick={openEditModel}>
             <IconPencil size="1.125rem" />
           </ActionIcon>
-          <ActionIcon  variant="white" size="sm" onClick={openPreviewModal}>
+          <ActionIcon variant="white" size="sm" onClick={openPreviewModal}>
             <IconZoomExclamation size="1.125rem" />
           </ActionIcon>
         </div>
