@@ -39,15 +39,9 @@ interface Props {
 }
 
 export default function ReportGraph(props: Props) {
-  // const { data, meta } = build_chart_data(props.data);
-  const dates = sortBy(
-    Object.keys(props.data.balances).map((date) => [date, new Date(date)]),
-    (item) => item[1],
-  );
+  const sequencedDate = sortBy(Object.keys(props.data.balances), (date) => new Date(date));
 
-  const sequencedDate = dates.map((date) => date[0] as string);
-
-  const labels = dates.map((date) => format(date[1] as Date, 'MMM dd'));
+  const labels = sequencedDate.map((date) => format(new Date(date), 'MMM dd'));
   let total_dataset = sequencedDate.map((date) => {
     const target_day = props.data.balances[date];
     return new BigNumber(target_day.calculated.number).toNumber();
@@ -63,7 +57,6 @@ export default function ReportGraph(props: Props) {
     .map((date) => props.data.changes[date]?.[AccountType.Expenses])
     .map((amount) => new BigNumber(amount?.calculated.number ?? '0').toNumber())
     .map((amount) => amount + total_domain[0]);
-  console.log('total_dataset', total_dataset);
   const data = labels.map((label, idx) => ({
     date: label,
     total: total_dataset[idx],
