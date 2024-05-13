@@ -7,7 +7,7 @@ interface Props {
   data?: AccountBalanceHistory;
 }
 
-const LINE_COLOR = ['indigo.6', 'blue.6', 'teal.6'];
+const LINE_COLOR = ['cyan.6', 'indigo.6', 'blue.6', 'teal.6'];
 
 export function AccountBalanceHistoryGraph(props: Props) {
   if (!props.data) {
@@ -37,5 +37,5 @@ export function AccountBalanceHistoryGraph(props: Props) {
       name: it,
       color: LINE_COLOR[idx % LINE_COLOR.length],
     }));
-  return <LineChart withDots={false} h={250} data={data} dataKey="date" series={series} curveType="linear" />;
+  return <LineChart h={250} dotProps={{ r: 0, strokeWidth: 1 }} data={data} dataKey="date" series={series} curveType="linear" />;
 }
