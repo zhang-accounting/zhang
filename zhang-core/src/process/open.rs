@@ -1,8 +1,9 @@
+use zhang_ast::{Open, SpanInfo};
+
 use crate::domains::schemas::{AccountStatus, MetaType};
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::{process, ZhangResult};
-use zhang_ast::{Open, SpanInfo};
 
 impl DirectiveProcess for Open {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {

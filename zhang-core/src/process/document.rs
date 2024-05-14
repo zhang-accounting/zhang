@@ -1,9 +1,11 @@
+use std::path::PathBuf;
+
+use zhang_ast::{Document, SpanInfo};
+
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::store::DocumentType;
 use crate::{process, ZhangResult};
-use std::path::PathBuf;
-use zhang_ast::{Document, SpanInfo};
 
 impl DirectiveProcess for Document {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {

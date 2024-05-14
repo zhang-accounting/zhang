@@ -44,6 +44,20 @@ pub(crate) trait DirectiveProcess {
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()>;
 }
 
+/// DirectivePreProcess is to do some logic before directive been executed via [DirectiveProcess]
+/// zhang can be run in sync and async context, sync and async function are provided
+#[async_trait::async_trait]
+pub(crate) trait DirectivePreProcess {
+    /// sync function of pre handler
+    fn pre_process(&self, _ledger: &mut Ledger) -> ZhangResult<()> {
+        Ok(())
+    }
+    /// async function of pre handler
+    async fn async_pre_process(&self, ledger: &mut Ledger) -> ZhangResult<()> {
+        self.pre_process(ledger)
+    }
+}
+
 fn check_account_existed(account_name: &str, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
     let mut operations = ledger.operations();
     let existed = operations.exist_account(account_name)?;

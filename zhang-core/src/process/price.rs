@@ -1,7 +1,8 @@
+use zhang_ast::{Price, SpanInfo};
+
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::{process, ZhangResult};
-use zhang_ast::{Price, SpanInfo};
 
 impl DirectiveProcess for Price {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {

@@ -1,7 +1,8 @@
+use zhang_ast::{Options, SpanInfo};
+
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::ZhangResult;
-use zhang_ast::{Options, SpanInfo};
 
 impl DirectiveProcess for Options {
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {

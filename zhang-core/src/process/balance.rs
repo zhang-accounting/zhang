@@ -1,13 +1,15 @@
+use std::collections::HashMap;
+use std::ops::Sub;
+
+use bigdecimal::{BigDecimal, Zero};
+use zhang_ast::amount::Amount;
+use zhang_ast::error::ErrorKind;
+use zhang_ast::{BalanceCheck, BalancePad, Flag, Posting, SpanInfo, Transaction, ZhangString};
+
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::{process, ZhangResult};
-use bigdecimal::{BigDecimal, Zero};
-use std::collections::HashMap;
-use std::ops::Sub;
-use zhang_ast::amount::Amount;
-use zhang_ast::error::ErrorKind;
-use zhang_ast::{BalanceCheck, BalancePad, Flag, Posting, SpanInfo, Transaction, ZhangString};
 
 impl DirectiveProcess for BalancePad {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {

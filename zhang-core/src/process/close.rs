@@ -1,10 +1,12 @@
+use std::collections::HashMap;
+
+use bigdecimal::Zero;
+use zhang_ast::error::ErrorKind;
+use zhang_ast::{Close, SpanInfo};
+
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::{process, ZhangResult};
-use bigdecimal::Zero;
-use std::collections::HashMap;
-use zhang_ast::error::ErrorKind;
-use zhang_ast::{Close, SpanInfo};
 
 impl DirectiveProcess for Close {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {

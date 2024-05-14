@@ -1,10 +1,12 @@
+use std::str::FromStr;
+
+use zhang_ast::{Commodity, Rounding, SpanInfo};
+
 use crate::constants::{DEFAULT_COMMODITY_PRECISION, DEFAULT_ROUNDING, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::domains::schemas::MetaType;
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::{ZhangError, ZhangResult};
-use std::str::FromStr;
-use zhang_ast::{Commodity, Rounding, SpanInfo};
 
 impl DirectiveProcess for Commodity {
     fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
