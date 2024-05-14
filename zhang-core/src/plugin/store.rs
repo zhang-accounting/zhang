@@ -7,12 +7,13 @@ use extism::convert::Json as WasmJson;
 use extism::{Manifest, Plugin as WasmPlugin, Wasm};
 use itertools::Itertools;
 use log::info;
+use sha256::digest;
 use zhang_ast::{Directive, Plugin, Spanned};
 
 use crate::domains::schemas::OptionDomain;
 use crate::error::IoErrorIntoZhangError;
 use crate::plugin::PluginType;
-use crate::ZhangResult;
+use crate::{ZhangError, ZhangResult};
 
 #[derive(Default)]
 pub struct PluginStore {
@@ -22,28 +23,35 @@ pub struct PluginStore {
 }
 
 impl PluginStore {
-    pub fn insert_plugin(&mut self, _plugin: &Plugin, content: &[u8]) -> ZhangResult<()> {
+    pub fn insert_plugin(&mut self, _plugin: &Plugin) -> ZhangResult<()> {
+        let plugin_name = _plugin.module.as_str().to_string();
+        let plugin_hash = digest(plugin_name);
+        let plugin_cache_file = PathBuf::from_str(".cache/plugins")
+            .expect("Cannot create path")
+            .join(format!("{}.wasm", plugin_hash));
+        let content = std::fs::read(&plugin_cache_file)?;
+
         let wasm = Wasm::data(content);
         let manifest = Manifest::new([wasm]);
-        let mut plugin = WasmPlugin::new(manifest, [], true).unwrap();
-        let name = plugin.call::<(), WasmJson<String>>("name", ()).unwrap().0;
-        let version = plugin.call::<(), WasmJson<String>>("version", ()).unwrap().0;
-        let plugin_types = plugin.call::<(), WasmJson<Vec<PluginType>>>("supported_type", ()).unwrap().0;
 
-        let plugin_cache_folder = PathBuf::from_str(".cache/plugins").expect("Cannot create path");
-
-        // create plugin folder if not exist
-        std::fs::create_dir_all(&plugin_cache_folder).with_path(plugin_cache_folder.as_path())?;
-
-        // save the file into cache folder
-        info!("saving the plugin into cache folder: .cache/plugins/{}-{}.wasm", name, version);
-        let wasm_cache_file = plugin_cache_folder.join(format!("{}-{}.wasm", name, version));
-        std::fs::write(&wasm_cache_file, content).with_path(wasm_cache_file.as_path())?;
+        let mut plugin = WasmPlugin::new(manifest, [], true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
+        let name = plugin
+            .call::<(), WasmJson<String>>("name", ())
+            .map_err(|e| ZhangError::CustomError(format!("Failed to call 'name': {}", e)))?
+            .0;
+        let version = plugin
+            .call::<(), WasmJson<String>>("version", ())
+            .map_err(|e| ZhangError::CustomError(format!("Failed to call 'version': {}", e)))?
+            .0;
+        let plugin_types = plugin
+            .call::<(), WasmJson<Vec<PluginType>>>("supported_type", ())
+            .map_err(|e| ZhangError::CustomError(format!("Failed to call 'supported_type': {}", e)))?
+            .0;
 
         let registered_plugin = RegisteredPlugin {
             name,
             version,
-            path: wasm_cache_file,
+            path: plugin_cache_file,
         };
         if plugin_types.contains(&PluginType::Processor) {
             self.processors.push(registered_plugin.clone())

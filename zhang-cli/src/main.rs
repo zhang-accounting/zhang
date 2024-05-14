@@ -11,7 +11,6 @@ use zhang_server::ServeConfig;
 
 use crate::opendal::OpendalDataSource;
 
-pub mod github;
 pub mod opendal;
 
 #[derive(Parser, Debug)]
@@ -68,7 +67,7 @@ pub enum Exporter {
 #[derive(Debug, Clone, PartialEq, clap::ValueEnum)]
 pub enum FileSystem {
     Fs,
-    S3,
+    // S3,
     WebDav,
     Github,
 }
@@ -77,8 +76,8 @@ impl FileSystem {
     fn from_env() -> Option<FileSystem> {
         match std::env::var("ZHANG_DATA_SOURCE").as_deref() {
             Ok("fs") => Some(FileSystem::Fs),
-            Ok("s3") => Some(FileSystem::S3),
             Ok("web-dav") => Some(FileSystem::WebDav),
+            Ok("github") => Some(FileSystem::Github),
             _ => None,
         }
     }

@@ -188,6 +188,9 @@ jobs:
       - name: podman manifest push snapshot
         run: podman manifest push zhang docker.io/kilerd/zhang:snapshot
 
+      - name: podman manifest push snapshot with hash
+        run: podman manifest push zhang docker.io/kilerd/zhang:${{ github.sha }}
+
       - name: podman manifest push latest
         run: podman manifest push zhang docker.io/kilerd/zhang:latest
         if: startsWith(github.ref_name, 'v')

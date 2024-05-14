@@ -4,8 +4,8 @@ use std::str::FromStr;
 
 use async_recursion::async_recursion;
 use beancount::Beancount;
-use log::{debug, error, info};
-use opendal::services::{Fs, Webdav};
+use log::{debug, info};
+use opendal::services::{Fs, Github, Webdav};
 use opendal::{ErrorKind, Operator};
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 use zhang_core::data_source::{DataSource, LoadResult};
@@ -16,7 +16,6 @@ use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
 
-use crate::github::GithubBuilder;
 use crate::{FileSystem, ServerOpts};
 
 pub struct OpendalDataSource {
@@ -32,7 +31,11 @@ impl DataSource for OpendalDataSource {
     }
 
     fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
-        Ok(self.operator.blocking().read(path.as_str()).expect("cannot read file"))
+        self.operator
+            .blocking()
+            .read(path.as_str())
+            .map(|data| data.to_vec())
+            .map_err(|e| ZhangError::CustomError(format!("fail to get file content [{}] : {}", path, e)))
     }
 
     async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
@@ -75,13 +78,12 @@ impl DataSource for OpendalDataSource {
         let path_for_read = path.to_owned();
         let result = self.operator.read(&path_for_read).await;
         match result {
-            Ok(data) => Ok(data),
+            Ok(data) => Ok(data.to_vec()),
             Err(err) => {
                 if err.kind() == ErrorKind::NotFound {
                     Ok(Vec::new())
                 } else {
-                    error!("cannot get content from {}: {}", &path, &err);
-                    Err(ZhangError::CustomError("error on getting file content"))
+                    Err(ZhangError::CustomError(format!("Error getting file content from {}: {}", path, err)))
                 }
             }
         }
@@ -168,15 +170,13 @@ impl OpendalDataSource {
                 Operator::new(webdav_builder).unwrap().finish()
             }
             FileSystem::Github => {
-                let builder = GithubBuilder {
-                    user: std::env::var("ZHANG_GITHUB_USER").expect("ZHANG_GITHUB_USER must be set"),
-                    repo: std::env::var("ZHANG_GITHUB_REPO").expect("ZHANG_GITHUB_REPO must be set"),
-                    token: std::env::var("ZHANG_GITHUB_TOKEN").expect("ZHANG_GITHUB_TOKEN must be set"),
-                };
+                let mut builder = Github::default();
+                builder.root("/");
+                builder.token(&std::env::var("ZHANG_GITHUB_TOKEN").expect("ZHANG_GITHUB_TOKEN must be set"));
+                builder.owner(&std::env::var("ZHANG_GITHUB_USER").expect("ZHANG_GITHUB_USER must be set"));
+                builder.repo(&std::env::var("ZHANG_GITHUB_REPO").expect("ZHANG_GITHUB_REPO must be set"));
+
                 Operator::new(builder).unwrap().finish()
-            }
-            _ => {
-                todo!()
             }
         };
         let is_beancount = match PathBuf::from(&server_opts.endpoint)

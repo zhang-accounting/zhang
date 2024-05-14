@@ -37,7 +37,7 @@ pub enum ZhangError {
     FileNotFound,
 
     #[error("custom error: {0}")]
-    CustomError(&'static str),
+    CustomError(String),
 }
 
 pub trait IoErrorIntoZhangError<T> {
