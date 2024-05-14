@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use async_recursion::async_recursion;
 use beancount::Beancount;
-use log::{debug, error, info};
+use log::{debug, info};
 use opendal::services::{Fs, Github, Webdav};
 use opendal::{ErrorKind, Operator};
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
