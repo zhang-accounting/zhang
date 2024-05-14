@@ -21,13 +21,14 @@ export function AccountBalanceHistoryGraph(props: Props) {
 
   const data = sortBy(
     Object.values(dataByDate).map((it) => {
-      // @ts-ignore
-      let ret: { [commodity: string]: number; date: string } = { date: '' };
-      for (let each of it) {
-        ret.date = each.date;
-        ret[each.balance.commodity] = new BigNumber(each.balance.number).toNumber();
-      }
-      return ret;
+      return it.reduce(
+        (acc, each) => {
+          acc.date = each.date;
+          acc[each.balance.commodity] = new BigNumber(each.balance.number).toNumber();
+          return acc;
+        },
+        {} as Record<string, string | number>,
+      );
     }),
     (it) => new Date(it.date),
   );
