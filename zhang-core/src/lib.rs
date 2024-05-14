@@ -225,9 +225,9 @@ mod test {
                 1970-01-01 open Assets:MyCard
             "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
 
-            let result = operations.single_account_balances("Assets:MyCard")?;
+            let result = operations.single_account_latest_balances("Assets:MyCard")?;
             assert_eq!(0, result.len());
 
             Ok(())
@@ -242,14 +242,14 @@ mod test {
                   Expenses:Lunch 50 CNY
             "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
 
-            let lunch_balance = operations.single_account_balances("Expenses:Lunch")?.pop().unwrap();
+            let lunch_balance = operations.single_account_latest_balances("Expenses:Lunch")?.pop().unwrap();
             assert_eq!(lunch_balance.account, "Expenses:Lunch");
             assert_eq!(lunch_balance.balance_number, BigDecimal::from(50));
             assert_eq!(lunch_balance.balance_commodity, "CNY");
 
-            let card_balance = operations.single_account_balances("Assets:MyCard")?.pop().unwrap();
+            let card_balance = operations.single_account_latest_balances("Assets:MyCard")?.pop().unwrap();
             assert_eq!(card_balance.account, "Assets:MyCard");
             assert_eq!(card_balance.balance_number, BigDecimal::from(-50));
             assert_eq!(card_balance.balance_commodity, "CNY");
@@ -271,9 +271,9 @@ mod test {
                     Expenses:B
             "#});
 
-            let mut operations = ledger.operations();
+            let operations = ledger.operations();
 
-            let mut result = operations.single_account_balances("Assets:A").unwrap();
+            let mut result = operations.single_account_latest_balances("Assets:A").unwrap();
             let balance = result.pop().unwrap();
             assert_eq!(balance.balance_number, BigDecimal::from(2970i32));
             assert_eq!(balance.balance_commodity, "CNY");

@@ -39,6 +39,14 @@ export interface AccountInfo {
   alias?: String;
   amount: CalculatedAmountResponse;
 }
+export interface AccountBalanceHistory {
+  [commodity: string]: AccountBalanceHistoryItem[];
+}
+
+export interface AccountBalanceHistoryItem {
+  date: string;
+  balance: AmountCommodityResponse;
+}
 
 export interface Document {
   datetime: string;
@@ -185,6 +193,11 @@ export interface CalculatedAmountResponse {
 export interface AmountResponse {
   number: string;
   currency: string;
+}
+
+export interface AmountCommodityResponse {
+  number: string;
+  commodity: string;
 }
 
 export interface CurrentStatisticResponse {

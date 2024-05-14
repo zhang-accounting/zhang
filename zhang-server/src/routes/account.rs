@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -9,14 +10,14 @@ use log::info;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Document, ZhangString};
+use zhang_ast::{Account, BalanceCheck, BalancePad, Currency, Date, Directive, Document, ZhangString};
 use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::calculable::Calculable;
 
 use crate::request::AccountBalanceRequest;
-use crate::response::{AccountInfoResponse, AccountResponse, DocumentResponse, ResponseWrapper};
-use crate::{ApiResult, ReloadSender};
+use crate::response::{AccountBalanceItemResponse, AccountInfoResponse, AccountResponse, AmountResponse, DocumentResponse, ResponseWrapper};
+use crate::{ApiResult, LedgerState, ReloadSender};
 
 pub async fn get_account_list(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<AccountResponse>> {
     let ledger = ledger.read().await;
@@ -27,7 +28,7 @@ pub async fn get_account_list(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<V
     for account in operations.all_accounts()? {
         let account_domain = operations.account(&account)?.expect("cannot find account");
         let account_balances = operations
-            .single_account_balances(&account)?
+            .single_account_latest_balances(&account)?
             .into_iter()
             .map(|balance| Amount::new(balance.balance_number, balance.balance_commodity))
             .collect_vec();
@@ -55,7 +56,7 @@ pub async fn get_account_info(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(St
         None => return ResponseWrapper::not_found(),
     };
     let vec = operations
-        .single_account_balances(&account_info.name)?
+        .single_account_latest_balances(&account_info.name)?
         .into_iter()
         .map(|balance| Amount::new(balance.balance_number, balance.balance_commodity))
         .collect_vec();
@@ -110,6 +111,31 @@ pub async fn upload_account_document(
     ledger_stage.data_source.async_append(&ledger_stage, documents).await?;
     reload_sender.reload();
     ResponseWrapper::<()>::created()
+}
+
+pub async fn get_account_balance_data(ledger: State<LedgerState>, params: Path<(String,)>) -> ApiResult<HashMap<Currency, Vec<AccountBalanceItemResponse>>> {
+    let account_name = params.0 .0;
+    let ledger = ledger.read().await;
+    let operations = ledger.operations();
+
+    let vec = operations.single_account_all_balances(&account_name)?;
+    ResponseWrapper::json(
+        vec.into_iter()
+            .map(|(commodity, balance_history)| {
+                let data = balance_history
+                    .into_iter()
+                    .map(|(date, amount)| AccountBalanceItemResponse {
+                        date,
+                        balance: AmountResponse {
+                            number: amount.number,
+                            commodity: amount.currency,
+                        },
+                    })
+                    .collect_vec();
+                (commodity, data)
+            })
+            .collect(),
+    )
 }
 
 pub async fn get_account_documents(ledger: State<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<Vec<DocumentResponse>> {

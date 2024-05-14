@@ -9,13 +9,14 @@ import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
 import LoadingComponent from '../components/basic/LoadingComponent';
 import PayeeNarration from '../components/basic/PayeeNarration';
-import { AccountInfo, AccountJournalItem, Document } from '../rest-model';
+import { AccountBalanceHistory, AccountInfo, AccountJournalItem, Document } from '../rest-model';
 import DocumentPreview from '../components/journalPreview/DocumentPreview';
 import { useAppSelector } from '../states';
 import { useDocumentTitle } from '@mantine/hooks';
 import { createStyles } from '@mantine/emotion';
+import { AccountBalanceHistoryGraph } from '../components/AccountBalanceHistoryGraph';
 
-const useStyles = createStyles((theme, _, u) => ({
+const useStyles = createStyles((theme, _) => ({
   calculatedAmount: {
     fontSize: `calc(${theme.fontSizes.xl} * 1.1)`,
     fontWeight: 500,
@@ -30,8 +31,10 @@ function SingleAccount() {
   const { classes } = useStyles();
 
   const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
+  const { data: account_balance_data, error: account_balance_error } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
 
   console.log('account data', account);
+  console.log('account balance data', account_balance_data);
   const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
 
   useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
@@ -62,6 +65,12 @@ function SingleAccount() {
           )}
         </Stack>
       </Group>
+      {account_balance_error ? (
+        <div>fail to fetch account balance history</div>
+      ) : (
+        account_balance_data && <AccountBalanceHistoryGraph data={account_balance_data} />
+      )}
+
       <Tabs keepMounted={false} variant="outline" defaultValue="journals" mt="lg">
         <Tabs.List>
           <Tabs.Tab value="journals" leftSection={<IconPhoto size={14} />}>
@@ -137,12 +146,12 @@ function SingleAccount() {
                 <Table.Th>Current Balance</Table.Th>
                 <Table.Th>Latest Balance Time</Table.Th>
                 <Table.Th>Pad Account</Table.Th>
-                <Table.Th>Distanation</Table.Th>
+                <Table.Th>Destination</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <tbody>
-              {Object.entries(account?.amount.detail ?? {}).map(([commodity, amount], idx) => (
-                <AccountBalanceCheckLine currentAmount={amount} commodity={commodity} accountName={account.name} />
+              {Object.entries(account?.amount.detail ?? {}).map(([commodity, amount]) => (
+                <AccountBalanceCheckLine key={commodity} currentAmount={amount} commodity={commodity} accountName={account.name} />
               ))}
             </tbody>
           </Table>

@@ -254,6 +254,7 @@ pub fn create_server_app(
         .route("/api/accounts/:account_name/documents", post(upload_account_document))
         .route("/api/accounts/:account_name/documents", get(get_account_documents))
         .route("/api/accounts/:account_name/journals", get(get_account_journals))
+        .route("/api/accounts/:account_name/balances", get(get_account_balance_data))
         .route("/api/accounts/:account_name/balances", post(create_account_balance))
         .route("/api/accounts/batch-balances", post(create_batch_account_balances))
         .route("/api/documents", get(get_documents))
