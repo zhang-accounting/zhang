@@ -214,6 +214,86 @@ impl Ledger {
         Ok(ret_ledger)
     }
 
+    pub fn reload(&mut self) -> ZhangResult<()> {
+        let (entry, endpoint) = &mut self.entry;
+        let transform_result = self.data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
+        let reload_ledger = Ledger::process(LedgerProcessContext {
+            directives: transform_result.directives,
+            entry: (entry.clone(), endpoint.clone()),
+            visited_files: transform_result.visited_files,
+            data_source: self.data_source.clone(),
+        })?;
+        *self = reload_ledger;
+        Ok(())
+    }
+
+    pub async fn async_reload(&mut self) -> ZhangResult<()> {
+        let (entry, endpoint) = &mut self.entry;
+        let transform_result = self.data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
+        let reload_ledger = Ledger::async_process(LedgerProcessContext {
+            directives: transform_result.directives,
+            entry: (entry.clone(), endpoint.clone()),
+            visited_files: transform_result.visited_files,
+            data_source: self.data_source.clone(),
+        })
+        .await?;
+        *self = reload_ledger;
+        Ok(())
+    }
+
+    pub fn operations(&self) -> Operations {
+        let timezone = self.options.timezone;
+        Operations {
+            store: self.store.clone(),
+            timezone,
+        }
+    }
+}
+
+impl Ledger {
+    fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
+        directives.sort_by(|a, b| match (a.datetime(), b.datetime()) {
+            (Some(a_datetime), Some(b_datetime)) => match a_datetime.cmp(&b_datetime) {
+                Ordering::Equal => match (a.directive_type(), b.directive_type()) {
+                    (DirectiveType::BalancePad | DirectiveType::BalanceCheck, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Equal,
+                    (DirectiveType::BalancePad | DirectiveType::BalanceCheck, _) => Ordering::Less,
+                    (_, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Greater,
+                    (_, _) => Ordering::Equal,
+                },
+                other => other,
+            },
+            _ => Ordering::Greater,
+        });
+        directives
+    }
+
+    fn handle_options(&mut self, options_directives: &mut [(Options, SpanInfo)]) -> ZhangResult<()> {
+        // handle option
+        for (option, span) in options_directives.iter_mut() {
+            option.handler(self, span)?;
+        }
+        Ok(())
+    }
+
+    fn handle_plugins_pre_process(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
+        for (plugin, _) in plugin_directives.iter_mut() {
+            plugin.pre_process(self)?;
+        }
+        Ok(())
+    }
+    async fn async_handle_plugins_pre_process(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
+        for (plugin, _) in plugin_directives.iter_mut() {
+            plugin.async_pre_process(self).await?;
+        }
+        Ok(())
+    }
+    fn handle_plugins(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
+        for (plugin, span) in plugin_directives.iter_mut() {
+            plugin.handler(self, span)?;
+        }
+        Ok(())
+    }
+
     fn handle_other_directives(&mut self, mut other_directives: Vec<Spanned<Directive>>) -> Result<(), ZhangError> {
         // handle other directives
         for directive in other_directives.iter_mut() {
@@ -272,100 +352,6 @@ impl Ledger {
             other_directives
         );
         Ok(d)
-    }
-
-    fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
-        directives.sort_by(|a, b| match (a.datetime(), b.datetime()) {
-            (Some(a_datetime), Some(b_datetime)) => match a_datetime.cmp(&b_datetime) {
-                Ordering::Equal => match (a.directive_type(), b.directive_type()) {
-                    (DirectiveType::BalancePad | DirectiveType::BalanceCheck, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Equal,
-                    (DirectiveType::BalancePad | DirectiveType::BalanceCheck, _) => Ordering::Less,
-                    (_, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Greater,
-                    (_, _) => Ordering::Equal,
-                },
-                other => other,
-            },
-            _ => Ordering::Greater,
-        });
-        directives
-    }
-
-    pub fn apply(mut self, applier: impl Fn(Directive) -> Directive) -> Self {
-        let vec = self
-            .directives
-            .into_iter()
-            .map(|mut it| {
-                let directive = applier(it.data);
-                it.data = directive;
-                it
-            })
-            .collect_vec();
-        self.directives = vec;
-        self
-    }
-
-    pub fn reload(&mut self) -> ZhangResult<()> {
-        let (entry, endpoint) = &mut self.entry;
-        let transform_result = self.data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
-        let reload_ledger = Ledger::process(LedgerProcessContext {
-            directives: transform_result.directives,
-            entry: (entry.clone(), endpoint.clone()),
-            visited_files: transform_result.visited_files,
-            data_source: self.data_source.clone(),
-        })?;
-        *self = reload_ledger;
-        Ok(())
-    }
-
-    pub async fn async_reload(&mut self) -> ZhangResult<()> {
-        let (entry, endpoint) = &mut self.entry;
-        let transform_result = self.data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
-        let reload_ledger = Ledger::async_process(LedgerProcessContext {
-            directives: transform_result.directives,
-            entry: (entry.clone(), endpoint.clone()),
-            visited_files: transform_result.visited_files,
-            data_source: self.data_source.clone(),
-        })
-        .await?;
-        *self = reload_ledger;
-        Ok(())
-    }
-
-    pub fn operations(&self) -> Operations {
-        let timezone = self.options.timezone;
-        Operations {
-            store: self.store.clone(),
-            timezone,
-        }
-    }
-}
-
-impl Ledger {
-    fn handle_options(&mut self, options_directives: &mut [(Options, SpanInfo)]) -> ZhangResult<()> {
-        // handle option
-        for (option, span) in options_directives.iter_mut() {
-            option.handler(self, span)?;
-        }
-        Ok(())
-    }
-
-    fn handle_plugins_pre_process(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
-        for (plugin, _) in plugin_directives.iter_mut() {
-            plugin.pre_process(self)?;
-        }
-        Ok(())
-    }
-    async fn async_handle_plugins_pre_process(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
-        for (plugin, _) in plugin_directives.iter_mut() {
-            plugin.async_pre_process(self).await?;
-        }
-        Ok(())
-    }
-    fn handle_plugins(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
-        for (plugin, span) in plugin_directives.iter_mut() {
-            plugin.handler(self, span)?;
-        }
-        Ok(())
     }
 }
 
