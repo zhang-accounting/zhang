@@ -31,7 +31,11 @@ impl DataSource for OpendalDataSource {
     }
 
     fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
-        Ok(self.operator.blocking().read(path.as_str()).expect("cannot read file").to_vec())
+        self.operator
+            .blocking()
+            .read(path.as_str())
+            .map(|data| data.to_vec())
+            .map_err(|e| ZhangError::CustomError(format!("fail to get file content [{}] : {}", path, e)))
     }
 
     async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
@@ -79,8 +83,7 @@ impl DataSource for OpendalDataSource {
                 if err.kind() == ErrorKind::NotFound {
                     Ok(Vec::new())
                 } else {
-                    error!("cannot get content from {}: {}", &path, &err);
-                    Err(ZhangError::CustomError("error on getting file content".to_owned()))
+                    Err(ZhangError::CustomError(format!("Error getting file content from {}: {}", path, err)))
                 }
             }
         }
