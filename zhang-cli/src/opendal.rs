@@ -80,7 +80,7 @@ impl DataSource for OpendalDataSource {
                     Ok(Vec::new())
                 } else {
                     error!("cannot get content from {}: {}", &path, &err);
-                    Err(ZhangError::CustomError("error on getting file content"))
+                    Err(ZhangError::CustomError("error on getting file content".to_owned()))
                 }
             }
         }

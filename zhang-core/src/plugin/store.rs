@@ -13,7 +13,7 @@ use zhang_ast::{Directive, Plugin, Spanned};
 use crate::domains::schemas::OptionDomain;
 use crate::error::IoErrorIntoZhangError;
 use crate::plugin::PluginType;
-use crate::ZhangResult;
+use crate::{ZhangError, ZhangResult};
 
 #[derive(Default)]
 pub struct PluginStore {
@@ -33,10 +33,20 @@ impl PluginStore {
 
         let wasm = Wasm::data(content);
         let manifest = Manifest::new([wasm]);
-        let mut plugin = WasmPlugin::new(manifest, [], true).unwrap();
-        let name = plugin.call::<(), WasmJson<String>>("name", ()).unwrap().0;
-        let version = plugin.call::<(), WasmJson<String>>("version", ()).unwrap().0;
-        let plugin_types = plugin.call::<(), WasmJson<Vec<PluginType>>>("supported_type", ()).unwrap().0;
+
+        let mut plugin = WasmPlugin::new(manifest, [], true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
+        let name = plugin
+            .call::<(), WasmJson<String>>("name", ())
+            .map_err(|e| ZhangError::CustomError(format!("Failed to call 'name': {}", e)))?
+            .0;
+        let version = plugin
+            .call::<(), WasmJson<String>>("version", ())
+            .map_err(|e| ZhangError::CustomError(format!("Failed to call 'version': {}", e)))?
+            .0;
+        let plugin_types = plugin
+            .call::<(), WasmJson<Vec<PluginType>>>("supported_type", ())
+            .map_err(|e| ZhangError::CustomError(format!("Failed to call 'supported_type': {}", e)))?
+            .0;
 
         let registered_plugin = RegisteredPlugin {
             name,
