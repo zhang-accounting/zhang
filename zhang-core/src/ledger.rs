@@ -326,11 +326,10 @@ impl Ledger {
         let d = feature_enable!(
             self.options.features.plugins,
             {
-                let mut directives = other_directives;
                 #[cfg(feature = "plugin_runtime")]
                 {
+                    let mut directives = other_directives;
                     let options = self.operations().options()?;
-
                     // execute the plugins of processor type
                     for plugin in self.plugins.processors.iter() {
                         directives = plugin.execute_as_processor(directives, &options)?;

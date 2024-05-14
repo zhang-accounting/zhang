@@ -1,11 +1,5 @@
-use std::path::PathBuf;
-use std::str::FromStr;
-
-use log::info;
-use sha256::digest;
 use zhang_ast::{Plugin, SpanInfo};
 
-use crate::error::IoErrorIntoZhangError;
 use crate::ledger::Ledger;
 use crate::process::{DirectivePreProcess, DirectiveProcess};
 use crate::ZhangResult;
@@ -13,6 +7,13 @@ use crate::ZhangResult;
 /// save the plugin's data into cache folder
 #[cfg(feature = "plugin_runtime")]
 pub(crate) fn save_plugin_content_into_cache_folder(plugin_hash: String, module_bytes: Vec<u8>) -> ZhangResult<()> {
+    use std::path::PathBuf;
+    use std::str::FromStr;
+
+    use log::info;
+
+    use crate::error::IoErrorIntoZhangError;
+
     let plugin_cache_folder = PathBuf::from_str(".cache/plugins").expect("Cannot create path");
 
     // create plugin folder if not exist
@@ -32,6 +33,8 @@ impl DirectivePreProcess for Plugin {
         feature_enable!(ledger.options.features.plugins, {
             #[cfg(feature = "plugin_runtime")]
             {
+                use sha256::digest;
+
                 let plugin_name = self.module.as_str().to_string();
                 let plugin_hash = digest(&plugin_name);
                 let module_bytes = ledger.data_source.get(plugin_name)?;
@@ -46,6 +49,8 @@ impl DirectivePreProcess for Plugin {
         feature_enable!(ledger.options.features.plugins, {
             #[cfg(feature = "plugin_runtime")]
             {
+                use sha256::digest;
+
                 let plugin_name = self.module.as_str().to_string();
                 let plugin_hash = digest(&plugin_name);
                 let module_bytes = ledger.data_source.async_get(plugin_name).await?;
