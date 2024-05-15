@@ -15,6 +15,8 @@ import { useAppSelector } from '../states';
 import { useDocumentTitle } from '@mantine/hooks';
 import { createStyles } from '@mantine/emotion';
 import { AccountBalanceHistoryGraph } from '../components/AccountBalanceHistoryGraph';
+import { useState } from 'react';
+import { ImageLightBox } from '../components/ImageLightBox';
 
 const useStyles = createStyles((theme, _) => ({
   calculatedAmount: {
@@ -29,6 +31,8 @@ const useStyles = createStyles((theme, _) => ({
 function SingleAccount() {
   let { accountName } = useParams();
   const { classes } = useStyles();
+
+  const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
   const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
   const { data: account_balance_data, error: account_balance_error } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
@@ -127,10 +131,11 @@ function SingleAccount() {
             skeleton={<div>loading</div>}
             render={(data: Document[]) => (
               <>
+                <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
                 <SimpleGrid cols={{ base: 4, md: 3, sm: 2, xs: 1 }} spacing={{ base: 'sm', md: 'md', sm: 'sm' }}>
                   <AccountDocumentUpload url={`/api/accounts/${accountName}/documents`} />
                   {data.map((document, idx) => (
-                    <DocumentPreview key={idx} uri={document.path} filename={document.path} />
+                    <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} uri={document.path} filename={document.path} />
                   ))}
                 </SimpleGrid>
               </>
