@@ -1,5 +1,4 @@
 import { Box, Card, Text } from '@mantine/core';
-import { openContextModal } from '@mantine/modals';
 import { Buffer } from 'buffer';
 import { serverBaseUrl } from '../../index';
 import { Document } from '../../rest-model';
@@ -60,7 +59,9 @@ const useStyles = createStyles((theme, _, u) => ({
   },
 }));
 
-export interface Props extends Document {}
+export interface Props extends Document {
+  onClick: (path: string) => void;
+}
 
 export const EXTENSIONS_SUPPORT_PREVIEW = ['image/png', 'image/jpg', 'image/jpeg', 'image/gif'];
 
@@ -69,22 +70,9 @@ export default function AccountDocumentLine(props: Props) {
 
   const extension = (props.extension ?? '').toLowerCase();
   const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
-  const openPreviewModal = () => {
-    if (canPreview) {
-      openContextModal({
-        modal: 'documentPreviewModal',
-        title: props.filename,
-        size: 'lg',
-        centered: true,
-        innerProps: {
-          filename: props.filename,
-          path: props.path,
-        },
-      });
-    }
-  };
+
   return (
-    <Card shadow="sm" p="xs" radius="sm" withBorder onClick={openPreviewModal}>
+    <Card shadow="sm" p="xs" radius="sm" withBorder onClick={() => props.onClick(props.path)}>
       <Card.Section className={classes.imgBox}>
         {canPreview ? (
           <img

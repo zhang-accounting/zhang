@@ -7,6 +7,8 @@ import Section from '../Section';
 import DocumentPreview from './DocumentPreview';
 import AccountDocumentUpload from '../AccountDocumentUpload';
 import { createStyles } from '@mantine/emotion';
+import { ImageLightBox } from '../ImageLightBox';
+import { useState } from 'react';
 
 const useStyles = createStyles((theme, _, u) => ({
   amount: {
@@ -25,6 +27,8 @@ interface Props {
 }
 
 export default function TransactionPreview(props: Props) {
+  const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
+
   const { classes } = useStyles();
   return (
     <div>
@@ -137,12 +141,13 @@ export default function TransactionPreview(props: Props) {
         </Section>
       )}
       <Box mx={1} my={4}>
+        <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
           <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }} spacing={{ base: 'sm', md: 'md', sm: 'sm', xs: 'sm' }}>
             {props.data.metas
               .filter((meta) => meta.key === 'document')
               .map((meta, idx) => (
-                <DocumentPreview key={idx} uri={meta.value} filename={meta.value} />
+                <DocumentPreview onClick={() => setLightboxSrc(meta.value)} key={idx} uri={meta.value} filename={meta.value} />
               ))}
             <AccountDocumentUpload url={`/api/transactions/${props.data.id}/documents`} />
           </SimpleGrid>

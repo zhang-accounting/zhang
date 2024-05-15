@@ -7,7 +7,6 @@ import { createRoot } from 'react-dom/client';
 import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
-import { DocumentPreviewModal } from './components/modals/DocumentPreviewModal';
 import { TransactionPreviewModal } from './components/modals/TransactionPreviewModal';
 import './i18n';
 import { store } from './states';
@@ -47,7 +46,6 @@ root.render(
         <MantineEmotionProvider>
           <ModalsProvider
             modals={{
-              documentPreviewModal: DocumentPreviewModal,
               transactionPreviewModal: TransactionPreviewModal,
               transactionEditModal: TransactionEditModal,
             }}

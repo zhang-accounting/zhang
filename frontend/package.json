@@ -40,7 +40,8 @@
     "react-select": "^5.8.0",
     "recharts": "2",
     "swr": "^2.2.5",
-    "web-vitals": "^3.5.2"
+    "web-vitals": "^3.5.2",
+    "yet-another-react-lightbox": "^3.18.0"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -72,7 +73,6 @@
     ]
   },
   "devDependencies": {
-    "typescript": "^5.4.5",
     "@testing-library/jest-dom": "^6.4.5",
     "@testing-library/react": "^15.0.7",
     "@testing-library/user-event": "^14.5.2",
@@ -87,7 +87,8 @@
     "i18next-parser": "^8.13.0",
     "lint-staged": "^15.2.2",
     "prettier": "^3.2.5",
-    "source-map-explorer": "^2.5.3"
+    "source-map-explorer": "^2.5.3",
+    "typescript": "^5.4.5"
   },
   "husky": {
     "hooks": {

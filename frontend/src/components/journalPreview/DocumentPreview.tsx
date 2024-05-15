@@ -1,5 +1,4 @@
 import { Box } from '@mantine/core';
-import { openContextModal } from '@mantine/modals';
 import { Buffer } from 'buffer';
 import { serverBaseUrl } from '../..';
 import { createStyles } from '@mantine/emotion';
@@ -64,30 +63,22 @@ const useStyles = createStyles((theme, _, u) => ({
 interface Props {
   uri: string;
   filename: string;
+  onClick: (path: string) => void;
 }
 
-export default function DocumentPreview({ filename }: Props) {
+export default function DocumentPreview(props: Props) {
   const { classes } = useStyles();
-  const extension = filename.split('.').pop()?.toLocaleLowerCase() || '';
-  const simpleFilename = filename.split('/').pop() || '';
+  const extension = props.filename.split('.').pop()?.toLocaleLowerCase() || '';
   const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
 
-  const openDocumentModal = () => {
-    openContextModal({
-      modal: 'documentPreviewModal',
-      title: simpleFilename,
-      size: 'lg',
-      centered: true,
-      innerProps: {
-        filename: simpleFilename,
-        path: filename,
-      },
-    });
-  };
   return (
-    <Box className={classes.imgBox} onClick={openDocumentModal}>
+    <Box className={classes.imgBox} onClick={() => props.onClick(props.filename)}>
       {canPreview ? (
-        <img className={classes.img} alt={filename} src={canPreview ? `${serverBaseUrl}/api/documents/${Buffer.from(filename).toString('base64')}` : ''} />
+        <img
+          className={classes.img}
+          alt={props.filename}
+          src={canPreview ? `${serverBaseUrl}/api/documents/${Buffer.from(props.filename).toString('base64')}` : ''}
+        />
       ) : (
         <Box className={classes.empty}>This document cannot be previewed</Box>
       )}

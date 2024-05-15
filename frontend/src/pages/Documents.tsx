@@ -1,6 +1,5 @@
 import { Container, Group, SegmentedControl, SimpleGrid, Table, Title } from '@mantine/core';
 import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
-import { openContextModal } from '@mantine/modals';
 import { format } from 'date-fns';
 import useSWR from 'swr';
 import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
@@ -11,11 +10,15 @@ import { groupBy, reverse, sortBy } from 'lodash-es';
 import { TextBadge } from '../components/basic/TextBadge';
 import { useNavigate } from 'react-router';
 import { useAppSelector } from '../states';
+import { useState } from 'react';
+import 'yet-another-react-lightbox/styles.css';
+import { ImageLightBox } from '../components/ImageLightBox';
 
 export default function Documents() {
   let navigate = useNavigate();
   const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
   const { data: documents, error } = useSWR<Document[]>('/api/documents', fetcher);
+  const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
   const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
 
@@ -23,18 +26,6 @@ export default function Documents() {
 
   if (error) return <div>failed to load</div>;
   if (!documents) return <div>loading...</div>;
-  const openDocumentPreviewModal = (filename: string, path: string) => {
-    openContextModal({
-      modal: 'documentPreviewModal',
-      title: filename,
-      size: 'lg',
-      centered: true,
-      innerProps: {
-        filename: filename,
-        path: path,
-      },
-    });
-  };
 
   const groupedDocuments = reverse(
     sortBy(
@@ -48,7 +39,7 @@ export default function Documents() {
         <Heading title={`${documents.length} Documents`}></Heading>
         <SegmentedControl value={layout} onChange={setLayout} data={['Grid', 'Table']} />
       </Group>
-
+      <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
       {layout === 'Grid' ? (
         <>
           {groupedDocuments.map((targetMonthDocuments, idx) => (
@@ -58,7 +49,7 @@ export default function Documents() {
               </Title>
               <SimpleGrid key={`grid=${idx}`} cols={{ base: 1, sm: 2, md: 4 }} spacing={{ base: 'ms', md: 'md', lg: 'lg' }}>
                 {targetMonthDocuments.map((document, idx) => (
-                  <AccountDocumentLine key={idx} {...document} />
+                  <AccountDocumentLine onClick={setLightboxSrc} key={idx} {...document} />
                 ))}
               </SimpleGrid>
             </>
@@ -77,7 +68,7 @@ export default function Documents() {
           <tbody>
             {documents.map((document, idx) => (
               <Table.Tr>
-                <Table.Td onClick={() => openDocumentPreviewModal(document.filename, document.path)}>
+                <Table.Td onClick={() => setLightboxSrc(document.path)}>
                   <div>{document.filename}</div>
                 </Table.Td>
                 <Table.Td>
