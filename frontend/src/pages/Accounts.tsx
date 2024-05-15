@@ -29,7 +29,7 @@ export default function Accounts() {
 
   return (
     <Container fluid>
-      <Heading title={`Accounts`}></Heading>
+      <Heading title={'Accounts'}></Heading>
       <Group my="lg">
         <Input
           leftSection={<IconFilter size="1rem" />}
