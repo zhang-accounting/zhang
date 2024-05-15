@@ -2,8 +2,8 @@ import { Box } from '@mantine/core';
 import { Buffer } from 'buffer';
 import { serverBaseUrl } from '../..';
 import { createStyles } from '@mantine/emotion';
+import { isDocumentAnImage } from '../../utils/documents';
 
-export const EXTENSIONS_SUPPORT_PREVIEW = ['png', 'jpg', 'jpeg', 'gif'];
 const useStyles = createStyles((theme, _, u) => ({
   imgBox: {
     overflow: 'hidden',
@@ -68,11 +68,10 @@ interface Props {
 
 export default function DocumentPreview(props: Props) {
   const { classes } = useStyles();
-  const extension = props.filename.split('.').pop()?.toLocaleLowerCase() || '';
-  const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
+  const canPreview = isDocumentAnImage(props.filename);
 
   return (
-    <Box className={classes.imgBox} onClick={() => props.onClick(props.filename)}>
+    <Box className={classes.imgBox} onClick={canPreview ? () => props.onClick(props.filename) : undefined}>
       {canPreview ? (
         <img
           className={classes.img}

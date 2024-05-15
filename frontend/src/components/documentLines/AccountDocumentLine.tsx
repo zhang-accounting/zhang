@@ -3,6 +3,7 @@ import { Buffer } from 'buffer';
 import { serverBaseUrl } from '../../index';
 import { Document } from '../../rest-model';
 import { createStyles } from '@mantine/emotion';
+import { isDocumentAnImage } from '../../utils/documents';
 
 const useStyles = createStyles((theme, _, u) => ({
   imgBox: {
@@ -63,16 +64,13 @@ export interface Props extends Document {
   onClick: (path: string) => void;
 }
 
-export const EXTENSIONS_SUPPORT_PREVIEW = ['image/png', 'image/jpg', 'image/jpeg', 'image/gif'];
-
 export default function AccountDocumentLine(props: Props) {
   const { classes } = useStyles();
 
-  const extension = (props.extension ?? '').toLowerCase();
-  const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
+  const canPreview = isDocumentAnImage(props.path);
 
   return (
-    <Card shadow="sm" p="xs" radius="sm" withBorder onClick={() => props.onClick(props.path)}>
+    <Card shadow="sm" p="xs" radius="sm" withBorder onClick={isDocumentAnImage(props.path) ? () => props.onClick(props.path) : undefined}>
       <Card.Section className={classes.imgBox}>
         {canPreview ? (
           <img

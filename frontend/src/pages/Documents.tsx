@@ -13,6 +13,7 @@ import { useAppSelector } from '../states';
 import { useState } from 'react';
 import 'yet-another-react-lightbox/styles.css';
 import { ImageLightBox } from '../components/ImageLightBox';
+import { isDocumentAnImage } from '../utils/documents';
 
 export default function Documents() {
   let navigate = useNavigate();
@@ -68,7 +69,7 @@ export default function Documents() {
           <tbody>
             {documents.map((document, idx) => (
               <Table.Tr>
-                <Table.Td onClick={() => setLightboxSrc(document.path)}>
+                <Table.Td onClick={isDocumentAnImage(document.path) ? () => setLightboxSrc(document.path) : undefined}>
                   <div>{document.filename}</div>
                 </Table.Td>
                 <Table.Td>
