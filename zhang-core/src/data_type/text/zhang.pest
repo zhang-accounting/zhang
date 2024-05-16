@@ -45,7 +45,7 @@ transaction_next_line = _{ identation ~ transaction_line }
 
 posting_unit   = { (posting_amount)? ~ posting_meta }
 posting_amount = { number_expr ~ space+ ~ commodity_name }
-posting_meta   = { (space+ ~ "{" ~ space* ~ posting_cost ~ price_cost_date? ~ space* ~ "}")? ~ space* ~ posting_price? }
+posting_meta   = { (space+ ~ "{" ~ space* ~ posting_cost? ~ price_cost_date? ~ space* ~ "}")? ~ space* ~ posting_price? }
 
 posting_cost    =  { number_expr ~ space+ ~ commodity_name }
 price_cost_date = _{ space* ~ "," ~ space* ~ date }

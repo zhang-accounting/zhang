@@ -1117,6 +1117,30 @@ mod test {
                 assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
             }
             #[test]
+            fn should_support_implicit_cost() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD {  }
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
+                assert_eq!(None, posting.cost);
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(None, posting.price);
+            }
+            #[test]
+            fn should_support_implicit_cost_and_price() {
+                let mut trx = get_first_posting(indoc! {r#"
+                2022-06-02 "balanced transaction"
+                  Assets:Card -100 USD { } @ 7 CNY
+                "#});
+                let posting = trx.postings.pop().unwrap();
+                assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
+                assert_eq!(None, posting.cost);
+                assert_eq!(None, posting.cost_date);
+                assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
+            }
+            #[test]
             fn should_parse_metas_in_posting() {
                 let mut trx = get_first_posting(indoc! {r#"
                 2022-06-02 "balanced transaction"
