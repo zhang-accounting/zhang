@@ -190,6 +190,7 @@ async fn main() {
 
 #[cfg(test)]
 mod test {
+    use std::env::temp_dir;
     use std::io::{stdout, Write};
     use std::sync::Arc;
 
@@ -222,7 +223,7 @@ mod test {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn integration_test() {
         env_logger::try_init().ok();
-        type ValidationPoint = (String, serde_json::Value);
+        type ValidationPoint = (String, Value);
         #[derive(Deserialize)]
         struct Validation {
             uri: String,
@@ -235,10 +236,30 @@ mod test {
             if !path.path().is_dir() {
                 continue;
             }
-            pprintln!("    \x1b[0;32mIntegration Test\x1b[0;0m: {}", path.path().display());
+            let original_test_source_folder = path.path();
+            pprintln!("    \x1b[0;32mIntegration Test\x1b[0;0m: {}", original_test_source_folder.display());
+            let test_temp_folder = temp_dir();
 
-            let pathbuf = path.path();
-            let validations_content = std::fs::read_to_string(path.path().join("validations.json")).unwrap();
+            for entry in walkdir::WalkDir::new(&original_test_source_folder).into_iter().filter_map(|e| e.ok()) {
+                if entry.path().eq(&original_test_source_folder) {
+                    continue;
+                }
+                dbg!(&entry);
+                if entry.path().is_dir() {
+                    // create dir
+                    let target_folder = entry.path().strip_prefix(&original_test_source_folder).unwrap();
+                    tokio::fs::create_dir_all(dbg!(test_temp_folder.join(target_folder)))
+                        .await
+                        .expect("cannot create folder");
+                } else {
+                    // copy file
+                    let target_file = entry.path().strip_prefix(&original_test_source_folder).unwrap();
+                    tokio::fs::copy(dbg!(entry.path()), dbg!(test_temp_folder.join(target_file)))
+                        .await
+                        .expect("cannot create folder");
+                }
+            }
+            let validations_content = std::fs::read_to_string(test_temp_folder.join("validations.json")).unwrap();
             let validations: Vec<Validation> = serde_json::from_str(&validations_content).unwrap();
 
             for validation in validations {
@@ -247,7 +268,7 @@ mod test {
                 let data_source = OpendalDataSource::from_env(
                     FileSystem::Fs,
                     &mut ServerOpts {
-                        path: pathbuf.clone(),
+                        path: test_temp_folder.clone(),
                         endpoint: "main.zhang".to_owned(),
                         addr: "".to_string(),
                         port: 0,
@@ -258,7 +279,7 @@ mod test {
                 )
                 .await;
                 let data_source = Arc::new(data_source);
-                let ledger = Ledger::async_load(pathbuf.clone(), "main.zhang".to_owned(), data_source.clone())
+                let ledger = Ledger::async_load(test_temp_folder.clone(), "main.zhang".to_owned(), data_source.clone())
                     .await
                     .expect("cannot load ledger");
                 let ledger_data = Arc::new(RwLock::new(ledger));

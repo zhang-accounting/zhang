@@ -4740,6 +4740,7 @@ dependencies = [
  "tokio-util",
  "tower",
  "urlencoding",
+ "walkdir",
  "zhang-ast",
  "zhang-core",
  "zhang-server",
