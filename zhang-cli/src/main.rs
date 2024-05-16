@@ -74,7 +74,7 @@ pub enum FileSystem {
 
 impl FileSystem {
     fn from_env() -> Option<FileSystem> {
-        match std::env::var("ZHANG_DATA_SOURCE").as_deref() {
+        match dbg!(std::env::var("ZHANG_DATA_SOURCE").as_deref()) {
             Ok("fs") => Some(FileSystem::Fs),
             Ok("web-dav") => Some(FileSystem::WebDav),
             Ok("github") => Some(FileSystem::Github),
@@ -175,11 +175,7 @@ impl Opts {
 async fn main() {
     // console_subscriber::init();
     let env = Env::new().filter("ZHANG_LOG").default_filter_or("RUST_LOG");
-    env_logger::Builder::default()
-        .filter_level(LevelFilter::Error)
-        .filter_module("zhang", LevelFilter::Info)
-        .parse_env(env)
-        .init();
+    env_logger::Builder::default().parse_env(env).init();
     let opts = Opts::parse();
 
     tokio::select! {
