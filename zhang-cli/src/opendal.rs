@@ -186,7 +186,7 @@ impl OpendalDataSource {
             .to_string()
             .as_str()
         {
-            "bc" | "bean" => true,
+            "bc" | "bean" | "beancount" => true,
             "zhang" => false,
             _ => unreachable!("not supported data format"),
         };
