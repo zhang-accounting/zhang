@@ -8,6 +8,7 @@ use log::error;
 use once_cell::sync::OnceCell;
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
 use zhang_ast::error::ErrorKind;
+use zhang_ast::utils::inventory::BookingMethod;
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
 use crate::constants::*;
@@ -20,6 +21,7 @@ pub struct InMemoryOptions {
     pub operating_currency: String,
     pub default_rounding: Rounding,
     pub default_balance_tolerance_precision: i32,
+    pub default_booking_method: BookingMethod,
     pub timezone: Tz,
     pub features: Features,
 }
@@ -32,6 +34,7 @@ pub enum BuiltinOption {
     DefaultRounding,
     DefaultBalanceTolerancePrecision,
     DefaultCommodityPrecision,
+    DefaultBookingMethod,
     Timezone,
 }
 
@@ -63,6 +66,7 @@ impl BuiltinOption {
             BuiltinOption::DefaultRounding => DEFAULT_ROUNDING_PLAIN.to_owned(),
             BuiltinOption::DefaultBalanceTolerancePrecision => DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN.to_owned(),
             BuiltinOption::DefaultCommodityPrecision => DEFAULT_COMMODITY_PRECISION_PLAIN.to_owned(),
+            BuiltinOption::DefaultBookingMethod => DEFAULT_BOOKING_METHOD.to_owned(),
             BuiltinOption::Timezone => detect_timezone(),
         }
     }
@@ -123,6 +127,9 @@ impl InMemoryOptions {
                         return Ok(BuiltinOption::Timezone.default_value());
                     }
                 },
+                BuiltinOption::DefaultBookingMethod => {
+                    self.default_booking_method = BookingMethod::from_str(&value).map_err(|e| ZhangError::InvalidOptionValue)?
+                }
             }
         }
         self.features.handle_options(&key, &value);
@@ -137,6 +144,7 @@ impl Default for InMemoryOptions {
             operating_currency: "CNY".to_string(),
             default_rounding: Rounding::RoundDown,
             default_balance_tolerance_precision: 2,
+            default_booking_method: BookingMethod::Fifo,
             timezone: BuiltinOption::Timezone.default_value().parse().expect("invalid timezone"),
             features: Features::default(),
         }

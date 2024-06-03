@@ -98,7 +98,7 @@ impl DirectiveProcess for Transaction {
             let lot_meta = txn_posting.lot_meta();
             let booking_method = operations
                 .typed_meta_value(MetaType::AccountMeta, txn_posting.account_name(), "booking_method")?
-                .unwrap_or(BookingMethod::Fifo);
+                .unwrap_or(ledger.options.default_booking_method);
 
             let target_lot_record = operations.account_lot_by_meta(&txn_posting.account_name(), &amount.currency, &lot_meta, booking_method)?;
 

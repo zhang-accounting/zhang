@@ -5,6 +5,8 @@ use std::str::FromStr;
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString};
 
 use crate::amount::Amount;
 use crate::error::ErrorKind;
@@ -12,6 +14,8 @@ use crate::Currency;
 
 pub type AmountLotPair = (Option<Amount>, Option<Amount>);
 
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize, Clone, Copy, Display)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum BookingMethod {
     Strict,
     Fifo,

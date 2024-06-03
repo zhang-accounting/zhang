@@ -1,3 +1,5 @@
+use std::string::ToString;
+use zhang_ast::utils::inventory::BookingMethod;
 use zhang_ast::Rounding;
 
 pub const KEY_OPERATING_CURRENCY: &str = "operating_currency";
@@ -17,6 +19,8 @@ pub const DEFAULT_TIMEZONE: &str = "Asia/Hong_Kong";
 pub const DEFAULT_ROUNDING_PLAIN: &str = "RoundDown";
 pub const DEFAULT_COMMODITY_PRECISION_PLAIN: &str = "2";
 pub const DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN: &str = "2";
+
+pub const DEFAULT_BOOKING_METHOD: &str = "FIFO";
 
 pub const TRUE: &str = "true";
 
