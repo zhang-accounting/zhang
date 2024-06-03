@@ -90,11 +90,3 @@ fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span: &Span
     }
     Ok(())
 }
-
-fn lot_add(account_name: AccountName, amount: Amount, lot_meta: LotMeta, booking_method: BookingMethod, operations: &mut Operations) -> ZhangResult<()> {
-    let target_lot_record = operations.account_lot_by_meta(&account_name, &amount.currency, lot_meta, booking_method)?;
-
-    operations.update_account_lot(&account_name, &target_lot_record, &(&target_lot_record.amount).add(&amount.number))?;
-
-    Ok(())
-}

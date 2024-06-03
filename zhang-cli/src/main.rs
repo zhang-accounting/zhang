@@ -314,7 +314,19 @@ mod test {
                     let value = res.clone().path(&point.0).unwrap();
                     let expected_value = Value::Array(vec![point.1]);
                     if !expected_value.eq(&value) {
-                        panic!("Validation fail ({}): {} != {}", point.0, &expected_value, &value);
+                        panic!(
+                            "Validation fail\n\
+                         Test case: {} \n\
+                         Test URL: {} \n\
+                         Test rule: {} \n\
+                         Excepted value: {} \n\
+                         Get: {}",
+                            original_test_source_folder.display(),
+                            &validation.uri,
+                            point.0,
+                            &expected_value,
+                            &value
+                        );
                     }
                 }
             }

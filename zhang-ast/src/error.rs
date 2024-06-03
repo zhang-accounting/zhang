@@ -15,6 +15,7 @@ pub enum ErrorKind {
     AccountClosed,
 
     CommodityDoesNotDefine,
+    NoEnoughCommodityLot,
     CloseNonZeroAccount,
 
     BudgetDoesNotExist,

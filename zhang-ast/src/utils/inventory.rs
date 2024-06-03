@@ -55,6 +55,12 @@ pub struct LotMeta {
     pub price: Option<Amount>,
 }
 
+impl LotMeta {
+    pub fn is_default_lot(&self) -> bool {
+        self.cost.is_none() && self.cost_date.is_none() && self.price.is_none()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct CommodityInventory {
     currency: String,

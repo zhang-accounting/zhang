@@ -4,7 +4,11 @@
     "validations": [
       [
         "$.data.errors.length()",
-        0
+        1
+      ],
+      [
+        "$.data.errors[0].error_type",
+        "NoEnoughCommodityLot"
       ],
       [
         "$.data.commodity_lots.['Assets:A'].[0].cost.number",
@@ -24,7 +28,7 @@
       ],
       [
         "$.data.commodity_lots.['Assets:A'].[0].amount",
-        "10"
+        "-10"
       ],
       [
         "$.data.commodity_lots.['Assets:A'].[0].price",

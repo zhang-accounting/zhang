@@ -3,7 +3,7 @@ use std::ops::{Add, Mul};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
-use bigdecimal::{BigDecimal, Zero};
+use bigdecimal::{BigDecimal, Signed, Zero};
 use itertools::Itertools;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
@@ -95,12 +95,28 @@ impl DirectiveProcess for Transaction {
             }
 
             let amount = txn_posting.units().unwrap_or(inferred_amount);
-            let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
             let lot_meta = txn_posting.lot_meta();
             let booking_method = operations
                 .typed_meta_value(MetaType::AccountMeta, txn_posting.account_name(), "booking_method")?
                 .unwrap_or(BookingMethod::FIFO);
-            process::lot_add(txn_posting.account_name(), amount, lot_meta, booking_method, &mut operations)?;
+
+            let target_lot_record = operations.account_lot_by_meta(&txn_posting.account_name(), &amount.currency, &lot_meta, booking_method)?;
+
+            let modified_amount = (&target_lot_record.amount).add(&amount.number);
+            if !lot_meta.is_default_lot() && modified_amount.is_negative() {
+                operations.new_error(
+                    ErrorKind::NoEnoughCommodityLot,
+                    span,
+                    HashMap::of2(
+                        "original_amount",
+                        target_lot_record.amount.to_string(),
+                        "transaction_amount",
+                        amount.number.to_string(),
+                    ),
+                )?;
+            };
+
+            operations.update_account_lot(&txn_posting.account_name(), &target_lot_record, &modified_amount)?;
         }
 
         // extract documents from meta

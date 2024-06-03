@@ -3,6 +3,10 @@
     "uri": "/api/store",
     "validations": [
       [
+        "$.data.errors.length()",
+        0
+      ],
+      [
         "$.data.commodity_lots.['Assets:A'].[0].cost",
         null
       ],

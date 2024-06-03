@@ -267,7 +267,7 @@ impl Operations {
     }
 
     pub(crate) fn account_lot_by_meta<'a>(
-        &'a mut self, account_name: &str, currency: &str, lot_meta: LotMeta, booking_method: BookingMethod,
+        &'a mut self, account_name: &str, currency: &str, lot_meta: &LotMeta, booking_method: BookingMethod,
     ) -> ZhangResult<CommodityLotRecord> {
         let mut store = self.write();
         let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
@@ -317,8 +317,8 @@ impl Operations {
                 // get cost date as acquisition date if persists,
                 // if cost is defined, use txn date as acquisition date
                 acquisition_date: lot_meta.cost_date.or_else(|| lot_meta.cost.as_ref().map(|_| lot_meta.txn_date.clone())),
-                cost: lot_meta.cost,
-                price: lot_meta.price,
+                cost: lot_meta.cost.clone(),
+                price: lot_meta.price.clone(),
             };
             entry.push(new_lot_record.clone());
             Ok(new_lot_record)
