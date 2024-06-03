@@ -10,7 +10,7 @@ use strum::{Display, EnumString};
 
 use crate::amount::Amount;
 use crate::error::ErrorKind;
-use crate::Currency;
+use crate::{Currency, PostingCost};
 
 pub type AmountLotPair = (Option<Amount>, Option<Amount>);
 
@@ -46,14 +46,13 @@ impl FromStr for BookingMethod {
 pub struct LotMeta {
     pub txn_date: NaiveDate,
 
-    pub cost: Option<Amount>,
-    pub cost_date: Option<NaiveDate>,
+    pub cost: Option<PostingCost>,
     pub price: Option<Amount>,
 }
 
 impl LotMeta {
     pub fn is_default_lot(&self) -> bool {
-        self.cost.is_none() && self.cost_date.is_none() && self.price.is_none()
+        self.cost.is_none() && self.price.is_none()
     }
 }
 

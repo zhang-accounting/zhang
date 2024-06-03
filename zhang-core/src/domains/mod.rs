@@ -14,7 +14,7 @@ use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::utils::inventory::{BookingMethod, LotMeta};
-use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, Rounding, SpanInfo, Transaction};
+use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, PostingCost, Rounding, SpanInfo, Transaction};
 
 use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType,
@@ -178,7 +178,7 @@ impl Operations {
     /// insert transaction postings
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction_posting(
-        &mut self, trx_id: &Uuid, posting_idx: usize, account_name: &str, unit: Option<Amount>, cost: Option<Amount>, inferred_amount: Amount,
+        &mut self, trx_id: &Uuid, posting_idx: usize, account_name: &str, unit: Option<Amount>, cost: Option<PostingCost>, inferred_amount: Amount,
         previous_amount: Amount, after_amount: Amount,
     ) -> ZhangResult<()> {
         let mut store = self.write();
@@ -195,7 +195,7 @@ impl Operations {
             trx_datetime: trx.datetime,
             account: Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?,
             unit,
-            cost,
+            cost: cost.and_then(|it| it.base),
             inferred_amount,
             previous_amount,
             after_amount,
@@ -258,8 +258,37 @@ impl Operations {
         }))
     }
 
+    pub(crate) fn default_account_lot(&mut self, account_name: &str, currency: &str) -> ZhangResult<CommodityLotRecord> {
+        let mut store = self.write();
+        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
+
+        let mut option = entry
+            .iter()
+            // match commodity
+            .filter(|lot| lot.commodity.eq(currency))
+            // default lots have none cost
+            .filter(|it| it.cost.is_none())
+            // default lots have none acquisition date
+            .find(|it| it.acquisition_date.is_none())
+            .cloned();
+
+        if let Some(record) = option {
+            Ok(record)
+        } else {
+            // if target lot record does not exist, insert a new one and return it
+            let new_lot_record = CommodityLotRecord {
+                commodity: currency.to_owned(),
+                amount: BigDecimal::zero(),
+                acquisition_date: None,
+                cost: None,
+            };
+            entry.push(new_lot_record.clone());
+            Ok(new_lot_record)
+        }
+    }
+
     pub(crate) fn account_lot_by_meta(
-        &mut self, account_name: &str, currency: &str, lot_meta: &LotMeta, booking_method: BookingMethod,
+        &mut self, account_name: &str, currency: &str, lot_meta: &PostingCost, txn_date: NaiveDate, booking_method: BookingMethod,
     ) -> ZhangResult<CommodityLotRecord> {
         let mut store = self.write();
         let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
@@ -269,12 +298,18 @@ impl Operations {
             // match commodity
             .filter(|lot| lot.commodity.eq(currency))
             // match cost, works with empty cost
-            .filter(|it| it.cost.eq(&lot_meta.cost))
+            .filter(|it| {
+                if lot_meta.base.is_some() {
+                    it.cost.eq(&lot_meta.base)
+                } else {
+                    it.cost.is_some()
+                }
+            })
             // match cost date
             .filter(|it| {
-                if lot_meta.cost.is_some() {
+                if lot_meta.base.is_some() {
                     // if cost date in lot meta is defined, use txn date
-                    it.acquisition_date.eq(&lot_meta.cost_date.or(Some(lot_meta.txn_date)))
+                    it.acquisition_date.eq(&lot_meta.date.as_ref().map(|it| it.naive_date()).or(Some(txn_date)))
                 } else {
                     // if cost  in meta is null, return all lots
                     true
@@ -307,8 +342,12 @@ impl Operations {
 
                 // get cost date as acquisition date if persists,
                 // if cost is defined, use txn date as acquisition date
-                acquisition_date: lot_meta.cost_date.or_else(|| lot_meta.cost.as_ref().map(|_| lot_meta.txn_date)),
-                cost: lot_meta.cost.clone(),
+                acquisition_date: lot_meta
+                    .date
+                    .as_ref()
+                    .map(|it| it.naive_date())
+                    .or_else(|| lot_meta.base.as_ref().map(|_| txn_date)),
+                cost: lot_meta.base.clone(),
             };
             entry.push(new_lot_record.clone());
             Ok(new_lot_record)

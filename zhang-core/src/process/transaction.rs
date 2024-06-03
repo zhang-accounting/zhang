@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ops::{Add, Mul};
+use std::ops::{Add, AddAssign, Mul, SubAssign};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
@@ -100,23 +100,61 @@ impl DirectiveProcess for Transaction {
                 .typed_meta_value(MetaType::AccountMeta, txn_posting.account_name(), "booking_method")?
                 .unwrap_or(ledger.options.default_booking_method);
 
-            let target_lot_record = operations.account_lot_by_meta(&txn_posting.account_name(), &amount.currency, &lot_meta, booking_method)?;
+            // todo: handle implicit posting cost
+            dbg!(&lot_meta);
+            if let Some(cost) = lot_meta.cost {
+                let mut accr_amount = amount.number.clone();
+                loop {
+                    let target_lot_record = operations.account_lot_by_meta(
+                        &txn_posting.account_name(),
+                        &amount.currency,
+                        &cost,
+                        txn_posting.txn.date.naive_date(),
+                        booking_method,
+                    )?;
+                    dbg!(&target_lot_record);
+                    let calculated = (&target_lot_record.amount).add(&accr_amount);
+                    if !calculated.is_negative() {
+                        // the calculated amount is positive, means it is normal case
+                        operations.update_account_lot(&txn_posting.account_name(), &target_lot_record, &calculated)?;
+                        break;
+                    } else {
+                        if target_lot_record.amount.is_zero() {
+                            // todo: insert error no enough lot record
+                            operations.new_error(
+                                ErrorKind::NoEnoughCommodityLot,
+                                span,
+                                HashMap::of(
+                                    // "original_amount",
+                                    // target_lot_record.amount.to_string(),
+                                    "transaction_amount",
+                                    amount.number.to_string(),
+                                ),
+                            )?;
+                            // persist the calculated result even if there is an error
+                            operations.update_account_lot(&txn_posting.account_name(), &target_lot_record, &calculated)?;
+                            break;
+                        } else {
+                            // if calculated amount is negative, means the matched lots record has no enough amount to do reduction
+                            // then set lots record's amount to zero( delete it)
+                            operations.update_account_lot(&txn_posting.account_name(), &target_lot_record, &BigDecimal::zero())?;
 
-            let modified_amount = (&target_lot_record.amount).add(&amount.number);
-            if !lot_meta.is_default_lot() && modified_amount.is_negative() {
-                operations.new_error(
-                    ErrorKind::NoEnoughCommodityLot,
-                    span,
-                    HashMap::of2(
-                        "original_amount",
-                        target_lot_record.amount.to_string(),
-                        "transaction_amount",
-                        amount.number.to_string(),
-                    ),
+                            // subtract the accr amount
+                            accr_amount.add_assign(&target_lot_record.amount);
+                        }
+                    }
+                }
+            } else {
+                // reduction in default lot
+                let target_lot_record = operations.default_account_lot(&txn_posting.account_name(), &amount.currency)?;
+
+                dbg!(&target_lot_record);
+                operations.update_account_lot(
+                    &txn_posting.account_name(),
+                    &target_lot_record,
+                    &(&target_lot_record.amount).add(&amount.number),
                 )?;
-            };
-
-            operations.update_account_lot(&txn_posting.account_name(), &target_lot_record, &modified_amount)?;
+            }
         }
 
         // extract documents from meta

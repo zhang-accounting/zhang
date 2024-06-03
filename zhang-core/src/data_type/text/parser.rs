@@ -213,8 +213,8 @@ impl ZhangParser {
         Ok(ret.into_iter().collect())
     }
 
-    fn posting_unit(input: Node) -> Result<(Option<Amount>, Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>)> {
-        let ret: (Option<Amount>, Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>) = match_nodes!(input.into_children();
+    fn posting_unit(input: Node) -> Result<(Option<Amount>, Option<(Option<PostingCost>, Option<SingleTotalPrice>)>)> {
+        let ret: (Option<Amount>, Option<(Option<PostingCost>, Option<SingleTotalPrice>)>) = match_nodes!(input.into_children();
             [posting_amount(amount)] => (Some(amount), None),
             [posting_meta(meta)] => (None, Some(meta)),
             [posting_amount(amount), posting_meta(meta)] => (Some(amount), Some(meta)),
@@ -222,6 +222,12 @@ impl ZhangParser {
         Ok(ret)
     }
 
+    fn posting_cost_prefix(input: Node) -> Result<()> {
+        Ok(())
+    }
+    fn posting_cost_postfix(input: Node) -> Result<()> {
+        Ok(())
+    }
     fn posting_cost(input: Node) -> Result<Amount> {
         let ret: Amount = match_nodes!(input.into_children();
             [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
@@ -259,14 +265,16 @@ impl ZhangParser {
         );
         Ok(ret)
     }
-    fn posting_meta(input: Node) -> Result<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)> {
-        let ret: (Option<Amount>, Option<Date>, Option<SingleTotalPrice>) = match_nodes!(input.into_children();
-            [] => (None, None, None),
-            [posting_cost(cost)] => (Some(cost), None, None),
-            [posting_price(p)] => (None, None, Some(p)),
-            [posting_cost(cost), date(d)] => (Some(cost), Some(d), None),
-            [posting_cost(cost), posting_price(p)] => (Some(cost), None, Some(p)),
-            [posting_cost(cost), date(d), posting_price(p)] => (Some(cost), Some(d), Some(p)),
+    fn posting_meta(input: Node) -> Result<(Option<PostingCost>, Option<SingleTotalPrice>)> {
+        let ret: (Option<PostingCost>, Option<SingleTotalPrice>) = match_nodes!(input.into_children();
+            [] => (None, None),
+            [posting_cost_prefix(_), posting_cost_postfix(_)] => (Some(PostingCost{base: None,date: None}), None),
+            [posting_cost_prefix(_), posting_cost(cost), posting_cost_postfix(_)] => (Some(PostingCost{base: Some(cost),date: None}), None),
+            [posting_price(p)] => (None, Some(p)),
+            [posting_cost_prefix(_), posting_cost_postfix(_), posting_price(p)] => (Some(PostingCost{base: None,date: None}), Some(p)),
+            [posting_cost_prefix(_), posting_cost(cost), date(d), posting_cost_postfix(_)] => (Some(PostingCost{base: Some(cost),date: Some(d)}) , None),
+            [posting_cost_prefix(_), posting_cost(cost), posting_cost_postfix(_),  posting_price(p)] => (Some(PostingCost{base: Some(cost),date: None}), Some(p)),
+            [posting_cost_prefix(_), posting_cost(cost), date(d), posting_cost_postfix(_), posting_price(p)] => (Some(PostingCost{base: Some(cost),date: Some(d)}), Some(p)),
         );
         Ok(ret)
     }
@@ -274,7 +282,7 @@ impl ZhangParser {
         let ret: (
             Option<Flag>,
             Account,
-            Option<(Option<Amount>, Option<(Option<Amount>, Option<Date>, Option<SingleTotalPrice>)>)>,
+            Option<(Option<Amount>, Option<(Option<PostingCost>, Option<SingleTotalPrice>)>)>,
             Meta,
         ) = match_nodes!(input.into_children();
             [account_name(account_name)] => (None, account_name, None, Meta::default()),
@@ -295,7 +303,6 @@ impl ZhangParser {
             account,
             units: None,
             cost: None,
-            cost_date: None,
             price: None,
             comment: None,
             meta,
@@ -304,10 +311,9 @@ impl ZhangParser {
         if let Some((amount, meta)) = unit {
             line.units = amount;
 
-            if let Some(meta) = meta {
-                line.cost = meta.0;
-                line.cost_date = meta.1;
-                line.price = meta.2;
+            if let Some((posting_cost, price)) = meta {
+                line.cost = posting_cost;
+                line.price = price;
             }
         }
         Ok(line)
@@ -1010,7 +1016,7 @@ mod test {
             use chrono::NaiveDate;
             use indoc::indoc;
             use zhang_ast::amount::Amount;
-            use zhang_ast::{Date, Directive, SingleTotalPrice, Transaction};
+            use zhang_ast::{Date, Directive, PostingCost, SingleTotalPrice, Transaction};
 
             use crate::data_type::text::parser::parse;
 
@@ -1039,7 +1045,6 @@ mod test {
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(None, posting.units);
                 assert_eq!(None, posting.cost);
-                assert_eq!(None, posting.cost_date);
                 assert_eq!(None, posting.price);
             }
 
@@ -1052,7 +1057,6 @@ mod test {
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "CNY")), posting.units);
                 assert_eq!(None, posting.cost);
-                assert_eq!(None, posting.cost_date);
                 assert_eq!(None, posting.price);
             }
             #[test]
@@ -1063,8 +1067,13 @@ mod test {
                 "#});
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(Some(Amount::new(BigDecimal::from(7i32), "CNY")), posting.cost);
-                assert_eq!(None, posting.cost_date);
+                assert_eq!(
+                    Some(PostingCost {
+                        base: Some(Amount::new(BigDecimal::from(7i32), "CNY")),
+                        date: None
+                    }),
+                    posting.cost
+                );
                 assert_eq!(None, posting.price);
             }
 
@@ -1076,8 +1085,13 @@ mod test {
                 "#});
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(Some(Amount::new(BigDecimal::from(7i32), "CNY")), posting.cost);
-                assert_eq!(Some(Date::Date(NaiveDate::from_ymd_opt(2022, 6, 6).unwrap())), posting.cost_date);
+                assert_eq!(
+                    Some(PostingCost {
+                        base: Some(Amount::new(BigDecimal::from(7i32), "CNY")),
+                        date: Some(Date::Date(NaiveDate::from_ymd_opt(2022, 6, 6).unwrap())),
+                    }),
+                    posting.cost
+                );
                 assert_eq!(None, posting.price);
             }
             #[test]
@@ -1089,7 +1103,6 @@ mod test {
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
                 assert_eq!(None, posting.cost);
-                assert_eq!(None, posting.cost_date);
                 assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
             }
             #[test]
@@ -1101,7 +1114,6 @@ mod test {
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
                 assert_eq!(None, posting.cost);
-                assert_eq!(None, posting.cost_date);
                 assert_eq!(Some(SingleTotalPrice::Total(Amount::new(BigDecimal::from(700i32), "CNY"))), posting.price);
             }
             #[test]
@@ -1112,8 +1124,13 @@ mod test {
                 "#});
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(Some(Amount::new(BigDecimal::from_str("6.9").unwrap(), "CNY")), posting.cost);
-                assert_eq!(None, posting.cost_date);
+                assert_eq!(
+                    Some(PostingCost {
+                        base: Some(Amount::new(BigDecimal::from_str("6.9").unwrap(), "CNY")),
+                        date: None
+                    }),
+                    posting.cost
+                );
                 assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
             }
             #[test]
@@ -1124,8 +1141,7 @@ mod test {
                 "#});
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(None, posting.cost);
-                assert_eq!(None, posting.cost_date);
+                assert_eq!(Some(PostingCost { base: None, date: None }), posting.cost);
                 assert_eq!(None, posting.price);
             }
             #[test]
@@ -1136,8 +1152,7 @@ mod test {
                 "#});
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(None, posting.cost);
-                assert_eq!(None, posting.cost_date);
+                assert_eq!(Some(PostingCost { base: None, date: None }), posting.cost);
                 assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
             }
             #[test]

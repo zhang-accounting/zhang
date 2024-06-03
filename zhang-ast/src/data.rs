@@ -97,8 +97,7 @@ pub struct Posting {
     pub flag: Option<Flag>,
     pub account: Account,
     pub units: Option<Amount>,
-    pub cost: Option<Amount>,
-    pub cost_date: Option<Date>,
+    pub cost: Option<PostingCost>,
     pub price: Option<SingleTotalPrice>,
     pub comment: Option<String>,
     pub meta: Meta,
@@ -108,6 +107,12 @@ impl Posting {
         self.comment = Some(comment);
         self
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct PostingCost {
+    pub base: Option<Amount>,
+    pub date: Option<Date>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -157,7 +162,7 @@ impl<'a> TxnPosting<'a> {
     /// if cost is not specified, and it can be indicated from price. e.g.
     /// `Assets:Card 1 CNY @ 10 AAA` then cost `10 AAA` can be indicated from single price`@ 10 AAA`
     pub fn costs(&self) -> Option<Amount> {
-        self.posting.cost.clone().or_else(|| {
+        self.posting.cost.as_ref().and_then(|it| it.base.clone()).or_else(|| {
             self.posting.price.as_ref().map(|price| match price {
                 SingleTotalPrice::Single(single_price) => single_price.clone(),
                 SingleTotalPrice::Total(total_price) => Amount::new(
@@ -179,12 +184,12 @@ impl<'a> TxnPosting<'a> {
             .units
             .as_ref()
             .map(|unit| match (self.posting.cost.as_ref(), self.posting.price.as_ref()) {
-                (Some(cost), _) => Amount::new((&unit.number).mul(&cost.number), cost.currency.clone()),
+                (Some(PostingCost { base: Some(cost), date: _ }), _) => Amount::new((&unit.number).mul(&cost.number), cost.currency.clone()),
                 (None, Some(price)) => match price {
                     SingleTotalPrice::Single(single_price) => Amount::new((&unit.number).mul(&single_price.number), single_price.currency.clone()),
                     SingleTotalPrice::Total(total_price) => total_price.clone(),
                 },
-                (None, None) => unit.clone(),
+                (None, None) | _ => unit.clone(),
             })
     }
 
@@ -227,7 +232,6 @@ impl<'a> TxnPosting<'a> {
                 txn_date: self.txn.date.naive_date(),
 
                 cost: self.posting.cost.clone(),
-                cost_date: self.posting.cost_date.clone().map(|it| it.naive_date()),
                 price: self.posting.price.clone().map(|price| match price {
                     SingleTotalPrice::Single(amount) => amount,
 
@@ -239,7 +243,6 @@ impl<'a> TxnPosting<'a> {
                 txn_date: self.txn.date.naive_date(),
 
                 cost: None,
-                cost_date: None,
                 price: None,
             }
         }
