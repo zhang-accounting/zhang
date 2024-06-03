@@ -325,42 +325,7 @@ impl Operations {
         }
     }
 
-    /// todo remove fifo method, and extract the generic method for booking method
-    pub fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str) -> ZhangResult<Option<CommodityLotRecord>> {
-        let mut store = self.write();
-        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
-
-        let option = entry
-            .iter()
-            .filter(|lot| lot.commodity.eq(currency))
-            .find(|lot| lot.price.as_ref().map(|it| it.currency.as_str()).eq(&Some(price_commodity)))
-            .cloned();
-
-        Ok(option)
-    }
-
-    // todo: remove it
-    pub(crate) fn update_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
-        let mut store = self.write();
-        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
-
-        let option = entry.iter_mut().find(|lot| lot.price.eq(&price));
-        if let Some(lot) = option {
-            lot.amount = amount.clone();
-        } else {
-            entry.push(CommodityLotRecord {
-                commodity: currency.to_owned(),
-                acquisition_date: None,
-                amount: amount.clone(),
-                cost: None,
-                price,
-            })
-        }
-        Ok(())
-    }
-
-    // todo: rename it
-    pub(crate) fn update_account_lot_2(&mut self, account_name: &str, lot_record: &CommodityLotRecord, amount: &BigDecimal) -> ZhangResult<()> {
+    pub(crate) fn update_account_lot(&mut self, account_name: &str, lot_record: &CommodityLotRecord, amount: &BigDecimal) -> ZhangResult<()> {
         let mut store = self.write();
         let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
@@ -369,20 +334,6 @@ impl Operations {
         if let Some(lot) = option {
             lot.amount = amount.clone();
         }
-        Ok(())
-    }
-
-    pub(crate) fn insert_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
-        let mut store = self.write();
-        let lot_records = store.commodity_lots.entry(account_name.to_owned()).or_default();
-
-        lot_records.push(CommodityLotRecord {
-            commodity: currency.to_owned(),
-            acquisition_date: None,
-            amount: amount.clone(),
-            cost: None,
-            price,
-        });
         Ok(())
     }
 
