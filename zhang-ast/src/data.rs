@@ -189,7 +189,7 @@ impl<'a> TxnPosting<'a> {
                     SingleTotalPrice::Single(single_price) => Amount::new((&unit.number).mul(&single_price.number), single_price.currency.clone()),
                     SingleTotalPrice::Total(total_price) => total_price.clone(),
                 },
-                (None, None) | _ => unit.clone(),
+                _ => unit.clone(),
             })
     }
 

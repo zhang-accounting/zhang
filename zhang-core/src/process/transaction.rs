@@ -1,14 +1,14 @@
 use std::collections::HashMap;
-use std::ops::{Add, AddAssign, Mul, SubAssign};
+use std::ops::{Add, AddAssign, Mul, Neg};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
-use bigdecimal::{BigDecimal, Signed, Zero};
+use bigdecimal::{BigDecimal, One, Signed, Zero};
 use itertools::Itertools;
+use log::trace;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::utils::inventory::BookingMethod;
 use zhang_ast::{Flag, SpanInfo, Transaction};
 
 use crate::constants::TXN_ID;
@@ -35,6 +35,9 @@ impl DirectiveProcess for Transaction {
                     operations.new_error(e, span, meta)?;
                     return Ok(false);
                 }
+                ErrorKind::UnbalancedTransaction => {
+                    // double check in process method
+                }
                 e => {
                     operations.new_error(e, span, meta)?;
                 }
@@ -48,6 +51,8 @@ impl DirectiveProcess for Transaction {
         let mut operations = ledger.operations();
 
         let id = Uuid::from_span(span);
+        let txn_error = operations.check_transaction(self)?;
+
         let sequence = ledger.trx_counter.fetch_add(1, Ordering::Relaxed);
         operations.insert_transaction(
             &id,
@@ -60,6 +65,9 @@ impl DirectiveProcess for Transaction {
             self.links.iter().cloned().collect_vec(),
             span,
         )?;
+
+        let mut balance_checker = BigDecimal::zero();
+        trace!("new balance checker starting with {}", &balance_checker);
 
         for (posting_idx, txn_posting) in self.txn_postings().into_iter().enumerate() {
             let inferred_amount = txn_posting.infer_trade_amount().map_err(ZhangError::ProcessError)?;
@@ -100,8 +108,7 @@ impl DirectiveProcess for Transaction {
                 .typed_meta_value(MetaType::AccountMeta, txn_posting.account_name(), "booking_method")?
                 .unwrap_or(ledger.options.default_booking_method);
 
-            // todo: handle implicit posting cost
-            dbg!(&lot_meta);
+            // handle implicit posting cost
             if let Some(cost) = lot_meta.cost {
                 let mut accr_amount = amount.number.clone();
                 loop {
@@ -112,49 +119,63 @@ impl DirectiveProcess for Transaction {
                         txn_posting.txn.date.naive_date(),
                         booking_method,
                     )?;
-                    dbg!(&target_lot_record);
                     let calculated = (&target_lot_record.amount).add(&accr_amount);
                     if !calculated.is_negative() {
                         // the calculated amount is positive, means it is normal case
                         operations.update_account_lot(&txn_posting.account_name(), &target_lot_record, &calculated)?;
+
+                        balance_checker.add_assign(accr_amount.mul(target_lot_record.cost.map(|it| it.number).unwrap_or(BigDecimal::one())));
+                        trace!("balance checker current value is {}", &balance_checker);
+                        break;
+                    } else if target_lot_record.amount.is_zero() {
+                        // insert error no enough lot record
+                        operations.new_error(
+                            ErrorKind::NoEnoughCommodityLot,
+                            span,
+                            HashMap::of(
+                                // "original_amount",
+                                // target_lot_record.amount.to_string(),
+                                "transaction_amount",
+                                amount.number.to_string(),
+                            ),
+                        )?;
+                        // persist the calculated result even if there is an error
+                        operations.update_account_lot(&txn_posting.account_name(), &target_lot_record, &calculated)?;
+                        balance_checker.add_assign(accr_amount.mul(target_lot_record.cost.map(|it| it.number).unwrap_or(BigDecimal::one())));
+                        trace!("balance checker current value is {}", &balance_checker);
                         break;
                     } else {
-                        if target_lot_record.amount.is_zero() {
-                            // todo: insert error no enough lot record
-                            operations.new_error(
-                                ErrorKind::NoEnoughCommodityLot,
-                                span,
-                                HashMap::of(
-                                    // "original_amount",
-                                    // target_lot_record.amount.to_string(),
-                                    "transaction_amount",
-                                    amount.number.to_string(),
-                                ),
-                            )?;
-                            // persist the calculated result even if there is an error
-                            operations.update_account_lot(&txn_posting.account_name(), &target_lot_record, &calculated)?;
-                            break;
-                        } else {
-                            // if calculated amount is negative, means the matched lots record has no enough amount to do reduction
-                            // then set lots record's amount to zero( delete it)
-                            operations.update_account_lot(&txn_posting.account_name(), &target_lot_record, &BigDecimal::zero())?;
+                        // if calculated amount is negative, means the matched lots record has no enough amount to do reduction
+                        // then set lots record's amount to zero( delete it)
+                        operations.update_account_lot(&txn_posting.account_name(), &target_lot_record, &BigDecimal::zero())?;
 
-                            // subtract the accr amount
-                            accr_amount.add_assign(&target_lot_record.amount);
-                        }
+                        balance_checker.add_assign(
+                            (&target_lot_record.amount)
+                                .mul(target_lot_record.cost.map(|it| it.number).unwrap_or(BigDecimal::one()))
+                                .neg(),
+                        );
+                        trace!("balance checker current value is {}", &balance_checker);
+                        // subtract the accr amount
+                        accr_amount.add_assign(&target_lot_record.amount);
                     }
                 }
             } else {
                 // reduction in default lot
                 let target_lot_record = operations.default_account_lot(&txn_posting.account_name(), &amount.currency)?;
 
-                dbg!(&target_lot_record);
                 operations.update_account_lot(
                     &txn_posting.account_name(),
                     &target_lot_record,
                     &(&target_lot_record.amount).add(&amount.number),
                 )?;
+
+                balance_checker.add_assign(&amount.number);
+                trace!("balance checker current value is {}", &balance_checker);
             }
+        }
+        trace!("final balance checker current value is {}, txn_error is {:?}", &balance_checker, &txn_error);
+        if txn_error == Some(ErrorKind::UnbalancedTransaction) && !balance_checker.is_zero() {
+            operations.new_error(ErrorKind::UnbalancedTransaction, span, HashMap::of(TXN_ID, id.to_string()))?;
         }
 
         // extract documents from meta

@@ -6,7 +6,7 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use strum::{Display, EnumString};
+use strum::Display;
 
 use crate::amount::Amount;
 use crate::error::ErrorKind;

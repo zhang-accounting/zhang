@@ -128,7 +128,7 @@ impl InMemoryOptions {
                     }
                 },
                 BuiltinOption::DefaultBookingMethod => {
-                    self.default_booking_method = BookingMethod::from_str(&value).map_err(|e| ZhangError::InvalidOptionValue)?
+                    self.default_booking_method = BookingMethod::from_str(&value).map_err(|_| ZhangError::InvalidOptionValue)?
                 }
             }
         }

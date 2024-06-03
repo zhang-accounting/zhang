@@ -13,7 +13,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::utils::inventory::{BookingMethod, LotMeta};
+use zhang_ast::utils::inventory::BookingMethod;
 use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, PostingCost, Rounding, SpanInfo, Transaction};
 
 use crate::domains::schemas::{
@@ -262,7 +262,7 @@ impl Operations {
         let mut store = self.write();
         let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
-        let mut option = entry
+        let option = entry
             .iter()
             // match commodity
             .filter(|lot| lot.commodity.eq(currency))
