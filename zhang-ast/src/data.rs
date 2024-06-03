@@ -230,6 +230,8 @@ impl<'a> TxnPosting<'a> {
     pub fn lot_meta(&self) -> LotMeta {
         if let Some(unit) = &self.posting.units {
             LotMeta {
+                txn_date: self.txn.date.naive_date(),
+
                 cost: self.posting.cost.clone(),
                 cost_date: self.posting.cost_date.clone().map(|it| it.naive_date()),
                 price: None,
@@ -241,6 +243,8 @@ impl<'a> TxnPosting<'a> {
             }
         } else {
             LotMeta {
+                txn_date: self.txn.date.naive_date(),
+
                 cost: None,
                 cost_date: None,
                 price: None,

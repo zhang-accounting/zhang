@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, One, Signed, Zero};
 use chrono::{DateTime, NaiveDate};
+use chrono_tz::Tz;
 use indexmap::IndexMap;
 
 use crate::amount::Amount;
@@ -47,6 +48,8 @@ impl FromStr for BookingMethod {
 
 /// retrieve the lot meta info from posting
 pub struct LotMeta {
+    pub txn_date: NaiveDate,
+
     pub cost: Option<Amount>,
     pub cost_date: Option<NaiveDate>,
     pub price: Option<Amount>,

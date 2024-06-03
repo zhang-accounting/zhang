@@ -313,8 +313,11 @@ impl Operations {
             let new_lot_record = CommodityLotRecord {
                 commodity: currency.to_owned(),
                 amount: BigDecimal::zero(),
+
+                // get cost date as acquisition date if persists,
+                // if cost is defined, use txn date as acquisition date
+                acquisition_date: lot_meta.cost_date.or_else(|| lot_meta.cost.as_ref().map(|_| lot_meta.txn_date.clone())),
                 cost: lot_meta.cost,
-                acquisition_date: lot_meta.cost_date,
                 price: lot_meta.price,
             };
             entry.push(new_lot_record.clone());

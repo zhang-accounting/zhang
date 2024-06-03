@@ -1,0 +1,31 @@
+[
+  {
+    "uri": "/api/store",
+    "validations": [
+      [
+        "$.data.commodity_lots.['Assets:A'].[0].cost.number",
+        "10"
+      ],
+      [
+        "$.data.commodity_lots.['Assets:A'].[0].cost.currency",
+        "CNY"
+      ],
+      [
+        "$.data.commodity_lots.['Assets:A'].[0].acquisition_date",
+        "2024-05-16"
+      ],
+      [
+        "$.data.commodity_lots.['Assets:A'].[0].commodity",
+        "USD"
+      ],
+      [
+        "$.data.commodity_lots.['Assets:A'].[0].amount",
+        "10"
+      ],
+      [
+        "$.data.commodity_lots.['Assets:A'].[0].price",
+        null
+      ]
+    ]
+  }
+]
