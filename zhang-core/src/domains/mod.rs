@@ -280,11 +280,11 @@ impl Operations {
             .filter(|it| it.cost.eq(&lot_meta.cost))
             // match cost date
             .filter(|it| {
-                if let Some(cost_date) = lot_meta.cost_date {
-                    // if cost date in lot meta is defined, filter lots with cost date
-                    it.acquisition_date.eq(&Some(cost_date))
+                if lot_meta.cost.is_some() {
+                    // if cost date in lot meta is defined, use txn date
+                    it.acquisition_date.eq(&lot_meta.cost_date.or_else(|| Some(lot_meta.txn_date)))
                 } else {
-                    // if cost date in meta is null, return all lots
+                    // if cost  in meta is null, return all lots
                     true
                 }
             })

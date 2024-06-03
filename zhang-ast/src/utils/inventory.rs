@@ -47,6 +47,7 @@ impl FromStr for BookingMethod {
 }
 
 /// retrieve the lot meta info from posting
+#[derive(Debug)]
 pub struct LotMeta {
     pub txn_date: NaiveDate,
 
