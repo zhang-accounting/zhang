@@ -96,8 +96,6 @@ impl DirectiveProcess for Transaction {
 
             let amount = txn_posting.units().unwrap_or(inferred_amount);
             let lot_meta = txn_posting.lot_meta();
-            dbg!(txn_posting.account_name());
-            dbg!(&lot_meta);
             let booking_method = operations
                 .typed_meta_value(MetaType::AccountMeta, txn_posting.account_name(), "booking_method")?
                 .unwrap_or(BookingMethod::FIFO);

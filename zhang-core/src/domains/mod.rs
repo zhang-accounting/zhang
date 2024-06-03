@@ -329,11 +329,19 @@ impl Operations {
         let mut store = self.write();
         let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
-        let option = entry.iter_mut().find(|lot| lot.eq(&lot_record));
+        if amount.is_zero() {
+            let pos = entry.iter().find_position(|it| it.eq(&lot_record));
+            if let Some((idx, _)) = pos {
+                entry.remove(idx);
+            }
+        } else {
+            let option = entry.iter_mut().find(|lot| lot.eq(&lot_record));
 
-        if let Some(lot) = option {
-            lot.amount = amount.clone();
+            if let Some(lot) = option {
+                lot.amount = amount.clone();
+            }
         }
+
         Ok(())
     }
 

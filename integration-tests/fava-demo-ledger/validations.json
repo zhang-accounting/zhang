@@ -215,6 +215,8 @@
               "price": null
             }
           ],
+          "Assets:US:Federal:PreTax401k": [
+          ],
           "Assets:US:Hoogle:Vacation": [
             {
               "acquisition_date": null,

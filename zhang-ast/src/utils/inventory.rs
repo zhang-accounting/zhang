@@ -3,8 +3,7 @@ use std::ops::{Add, AddAssign};
 use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, One, Signed, Zero};
-use chrono::{DateTime, NaiveDate};
-use chrono_tz::Tz;
+use chrono::NaiveDate;
 use indexmap::IndexMap;
 
 use crate::amount::Amount;
