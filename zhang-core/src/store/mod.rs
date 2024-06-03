@@ -126,7 +126,6 @@ pub struct CommodityLotRecord {
 
     // acquisition date
     pub acquisition_date: Option<NaiveDate>,
-    pub price: Option<Amount>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]

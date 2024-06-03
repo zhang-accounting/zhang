@@ -31,10 +31,6 @@
         "5"
       ],
       [
-        "$.data.commodity_lots.['Assets:A'].[0].price",
-        null
-      ],
-      [
         "$.data.commodity_lots.['Assets:A'].[1].cost.number",
         "10"
       ],
@@ -53,10 +49,6 @@
       [
         "$.data.commodity_lots.['Assets:A'].[1].amount",
         "10"
-      ],
-      [
-        "$.data.commodity_lots.['Assets:A'].[1].price",
-        null
       ]
     ]
   }

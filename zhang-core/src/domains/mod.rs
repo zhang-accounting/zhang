@@ -85,7 +85,7 @@ impl Operations {
                             .acquisition_date
                             .map(|it| tz.from_local_datetime(&it.and_hms_opt(0, 0, 0).unwrap()).unwrap()),
                         amount: lot.amount,
-                        price: lot.price,
+                        price: None,
                     })
                 }
             }
@@ -257,15 +257,6 @@ impl Operations {
         }))
     }
 
-    pub(crate) fn account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>) -> ZhangResult<Option<CommodityLotRecord>> {
-        let mut store = self.write();
-        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
-
-        let option = entry.iter().filter(|lot| lot.commodity.eq(currency)).find(|lot| lot.price.eq(&price)).cloned();
-
-        Ok(option)
-    }
-
     pub(crate) fn account_lot_by_meta<'a>(
         &'a mut self, account_name: &str, currency: &str, lot_meta: &LotMeta, booking_method: BookingMethod,
     ) -> ZhangResult<CommodityLotRecord> {
@@ -287,8 +278,7 @@ impl Operations {
                     // if cost  in meta is null, return all lots
                     true
                 }
-            })
-            .filter(|lot| lot.price.eq(&lot_meta.price));
+            });
 
         let lot_record = match booking_method {
             BookingMethod::FIFO => option.next().cloned(),
@@ -318,7 +308,6 @@ impl Operations {
                 // if cost is defined, use txn date as acquisition date
                 acquisition_date: lot_meta.cost_date.or_else(|| lot_meta.cost.as_ref().map(|_| lot_meta.txn_date.clone())),
                 cost: lot_meta.cost.clone(),
-                price: lot_meta.price.clone(),
             };
             entry.push(new_lot_record.clone());
             Ok(new_lot_record)
@@ -330,13 +319,13 @@ impl Operations {
         let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
         if amount.is_zero() {
+            // if amount is zero, remove the lot's record
             let pos = entry.iter().find_position(|it| it.eq(&lot_record));
             if let Some((idx, _)) = pos {
                 entry.remove(idx);
             }
         } else {
             let option = entry.iter_mut().find(|lot| lot.eq(&lot_record));
-
             if let Some(lot) = option {
                 lot.amount = amount.clone();
             }

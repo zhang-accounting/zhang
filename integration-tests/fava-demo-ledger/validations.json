@@ -14,8 +14,7 @@
               "acquisition_date": null,
               "amount": "2754.06",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Assets:US:ETrade:Cash": [
@@ -23,8 +22,7 @@
               "acquisition_date": null,
               "amount": "855.83",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Assets:US:ETrade:GLD": [
@@ -35,8 +33,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "205.78"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-09-23",
@@ -45,8 +42,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "231.38"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-03-19",
@@ -55,8 +51,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "278.99"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-08-27",
@@ -65,8 +60,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "304.17"
-              },
-              "price": null
+              }
             }
           ],
           "Assets:US:ETrade:ITOT": [
@@ -77,8 +71,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "58.86"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-05-05",
@@ -87,8 +80,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "62.20"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-09-23",
@@ -97,8 +89,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "65.47"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-11-23",
@@ -107,8 +98,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "67.07"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-03-19",
@@ -117,8 +107,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "74.93"
-              },
-              "price": null
+              }
             }
           ],
           "Assets:US:ETrade:VEA": [
@@ -129,8 +118,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "132.93"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-12-30",
@@ -139,8 +127,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "136.96"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-05-05",
@@ -149,8 +136,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "134.63"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-08-13",
@@ -159,8 +145,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "140.97"
-              },
-              "price": null
+              }
             }
           ],
           "Assets:US:ETrade:VHT": [
@@ -171,8 +156,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "113.91"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-08-13",
@@ -181,8 +165,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "119.85"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-09-23",
@@ -191,8 +174,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "119.17"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-03-19",
@@ -201,8 +183,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "115.55"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-08-27",
@@ -211,8 +192,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "132.32"
-              },
-              "price": null
+              }
             }
           ],
           "Assets:US:Federal:PreTax401k": [
@@ -222,8 +202,7 @@
               "acquisition_date": null,
               "amount": "-13",
               "commodity": "VACHR",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Assets:US:Vanguard:Cash": [
@@ -231,8 +210,7 @@
               "acquisition_date": null,
               "amount": "-0.02",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Assets:US:Vanguard:RGAGX": [
@@ -243,8 +221,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "88.07"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-01-19",
@@ -253,8 +230,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "88.87"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-02-02",
@@ -263,8 +239,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "87.85"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-02-16",
@@ -273,8 +248,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "88.22"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-03-02",
@@ -283,8 +257,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "86.62"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-03-16",
@@ -293,8 +266,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "86.15"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-03-30",
@@ -303,8 +275,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "84.63"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-04-13",
@@ -313,8 +284,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "83.67"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-04-27",
@@ -323,8 +293,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "82.26"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-05-11",
@@ -333,8 +302,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "79.16"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-05-25",
@@ -343,8 +311,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "77.08"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-06-08",
@@ -353,8 +320,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "76.41"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-06-22",
@@ -363,8 +329,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "76.25"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-07-06",
@@ -373,8 +338,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "76.73"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-07-20",
@@ -383,8 +347,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "76.93"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-01-18",
@@ -393,8 +356,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "79.50"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-02-01",
@@ -403,8 +365,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "79.55"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-02-15",
@@ -413,8 +374,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "79.04"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-02-29",
@@ -423,8 +383,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "78.44"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-03-14",
@@ -433,8 +392,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "79.41"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-03-28",
@@ -443,8 +401,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "80.91"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-04-11",
@@ -453,8 +410,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "81.72"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-04-25",
@@ -463,8 +419,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "81.20"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-05-09",
@@ -473,8 +428,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "82.22"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-05-23",
@@ -483,8 +437,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "83.38"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-06-06",
@@ -493,8 +446,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "85.28"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-06-20",
@@ -503,8 +455,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "85.62"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-07-04",
@@ -513,8 +464,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "85.66"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-07-18",
@@ -523,8 +473,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "82.52"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-08-01",
@@ -533,8 +482,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "84.29"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-01-16",
@@ -543,8 +491,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "80.98"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-01-30",
@@ -553,8 +500,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "81.13"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-02-13",
@@ -563,8 +509,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "82.15"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-02-27",
@@ -573,8 +518,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "81.24"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-03-13",
@@ -583,8 +527,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "80.12"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-03-27",
@@ -593,8 +536,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "81.16"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-04-10",
@@ -603,8 +545,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "80.46"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-04-24",
@@ -613,8 +554,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "80.45"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-05-08",
@@ -623,8 +563,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "81.57"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-05-22",
@@ -633,8 +572,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "82.51"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-06-05",
@@ -643,8 +581,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "82.12"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-06-19",
@@ -653,8 +590,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "84.40"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-07-03",
@@ -663,8 +599,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "84.98"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-07-17",
@@ -673,8 +608,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "84.41"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-07-31",
@@ -683,8 +617,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "83.30"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-08-14",
@@ -693,8 +626,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "81.40"
-              },
-              "price": null
+              }
             }
           ],
           "Assets:US:Vanguard:VBMPX": [
@@ -705,8 +637,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "136.65"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-01-19",
@@ -715,8 +646,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "138.35"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-02-02",
@@ -725,8 +655,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "139.94"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-02-16",
@@ -735,8 +664,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "140.34"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-03-02",
@@ -745,8 +673,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "140.74"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-03-16",
@@ -755,8 +682,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "142.20"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-03-30",
@@ -765,8 +691,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "141.48"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-04-13",
@@ -775,8 +700,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "143.57"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-04-27",
@@ -785,8 +709,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "145.00"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-05-11",
@@ -795,8 +718,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "147.63"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-05-25",
@@ -805,8 +727,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "148.55"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-06-08",
@@ -815,8 +736,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "148.91"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-06-22",
@@ -825,8 +745,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "150.01"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-07-06",
@@ -835,8 +754,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "148.80"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2015-07-20",
@@ -845,8 +763,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "151.23"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-01-18",
@@ -855,8 +772,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "166.33"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-02-01",
@@ -865,8 +781,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "168.90"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-02-15",
@@ -875,8 +790,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "168.94"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-02-29",
@@ -885,8 +799,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "169.50"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-03-14",
@@ -895,8 +808,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "172.43"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-03-28",
@@ -905,8 +817,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "173.31"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-04-11",
@@ -915,8 +826,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "173.94"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-04-25",
@@ -925,8 +835,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "178.22"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-05-09",
@@ -935,8 +844,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "176.67"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-05-23",
@@ -945,8 +853,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "177.15"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-06-06",
@@ -955,8 +862,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "178.72"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-06-20",
@@ -965,8 +871,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "180.41"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-07-04",
@@ -975,8 +880,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "180.86"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-07-18",
@@ -985,8 +889,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "180.75"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2016-08-01",
@@ -995,8 +898,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "182.73"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-01-16",
@@ -1005,8 +907,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "179.68"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-01-30",
@@ -1015,8 +916,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "181.60"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-02-13",
@@ -1025,8 +925,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "182.75"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-02-27",
@@ -1035,8 +934,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "185.73"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-03-13",
@@ -1045,8 +943,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "188.46"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-03-27",
@@ -1055,8 +952,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "189.47"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-04-10",
@@ -1065,8 +961,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "191.16"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-04-24",
@@ -1075,8 +970,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "196.50"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-05-08",
@@ -1085,8 +979,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "200.23"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-05-22",
@@ -1095,8 +988,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "203.04"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-06-05",
@@ -1105,8 +997,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "206.64"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-06-19",
@@ -1115,8 +1006,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "206.18"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-07-03",
@@ -1125,8 +1015,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "207.83"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-07-17",
@@ -1135,8 +1024,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "207.28"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-07-31",
@@ -1145,8 +1033,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "207.06"
-              },
-              "price": null
+              }
             },
             {
               "acquisition_date": "2017-08-14",
@@ -1155,8 +1042,7 @@
               "cost": {
                 "currency": "USD",
                 "number": "208.79"
-              },
-              "price": null
+              }
             }
           ],
           "Equity:Opening-Balances": [
@@ -1164,8 +1050,7 @@
               "acquisition_date": null,
               "amount": "-3490.52",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Financial:Commissions": [
@@ -1173,8 +1058,7 @@
               "acquisition_date": null,
               "amount": "250.60",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Financial:Fees": [
@@ -1182,8 +1066,7 @@
               "acquisition_date": null,
               "amount": "132.00",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Food:Alcohol": [
@@ -1191,8 +1074,7 @@
               "acquisition_date": null,
               "amount": "63.58",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Food:Coffee": [
@@ -1200,8 +1082,7 @@
               "acquisition_date": null,
               "amount": "76.98",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Food:Groceries": [
@@ -1209,8 +1090,7 @@
               "acquisition_date": null,
               "amount": "5936.42",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Food:Restaurant": [
@@ -1218,8 +1098,7 @@
               "acquisition_date": null,
               "amount": "12083.83",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Health:Dental:Insurance": [
@@ -1227,8 +1106,7 @@
               "acquisition_date": null,
               "amount": "205.90",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Health:Life:GroupTermLife": [
@@ -1236,8 +1114,7 @@
               "acquisition_date": null,
               "amount": "1726.72",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Health:Medical:Insurance": [
@@ -1245,8 +1122,7 @@
               "acquisition_date": null,
               "amount": "1943.98",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Health:Vision:Insurance": [
@@ -1254,8 +1130,7 @@
               "acquisition_date": null,
               "amount": "3003.30",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Home:Electricity": [
@@ -1263,8 +1138,7 @@
               "acquisition_date": null,
               "amount": "2080.00",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Home:Internet": [
@@ -1272,8 +1146,7 @@
               "acquisition_date": null,
               "amount": "2559.51",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Home:Phone": [
@@ -1281,8 +1154,7 @@
               "acquisition_date": null,
               "amount": "2011.73",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Home:Rent": [
@@ -1290,8 +1162,7 @@
               "acquisition_date": null,
               "amount": "76800.00",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2015:US:CityNYC": [
@@ -1299,8 +1170,7 @@
               "acquisition_date": null,
               "amount": "4722.84",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2015:US:Federal": [
@@ -1308,8 +1178,7 @@
               "acquisition_date": null,
               "amount": "28994.07",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2015:US:Federal:PreTax401k": [
@@ -1317,8 +1186,7 @@
               "acquisition_date": null,
               "amount": "18000.00",
               "commodity": "IRAUSD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2015:US:Medicare": [
@@ -1326,8 +1194,7 @@
               "acquisition_date": null,
               "amount": "2878.74",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2015:US:SDI": [
@@ -1335,8 +1202,7 @@
               "acquisition_date": null,
               "amount": "30.24",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2015:US:SocSec": [
@@ -1344,8 +1210,7 @@
               "acquisition_date": null,
               "amount": "7000.04",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2015:US:State": [
@@ -1353,8 +1218,7 @@
               "acquisition_date": null,
               "amount": "10132.08",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2016:US:CityNYC": [
@@ -1362,8 +1226,7 @@
               "acquisition_date": null,
               "amount": "4547.92",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2016:US:Federal": [
@@ -1371,8 +1234,7 @@
               "acquisition_date": null,
               "amount": "28099.08",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2016:US:Federal:PreTax401k": [
@@ -1380,8 +1242,7 @@
               "acquisition_date": null,
               "amount": "18000.00",
               "commodity": "IRAUSD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2016:US:Medicare": [
@@ -1389,8 +1250,7 @@
               "acquisition_date": null,
               "amount": "2772.12",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2016:US:SDI": [
@@ -1398,8 +1258,7 @@
               "acquisition_date": null,
               "amount": "29.12",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2016:US:SocSec": [
@@ -1407,8 +1266,7 @@
               "acquisition_date": null,
               "amount": "7000.04",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2016:US:State": [
@@ -1416,8 +1274,7 @@
               "acquisition_date": null,
               "amount": "9948.61",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2017:US:CityNYC": [
@@ -1425,8 +1282,7 @@
               "acquisition_date": null,
               "amount": "3148.56",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2017:US:Federal": [
@@ -1434,8 +1290,7 @@
               "acquisition_date": null,
               "amount": "19132.56",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2017:US:Federal:PreTax401k": [
@@ -1443,8 +1298,7 @@
               "acquisition_date": null,
               "amount": "18500.00",
               "commodity": "IRAUSD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2017:US:Medicare": [
@@ -1452,8 +1306,7 @@
               "acquisition_date": null,
               "amount": "1919.16",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2017:US:SDI": [
@@ -1461,8 +1314,7 @@
               "acquisition_date": null,
               "amount": "20.16",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2017:US:SocSec": [
@@ -1470,8 +1322,7 @@
               "acquisition_date": null,
               "amount": "5067.72",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Taxes:Y2017:US:State": [
@@ -1479,8 +1330,7 @@
               "acquisition_date": null,
               "amount": "6571.44",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Transport:Tram": [
@@ -1488,8 +1338,7 @@
               "acquisition_date": null,
               "amount": "3720.00",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Expenses:Vacation": [
@@ -1497,8 +1346,7 @@
               "acquisition_date": null,
               "amount": "368",
               "commodity": "VACHR",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Income:US:ETrade:Dividends": [
@@ -1506,8 +1354,7 @@
               "acquisition_date": null,
               "amount": "-479.46",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Income:US:ETrade:Gains": [
@@ -1515,8 +1362,7 @@
               "acquisition_date": null,
               "amount": "-796.42",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Income:US:Federal:PreTax401k": [
@@ -1524,8 +1370,7 @@
               "acquisition_date": null,
               "amount": "-54500",
               "commodity": "IRAUSD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Income:US:Hoogle:GroupTermLife": [
@@ -1533,8 +1378,7 @@
               "acquisition_date": null,
               "amount": "-1726.72",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Income:US:Hoogle:Match401k": [
@@ -1542,8 +1386,7 @@
               "acquisition_date": null,
               "amount": "-27250.00",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Income:US:Hoogle:Salary": [
@@ -1551,8 +1394,7 @@
               "acquisition_date": null,
               "amount": "-327691.98",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Income:US:Hoogle:Vacation": [
@@ -1560,8 +1402,7 @@
               "acquisition_date": null,
               "amount": "-355",
               "commodity": "VACHR",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ],
           "Liabilities:AccountsPayable": [
@@ -1571,8 +1412,7 @@
               "acquisition_date": null,
               "amount": "-2703.29",
               "commodity": "USD",
-              "cost": null,
-              "price": null
+              "cost": null
             }
           ]
         }

@@ -8,7 +8,7 @@ use itertools::Itertools;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::utils::inventory::{BookingMethod, LotInfo};
+use zhang_ast::utils::inventory::BookingMethod;
 use zhang_ast::{Flag, SpanInfo, Transaction};
 
 use crate::constants::TXN_ID;

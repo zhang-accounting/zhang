@@ -29,10 +29,6 @@
       [
         "$.data.commodity_lots.['Assets:A'].[0].amount",
         "-10"
-      ],
-      [
-        "$.data.commodity_lots.['Assets:A'].[0].price",
-        null
       ]
     ]
   }

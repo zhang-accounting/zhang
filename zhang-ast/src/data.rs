@@ -227,6 +227,8 @@ impl<'a> TxnPosting<'a> {
             }
         })
     }
+
+    /// return meta of lots, using to generate lot's record
     pub fn lot_meta(&self) -> LotMeta {
         if let Some(unit) = &self.posting.units {
             LotMeta {
