@@ -8,7 +8,7 @@ use itertools::Itertools;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::utils::inventory::LotInfo;
+use zhang_ast::utils::inventory::{BookingMethod, LotInfo};
 use zhang_ast::{Flag, SpanInfo, Transaction};
 
 use crate::constants::TXN_ID;
@@ -96,8 +96,14 @@ impl DirectiveProcess for Transaction {
 
             let amount = txn_posting.units().unwrap_or(inferred_amount);
             let lot_info = txn_posting.lots().unwrap_or(LotInfo::Fifo);
-            process::lot_add(txn_posting.account_name(), amount, lot_info, &mut operations)?;
+            let lot_meta = txn_posting.lot_meta();
+            let booking_method = operations
+                .typed_meta_value(MetaType::AccountMeta, txn_posting.account_name(), "booking_method")?
+                .unwrap_or(BookingMethod::FIFO);
+            process::lot_add(txn_posting.account_name(), amount, lot_meta, booking_method, &mut operations)?;
         }
+
+        // extract documents from meta
         for document in self.meta.clone().get_flatten().into_iter().filter(|(key, _)| key.eq("document")) {
             let (_, document_file_name) = document;
             let document_path = document_file_name.to_plain_string();

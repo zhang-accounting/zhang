@@ -74,7 +74,7 @@ pub enum FileSystem {
 
 impl FileSystem {
     fn from_env() -> Option<FileSystem> {
-        match dbg!(std::env::var("ZHANG_DATA_SOURCE").as_deref()) {
+        match std::env::var("ZHANG_DATA_SOURCE").as_deref() {
             Ok("fs") => Some(FileSystem::Fs),
             Ok("web-dav") => Some(FileSystem::WebDav),
             Ok("github") => Some(FileSystem::Github),
@@ -244,17 +244,16 @@ mod test {
                 if entry.path().eq(&original_test_source_folder) {
                     continue;
                 }
-                dbg!(&entry);
                 if entry.path().is_dir() {
                     // create dir
                     let target_folder = entry.path().strip_prefix(&original_test_source_folder).unwrap();
-                    tokio::fs::create_dir_all(dbg!(test_temp_folder.join(target_folder)))
+                    tokio::fs::create_dir_all(test_temp_folder.join(target_folder))
                         .await
                         .expect("cannot create folder");
                 } else {
                     // copy file
                     let target_file = entry.path().strip_prefix(&original_test_source_folder).unwrap();
-                    tokio::fs::copy(dbg!(entry.path()), dbg!(test_temp_folder.join(target_file)))
+                    tokio::fs::copy(entry.path(), test_temp_folder.join(target_file))
                         .await
                         .expect("cannot create folder");
                 }
@@ -315,7 +314,7 @@ mod test {
                     let value = res.clone().path(&point.0).unwrap();
                     let expected_value = Value::Array(vec![point.1]);
                     if !expected_value.eq(&value) {
-                        panic!("Validation fail: {} != {}", &expected_value, &value);
+                        panic!("Validation fail ({}): {} != {}", point.0, &expected_value, &value);
                     }
                 }
             }

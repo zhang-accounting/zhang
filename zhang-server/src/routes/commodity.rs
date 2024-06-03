@@ -45,6 +45,7 @@ pub async fn get_all_commodities(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResul
 pub async fn get_single_commodity(ledger: State<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<CommodityDetailResponse> {
     let commodity_name = params.0 .0;
     let ledger = ledger.read().await;
+    let tz = &ledger.options.timezone;
     let operating_currency = ledger.options.operating_currency.clone();
 
     let operations = ledger.operations();
@@ -69,7 +70,7 @@ pub async fn get_single_commodity(ledger: State<Arc<RwLock<Ledger>>>, params: Pa
     };
 
     let lots = operations
-        .commodity_lots(&commodity_name)?
+        .commodity_lots(&commodity_name, tz)?
         .into_iter()
         .map(|it| CommodityLot {
             datetime: it.datetime.map(|date| date.naive_local()),

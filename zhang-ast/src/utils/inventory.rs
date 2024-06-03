@@ -1,19 +1,55 @@
 use std::collections::HashMap;
 use std::ops::{Add, AddAssign};
+use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, One, Signed, Zero};
+use chrono::{DateTime, NaiveDate};
 use indexmap::IndexMap;
 
 use crate::amount::Amount;
+use crate::error::ErrorKind;
 use crate::Currency;
 
 pub type AmountLotPair = (Option<Amount>, Option<LotInfo>);
 
+// todo: remove lot info
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum LotInfo {
     Lot(Currency, BigDecimal),
     Fifo,
     Filo,
+}
+
+pub enum BookingMethod {
+    STRICT,
+    FIFO,
+    LIFO,
+    AVERAGE,
+    AVERAGE_ONLY,
+    NONE,
+}
+
+impl FromStr for BookingMethod {
+    type Err = ErrorKind;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "STRICT" => Ok(BookingMethod::STRICT),
+            "FIFO" => Ok(BookingMethod::FIFO),
+            "LIFO" => Ok(BookingMethod::LIFO),
+            "AVERAGE" => Ok(BookingMethod::AVERAGE),
+            "AVERAGE_ONLY" => Ok(BookingMethod::AVERAGE_ONLY),
+            "NONE" => Ok(BookingMethod::NONE),
+            _ => Err(ErrorKind::ParseInvalidMeta),
+        }
+    }
+}
+
+/// retrieve the lot meta info from posting
+pub struct LotMeta {
+    pub cost: Option<Amount>,
+    pub cost_date: Option<NaiveDate>,
+    pub price: Option<Amount>,
 }
 
 #[derive(Clone, Debug)]

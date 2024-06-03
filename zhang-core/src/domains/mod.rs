@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -12,6 +12,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
+use zhang_ast::utils::inventory::{BookingMethod, LotMeta};
 use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, Rounding, SpanInfo, Transaction};
 
 use crate::domains::schemas::{
@@ -70,7 +71,7 @@ impl Operations {
 
 impl Operations {
     /// single commodity lots
-    pub fn commodity_lots(&self, commodity: impl AsRef<str>) -> ZhangResult<Vec<AccountCommodityLot>> {
+    pub fn commodity_lots(&self, commodity: impl AsRef<str>, tz: &Tz) -> ZhangResult<Vec<AccountCommodityLot>> {
         let store = self.read();
         let commodity = commodity.as_ref();
         let mut ret = vec![];
@@ -80,7 +81,9 @@ impl Operations {
                     let lot = lot.clone();
                     ret.push(AccountCommodityLot {
                         account: Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?,
-                        datetime: lot.datetime,
+                        datetime: lot
+                            .acquisition_date
+                            .map(|it| tz.from_local_datetime(&it.and_hms_opt(0, 0, 0).unwrap()).unwrap()),
                         amount: lot.amount,
                         price: lot.price,
                     })
@@ -95,7 +98,7 @@ impl Operations {
     pub fn read(&self) -> RwLockReadGuard<Store> {
         self.store.read().expect("poison lock detect")
     }
-    pub fn write(&self) -> RwLockWriteGuard<Store> {
+    pub fn write<'a>(&'a self) -> RwLockWriteGuard<'a, Store> {
         self.store.write().expect("poison lock detect")
     }
 }
@@ -263,6 +266,63 @@ impl Operations {
         Ok(option)
     }
 
+    pub(crate) fn account_lot_by_meta<'a>(
+        &'a mut self, account_name: &str, currency: &str, lot_meta: LotMeta, booking_method: BookingMethod,
+    ) -> ZhangResult<CommodityLotRecord> {
+        let mut store = self.write();
+        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
+
+        let mut option = entry
+            .iter()
+            // match commodity
+            .filter(|lot| lot.commodity.eq(currency))
+            // match cost, works with empty cost
+            .filter(|it| it.cost.eq(&lot_meta.cost))
+            // match cost date
+            .filter(|it| {
+                if let Some(cost_date) = lot_meta.cost_date {
+                    // if cost date in lot meta is defined, filter lots with cost date
+                    it.acquisition_date.eq(&Some(cost_date))
+                } else {
+                    // if cost date in meta is null, return all lots
+                    true
+                }
+            })
+            .filter(|lot| lot.price.eq(&lot_meta.price));
+
+        let lot_record = match booking_method {
+            BookingMethod::FIFO => option.next().cloned(),
+            BookingMethod::LIFO => option.rev().next().cloned(),
+            BookingMethod::AVERAGE => {
+                unimplemented!()
+            }
+            BookingMethod::AVERAGE_ONLY => {
+                unimplemented!()
+            }
+            BookingMethod::STRICT => {
+                unimplemented!()
+            }
+            BookingMethod::NONE => {
+                unimplemented!()
+            }
+        };
+        if let Some(record) = lot_record {
+            Ok(record)
+        } else {
+            // if target lot record does not exist, insert a new one and return it
+            let new_lot_record = CommodityLotRecord {
+                commodity: currency.to_owned(),
+                amount: BigDecimal::zero(),
+                cost: lot_meta.cost,
+                acquisition_date: lot_meta.cost_date,
+                price: lot_meta.price,
+            };
+            entry.push(new_lot_record.clone());
+            Ok(new_lot_record)
+        }
+    }
+
+    /// todo remove fifo method, and extract the generic method for booking method
     pub fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str) -> ZhangResult<Option<CommodityLotRecord>> {
         let mut store = self.write();
         let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
@@ -275,6 +335,8 @@ impl Operations {
 
         Ok(option)
     }
+
+    // todo: remove it
     pub(crate) fn update_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
         let mut store = self.write();
         let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
@@ -285,10 +347,24 @@ impl Operations {
         } else {
             entry.push(CommodityLotRecord {
                 commodity: currency.to_owned(),
-                datetime: None,
+                acquisition_date: None,
                 amount: amount.clone(),
+                cost: None,
                 price,
             })
+        }
+        Ok(())
+    }
+
+    // todo: rename it
+    pub(crate) fn update_account_lot_2(&mut self, account_name: &str, lot_record: &CommodityLotRecord, amount: &BigDecimal) -> ZhangResult<()> {
+        let mut store = self.write();
+        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
+
+        let option = entry.iter_mut().find(|lot| lot.eq(&lot_record));
+
+        if let Some(lot) = option {
+            lot.amount = amount.clone();
         }
         Ok(())
     }
@@ -299,8 +375,9 @@ impl Operations {
 
         lot_records.push(CommodityLotRecord {
             commodity: currency.to_owned(),
-            datetime: None,
+            acquisition_date: None,
             amount: amount.clone(),
+            cost: None,
             price,
         });
         Ok(())
@@ -422,6 +499,22 @@ impl Operations {
             .filter(|meta| meta.type_identifier.eq(type_identifier.as_ref()))
             .find(|meta| meta.key.eq(key.as_ref()))
             .cloned())
+    }
+    pub fn typed_meta_value<T>(&self, type_: MetaType, type_identifier: impl AsRef<str>, key: impl AsRef<str>) -> ZhangResult<Option<T>>
+    where
+        T: FromStr<Err = ErrorKind>,
+    {
+        let store = self.read();
+
+        store
+            .metas
+            .iter()
+            .filter(|meta| meta.meta_type.eq(type_.as_ref()))
+            .filter(|meta| meta.type_identifier.eq(type_identifier.as_ref()))
+            .find(|meta| meta.key.eq(key.as_ref()))
+            .map(|it| T::from_str(&it.value))
+            .transpose()
+            .map_err(|e| ZhangError::ProcessError(e))
     }
 
     pub fn trx_tags(&mut self, trx_id: &Uuid) -> ZhangResult<Vec<String>> {

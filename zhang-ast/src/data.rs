@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::amount::Amount;
 use crate::error::ErrorKind;
 use crate::models::*;
-use crate::utils::inventory::{AmountLotPair, Inventory, LotInfo};
+use crate::utils::inventory::{AmountLotPair, Inventory, LotInfo, LotMeta};
 use crate::utils::multi_value_map::MultiValueMap;
 use crate::Account;
 
@@ -226,6 +226,26 @@ impl<'a> TxnPosting<'a> {
                 _ => Err(ErrorKind::TransactionHasMultipleImplicitPosting),
             }
         })
+    }
+    pub fn lot_meta(&self) -> LotMeta {
+        if let Some(unit) = &self.posting.units {
+            LotMeta {
+                cost: self.posting.cost.clone(),
+                cost_date: self.posting.cost_date.clone().map(|it| it.naive_date()),
+                price: None,
+                // price: self.posting.price.clone().map(|price| match price {
+                //     SingleTotalPrice::Single(amount) => amount,
+                //
+                //     SingleTotalPrice::Total(amount) => amount.div(unit.number.clone()),
+                // }),
+            }
+        } else {
+            LotMeta {
+                cost: None,
+                cost_date: None,
+                price: None,
+            }
+        }
     }
     pub fn lots(&self) -> Option<LotInfo> {
         if let Some(unit) = &self.posting.units {
