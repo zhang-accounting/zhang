@@ -19,7 +19,7 @@ use crate::process::DirectiveProcess;
 use crate::store::DocumentType;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
-use crate::{process, ZhangError, ZhangResult};
+use crate::{ZhangError, ZhangResult};
 
 impl DirectiveProcess for Transaction {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
@@ -98,7 +98,7 @@ impl DirectiveProcess for Transaction {
             let lot_meta = txn_posting.lot_meta();
             let booking_method = operations
                 .typed_meta_value(MetaType::AccountMeta, txn_posting.account_name(), "booking_method")?
-                .unwrap_or(BookingMethod::FIFO);
+                .unwrap_or(BookingMethod::Fifo);
 
             let target_lot_record = operations.account_lot_by_meta(&txn_posting.account_name(), &amount.currency, &lot_meta, booking_method)?;
 

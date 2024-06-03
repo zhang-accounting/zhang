@@ -8,6 +8,7 @@ use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, 
 use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
+use log::debug;
 use serde::Deserialize;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
@@ -98,7 +99,7 @@ impl Operations {
     pub fn read(&self) -> RwLockReadGuard<Store> {
         self.store.read().expect("poison lock detect")
     }
-    pub fn write<'a>(&'a self) -> RwLockWriteGuard<'a, Store> {
+    pub fn write(&self) -> RwLockWriteGuard<Store> {
         self.store.write().expect("poison lock detect")
     }
 }
@@ -163,7 +164,7 @@ impl Operations {
                     };
                     let precision = commodity.precision;
                     let rounding = commodity.rounding;
-                    let decimal = amount.total.round_with(precision as i64, rounding.is_up());
+                    let decimal = amount.round_with(precision as i64, rounding.is_up());
                     if !decimal.is_zero() {
                         return Ok(Some(ErrorKind::UnbalancedTransaction));
                     }
@@ -257,8 +258,8 @@ impl Operations {
         }))
     }
 
-    pub(crate) fn account_lot_by_meta<'a>(
-        &'a mut self, account_name: &str, currency: &str, lot_meta: &LotMeta, booking_method: BookingMethod,
+    pub(crate) fn account_lot_by_meta(
+        &mut self, account_name: &str, currency: &str, lot_meta: &LotMeta, booking_method: BookingMethod,
     ) -> ZhangResult<CommodityLotRecord> {
         let mut store = self.write();
         let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
@@ -273,7 +274,7 @@ impl Operations {
             .filter(|it| {
                 if lot_meta.cost.is_some() {
                     // if cost date in lot meta is defined, use txn date
-                    it.acquisition_date.eq(&lot_meta.cost_date.or_else(|| Some(lot_meta.txn_date)))
+                    it.acquisition_date.eq(&lot_meta.cost_date.or(Some(lot_meta.txn_date)))
                 } else {
                     // if cost  in meta is null, return all lots
                     true
@@ -281,18 +282,18 @@ impl Operations {
             });
 
         let lot_record = match booking_method {
-            BookingMethod::FIFO => option.next().cloned(),
-            BookingMethod::LIFO => option.rev().next().cloned(),
-            BookingMethod::AVERAGE => {
+            BookingMethod::Fifo => option.next().cloned(),
+            BookingMethod::Lifo => option.next_back().cloned(),
+            BookingMethod::Average => {
                 unimplemented!()
             }
-            BookingMethod::AVERAGE_ONLY => {
+            BookingMethod::AverageOnly => {
                 unimplemented!()
             }
-            BookingMethod::STRICT => {
+            BookingMethod::Strict => {
                 unimplemented!()
             }
-            BookingMethod::NONE => {
+            BookingMethod::None => {
                 unimplemented!()
             }
         };
@@ -306,7 +307,7 @@ impl Operations {
 
                 // get cost date as acquisition date if persists,
                 // if cost is defined, use txn date as acquisition date
-                acquisition_date: lot_meta.cost_date.or_else(|| lot_meta.cost.as_ref().map(|_| lot_meta.txn_date.clone())),
+                acquisition_date: lot_meta.cost_date.or_else(|| lot_meta.cost.as_ref().map(|_| lot_meta.txn_date)),
                 cost: lot_meta.cost.clone(),
             };
             entry.push(new_lot_record.clone());
@@ -465,7 +466,7 @@ impl Operations {
             .find(|meta| meta.key.eq(key.as_ref()))
             .map(|it| T::from_str(&it.value))
             .transpose()
-            .map_err(|e| ZhangError::ProcessError(e))
+            .map_err(ZhangError::ProcessError)
     }
 
     pub fn trx_tags(&mut self, trx_id: &Uuid) -> ZhangResult<Vec<String>> {
@@ -799,6 +800,7 @@ impl Operations {
 impl Operations {
     pub fn new_error(&mut self, error_kind: ErrorKind, span: &SpanInfo, metas: HashMap<String, String>) -> ZhangResult<()> {
         let mut store = self.write();
+        debug!("insert a new error [{}] [span: {:?}] [meta:{:?}]", &error_kind, &span, &metas);
         store.errors.push(ErrorDomain {
             id: Uuid::from_span(span).to_string(),
             error_type: error_kind,

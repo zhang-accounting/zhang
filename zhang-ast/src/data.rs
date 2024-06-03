@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::amount::Amount;
 use crate::error::ErrorKind;
 use crate::models::*;
-use crate::utils::inventory::{AmountLotPair, Inventory, LotInfo, LotMeta};
+use crate::utils::inventory::{Inventory, LotMeta};
 use crate::utils::multi_value_map::MultiValueMap;
 use crate::Account;
 
@@ -129,8 +129,7 @@ impl Transaction {
         };
         for posting in self.txn_postings() {
             let amount = posting.infer_trade_amount()?;
-            let lot_info = posting.lots().unwrap_or(LotInfo::Fifo);
-            inventory.add_lot(amount, lot_info);
+            inventory.add_amount(amount);
         }
         // todo work with commodity precision
         Ok(inventory)
@@ -193,23 +192,16 @@ impl<'a> TxnPosting<'a> {
     pub fn infer_trade_amount(&self) -> Result<Amount, ErrorKind> {
         self.trade_amount().map(Ok).unwrap_or_else(|| {
             // get other postings' trade amount
-            let (trade_amount_postings, non_trade_amount_postings): (Vec<AmountLotPair>, Vec<AmountLotPair>) = self
-                .txn
-                .txn_postings()
-                .iter()
-                .map(|it| (it.trade_amount(), it.lots()))
-                .partition(|it| it.0.is_some());
+            let (trade_amount_postings, non_trade_amount_postings): (Vec<Option<Amount>>, Vec<Option<Amount>>) =
+                self.txn.txn_postings().iter().map(|it| (it.trade_amount())).partition(|it| it.is_some());
             match non_trade_amount_postings.len() {
                 0 => unreachable!("txn should not have zero posting"),
                 1 => {
                     let mut inventory = Inventory {
                         currencies: Default::default(),
                     };
-                    for (trade_amount, lot) in trade_amount_postings {
-                        if let Some(trade_amount) = trade_amount {
-                            let info = lot.unwrap_or(LotInfo::Fifo);
-                            inventory.add_lot(trade_amount, info);
-                        }
+                    for trade_amount in trade_amount_postings.into_iter().flatten() {
+                        inventory.add_amount(trade_amount);
                     }
                     match inventory.size() {
                         0 => Err(ErrorKind::TransactionCannotInferTradeAmount),
@@ -236,12 +228,11 @@ impl<'a> TxnPosting<'a> {
 
                 cost: self.posting.cost.clone(),
                 cost_date: self.posting.cost_date.clone().map(|it| it.naive_date()),
-                price: None,
-                // price: self.posting.price.clone().map(|price| match price {
-                //     SingleTotalPrice::Single(amount) => amount,
-                //
-                //     SingleTotalPrice::Total(amount) => amount.div(unit.number.clone()),
-                // }),
+                price: self.posting.price.clone().map(|price| match price {
+                    SingleTotalPrice::Single(amount) => amount,
+
+                    SingleTotalPrice::Total(amount) => amount.div(unit.number.clone()),
+                }),
             }
         } else {
             LotMeta {
@@ -251,23 +242,6 @@ impl<'a> TxnPosting<'a> {
                 cost_date: None,
                 price: None,
             }
-        }
-    }
-    pub fn lots(&self) -> Option<LotInfo> {
-        if let Some(unit) = &self.posting.units {
-            if let Some(cost) = &self.posting.cost {
-                Some(LotInfo::Lot(cost.currency.clone(), cost.number.clone()))
-            } else if let Some(price) = &self.posting.price {
-                match price {
-                    SingleTotalPrice::Single(amount) => Some(LotInfo::Lot(amount.currency.clone(), amount.number.clone())),
-                    SingleTotalPrice::Total(amount) => Some(LotInfo::Lot(amount.currency.clone(), (&amount.number).div(&unit.number))),
-                }
-            } else {
-                None
-            }
-        } else {
-            // should be load account default
-            None
         }
     }
 

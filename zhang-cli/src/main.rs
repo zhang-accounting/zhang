@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use clap::{Args, Parser};
 use env_logger::Env;
-use log::{error, info, LevelFilter};
+use log::{error, info};
 use self_update::Status;
 use tokio::task::spawn_blocking;
 use zhang_server::ServeConfig;
