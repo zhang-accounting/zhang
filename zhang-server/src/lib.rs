@@ -25,7 +25,6 @@ use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
-use uuid::{uuid, Uuid};
 use zhang_core::data_source::DataSource;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
