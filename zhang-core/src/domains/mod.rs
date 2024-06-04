@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -51,9 +51,10 @@ pub struct StaticRow {
 
 pub struct AccountCommodityLot {
     pub account: Account,
-    pub datetime: Option<DateTime<Tz>>,
     pub amount: BigDecimal,
+    pub cost: Option<Amount>,
     pub price: Option<Amount>,
+    pub acquisition_date: Option<NaiveDate>,
 }
 
 pub struct Operations {
@@ -72,7 +73,7 @@ impl Operations {
 
 impl Operations {
     /// single commodity lots
-    pub fn commodity_lots(&self, commodity: impl AsRef<str>, tz: &Tz) -> ZhangResult<Vec<AccountCommodityLot>> {
+    pub fn commodity_lots(&self, commodity: impl AsRef<str>) -> ZhangResult<Vec<AccountCommodityLot>> {
         let store = self.read();
         let commodity = commodity.as_ref();
         let mut ret = vec![];
@@ -82,10 +83,9 @@ impl Operations {
                     let lot = lot.clone();
                     ret.push(AccountCommodityLot {
                         account: Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?,
-                        datetime: lot
-                            .acquisition_date
-                            .map(|it| tz.from_local_datetime(&it.and_hms_opt(0, 0, 0).unwrap()).unwrap()),
                         amount: lot.amount,
+                        cost: lot.cost,
+                        acquisition_date: lot.acquisition_date,
                         price: None,
                     })
                 }

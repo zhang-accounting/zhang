@@ -95,11 +95,12 @@ export interface CommodityDetail {
 }
 
 export interface CommodityLot {
-  datetime?: string;
-  amount: string;
-  price_amount?: string;
-  price_commodity?: string;
   account: string;
+  amount: string;
+
+  cost?: AmountResponse;
+  price?: AmountResponse;
+  acquisition_date?: string;
 }
 
 export interface CommodityPrice {
