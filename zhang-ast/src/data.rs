@@ -175,10 +175,10 @@ impl<'a> TxnPosting<'a> {
     /// trade amount means the amount used for other postings to calculate balance
     /// 1. if `unit` is null, return null
     /// 2. if `unit` is present,
-    /// 2.1 return `unit * cost`, if cost is present
-    /// 2.2 return `unit * single_price`, if single price is present
-    /// 2.3 return `total_price`, if total price is present
-    /// 2.4 return `unit`, if both cost and price are not present.
+    ///    2.1 return `unit * cost`, if cost is present
+    ///    2.2 return `unit * single_price`, if single price is present
+    ///    2.3 return `total_price`, if total price is present
+    ///    2.4 return `unit`, if both cost and price are not present.
     pub fn trade_amount(&self) -> Option<Amount> {
         self.posting
             .units
