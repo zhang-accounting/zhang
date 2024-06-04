@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use bigdecimal::BigDecimal;
-use chrono::DateTime;
+use chrono::{DateTime, NaiveDate};
 use chrono_tz::Tz;
 use indexmap::IndexMap;
 use uuid::Uuid;
@@ -117,12 +117,15 @@ pub struct DocumentDomain {
     pub path: String,
 }
 
-#[derive(Default, Clone, Debug, serde::Serialize)]
+#[derive(Default, Clone, Debug, serde::Serialize, PartialEq)]
 pub struct CommodityLotRecord {
     pub commodity: String,
-    pub datetime: Option<DateTime<Tz>>,
     pub amount: BigDecimal,
-    pub price: Option<Amount>,
+
+    pub cost: Option<Amount>,
+
+    // acquisition date
+    pub acquisition_date: Option<NaiveDate>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]

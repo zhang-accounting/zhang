@@ -110,12 +110,7 @@ impl ZhangDataTypeExportable for Posting {
     type Output = Vec<String>;
     fn export(self) -> Vec<String> {
         // todo cost and price
-        let cost_string = if self.cost.is_some() || self.cost_date.is_some() {
-            let vec2 = vec![self.cost.map(|it| it.export()), self.cost_date.map(|it| it.export())];
-            Some(format!("{{ {} }}", vec2.into_iter().flatten().join(", ")))
-        } else {
-            None
-        };
+        let cost_string = self.cost.map(|it| it.export());
         let vec1 = vec![
             self.flag.map(|it| format!(" {}", it.export())),
             Some(self.account.export()),
@@ -127,6 +122,23 @@ impl ZhangDataTypeExportable for Posting {
         ret.insert(0, vec1.into_iter().flatten().join(" "));
 
         ret
+    }
+}
+
+impl ZhangDataTypeExportable for PostingCost {
+    type Output = String;
+
+    fn export(self) -> Self::Output {
+        let mut string_builder = vec!["{".to_string()];
+        if let Some(cost_base) = self.base {
+            string_builder.push(cost_base.export());
+        };
+        if let Some(date) = self.date {
+            string_builder.push(",".to_string());
+            string_builder.push(date.export());
+        };
+        string_builder.push("}".to_string());
+        string_builder.join(" ")
     }
 }
 
@@ -458,7 +470,7 @@ mod test {
             "transaction directive with price",
             indoc! {r#"
             1970-01-01 * "Narration"
-              Assets:123 -1 CNY { 0.1 USD, 2111-11-11 }
+              Assets:123 -1 CNY { 0.1 USD , 2111-11-11 }
               Expenses:TestCategory:One 1 CNY { 0.1 USD }
         "#}
         );

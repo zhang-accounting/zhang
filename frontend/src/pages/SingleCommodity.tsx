@@ -34,18 +34,24 @@ export default function SingleCommodity() {
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Account</Table.Th>
-                <Table.Th>Lot</Table.Th>
-                <Table.Th>Balance</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>Cost</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>Price</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>Balance</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <tbody>
               {data.lots.map((it, idx) => (
                 <Table.Tr key={idx}>
                   <Table.Td>{it.account}</Table.Td>
-                  <Table.Td>
-                    {it.price_amount} {it.price_commodity}
+                  <Table.Td style={{ textAlign: 'right' }}>
+                    {it.cost?.number} {it.cost?.currency}
                   </Table.Td>
-                  <Table.Td>{it.amount}</Table.Td>
+                  <Table.Td style={{ textAlign: 'right' }}>
+                    {it.price?.number} {it.price?.currency}
+                  </Table.Td>
+                  <Table.Td style={{ textAlign: 'right' }}>
+                    <Amount amount={it.amount} currency={''} />
+                  </Table.Td>
                 </Table.Tr>
               ))}
             </tbody>

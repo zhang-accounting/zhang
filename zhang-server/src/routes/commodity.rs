@@ -7,7 +7,7 @@ use zhang_core::constants::COMMODITY_GROUP;
 use zhang_core::domains::schemas::{CommodityDomain, MetaType};
 use zhang_core::ledger::Ledger;
 
-use crate::response::{CommodityDetailResponse, CommodityListItemResponse, CommodityLot, CommodityPrice, ResponseWrapper};
+use crate::response::{CommodityDetailResponse, CommodityListItemResponse, CommodityLotResponse, CommodityPrice, ResponseWrapper};
 use crate::ApiResult;
 
 pub async fn get_all_commodities(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<CommodityListItemResponse>> {
@@ -71,12 +71,12 @@ pub async fn get_single_commodity(ledger: State<Arc<RwLock<Ledger>>>, params: Pa
     let lots = operations
         .commodity_lots(&commodity_name)?
         .into_iter()
-        .map(|it| CommodityLot {
-            datetime: it.datetime.map(|date| date.naive_local()),
-            amount: it.amount,
-            price_amount: it.price.as_ref().map(|price| price.number.clone()),
-            price_commodity: it.price.as_ref().map(|price| price.currency.clone()),
+        .map(|it| CommodityLotResponse {
             account: it.account.name().to_owned(),
+            amount: it.amount,
+            cost: it.cost,
+            price: it.price,
+            acquisition_date: it.acquisition_date,
         })
         .collect_vec();
 

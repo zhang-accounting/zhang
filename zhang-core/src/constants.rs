@@ -18,6 +18,8 @@ pub const DEFAULT_ROUNDING_PLAIN: &str = "RoundDown";
 pub const DEFAULT_COMMODITY_PRECISION_PLAIN: &str = "2";
 pub const DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN: &str = "2";
 
+pub const DEFAULT_BOOKING_METHOD: &str = "FIFO";
+
 pub const TRUE: &str = "true";
 
 pub const TXN_ID: &str = "txn_id";

@@ -25,7 +25,6 @@ use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
-use uuid::{uuid, Uuid};
 use zhang_core::data_source::DataSource;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
@@ -111,13 +110,12 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
 }
 
 fn start_report_tasker() {
-    let uuid = uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8");
     tokio::spawn(async move {
         let mut report_interval = tokio::time::interval(Duration::from_secs(60 * 60));
-        info!("start zhang's version report task, random uuid {} is generated", &uuid);
+        info!("start zhang's version report task");
         loop {
             report_interval.tick().await;
-            match version_report_task(uuid).await {
+            match version_report_task().await {
                 Ok(_) => {
                     debug!("report zhang's version successfully");
                 }
@@ -294,12 +292,11 @@ pub fn create_server_app(
     }
 }
 
-async fn version_report_task(uuid: Uuid) -> ServerResult<()> {
+async fn version_report_task() -> ServerResult<()> {
     #[derive(Serialize)]
     struct VersionReport<'a> {
         version: &'a str,
         build_date: &'a str,
-        uuid: &'a Uuid,
     }
     debug!("reporting zhang's version");
     let client = reqwest::Client::new();
@@ -308,7 +305,6 @@ async fn version_report_task(uuid: Uuid) -> ServerResult<()> {
         .json(&VersionReport {
             version: env!("ZHANG_BUILD_VERSION"),
             build_date: env!("ZHANG_BUILD_DATE"),
-            uuid: &uuid,
         })
         .timeout(Duration::from_secs(10))
         .send()

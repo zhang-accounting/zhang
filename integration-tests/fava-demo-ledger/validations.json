@@ -1,2 +1,1422 @@
 [
+  {
+    "uri": "/api/store",
+    "validations": [
+      [
+        "$.data.errors.length()",
+        0
+      ],
+      [
+        "$.data.commodity_lots",
+        {
+          "Assets:US:BofA:Checking": [
+            {
+              "acquisition_date": null,
+              "amount": "2754.06",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Assets:US:ETrade:Cash": [
+            {
+              "acquisition_date": null,
+              "amount": "855.83",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Assets:US:ETrade:GLD": [
+            {
+              "acquisition_date": "2016-05-05",
+              "amount": "2",
+              "commodity": "GLD",
+              "cost": {
+                "currency": "USD",
+                "number": "205.78"
+              }
+            },
+            {
+              "acquisition_date": "2016-09-23",
+              "amount": "5",
+              "commodity": "GLD",
+              "cost": {
+                "currency": "USD",
+                "number": "231.38"
+              }
+            },
+            {
+              "acquisition_date": "2017-03-19",
+              "amount": "2",
+              "commodity": "GLD",
+              "cost": {
+                "currency": "USD",
+                "number": "278.99"
+              }
+            },
+            {
+              "acquisition_date": "2017-08-27",
+              "amount": "8",
+              "commodity": "GLD",
+              "cost": {
+                "currency": "USD",
+                "number": "304.17"
+              }
+            }
+          ],
+          "Assets:US:ETrade:ITOT": [
+            {
+              "acquisition_date": "2015-09-15",
+              "amount": "18",
+              "commodity": "ITOT",
+              "cost": {
+                "currency": "USD",
+                "number": "58.86"
+              }
+            },
+            {
+              "acquisition_date": "2016-05-05",
+              "amount": "8",
+              "commodity": "ITOT",
+              "cost": {
+                "currency": "USD",
+                "number": "62.20"
+              }
+            },
+            {
+              "acquisition_date": "2016-09-23",
+              "amount": "19",
+              "commodity": "ITOT",
+              "cost": {
+                "currency": "USD",
+                "number": "65.47"
+              }
+            },
+            {
+              "acquisition_date": "2016-11-23",
+              "amount": "50",
+              "commodity": "ITOT",
+              "cost": {
+                "currency": "USD",
+                "number": "67.07"
+              }
+            },
+            {
+              "acquisition_date": "2017-03-19",
+              "amount": "9",
+              "commodity": "ITOT",
+              "cost": {
+                "currency": "USD",
+                "number": "74.93"
+              }
+            }
+          ],
+          "Assets:US:ETrade:VEA": [
+            {
+              "acquisition_date": "2015-09-15",
+              "amount": "8",
+              "commodity": "VEA",
+              "cost": {
+                "currency": "USD",
+                "number": "132.93"
+              }
+            },
+            {
+              "acquisition_date": "2015-12-30",
+              "amount": "8",
+              "commodity": "VEA",
+              "cost": {
+                "currency": "USD",
+                "number": "136.96"
+              }
+            },
+            {
+              "acquisition_date": "2016-05-05",
+              "amount": "3",
+              "commodity": "VEA",
+              "cost": {
+                "currency": "USD",
+                "number": "134.63"
+              }
+            },
+            {
+              "acquisition_date": "2016-08-13",
+              "amount": "17",
+              "commodity": "VEA",
+              "cost": {
+                "currency": "USD",
+                "number": "140.97"
+              }
+            }
+          ],
+          "Assets:US:ETrade:VHT": [
+            {
+              "acquisition_date": "2015-09-15",
+              "amount": "9",
+              "commodity": "VHT",
+              "cost": {
+                "currency": "USD",
+                "number": "113.91"
+              }
+            },
+            {
+              "acquisition_date": "2016-08-13",
+              "amount": "20",
+              "commodity": "VHT",
+              "cost": {
+                "currency": "USD",
+                "number": "119.85"
+              }
+            },
+            {
+              "acquisition_date": "2016-09-23",
+              "amount": "10",
+              "commodity": "VHT",
+              "cost": {
+                "currency": "USD",
+                "number": "119.17"
+              }
+            },
+            {
+              "acquisition_date": "2017-03-19",
+              "amount": "6",
+              "commodity": "VHT",
+              "cost": {
+                "currency": "USD",
+                "number": "115.55"
+              }
+            },
+            {
+              "acquisition_date": "2017-08-27",
+              "amount": "19",
+              "commodity": "VHT",
+              "cost": {
+                "currency": "USD",
+                "number": "132.32"
+              }
+            }
+          ],
+          "Assets:US:Federal:PreTax401k": [
+          ],
+          "Assets:US:Hoogle:Vacation": [
+            {
+              "acquisition_date": null,
+              "amount": "-13",
+              "commodity": "VACHR",
+              "cost": null
+            }
+          ],
+          "Assets:US:Vanguard:Cash": [
+            {
+              "acquisition_date": null,
+              "amount": "-0.02",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Assets:US:Vanguard:RGAGX": [
+            {
+              "acquisition_date": "2015-01-05",
+              "amount": "12.263",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "88.07"
+              }
+            },
+            {
+              "acquisition_date": "2015-01-19",
+              "amount": "12.153",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "88.87"
+              }
+            },
+            {
+              "acquisition_date": "2015-02-02",
+              "amount": "12.294",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "87.85"
+              }
+            },
+            {
+              "acquisition_date": "2015-02-16",
+              "amount": "12.242",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "88.22"
+              }
+            },
+            {
+              "acquisition_date": "2015-03-02",
+              "amount": "12.468",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "86.62"
+              }
+            },
+            {
+              "acquisition_date": "2015-03-16",
+              "amount": "12.536",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "86.15"
+              }
+            },
+            {
+              "acquisition_date": "2015-03-30",
+              "amount": "12.761",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "84.63"
+              }
+            },
+            {
+              "acquisition_date": "2015-04-13",
+              "amount": "12.908",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "83.67"
+              }
+            },
+            {
+              "acquisition_date": "2015-04-27",
+              "amount": "13.130",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "82.26"
+              }
+            },
+            {
+              "acquisition_date": "2015-05-11",
+              "amount": "13.643",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "79.16"
+              }
+            },
+            {
+              "acquisition_date": "2015-05-25",
+              "amount": "14.012",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "77.08"
+              }
+            },
+            {
+              "acquisition_date": "2015-06-08",
+              "amount": "14.134",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "76.41"
+              }
+            },
+            {
+              "acquisition_date": "2015-06-22",
+              "amount": "14.163",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "76.25"
+              }
+            },
+            {
+              "acquisition_date": "2015-07-06",
+              "amount": "14.075",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "76.73"
+              }
+            },
+            {
+              "acquisition_date": "2015-07-20",
+              "amount": "14.039",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "76.93"
+              }
+            },
+            {
+              "acquisition_date": "2016-01-18",
+              "amount": "13.584",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "79.50"
+              }
+            },
+            {
+              "acquisition_date": "2016-02-01",
+              "amount": "13.576",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "79.55"
+              }
+            },
+            {
+              "acquisition_date": "2016-02-15",
+              "amount": "13.664",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "79.04"
+              }
+            },
+            {
+              "acquisition_date": "2016-02-29",
+              "amount": "13.768",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "78.44"
+              }
+            },
+            {
+              "acquisition_date": "2016-03-14",
+              "amount": "13.600",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "79.41"
+              }
+            },
+            {
+              "acquisition_date": "2016-03-28",
+              "amount": "13.348",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "80.91"
+              }
+            },
+            {
+              "acquisition_date": "2016-04-11",
+              "amount": "13.216",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "81.72"
+              }
+            },
+            {
+              "acquisition_date": "2016-04-25",
+              "amount": "13.300",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "81.20"
+              }
+            },
+            {
+              "acquisition_date": "2016-05-09",
+              "amount": "13.134",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "82.22"
+              }
+            },
+            {
+              "acquisition_date": "2016-05-23",
+              "amount": "12.953",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "83.38"
+              }
+            },
+            {
+              "acquisition_date": "2016-06-06",
+              "amount": "12.664",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "85.28"
+              }
+            },
+            {
+              "acquisition_date": "2016-06-20",
+              "amount": "12.614",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "85.62"
+              }
+            },
+            {
+              "acquisition_date": "2016-07-04",
+              "amount": "12.609",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "85.66"
+              }
+            },
+            {
+              "acquisition_date": "2016-07-18",
+              "amount": "13.087",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "82.52"
+              }
+            },
+            {
+              "acquisition_date": "2016-08-01",
+              "amount": "12.812",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "84.29"
+              }
+            },
+            {
+              "acquisition_date": "2017-01-16",
+              "amount": "13.337",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "80.98"
+              }
+            },
+            {
+              "acquisition_date": "2017-01-30",
+              "amount": "13.313",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "81.13"
+              }
+            },
+            {
+              "acquisition_date": "2017-02-13",
+              "amount": "13.147",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "82.15"
+              }
+            },
+            {
+              "acquisition_date": "2017-02-27",
+              "amount": "13.294",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "81.24"
+              }
+            },
+            {
+              "acquisition_date": "2017-03-13",
+              "amount": "13.479",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "80.12"
+              }
+            },
+            {
+              "acquisition_date": "2017-03-27",
+              "amount": "13.307",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "81.16"
+              }
+            },
+            {
+              "acquisition_date": "2017-04-10",
+              "amount": "13.422",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "80.46"
+              }
+            },
+            {
+              "acquisition_date": "2017-04-24",
+              "amount": "13.425",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "80.45"
+              }
+            },
+            {
+              "acquisition_date": "2017-05-08",
+              "amount": "13.241",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "81.57"
+              }
+            },
+            {
+              "acquisition_date": "2017-05-22",
+              "amount": "13.089",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "82.51"
+              }
+            },
+            {
+              "acquisition_date": "2017-06-05",
+              "amount": "13.152",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "82.12"
+              }
+            },
+            {
+              "acquisition_date": "2017-06-19",
+              "amount": "12.797",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "84.40"
+              }
+            },
+            {
+              "acquisition_date": "2017-07-03",
+              "amount": "12.708",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "84.98"
+              }
+            },
+            {
+              "acquisition_date": "2017-07-17",
+              "amount": "12.794",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "84.41"
+              }
+            },
+            {
+              "acquisition_date": "2017-07-31",
+              "amount": "12.965",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "83.30"
+              }
+            },
+            {
+              "acquisition_date": "2017-08-14",
+              "amount": "5.528",
+              "commodity": "RGAGX",
+              "cost": {
+                "currency": "USD",
+                "number": "81.40"
+              }
+            }
+          ],
+          "Assets:US:Vanguard:VBMPX": [
+            {
+              "acquisition_date": "2015-01-05",
+              "amount": "5.269",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "136.65"
+              }
+            },
+            {
+              "acquisition_date": "2015-01-19",
+              "amount": "5.204",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "138.35"
+              }
+            },
+            {
+              "acquisition_date": "2015-02-02",
+              "amount": "5.145",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "139.94"
+              }
+            },
+            {
+              "acquisition_date": "2015-02-16",
+              "amount": "5.130",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "140.34"
+              }
+            },
+            {
+              "acquisition_date": "2015-03-02",
+              "amount": "5.116",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "140.74"
+              }
+            },
+            {
+              "acquisition_date": "2015-03-16",
+              "amount": "5.064",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "142.20"
+              }
+            },
+            {
+              "acquisition_date": "2015-03-30",
+              "amount": "5.089",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "141.48"
+              }
+            },
+            {
+              "acquisition_date": "2015-04-13",
+              "amount": "5.015",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "143.57"
+              }
+            },
+            {
+              "acquisition_date": "2015-04-27",
+              "amount": "4.965",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "145.00"
+              }
+            },
+            {
+              "acquisition_date": "2015-05-11",
+              "amount": "4.877",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "147.63"
+              }
+            },
+            {
+              "acquisition_date": "2015-05-25",
+              "amount": "4.847",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "148.55"
+              }
+            },
+            {
+              "acquisition_date": "2015-06-08",
+              "amount": "4.835",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "148.91"
+              }
+            },
+            {
+              "acquisition_date": "2015-06-22",
+              "amount": "4.800",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "150.01"
+              }
+            },
+            {
+              "acquisition_date": "2015-07-06",
+              "amount": "4.839",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "148.80"
+              }
+            },
+            {
+              "acquisition_date": "2015-07-20",
+              "amount": "4.761",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "151.23"
+              }
+            },
+            {
+              "acquisition_date": "2016-01-18",
+              "amount": "4.329",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "166.33"
+              }
+            },
+            {
+              "acquisition_date": "2016-02-01",
+              "amount": "4.263",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "168.90"
+              }
+            },
+            {
+              "acquisition_date": "2016-02-15",
+              "amount": "4.262",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "168.94"
+              }
+            },
+            {
+              "acquisition_date": "2016-02-29",
+              "amount": "4.248",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "169.50"
+              }
+            },
+            {
+              "acquisition_date": "2016-03-14",
+              "amount": "4.176",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "172.43"
+              }
+            },
+            {
+              "acquisition_date": "2016-03-28",
+              "amount": "4.154",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "173.31"
+              }
+            },
+            {
+              "acquisition_date": "2016-04-11",
+              "amount": "4.140",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "173.94"
+              }
+            },
+            {
+              "acquisition_date": "2016-04-25",
+              "amount": "4.040",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "178.22"
+              }
+            },
+            {
+              "acquisition_date": "2016-05-09",
+              "amount": "4.075",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "176.67"
+              }
+            },
+            {
+              "acquisition_date": "2016-05-23",
+              "amount": "4.065",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "177.15"
+              }
+            },
+            {
+              "acquisition_date": "2016-06-06",
+              "amount": "4.029",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "178.72"
+              }
+            },
+            {
+              "acquisition_date": "2016-06-20",
+              "amount": "3.990",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "180.41"
+              }
+            },
+            {
+              "acquisition_date": "2016-07-04",
+              "amount": "3.981",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "180.86"
+              }
+            },
+            {
+              "acquisition_date": "2016-07-18",
+              "amount": "3.984",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "180.75"
+              }
+            },
+            {
+              "acquisition_date": "2016-08-01",
+              "amount": "3.940",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "182.73"
+              }
+            },
+            {
+              "acquisition_date": "2017-01-16",
+              "amount": "4.007",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "179.68"
+              }
+            },
+            {
+              "acquisition_date": "2017-01-30",
+              "amount": "3.965",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "181.60"
+              }
+            },
+            {
+              "acquisition_date": "2017-02-13",
+              "amount": "3.939",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "182.75"
+              }
+            },
+            {
+              "acquisition_date": "2017-02-27",
+              "amount": "3.877",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "185.73"
+              }
+            },
+            {
+              "acquisition_date": "2017-03-13",
+              "amount": "3.821",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "188.46"
+              }
+            },
+            {
+              "acquisition_date": "2017-03-27",
+              "amount": "3.800",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "189.47"
+              }
+            },
+            {
+              "acquisition_date": "2017-04-10",
+              "amount": "3.766",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "191.16"
+              }
+            },
+            {
+              "acquisition_date": "2017-04-24",
+              "amount": "3.664",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "196.50"
+              }
+            },
+            {
+              "acquisition_date": "2017-05-08",
+              "amount": "3.596",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "200.23"
+              }
+            },
+            {
+              "acquisition_date": "2017-05-22",
+              "amount": "3.546",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "203.04"
+              }
+            },
+            {
+              "acquisition_date": "2017-06-05",
+              "amount": "3.484",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "206.64"
+              }
+            },
+            {
+              "acquisition_date": "2017-06-19",
+              "amount": "3.492",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "206.18"
+              }
+            },
+            {
+              "acquisition_date": "2017-07-03",
+              "amount": "3.465",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "207.83"
+              }
+            },
+            {
+              "acquisition_date": "2017-07-17",
+              "amount": "3.474",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "207.28"
+              }
+            },
+            {
+              "acquisition_date": "2017-07-31",
+              "amount": "3.477",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "207.06"
+              }
+            },
+            {
+              "acquisition_date": "2017-08-14",
+              "amount": "1.437",
+              "commodity": "VBMPX",
+              "cost": {
+                "currency": "USD",
+                "number": "208.79"
+              }
+            }
+          ],
+          "Equity:Opening-Balances": [
+            {
+              "acquisition_date": null,
+              "amount": "-3490.52",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Financial:Commissions": [
+            {
+              "acquisition_date": null,
+              "amount": "250.60",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Financial:Fees": [
+            {
+              "acquisition_date": null,
+              "amount": "132.00",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Food:Alcohol": [
+            {
+              "acquisition_date": null,
+              "amount": "63.58",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Food:Coffee": [
+            {
+              "acquisition_date": null,
+              "amount": "76.98",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Food:Groceries": [
+            {
+              "acquisition_date": null,
+              "amount": "5936.42",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Food:Restaurant": [
+            {
+              "acquisition_date": null,
+              "amount": "12083.83",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Health:Dental:Insurance": [
+            {
+              "acquisition_date": null,
+              "amount": "205.90",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Health:Life:GroupTermLife": [
+            {
+              "acquisition_date": null,
+              "amount": "1726.72",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Health:Medical:Insurance": [
+            {
+              "acquisition_date": null,
+              "amount": "1943.98",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Health:Vision:Insurance": [
+            {
+              "acquisition_date": null,
+              "amount": "3003.30",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Home:Electricity": [
+            {
+              "acquisition_date": null,
+              "amount": "2080.00",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Home:Internet": [
+            {
+              "acquisition_date": null,
+              "amount": "2559.51",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Home:Phone": [
+            {
+              "acquisition_date": null,
+              "amount": "2011.73",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Home:Rent": [
+            {
+              "acquisition_date": null,
+              "amount": "76800.00",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2015:US:CityNYC": [
+            {
+              "acquisition_date": null,
+              "amount": "4722.84",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2015:US:Federal": [
+            {
+              "acquisition_date": null,
+              "amount": "28994.07",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2015:US:Federal:PreTax401k": [
+            {
+              "acquisition_date": null,
+              "amount": "18000.00",
+              "commodity": "IRAUSD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2015:US:Medicare": [
+            {
+              "acquisition_date": null,
+              "amount": "2878.74",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2015:US:SDI": [
+            {
+              "acquisition_date": null,
+              "amount": "30.24",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2015:US:SocSec": [
+            {
+              "acquisition_date": null,
+              "amount": "7000.04",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2015:US:State": [
+            {
+              "acquisition_date": null,
+              "amount": "10132.08",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2016:US:CityNYC": [
+            {
+              "acquisition_date": null,
+              "amount": "4547.92",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2016:US:Federal": [
+            {
+              "acquisition_date": null,
+              "amount": "28099.08",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2016:US:Federal:PreTax401k": [
+            {
+              "acquisition_date": null,
+              "amount": "18000.00",
+              "commodity": "IRAUSD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2016:US:Medicare": [
+            {
+              "acquisition_date": null,
+              "amount": "2772.12",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2016:US:SDI": [
+            {
+              "acquisition_date": null,
+              "amount": "29.12",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2016:US:SocSec": [
+            {
+              "acquisition_date": null,
+              "amount": "7000.04",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2016:US:State": [
+            {
+              "acquisition_date": null,
+              "amount": "9948.61",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2017:US:CityNYC": [
+            {
+              "acquisition_date": null,
+              "amount": "3148.56",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2017:US:Federal": [
+            {
+              "acquisition_date": null,
+              "amount": "19132.56",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2017:US:Federal:PreTax401k": [
+            {
+              "acquisition_date": null,
+              "amount": "18500.00",
+              "commodity": "IRAUSD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2017:US:Medicare": [
+            {
+              "acquisition_date": null,
+              "amount": "1919.16",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2017:US:SDI": [
+            {
+              "acquisition_date": null,
+              "amount": "20.16",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2017:US:SocSec": [
+            {
+              "acquisition_date": null,
+              "amount": "5067.72",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Taxes:Y2017:US:State": [
+            {
+              "acquisition_date": null,
+              "amount": "6571.44",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Transport:Tram": [
+            {
+              "acquisition_date": null,
+              "amount": "3720.00",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Expenses:Vacation": [
+            {
+              "acquisition_date": null,
+              "amount": "368",
+              "commodity": "VACHR",
+              "cost": null
+            }
+          ],
+          "Income:US:ETrade:Dividends": [
+            {
+              "acquisition_date": null,
+              "amount": "-479.46",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Income:US:ETrade:Gains": [
+            {
+              "acquisition_date": null,
+              "amount": "-796.42",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Income:US:Federal:PreTax401k": [
+            {
+              "acquisition_date": null,
+              "amount": "-54500",
+              "commodity": "IRAUSD",
+              "cost": null
+            }
+          ],
+          "Income:US:Hoogle:GroupTermLife": [
+            {
+              "acquisition_date": null,
+              "amount": "-1726.72",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Income:US:Hoogle:Match401k": [
+            {
+              "acquisition_date": null,
+              "amount": "-27250.00",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Income:US:Hoogle:Salary": [
+            {
+              "acquisition_date": null,
+              "amount": "-327691.98",
+              "commodity": "USD",
+              "cost": null
+            }
+          ],
+          "Income:US:Hoogle:Vacation": [
+            {
+              "acquisition_date": null,
+              "amount": "-355",
+              "commodity": "VACHR",
+              "cost": null
+            }
+          ],
+          "Liabilities:AccountsPayable": [
+          ],
+          "Liabilities:US:Chase:Slate": [
+            {
+              "acquisition_date": null,
+              "amount": "-2703.29",
+              "commodity": "USD",
+              "cost": null
+            }
+          ]
+        }
+      ]
+    ]
+  }
 ]

@@ -1,13 +1,9 @@
 use std::collections::HashMap;
-use std::ops::Add;
 
-use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::utils::inventory::LotInfo;
 use zhang_ast::*;
 
 use crate::domains::schemas::AccountStatus;
-use crate::domains::Operations;
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::ZhangResult;
@@ -88,42 +84,5 @@ fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span: &Span
             HashMap::of("commodity_name", commodity_name.to_string()),
         )?;
     }
-    Ok(())
-}
-
-fn lot_add(account_name: AccountName, amount: Amount, lot_info: LotInfo, operations: &mut Operations) -> ZhangResult<()> {
-    match lot_info {
-        LotInfo::Lot(target_currency, lot_number) => {
-            let price = Amount::new(lot_number, target_currency);
-
-            let lot = operations.account_lot(&account_name, &amount.currency, Some(price.clone()))?;
-
-            if let Some(lot_row) = lot {
-                operations.update_account_lot(&account_name, &amount.currency, Some(price), &lot_row.amount.add(&amount.number))?;
-            } else {
-                operations.insert_account_lot(&account_name, &amount.currency, Some(price.clone()), &amount.number)?;
-            }
-        }
-        LotInfo::Fifo => {
-            let lot = operations.account_lot(&account_name, &amount.currency, None)?;
-            if let Some(lot) = lot {
-                if lot.price.is_some() {
-                    // target lot
-                    operations.update_account_lot(&account_name, &amount.currency, lot.price, &lot.amount.add(&amount.number))?;
-
-                    // todo check negative
-                } else {
-                    // default lot
-                    operations.update_account_lot(&account_name, &amount.currency, None, &lot.amount.add(&amount.number))?;
-                }
-            } else {
-                operations.insert_account_lot(&account_name, &amount.currency, None, &amount.number)?;
-            }
-        }
-        LotInfo::Filo => {
-            unimplemented!()
-        }
-    }
-
     Ok(())
 }

@@ -245,12 +245,13 @@ pub struct CommodityListItemResponse {
 }
 
 #[derive(Serialize)]
-pub struct CommodityLot {
-    pub datetime: Option<NaiveDateTime>,
-    pub amount: BigDecimal,
-    pub price_amount: Option<BigDecimal>,
-    pub price_commodity: Option<String>,
+pub struct CommodityLotResponse {
     pub account: String,
+    pub amount: BigDecimal,
+
+    pub cost: Option<Amount>,
+    pub price: Option<Amount>,
+    pub acquisition_date: Option<NaiveDate>,
 }
 
 #[derive(Serialize)]
@@ -263,7 +264,7 @@ pub struct CommodityPrice {
 #[derive(Serialize)]
 pub struct CommodityDetailResponse {
     pub info: CommodityListItemResponse,
-    pub lots: Vec<CommodityLot>,
+    pub lots: Vec<CommodityLotResponse>,
     pub prices: Vec<CommodityPrice>,
 }
 

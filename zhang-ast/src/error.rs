@@ -7,17 +7,21 @@ pub enum ErrorKind {
     TransactionCannotInferTradeAmount,
     TransactionHasMultipleImplicitPosting,
     TransactionExplicitPostingHaveMultipleCommodity,
-    InvalidFlag,
+    TransactionDoesNotBalance,
 
+    InvalidFlag,
     AccountBalanceCheckError,
     AccountDoesNotExist,
     AccountClosed,
-    TransactionDoesNotBalance,
+
     CommodityDoesNotDefine,
+    NoEnoughCommodityLot,
     CloseNonZeroAccount,
 
     BudgetDoesNotExist,
     DefineDuplicatedBudget,
 
     MultipleOperatingCurrencyDetect,
+
+    ParseInvalidMeta,
 }
