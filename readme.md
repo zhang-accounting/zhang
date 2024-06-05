@@ -16,7 +16,7 @@
 - Documentation: [Documentation](https://zhang-accounting.kilerd.me/)
 
 [![Discord Banner 2](https://discord.com/api/guilds/1217736070045896704/widget.png?style=banner2)](https://discord.gg/EGjwhnV267)
-![/assets/TestFlight_Light.svg](https://testflight.apple.com/join/3pm50he2)
+[![testflight icon](/assets/TestFlight_Light.svg)](https://testflight.apple.com/join/3pm50he2)
 
 ## Features
 
