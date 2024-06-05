@@ -15,6 +15,9 @@
 - Online Demo: [Online Demo](https://zhang-accounting.zeabur.app/)
 - Documentation: [Documentation](https://zhang-accounting.kilerd.me/)
 
+[![Discord Banner 2](https://discord.com/api/guilds/1217736070045896704/widget.png?style=banner2)](https://discord.gg/EGjwhnV267)
+![/assets/TestFlight_Light.svg](https://testflight.apple.com/join/3pm50he2)
+
 ## Features
 
 - **Independent Direcitve**: all directives in zhang are independent, you can write them in any file with any order.
@@ -31,3 +34,6 @@ But zhang deprecates some directives, like `note`, `pad` and `push_tag`, and asl
 like `balance`. So your beancount file may not be compatible with zhang, we will provide a tool to convert beancount
 format to zhang format, and vice versa.
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=zhang-accounting/zhang&type=Date)](https://star-history.com/#zhang-accounting/zhang&Date)
