@@ -9,7 +9,6 @@ pub enum ErrorKind {
     TransactionExplicitPostingHaveMultipleCommodity,
     TransactionDoesNotBalance,
 
-    InvalidFlag,
     AccountBalanceCheckError,
     AccountDoesNotExist,
     AccountClosed,

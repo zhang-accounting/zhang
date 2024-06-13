@@ -3,13 +3,11 @@ title: Webdav
 description: This is a page in my Starlight-powered site
 ---
 
-
-下面是启动 webdav 所需要的参数配置：
-
-| 名称           | 命令行参数  | 环境变量                  | 必填 | 值         | 备注                                  |
-|--------------|--------|-----------------------|----|-----------|-------------------------------------|
-| 数据源          | source | ZHANG_DATA_SOURCE     | 是  | `web-dav` |
-| webdav 服务器地址 |        | ZHANG_WEBDAV_ENDPOINT | 是  |           | 例如：`https://dav.jianguoyun.com/dav` |
-| webdav 数据根目录 |        | ZHANG_WEBDAV_ROOT     | 是  |           | 例如： `/accounting`                   |
-| webdav 用户名   |        | ZHANG_WEBDAV_USERNAME | 是  |           |                                     |
-| webdav 密码    |        | ZHANG_WEBDAV_PASSWORD | 否  |           |                                     |
+Below are the parameter configurations required to start WebDAV:
+| Name | Command Line Parameter | Environment Variable | Required | Value | Remarks |
+|---------------|---------------------|-------------------------------|---------|------------|-------------------------------------|
+| Data Source | source | ZHANG_DATA_SOURCE | Yes | `web-dav` |
+| WebDAV Server Address | | ZHANG_WEBDAV_ENDPOINT | Yes | | For example: `https://dav.jianguoyun.com/dav` |
+| WebDAV Data Root Directory | | ZHANG_WEBDAV_ROOT | Yes | | For example: `/accounting` |
+| WebDAV Username | | ZHANG_WEBDAV_USERNAME | Yes | | |
+| WebDAV Password | | ZHANG_WEBDAV_PASSWORD | No | | |

@@ -1,13 +1,12 @@
 ---
-title: 加载 beancount 数据
+title: Load Beancount Data
 description: This is a page in my Starlight-powered site
 ---
 
+Zhang comes bundled with a Beancount processor, which automatically launches when the main file has a `.bc`, `.bean`,
+or `.beancount` extension, starting the Zhang server.
 
-zhang 自带了 beancount 的处理器，也会在**主文件** `endpoint` 的文件后缀为 `.bc`, `.bean` 或 `.beancount` 时，以 **beancount 处理器**启动
-zhang 服务端。
-
-因此你需要在启动时指定 endpoint 为 beancount 主文件。
+To get started, simply specify the Beancount main file as the endpoint.
 
 ```shell
 docker run --name zhang -v "/local/beancount:/data" -p "8000:8000" kilerd/zhang:snapshot --endpoint data.bean
