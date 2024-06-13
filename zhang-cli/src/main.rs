@@ -124,6 +124,7 @@ impl Opts {
             Opts::Export(_) => todo!(),
             Opts::Serve(mut opts) => {
                 let file_system = opts.source.clone().or(FileSystem::from_env()).unwrap_or(FileSystem::Fs);
+                info!("active file system is {:?}", &file_system);
                 let data_source = OpendalDataSource::from_env(file_system.clone(), &mut opts).await;
                 let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(':'));
                 let result = zhang_server::serve(ServeConfig {

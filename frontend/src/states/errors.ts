@@ -6,7 +6,6 @@ export enum LedgerErrorType {
   AccountBalanceCheckError = 'AccountBalanceCheckError',
   AccountDoesNotExist = 'AccountDoesNotExist',
   AccountClosed = 'AccountClosed',
-  TransactionDoesNotBalance = 'TransactionDoesNotBalance',
   CommodityDoesNotDefine = 'CommodityDoesNotDefine',
   TransactionHasMultipleImplicitPosting = 'TransactionHasMultipleImplicitPosting',
 }
