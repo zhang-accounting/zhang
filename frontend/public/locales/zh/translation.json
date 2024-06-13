@@ -33,5 +33,6 @@
     "MultipleOperatingCurrencyDetect": "账本中存在多项 operating currency 的配置，这是 zhang 中不推荐的用法",
     "DefineDuplicatedBudget": "尝试创建一个重复的预算",
     "UnbalancedTransaction": "交易不平衡"
-  }
+  },
+  "ERROR_BOX_WHY": "为什么出错?"
 }

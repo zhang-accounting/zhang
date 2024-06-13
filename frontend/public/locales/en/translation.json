@@ -33,5 +33,6 @@
     "UnbalancedTransaction": "Transaction is Unbalanced"
   },
   "ACCOUNT_FILTER_PLACEHOLDER": "filter by keyword...",
-  "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "clean account filter keyword"
+  "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "clean account filter keyword",
+  "ERROR_BOX_WHY": "Why is it a problem?"
 }

@@ -1,4 +1,4 @@
-import { Button, Group, Modal, Pagination, Stack, Text, Textarea } from '@mantine/core';
+import { Anchor, Button, Group, Modal, Pagination, Stack, Text, Textarea } from '@mantine/core';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LoadingState } from '../rest-model';
@@ -53,7 +53,7 @@ export default function ErrorBox() {
         centered
         opened={isOpen}
         onClose={() => setIsOpen(false)}
-        title={`${selectError?.span.filename}:${selectError?.span.start}:${selectError?.span.end}`}
+        title={`${selectError?.span.filename}:L${selectError?.span.start}:${selectError?.span.end}`}
       >
         <Text>{t(`ERROR.${selectError?.error_type || ''}`)}</Text>
         <Textarea
@@ -62,13 +62,20 @@ export default function ErrorBox() {
             setSelectErrorContent(event.target.value);
           }}
         />
-        <Group justify="right">
-          <Button onClick={onModalReset} variant="default">
-            {t('RESET')}
-          </Button>
-          <Button onClick={saveErrorModfiyData} variant="default">
-            {t('SAVE')}
-          </Button>
+        <Group justify="space-between" mt={'lg'}>
+          <Group>
+            <Anchor href={`https://zhang-accounting.kilerd.me/user-guide/error-code/#${selectError?.error_type.toLocaleLowerCase()}`} target="_blank">
+              {t('ERROR_BOX_WHY')}
+            </Anchor>
+          </Group>
+          <Group>
+            <Button onClick={onModalReset} variant="default">
+              {t('RESET')}
+            </Button>
+            <Button onClick={saveErrorModfiyData} variant="default">
+              {t('SAVE')}
+            </Button>
+          </Group>
         </Group>
       </Modal>
       <Stack>
