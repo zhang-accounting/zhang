@@ -26,7 +26,6 @@
     "AccountDoesNotExist": "对应账户不存在",
     "AccountBalanceCheckError": "账户定期对账不通过",
     "AccountClosed": "尝试使用一个已经关闭的账户",
-    "TransactionDoesNotBalance": "该交易行间金额不平衡",
     "CommodityDoesNotDefine": "尝试使用一个未定义的货币",
     "TransactionHasMultipleImplicitPosting": "该交易存在多条隐形/需推倒金额的行",
     "CloseNonZeroAccount": "尝试关闭一个余额非零的账户",
