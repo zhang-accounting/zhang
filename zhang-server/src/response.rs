@@ -95,13 +95,6 @@ pub struct DocumentResponse {
 }
 
 #[derive(Serialize)]
-pub struct StatisticFrameResponse {
-    datetime: NaiveDateTime,
-    amount: BigDecimal,
-    commodity: String,
-}
-
-#[derive(Serialize)]
 pub struct StatisticResponse {
     pub changes: HashMap<NaiveDate, HashMap<String, AmountResponse>>, // summaries:
     pub details: HashMap<NaiveDate, HashMap<String, AmountResponse>>,
