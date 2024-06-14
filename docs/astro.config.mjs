@@ -6,6 +6,14 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'Zhang Accounting',
+      head: [{
+        tag: 'script',
+        attrs: {
+          src: 'https://analytics.kilerd.me/script.js',
+          'data-website-id': '3648c073-f066-4ddd-b07f-a1e208505a42',
+          defer: true,
+        },
+      }],
       social: {
         github: 'https://github.com/zhang-accounting/zhang',
         discord: 'https://discord.gg/mcZpvmFeRV',
