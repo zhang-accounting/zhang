@@ -7,9 +7,7 @@ pub enum ErrorKind {
     TransactionCannotInferTradeAmount,
     TransactionHasMultipleImplicitPosting,
     TransactionExplicitPostingHaveMultipleCommodity,
-    TransactionDoesNotBalance,
 
-    InvalidFlag,
     AccountBalanceCheckError,
     AccountDoesNotExist,
     AccountClosed,

@@ -1,22 +1,27 @@
 ---
-title: Web 基本认证
+title: Web Basic Authentication
 description: This is a page in my Starlight-powered site
 ---
 
-zhang 提供了自带的basic auth 支持，basic auth 要求用户在启动zhang时提供明文的用户名与密码，格式遵循`{USERNAME}:{PASSWORD}`
-的格式。例子：
+Zhang offers built-in basic authentication, which requires a plaintext username and password in the
+format `{USERNAME}:{PASSWORD}` when launching the application. For example:
 
 - `username:password`
 - `admin:admin888`
 
-你可以通过下面两种方式启动basic auth：
+You can enable basic authentication in two ways:
 
-**命令行参数`auth`**:
+**Using the `auth` command-line parameter**:
 
-`docker run --name zhang  kilerd/zhang:snapshot --auth admin:admin888`
+```
+docker run --name zhang kilerd/zhang:snapshot --auth admin:admin888
+```
 
-**环境变量 `ZHANG_AUTH`**:
+**Setting the `ZHANG_AUTH` environment variable**
 
-`docker run --name zhang -e "ZHANG_AUTH=admin:admin888" kilerd/zhang:snapshot`
+```
+docker run --name zhang -e "ZHANG_AUTH=admin:admin888" kilerd/zhang:snapshot
+```
 
-!> **命令行参数**具有更高的优先级，当两个配置参数都提供时，会优先采用**命令行参数**
+> Note that **command-line parameters** take precedence, so if both configuration options are provided, the command-line
+> parameter will be used first.

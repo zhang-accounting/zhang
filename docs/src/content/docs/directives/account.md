@@ -3,22 +3,22 @@ title: Account
 description: This is a page in my Starlight-powered site
 ---
 
-# 账户 Account
-
-## 定义账户
+## Defining an Account
 
 ```zhang
 {DATE} open {ACCOUNT_NAME} {COMMODITY1} {COMMODITY2}
 ```
 
-定义账户时可以通过 meta 来指定账户细节：
+When defining an account, you can specify account details through meta:
 
-- `alias` 在 web 页面中显示成别名
-- `booking_method` 用于复杂的投资系统，可选值 `STRICT`, `FIFO`, `LIFO`,`AVERAGE`,`AVERAGE_ONLY`,`NONE`
+- `alias` displays an alias on the web page
+- `booking_method` is used for complex investment systems, with optional
+  values `STRICT`, `FIFO`, `LIFO`, `AVERAGE`, `AVERAGE_ONLY`, `NONE`
 
 ### booking_method
 
-beancount 用户可以在 定义账户的 commodity 后面直接用双引号定义。 例如
+Beancount users can directly define the booking method after the commodity in the account definition using double
+quotes. For example:
 
 ```beancount
 1970-01-01 open Assets:Card CNY "NONE"

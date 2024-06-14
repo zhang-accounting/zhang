@@ -186,8 +186,14 @@ impl OpendalDataSource {
             .to_string()
             .as_str()
         {
-            "bc" | "bean" | "beancount" => true,
-            "zhang" => false,
+            "bc" | "bean" | "beancount" => {
+                info!("detected ledger type: beancount");
+                true
+            }
+            "zhang" => {
+                info!("detected ledger type: zhang");
+                false
+            }
             _ => unreachable!("not supported data format"),
         };
         let new_data_type: Box<dyn DataType<Carrier = String> + Send + Sync> = if is_beancount { Box::new(Beancount {}) } else { Box::new(ZhangDataType {}) };

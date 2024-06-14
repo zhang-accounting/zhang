@@ -3,81 +3,91 @@ title: Budget
 description: This is a page in my Starlight-powered site
 ---
 
+Zhang's budget system is built based on the YNAB model, which is essentially zero-based budgeting. The budget system
+introduces 4 instructions and 1 account-related configuration for Zhang.
 
-zhang 的预算系统是基于 YNAB 的模式构建的，其模式本质是 Zero-based budgeting。预算系统为 zhang 引入了 4 条指令与 1 个账户相关的配置
+The budget system and account will not participate in the core system's balance calculation logic. For example,
+allocating a portion of the amount to the budget account will not reduce the balance of a certain asset account.
 
-预算系统与账户并不会参与核心系统的余额计算逻辑里面。比如说分配了一部分金额给预算账户，并不会导致某个资产账户的余额缩减。
+## Instruction Set
 
-## 指令集
-
-### 新建预算账户
+### Create a Budget Account
 
 ```zhang
 {DATE} budget {BUDGET_NAME} {CURRENCY}
 ```
 
-#### meta 配置
+#### Meta Configuration
 
-- `alias`: (**可选**) 由于 BUDGET_NAME 只能是英文与下划线，所以`alias` 提供了更加语义化的描述用于页面展示
-- `category`: (**可选**) 用于把预算账户在前端页面分组展示
+- `alias`: (Optional) Provides a more semantic description for display on the page, as BUDGET_NAME can only be in
+  English and underscores.
+- `category`: (Optional) Used to group budget accounts on the frontend page.
 
-### 预算账户增加金额
+### Add Amount to Budget Account
 
 ```zhang
 {DATE} budget-add {BUDGET_NAME} {AMOUNT} {CURRENCY}
 ```
 
-### 额度转移
+### Budget Transfer
 
 ```zhang
 {DATE} budget-transfer {FROM_BUDGET_NAME} {TO_BUDGET_NAME} {AMOUNT} {CURRENCY}
 ```
 
-预算系统存在一种场景：当我们需要根据实际情况调整预算额度的时候，需要从一个预算账户划转部分金额到另外一个预算账户，那么就需要使用额度转移指令。
+The budget system has a scenario where we need to adjust the budget amount according to actual situations, and we need
+to transfer part of the amount from one budget account to another.
 
-举一个更加具体的例子：
+This requires the use of the budget transfer instruction.
+
+For example:
 
 ```zhang
-// 2023年12月，我希望吃饭的钱省一点给女朋友买个礼物
+// In December 2023, I want to save some money from my food budget to buy a gift for my girlfriend
 2023-12-01 budget-transfer Diet GirlFriendGift 200 CNY
 ```
 
-### 关闭预算账户
+### Close Budget Account
 
 ```zhang
 {DATE} budget-close {BUDGET_NAME}
 ```
 
-### 消费账户的绑定
+### Bind Consumption Account
 
 ```zhang
 {DATE} open {ACCOUNT_NAME} {COMMODITY}
-  budget: {BUDGET_NAME}
+budget: {BUDGET_NAME}
 ```
 
-为了使预算系统可以正确的计算**已消耗额度**与**可使用额度**，我们需要把消费账户绑定到预算账户上，所以可以使用 `budget`的
-meta 在消费账户建立时绑定上预算账户
+To enable the budget system to correctly calculate the **consumed amount** and **available amount**, we need to bind the
+consumption account to the budget account.
+
+This can be done by using the `budget` meta when setting up the consumption
+account.
+
+For example:
 
 ```zhang
-// 把午餐账户绑定到 Diet 的预算中
+// Bind the lunch account to the Diet budget
 1970-01-01 open Expenses:Lunch CNY
-  budget: Diet
+budget: Diet
 ```
 
-## Beancount 兼容性
+## Beancount Compatibility
 
-为了保证 Beancount 用户也可以使用预算系统，所以我们把指令都在beancount的预算上做了兼容与转移，具体的语法可以参考：
+To ensure that Beancount users can also use the budget system, we have made the instructions compatible with Beancount.
+The specific syntax can be referenced as follows:
 
-- 新建预算账户
-    - zhang: `{DATE} budget {BUDGET_NAME} {CURRENCY}`
-    - beancount: `{DATE} custom budget {BUDGET_NAME} {CURRENCY}`
-- 预算账户增加金额
-    - zhang: `{DATE} budget-add {BUDGET_NAME} {AMOUNT} {CURRENCY}`
-    - beancount: `{DATE} custom budget-add {BUDGET_NAME} {AMOUNT} {CURRENCY}`
-- 额度转移
-    - zhang: `{DATE} budget-transfer {FROM_BUDGET_NAME} {TO_BUDGET_NAME} {AMOUNT} {CURRENCY}`
-    - beancount: `{DATE} custom budget-transfer {FROM_BUDGET_NAME} {TO_BUDGET_NAME} {AMOUNT} {CURRENCY}`
-- 关闭预算账户
-    - zhang: `{DATE} budget-close {BUDGET_NAME}`
-    - beancount: `{DATE} custom budget-close {BUDGET_NAME}`
-
+- Create a Budget Account
+    - Zhang: `{DATE} budget {BUDGET_NAME} {CURRENCY}`
+    - Beancount: `{DATE} custom budget {BUDGET_NAME} {CURRENCY}`
+- Add Amount to Budget Account
+    - Zhang: `{DATE} budget-add {BUDGET_NAME} {AMOUNT} {CURRENCY}`
+    - Beancount: `{DATE} custom budget-add {BUDGET_NAME} {AMOUNT} {CURRENCY}`
+- Budget Transfer
+    - Zhang: `{DATE} budget-transfer {FROM_BUDGET_NAME} {TO_BUDGET_NAME} {AMOUNT} {CURRENCY}`
+    - Beancount: `{DATE} custom budget-transfer {FROM_BUDGET_NAME} {TO_BUDGET_NAME} {AMOUNT} {CURRENCY}`
+- Close Budget Account
+    - Zhang: `{DATE} budget-close {BUDGET_NAME}`
+    - Beancount: `{DATE} custom budget-close {BUDGET_NAME}`
