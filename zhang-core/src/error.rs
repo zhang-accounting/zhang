@@ -2,6 +2,7 @@ use std::net::AddrParseError;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
+use zhang_ast::SpanInfo;
 
 #[derive(Debug, Error)]
 pub enum ZhangError {
@@ -24,8 +25,8 @@ pub enum ZhangError {
 
     #[error("Parse Error \nPath: {path}{msg}")]
     PestError { path: String, msg: String },
-    #[error("Process Error: {0}")]
-    ProcessError(zhang_ast::error::ErrorKind),
+    #[error("Process Error: {kind} \n file: {:?}[{}:{}] \n content: {}", span.filename,span.start, span.end, span.content)]
+    ProcessError { span: SpanInfo, kind: zhang_ast::error::ErrorKind },
 
     #[error("cannot found option given key: {0}")]
     OptionNotFound(String),
