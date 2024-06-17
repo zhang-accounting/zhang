@@ -4717,6 +4717,7 @@ dependencies = [
  "self_update",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-util",
  "tower",

@@ -191,9 +191,9 @@ async fn main() {
 
 #[cfg(test)]
 mod test {
-    use std::env::temp_dir;
     use std::io::{stdout, Write};
     use std::sync::Arc;
+    use tempfile::tempdir;
 
     use axum::body::Body;
     use axum::extract::Request;
@@ -239,7 +239,8 @@ mod test {
             }
             let original_test_source_folder = path.path();
             pprintln!("    \x1b[0;32mIntegration Test\x1b[0;0m: {}", original_test_source_folder.display());
-            let test_temp_folder = temp_dir();
+            let tempdir = tempdir().unwrap();
+            let test_temp_folder = tempdir.path();
 
             for entry in walkdir::WalkDir::new(&original_test_source_folder).into_iter().filter_map(|e| e.ok()) {
                 if entry.path().eq(&original_test_source_folder) {
@@ -266,11 +267,10 @@ mod test {
                 pprintln!("      \x1b[0;32mTesting\x1b[0;0m: {}", &validation.uri);
 
                 let is_zhang_test = test_temp_folder.join("main.zhang").exists();
-
                 let data_source = OpendalDataSource::from_env(
                     FileSystem::Fs,
                     &mut ServerOpts {
-                        path: test_temp_folder.clone(),
+                        path: test_temp_folder.to_path_buf(),
                         endpoint: if is_zhang_test { "main.zhang".to_owned() } else { "main.bean".to_owned() },
                         addr: "".to_string(),
                         port: 0,
@@ -282,7 +282,7 @@ mod test {
                 .await;
                 let data_source = Arc::new(data_source);
                 let ledger = Ledger::async_load(
-                    test_temp_folder.clone(),
+                    test_temp_folder.to_path_buf(),
                     if is_zhang_test { "main.zhang".to_owned() } else { "main.bean".to_owned() },
                     data_source.clone(),
                 )
