@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, RwLock};
 
 use itertools::Itertools;
-use log::{debug, error, info};
+use log::{error, info};
 use zhang_ast::{Directive, DirectiveType, Options, Plugin, SpanInfo, Spanned};
 
 use crate::data_source::DataSource;
@@ -62,7 +62,6 @@ impl SplitDirectives {
             directives.into_iter().partition(|it| it.datetime().is_none());
 
         let dated_directives = Ledger::sort_directives_datetime(dated_directive);
-        debug!("dated directives: {:?}", &dated_directives);
 
         // find all options which are not defined by users
         let options_key: HashSet<Cow<str>> = meta_directives
@@ -198,9 +197,7 @@ impl Ledger {
         ret_ledger.handle_options(&mut options_directives)?;
         ret_ledger.async_handle_plugins_pre_process(&mut plugin_directives).await?;
         ret_ledger.handle_plugins(&mut plugin_directives)?;
-        debug!("other_di: {:?}", &other_directives);
         let other_directives = ret_ledger.handle_plugin_execution(other_directives)?;
-        debug!("other_di: {:?}", &other_directives);
         ret_ledger.handle_other_directives(other_directives)?;
 
         ret_ledger.metas = meta_directives;
