@@ -1,0 +1,11 @@
+[
+  {
+    "uri": "/api/store",
+    "validations": [
+      [
+        "$.data.errors.length()",
+        0
+      ]
+    ]
+  }
+]

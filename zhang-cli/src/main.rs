@@ -265,11 +265,13 @@ mod test {
             for validation in validations {
                 pprintln!("      \x1b[0;32mTesting\x1b[0;0m: {}", &validation.uri);
 
+                let is_zhang_test = test_temp_folder.join("main.zhang").exists();
+
                 let data_source = OpendalDataSource::from_env(
                     FileSystem::Fs,
                     &mut ServerOpts {
                         path: test_temp_folder.clone(),
-                        endpoint: "main.zhang".to_owned(),
+                        endpoint: if is_zhang_test { "main.zhang".to_owned() } else { "main.bean".to_owned() },
                         addr: "".to_string(),
                         port: 0,
                         auth: None,
@@ -279,9 +281,13 @@ mod test {
                 )
                 .await;
                 let data_source = Arc::new(data_source);
-                let ledger = Ledger::async_load(test_temp_folder.clone(), "main.zhang".to_owned(), data_source.clone())
-                    .await
-                    .expect("cannot load ledger");
+                let ledger = Ledger::async_load(
+                    test_temp_folder.clone(),
+                    if is_zhang_test { "main.zhang".to_owned() } else { "main.bean".to_owned() },
+                    data_source.clone(),
+                )
+                .await
+                .expect("cannot load ledger");
                 let ledger_data = Arc::new(RwLock::new(ledger));
                 let broadcaster = Broadcaster::create();
                 let (tx, _) = mpsc::channel(1);

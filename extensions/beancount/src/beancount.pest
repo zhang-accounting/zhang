@@ -97,7 +97,7 @@ space = _{ " " | "\t" }
 line  = _{ NEWLINE }
 
 number = @{
-    ("0" | ASCII_NONZERO_DIGIT ~ (ASCII_DIGIT | "," | "_")*) ~ ("." ~ ASCII_DIGIT*)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
+    (ASCII_DIGIT+ ~ (ASCII_DIGIT | "," | "_")*) ~ ("." ~ ASCII_DIGIT*)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
 }
 
 number_expr  =  { expr_atom ~ (space* ~ expr_bin_op ~ space* ~ expr_atom)* }
