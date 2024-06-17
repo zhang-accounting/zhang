@@ -197,9 +197,7 @@ impl Ledger {
         ret_ledger.handle_options(&mut options_directives)?;
         ret_ledger.async_handle_plugins_pre_process(&mut plugin_directives).await?;
         ret_ledger.handle_plugins(&mut plugin_directives)?;
-
         let other_directives = ret_ledger.handle_plugin_execution(other_directives)?;
-
         ret_ledger.handle_other_directives(other_directives)?;
 
         ret_ledger.metas = meta_directives;
@@ -256,6 +254,8 @@ impl Ledger {
             (Some(a_datetime), Some(b_datetime)) => match a_datetime.cmp(&b_datetime) {
                 Ordering::Equal => match (a.directive_type(), b.directive_type()) {
                     (DirectiveType::BalancePad | DirectiveType::BalanceCheck, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Equal,
+                    (DirectiveType::Open, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Less,
+                    (DirectiveType::BalancePad | DirectiveType::BalanceCheck, DirectiveType::Open) => Ordering::Greater,
                     (DirectiveType::BalancePad | DirectiveType::BalanceCheck, _) => Ordering::Less,
                     (_, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Greater,
                     (_, _) => Ordering::Equal,
@@ -323,6 +323,7 @@ impl Ledger {
     }
 
     fn handle_plugin_execution(&mut self, other_directives: Vec<Spanned<Directive>>) -> ZhangResult<Vec<Spanned<Directive>>> {
+        let other_directives = Ledger::sort_directives_datetime(other_directives);
         let d = feature_enable!(
             self.options.features.plugins,
             {
@@ -543,13 +544,13 @@ mod test {
             assert_eq!(
                 test_parse_zhang(indoc! {r#"
                     1970-01-01 balance Assets:Hello 2 CNY
-                    1970-01-01 open Assets:Hello
+                    1970-01-01 document Assets:Hello ""
                 "#})
                 .into_iter()
                 .map(|it| it.data)
                 .collect_vec(),
                 Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
-                    1970-01-01 open Assets:Hello
+                    1970-01-01 document Assets:Hello ""
                     1970-01-01 balance Assets:Hello 2 CNY
                 "#}))
                 .into_iter()

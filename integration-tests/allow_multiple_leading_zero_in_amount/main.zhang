@@ -1,0 +1,16 @@
+1970-01-01 open Assets:1 CNY
+  booking_method: "STRICT"
+
+1970-01-01 open Assets:2 CNY
+  booking_method: "FIFO"
+
+
+1970-01-01 balance Assets:2 00.00 CNY
+
+1970-01-02 " " ""
+  Assets:1 -0001.0 CNY
+  Assets:1  001 CNY
+
+1970-01-02 " " ""
+  Assets:1 -000.10 CNY
+  Assets:1  00.1 CNY

@@ -491,7 +491,7 @@ impl Operations {
             .find(|meta| meta.key.eq(key.as_ref()))
             .cloned())
     }
-    pub fn typed_meta_value<T>(&self, type_: MetaType, type_identifier: impl AsRef<str>, key: impl AsRef<str>) -> ZhangResult<Option<T>>
+    pub fn typed_meta_value<T>(&self, type_: MetaType, type_identifier: impl AsRef<str>, key: impl AsRef<str>) -> Result<Option<T>, ErrorKind>
     where
         T: FromStr<Err = ErrorKind>,
     {
@@ -505,7 +505,6 @@ impl Operations {
             .find(|meta| meta.key.eq(key.as_ref()))
             .map(|it| T::from_str(&it.value))
             .transpose()
-            .map_err(ZhangError::ProcessError)
     }
 
     pub fn trx_tags(&mut self, trx_id: &Uuid) -> ZhangResult<Vec<String>> {

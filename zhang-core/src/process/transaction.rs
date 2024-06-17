@@ -70,7 +70,9 @@ impl DirectiveProcess for Transaction {
         trace!("new balance checker starting with {}", &balance_checker);
 
         for (posting_idx, txn_posting) in self.txn_postings().into_iter().enumerate() {
-            let inferred_amount = txn_posting.infer_trade_amount().map_err(ZhangError::ProcessError)?;
+            let inferred_amount = txn_posting
+                .infer_trade_amount()
+                .map_err(|kind| ZhangError::ProcessError { span: span.clone(), kind })?;
 
             let option = operations.account_target_day_balance(
                 txn_posting.posting.account.name(),
@@ -105,7 +107,8 @@ impl DirectiveProcess for Transaction {
             let amount = txn_posting.units().unwrap_or(inferred_amount);
             let lot_meta = txn_posting.lot_meta();
             let booking_method = operations
-                .typed_meta_value(MetaType::AccountMeta, txn_posting.account_name(), "booking_method")?
+                .typed_meta_value(MetaType::AccountMeta, txn_posting.account_name(), "booking_method")
+                .map_err(|kind| ZhangError::ProcessError { span: span.clone(), kind })?
                 .unwrap_or(ledger.options.default_booking_method);
 
             // handle implicit posting cost
