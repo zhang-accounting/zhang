@@ -1712,9 +1712,9 @@ dependencies = [
 
 [[package]]
 name = "latestmap"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d4b66051ad858040146bbcf6734e84724f04d7522ca2152775d6af858fd1da7"
+checksum = "41f41a95c005e25c4d48b8cba61e11c5701241326db35307c3f88d43cd89734f"
 
 [[package]]
 name = "lazy_static"
@@ -4717,6 +4717,7 @@ dependencies = [
  "self_update",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-util",
  "tower",

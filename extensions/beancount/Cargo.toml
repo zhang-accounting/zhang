@@ -16,7 +16,7 @@ log = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 bigdecimal = { workspace = true }
 snailquote = "0.3"
-latestmap = "0.1"
+latestmap = "0.2"
 once_cell = "1.19"
 
 [dev-dependencies]
