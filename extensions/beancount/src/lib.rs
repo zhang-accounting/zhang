@@ -66,8 +66,15 @@ impl DataType for Beancount {
                     }
                     BeancountOnlyDirective::Balance(balance) => {
                         let date = balance.date.naive_date();
-                        let pad_account = pad_info.get_latest(&date).and_then(|it| it.get(&balance.account.content));
-
+                        let latest_pad_info = pad_info.pop_latest(&date);
+                        let pad_account = match latest_pad_info {
+                            Some((pad_key, mut pad_map)) => {
+                                let target_pad_account = pad_map.remove(&balance.account.content);
+                                pad_info.insert(pad_key, pad_map);
+                                target_pad_account
+                            }
+                            _ => None,
+                        };
                         if let Some(pad_account) = pad_account {
                             // balance pad
                             ret.push(Spanned {

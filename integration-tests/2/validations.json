@@ -1,0 +1,19 @@
+[
+  {
+    "uri": "/api/store",
+    "validations": [
+      [
+        "$.data.errors.length()",
+        0
+      ],
+      [
+        "$.data.transactions.81e354c9-b20b-5ea3-bc2d-f009388f411b.flag",
+        "BalancePad"
+      ],
+      [
+        "$.data.transactions.a8c613ab-43f3-c3f7-17aa-65eec74ecd70.flag",
+        "BalanceCheck"
+      ]
+    ]
+  }
+]
