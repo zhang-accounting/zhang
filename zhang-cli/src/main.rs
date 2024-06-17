@@ -193,7 +193,6 @@ async fn main() {
 mod test {
     use std::io::{stdout, Write};
     use std::sync::Arc;
-    use tempfile::tempdir;
 
     use axum::body::Body;
     use axum::extract::Request;
@@ -202,6 +201,7 @@ mod test {
     use jsonpath_rust::JsonPathQuery;
     use serde::Deserialize;
     use serde_json::Value;
+    use tempfile::tempdir;
     use tokio::sync::{mpsc, RwLock};
     use tower::util::ServiceExt;
     use zhang_core::ledger::Ledger;
