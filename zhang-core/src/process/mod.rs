@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use log::trace;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::*;
 
@@ -19,9 +20,11 @@ pub(crate) mod plugin;
 pub(crate) mod price;
 pub(crate) mod transaction;
 /// Directive Process is used to handle how a directive be validated, how we process directives and store the result into [Store]
-pub(crate) trait DirectiveProcess {
+pub(crate) trait DirectiveProcess: std::fmt::Debug {
     fn handler(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+        trace!("[DirectiveProcess] processing: {:?}", &self);
         let should_process = DirectiveProcess::validate(self, ledger, span)?;
+        trace!("[DirectiveProcess] validate logic return: {}", &should_process);
         if should_process {
             DirectiveProcess::process(self, ledger, span)
         } else {
