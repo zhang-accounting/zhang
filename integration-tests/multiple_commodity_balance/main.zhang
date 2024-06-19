@@ -1,0 +1,18 @@
+option "operating_currency" "CNY"
+
+1970-01-01 commodity USD
+
+2022-08-27 open Assets:AppStore:US USD,CNY
+2022-08-27 open Liabilities:CreditCard            USD,CNY
+2022-08-27 open Equity:Opening-Balances            USD,CNY
+
+2024-04-07 * "" "初始AppStore账户"
+  Equity:Opening-Balances                               -82.03 CNY
+  Assets:AppStore:US                                     11.33 USD @@ 82.03 CNY
+
+2024-04-08 * "" "充值AppleStore"
+  Liabilities:CreditCard                                -72.51 CNY
+  Assets:AppStore:US                                     10.00 USD @@ 72.51 CNY
+
+
+2024-04-22 balance Assets:AppStore:US                    21.33 USD
