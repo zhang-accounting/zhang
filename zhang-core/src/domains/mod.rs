@@ -23,7 +23,6 @@ use crate::domains::schemas::{
 use crate::store::{
     BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionDomain,
 };
-use crate::utils::bigdecimal_ext::BigDecimalExt;
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
@@ -164,7 +163,7 @@ impl Operations {
                     };
                     let precision = commodity.precision;
                     let rounding = commodity.rounding;
-                    let decimal = amount.round_with(precision as i64, rounding.is_up());
+                    let decimal = amount.with_scale_round(precision as i64, rounding.to_mode());
                     if !decimal.is_zero() {
                         return Ok(Some(ErrorKind::UnbalancedTransaction));
                     }

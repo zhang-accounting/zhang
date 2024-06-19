@@ -220,10 +220,10 @@ pub enum Rounding {
 }
 
 impl Rounding {
-    pub fn is_up(&self) -> bool {
+    pub fn to_mode(&self) -> bigdecimal::RoundingMode {
         match self {
-            Rounding::RoundUp => true,
-            Rounding::RoundDown => false,
+            Rounding::RoundUp => bigdecimal::RoundingMode::HalfUp,
+            Rounding::RoundDown => bigdecimal::RoundingMode::HalfDown,
         }
     }
 }
