@@ -5,7 +5,7 @@ import starlight from '@astrojs/starlight';
 export default defineConfig({
   integrations: [
     starlight({
-      title: 'Zhang Accounting',
+      title: 'Zhang Accounting v0.1.10',
       head: [{
         tag: 'script',
         attrs: {
