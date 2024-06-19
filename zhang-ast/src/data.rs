@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::ops::{Div, Mul, Neg};
 
-use bigdecimal::{BigDecimal, One};
+use bigdecimal::{BigDecimal, One, Signed};
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
@@ -177,7 +177,7 @@ impl<'a> TxnPosting<'a> {
     /// 2. if `unit` is present,
     ///    2.1 return `unit * cost`, if cost is present
     ///    2.2 return `unit * single_price`, if single price is present
-    ///    2.3 return `total_price`, if total price is present
+    ///    2.3 return `total_price * unit.sign()`, if total price is present
     ///    2.4 return `unit`, if both cost and price are not present.
     pub fn trade_amount(&self) -> Option<Amount> {
         self.posting
@@ -187,7 +187,13 @@ impl<'a> TxnPosting<'a> {
                 (Some(PostingCost { base: Some(cost), date: _ }), _) => Amount::new((&unit.number).mul(&cost.number), cost.currency.clone()),
                 (None, Some(price)) => match price {
                     SingleTotalPrice::Single(single_price) => Amount::new((&unit.number).mul(&single_price.number), single_price.currency.clone()),
-                    SingleTotalPrice::Total(total_price) => total_price.clone(),
+                    SingleTotalPrice::Total(total_price) => {
+                        if unit.number.is_negative() {
+                            total_price.neg()
+                        } else {
+                            total_price.clone()
+                        }
+                    }
                 },
                 _ => unit.clone(),
             })

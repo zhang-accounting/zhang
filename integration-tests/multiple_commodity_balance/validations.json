@@ -8,7 +8,7 @@
       ],
       [
         "$.data.commodity_lots.['Assets:AppStore:US'].[0].amount",
-        "21.33"
+        "-1.33"
       ],
       [
         "$.data.commodity_lots.['Assets:AppStore:US'].[0].commodity",
@@ -16,7 +16,7 @@
       ],
       [
         "$.data.commodity_lots.['Equity:Opening-Balances'].[0].amount",
-        "-82.03"
+        "82.03"
       ],
       [
         "$.data.commodity_lots.['Equity:Opening-Balances'].[0].commodity",
