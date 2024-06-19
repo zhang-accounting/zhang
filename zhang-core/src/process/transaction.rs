@@ -70,9 +70,11 @@ impl DirectiveProcess for Transaction {
         trace!("new balance checker starting with {}", &balance_checker);
 
         for (posting_idx, txn_posting) in self.txn_postings().into_iter().enumerate() {
-            let inferred_amount = txn_posting
-                .infer_trade_amount()
-                .map_err(|kind| ZhangError::ProcessError { span: span.clone(), kind })?;
+            let inferred_amount = txn_posting.units().unwrap_or(
+                txn_posting
+                    .infer_trade_amount()
+                    .map_err(|kind| ZhangError::ProcessError { span: span.clone(), kind })?,
+            );
 
             let option = operations.account_target_day_balance(
                 txn_posting.posting.account.name(),
@@ -85,7 +87,6 @@ impl DirectiveProcess for Transaction {
                 commodity: inferred_amount.currency.clone(),
             });
             let after_number = (&previous.number).add(&inferred_amount.number);
-
             operations.insert_transaction_posting(
                 &id,
                 posting_idx,

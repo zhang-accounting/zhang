@@ -32,7 +32,9 @@ pub async fn get_account_list(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<V
             .into_iter()
             .map(|balance| Amount::new(balance.balance_number, balance.balance_commodity))
             .collect_vec();
-        let amount = account_balances.calculate(Utc::now().with_timezone(timezone), &mut operations)?;
+        let amount = account_balances
+            .calculate(Utc::now().with_timezone(timezone), &mut operations)?
+            .persist_commodity(&ledger.options.operating_currency);
 
         ret.push(AccountResponse {
             name: account,
@@ -60,7 +62,9 @@ pub async fn get_account_info(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(St
         .into_iter()
         .map(|balance| Amount::new(balance.balance_number, balance.balance_commodity))
         .collect_vec();
-    let amount = vec.calculate(Utc::now().with_timezone(timezone), &mut operations)?;
+    let amount = vec
+        .calculate(Utc::now().with_timezone(timezone), &mut operations)?
+        .persist_commodity(&ledger.options.operating_currency);
 
     ResponseWrapper::json(AccountInfoResponse {
         date: account_info.date,
