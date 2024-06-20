@@ -1,24 +1,30 @@
 ---
-title: Error Code
+title: Error Code Guide
+description: A detailed guide on understanding and resolving common error codes in Zhang Accounting.
 ---
 
-To explain errors
+# Error Code Guide
+
+This guide provides comprehensive explanations and solutions for common error codes encountered in Zhang Accounting. Understanding these error codes will help you troubleshoot and resolve issues more efficiently.
 
 ## UnbalancedTransaction
 
-Usually, Zhang cannot determine whether a transaction is balanced, whether the sum of each posting is zero.
+This error indicates that a transaction is unbalanced, meaning the sum of each posting does not equal zero. This is often due to discrepancies in the amounts or currencies used in the postings.
 
+**Example of Unbalanced Transaction:**
 ```zhang {2-3}
 1970-01-01 "" ""
     Assets:A -10 USD
     Assets:B  10 CNY
 ```
 
+**Solution:** Ensure all postings within a transaction balance out, using the same currency or properly converting between currencies.
+
 ## TransactionCannotInferTradeAmount
 
-This error occurs when a transaction's trade amount cannot be inferred due to missing or ambiguous information. Ensure all postings in a transaction specify an amount or that the transaction's context allows for an amount to be inferred.
+Occurs when Zhang Accounting cannot infer the trade amount for a transaction. This can happen if postings lack explicit amounts or if the transaction's context does not allow for an amount to be inferred.
 
-**Error Case:**
+**Example of Error:**
 ```zhang
 1970-01-01 * "Payee" "Buying goods"
     Assets:Cash
@@ -32,10 +38,13 @@ This error occurs when a transaction's trade amount cannot be inferred due to mi
     Expenses:Goods  100 USD
 ```
 
+**Solution:** Make sure to specify amounts for all postings in a transaction or ensure the transaction's context allows for an amount to be inferred.
+
 ## TransactionHasMultipleImplicitPosting
 
-To ensure normal operation, Zhang is similar to Beancount, only allowing one implicit posting:
+Zhang Accounting, similar to Beancount, allows only one implicit posting per transaction to ensure clarity and prevent ambiguity.
 
+**Example of Error:**
 ```zhang {3-4}
 1970-01-01 "" ""
     Assets:A -10 USD
@@ -43,11 +52,13 @@ To ensure normal operation, Zhang is similar to Beancount, only allowing one imp
     Assets:C 
 ```
 
+**Solution:** Ensure only one posting in a transaction lacks an explicit amount.
+
 ## TransactionExplicitPostingHaveMultipleCommodity
 
-After calculating, we find multiple non-zero commodity amounts across postings, making it impossible to infer implicit
-postings' amount - a common issue in transactions with three or more postings.
+This error is triggered when a transaction has postings with multiple non-zero commodity amounts, making it impossible to infer amounts for implicit postings.
 
+**Example of Error:**
 ```zhang {2-3}
 1970-01-01 "" ""
 Assets:A -10 USD
@@ -55,13 +66,15 @@ Assets:B 10 CNY
 Assets:C
 ```
 
+**Solution:** Review and adjust the transaction to ensure only one commodity is involved or all postings have explicit amounts.
+
 ## AccountBalanceCheckError
 
-This error occurs when an account's balance check fails, possibly due to incorrect balance entries. Ensure all transactions affecting the account are correctly entered and balanced.
+Indicates a failure in an account's balance check, possibly due to incorrect balance entries or transactions affecting the account.
 
-**Error Case:**
+**Example of Error:**
 ```zhang
-// given Assets:Checking owns 100 USD
+// Assuming Assets:Checking owns 100 USD
 
 1970-01-01 balance Assets:Checking  500 USD
 ```
@@ -74,11 +87,13 @@ This error occurs when an account's balance check fails, possibly due to incorre
 1970-01-01 balance Assets:Checking  100 USD
 ```
 
+**Solution:** Verify and correct all transactions affecting the account to ensure the balance check aligns with the actual account balance.
+
 ## AccountDoesNotExist
 
-This error occurs when operations are performed on an account that has not been defined. Ensure the account is defined before referencing it in transactions or directives.
+Triggered when operations are performed on an account that has not been defined in the ledger.
 
-**Error Case:**
+**Example of Error:**
 ```zhang
 1970-01-01 * "Payee" "Transaction for undefined account"
     Assets:UndefinedAccount  -100 USD
@@ -93,11 +108,13 @@ This error occurs when operations are performed on an account that has not been 
     Expenses:Misc  100 USD
 ```
 
+**Solution:** Define the account using the `open` directive before referencing it in transactions or other operations.
+
 ## AccountClosed
 
-This error occurs when trying to perform operations on a closed account. Ensure the account is open or reopen the account before performing transactions.
+Occurs when attempting to perform operations on a closed account. Ensure the account is open or reopen it before performing transactions.
 
-**Error Case:**
+**Example of Error:**
 ```zhang
 1970-01-01 close Assets:ClosedAccount
 1970-01-02 * "Payee" "Transaction for closed account"
@@ -113,11 +130,13 @@ This error occurs when trying to perform operations on a closed account. Ensure 
     Expenses:Misc  100 USD
 ```
 
+**Solution:** Reopen the account using the `open` directive if necessary before conducting transactions.
+
 ## CommodityDoesNotDefine
 
-This error occurs when a commodity used in a transaction or directive is not defined. Ensure all commodities are defined before use.
+This error occurs when a commodity used in a transaction or directive is not defined in the ledger.
 
-**Error Case:**
+**Example of Error:**
 ```zhang
 1970-01-01 * "Payee" "Transaction with undefined commodity"
     Assets:Cash  -100 XYZ
@@ -132,16 +151,19 @@ This error occurs when a commodity used in a transaction or directive is not def
     Expenses:Misc  100 XYZ
 ```
 
+**Solution:** Define the commodity using the `commodity` directive before using it in transactions or other directives.
+
 ## NoEnoughCommodityLot
 
-This error occurs when there's not enough commodity lot for a transaction. Ensure the commodity lots are sufficient for the transaction.
+Indicates there's not enough commodity lot available for a transaction. This can happen when selling or transferring more of a commodity than is available.
 
-**Error Case:**
+**Example of Error:**
 ```zhang
 1970-01-01 * "Payee" "Selling more than available"
     Assets:Stocks  -10 SHARES {100 USD}
     Income:Sales  1000 USD
 ```
+
 
 **Correct Case:**
 ```zhang
@@ -150,17 +172,20 @@ This error occurs when there's not enough commodity lot for a transaction. Ensur
     Income:Sales  500 USD
 ```
 
+**Solution:** Ensure the commodity lots are sufficient for the transaction or adjust the transaction to match the available lots.
+
 ## CloseNonZeroAccount
 
-This error occurs when trying to close an account with a non-zero balance. Ensure the account balance is zero before closing.
+Triggered when attempting to close an account with a non-zero balance. Accounts must have a zero balance before they can be closed.
 
-**Error Case:**
+**Example of Error:**
 ```zhang
 
-// given Assets:NonZeroBalanceAccount owns 100 USD
+// Assuming Assets:NonZeroBalanceAccount owns 100 USD
 
 1970-01-01 close Assets:NonZeroBalanceAccount
 ```
+
 
 **Correct Case:**
 ```zhang
@@ -169,11 +194,13 @@ This error occurs when trying to close an account with a non-zero balance. Ensur
 1970-01-02 close Assets:ZeroBalanceAccount
 ```
 
+**Solution:** Balance the account to zero before attempting to close it.
+
 ## BudgetDoesNotExist
 
-This error occurs when referencing a budget that has not been defined. Ensure the budget is defined before referencing it in transactions or directives.
+Occurs when referencing a budget that has not been defined. Ensure the budget is defined before referencing it in transactions or directives.
 
-**Error Case:**
+**Example of Error:**
 ```zhang
 1970-01-01 budget-add NonExistentBudget  500 USD
 ```
@@ -184,26 +211,32 @@ This error occurs when referencing a budget that has not been defined. Ensure th
 1970-01-02 budget-add ExistingBudget  500 USD
 ```
 
+
+**Solution:** Define the budget using the `budget` directive before adding funds or performing other operations.
+
 ## DefineDuplicatedBudget
 
-This error occurs when a budget is defined more than once. Ensure each budget is uniquely defined.
+This error occurs when a budget is defined more than once, which can lead to confusion and errors in budget tracking.
 
-**Error Case:**
+**Example of Error:**
 ```zhang
 1970-01-01 budget DuplicateBudget USD
 1970-01-02 budget DuplicateBudget USD
 ```
+
 
 **Correct Case:**
 ```zhang
 1970-01-01 budget UniqueBudget USD
 ```
 
+**Solution:** Ensure each budget is uniquely defined and avoid duplicating budget definitions.
+
 ## MultipleOperatingCurrencyDetect
 
-This error occurs when multiple operating currencies are detected, which is not allowed. Ensure only one operating currency is defined.
+Triggered when multiple operating currencies are detected in the ledger. Zhang Accounting requires a single operating currency to be defined.
 
-**Error Case:**
+**Example of Error:**
 ```zhang
 option "operating_currency" "USD"
 option "operating_currency" "EUR"
@@ -214,11 +247,13 @@ option "operating_currency" "EUR"
 option "operating_currency" "USD"
 ```
 
+**Solution:** Define only one operating currency in the ledger options.
+
 ## ParseInvalidMeta
 
-This error occurs when parsing invalid metadata in directives. Ensure the metadata is correctly formatted.
+Occurs when parsing invalid metadata in directives, which can lead to errors in processing and interpretation.
 
-**Error Case:**
+**Example of Error:**
 ```zhang
 1970-01-01 open Assets:Cash
     booking_method: "NON_EXIST"
@@ -229,3 +264,5 @@ This error occurs when parsing invalid metadata in directives. Ensure the metada
 1970-01-01 open Assets:Cash
     booking_method: "FIFO"
 ```
+
+**Solution:** Ensure metadata is correctly formatted and valid for the context in which it is used.

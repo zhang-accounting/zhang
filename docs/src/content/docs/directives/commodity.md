@@ -1,62 +1,78 @@
 ---
-title: Commodity
-description: commodity directive
+title: Understanding the Commodity Directive
+description: A detailed guide on the commodity directive, including examples and use cases.
 ---
 
-commodity directive is to define a new commodity.
+The commodity directive plays a crucial role in Zhang Accounting by defining new commodities. This guide aims to provide a comprehensive understanding of the commodity directive, its significance, and how to effectively utilize it with examples and use cases.
+
+## Introduction to the Commodity Directive
+
+To define a new commodity, the commodity directive is used as follows:
 
 ```zhang
 {DATE} commodity {COMMODITY_NAME}
 ```
 
-## Supported Meta
+This directive allows for the introduction of new commodities into the accounting system, which can then be used in transactions and other directives.
 
-### precision
+## Supported Meta Configurations
 
-precision is to tell zhang know how much decimal precision should be preserved.
+The commodity directive supports several meta configurations that provide additional details about the commodity. Understanding these configurations is essential for accurate and effective commodity management.
 
-the value is `2` for common currency, and `2` also is the default value if not present.
+### Precision
+
+The `precision` meta configuration specifies the decimal precision to be preserved for the commodity. It is particularly important for currencies and financial instruments where precision is critical.
+
+- Default value: `2` (common for most currencies)
+- Example:
 
 ```zhang {2}
 1970-01-01 commodity CNY
   precision: 2
 ```
 
-### prefix
+### Prefix
 
-prefix is the label showed at front of the decimal value. like we will define the currency symbol for common currency
+The `prefix` meta configuration defines a label that appears in front of the decimal value. This is commonly used to denote currency symbols.
+
+- Example:
 
 ```zhang {2}
 1970-01-01 commodity USD
   prefix: "$"
 ```
 
-### suffix
+### Suffix
 
-suffix is the label showed behind the decimal value. the default value will be the commodity name if not present. it's
-useful for crypto coins.
+The `suffix` meta configuration specifies a label that appears behind the decimal value. It is useful for commodities like cryptocurrencies where a suffix is preferred over a prefix.
+
+- Default value: Commodity name (if not specified)
+- Example:
 
 ```zhang {2}
 1970-01-01 commodity MY_BTC
   suffix: "BTC"
 ```
 
-### rounding
+### Rounding
 
-rounding is to decide what decimal place we are rounding to. there are two options:
+The `rounding` meta configuration determines the decimal place to which values are rounded. It supports two options:
 
-- `RoundUp` **default** If it is 0, 1, 2, 3, or 4, we keep our last digit the same.
-- `RoundDown` If it is 5, 6, 7, 8, or 9, we increase our last digit by 1
+- `RoundUp` (default): Rounds down for values 0-4.
+- `RoundDown`: Rounds up for values 5-9.
+
+- Example:
 
 ```zhang {2}
 1970-01-01 commodity MY_BTC
   rounding: "RoundDown"
 ```
 
-### group
+### Group
 
-group is the flag used to organize commodities into different groups, like we can organize them into Fiat currencies and
-Crypto currencies. it's only used in frontend.
+The `group` meta configuration is used to categorize commodities into different groups, such as "Fiat currencies" and "Crypto currencies". This categorization is primarily used for organizational purposes in the frontend.
+
+- Example:
 
 ```zhang {2,5,8,11}
 1970-01-01 commodity CNY
@@ -71,3 +87,7 @@ Crypto currencies. it's only used in frontend.
 1970-01-01 commodity ETH
   group: "Crypto currencies"
 ```
+
+## Use Cases and Examples
+
+The commodity directive's flexibility allows for a wide range of applications, from defining traditional currencies to incorporating modern cryptocurrencies into your accounting system. By leveraging the supported meta configurations, users can tailor the directive to meet their specific needs, ensuring accurate and efficient financial tracking and reporting.
