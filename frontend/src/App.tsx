@@ -24,16 +24,16 @@ import NewTransactionButton from './components/NewTransactionButton';
 import { notifications } from '@mantine/notifications';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { serverBaseUrl } from './index';
-import { useAppDispatch, useAppSelector } from './states';
-import { accountsSlice, fetchAccounts } from './states/account';
-import { basicInfoSlice, fetchBasicInfo, reloadLedger } from './states/basic';
-import { fetchCommodities } from './states/commodity';
-import { fetchError } from './states/errors';
-import { journalsSlice } from './states/journals';
+import { axiosInstance, serverBaseUrl } from './index';
+import { basicInfoFetcher, onlineAtom, titleAtom, updatableVersionAtom } from './states/basic';
 import { useSWRConfig } from 'swr';
 import { createStyles } from '@mantine/emotion';
 import { Router } from './router';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { errorCountAtom, errorsFetcher } from './states/errors';
+import { accountFetcher } from './states/account';
+import { commoditiesFetcher } from './states/commodity';
+import { journalFetcher } from './states/journals';
 
 const useStyles = createStyles((theme, _, u) => ({
   onlineIcon: {
@@ -200,12 +200,24 @@ export default function App() {
   const { mutate } = useSWRConfig();
   const { classes } = useStyles();
   const { t, i18n } = useTranslation();
-  const dispatch = useAppDispatch();
-  const basicInfo = useAppSelector((state) => state.basic);
   const location = useLocation();
   const [lang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
   const [opened] = useDisclosure();
   const isMobile = useMediaQuery('(max-width: 768px)');
+
+  const errorsCount = useAtomValue(errorCountAtom);
+  const ledgerTitle = useAtomValue(titleAtom);
+  const [ledgerOnline, setLedgerOnline] = useAtom(onlineAtom);
+  const [updatableVersion, setUpdatableVersion] = useAtom(updatableVersionAtom);
+
+  const refreshErrors = useSetAtom(errorsFetcher);
+  const refreshAccounts = useSetAtom(accountFetcher);
+  const refreshBasicInfo = useSetAtom(basicInfoFetcher);
+  const refreshCommodities = useSetAtom(commoditiesFetcher);
+  const refreshJournal = useSetAtom(journalFetcher);
+  const refreshLedger = async () => {
+    await axiosInstance.post('/api/reload');
+  };
 
   useEffect(() => {
     if (i18n.language !== lang) {
@@ -214,11 +226,6 @@ export default function App() {
   }, [i18n, lang]);
 
   useEffect(() => {
-    dispatch(fetchError(1));
-    dispatch(fetchCommodities());
-    dispatch(fetchBasicInfo());
-    dispatch(fetchAccounts());
-
     let events = new EventSource(serverBaseUrl + '/api/sse');
     events.onmessage = (event) => {
       console.log(event);
@@ -235,11 +242,11 @@ export default function App() {
             autoClose: 3000,
           });
           mutate('/api/for-new-transaction');
-          dispatch(fetchBasicInfo());
-          dispatch(fetchError(1));
-          dispatch(fetchCommodities());
-          dispatch(accountsSlice.actions.clear());
-          dispatch(journalsSlice.actions.clear());
+          refreshErrors();
+          refreshAccounts();
+          refreshBasicInfo();
+          refreshCommodities();
+          refreshJournal();
           break;
         case 'Connected':
           notifications.show({
@@ -247,17 +254,18 @@ export default function App() {
             icon: <IconBroadcast />,
             message: '',
           });
-          dispatch(fetchBasicInfo());
+          setLedgerOnline(true);
+          refreshBasicInfo();
           break;
         case 'NewVersionFound':
-          dispatch(basicInfoSlice.actions.setUpdatableVersion({ newVersion: data.version }));
+          setUpdatableVersion(data.version);
           break;
         default:
           break;
       }
     };
     events.onerror = () => {
-      dispatch(basicInfoSlice.actions.offline());
+      setLedgerOnline(false);
       notifications.show({
         id: 'offline',
         title: 'Server Offline',
@@ -266,7 +274,7 @@ export default function App() {
         message: 'Client can not connect to server',
       });
     };
-  }, [dispatch, mutate]);
+  }, [mutate]); // eslint-disable-line
 
   const sendReloadEvent = () => {
     notifications.show({
@@ -276,10 +284,8 @@ export default function App() {
       loading: true,
       autoClose: false,
     });
-    dispatch(reloadLedger());
+    refreshLedger();
   };
-
-  const { total_number } = useAppSelector((state) => state.errors);
 
   const mainLinks = links.map((link) => (
     <UnstyledButton
@@ -328,8 +334,8 @@ export default function App() {
           <Stack>
             <Group justify="space-between">
               <Group gap="xs" justify="left">
-                <IconBroadcast stroke={3} className={basicInfo.isOnline ? classes.onlineIcon : classes.offlineIcon} />
-                <Text lineClamp={1}>{basicInfo.title ?? 'Zhang Accounting'}</Text>
+                <IconBroadcast stroke={3} className={ledgerOnline ? classes.onlineIcon : classes.offlineIcon} />
+                <Text lineClamp={1}>{ledgerTitle}</Text>
               </Group>
               <ActionIcon variant="white" color="gray" size="sm" onClick={sendReloadEvent}>
                 <IconRefresh size="1.125rem" />
@@ -353,9 +359,9 @@ export default function App() {
                 <IconSmartHome size={20} className={classes.mainLinkIcon} stroke={1.5} />
                 <span>{t('NAV_HOME')}</span>
               </div>
-              {(total_number ?? 0) > 0 && (
+              {errorsCount > 0 && (
                 <Badge size="sm" color="pink" variant="filled" className={classes.mainLinkBadge}>
-                  {total_number ?? 0}
+                  {errorsCount}
                 </Badge>
               )}
             </UnstyledButton>
@@ -363,7 +369,7 @@ export default function App() {
           </div>
         </AppShell.Section>
 
-        {basicInfo.updatableVersion && (
+        {updatableVersion && (
           <AppShell.Section className={classes.section}>
             <Group justify="center" gap={'sm'}>
               <Anchor href="https://zhang-accounting.kilerd.me/installation/4-upgrade/" target="_blank">

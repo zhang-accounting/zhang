@@ -2,9 +2,10 @@ import { Autocomplete, Button, Group, Table, TextInput } from '@mantine/core';
 import { useState } from 'react';
 import { axiosInstance } from '../index';
 import { showNotification } from '@mantine/notifications';
-import { useAppDispatch, useAppSelector } from '../states';
-import { accountsSlice, getAccountSelectItems } from '../states/account';
+import { accountFetcher, accountSelectItemsAtom } from '../states/account';
 import Amount from './Amount';
+import { useAtomValue } from 'jotai';
+import { useSetAtom } from 'jotai/index';
 
 interface Props {
   currentAmount: string;
@@ -15,10 +16,8 @@ interface Props {
 export default function AccountBalanceCheckLine({ currentAmount, commodity, accountName }: Props) {
   const [amount, setAmount] = useState('');
   const [padAccount, setPadAccount] = useState<string>('');
-  const dispatch = useAppDispatch();
-
-  const accountItems = [...useAppSelector(getAccountSelectItems())];
-  console.log('accountItems', accountItems);
+  const refreshAccounts = useSetAtom(accountFetcher);
+  const accountItems = useAtomValue(accountSelectItemsAtom);
 
   const onSave = async () => {
     try {
@@ -35,7 +34,7 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
         title: 'Balance account successfully',
         message: '',
       });
-      dispatch(accountsSlice.actions.clear());
+      refreshAccounts();
     } catch (e: any) {
       showNotification({
         title: 'Fail to Balance Account',

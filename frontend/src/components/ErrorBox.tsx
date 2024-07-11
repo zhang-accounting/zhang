@@ -1,29 +1,26 @@
-import { Anchor, Button, Group, Modal, Pagination, Stack, Text, Textarea } from '@mantine/core';
+import { Anchor, Button, Group, Image, Modal, Pagination, Stack, Text, Textarea } from '@mantine/core';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LoadingState } from '../rest-model';
-import { useAppDispatch, useAppSelector } from '../states';
-import { fetchError, LedgerError } from '../states/errors';
+import { errorAtom, errorPageAtom, LedgerError } from '../states/errors';
 import { ErrorsSkeleton } from './skeletons/errorsSkeleton';
+import { useAtomValue, useSetAtom } from 'jotai';
+import Joyride from '../assets/joyride.svg';
 
 export default function ErrorBox() {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
 
-  const dispatch = useAppDispatch();
-  const { items, total_page, status } = useAppSelector((state) => state.errors);
-
-  const [page, setPage] = useState(1);
-
   const [selectError, setSelectError] = useState<LedgerError | null>(null);
   const [selectErrorContent, setSelectErrorContent] = useState<string>('');
 
-  if (status === LoadingState.Loading || status === LoadingState.NotReady) {
+  const errors = useAtomValue(errorAtom);
+  const setErrorPage = useSetAtom(errorPageAtom);
+
+  if (errors.state === 'loading' || errors.state === 'hasError') {
     return <ErrorsSkeleton />;
   }
   const handlePageChange = (newPage: number) => {
-    setPage(newPage);
-    dispatch(fetchError(newPage));
+    setErrorPage(newPage);
   };
 
   const toggleError = (error: LedgerError) => {
@@ -78,16 +75,25 @@ export default function ErrorBox() {
           </Group>
         </Group>
       </Modal>
-      <Stack>
-        {items.map((error, idx) => (
-          <Text key={idx} onClick={() => toggleError(error)}>
-            {t(`ERROR.${error.error_type}`)}
-          </Text>
-        ))}
+      <Stack gap={'xs'}>
+        {errors.data.total_count === 0 ? (
+          <Stack align={'center'}>
+            <Image radius="md" w={'85%'} src={Joyride} />
+            <Text>{t('LEDGER_IS_HEALTHY')}</Text>
+          </Stack>
+        ) : (
+          <>
+            {errors.data.records.map((error, idx) => (
+              <Text key={idx} onClick={() => toggleError(error)}>
+                {t(`ERROR.${error.error_type}`)}
+              </Text>
+            ))}
 
-        <Group justify="center">
-          <Pagination mt="xs" total={total_page} value={page} onChange={handlePageChange} />
-        </Group>
+            <Group justify="center">
+              <Pagination size="sm" mt="xs" total={errors.data.total_page} value={errors.data.current_page} onChange={handlePageChange} />
+            </Group>
+          </>
+        )}
       </Stack>
     </>
   );

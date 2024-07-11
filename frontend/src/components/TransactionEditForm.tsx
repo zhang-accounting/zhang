@@ -9,8 +9,8 @@ import { InfoForNewTransaction, JournalTransactionItem } from '../rest-model';
 import { fetcher } from '../index';
 import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
-import { useAppSelector } from '../states';
-import { getAccountSelectItems } from '../states/account';
+import { accountSelectItemsAtom } from '../states/account';
+import { useAtomValue } from 'jotai/index';
 
 interface Posting {
   account: string | null;
@@ -51,8 +51,7 @@ export default function TransactionEditForm(props: Props) {
   const [metas, metaHandler] = useListState<{ key: string; value: string }>(props.data?.metas ?? []);
 
   const [payeeSelectItems, setPayeeSelectItems] = useState<SelectItem[]>([]);
-  const accountItems = [...useAppSelector(getAccountSelectItems())];
-
+  const accountItems = useAtomValue(accountSelectItemsAtom);
   useEffect(() => {
     const newPayeeSelectItems: SelectItem[] = (data?.payee ?? []).map((item) => {
       return {

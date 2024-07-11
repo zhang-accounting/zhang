@@ -4,12 +4,10 @@ import { Notifications } from '@mantine/notifications';
 import axios from 'axios';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { TransactionPreviewModal } from './components/modals/TransactionPreviewModal';
 import './i18n';
-import { store } from './states';
 import { themeConfig } from './theme';
 import './global.css';
 import '@mantine/core/styles.css';
@@ -21,7 +19,7 @@ import { TransactionEditModal } from './components/modals/TransactionEditModal';
 import { MantineEmotionProvider } from '@mantine/emotion';
 
 // @ts-ignore
-export const fetcher = (...args) => axiosInstance.get(...args).then((res) => res.data.data);
+export const fetcher = <T,>(...args) => axiosInstance.get(...args).then((res) => res.data.data as T);
 const development: boolean = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
 const backendUri: string = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:8000';
 
@@ -41,22 +39,20 @@ const container = document.getElementById('root');
 const root = createRoot(container!);
 root.render(
   <React.StrictMode>
-    <Provider store={store}>
-      <MantineProvider theme={themeConfig}>
-        <MantineEmotionProvider>
-          <ModalsProvider
-            modals={{
-              transactionPreviewModal: TransactionPreviewModal,
-              transactionEditModal: TransactionEditModal,
-            }}
-          >
-            <BrowserRouter>
-              <Notifications />
-              <App />
-            </BrowserRouter>
-          </ModalsProvider>
-        </MantineEmotionProvider>
-      </MantineProvider>
-    </Provider>
+    <MantineProvider theme={themeConfig}>
+      <MantineEmotionProvider>
+        <ModalsProvider
+          modals={{
+            transactionPreviewModal: TransactionPreviewModal,
+            transactionEditModal: TransactionEditModal,
+          }}
+        >
+          <BrowserRouter>
+            <Notifications />
+            <App />
+          </BrowserRouter>
+        </ModalsProvider>
+      </MantineEmotionProvider>
+    </MantineProvider>
   </React.StrictMode>,
 );

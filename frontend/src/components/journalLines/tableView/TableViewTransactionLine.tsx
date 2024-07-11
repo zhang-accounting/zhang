@@ -92,7 +92,13 @@ export default function TableViewTransactionLine({ data }: Props) {
       </Table.Td>
       <Table.Td>
         {Array.from(summary.values()).map((each) => (
-          <Group align="center" justify="right" gap="xs" className={each.number.isPositive() ? classes.positiveAmount : classes.negativeAmount}>
+          <Group
+            align="center"
+            justify="right"
+            gap="xs"
+            key={each.currency}
+            className={each.number.isPositive() ? classes.positiveAmount : classes.negativeAmount}
+          >
             <Amount amount={each.number} currency={each.currency} />
           </Group>
         ))}

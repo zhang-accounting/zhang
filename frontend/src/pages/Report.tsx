@@ -12,8 +12,9 @@ import { StatisticGraphResponse, StatisticResponse, StatisticTypeResponse } from
 import PayeeNarration from '../components/basic/PayeeNarration';
 import BigNumber from 'bignumber.js';
 import { Heading } from '../components/basic/Heading';
-import { useAppSelector } from '../states';
 import { useDocumentTitle } from '@mantine/hooks';
+import { useAtomValue } from 'jotai/index';
+import { titleAtom } from '../states/basic';
 
 const color_set = ['pink', 'grape', 'violet'];
 
@@ -27,8 +28,7 @@ export default function Report() {
     new Date(new Date().getFullYear(), new Date().getMonth(), 1, 0, 0, 1),
     new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59),
   ]);
-  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
-
+  const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`Report - ${ledgerTitle}`);
 
   useEffect(() => {

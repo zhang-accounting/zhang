@@ -9,11 +9,12 @@ import { Heading } from '../components/basic/Heading';
 import { groupBy, reverse, sortBy } from 'lodash-es';
 import { TextBadge } from '../components/basic/TextBadge';
 import { useNavigate } from 'react-router';
-import { useAppSelector } from '../states';
 import { useState } from 'react';
 import 'yet-another-react-lightbox/styles.css';
 import { ImageLightBox } from '../components/ImageLightBox';
 import { isDocumentAnImage } from '../utils/documents';
+import { useAtomValue } from 'jotai/index';
+import { titleAtom } from '../states/basic';
 
 export default function Documents() {
   let navigate = useNavigate();
@@ -21,8 +22,7 @@ export default function Documents() {
   const { data: documents, error } = useSWR<Document[]>('/api/documents', fetcher);
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
-  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
-
+  const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`Documents - ${ledgerTitle}`);
 
   if (error) return <div>failed to load</div>;

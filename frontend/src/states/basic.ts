@@ -1,57 +1,20 @@
-import { PayloadAction, createAsyncThunk, createSlice } from '@reduxjs/toolkit';
-import { axiosInstance, fetcher } from '..';
-import { LoadingState } from '../rest-model';
+import { fetcher } from '..';
+import { atom } from 'jotai';
+import { atomWithRefresh, loadable } from 'jotai/utils';
+import { loadable_unwrap } from './index';
 
-export const fetchBasicInfo = createAsyncThunk('basic/fetch', async (thunkApi) => {
-  const ret = await fetcher(`/api/info`);
-  return ret;
+export const onlineAtom = atom<boolean>(false);
+export const updatableVersionAtom = atom<string | undefined>(undefined);
+
+export const basicInfoFetcher = atomWithRefresh(async (get) => {
+  return await fetcher<{ title: string; version: string }>(`/api/info`);
 });
 
-export const reloadLedger = createAsyncThunk('basic/fetch', async (thunkApi) => {
-  const ret = await axiosInstance.post('/api/reload');
-  return ret;
+export const basicInfoAtom = loadable(basicInfoFetcher);
+
+export const titleAtom = atom((get) => {
+  return loadable_unwrap(get(basicInfoAtom), 'Zhang Accounting', (data) => data.title);
 });
-
-interface BasicInfoState {
-  title?: string;
-  version?: string;
-  isOnline: boolean;
-  status: LoadingState;
-  updatableVersion?: string;
-}
-
-const initialState: BasicInfoState = {
-  title: undefined,
-  version: undefined,
-  isOnline: false,
-  status: LoadingState.NotReady,
-  updatableVersion: undefined,
-};
-
-export const basicInfoSlice = createSlice({
-  name: 'basic',
-  initialState,
-  reducers: {
-    online: (state) => {
-      state.isOnline = true;
-    },
-    offline: (state) => {
-      state.isOnline = false;
-    },
-    setUpdatableVersion: (state, action: PayloadAction<{ newVersion: string }>) => {
-      state.updatableVersion = action.payload.newVersion;
-    },
-  },
-  extraReducers: (builder) => {
-    builder.addCase(fetchBasicInfo.pending, (state, action) => {
-      state.status = LoadingState.Loading;
-    });
-
-    builder.addCase(fetchBasicInfo.fulfilled, (state, action) => {
-      state.status = LoadingState.Success;
-      state.isOnline = true;
-      state.title = action.payload.title;
-      state.version = action.payload.version;
-    });
-  },
+export const versionAtom = atom((get) => {
+  return loadable_unwrap(get(basicInfoAtom), undefined, (data) => data.version);
 });

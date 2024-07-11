@@ -32,7 +32,7 @@ export const TransactionEditModal = ({
           message: error?.response?.data ?? '',
           autoClose: false,
         });
-        console.log(error);
+        console.error(error);
       });
   };
   return (
