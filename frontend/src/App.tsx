@@ -25,7 +25,6 @@ import { notifications } from '@mantine/notifications';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { axiosInstance, serverBaseUrl } from './index';
-import { useAppDispatch } from './states';
 import { basicInfoFetcher, onlineAtom, titleAtom, updatableVersionAtom } from './states/basic';
 import { useSWRConfig } from 'swr';
 import { createStyles } from '@mantine/emotion';
@@ -201,7 +200,6 @@ export default function App() {
   const { mutate } = useSWRConfig();
   const { classes } = useStyles();
   const { t, i18n } = useTranslation();
-  const dispatch = useAppDispatch();
   const location = useLocation();
   const [lang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
   const [opened] = useDisclosure();
@@ -276,7 +274,7 @@ export default function App() {
         message: 'Client can not connect to server',
       });
     };
-  }, [dispatch, mutate]); // eslint-disable-line
+  }, [mutate]); // eslint-disable-line
 
   const sendReloadEvent = () => {
     notifications.show({

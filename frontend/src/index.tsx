@@ -4,12 +4,10 @@ import { Notifications } from '@mantine/notifications';
 import axios from 'axios';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { TransactionPreviewModal } from './components/modals/TransactionPreviewModal';
 import './i18n';
-import { store } from './states';
 import { themeConfig } from './theme';
 import './global.css';
 import '@mantine/core/styles.css';
@@ -41,22 +39,20 @@ const container = document.getElementById('root');
 const root = createRoot(container!);
 root.render(
   <React.StrictMode>
-    <Provider store={store}>
-      <MantineProvider theme={themeConfig}>
-        <MantineEmotionProvider>
-          <ModalsProvider
-            modals={{
-              transactionPreviewModal: TransactionPreviewModal,
-              transactionEditModal: TransactionEditModal,
-            }}
-          >
-            <BrowserRouter>
-              <Notifications />
-              <App />
-            </BrowserRouter>
-          </ModalsProvider>
-        </MantineEmotionProvider>
-      </MantineProvider>
-    </Provider>
+    <MantineProvider theme={themeConfig}>
+      <MantineEmotionProvider>
+        <ModalsProvider
+          modals={{
+            transactionPreviewModal: TransactionPreviewModal,
+            transactionEditModal: TransactionEditModal,
+          }}
+        >
+          <BrowserRouter>
+            <Notifications />
+            <App />
+          </BrowserRouter>
+        </ModalsProvider>
+      </MantineEmotionProvider>
+    </MantineProvider>
   </React.StrictMode>,
 );

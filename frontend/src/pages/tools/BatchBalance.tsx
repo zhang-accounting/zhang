@@ -1,16 +1,14 @@
 import { Button, Chip, Container, Group, Select, Table, TextInput, Title } from '@mantine/core';
 import { useListState, useLocalStorage } from '@mantine/hooks';
-import { createSelector } from '@reduxjs/toolkit';
-import { cloneDeep, sortBy } from 'lodash-es';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import Amount from '../../components/Amount';
-import { Account } from '../../rest-model';
-import { useAppSelector } from '../../states';
-import { accountFetcher, accountSelectItemsAtom } from '../../states/account';
+import { loadable_unwrap } from '../../states';
+import { accountAtom, accountFetcher, accountSelectItemsAtom } from '../../states/account';
 import BigNumber from 'bignumber.js';
 import { showNotification } from '@mantine/notifications';
 import { axiosInstance } from '../..';
 import { useAtomValue, useSetAtom } from 'jotai/index';
+import { selectAtom } from 'jotai/utils';
 
 interface BalanceLineItem {
   commodity: string;
@@ -22,22 +20,28 @@ interface BalanceLineItem {
   error: boolean;
 }
 
-const getFilteredItems = createSelector([(states) => states.accounts], (accounts) => {
-  const items = accounts.data.flatMap((account: Account) =>
-    Object.entries(account.amount.detail).map(([commodity, value]) => ({
-      commodity: commodity,
-      currentAmount: value,
-      accountName: account.name,
-      balanceAmount: '',
-      pad: undefined,
-      error: false,
-    })),
-  );
-  return sortBy(cloneDeep(items), (item) => item.accountName);
-});
-
 export default function BatchBalance() {
-  const stateItems = useAppSelector(getFilteredItems);
+  const stateItems = useAtomValue(
+    useMemo(
+      () =>
+        selectAtom(accountAtom, (val) =>
+          loadable_unwrap(val, [], (data) => {
+            return data.flatMap((account) =>
+              Object.entries(account.amount.detail).map(([commodity, value]) => ({
+                commodity: commodity,
+                currentAmount: value,
+                accountName: account.name,
+                balanceAmount: '',
+                pad: undefined,
+                error: false,
+              })),
+            );
+          }),
+        ),
+      [],
+    ),
+  );
+
   const [accounts, accountsHandler] = useListState<BalanceLineItem>(stateItems);
   const accountItems = useAtomValue(accountSelectItemsAtom);
   const refreshAccounts = useSetAtom(accountFetcher);
