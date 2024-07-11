@@ -33,5 +33,6 @@
     "DefineDuplicatedBudget": "尝试创建一个重复的预算",
     "UnbalancedTransaction": "交易不平衡"
   },
-  "ERROR_BOX_WHY": "为什么出错?"
+  "ERROR_BOX_WHY": "为什么出错?",
+  "LEDGER_IS_HEALTHY": "不可思议，账本一点错都没有"
 }
