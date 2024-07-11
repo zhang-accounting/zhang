@@ -1,4 +1,4 @@
-import { Anchor, Button, Group, Modal, Pagination, Stack, Text, Textarea, Image } from '@mantine/core';
+import { Anchor, Button, Group, Image, Modal, Pagination, Stack, Text, Textarea } from '@mantine/core';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { errorAtom, errorPageAtom, LedgerError } from '../states/errors';
@@ -75,7 +75,7 @@ export default function ErrorBox() {
           </Group>
         </Group>
       </Modal>
-      <Stack gap={"xs"}>
+      <Stack gap={'xs'}>
         {errors.data.total_count === 0 ? (
           <Stack align={'center'}>
             <Image radius="md" w={'85%'} src={Joyride} />

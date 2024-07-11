@@ -1,7 +1,10 @@
 import BigNumber from 'bignumber.js';
-import { useAppSelector } from '../states';
-import { getCommodityByName } from '../states/commodity';
+import { loadable_unwrap } from '../states';
+import { commoditiesAtom } from '../states/commodity';
 import { createStyles } from '@mantine/emotion';
+import { selectAtom } from 'jotai/utils';
+import { useAtomValue } from 'jotai';
+import { useMemo } from 'react';
 
 const useStyles = createStyles((theme, _, u) => ({
   wrapper: {
@@ -26,7 +29,7 @@ interface Props {
 
 export default function Amount({ amount, currency, negative, mask, className }: Props) {
   const { classes } = useStyles();
-  const commodity = useAppSelector(getCommodityByName(currency));
+  const commodity = useAtomValue(useMemo(() => selectAtom(commoditiesAtom, (val) => loadable_unwrap(val, undefined, (val) => val[currency])), [currency]));
 
   const flag = negative || false ? -1 : 1;
   const shouldMask = mask || false;

@@ -4,12 +4,13 @@ import { createSelector } from '@reduxjs/toolkit';
 import { cloneDeep, sortBy } from 'lodash-es';
 import { useEffect } from 'react';
 import Amount from '../../components/Amount';
-import { Account, LoadingState } from '../../rest-model';
-import { useAppDispatch, useAppSelector } from '../../states';
-import { accountsSlice, fetchAccounts, getAccountSelectItems } from '../../states/account';
+import { Account } from '../../rest-model';
+import { useAppSelector } from '../../states';
+import { accountFetcher, accountSelectItemsAtom } from '../../states/account';
 import BigNumber from 'bignumber.js';
 import { showNotification } from '@mantine/notifications';
 import { axiosInstance } from '../..';
+import { useAtomValue, useSetAtom } from 'jotai/index';
 
 interface BalanceLineItem {
   commodity: string;
@@ -36,12 +37,10 @@ const getFilteredItems = createSelector([(states) => states.accounts], (accounts
 });
 
 export default function BatchBalance() {
-  const dispatch = useAppDispatch();
-  const accountStatus = useAppSelector((state) => state.accounts.status);
   const stateItems = useAppSelector(getFilteredItems);
-  const accountSelectItems = [...useAppSelector(getAccountSelectItems())];
   const [accounts, accountsHandler] = useListState<BalanceLineItem>(stateItems);
-
+  const accountItems = useAtomValue(accountSelectItemsAtom);
+  const refreshAccounts = useSetAtom(accountFetcher);
   const [maskCurrentAmount, setMaskCurrentAmount] = useLocalStorage({
     key: 'tool/maskCurrentAmount',
     defaultValue: false,
@@ -51,11 +50,6 @@ export default function BatchBalance() {
     defaultValue: true,
   });
 
-  useEffect(() => {
-    if (accountStatus === LoadingState.NotReady) {
-      dispatch(fetchAccounts());
-    }
-  }, [accountStatus, dispatch]);
   useEffect(() => {
     accountsHandler.setState(stateItems);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -100,7 +94,7 @@ export default function BatchBalance() {
         title: 'Balance account successfully',
         message: 'waiting page to refetch latest data',
       });
-      dispatch(accountsSlice.actions.clear());
+      refreshAccounts();
     } catch (e: any) {
       showNotification({
         title: 'Fail to Balance Account',
@@ -144,7 +138,7 @@ export default function BatchBalance() {
                   searchable
                   clearable
                   placeholder="Pad to"
-                  data={accountSelectItems}
+                  data={accountItems}
                   value={account.pad}
                   onChange={(e) => {
                     updateBalanceLineItem(idx, e ?? undefined, account.balanceAmount);

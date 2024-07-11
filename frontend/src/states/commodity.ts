@@ -1,37 +1,19 @@
-import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
-import { RootState } from '.';
+import { loadable_unwrap } from '.';
 import { fetcher } from '..';
-import { CommodityListItem, LoadingState } from '../rest-model';
+import { CommodityListItem } from '../rest-model';
+import { atomWithRefresh, loadable } from 'jotai/utils';
+import { groupBy } from 'lodash-es';
+import { atom } from 'jotai';
 
-export const fetchCommodities = createAsyncThunk('commodities/fetch', async (thunkApi) => {
-  const ret = await fetcher<any>(`/api/commodities`);
-  return ret;
+export const FRONTEND_DEFAULT_GROUP = '__ZHANG__FRONTEND_DEFAULT__GROUP__';
+
+export const commoditiesFetcher = atomWithRefresh(async (get) => {
+  const ret = await fetcher<CommodityListItem[]>(`/api/commodities`);
+  return Object.fromEntries(ret.map((item: CommodityListItem) => [item.name, item]));
 });
 
-interface CommoditiesState {
-  value: { [key: string]: CommodityListItem };
-  status: LoadingState;
-}
+export const commoditiesAtom = loadable(commoditiesFetcher);
 
-const initialState: CommoditiesState = {
-  value: {},
-  status: LoadingState.NotReady,
-};
-
-export const commoditiesSlice = createSlice({
-  name: 'commodities',
-  initialState,
-  reducers: {},
-  extraReducers: (builder) => {
-    builder.addCase(fetchCommodities.pending, (state, action) => {
-      state.status = LoadingState.Loading;
-    });
-
-    builder.addCase(fetchCommodities.fulfilled, (state, action) => {
-      state.status = LoadingState.Success;
-      state.value = Object.fromEntries(action.payload.map((item: CommodityListItem) => [item.name, item]));
-    });
-  },
+export const groupedCommoditiesAtom = atom((get) => {
+  return loadable_unwrap(get(commoditiesAtom), {}, (data) => groupBy(data, (it) => it.group ?? FRONTEND_DEFAULT_GROUP));
 });
-
-export const getCommodityByName = (name: string) => (state: RootState) => state.commodities.value[name];

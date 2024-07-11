@@ -2,6 +2,7 @@ import { fetcher } from '..';
 import { Pageable, SpanInfo } from '../rest-model';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { atom } from 'jotai';
+import { loadable_unwrap } from './index';
 
 export interface LedgerError {
   id: string;
@@ -22,10 +23,5 @@ export const errorsFetcher = atomWithRefresh(async (get) => {
 export const errorAtom = loadable(errorsFetcher);
 
 export const errorCountAtom = atom((get) => {
-  const errors = get(errorAtom);
-  if (errors.state === 'hasError' || errors.state === 'loading') {
-    return 0;
-  } else {
-    return errors.data.total_count;
-  }
+  return loadable_unwrap(get(errorAtom), 0, (data) => data.total_count);
 });

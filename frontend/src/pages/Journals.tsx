@@ -1,49 +1,47 @@
 import { Button, CloseButton, Group, Input, Pagination, Table, Text } from '@mantine/core';
-import { format } from 'date-fns';
-import { groupBy } from 'lodash-es';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import TableViewJournalLine from '../components/journalLines/tableView/TableViewJournalLine';
-import { LoadingState } from '../rest-model';
-import { useAppDispatch, useAppSelector } from '../states';
-import { fetchJournals, journalsSlice } from '../states/journals';
 import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
 import { useDebouncedValue, useDocumentTitle } from '@mantine/hooks';
 import { IconFilter } from '@tabler/icons-react';
 import { JournalListSkeleton } from '../components/skeletons/journalListSkeleton';
+import { useAtomValue } from 'jotai/index';
+import { titleAtom } from '../states/basic';
+import { groupedJournalsAtom, journalAtom, journalFetcher, journalKeywordAtom, journalPageAtom } from '../states/journals';
+import { useAtom, useSetAtom } from 'jotai';
+import { loadable_unwrap } from '../states';
+import { selectAtom } from 'jotai/utils';
 
 function Journals() {
   const { t } = useTranslation();
   const [filter, setFilter] = useState('');
   const [debouncedFilter] = useDebouncedValue(filter, 200);
-  const { current_page, status: journalStatus, items, total_number, total_page } = useAppSelector((state) => state.journals);
-  const dispatch = useAppDispatch();
-  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
 
+  const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`Journals - ${ledgerTitle}`);
 
-  useEffect(() => {
-    if (journalStatus === LoadingState.NotReady) {
-      dispatch(fetchJournals(debouncedFilter));
-    }
-  }, [dispatch, journalStatus, debouncedFilter]);
+  const [journalPage, setJournalPage] = useAtom(journalPageAtom);
+  const setKeyword = useSetAtom(journalKeywordAtom);
+  const refreshJournals = useSetAtom(journalFetcher);
+  const groupedRecords = useAtomValue(groupedJournalsAtom);
+  const journalItems = useAtomValue(journalAtom);
+  const total_count = useAtomValue(useMemo(() => selectAtom(journalAtom, (val) => loadable_unwrap(val, 0, (val) => val.total_count)), []));
+  const total_page = useAtomValue(useMemo(() => selectAtom(journalAtom, (val) => loadable_unwrap(val, 0, (val) => val.total_page)), []));
 
   useEffect(() => {
-    dispatch(fetchJournals(debouncedFilter));
-  }, [dispatch, debouncedFilter]);
+    setKeyword(debouncedFilter);
+  }, [setKeyword, debouncedFilter]);
 
   const onPage = (page: number) => {
-    dispatch(journalsSlice.actions.setPage({ current_page: page }));
-    dispatch(fetchJournals(debouncedFilter));
+    setJournalPage(page);
   };
-
-  const groupedRecords = groupBy(items, (record) => format(new Date(record.datetime), 'yyyy-MM-dd'));
 
   return (
     <>
-      <Heading title={`${total_number} Journals`}></Heading>
+      <Heading title={`${total_count} Journals`}></Heading>
       <Group my="lg" px="sm">
-        <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => dispatch(fetchJournals(filter))}>
+        <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => refreshJournals()}>
           {t('REFRESH')}
         </Button>
         <Input
@@ -65,19 +63,19 @@ function Journals() {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {(journalStatus === LoadingState.Loading || journalStatus === LoadingState.NotReady) && <JournalListSkeleton />}
-          {journalStatus === LoadingState.Success &&
-            Object.entries(groupedRecords).map((entry) => {
+          {(journalItems.state === 'loading' || journalItems.state === 'hasError') && <JournalListSkeleton />}
+          {journalItems.state === 'hasData' &&
+            Object.keys(groupedRecords).map((date) => {
               return (
                 <>
-                  <Table.Tr>
+                  <Table.Tr key={date}>
                     <Table.Td colSpan={6}>
                       <Text c={'dimmed'} size={'sm'}>
-                        {entry[0]}
+                        {date}
                       </Text>
                     </Table.Td>
                   </Table.Tr>
-                  {entry[1].map((journal) => (
+                  {groupedRecords[date].map((journal) => (
                     <TableViewJournalLine key={journal.id} data={journal} />
                   ))}
                 </>
@@ -87,7 +85,7 @@ function Journals() {
       </Table>
 
       <Group justify={'center'}>
-        <Pagination my="xs" total={total_page} value={current_page} onChange={onPage} />
+        <Pagination my="xs" total={total_page} value={journalPage} onChange={onPage} />
       </Group>
     </>
   );

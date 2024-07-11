@@ -9,14 +9,14 @@ import PayeeNarration from '../components/basic/PayeeNarration';
 import { BudgetInfoResponse, BudgetIntervalEventResponse } from '../rest-model';
 import { MonthPicker } from '@mantine/dates';
 import { useState } from 'react';
-import { useAppSelector } from '../states';
 import { useDocumentTitle } from '@mantine/hooks';
+import { useAtomValue } from 'jotai/index';
+import { titleAtom } from '../states/basic';
 
 function SingleBudget() {
   let { budgetName } = useParams();
   const [date, setDate] = useState<Date>(new Date());
-  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
-
+  const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${budgetName} | Budgets - ${ledgerTitle}`);
 
   const goToMonth = (gap: number) => {

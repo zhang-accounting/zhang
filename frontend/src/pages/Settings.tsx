@@ -4,12 +4,13 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Setting } from '../components/basic/Setting';
 import Section from '../components/Section';
-import { useAppSelector } from '../states';
 import useSWR from 'swr';
 import { fetcher } from '..';
 import { Option, PluginResponse } from '../rest-model';
 import { Heading } from '../components/basic/Heading';
 import PluginBox from '../components/PluginBox';
+import { titleAtom, versionAtom } from '../states/basic';
+import { useAtomValue } from 'jotai/index';
 
 export default function Settings() {
   const { i18n } = useTranslation();
@@ -17,7 +18,8 @@ export default function Settings() {
   const { data } = useSWR<Option[]>('/api/options', fetcher);
   const { data: plugins } = useSWR<PluginResponse[]>('/api/plugins', fetcher);
 
-  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
+  const ledgerTitle = useAtomValue(titleAtom);
+  const ledgerVersion = useAtomValue(versionAtom);
 
   useDocumentTitle(`Settings - ${ledgerTitle}`);
 
@@ -29,15 +31,13 @@ export default function Settings() {
     i18n.changeLanguage(lang);
   }, [lang, i18n]);
 
-  const basicInfo = useAppSelector((state) => state.basic);
-
   return (
     <Container fluid>
       <Heading title={`Settings`}></Heading>
       <Section title="Basic Setting">
         <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }}>
-          <Setting title="title" uppercase value={basicInfo.title} />
-          <Setting title="version" uppercase value={basicInfo.version} />
+          <Setting title="title" uppercase value={ledgerTitle} />
+          <Setting title="version" uppercase value={ledgerVersion} />
           <Box>
             <Setting title="language" uppercase />
             <SegmentedControl

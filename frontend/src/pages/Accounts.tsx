@@ -1,31 +1,54 @@
 import { Button, Checkbox, CloseButton, Container, Group, Input, Table } from '@mantine/core';
 import { useDocumentTitle, useInputState, useLocalStorage } from '@mantine/hooks';
-import { useEffect } from 'react';
 import AccountLine from '../components/AccountLine';
-import { LoadingState } from '../rest-model';
-import { useAppDispatch, useAppSelector } from '../states';
-import { fetchAccounts, getAccountsTrie } from '../states/account';
+import { AccountStatus } from '../rest-model';
+import { loadable_unwrap } from '../states';
+import { accountAtom, accountFetcher } from '../states/account';
 import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
 import { IconFilter } from '@tabler/icons-react';
-import { AccountListSkeleton } from '../components/skeletons/accountListSkeleton';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { selectAtom } from 'jotai/utils';
+import AccountTrie from '../utils/AccountTrie';
+import { titleAtom } from '../states/basic';
+import { useMemo } from 'react';
 
 export default function Accounts() {
   const { t } = useTranslation();
   const [filterKeyword, setFilterKeyword] = useInputState('');
   const [hideClosedAccount, setHideClosedAccount] = useLocalStorage({ key: 'hideClosedAccount', defaultValue: false });
-  const dispatch = useAppDispatch();
-  const accountStatus = useAppSelector((state) => state.accounts.status);
-  const accountTrie = useAppSelector(getAccountsTrie(hideClosedAccount, filterKeyword));
-  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
+
+  const [accountTrie] = useAtom(
+    useMemo(
+      () =>
+        selectAtom(accountAtom, (val) => {
+          return loadable_unwrap(val, new AccountTrie(), (data) => {
+            let trie = new AccountTrie();
+            for (let account of data.filter((it) => (hideClosedAccount ? it.status === AccountStatus.Open : true))) {
+              let trimmedKeyword = filterKeyword.trim();
+              if (trimmedKeyword !== '') {
+                if (
+                  account.name.toLowerCase().includes(trimmedKeyword.toLowerCase()) ||
+                  (account.alias?.toLowerCase() ?? '').includes(trimmedKeyword.toLowerCase())
+                ) {
+                  trie.insert(account);
+                }
+              } else {
+                trie.insert(account);
+              }
+            }
+            return trie;
+          });
+        }),
+      [filterKeyword, hideClosedAccount],
+    ),
+  );
+
+  const refreshAccounts = useSetAtom(accountFetcher);
+
+  const ledgerTitle = useAtomValue(titleAtom);
 
   useDocumentTitle(`Accounts - ${ledgerTitle}`);
-
-  useEffect(() => {
-    if (accountStatus === LoadingState.NotReady) {
-      dispatch(fetchAccounts());
-    }
-  }, [dispatch, accountStatus]);
 
   return (
     <Container fluid>
@@ -40,7 +63,7 @@ export default function Accounts() {
         />
       </Group>
       <Group my="lg">
-        <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => dispatch(fetchAccounts())}>
+        <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => refreshAccounts()}>
           {t('REFRESH')}
         </Button>
         <Checkbox checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)} label={'Hide closed accounts'} />
@@ -54,13 +77,11 @@ export default function Accounts() {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {accountStatus !== LoadingState.Success ? (
-            <AccountListSkeleton />
-          ) : (
-            Object.keys(accountTrie.children)
-              .sort()
-              .map((item) => <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />)
-          )}
+          {Object.keys(accountTrie.children)
+            .sort()
+            .map((item) => (
+              <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
+            ))}
         </Table.Tbody>
       </Table>
     </Container>

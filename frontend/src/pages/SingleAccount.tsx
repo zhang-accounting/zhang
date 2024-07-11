@@ -11,12 +11,13 @@ import LoadingComponent from '../components/basic/LoadingComponent';
 import PayeeNarration from '../components/basic/PayeeNarration';
 import { AccountBalanceHistory, AccountInfo, AccountJournalItem, Document } from '../rest-model';
 import DocumentPreview from '../components/journalPreview/DocumentPreview';
-import { useAppSelector } from '../states';
 import { useDocumentTitle } from '@mantine/hooks';
 import { createStyles } from '@mantine/emotion';
 import { AccountBalanceHistoryGraph } from '../components/AccountBalanceHistoryGraph';
 import { useState } from 'react';
 import { ImageLightBox } from '../components/ImageLightBox';
+import { useAtomValue } from 'jotai/index';
+import { titleAtom } from '../states/basic';
 
 const useStyles = createStyles((theme, _) => ({
   calculatedAmount: {
@@ -37,8 +38,7 @@ function SingleAccount() {
   const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
   const { data: account_balance_data, error: account_balance_error } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
 
-  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
-
+  const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
 
   if (error) return <div>failed to load</div>;

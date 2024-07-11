@@ -10,7 +10,8 @@ import BudgetCategory from '../components/budget/BudgetCategory';
 import { format } from 'date-fns';
 import { MonthPicker } from '@mantine/dates';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
-import { useAppSelector } from '../states';
+import { useAtomValue } from 'jotai/index';
+import { titleAtom } from '../states/basic';
 
 export default function Budgets() {
   const { t } = useTranslation();
@@ -19,8 +20,7 @@ export default function Budgets() {
     defaultValue: false,
   });
   const [date, setDate] = useState<Date>(new Date());
-  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
-
+  const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`Budgets - ${ledgerTitle}`);
 
   const { data: budgets, error } = useSWR<BudgetListItem[]>(`/api/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, fetcher);

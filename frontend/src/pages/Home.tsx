@@ -6,17 +6,16 @@ import Section from '../components/Section';
 import StatisticBar from '../components/StatisticBar';
 import { fetcher } from '../index';
 import { StatisticGraphResponse } from '../rest-model';
-import { useAppSelector } from '../states';
 import ReportGraph from '../components/ReportGraph';
 import { Heading } from '../components/basic/Heading';
 import { useDocumentTitle } from '@mantine/hooks';
 import { useAtomValue } from 'jotai';
 import { errorCountAtom } from '../states/errors';
+import { titleAtom } from '../states/basic';
 
 function Home() {
   const error_total_number = useAtomValue(errorCountAtom);
-  const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
-
+  const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`Dashboard - ${ledgerTitle}`);
 
   const now = new Date();
