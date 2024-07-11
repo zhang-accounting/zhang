@@ -33,8 +33,8 @@ import { journalsSlice } from './states/journals';
 import { useSWRConfig } from 'swr';
 import { createStyles } from '@mantine/emotion';
 import { Router } from './router';
-import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { errorAtom, errorCountAtom, errorsFetcher } from './states/errors';
+import { useAtomValue, useSetAtom } from 'jotai';
+import { errorCountAtom, errorsFetcher } from './states/errors';
 
 const useStyles = createStyles((theme, _, u) => ({
   onlineIcon: {

@@ -15,7 +15,6 @@ export default function ErrorBox() {
   const errors = useAtomValue(errorAtom);
   const setErrorPage = useSetAtom(errorPageAtom);
 
-  console.log('jotai error', errors);
   if (errors.state === 'loading' || errors.state === 'hasError') {
     return <ErrorsSkeleton />;
   }

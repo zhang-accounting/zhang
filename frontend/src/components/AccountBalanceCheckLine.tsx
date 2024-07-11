@@ -18,7 +18,6 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
   const dispatch = useAppDispatch();
 
   const accountItems = [...useAppSelector(getAccountSelectItems())];
-  console.log('accountItems', accountItems);
 
   const onSave = async () => {
     try {

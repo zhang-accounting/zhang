@@ -37,8 +37,6 @@ function SingleAccount() {
   const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
   const { data: account_balance_data, error: account_balance_error } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
 
-  console.log('account data', account);
-  console.log('account balance data', account_balance_data);
   const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
 
   useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
