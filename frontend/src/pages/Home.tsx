@@ -10,9 +10,11 @@ import { useAppSelector } from '../states';
 import ReportGraph from '../components/ReportGraph';
 import { Heading } from '../components/basic/Heading';
 import { useDocumentTitle } from '@mantine/hooks';
+import { useAtomValue } from 'jotai';
+import { errorCountAtom } from '../states/errors';
 
 function Home() {
-  const error_total_number = useAppSelector((state) => state.errors.total_number);
+  const error_total_number = useAtomValue(errorCountAtom);
   const ledgerTitle = useAppSelector((state) => state.basic.title ?? 'Zhang Accounting');
 
   useDocumentTitle(`Dashboard - ${ledgerTitle}`);

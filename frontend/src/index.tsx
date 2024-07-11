@@ -21,7 +21,7 @@ import { TransactionEditModal } from './components/modals/TransactionEditModal';
 import { MantineEmotionProvider } from '@mantine/emotion';
 
 // @ts-ignore
-export const fetcher = (...args) => axiosInstance.get(...args).then((res) => res.data.data);
+export const fetcher = <T,>(...args) => axiosInstance.get(...args).then((res) => res.data.data as T);
 const development: boolean = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
 const backendUri: string = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:8000';
 

@@ -3,7 +3,7 @@ import { axiosInstance, fetcher } from '..';
 import { LoadingState } from '../rest-model';
 
 export const fetchBasicInfo = createAsyncThunk('basic/fetch', async (thunkApi) => {
-  const ret = await fetcher(`/api/info`);
+  const ret = await fetcher<any>(`/api/info`);
   return ret;
 });
 

@@ -29,11 +29,12 @@ import { useAppDispatch, useAppSelector } from './states';
 import { accountsSlice, fetchAccounts } from './states/account';
 import { basicInfoSlice, fetchBasicInfo, reloadLedger } from './states/basic';
 import { fetchCommodities } from './states/commodity';
-import { fetchError } from './states/errors';
 import { journalsSlice } from './states/journals';
 import { useSWRConfig } from 'swr';
 import { createStyles } from '@mantine/emotion';
 import { Router } from './router';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { errorAtom, errorCountAtom, errorsFetcher } from './states/errors';
 
 const useStyles = createStyles((theme, _, u) => ({
   onlineIcon: {
@@ -207,6 +208,9 @@ export default function App() {
   const [opened] = useDisclosure();
   const isMobile = useMediaQuery('(max-width: 768px)');
 
+  const errorsCount = useAtomValue(errorCountAtom);
+  const refreshErrors = useSetAtom(errorsFetcher);
+
   useEffect(() => {
     if (i18n.language !== lang) {
       i18n.changeLanguage(lang);
@@ -214,7 +218,6 @@ export default function App() {
   }, [i18n, lang]);
 
   useEffect(() => {
-    dispatch(fetchError(1));
     dispatch(fetchCommodities());
     dispatch(fetchBasicInfo());
     dispatch(fetchAccounts());
@@ -235,8 +238,8 @@ export default function App() {
             autoClose: 3000,
           });
           mutate('/api/for-new-transaction');
+          refreshErrors();
           dispatch(fetchBasicInfo());
-          dispatch(fetchError(1));
           dispatch(fetchCommodities());
           dispatch(accountsSlice.actions.clear());
           dispatch(journalsSlice.actions.clear());
@@ -278,8 +281,6 @@ export default function App() {
     });
     dispatch(reloadLedger());
   };
-
-  const { total_number } = useAppSelector((state) => state.errors);
 
   const mainLinks = links.map((link) => (
     <UnstyledButton
@@ -353,9 +354,9 @@ export default function App() {
                 <IconSmartHome size={20} className={classes.mainLinkIcon} stroke={1.5} />
                 <span>{t('NAV_HOME')}</span>
               </div>
-              {(total_number ?? 0) > 0 && (
+              {errorsCount > 0 && (
                 <Badge size="sm" color="pink" variant="filled" className={classes.mainLinkBadge}>
-                  {total_number ?? 0}
+                  {errorsCount}
                 </Badge>
               )}
             </UnstyledButton>

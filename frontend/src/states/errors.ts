@@ -1,55 +1,31 @@
-import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { fetcher } from '..';
-import { LoadingState, SpanInfo } from '../rest-model';
-
-export enum LedgerErrorType {
-  AccountBalanceCheckError = 'AccountBalanceCheckError',
-  AccountDoesNotExist = 'AccountDoesNotExist',
-  AccountClosed = 'AccountClosed',
-  CommodityDoesNotDefine = 'CommodityDoesNotDefine',
-  TransactionHasMultipleImplicitPosting = 'TransactionHasMultipleImplicitPosting',
-}
+import { Pageable, SpanInfo } from '../rest-model';
+import { atomWithRefresh, loadable } from 'jotai/utils';
+import { atom } from 'jotai';
 
 export interface LedgerError {
   id: string;
   span: SpanInfo;
-  error_type: LedgerErrorType;
+  error_type: string;
   metas: { [key: string]: string };
 }
 
-export const fetchError = createAsyncThunk('errors/fetch', async (page: number, thunkApi) => {
-  const ret = await fetcher(`/api/errors?page=${page}`);
-  return ret;
+/**
+ * the page to current error box
+ */
+export const errorPageAtom = atom(1);
+
+export const errorsFetcher = atomWithRefresh(async (get) => {
+  const page = get(errorPageAtom);
+  return await fetcher<Pageable<LedgerError>>(`/api/errors?page=${page}&size=10`);
 });
+export const errorAtom = loadable(errorsFetcher);
 
-interface ErrorState {
-  total_number: number;
-  total_page: number;
-  items: LedgerError[];
-  status: LoadingState;
-}
-
-const initialState: ErrorState = {
-  total_number: 0,
-  total_page: 1,
-  items: [],
-  status: LoadingState.NotReady,
-};
-
-export const errorsSlice = createSlice({
-  name: 'errors',
-  initialState,
-  reducers: {},
-  extraReducers: (builder) => {
-    builder.addCase(fetchError.pending, (state, action) => {
-      state.status = LoadingState.Loading;
-    });
-
-    builder.addCase(fetchError.fulfilled, (state, action) => {
-      state.status = LoadingState.Success;
-      state.total_number = action.payload.total_count;
-      state.total_page = action.payload.total_page;
-      state.items = action.payload.records;
-    });
-  },
+export const errorCountAtom = atom((get) => {
+  const errors = get(errorAtom);
+  if (errors.state === 'hasError' || errors.state === 'loading') {
+    return 0;
+  } else {
+    return errors.data.total_count;
+  }
 });

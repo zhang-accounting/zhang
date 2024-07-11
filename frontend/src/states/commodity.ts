@@ -4,7 +4,7 @@ import { fetcher } from '..';
 import { CommodityListItem, LoadingState } from '../rest-model';
 
 export const fetchCommodities = createAsyncThunk('commodities/fetch', async (thunkApi) => {
-  const ret = await fetcher(`/api/commodities`);
+  const ret = await fetcher<any>(`/api/commodities`);
   return ret;
 });
 

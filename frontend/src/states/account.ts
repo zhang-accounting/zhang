@@ -6,7 +6,7 @@ import AccountTrie from '../utils/AccountTrie';
 import { groupBy } from 'lodash-es';
 
 export const fetchAccounts = createAsyncThunk('accounts/fetch', async (thunkApi) => {
-  const ret = await fetcher(`/api/accounts`);
+  const ret = await fetcher<any>(`/api/accounts`);
   return ret;
 });
 

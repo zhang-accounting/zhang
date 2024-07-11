@@ -27,6 +27,7 @@
     "framer-motion": "^11.1.9",
     "i18next": "^23.11.4",
     "i18next-http-backend": "^2.5.1",
+    "jotai": "^2.9.0",
     "lodash-es": "^4.17.21",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
