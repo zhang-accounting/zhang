@@ -1,22 +1,35 @@
 ---
-title: Web 基本认证
-description: This is a page in my Starlight-powered site
+title: Setting Up Basic Authentication
+description: Learn how to secure your Zhang Accounting setup with basic authentication.
 ---
 
-zhang 提供了自带的basic auth 支持，basic auth 要求用户在启动zhang时提供明文的用户名与密码，格式遵循`{USERNAME}:{PASSWORD}`
-的格式。例子：
+Zhang Accounting supports basic authentication to help secure your data. This method requires a username and password in the format `{USERNAME}:{PASSWORD}` when accessing the application. For instance:
 
 - `username:password`
 - `admin:admin888`
 
-你可以通过下面两种方式启动basic auth：
+There are two ways to enable basic authentication:
 
-**命令行参数`auth`**:
+**Using the `auth` command-line parameter**:
 
-`docker run --name zhang  kilerd/zhang:snapshot --auth admin:admin888`
+```
+docker run --name zhang kilerd/zhang:snapshot --auth admin:admin888
+```
 
-**环境变量 `ZHANG_AUTH`**:
+**Setting the `ZHANG_AUTH` environment variable**
 
-`docker run --name zhang -e "ZHANG_AUTH=admin:admin888" kilerd/zhang:snapshot`
+```
+docker run --name zhang -e "ZHANG_AUTH=admin:admin888" kilerd/zhang:snapshot
+```
 
-!> **命令行参数**具有更高的优先级，当两个配置参数都提供时，会优先采用**命令行参数**
+> Note: **Command-line parameters** have priority over environment variables. If both are provided, the command-line parameter will be used.
+
+### Troubleshooting Common Authentication Issues
+
+When setting up basic authentication, you might encounter some common issues. Here are a few troubleshooting tips:
+
+- **Incorrect Credentials**: Ensure that the username and password are correctly entered. Remember that the format is `{USERNAME}:{PASSWORD}`.
+- **Environment Variables Not Recognized**: If using Docker, ensure that the environment variable is correctly passed to the container. Double-check the syntax used in the `docker run` command.
+- **Authentication Prompt Not Appearing**: If the authentication prompt does not appear when accessing Zhang Accounting, ensure that basic authentication is correctly enabled through either the command-line parameter or the environment variable.
+
+By following these steps and troubleshooting tips, you can effectively set up and manage basic authentication for Zhang Accounting, adding an extra layer of security to your accounting data.

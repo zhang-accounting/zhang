@@ -1,0 +1,10 @@
+1970-01-01 commodity USD
+1970-01-01 commodity CNY
+
+1970-01-01 open Assets:A
+1970-01-01 open Income:I
+
+
+2024-05-16 * "" ""
+  Assets:A   10 USD {10 CNY}
+  Income:I -100 CNY

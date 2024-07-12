@@ -11,9 +11,7 @@ interface Props<T> {
 
 export default function LoadingComponent<T>(props: Props<T>) {
   const { data, error } = useSWR<T>(props.url, fetcher);
-
   if (error) return <div>failed to load</div>;
   if (!data) return <>{props.skeleton}</>;
-
-  return <>{props.render(data)}</>;
+  return <>{props.render(data ?? [])}</>;
 }

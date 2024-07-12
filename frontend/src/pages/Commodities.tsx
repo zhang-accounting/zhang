@@ -1,60 +1,45 @@
-import { Container, Group, Table, Text } from '@mantine/core';
-import { format } from 'date-fns';
-import { useNavigate } from 'react-router';
-import Amount from '../components/Amount';
-import { LoadingState } from '../rest-model';
-import { useAppSelector } from '../states';
+import { Box, Container, SimpleGrid, Title } from '@mantine/core';
 import { Heading } from '../components/basic/Heading';
+import CommodityBox from '../components/CommodityBox';
+import { useDocumentTitle } from '@mantine/hooks';
+import { useAtomValue } from 'jotai/index';
+import { titleAtom } from '../states/basic';
+import { FRONTEND_DEFAULT_GROUP, groupedCommoditiesAtom } from '../states/commodity';
 
 export default function Commodities() {
-  let navigate = useNavigate();
+  const ledgerTitle = useAtomValue(titleAtom);
+  useDocumentTitle(`Commodities - ${ledgerTitle}`);
 
-  const onCommodityClick = (commodityName: string) => {
-    navigate(commodityName);
-  };
-
-  const { value: commodities, status } = useAppSelector((state) => state.commodities);
-
-  if (status === LoadingState.Loading || status === LoadingState.NotReady) return <>loading</>;
+  const groupedCommodities = useAtomValue(groupedCommoditiesAtom);
 
   return (
     <Container fluid>
       <Heading title={`Commodities`}></Heading>
-      <Table verticalSpacing="xs" highlightOnHover>
-        <thead>
-          <tr>
-            <th>Currency</th>
-            <th>Precision</th>
-            <th>Balance</th>
-            <th>Latest Price</th>
-          </tr>
-        </thead>
-        <tbody>
-          {Object.entries(commodities).map(([_, currency]) => (
-            <tr key={currency.name}>
-              <td>
-                <Group>
-                  <Text onClick={() => onCommodityClick(currency.name)}>{currency.name}</Text>
-                </Group>
-              </td>
-              <td>{currency.precision}</td>
-              <td>
-                <Amount amount={currency.total_amount} currency="" />
-              </td>
-              <td>
-                {currency.latest_price_amount && (
-                  <>
-                    <Amount amount={currency.latest_price_amount} currency={currency.latest_price_commodity} />
-                    <Text color="dimmed" size="xs" align="right">
-                      {format(new Date(currency.latest_price_date), 'yyyy-MM-dd')}
-                    </Text>
-                  </>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </Table>
+
+      {FRONTEND_DEFAULT_GROUP in groupedCommodities && (
+        <Box mt={'lg'}>
+          <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }} spacing={{ base: 'sm', md: 'md' }}>
+            {groupedCommodities[FRONTEND_DEFAULT_GROUP].map((commodity) => (
+              <CommodityBox key={commodity.name} {...commodity} operating_currency={false}></CommodityBox>
+            ))}
+          </SimpleGrid>
+        </Box>
+      )}
+      {Object.keys(groupedCommodities)
+        .filter((it) => it !== FRONTEND_DEFAULT_GROUP)
+        .sort()
+        .map((groupName) => (
+          <Box mt={'lg'}>
+            <Title fw={500} order={5} c={'dimmed'}>
+              {groupName}
+            </Title>
+            <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }} spacing={{ base: 'sm', md: 'md' }}>
+              {groupedCommodities[groupName].map((commodity) => (
+                <CommodityBox {...commodity} operating_currency={false}></CommodityBox>
+              ))}
+            </SimpleGrid>
+          </Box>
+        ))}
     </Container>
   );
 }

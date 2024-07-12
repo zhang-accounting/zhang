@@ -19,6 +19,10 @@ impl CalculatedAmount {
             detail,
         }
     }
+    pub fn persist_commodity(mut self, commodity: &str) -> Self {
+        self.detail.entry(commodity.to_owned()).or_default();
+        self
+    }
 }
 
 #[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]

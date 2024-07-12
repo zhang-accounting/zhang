@@ -1,5 +1,5 @@
 import { ActionIcon, Badge, Code, Container, Group, Popover, Stack, Table, Text, Title } from '@mantine/core';
-import { IconChevronLeft, IconChevronRight } from '@tabler/icons';
+import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
 import useSWR from 'swr';
@@ -9,10 +9,15 @@ import PayeeNarration from '../components/basic/PayeeNarration';
 import { BudgetInfoResponse, BudgetIntervalEventResponse } from '../rest-model';
 import { MonthPicker } from '@mantine/dates';
 import { useState } from 'react';
+import { useDocumentTitle } from '@mantine/hooks';
+import { useAtomValue } from 'jotai/index';
+import { titleAtom } from '../states/basic';
 
 function SingleBudget() {
   let { budgetName } = useParams();
   const [date, setDate] = useState<Date>(new Date());
+  const ledgerTitle = useAtomValue(titleAtom);
+  useDocumentTitle(`${budgetName} | Budgets - ${ledgerTitle}`);
 
   const goToMonth = (gap: number) => {
     let newDate = new Date(date);
@@ -29,7 +34,7 @@ function SingleBudget() {
   if (!budget_info) return <div>{error}</div>;
   return (
     <Container fluid>
-      <Group position="apart" py="md" px="sm" align="center">
+      <Group justify="space-between" py="md" px="sm" align="center">
         <Stack>
           <Group>
             <Title order={2}>{budget_info.alias ?? budget_info.name}</Title>
@@ -43,21 +48,21 @@ function SingleBudget() {
             ))}
           </Group>
         </Stack>
-        <Group spacing={'lg'}>
-          <Stack spacing="xs" align={'end'}>
-            <Text size="xs" color={'dimmed'}>
+        <Group gap={'lg'}>
+          <Stack gap="xs" align={'end'}>
+            <Text size="xs" c={'dimmed'}>
               Assigned Amount
             </Text>
             <Amount amount={budget_info.assigned_amount.number} currency={budget_info.assigned_amount.currency}></Amount>
           </Stack>
-          <Stack spacing="xs" align={'end'}>
-            <Text size="xs" color={'dimmed'}>
+          <Stack gap="xs" align={'end'}>
+            <Text size="xs" c={'dimmed'}>
               Activity Amount
             </Text>
             <Amount amount={budget_info.activity_amount.number} currency={budget_info.activity_amount.currency}></Amount>
           </Stack>
-          <Stack spacing="xs" align={'end'}>
-            <Text size="xs" color={'dimmed'}>
+          <Stack gap="xs" align={'end'}>
+            <Text size="xs" c={'dimmed'}>
               Available Amount
             </Text>
             <Amount amount={budget_info.available_amount.number} currency={budget_info.available_amount.currency}></Amount>
@@ -66,7 +71,7 @@ function SingleBudget() {
       </Group>
 
       <Group>
-        <ActionIcon onClick={() => goToMonth(-1)}>
+        <ActionIcon variant="white" onClick={() => goToMonth(-1)}>
           <IconChevronLeft size="1rem" />
         </ActionIcon>
         <Popover position="bottom" withArrow shadow="md">
@@ -77,39 +82,43 @@ function SingleBudget() {
             <MonthPicker value={date} maxDate={new Date()} onChange={(newDate) => setDate(newDate ?? new Date())} />
           </Popover.Dropdown>
         </Popover>
-        <ActionIcon onClick={() => goToMonth(1)} disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}>
+        <ActionIcon
+          variant="white"
+          onClick={() => goToMonth(1)}
+          disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}
+        >
           <IconChevronRight size="1rem" />
         </ActionIcon>
       </Group>
 
-      <Table verticalSpacing="xs" withBorder>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Activity</th>
-            <th>Account</th>
-            <th style={{ textAlign: 'end' }}>Assigned Amount</th>
-            <th style={{ textAlign: 'end' }}>Activity Amount</th>
-          </tr>
-        </thead>
+      <Table verticalSpacing="xs" withTableBorder>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Date</Table.Th>
+            <Table.Th>Activity</Table.Th>
+            <Table.Th>Account</Table.Th>
+            <Table.Th style={{ textAlign: 'end' }}>Assigned Amount</Table.Th>
+            <Table.Th style={{ textAlign: 'end' }}>Activity Amount</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
         <tbody>
           {(budget_interval_event ?? []).map((it) => {
             return (
-              <tr>
-                <td>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</td>
-                <td>{'event_type' in it ? it.event_type : <PayeeNarration payee={it.payee} narration={it.narration} />}</td>
-                <td>
+              <Table.Tr>
+                <Table.Td>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</Table.Td>
+                <Table.Td>{'event_type' in it ? it.event_type : <PayeeNarration payee={it.payee} narration={it.narration} />}</Table.Td>
+                <Table.Td>
                   {!('event_type' in it) && (
                     <Badge color="pink" variant="filled">
                       {it.account}
                     </Badge>
                   )}
-                </td>
-                <td style={{ textAlign: 'end' }}>{'event_type' in it && <Amount amount={it.amount.number} currency={it.amount.currency} />}</td>
-                <td style={{ textAlign: 'end' }}>
+                </Table.Td>
+                <Table.Td style={{ textAlign: 'end' }}>{'event_type' in it && <Amount amount={it.amount.number} currency={it.amount.currency} />}</Table.Td>
+                <Table.Td style={{ textAlign: 'end' }}>
                   {!('event_type' in it) && <Amount amount={it.inferred_unit_number} currency={it.inferred_unit_commodity} />}
-                </td>
-              </tr>
+                </Table.Td>
+              </Table.Tr>
             );
           })}
         </tbody>

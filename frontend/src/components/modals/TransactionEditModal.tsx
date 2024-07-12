@@ -23,6 +23,7 @@ export const TransactionEditModal = ({
           title: 'transaction is updated',
           message: '',
         });
+        context.closeModal('transactionEditModal');
       })
       .catch(function (error) {
         showNotification({
@@ -31,7 +32,7 @@ export const TransactionEditModal = ({
           message: error?.response?.data ?? '',
           autoClose: false,
         });
-        console.log(error);
+        console.error(error);
       });
   };
   return (
@@ -40,12 +41,11 @@ export const TransactionEditModal = ({
         data={innerProps.data}
         onChange={(data, isValid) => {
           setData(data);
-          console.log(isValid);
           setIsValid(isValid);
         }}
       ></TransactionEditForm>
 
-      <Group position="right" my="md">
+      <Group justify="right" my="md">
         <Button mr={3} onClick={onUpdate} disabled={!isValid}>
           Save
         </Button>

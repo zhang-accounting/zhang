@@ -1,10 +1,11 @@
-import { Box, Card, createStyles, Text } from '@mantine/core';
-import { openContextModal } from '@mantine/modals';
+import { Box, Card, Text } from '@mantine/core';
 import { Buffer } from 'buffer';
 import { serverBaseUrl } from '../../index';
 import { Document } from '../../rest-model';
+import { createStyles } from '@mantine/emotion';
+import { isDocumentAnImage } from '../../utils/documents';
 
-const useStyles = createStyles((theme, _params, getRef) => ({
+const useStyles = createStyles((theme, _, u) => ({
   imgBox: {
     overflow: 'hidden',
     position: 'relative',
@@ -59,32 +60,17 @@ const useStyles = createStyles((theme, _params, getRef) => ({
   },
 }));
 
-export interface Props extends Document {}
-
-export const EXTENSIONS_SUPPORT_PREVIEW = ['image/png', 'image/jpg', 'image/jpeg', 'image/gif'];
+export interface Props extends Document {
+  onClick: (path: string) => void;
+}
 
 export default function AccountDocumentLine(props: Props) {
   const { classes } = useStyles();
 
-  const extension = (props.extension ?? '').toLowerCase();
-  console.log(props, extension);
-  const canPreview = EXTENSIONS_SUPPORT_PREVIEW.includes(extension);
-  const openPreviewModal = () => {
-    if (canPreview) {
-      openContextModal({
-        modal: 'documentPreviewModal',
-        title: props.filename,
-        size: 'lg',
-        centered: true,
-        innerProps: {
-          filename: props.filename,
-          path: props.path,
-        },
-      });
-    }
-  };
+  const canPreview = isDocumentAnImage(props.path);
+
   return (
-    <Card shadow="sm" p="xs" radius="sm" withBorder onClick={openPreviewModal}>
+    <Card shadow="sm" p="xs" radius="sm" withBorder onClick={isDocumentAnImage(props.path) ? () => props.onClick(props.path) : undefined}>
       <Card.Section className={classes.imgBox}>
         {canPreview ? (
           <img
@@ -97,7 +83,7 @@ export default function AccountDocumentLine(props: Props) {
         )}
       </Card.Section>
 
-      <Text weight={500} lineClamp={1} className={classes.title}>
+      <Text fw={500} lineClamp={1} className={classes.title}>
         {props.filename}
       </Text>
     </Card>

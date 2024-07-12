@@ -1,20 +1,28 @@
-import { createStyles } from '@mantine/core';
+import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
   badge: {
     display: 'inline-flex',
     padding: '0',
     paddingLeft: theme.spacing.xs,
     paddingRight: theme.spacing.xs,
     fontSize: theme.fontSizes.xs,
-    color: theme.colorScheme === 'dark' ? theme.white : theme.black,
+    [u.dark]: {
+      color: theme.white,
+      border: `1px solid ${theme.colors.dark[4]}`,
+    },
+    [u.light]: {
+      color: theme.black,
+      border: `1px solid ${theme.colors.gray[3]}`,
+    },
+
     borderRadius: '99px',
-    border: `1px solid ${theme.colorScheme === 'dark' ? theme.colors.dark[4] : theme.colors.gray[3]}`,
   },
   clickableBadge: {
     cursor: 'pointer',
     '&:hover': {
-      borderColor: theme.colorScheme === 'dark' ? theme.colors.dark[6] : theme.colors.gray[5],
+      [u.dark]: { borderColor: theme.colors.dark[6] },
+      [u.light]: { borderColor: theme.colors.gray[5] },
     },
   },
 }));

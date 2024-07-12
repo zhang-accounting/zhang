@@ -95,13 +95,6 @@ pub struct DocumentResponse {
 }
 
 #[derive(Serialize)]
-pub struct StatisticFrameResponse {
-    datetime: NaiveDateTime,
-    amount: BigDecimal,
-    commodity: String,
-}
-
-#[derive(Serialize)]
 pub struct StatisticResponse {
     pub changes: HashMap<NaiveDate, HashMap<String, AmountResponse>>, // summaries:
     pub details: HashMap<NaiveDate, HashMap<String, AmountResponse>>,
@@ -236,6 +229,8 @@ pub struct CommodityListItemResponse {
     pub prefix: Option<String>,
     pub suffix: Option<String>,
     pub rounding: String,
+    pub group: Option<String>,
+
     pub total_amount: BigDecimal,
     pub latest_price_date: Option<NaiveDateTime>,
     pub latest_price_amount: Option<BigDecimal>,
@@ -243,12 +238,13 @@ pub struct CommodityListItemResponse {
 }
 
 #[derive(Serialize)]
-pub struct CommodityLot {
-    pub datetime: Option<NaiveDateTime>,
-    pub amount: BigDecimal,
-    pub price_amount: Option<BigDecimal>,
-    pub price_commodity: Option<String>,
+pub struct CommodityLotResponse {
     pub account: String,
+    pub amount: BigDecimal,
+
+    pub cost: Option<Amount>,
+    pub price: Option<Amount>,
+    pub acquisition_date: Option<NaiveDate>,
 }
 
 #[derive(Serialize)]
@@ -261,7 +257,7 @@ pub struct CommodityPrice {
 #[derive(Serialize)]
 pub struct CommodityDetailResponse {
     pub info: CommodityListItemResponse,
-    pub lots: Vec<CommodityLot>,
+    pub lots: Vec<CommodityLotResponse>,
     pub prices: Vec<CommodityPrice>,
 }
 
@@ -396,4 +392,10 @@ pub struct PluginResponse {
     pub name: String,
     pub version: String,
     pub plugin_type: Vec<PluginType>,
+}
+
+#[derive(Serialize)]
+pub struct AccountBalanceItemResponse {
+    pub date: NaiveDate,
+    pub balance: AmountResponse,
 }

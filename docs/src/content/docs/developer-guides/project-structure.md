@@ -1,29 +1,45 @@
 ---
-title: 项目结构
-description: This is a page in my Starlight-powered site
+title: Project Structure
+description: An in-depth guide to the structure of the Zhang project and best practices for extending it.
 ---
 
-## 核心 Core
+## Introduction
 
-### 数据源与结构
+The Zhang project is designed with modularity and flexibility in mind, allowing for easy customization and extension. This document outlines the core components of the project structure, their purposes, and how they interact with each other.
 
-zhang 的设计目标是不依赖，也不强绑定任何格式， 也就是说你可以把数据存储在**数据库**，**文本**，**二进制**，以及任意可以自由表达的地方。
+## Core Components
 
-为了可以让 zhang 顺利地工作，我们抽象出了两个组件用来帮助如何处理不同的数据源与结构。
+### Data Source and Structure
 
-#### DataSource
+Zhang's architecture is built to be agnostic of data formats, enabling data storage in various forms such as databases, text files, binary files, or any medium that offers flexibility. To facilitate this, we've abstracted two key components to manage diverse data sources and structures efficiently.
 
-DataSource 指的是数据源，简单来说，你的数据存储在何处，本地文件系统呢？远端 GitHub 呢？，所以DataSource 告诉了 zhang 核心
+#### Data Source
 
-- 如何读取数据，并处理成标准的、zhang可以理解的 `Directive`
-- 如何把一个 `Directive` 写回数据源，通常用于数据更新
+The Data Source component specifies where your data is stored, whether it's on a local file system, a remote GitHub repository, or elsewhere. It is responsible for:
 
-一旦数据源决定了，那意味着会跟一个数据类型 `DataType` 做绑定，所以在构建 `DataSource` 的时候需要指明具体的数据类型。
+* Reading data and transforming it into standardized, Zhang-compatible Directives.
+* Writing Directives back to the data source for updates.
+  
+When configuring a Data Source, it's crucial to specify the associated data type (DataType) to ensure proper handling and conversion.
 
-#### DateType
+#### Data Type
 
-DataType 表示着源数据是采用哪一种结构存储，比如纯文本，json，数据库 等等。 `DataType`的核心就是把标准的 `Directive`
-转换成对应的储存格式，zhang 官方维护了几种数据格式：
+The Data Type component defines the structure of the source data, such as plain text, JSON, databases, etc. Its primary function is to convert standardized Directives into the storage format compatible with the chosen Data Source. Zhang officially supports several data formats, including:
 
-- `zhang` 改进 beancount 纯文本格式
-- `beancount` beancount 官方纯文本格式
+* Zhang: An enhanced Beancount plain text format.
+* Beancount: The official Beancount plain text format.
+
+## Extending the Project
+
+### Best Practices
+
+When extending the Zhang project, consider the following best practices to maintain the integrity and modularity of the system:
+
+* **Modular Design**: Keep extensions modular to facilitate easy updates and maintenance. Avoid tightly coupling new features with core components.
+* **Data Source Compatibility**: Ensure that extensions are compatible with existing Data Sources or provide clear documentation on integrating new Data Sources.
+* **Testing**: Rigorously test new components and extensions to ensure they work seamlessly with the existing system and do not introduce regressions.
+* **Documentation**: Document any new features or changes thoroughly to assist future developers in understanding and utilizing your extensions.
+
+## Conclusion
+
+Understanding the Zhang project structure and adhering to best practices for extension will ensure that enhancements are both effective and maintainable. This approach allows for the seamless integration of new features, ensuring the project remains robust and adaptable to future requirements.

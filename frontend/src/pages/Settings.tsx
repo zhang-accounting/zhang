@@ -1,21 +1,27 @@
-import { Container, Grid, SegmentedControl, SimpleGrid, Skeleton, Table } from '@mantine/core';
-import { useLocalStorage } from '@mantine/hooks';
+import { Box, Container, SegmentedControl, SimpleGrid, Skeleton, Table } from '@mantine/core';
+import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Setting } from '../components/basic/Setting';
 import Section from '../components/Section';
-import { useAppSelector } from '../states';
 import useSWR from 'swr';
 import { fetcher } from '..';
 import { Option, PluginResponse } from '../rest-model';
 import { Heading } from '../components/basic/Heading';
 import PluginBox from '../components/PluginBox';
+import { titleAtom, versionAtom } from '../states/basic';
+import { useAtomValue } from 'jotai/index';
 
 export default function Settings() {
   const { i18n } = useTranslation();
   const [lang, setLang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
   const { data } = useSWR<Option[]>('/api/options', fetcher);
   const { data: plugins } = useSWR<PluginResponse[]>('/api/plugins', fetcher);
+
+  const ledgerTitle = useAtomValue(titleAtom);
+  const ledgerVersion = useAtomValue(versionAtom);
+
+  useDocumentTitle(`Settings - ${ledgerTitle}`);
 
   const onLanguageChange = (lang: string) => {
     setLang(lang);
@@ -25,20 +31,14 @@ export default function Settings() {
     i18n.changeLanguage(lang);
   }, [lang, i18n]);
 
-  const basicInfo = useAppSelector((state) => state.basic);
-
   return (
     <Container fluid>
       <Heading title={`Settings`}></Heading>
       <Section title="Basic Setting">
-        <Grid>
-          <Grid.Col sm={12} md={6} lg={4}>
-            <Setting title="title" uppercase value={basicInfo.title} />
-          </Grid.Col>
-          <Grid.Col sm={12} md={6} lg={4}>
-            <Setting title="version" uppercase value={basicInfo.version} />
-          </Grid.Col>
-          <Grid.Col sm={12} md={6} lg={4}>
+        <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }}>
+          <Setting title="title" uppercase value={ledgerTitle} />
+          <Setting title="version" uppercase value={ledgerVersion} />
+          <Box>
             <Setting title="language" uppercase />
             <SegmentedControl
               value={lang}
@@ -49,8 +49,8 @@ export default function Settings() {
                 { label: 'English', value: 'en' },
               ]}
             />
-          </Grid.Col>
-        </Grid>
+          </Box>
+        </SimpleGrid>
       </Section>
       <Section title="Plugins">
         <SimpleGrid cols={2}>
@@ -61,28 +61,28 @@ export default function Settings() {
       </Section>
       <Section title="Options">
         <Table verticalSpacing="xs" highlightOnHover>
-          <thead>
-            <tr>
-              <th>Key</th>
-              <th>Value</th>
-            </tr>
-          </thead>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Key</Table.Th>
+              <Table.Th>Value</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
           <tbody>
             {!data ? (
-              <tr>
-                <td>
+              <Table.Tr>
+                <Table.Td>
                   <Skeleton height={20} mt={10} radius="xs" />
-                </td>
-                <td>
+                </Table.Td>
+                <Table.Td>
                   <Skeleton height={20} mt={10} radius="xs" />
-                </td>
-              </tr>
+                </Table.Td>
+              </Table.Tr>
             ) : (
               data.map((option) => (
-                <tr key={option.key}>
-                  <td>{option.key}</td>
-                  <td>{option.value}</td>
-                </tr>
+                <Table.Tr key={option.key}>
+                  <Table.Td>{option.key}</Table.Td>
+                  <Table.Td>{option.value}</Table.Td>
+                </Table.Tr>
               ))
             )}
           </tbody>

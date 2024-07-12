@@ -1,4 +1,4 @@
-import { Badge, Box, Group, SimpleGrid, Text, createStyles } from '@mantine/core';
+import { Badge, Box, Group, SimpleGrid, Text } from '@mantine/core';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../rest-model';
 import Amount from '../Amount';
@@ -6,7 +6,11 @@ import DashLine from '../DashedLine';
 import Section from '../Section';
 import DocumentPreview from './DocumentPreview';
 import AccountDocumentUpload from '../AccountDocumentUpload';
-const useStyles = createStyles((theme) => ({
+import { createStyles } from '@mantine/emotion';
+import { ImageLightBox } from '../ImageLightBox';
+import { useState } from 'react';
+
+const useStyles = createStyles((theme, _, u) => ({
   amount: {
     display: 'flex',
     flexDirection: 'column',
@@ -17,10 +21,14 @@ const useStyles = createStyles((theme) => ({
     color: theme.colors.gray[7],
   },
 }));
+
 interface Props {
   data: JournalTransactionItem;
 }
+
 export default function TransactionPreview(props: Props) {
+  const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
+
   const { classes } = useStyles();
   return (
     <div>
@@ -70,7 +78,7 @@ export default function TransactionPreview(props: Props) {
               Links
             </Text>
             <Text lineClamp={1}>
-              <Group mx={1} my={2} spacing="sm">
+              <Group mx={1} my={2} gap="sm">
                 {(props.data.links || []).map((link) => (
                   <Badge key={link} size="lg" variant="dot">
                     {link}
@@ -87,7 +95,7 @@ export default function TransactionPreview(props: Props) {
               Tags
             </Text>
             <Text lineClamp={1}>
-              <Group mx={1} my={2} spacing="sm">
+              <Group mx={1} my={2} gap="sm">
                 {(props.data.tags || []).map((tag) => (
                   <Badge key={tag} size="lg" color="orange" variant="dot">
                     {tag}
@@ -133,20 +141,13 @@ export default function TransactionPreview(props: Props) {
         </Section>
       )}
       <Box mx={1} my={4}>
+        <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
-          <SimpleGrid
-            cols={4}
-            spacing="sm"
-            breakpoints={[
-              { maxWidth: 'md', cols: 3, spacing: 'md' },
-              { maxWidth: 'sm', cols: 2, spacing: 'sm' },
-              { maxWidth: 'xs', cols: 1, spacing: 'sm' },
-            ]}
-          >
+          <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }} spacing={{ base: 'sm', md: 'md', sm: 'sm', xs: 'sm' }}>
             {props.data.metas
               .filter((meta) => meta.key === 'document')
               .map((meta, idx) => (
-                <DocumentPreview key={idx} uri={meta.value} filename={meta.value} />
+                <DocumentPreview onClick={() => setLightboxSrc(meta.value)} key={idx} uri={meta.value} filename={meta.value} />
               ))}
             <AccountDocumentUpload url={`/api/transactions/${props.data.id}/documents`} />
           </SimpleGrid>

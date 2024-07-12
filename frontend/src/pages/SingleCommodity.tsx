@@ -6,10 +6,15 @@ import { fetcher } from '..';
 import Amount from '../components/Amount';
 import { CommodityDetail } from '../rest-model';
 import { Heading } from '../components/basic/Heading';
+import { useDocumentTitle } from '@mantine/hooks';
+import { useAtomValue } from 'jotai/index';
+import { titleAtom } from '../states/basic';
 
 export default function SingleCommodity() {
   let { commodityName } = useParams();
   const { data, error } = useSWR<CommodityDetail>(`/api/commodities/${commodityName}`, fetcher);
+  const ledgerTitle = useAtomValue(titleAtom);
+  useDocumentTitle(`${commodityName} | Commodities - ${ledgerTitle}`);
 
   if (error) return <div>failed to load</div>;
   if (!data) return <div>loading123</div>;
@@ -17,7 +22,7 @@ export default function SingleCommodity() {
   return (
     <Container fluid>
       <Heading title={commodityName!}></Heading>
-      <Tabs defaultValue="lots" mt="lg">
+      <Tabs keepMounted={false} variant="outline" defaultValue="lots" mt="lg">
         <Tabs.List>
           <Tabs.Tab value="lots">Lots</Tabs.Tab>
           <Tabs.Tab value="price_history">Price History</Tabs.Tab>
@@ -25,22 +30,28 @@ export default function SingleCommodity() {
 
         <Tabs.Panel value="lots" pt="xs">
           <Table verticalSpacing="xs" highlightOnHover>
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th>Lot</th>
-                <th>Balance</th>
-              </tr>
-            </thead>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Account</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>Cost</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>Price</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>Balance</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
             <tbody>
               {data.lots.map((it, idx) => (
-                <tr key={idx}>
-                  <td>{it.account}</td>
-                  <td>
-                    {it.price_amount} {it.price_commodity}
-                  </td>
-                  <td>{it.amount}</td>
-                </tr>
+                <Table.Tr key={idx}>
+                  <Table.Td>{it.account}</Table.Td>
+                  <Table.Td style={{ textAlign: 'right' }}>
+                    {it.cost?.number} {it.cost?.currency}
+                  </Table.Td>
+                  <Table.Td style={{ textAlign: 'right' }}>
+                    {it.price?.number} {it.price?.currency}
+                  </Table.Td>
+                  <Table.Td style={{ textAlign: 'right' }}>
+                    <Amount amount={it.amount} currency={''} />
+                  </Table.Td>
+                </Table.Tr>
               ))}
             </tbody>
           </Table>
@@ -48,20 +59,20 @@ export default function SingleCommodity() {
 
         <Tabs.Panel value="price_history" pt="xs">
           <Table verticalSpacing="xs" highlightOnHover>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Price</th>
-              </tr>
-            </thead>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Date</Table.Th>
+                <Table.Th>Price</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
             <tbody>
               {data.prices.map((it, idx) => (
-                <tr key={idx}>
-                  <td>{format(new Date(it.datetime), 'yyyy-MM-dd')}</td>
-                  <td>
+                <Table.Tr key={idx}>
+                  <Table.Td>{format(new Date(it.datetime), 'yyyy-MM-dd')}</Table.Td>
+                  <Table.Td>
                     <Amount amount={it.amount} currency={it.target_commodity} />
-                  </td>
-                </tr>
+                  </Table.Td>
+                </Table.Tr>
               ))}
             </tbody>
           </Table>

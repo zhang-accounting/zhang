@@ -1,6 +1,10 @@
-import { Badge, Container, createStyles, Group, Paper, Stack, Text, Title } from '@mantine/core';
+import { Badge, Container, Group, Paper, Stack, Text, Title } from '@mantine/core';
+import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
+  title: {
+    fontFamily: `Greycliff CF, ${theme.fontFamily}`,
+  },
   page: {
     height: '100vh',
     display: 'flex',
@@ -23,15 +27,15 @@ export function Loader() {
     <Container className={classes.page}>
       <div className={classes.page2}>
         <Paper withBorder shadow="md" p={30} mt={30} radius="md">
-          <Title sx={(theme) => ({ fontFamily: `Greycliff CF, ${theme.fontFamily}` })}>Zhang</Title>
+          <Title className={classes.title}>Zhang</Title>
 
           <Stack mt={30}>
             {servers.map((server) => (
               <Paper withBorder shadow="md" p={20} mt={3}>
-                <Group position="apart">
-                  <Stack spacing="xs">
-                    <Text weight={500}>{server.title}</Text>
-                    <Text size="sm" color="dimmed">
+                <Group justify="space-between">
+                  <Stack gap="xs">
+                    <Text fw={500}>{server.title}</Text>
+                    <Text size="sm" c="dimmed">
                       {server.url}
                     </Text>
                   </Stack>

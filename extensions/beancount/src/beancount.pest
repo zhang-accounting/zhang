@@ -47,8 +47,10 @@ transaction_next_line = _{ identation ~ transaction_line }
 
 posting_unit   = { (posting_amount)? ~ posting_meta }
 posting_amount = { number_expr ~ space+ ~ commodity_name }
-posting_meta   = { (space+ ~ "{" ~ space* ~ posting_cost ~ price_cost_date? ~ space* ~ "}")? ~ space* ~ posting_price? }
+posting_meta   = { (space+ ~ posting_cost_prefix ~ space* ~ posting_cost? ~ price_cost_date? ~ space* ~ posting_cost_postfix)? ~ space* ~ posting_price? }
 
+posting_cost_prefix = { "{" }
+posting_cost_postfix = { "}" }
 posting_cost    =  { number_expr ~ space+ ~ commodity_name }
 price_cost_date = _{ space* ~ "," ~ space* ~ date }
 posting_price   =  { posting_single_price | posting_total_price }
@@ -95,7 +97,7 @@ space = _{ " " | "\t" }
 line  = _{ NEWLINE }
 
 number = @{
-    ("0" | ASCII_NONZERO_DIGIT ~ (ASCII_DIGIT | "," | "_")*) ~ ("." ~ ASCII_DIGIT*)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
+    (ASCII_DIGIT+ ~ (ASCII_DIGIT | "," | "_")*) ~ ("." ~ ASCII_DIGIT*)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
 }
 
 number_expr  =  { expr_atom ~ (space* ~ expr_bin_op ~ space* ~ expr_atom)* }

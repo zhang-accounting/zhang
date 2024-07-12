@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 
 use bigdecimal::BigDecimal;
-use chrono::DateTime;
+use chrono::{DateTime, NaiveDate};
 use chrono_tz::Tz;
+use indexmap::IndexMap;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Flag, SpanInfo};
@@ -13,7 +14,7 @@ use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaD
 pub struct Store {
     pub options: HashMap<String, String>,
     pub accounts: HashMap<String, AccountDomain>,
-    pub commodities: HashMap<String, CommodityDomain>,
+    pub commodities: IndexMap<String, CommodityDomain>,
     pub transactions: HashMap<Uuid, TransactionDomain>,
     pub postings: Vec<PostingDomain>,
 
@@ -116,12 +117,15 @@ pub struct DocumentDomain {
     pub path: String,
 }
 
-#[derive(Default, Clone, Debug, serde::Serialize)]
+#[derive(Default, Clone, Debug, serde::Serialize, PartialEq)]
 pub struct CommodityLotRecord {
     pub commodity: String,
-    pub datetime: Option<DateTime<Tz>>,
     pub amount: BigDecimal,
-    pub price: Option<Amount>,
+
+    pub cost: Option<Amount>,
+
+    // acquisition date
+    pub acquisition_date: Option<NaiveDate>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]

@@ -11,7 +11,7 @@
   "NAV_HOME": "仪表台",
   "NAV_JOURNALS": "流水",
   "NAV_ACCOUNTS": "账户",
-  "NAV_COMMDOITIES": "货币",
+  "NAV_COMMODITIES": "货币",
   "NAV_DOCUMENTS": "文档",
   "NAV_REPORT": "报表",
   "NAV_LIABILITY": "负债",
@@ -21,16 +21,18 @@
   "NAV_BUDGETS": "预算",
   "ACCOUNT_FILTER_PLACEHOLDER": "按关键字过滤...",
   "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "清空过滤关键字",
+  "TXN_EDIT_PREVIEW": "预览",
   "ERROR": {
     "AccountDoesNotExist": "对应账户不存在",
     "AccountBalanceCheckError": "账户定期对账不通过",
     "AccountClosed": "尝试使用一个已经关闭的账户",
-    "TransactionDoesNotBalance": "该交易行间金额不平衡",
     "CommodityDoesNotDefine": "尝试使用一个未定义的货币",
     "TransactionHasMultipleImplicitPosting": "该交易存在多条隐形/需推倒金额的行",
     "CloseNonZeroAccount": "尝试关闭一个余额非零的账户",
     "MultipleOperatingCurrencyDetect": "账本中存在多项 operating currency 的配置，这是 zhang 中不推荐的用法",
     "DefineDuplicatedBudget": "尝试创建一个重复的预算",
     "UnbalancedTransaction": "交易不平衡"
-  }
+  },
+  "ERROR_BOX_WHY": "为什么出错?",
+  "LEDGER_IS_HEALTHY": "不可思议，账本一点错都没有"
 }

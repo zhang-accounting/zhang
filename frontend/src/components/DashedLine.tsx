@@ -1,14 +1,17 @@
-import { createStyles, Group, px } from '@mantine/core';
+import { Group } from '@mantine/core';
 import { ReactNode } from 'react';
-const useStyles = createStyles((theme) => ({
+import { createStyles } from '@mantine/emotion';
+
+const useStyles = createStyles((theme, _, u) => ({
   spoiled: {
     '& + &': {
       borderTop: `1px dashed ${theme.colors.dark[0]}`,
-      marginTop: px(theme.spacing.xs) * 0.5,
-      marginBottom: px(theme.spacing.xs) * 0.5,
+      marginTop: `calc(${theme.spacing.xs} * 0.5)`,
+      marginBottom: `calc(${theme.spacing.xs} * 0.5)`,
     },
   },
 }));
+
 interface Props {
   children: ReactNode;
 }
@@ -16,7 +19,7 @@ interface Props {
 export default function DashLine({ children }: Props) {
   const { classes } = useStyles();
   return (
-    <Group className={classes.spoiled} position="apart">
+    <Group className={classes.spoiled} justify="space-between">
       {children}
     </Group>
   );

@@ -4,10 +4,15 @@ import { fetcher } from '..';
 import SingleFileEdit from '../components/SingleFileEdit';
 import { TableOfContentsFloating, Tier, ZHANG_VALUE } from '../components/basic/TableOfContentsFloating';
 import { useState } from 'react';
+import { useDocumentTitle } from '@mantine/hooks';
+import { useAtomValue } from 'jotai/index';
+import { titleAtom } from '../states/basic';
 
 function RawEdit() {
   const { data, error } = useSWR<string[]>('/api/files', fetcher);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const ledgerTitle = useAtomValue(titleAtom);
+  useDocumentTitle(selectedFile ? `${selectedFile} | Raw Editing - ${ledgerTitle}` : `Raw Editing - ${ledgerTitle}`);
 
   if (error) return <div>failed to load</div>;
   if (!data) return <>loading</>;

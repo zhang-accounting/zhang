@@ -8,11 +8,13 @@ use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
+use log::debug;
 use serde::Deserialize;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, Rounding, SpanInfo, Transaction};
+use zhang_ast::utils::inventory::BookingMethod;
+use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, PostingCost, Rounding, SpanInfo, Transaction};
 
 use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType,
@@ -21,7 +23,6 @@ use crate::domains::schemas::{
 use crate::store::{
     BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionDomain,
 };
-use crate::utils::bigdecimal_ext::BigDecimalExt;
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
@@ -49,9 +50,10 @@ pub struct StaticRow {
 
 pub struct AccountCommodityLot {
     pub account: Account,
-    pub datetime: Option<DateTime<Tz>>,
     pub amount: BigDecimal,
+    pub cost: Option<Amount>,
     pub price: Option<Amount>,
+    pub acquisition_date: Option<NaiveDate>,
 }
 
 pub struct Operations {
@@ -80,9 +82,10 @@ impl Operations {
                     let lot = lot.clone();
                     ret.push(AccountCommodityLot {
                         account: Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?,
-                        datetime: lot.datetime,
                         amount: lot.amount,
-                        price: lot.price,
+                        cost: lot.cost,
+                        acquisition_date: lot.acquisition_date,
+                        price: None,
                     })
                 }
             }
@@ -160,7 +163,7 @@ impl Operations {
                     };
                     let precision = commodity.precision;
                     let rounding = commodity.rounding;
-                    let decimal = amount.total.round_with(precision as i64, rounding.is_up());
+                    let decimal = amount.with_scale_round(precision as i64, rounding.to_mode());
                     if !decimal.is_zero() {
                         return Ok(Some(ErrorKind::UnbalancedTransaction));
                     }
@@ -174,7 +177,7 @@ impl Operations {
     /// insert transaction postings
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction_posting(
-        &mut self, trx_id: &Uuid, posting_idx: usize, account_name: &str, unit: Option<Amount>, cost: Option<Amount>, inferred_amount: Amount,
+        &mut self, trx_id: &Uuid, posting_idx: usize, account_name: &str, unit: Option<Amount>, cost: Option<PostingCost>, inferred_amount: Amount,
         previous_amount: Amount, after_amount: Amount,
     ) -> ZhangResult<()> {
         let mut store = self.write();
@@ -191,7 +194,7 @@ impl Operations {
             trx_datetime: trx.datetime,
             account: Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?,
             unit,
-            cost,
+            cost: cost.and_then(|it| it.base),
             inferred_amount,
             previous_amount,
             after_amount,
@@ -254,55 +257,119 @@ impl Operations {
         }))
     }
 
-    pub(crate) fn account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>) -> ZhangResult<Option<CommodityLotRecord>> {
-        let mut store = self.write();
-        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
-
-        let option = entry.iter().filter(|lot| lot.commodity.eq(currency)).find(|lot| lot.price.eq(&price)).cloned();
-
-        Ok(option)
-    }
-
-    pub fn account_lot_fifo(&mut self, account_name: &str, currency: &str, price_commodity: &str) -> ZhangResult<Option<CommodityLotRecord>> {
+    pub(crate) fn default_account_lot(&mut self, account_name: &str, currency: &str) -> ZhangResult<CommodityLotRecord> {
         let mut store = self.write();
         let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
         let option = entry
             .iter()
+            // match commodity
             .filter(|lot| lot.commodity.eq(currency))
-            .find(|lot| lot.price.as_ref().map(|it| it.currency.as_str()).eq(&Some(price_commodity)))
+            // default lots have none cost
+            .filter(|it| it.cost.is_none())
+            // default lots have none acquisition date
+            .find(|it| it.acquisition_date.is_none())
             .cloned();
 
-        Ok(option)
+        if let Some(record) = option {
+            Ok(record)
+        } else {
+            // if target lot record does not exist, insert a new one and return it
+            let new_lot_record = CommodityLotRecord {
+                commodity: currency.to_owned(),
+                amount: BigDecimal::zero(),
+                acquisition_date: None,
+                cost: None,
+            };
+            entry.push(new_lot_record.clone());
+            Ok(new_lot_record)
+        }
     }
-    pub(crate) fn update_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
+
+    pub(crate) fn account_lot_by_meta(
+        &mut self, account_name: &str, currency: &str, lot_meta: &PostingCost, txn_date: NaiveDate, booking_method: BookingMethod,
+    ) -> ZhangResult<CommodityLotRecord> {
         let mut store = self.write();
         let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
-        let option = entry.iter_mut().find(|lot| lot.price.eq(&price));
-        if let Some(lot) = option {
-            lot.amount = amount.clone();
-        } else {
-            entry.push(CommodityLotRecord {
-                commodity: currency.to_owned(),
-                datetime: None,
-                amount: amount.clone(),
-                price,
+        let mut option = entry
+            .iter()
+            // match commodity
+            .filter(|lot| lot.commodity.eq(currency))
+            // match cost, works with empty cost
+            .filter(|it| {
+                if lot_meta.base.is_some() {
+                    it.cost.eq(&lot_meta.base)
+                } else {
+                    it.cost.is_some()
+                }
             })
+            // match cost date
+            .filter(|it| {
+                if lot_meta.base.is_some() {
+                    // if cost date in lot meta is defined, use txn date
+                    it.acquisition_date.eq(&lot_meta.date.as_ref().map(|it| it.naive_date()).or(Some(txn_date)))
+                } else {
+                    // if cost  in meta is null, return all lots
+                    true
+                }
+            });
+
+        let lot_record = match booking_method {
+            BookingMethod::Fifo => option.next().cloned(),
+            BookingMethod::Lifo => option.next_back().cloned(),
+            BookingMethod::Average => {
+                unimplemented!()
+            }
+            BookingMethod::AverageOnly => {
+                unimplemented!()
+            }
+            BookingMethod::Strict => {
+                unimplemented!()
+            }
+            BookingMethod::None => {
+                unimplemented!()
+            }
+        };
+        if let Some(record) = lot_record {
+            Ok(record)
+        } else {
+            // if target lot record does not exist, insert a new one and return it
+            let new_lot_record = CommodityLotRecord {
+                commodity: currency.to_owned(),
+                amount: BigDecimal::zero(),
+
+                // get cost date as acquisition date if persists,
+                // if cost is defined, use txn date as acquisition date
+                acquisition_date: lot_meta
+                    .date
+                    .as_ref()
+                    .map(|it| it.naive_date())
+                    .or_else(|| lot_meta.base.as_ref().map(|_| txn_date)),
+                cost: lot_meta.base.clone(),
+            };
+            entry.push(new_lot_record.clone());
+            Ok(new_lot_record)
         }
-        Ok(())
     }
 
-    pub(crate) fn insert_account_lot(&mut self, account_name: &str, currency: &str, price: Option<Amount>, amount: &BigDecimal) -> ZhangResult<()> {
+    pub(crate) fn update_account_lot(&mut self, account_name: &str, lot_record: &CommodityLotRecord, amount: &BigDecimal) -> ZhangResult<()> {
         let mut store = self.write();
-        let lot_records = store.commodity_lots.entry(account_name.to_owned()).or_default();
+        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
 
-        lot_records.push(CommodityLotRecord {
-            commodity: currency.to_owned(),
-            datetime: None,
-            amount: amount.clone(),
-            price,
-        });
+        if amount.is_zero() {
+            // if amount is zero, remove the lot's record
+            let pos = entry.iter().find_position(|it| it.eq(&lot_record));
+            if let Some((idx, _)) = pos {
+                entry.remove(idx);
+            }
+        } else {
+            let option = entry.iter_mut().find(|lot| lot.eq(&lot_record));
+            if let Some(lot) = option {
+                lot.amount = amount.clone();
+            }
+        }
+
         Ok(())
     }
 
@@ -413,6 +480,32 @@ impl Operations {
             .collect_vec())
     }
 
+    pub fn meta(&self, type_: MetaType, type_identifier: impl AsRef<str>, key: impl AsRef<str>) -> ZhangResult<Option<MetaDomain>> {
+        let store = self.read();
+        Ok(store
+            .metas
+            .iter()
+            .filter(|meta| meta.meta_type.eq(type_.as_ref()))
+            .filter(|meta| meta.type_identifier.eq(type_identifier.as_ref()))
+            .find(|meta| meta.key.eq(key.as_ref()))
+            .cloned())
+    }
+    pub fn typed_meta_value<T>(&self, type_: MetaType, type_identifier: impl AsRef<str>, key: impl AsRef<str>) -> Result<Option<T>, ErrorKind>
+    where
+        T: FromStr<Err = ErrorKind>,
+    {
+        let store = self.read();
+
+        store
+            .metas
+            .iter()
+            .filter(|meta| meta.meta_type.eq(type_.as_ref()))
+            .filter(|meta| meta.type_identifier.eq(type_identifier.as_ref()))
+            .find(|meta| meta.key.eq(key.as_ref()))
+            .map(|it| T::from_str(&it.value))
+            .transpose()
+    }
+
     pub fn trx_tags(&mut self, trx_id: &Uuid) -> ZhangResult<Vec<String>> {
         let store = self.read();
         let tags = store.transactions.get(trx_id).map(|it| it.tags.clone()).unwrap_or_default();
@@ -460,7 +553,9 @@ impl Operations {
         }))
     }
 
-    pub fn single_account_balances(&mut self, account_name: &str) -> ZhangResult<Vec<AccountBalanceDomain>> {
+    /// get target account's latest balance
+    /// because the account can have multiple commodities, so the result is the array.
+    pub fn single_account_latest_balances(&self, account_name: &str) -> ZhangResult<Vec<AccountBalanceDomain>> {
         let store = self.read();
 
         let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
@@ -494,6 +589,32 @@ impl Operations {
                 }
             })
             .collect_vec())
+    }
+
+    /// get target account's all balance
+    /// because the account can have multiple commodities, so the result is the array.
+    pub fn single_account_all_balances(&self, account_name: &str) -> ZhangResult<HashMap<Currency, HashMap<NaiveDate, Amount>>> {
+        let store = self.read();
+
+        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
+
+        let mut ret: HashMap<Currency, HashMap<NaiveDate, Amount>> = HashMap::new();
+
+        for posting in store
+            .postings
+            .iter()
+            .filter(|posting| posting.account.eq(&account))
+            .cloned()
+            .sorted_by_key(|posting| posting.trx_datetime)
+        {
+            let posting: PostingDomain = posting;
+            let date = posting.trx_datetime.naive_local().date();
+
+            let dated_amount = ret.entry(posting.after_amount.currency.clone()).or_default();
+            dated_amount.insert(date, posting.after_amount);
+        }
+
+        Ok(ret)
     }
 
     pub fn account_journals(&mut self, account: &str) -> ZhangResult<Vec<AccountJournalDomain>> {
@@ -716,6 +837,7 @@ impl Operations {
 impl Operations {
     pub fn new_error(&mut self, error_kind: ErrorKind, span: &SpanInfo, metas: HashMap<String, String>) -> ZhangResult<()> {
         let mut store = self.write();
+        debug!("insert a new error [{}] [span: {:?}] [meta:{:?}]", &error_kind, &span, &metas);
         store.errors.push(ErrorDomain {
             id: Uuid::from_span(span).to_string(),
             error_type: error_kind,

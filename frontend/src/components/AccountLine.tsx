@@ -1,12 +1,13 @@
-import { ActionIcon, Badge, Divider, Group, HoverCard, Space, Stack, Text, createStyles } from '@mantine/core';
+import { ActionIcon, Badge, Divider, Group, HoverCard, Space, Stack, Table, Text } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
-import { IconChevronDown, IconChevronRight } from '@tabler/icons';
+import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useNavigate } from 'react-router';
 import { AccountStatus } from '../rest-model';
 import AccountTrie from '../utils/AccountTrie';
 import Amount from './Amount';
+import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
   leaf: {
     cursor: 'pointer',
   },
@@ -37,12 +38,12 @@ export default function AccountLine({ data, spacing }: Props) {
 
   return (
     <>
-      <tr>
-        <td>
+      <Table.Tr>
+        <Table.Td>
           <div style={{ display: 'flex' }}>
             <Space w={spacing * 22}></Space>
             {hasChildren ? (
-              <ActionIcon size="sm" variant="transparent" onClick={() => setCollapse(!isShow)}>
+              <ActionIcon size="sm" color="gray" variant="transparent" onClick={() => setCollapse(!isShow)}>
                 {isShow ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
               </ActionIcon>
             ) : (
@@ -50,7 +51,7 @@ export default function AccountLine({ data, spacing }: Props) {
             )}
             <div onClick={onNavigate} className={data.isLeaf ? classes.leaf : classes.nonLeaf}>
               <Group>
-                <Text>{data.val?.alias ?? data.word}</Text>
+                <span>{data.val?.alias ?? data.word}</span>
                 {data.val?.status === AccountStatus.Close && (
                   <Badge size="xs" color="red" variant="dot">
                     {data.val?.status}
@@ -65,26 +66,26 @@ export default function AccountLine({ data, spacing }: Props) {
               )}
             </div>
           </div>
-        </td>
-        <td>
-          <Group position="right">
+        </Table.Td>
+        <Table.Td>
+          <Group justify="right">
             {haveMultipleCommodity ? (
               <HoverCard width={280} shadow="md" withArrow position="left">
                 <HoverCard.Target>
-                  <Group spacing="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
+                  <Group gap="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
                     <Text>≈</Text> <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
                   </Group>
                 </HoverCard.Target>
                 <HoverCard.Dropdown>
-                  <Stack spacing="xs">
+                  <Stack gap="xs">
                     {Object.entries(data.amount.data).map(([key, value]) => (
-                      <Group position="apart">
+                      <Group justify="space-between">
                         <Text>+</Text>
                         <Amount amount={value} currency={key}></Amount>
                       </Group>
                     ))}
-                    <Divider variant="dashed" />
-                    <Group position="apart">
+                    <Divider variant="dashed" labelPosition="left" />
+                    <Group justify="space-between">
                       <Text>=</Text>
                       <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
                     </Group>
@@ -92,13 +93,13 @@ export default function AccountLine({ data, spacing }: Props) {
                 </HoverCard.Dropdown>
               </HoverCard>
             ) : (
-              <Group spacing="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
+              <Group gap="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
                 <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
               </Group>
             )}
           </Group>
-        </td>
-      </tr>
+        </Table.Td>
+      </Table.Tr>
 
       {isShow &&
         Object.keys(data.children)

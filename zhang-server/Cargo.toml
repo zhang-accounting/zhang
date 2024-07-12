@@ -17,7 +17,7 @@ zhang-ast = { version = "0.1", path = "../zhang-ast" }
 base64 = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
 tokio-util = { workspace = true }
 log = { workspace = true }
 itertools = { workspace = true }

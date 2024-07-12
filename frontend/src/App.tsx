@@ -1,22 +1,13 @@
-import { Route, Routes } from 'react-router-dom';
-import Accounts from './pages/Accounts';
-import Commodities from './pages/Commodities';
-import Documents from './pages/Documents';
-import Home from './pages/Home';
-import Journals from './pages/Journals';
-import RawEdit from './pages/RawEdit';
-import Report from './pages/Report';
-import Settings from './pages/Settings';
-import SingleAccount from './pages/SingleAccount';
-import SingleCommodity from './pages/SingleCommodity';
+import { Link as RouteLink } from 'react-router-dom';
 import { matchPath, useLocation } from 'react-router';
-import { useLocalStorage } from '@mantine/hooks';
+import { useDisclosure, useLocalStorage, useMediaQuery } from '@mantine/hooks';
 
-import { ActionIcon, Badge, Box, createStyles, Group, MediaQuery, Navbar, px, Text, TextInput, UnstyledButton, Anchor } from '@mantine/core';
+import { ActionIcon, Anchor, AppShell, Badge, Box, Group, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
 import {
   IconBroadcast,
   IconCash,
   IconChartAreaLine,
+  IconCheck,
   IconCreditCard,
   IconCurrencyBitcoin,
   IconFiles,
@@ -28,30 +19,23 @@ import {
   IconSettings,
   IconSmartHome,
   IconTools,
-  TablerIcon,
-} from '@tabler/icons';
-import { Link as RouteLink } from 'react-router-dom';
+} from '@tabler/icons-react';
 import NewTransactionButton from './components/NewTransactionButton';
-
-import { AppShell, Grid } from '@mantine/core';
-import { showNotification } from '@mantine/notifications';
+import { notifications } from '@mantine/notifications';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { serverBaseUrl } from './index';
-import BatchBalance from './pages/tools/BatchBalance';
-import ToolList from './pages/tools/ToolList';
-import WechatExporter from './pages/tools/WechatExporter';
-import { useAppDispatch, useAppSelector } from './states';
-import { accountsSlice } from './states/account';
-import { basicInfoSlice, fetchBasicInfo, reloadLedger } from './states/basic';
-import { fetchCommodities } from './states/commodity';
-import { fetchError } from './states/errors';
-import { journalsSlice } from './states/journals';
-import Budgets from './pages/Budgets';
-import SingleBudget from './pages/SingleBudget';
+import { axiosInstance, serverBaseUrl } from './index';
+import { basicInfoFetcher, onlineAtom, titleAtom, updatableVersionAtom } from './states/basic';
 import { useSWRConfig } from 'swr';
+import { createStyles } from '@mantine/emotion';
+import { Router } from './router';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { errorCountAtom, errorsFetcher } from './states/errors';
+import { accountFetcher } from './states/account';
+import { commoditiesFetcher } from './states/commodity';
+import { journalFetcher } from './states/journals';
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((theme, _, u) => ({
   onlineIcon: {
     color: theme.colors.blue[6],
   },
@@ -60,11 +44,17 @@ const useStyles = createStyles((theme) => ({
   },
 
   header: {
+    [u.dark]: {
+      color: theme.white,
+      borderBottom: `1px solid ${theme.colors.dark[4]}`,
+    },
+    [u.light]: {
+      color: theme.black,
+      borderBottom: `1px solid ${theme.colors.gray[3]}`,
+    },
     padding: theme.spacing.sm,
     marginLeft: -theme.spacing.md,
     marginRight: -theme.spacing.md,
-    color: theme.colorScheme === 'dark' ? theme.white : theme.black,
-    borderBottom: `1px solid ${theme.colorScheme === 'dark' ? theme.colors.dark[4] : theme.colors.gray[3]}`,
   },
   navbar: {
     paddingTop: 0,
@@ -76,35 +66,53 @@ const useStyles = createStyles((theme) => ({
     marginBottom: theme.spacing.md,
 
     '&:not(:last-of-type)': {
-      borderBottom: `1px solid ${theme.colorScheme === 'dark' ? theme.colors.dark[4] : theme.colors.gray[3]}`,
+      [u.dark]: {
+        borderBottom: `1px solid ${theme.colors.dark[4]}`,
+      },
+      [u.light]: {
+        borderBottom: `1px solid ${theme.colors.gray[3]}`,
+      },
     },
   },
 
   searchCode: {
     fontWeight: 700,
     fontSize: 10,
-    backgroundColor: theme.colorScheme === 'dark' ? theme.colors.dark[7] : theme.colors.gray[0],
-    border: `1px solid ${theme.colorScheme === 'dark' ? theme.colors.dark[7] : theme.colors.gray[2]}`,
+    [u.dark]: {
+      backgroundColor: theme.colors.dark[7],
+      border: `1px solid ${theme.colors.dark[7]}`,
+    },
+    [u.light]: {
+      backgroundColor: theme.colors.gray[0],
+      border: `1px solid ${theme.colors.gray[2]}`,
+    },
   },
 
   mainLinks: {
     paddingBottom: theme.spacing.md,
   },
   mainLink: {
+    [u.dark]: { color: theme.colors.dark[0] },
+    [u.light]: { color: theme.colors.gray[7] },
     display: 'flex',
     alignItems: 'center',
     width: '100%',
     fontSize: theme.fontSizes.sm,
-    margin: `${px(theme.spacing.sm) * 0.25}px 0`,
-    padding: `${px(theme.spacing.sm) * 0.75}px ${px(theme.spacing.xs)}px`,
+    margin: `calc(${theme.spacing.sm} * 0.25) 0`,
+    padding: `calc(${theme.spacing.sm} * 0.75) ${theme.spacing.xs}`,
     borderRadius: theme.radius.sm,
     fontWeight: 500,
-    color: theme.colorScheme === 'dark' ? theme.colors.dark[0] : theme.colors.gray[7],
     border: `2px solid transparent`,
     '&:hover': {
-      backgroundColor: theme.colorScheme === 'dark' ? theme.colors.dark[6] : theme.colors.gray[0],
+      [u.dark]: {
+        color: theme.white,
+        backgroundColor: theme.colors.dark[6],
+      },
+      [u.light]: {
+        color: theme.black,
+        backgroundColor: theme.colors.gray[0],
+      },
       borderColor: theme.colors[theme.primaryColor][6],
-      color: theme.colorScheme === 'dark' ? theme.white : theme.black,
     },
   },
 
@@ -119,8 +127,9 @@ const useStyles = createStyles((theme) => ({
   },
 
   mainLinkIcon: {
+    [u.dark]: { color: theme.colors.dark[2] },
+    [u.light]: { color: theme.colors.gray[6] },
     marginRight: theme.spacing.sm,
-    color: theme.colorScheme === 'dark' ? theme.colors.dark[2] : theme.colors.gray[6],
   },
 
   mainLinkBadge: {
@@ -143,24 +152,32 @@ const useStyles = createStyles((theme) => ({
   },
 
   collectionLink: {
+    [u.dark]: { color: theme.colors.dark[0] },
+    [u.light]: { color: theme.colors.gray[7] },
+
     display: 'block',
-    padding: `8px ${theme.spacing.xs}px`,
+    padding: `8px ${theme.spacing.xs}`,
     textDecoration: 'none',
     borderRadius: theme.radius.sm,
     fontSize: theme.fontSizes.xs,
-    color: theme.colorScheme === 'dark' ? theme.colors.dark[0] : theme.colors.gray[7],
     lineHeight: 1,
     fontWeight: 500,
 
     '&:hover': {
-      backgroundColor: theme.colorScheme === 'dark' ? theme.colors.dark[6] : theme.colors.gray[0],
-      color: theme.colorScheme === 'dark' ? theme.white : theme.black,
+      [u.dark]: {
+        backgroundColor: theme.colors.dark[6],
+        color: theme.white,
+      },
+      [u.light]: {
+        backgroundColor: theme.colors.gray[0],
+        color: theme.black,
+      },
     },
   },
 }));
 
 interface LinkItem {
-  icon: TablerIcon;
+  icon: any;
   label: string;
   uri: string;
   notifications?: number;
@@ -169,7 +186,7 @@ interface LinkItem {
 const links: LinkItem[] = [
   { icon: IconList, label: 'NAV_JOURNALS', uri: '/journals' },
   { icon: IconCash, label: 'NAV_ACCOUNTS', uri: '/accounts' },
-  { icon: IconCurrencyBitcoin, label: 'NAV_COMMDOITIES', uri: '/commodities' },
+  { icon: IconCurrencyBitcoin, label: 'NAV_COMMODITIES', uri: '/commodities' },
   { icon: IconCurrencyBitcoin, label: 'NAV_BUDGETS', uri: '/budgets' },
   { icon: IconFiles, label: 'NAV_DOCUMENTS', uri: '/documents' },
   { icon: IconChartAreaLine, label: 'NAV_REPORT', uri: '/report' },
@@ -183,10 +200,24 @@ export default function App() {
   const { mutate } = useSWRConfig();
   const { classes } = useStyles();
   const { t, i18n } = useTranslation();
-  const dispatch = useAppDispatch();
-  const basicInfo = useAppSelector((state) => state.basic);
   const location = useLocation();
   const [lang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
+  const [opened] = useDisclosure();
+  const isMobile = useMediaQuery('(max-width: 768px)');
+
+  const errorsCount = useAtomValue(errorCountAtom);
+  const ledgerTitle = useAtomValue(titleAtom);
+  const [ledgerOnline, setLedgerOnline] = useAtom(onlineAtom);
+  const [updatableVersion, setUpdatableVersion] = useAtom(updatableVersionAtom);
+
+  const refreshErrors = useSetAtom(errorsFetcher);
+  const refreshAccounts = useSetAtom(accountFetcher);
+  const refreshBasicInfo = useSetAtom(basicInfoFetcher);
+  const refreshCommodities = useSetAtom(commoditiesFetcher);
+  const refreshJournal = useSetAtom(journalFetcher);
+  const refreshLedger = async () => {
+    await axiosInstance.post('/api/reload');
+  };
 
   useEffect(() => {
     if (i18n.language !== lang) {
@@ -195,46 +226,47 @@ export default function App() {
   }, [i18n, lang]);
 
   useEffect(() => {
-    dispatch(fetchError(1));
-    dispatch(fetchCommodities());
-    dispatch(fetchBasicInfo());
-
     let events = new EventSource(serverBaseUrl + '/api/sse');
     events.onmessage = (event) => {
       console.log(event);
       const data = JSON.parse(event.data);
       switch (data?.type) {
         case 'Reload':
-          showNotification({
-            id: 'reload',
-            title: 'Ledger Reloaded',
+          notifications.update({
+            id: 'leger-reload',
+            title: '[Ledger Reload] reloaded',
             message: 'reloading latest ledger info',
+            icon: <IconCheck />,
+            color: 'teal',
+            loading: false,
+            autoClose: 3000,
           });
           mutate('/api/for-new-transaction');
-          dispatch(fetchBasicInfo());
-          dispatch(fetchError(1));
-          dispatch(fetchCommodities());
-          dispatch(accountsSlice.actions.clear());
-          dispatch(journalsSlice.actions.clear());
+          refreshErrors();
+          refreshAccounts();
+          refreshBasicInfo();
+          refreshCommodities();
+          refreshJournal();
           break;
         case 'Connected':
-          showNotification({
+          notifications.show({
             title: 'Connected to server',
             icon: <IconBroadcast />,
             message: '',
           });
-          dispatch(fetchBasicInfo());
+          setLedgerOnline(true);
+          refreshBasicInfo();
           break;
         case 'NewVersionFound':
-          dispatch(basicInfoSlice.actions.setUpdatableVersion({ newVersion: data.version }));
+          setUpdatableVersion(data.version);
           break;
         default:
           break;
       }
     };
     events.onerror = () => {
-      dispatch(basicInfoSlice.actions.offline());
-      showNotification({
+      setLedgerOnline(false);
+      notifications.show({
         id: 'offline',
         title: 'Server Offline',
         icon: <IconBroadcast />,
@@ -242,18 +274,18 @@ export default function App() {
         message: 'Client can not connect to server',
       });
     };
-  }, [dispatch, mutate]);
+  }, [mutate]); // eslint-disable-line
 
   const sendReloadEvent = () => {
-    showNotification({
-      id: 'start-reload',
-      title: 'Ledger Reload Event is sent',
+    notifications.show({
+      id: 'leger-reload',
+      title: '[Ledger Reload] reload event is sent',
       message: 'please wait for ledger reload',
+      loading: true,
+      autoClose: false,
     });
-    dispatch(reloadLedger());
+    refreshLedger();
   };
-
-  const { total_number } = useAppSelector((state) => state.errors);
 
   const mainLinks = links.map((link) => (
     <UnstyledButton
@@ -280,104 +312,77 @@ export default function App() {
     </UnstyledButton>
   ));
   return (
-    <AppShell
-      padding="xs"
-      navbar={
-        <>
-          <MediaQuery smallerThan="sm" styles={{ display: 'none' }}>
-            <Navbar width={{ sm: 240 }} className={classes.navbar}>
-              <Navbar.Section className={classes.header}>
-                <Group position="apart">
-                  <Group spacing="xs" position="left">
-                    <IconBroadcast stroke={3} className={basicInfo.isOnline ? classes.onlineIcon : classes.offlineIcon} />
-                    <Text lineClamp={1}>{basicInfo.title ?? 'Zhang Accounting'}</Text>
-                  </Group>
-                  <ActionIcon size="sm" onClick={sendReloadEvent}>
-                    <IconRefresh size="1.125rem" />
-                  </ActionIcon>
-                </Group>
-              </Navbar.Section>
+    <AppShell padding="xs" header={{ height: 128, collapsed: !isMobile }} navbar={{ width: 240, breakpoint: 'sm', collapsed: { mobile: !opened } }}>
+      {isMobile && (
+        <AppShell.Header>
+          <Box m="xs">
+            <Group justify="space-between">
+              <Group gap="xs" justify="left">
+                <IconReceipt2 stroke={1.5} />
+                <Text>ZHANG</Text>
+              </Group>
+              <NewTransactionButton />
+            </Group>
+            <Group justify="space-between" mt="xs">
+              {mobileMainLinks}
+            </Group>
+          </Box>
+        </AppShell.Header>
+      )}
+      <AppShell.Navbar>
+        <AppShell.Section className={classes.header}>
+          <Stack>
+            <Group justify="space-between">
+              <Group gap="xs" justify="left">
+                <IconBroadcast stroke={3} className={ledgerOnline ? classes.onlineIcon : classes.offlineIcon} />
+                <Text lineClamp={1}>{ledgerTitle}</Text>
+              </Group>
+              <ActionIcon variant="white" color="gray" size="sm" onClick={sendReloadEvent}>
+                <IconRefresh size="1.125rem" />
+              </ActionIcon>
+            </Group>
+            <TextInput placeholder="Search" size="xs" leftSectionPointerEvents="none" leftSection={<IconSearch size={12} stroke={1.5} />} />
+            <NewTransactionButton />
+          </Stack>
+        </AppShell.Section>
 
-              <Grid px="sm">
-                <Grid.Col span={12} pt="lg">
-                  <TextInput placeholder="Search" size="xs" icon={<IconSearch size={12} stroke={1.5} />} />
-                </Grid.Col>
-                <Grid.Col span={12} pb="md">
-                  <NewTransactionButton />
-                </Grid.Col>
-              </Grid>
-
-              <Navbar.Section grow className={classes.section} mx="sm">
-                <div className={classes.mainLinks}>
-                  <UnstyledButton
-                    component={RouteLink}
-                    to={'/'}
-                    key={'NAV_HOME'}
-                    className={`${classes.mainLink} ${matchPath(location.pathname, '/') ? classes.activeMainLink : ''}`}
-                  >
-                    <div className={classes.mainLinkInner}>
-                      <IconSmartHome size={20} className={classes.mainLinkIcon} stroke={1.5} />
-                      <span>{t('NAV_HOME')}</span>
-                    </div>
-                    {(total_number ?? 0) > 0 && (
-                      <Badge size="sm" color="pink" variant="filled" className={classes.mainLinkBadge}>
-                        {total_number ?? 0}
-                      </Badge>
-                    )}
-                  </UnstyledButton>
-                  {mainLinks}
-                </div>
-              </Navbar.Section>
-
-              {basicInfo.updatableVersion && (
-                <Navbar.Section className={classes.section}>
-                  <Group position="center" spacing={'sm'}>
-                    <Anchor href="https://zhang-accounting.kilerd.me/installation/4-upgrade/" target="_blank">
-                      🎉 New Version is available!
-                    </Anchor>
-                  </Group>
-                </Navbar.Section>
+        {/*<Navbar.Section grow className={classes.section} >*/}
+        <AppShell.Section grow className={classes.section} mx="sm">
+          <div className={classes.mainLinks}>
+            <UnstyledButton
+              component={RouteLink}
+              to={'/'}
+              key={'NAV_HOME'}
+              className={`${classes.mainLink} ${matchPath(location.pathname, '/') ? classes.activeMainLink : ''}`}
+            >
+              <div className={classes.mainLinkInner}>
+                <IconSmartHome size={20} className={classes.mainLinkIcon} stroke={1.5} />
+                <span>{t('NAV_HOME')}</span>
+              </div>
+              {errorsCount > 0 && (
+                <Badge size="sm" color="pink" variant="filled" className={classes.mainLinkBadge}>
+                  {errorsCount}
+                </Badge>
               )}
-            </Navbar>
-          </MediaQuery>
-        </>
-      }
-      header={
-        <>
-          <MediaQuery largerThan="sm" styles={{ display: 'none' }}>
-            <Box m="xs">
-              <Group position="apart">
-                <Group spacing="xs" position="left">
-                  <IconReceipt2 stroke={1.5} />
-                  <Text>ZHANG</Text>
-                </Group>
-                <NewTransactionButton />
-              </Group>
-              <Group position="apart" mt="xs">
-                {mobileMainLinks}
-              </Group>
-            </Box>
-          </MediaQuery>
-        </>
-      }
-    >
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="journals" element={<Journals />} />
-        <Route path="accounts" element={<Accounts />} />
-        <Route path="/accounts/:accountName" element={<SingleAccount />} />
-        <Route path="/commodities" element={<Commodities />} />
-        <Route path="/commodities/:commodityName" element={<SingleCommodity />} />
-        <Route path="documents" element={<Documents />} />
-        <Route path="/budgets" element={<Budgets />} />
-        <Route path="/budgets/:budgetName" element={<SingleBudget />} />
-        <Route path="/edit" element={<RawEdit />} />
-        <Route path="/report" element={<Report />} />
-        <Route path="/tools" element={<ToolList />} />
-        <Route path="/tools/wechat-exporter" element={<WechatExporter />} />
-        <Route path="/tools/batch-balance" element={<BatchBalance />} />
-        <Route path="/settings" element={<Settings />} />
-      </Routes>
+            </UnstyledButton>
+            {mainLinks}
+          </div>
+        </AppShell.Section>
+
+        {updatableVersion && (
+          <AppShell.Section className={classes.section}>
+            <Group justify="center" gap={'sm'}>
+              <Anchor href="https://zhang-accounting.kilerd.me/installation/4-upgrade/" target="_blank">
+                🎉 New Version is available!
+              </Anchor>
+            </Group>
+          </AppShell.Section>
+        )}
+      </AppShell.Navbar>
+
+      <AppShell.Main>
+        <Router />
+      </AppShell.Main>
     </AppShell>
   );
 }

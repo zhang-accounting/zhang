@@ -39,6 +39,14 @@ export interface AccountInfo {
   alias?: String;
   amount: CalculatedAmountResponse;
 }
+export interface AccountBalanceHistory {
+  [commodity: string]: AccountBalanceHistoryItem[];
+}
+
+export interface AccountBalanceHistoryItem {
+  date: string;
+  balance: AmountCommodityResponse;
+}
 
 export interface Document {
   datetime: string;
@@ -73,6 +81,7 @@ export interface CommodityListItem {
   suffix: string;
   rounding: string;
   total_amount: string;
+  group?: string;
   latest_price_date: string;
   latest_price_amount: string;
   latest_price_commodity: string;
@@ -86,11 +95,12 @@ export interface CommodityDetail {
 }
 
 export interface CommodityLot {
-  datetime?: string;
-  amount: string;
-  price_amount?: string;
-  price_commodity?: string;
   account: string;
+  amount: string;
+
+  cost?: AmountResponse;
+  price?: AmountResponse;
+  acquisition_date?: string;
 }
 
 export interface CommodityPrice {
@@ -184,6 +194,11 @@ export interface CalculatedAmountResponse {
 export interface AmountResponse {
   number: string;
   currency: string;
+}
+
+export interface AmountCommodityResponse {
+  number: string;
+  commodity: string;
 }
 
 export interface CurrentStatisticResponse {

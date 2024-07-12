@@ -1,87 +1,92 @@
-import { Button, CloseButton, Group, Input, Pagination, Table } from '@mantine/core';
-import { format } from 'date-fns';
-import { groupBy } from 'lodash-es';
-import { useEffect, useState } from 'react';
+import { Button, CloseButton, Group, Input, Pagination, Table, Text } from '@mantine/core';
+import { useEffect, useMemo, useState } from 'react';
 import TableViewJournalLine from '../components/journalLines/tableView/TableViewJournalLine';
-import { LoadingState } from '../rest-model';
-import { useAppDispatch, useAppSelector } from '../states';
-import { fetchJournals, journalsSlice } from '../states/journals';
 import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
-import { useDebouncedValue } from '@mantine/hooks';
-import { IconFilter } from '@tabler/icons';
+import { useDebouncedValue, useDocumentTitle } from '@mantine/hooks';
+import { IconFilter } from '@tabler/icons-react';
+import { JournalListSkeleton } from '../components/skeletons/journalListSkeleton';
+import { useAtomValue } from 'jotai/index';
+import { titleAtom } from '../states/basic';
+import { groupedJournalsAtom, journalAtom, journalFetcher, journalKeywordAtom, journalPageAtom } from '../states/journals';
+import { useAtom, useSetAtom } from 'jotai';
+import { loadable_unwrap } from '../states';
+import { selectAtom } from 'jotai/utils';
 
 function Journals() {
   const { t } = useTranslation();
   const [filter, setFilter] = useState('');
   const [debouncedFilter] = useDebouncedValue(filter, 200);
-  const { current_page, status: journalStatus, items, total_number, total_page } = useAppSelector((state) => state.journals);
-  const dispatch = useAppDispatch();
-  useEffect(() => {
-    if (journalStatus === LoadingState.NotReady) {
-      dispatch(fetchJournals(debouncedFilter));
-    }
-  }, [dispatch, journalStatus, debouncedFilter]);
+
+  const ledgerTitle = useAtomValue(titleAtom);
+  useDocumentTitle(`Journals - ${ledgerTitle}`);
+
+  const [journalPage, setJournalPage] = useAtom(journalPageAtom);
+  const setKeyword = useSetAtom(journalKeywordAtom);
+  const refreshJournals = useSetAtom(journalFetcher);
+  const groupedRecords = useAtomValue(groupedJournalsAtom);
+  const journalItems = useAtomValue(journalAtom);
+  const total_count = useAtomValue(useMemo(() => selectAtom(journalAtom, (val) => loadable_unwrap(val, 0, (val) => val.total_count)), []));
+  const total_page = useAtomValue(useMemo(() => selectAtom(journalAtom, (val) => loadable_unwrap(val, 0, (val) => val.total_page)), []));
 
   useEffect(() => {
-    dispatch(fetchJournals(debouncedFilter));
-  }, [dispatch, debouncedFilter]);
+    setKeyword(debouncedFilter);
+  }, [setKeyword, debouncedFilter]);
 
   const onPage = (page: number) => {
-    dispatch(journalsSlice.actions.setPage({ current_page: page }));
-    dispatch(fetchJournals(debouncedFilter));
+    setJournalPage(page);
   };
-
-  const groupedRecords = groupBy(items, (record) => format(new Date(record.datetime), 'yyyy-MM-dd'));
 
   return (
     <>
-      <Heading title={`${total_number} Journals`}></Heading>
+      <Heading title={`${total_count} Journals`}></Heading>
       <Group my="lg" px="sm">
-        <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => dispatch(fetchJournals(filter))}>
+        <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => refreshJournals()}>
           {t('REFRESH')}
         </Button>
         <Input
-          icon={<IconFilter size="1rem" />}
+          leftSection={<IconFilter size="1rem" />}
           placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
           value={filter}
           onChange={(event: any) => setFilter(event.currentTarget.value)}
           rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')} onClick={() => setFilter('')} />}
         />
       </Group>
-      <Table verticalSpacing="xs" withBorder>
-        <thead>
-          <tr>
-            <th style={{ width: '100px' }}>Date</th>
-            <th style={{ width: '10px' }}>Type</th>
-            <th>Payee · Narration</th>
-            <th style={{ textAlign: 'right' }}>Amount</th>
-            <th style={{ textAlign: 'right' }}>Operation</th>
-          </tr>
-        </thead>
-        <tbody>
-          {journalStatus === LoadingState.Success &&
-            Object.entries(groupedRecords).map((entry) => {
+      <Table verticalSpacing="xs" withTableBorder>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th style={{ width: '100px' }}>Date</Table.Th>
+            <Table.Th style={{ width: '10px' }}>Type</Table.Th>
+            <Table.Th>Payee · Narration</Table.Th>
+            <Table.Th style={{ textAlign: 'right' }}>Amount</Table.Th>
+            <Table.Th style={{ textAlign: 'right' }}>Operation</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {(journalItems.state === 'loading' || journalItems.state === 'hasError') && <JournalListSkeleton />}
+          {journalItems.state === 'hasData' &&
+            Object.keys(groupedRecords).map((date) => {
               return (
                 <>
-                  <tr>
-                    <td colSpan={6}>
-                      <b>{entry[0]}</b>
-                    </td>
-                  </tr>
-                  {entry[1].map((journal) => (
-                    <>
-                      <TableViewJournalLine key={journal.id} data={journal} />
-                    </>
+                  <Table.Tr key={date}>
+                    <Table.Td colSpan={6}>
+                      <Text c={'dimmed'} size={'sm'}>
+                        {date}
+                      </Text>
+                    </Table.Td>
+                  </Table.Tr>
+                  {groupedRecords[date].map((journal) => (
+                    <TableViewJournalLine key={journal.id} data={journal} />
                   ))}
                 </>
               );
             })}
-        </tbody>
+        </Table.Tbody>
       </Table>
 
-      {(journalStatus === LoadingState.Loading || journalStatus === LoadingState.NotReady) && <p>loading</p>}
-      <Pagination my="xs" total={total_page} value={current_page} onChange={onPage} position="center" />
+      <Group justify={'center'}>
+        <Pagination my="xs" total={total_page} value={journalPage} onChange={onPage} />
+      </Group>
     </>
   );
 }

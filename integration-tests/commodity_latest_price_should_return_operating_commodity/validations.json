@@ -1,0 +1,44 @@
+[
+  {
+    "uri": "/api/commodities",
+    "validations": [
+      [
+        "$.data.[1].name",
+        "USD"
+      ],
+      [
+        "$.data.[1].latest_price_date",
+        "1970-01-02T00:00:00"
+      ],
+      [
+        "$.data.[1].latest_price_amount",
+        "7"
+      ],
+      [
+        "$.data.[1].latest_price_commodity",
+        "CNY"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/commodities/USD",
+    "validations": [
+      [
+        "$.data.info.name",
+        "USD"
+      ],
+      [
+        "$.data.info.latest_price_date",
+        "1970-01-02T00:00:00"
+      ],
+      [
+        "$.data.info.latest_price_amount",
+        "7"
+      ],
+      [
+        "$.data.info.latest_price_commodity",
+        "CNY"
+      ]
+    ]
+  }
+]

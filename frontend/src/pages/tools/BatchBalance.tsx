@@ -1,15 +1,14 @@
 import { Button, Chip, Container, Group, Select, Table, TextInput, Title } from '@mantine/core';
 import { useListState, useLocalStorage } from '@mantine/hooks';
-import { createSelector } from '@reduxjs/toolkit';
-import { cloneDeep, sortBy } from 'lodash-es';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import Amount from '../../components/Amount';
-import { Account, LoadingState } from '../../rest-model';
-import { useAppDispatch, useAppSelector } from '../../states';
-import { accountsSlice, fetchAccounts, getAccountSelectItems } from '../../states/account';
+import { loadable_unwrap } from '../../states';
+import { accountAtom, accountFetcher, accountSelectItemsAtom } from '../../states/account';
 import BigNumber from 'bignumber.js';
 import { showNotification } from '@mantine/notifications';
 import { axiosInstance } from '../..';
+import { useAtomValue, useSetAtom } from 'jotai/index';
+import { selectAtom } from 'jotai/utils';
 
 interface BalanceLineItem {
   commodity: string;
@@ -21,27 +20,31 @@ interface BalanceLineItem {
   error: boolean;
 }
 
-const getFilteredItems = createSelector([(states) => states.accounts], (accounts) => {
-  const items = accounts.data.flatMap((account: Account) =>
-    Object.entries(account.amount.detail).map(([commodity, value]) => ({
-      commodity: commodity,
-      currentAmount: value,
-      accountName: account.name,
-      balanceAmount: '',
-      pad: undefined,
-      error: false,
-    })),
-  );
-  return sortBy(cloneDeep(items), (item) => item.accountName);
-});
-
 export default function BatchBalance() {
-  const dispatch = useAppDispatch();
-  const accountStatus = useAppSelector((state) => state.accounts.status);
-  const stateItems = useAppSelector(getFilteredItems);
-  const accountSelectItems = [...useAppSelector(getAccountSelectItems())];
-  const [accounts, accountsHandler] = useListState<BalanceLineItem>(stateItems);
+  const stateItems = useAtomValue(
+    useMemo(
+      () =>
+        selectAtom(accountAtom, (val) =>
+          loadable_unwrap(val, [], (data) => {
+            return data.flatMap((account) =>
+              Object.entries(account.amount.detail).map(([commodity, value]) => ({
+                commodity: commodity,
+                currentAmount: value,
+                accountName: account.name,
+                balanceAmount: '',
+                pad: undefined,
+                error: false,
+              })),
+            );
+          }),
+        ),
+      [],
+    ),
+  );
 
+  const [accounts, accountsHandler] = useListState<BalanceLineItem>(stateItems);
+  const accountItems = useAtomValue(accountSelectItemsAtom);
+  const refreshAccounts = useSetAtom(accountFetcher);
   const [maskCurrentAmount, setMaskCurrentAmount] = useLocalStorage({
     key: 'tool/maskCurrentAmount',
     defaultValue: false,
@@ -51,11 +54,6 @@ export default function BatchBalance() {
     defaultValue: true,
   });
 
-  useEffect(() => {
-    if (accountStatus === LoadingState.NotReady) {
-      dispatch(fetchAccounts());
-    }
-  }, [accountStatus, dispatch]);
   useEffect(() => {
     accountsHandler.setState(stateItems);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -100,7 +98,7 @@ export default function BatchBalance() {
         title: 'Balance account successfully',
         message: 'waiting page to refetch latest data',
       });
-      dispatch(accountsSlice.actions.clear());
+      refreshAccounts();
     } catch (e: any) {
       showNotification({
         title: 'Fail to Balance Account',
@@ -122,36 +120,36 @@ export default function BatchBalance() {
         </Chip>
       </Group>
       <Table verticalSpacing="xs" highlightOnHover>
-        <thead>
-          <tr>
-            <th>Account</th>
-            <th>Commodity</th>
-            <th>Current Balance</th>
-            <th>Pad Account</th>
-            <th>Destination</th>
-          </tr>
-        </thead>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Account</Table.Th>
+            <Table.Th>Commodity</Table.Th>
+            <Table.Th>Current Balance</Table.Th>
+            <Table.Th>Pad Account</Table.Th>
+            <Table.Th>Destination</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
         <tbody>
           {accounts.map((account, idx) => (
-            <tr key={`${account.accountName}-${account.commodity}`}>
-              <td>{account.accountName}</td>
-              <td>{account.commodity}</td>
-              <td>
+            <Table.Tr key={`${account.accountName}-${account.commodity}`}>
+              <Table.Td>{account.accountName}</Table.Td>
+              <Table.Td>{account.commodity}</Table.Td>
+              <Table.Td>
                 <Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity}></Amount>
-              </td>
-              <td>
+              </Table.Td>
+              <Table.Td>
                 <Select
                   searchable
                   clearable
                   placeholder="Pad to"
-                  data={accountSelectItems}
+                  data={accountItems}
                   value={account.pad}
                   onChange={(e) => {
                     updateBalanceLineItem(idx, e ?? undefined, account.balanceAmount);
                   }}
                 />
-              </td>
-              <td>
+              </Table.Td>
+              <Table.Td>
                 <TextInput
                   error={account.error}
                   value={account.balanceAmount}
@@ -159,8 +157,8 @@ export default function BatchBalance() {
                     updateBalanceLineItem(idx, account.pad ?? undefined, e.target.value);
                   }}
                 ></TextInput>
-              </td>
-            </tr>
+              </Table.Td>
+            </Table.Tr>
           ))}
         </tbody>
       </Table>

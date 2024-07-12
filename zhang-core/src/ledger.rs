@@ -7,18 +7,20 @@ use std::sync::{Arc, RwLock};
 
 use itertools::Itertools;
 use log::{error, info};
-use zhang_ast::{Directive, DirectiveType, Spanned};
+use zhang_ast::{Directive, DirectiveType, Options, Plugin, SpanInfo, Spanned};
 
 use crate::data_source::DataSource;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::options::{BuiltinOption, InMemoryOptions};
-use crate::process::DirectiveProcess;
+use crate::process::{DirectivePreProcess, DirectiveProcess};
 use crate::store::Store;
-use crate::ZhangResult;
+use crate::{ZhangError, ZhangResult};
 
 pub struct Ledger {
     pub entry: (PathBuf, String),
+
+    pub data_source: Arc<dyn DataSource>,
 
     pub visited_files: Vec<PathBuf>,
 
@@ -26,8 +28,6 @@ pub struct Ledger {
 
     pub directives: Vec<Spanned<Directive>>,
     pub metas: Vec<Spanned<Directive>>,
-
-    pub data_source: Arc<dyn DataSource>,
 
     pub store: Arc<RwLock<Store>>,
 
@@ -37,42 +37,33 @@ pub struct Ledger {
     pub plugins: crate::plugin::store::PluginStore,
 }
 
-impl Ledger {
-    pub fn load<T: DataSource + Default + 'static>(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
-        let data_source = Arc::new(T::default());
-        Ledger::load_with_data_source(entry, endpoint, data_source)
-    }
+pub struct LedgerProcessContext {
+    pub directives: Vec<Spanned<Directive>>,
+    pub entry: (PathBuf, String),
+    pub visited_files: Vec<PathBuf>,
+    pub data_source: Arc<dyn DataSource>,
+}
 
-    pub fn load_with_data_source(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
-        let entry = entry.canonicalize().with_path(&entry)?;
+struct SplitDirectives {
+    meta_directives: Vec<Spanned<Directive>>,
+    dated_directives: Vec<Spanned<Directive>>,
 
-        let load_result = data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
-        Ledger::process(load_result.directives, (entry, endpoint), load_result.visited_files, data_source)
-    }
-    pub async fn async_load(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
-        let load_result = data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
-        Ledger::process(load_result.directives, (entry, endpoint), load_result.visited_files, data_source)
-    }
+    options_directives: Vec<(Options, SpanInfo)>,
+    plugin_directives: Vec<(Plugin, SpanInfo)>,
+    other_directives: Vec<Spanned<Directive>>,
+}
 
-    pub fn process(
-        directives: Vec<Spanned<Directive>>, entry: (PathBuf, String), visited_files: Vec<PathBuf>, data_source: Arc<dyn DataSource>,
-    ) -> ZhangResult<Ledger> {
+impl SplitDirectives {
+    fn new(directives: Vec<Spanned<Directive>>) -> Self {
+        // split directive into two groups.
+        // first is meta which is no date
+        // second is dated directives
         let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
-        let directives = Ledger::sort_directives_datetime(dated_directive);
-        let mut ret_ledger = Self {
-            options: InMemoryOptions::default(),
-            entry,
-            visited_files,
-            directives: vec![],
-            metas: vec![],
-            data_source,
-            store: Default::default(),
-            trx_counter: AtomicI32::new(1),
-            #[cfg(feature = "plugin_runtime")]
-            plugins: crate::plugin::store::PluginStore::default(),
-        };
 
+        let dated_directives = Ledger::sort_directives_datetime(dated_directive);
+
+        // find all options which are not defined by users
         let options_key: HashSet<Cow<str>> = meta_directives
             .iter()
             .filter_map(|it| match &it.data {
@@ -81,12 +72,13 @@ impl Ledger {
             })
             .collect();
 
+        // merge built-in options and user-defined options
         let merged_metas = BuiltinOption::default_options(options_key)
             .into_iter()
             .chain(meta_directives)
             .rev()
             .collect_vec();
-        let grouped_directives = merged_metas.iter().rev().chain(directives.iter()).cloned().collect_vec();
+        let grouped_directives = merged_metas.iter().rev().chain(dated_directives.iter()).cloned().collect_vec();
 
         let mut options_directives = vec![];
         let mut plugin_directives = vec![];
@@ -101,71 +93,77 @@ impl Ledger {
             }
         }
 
-        // handle option
-        for (option, span) in options_directives.iter_mut() {
-            option.handler(&mut ret_ledger, span)?;
+        Self {
+            meta_directives: merged_metas,
+            dated_directives,
+            options_directives,
+            plugin_directives,
+            other_directives,
         }
+    }
+}
 
-        // handle plugin
-        for (plugin, span) in plugin_directives.iter_mut() {
-            plugin.handler(&mut ret_ledger, span)?;
-        }
+impl Ledger {
+    pub fn load<T: DataSource + Default + 'static>(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
+        let data_source = Arc::new(T::default());
+        Ledger::load_with_data_source(entry, endpoint, data_source)
+    }
 
-        let mut other_directives = feature_enable!(
-            ret_ledger.options.features.plugins,
-            {
-                #[cfg(feature = "plugin_runtime")]
-                {
-                    let options = ret_ledger.operations().options()?;
+    pub fn load_with_data_source(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
+        let entry = entry.canonicalize().with_path(&entry)?;
 
-                    // execute the plugins of processor type
-                    for plugin in ret_ledger.plugins.processors.iter() {
-                        other_directives = plugin.execute_as_processor(other_directives, &options)?;
-                    }
+        let load_result = data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
+        Ledger::process(LedgerProcessContext {
+            directives: load_result.directives,
+            entry: (entry, endpoint),
+            visited_files: load_result.visited_files,
+            data_source,
+        })
+    }
+    pub async fn async_load(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
+        let load_result = data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
 
-                    let mut other_directives = Ledger::sort_directives_datetime(other_directives);
+        Ledger::async_process(LedgerProcessContext {
+            directives: load_result.directives,
+            entry: (entry, endpoint),
+            visited_files: load_result.visited_files,
+            data_source,
+        })
+        .await
+    }
 
-                    // execute the plugins of mapper type
-                    for plugin in ret_ledger.plugins.mappers.iter() {
-                        let plugin_ret: ZhangResult<Vec<Vec<Spanned<Directive>>>> =
-                            other_directives.into_iter().map(|d| plugin.execute_as_mapper(d, &options)).collect();
-                        other_directives = plugin_ret?.into_iter().flatten().collect_vec();
-                    }
-                    Ledger::sort_directives_datetime(other_directives)
-                }
-                #[cfg(not(feature = "plugin_runtime"))]
-                other_directives
-            },
-            other_directives
-        );
+    pub fn process(context: LedgerProcessContext) -> ZhangResult<Ledger> {
+        let mut ret_ledger = Self {
+            options: InMemoryOptions::default(),
+            entry: context.entry,
+            visited_files: context.visited_files,
+            directives: vec![],
+            metas: vec![],
+            data_source: context.data_source,
+            store: Default::default(),
+            trx_counter: AtomicI32::new(1),
+            #[cfg(feature = "plugin_runtime")]
+            plugins: crate::plugin::store::PluginStore::default(),
+        };
+        let SplitDirectives {
+            meta_directives,
+            dated_directives,
+            mut options_directives,
+            mut plugin_directives,
+            other_directives,
+        } = SplitDirectives::new(context.directives);
 
-        // handle other directives
-        for directive in other_directives.iter_mut() {
-            match &mut directive.data {
-                Directive::Option(_) => unreachable!("option directive should not be passed into the processor here"),
-                Directive::Open(open) => open.handler(&mut ret_ledger, &directive.span)?,
-                Directive::Close(close) => close.handler(&mut ret_ledger, &directive.span)?,
-                Directive::Commodity(commodity) => commodity.handler(&mut ret_ledger, &directive.span)?,
-                Directive::Transaction(trx) => trx.handler(&mut ret_ledger, &directive.span)?,
-                Directive::BalancePad(pad) => pad.handler(&mut ret_ledger, &directive.span)?,
-                Directive::BalanceCheck(check) => check.handler(&mut ret_ledger, &directive.span)?,
-                Directive::Note(_) => {}
-                Directive::Document(document) => document.handler(&mut ret_ledger, &directive.span)?,
-                Directive::Price(price) => price.handler(&mut ret_ledger, &directive.span)?,
-                Directive::Event(_) => {}
-                Directive::Custom(_) => {}
-                Directive::Plugin(_) => unreachable!("plugin directive should not be passed into the processor here"),
-                Directive::Include(_) => {}
-                Directive::Comment(_) => {}
-                Directive::Budget(budget) => budget.handler(&mut ret_ledger, &directive.span)?,
-                Directive::BudgetAdd(budget_add) => budget_add.handler(&mut ret_ledger, &directive.span)?,
-                Directive::BudgetTransfer(budget_transfer) => budget_transfer.handler(&mut ret_ledger, &directive.span)?,
-                Directive::BudgetClose(budget_close) => budget_close.handler(&mut ret_ledger, &directive.span)?,
-            }
-        }
+        ret_ledger.handle_options(&mut options_directives)?;
 
-        ret_ledger.metas = merged_metas;
-        ret_ledger.directives = directives;
+        ret_ledger.handle_plugins_pre_process(&mut plugin_directives)?;
+        ret_ledger.handle_plugins(&mut plugin_directives)?;
+
+        let other_directives = ret_ledger.handle_plugin_execution(other_directives)?;
+
+        ret_ledger.handle_other_directives(other_directives)?;
+
+        ret_ledger.metas = meta_directives;
+        ret_ledger.directives = dated_directives;
         let mut operations = ret_ledger.operations();
         let errors = operations.errors()?;
         if !errors.is_empty() {
@@ -176,11 +174,88 @@ impl Ledger {
         Ok(ret_ledger)
     }
 
+    async fn async_process(context: LedgerProcessContext) -> ZhangResult<Ledger> {
+        let mut ret_ledger = Self {
+            options: InMemoryOptions::default(),
+            entry: context.entry,
+            visited_files: context.visited_files,
+            directives: vec![],
+            metas: vec![],
+            data_source: context.data_source,
+            store: Default::default(),
+            trx_counter: AtomicI32::new(1),
+            #[cfg(feature = "plugin_runtime")]
+            plugins: crate::plugin::store::PluginStore::default(),
+        };
+        let SplitDirectives {
+            meta_directives,
+            dated_directives,
+            mut options_directives,
+            mut plugin_directives,
+            other_directives,
+        } = SplitDirectives::new(context.directives);
+        ret_ledger.handle_options(&mut options_directives)?;
+        ret_ledger.async_handle_plugins_pre_process(&mut plugin_directives).await?;
+        ret_ledger.handle_plugins(&mut plugin_directives)?;
+        let other_directives = ret_ledger.handle_plugin_execution(other_directives)?;
+        ret_ledger.handle_other_directives(other_directives)?;
+
+        ret_ledger.metas = meta_directives;
+        ret_ledger.directives = dated_directives;
+        let mut operations = ret_ledger.operations();
+        let errors = operations.errors()?;
+        if !errors.is_empty() {
+            error!("Ledger loaded with {} error", errors.len());
+        } else {
+            info!("Ledger loaded");
+        }
+        Ok(ret_ledger)
+    }
+
+    pub fn reload(&mut self) -> ZhangResult<()> {
+        let (entry, endpoint) = &mut self.entry;
+        let transform_result = self.data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
+        let reload_ledger = Ledger::process(LedgerProcessContext {
+            directives: transform_result.directives,
+            entry: (entry.clone(), endpoint.clone()),
+            visited_files: transform_result.visited_files,
+            data_source: self.data_source.clone(),
+        })?;
+        *self = reload_ledger;
+        Ok(())
+    }
+
+    pub async fn async_reload(&mut self) -> ZhangResult<()> {
+        let (entry, endpoint) = &mut self.entry;
+        let transform_result = self.data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
+        let reload_ledger = Ledger::async_process(LedgerProcessContext {
+            directives: transform_result.directives,
+            entry: (entry.clone(), endpoint.clone()),
+            visited_files: transform_result.visited_files,
+            data_source: self.data_source.clone(),
+        })
+        .await?;
+        *self = reload_ledger;
+        Ok(())
+    }
+
+    pub fn operations(&self) -> Operations {
+        let timezone = self.options.timezone;
+        Operations {
+            store: self.store.clone(),
+            timezone,
+        }
+    }
+}
+
+impl Ledger {
     fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
         directives.sort_by(|a, b| match (a.datetime(), b.datetime()) {
             (Some(a_datetime), Some(b_datetime)) => match a_datetime.cmp(&b_datetime) {
                 Ordering::Equal => match (a.directive_type(), b.directive_type()) {
                     (DirectiveType::BalancePad | DirectiveType::BalanceCheck, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Equal,
+                    (DirectiveType::Open, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Less,
+                    (DirectiveType::BalancePad | DirectiveType::BalanceCheck, DirectiveType::Open) => Ordering::Greater,
                     (DirectiveType::BalancePad | DirectiveType::BalanceCheck, _) => Ordering::Less,
                     (_, DirectiveType::BalancePad | DirectiveType::BalanceCheck) => Ordering::Greater,
                     (_, _) => Ordering::Equal,
@@ -192,52 +267,91 @@ impl Ledger {
         directives
     }
 
-    pub fn apply(mut self, applier: impl Fn(Directive) -> Directive) -> Self {
-        let vec = self
-            .directives
-            .into_iter()
-            .map(|mut it| {
-                let directive = applier(it.data);
-                it.data = directive;
-                it
-            })
-            .collect_vec();
-        self.directives = vec;
-        self
-    }
-
-    pub fn reload(&mut self) -> ZhangResult<()> {
-        let (entry, endpoint) = &mut self.entry;
-        let transform_result = self.data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
-        let reload_ledger = Ledger::process(
-            transform_result.directives,
-            (entry.clone(), endpoint.clone()),
-            transform_result.visited_files,
-            self.data_source.clone(),
-        )?;
-        *self = reload_ledger;
-        Ok(())
-    }
-
-    pub async fn async_reload(&mut self) -> ZhangResult<()> {
-        let (entry, endpoint) = &mut self.entry;
-        let transform_result = self.data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
-        let reload_ledger = Ledger::process(
-            transform_result.directives,
-            (entry.clone(), endpoint.clone()),
-            transform_result.visited_files,
-            self.data_source.clone(),
-        )?;
-        *self = reload_ledger;
-        Ok(())
-    }
-
-    pub fn operations(&self) -> Operations {
-        let timezone = self.options.timezone;
-        Operations {
-            store: self.store.clone(),
-            timezone,
+    fn handle_options(&mut self, options_directives: &mut [(Options, SpanInfo)]) -> ZhangResult<()> {
+        // handle option
+        for (option, span) in options_directives.iter_mut() {
+            option.handler(self, span)?;
         }
+        Ok(())
+    }
+
+    fn handle_plugins_pre_process(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
+        for (plugin, _) in plugin_directives.iter_mut() {
+            plugin.pre_process(self)?;
+        }
+        Ok(())
+    }
+    async fn async_handle_plugins_pre_process(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
+        for (plugin, _) in plugin_directives.iter_mut() {
+            plugin.async_pre_process(self).await?;
+        }
+        Ok(())
+    }
+    fn handle_plugins(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
+        for (plugin, span) in plugin_directives.iter_mut() {
+            plugin.handler(self, span)?;
+        }
+        Ok(())
+    }
+
+    fn handle_other_directives(&mut self, mut other_directives: Vec<Spanned<Directive>>) -> Result<(), ZhangError> {
+        // handle other directives
+        for directive in other_directives.iter_mut() {
+            match &mut directive.data {
+                Directive::Option(_) => unreachable!("option directive should not be passed into the processor here"),
+                Directive::Open(open) => open.handler(self, &directive.span)?,
+                Directive::Close(close) => close.handler(self, &directive.span)?,
+                Directive::Commodity(commodity) => commodity.handler(self, &directive.span)?,
+                Directive::Transaction(trx) => trx.handler(self, &directive.span)?,
+                Directive::BalancePad(pad) => pad.handler(self, &directive.span)?,
+                Directive::BalanceCheck(check) => check.handler(self, &directive.span)?,
+                Directive::Note(_) => {}
+                Directive::Document(document) => document.handler(self, &directive.span)?,
+                Directive::Price(price) => price.handler(self, &directive.span)?,
+                Directive::Event(_) => {}
+                Directive::Custom(_) => {}
+                Directive::Plugin(_) => unreachable!("plugin directive should not be passed into the processor here"),
+                Directive::Include(_) => {}
+                Directive::Comment(_) => {}
+                Directive::Budget(budget) => budget.handler(self, &directive.span)?,
+                Directive::BudgetAdd(budget_add) => budget_add.handler(self, &directive.span)?,
+                Directive::BudgetTransfer(budget_transfer) => budget_transfer.handler(self, &directive.span)?,
+                Directive::BudgetClose(budget_close) => budget_close.handler(self, &directive.span)?,
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_plugin_execution(&mut self, other_directives: Vec<Spanned<Directive>>) -> ZhangResult<Vec<Spanned<Directive>>> {
+        let other_directives = Ledger::sort_directives_datetime(other_directives);
+        let d = feature_enable!(
+            self.options.features.plugins,
+            {
+                #[cfg(feature = "plugin_runtime")]
+                {
+                    let mut directives = other_directives;
+                    let options = self.operations().options()?;
+                    // execute the plugins of processor type
+                    for plugin in self.plugins.processors.iter() {
+                        directives = plugin.execute_as_processor(directives, &options)?;
+                    }
+
+                    directives = Ledger::sort_directives_datetime(directives);
+
+                    // execute the plugins of mapper type
+                    for plugin in self.plugins.mappers.iter() {
+                        let plugin_ret: ZhangResult<Vec<Vec<Spanned<Directive>>>> =
+                            directives.into_iter().map(|d| plugin.execute_as_mapper(d, &options)).collect();
+                        directives = plugin_ret?.into_iter().flatten().collect_vec();
+                    }
+                    Ledger::sort_directives_datetime(directives)
+                }
+                #[cfg(not(feature = "plugin_runtime"))]
+                other_directives
+            },
+            other_directives
+        );
+        Ok(d)
     }
 }
 
@@ -430,13 +544,13 @@ mod test {
             assert_eq!(
                 test_parse_zhang(indoc! {r#"
                     1970-01-01 balance Assets:Hello 2 CNY
-                    1970-01-01 open Assets:Hello
+                    1970-01-01 document Assets:Hello ""
                 "#})
                 .into_iter()
                 .map(|it| it.data)
                 .collect_vec(),
                 Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
-                    1970-01-01 open Assets:Hello
+                    1970-01-01 document Assets:Hello ""
                     1970-01-01 balance Assets:Hello 2 CNY
                 "#}))
                 .into_iter()

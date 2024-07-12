@@ -1,0 +1,35 @@
+[
+  {
+    "uri": "/api/store",
+    "validations": [
+      [
+        "$.data.errors.length()",
+        0
+      ],
+      [
+        "$.data.commodity_lots.['Assets:AppStore:US'].[0].amount",
+        "-1.33"
+      ],
+      [
+        "$.data.commodity_lots.['Assets:AppStore:US'].[0].commodity",
+        "USD"
+      ],
+      [
+        "$.data.commodity_lots.['Equity:Opening-Balances'].[0].amount",
+        "82.03"
+      ],
+      [
+        "$.data.commodity_lots.['Equity:Opening-Balances'].[0].commodity",
+        "CNY"
+      ],
+      [
+        "$.data.commodity_lots.['Liabilities:CreditCard'].[0].amount",
+        "-72.51"
+      ],
+      [
+        "$.data.commodity_lots.['Liabilities:CreditCard'].[0].commodity",
+        "CNY"
+      ]
+    ]
+  }
+]

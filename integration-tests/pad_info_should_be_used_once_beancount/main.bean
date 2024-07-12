@@ -1,0 +1,9 @@
+1970-01-01 commodity CNY
+
+1970-01-01 open Assets:A CNY
+1970-01-01 open Equity:OpenBalance CNY
+
+2017-12-01 pad Assets:A Equity:OpenBalance
+
+2017-12-01 balance Assets:A 0.10 CNY
+2017-12-02 balance Assets:A 0.10 CNY

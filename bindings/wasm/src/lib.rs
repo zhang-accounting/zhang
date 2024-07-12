@@ -5,7 +5,7 @@ use beancount::Beancount;
 use wasm_bindgen::prelude::*;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
-use zhang_core::ledger::Ledger;
+use zhang_core::ledger::{Ledger, LedgerProcessContext};
 
 use crate::data_source::InMemoryDataSource;
 
@@ -82,7 +82,13 @@ pub fn parse(content: &str) -> PlayGroundParse {
     let beancount_parse_result = beancount_data_type.transform(content.to_owned(), None);
     let (is_zhang_pass, zhang_store, zhang_error_msg) = match zhang_parse_result {
         Ok(data) => {
-            let result = Ledger::process(data, (PathBuf::from("/"), "".to_owned()), vec![], source.clone()).unwrap();
+            let result = Ledger::process(LedgerProcessContext {
+                directives: data,
+                entry: (PathBuf::from("/"), "".to_owned()),
+                visited_files: vec![],
+                data_source: source.clone(),
+            })
+            .unwrap();
             let result1 = result.store.read().unwrap();
             let store_js_value = serde_wasm_bindgen::to_value(&*result1).unwrap();
             (true, Some(store_js_value), None)
@@ -92,7 +98,13 @@ pub fn parse(content: &str) -> PlayGroundParse {
 
     let (is_beancount_pass, beancount_store, beancount_error_msg) = match beancount_parse_result {
         Ok(data) => {
-            let result = Ledger::process(data, (PathBuf::from("/"), "".to_owned()), vec![], source.clone()).unwrap();
+            let result = Ledger::process(LedgerProcessContext {
+                directives: data,
+                entry: (PathBuf::from("/"), "".to_owned()),
+                visited_files: vec![],
+                data_source: source.clone(),
+            })
+            .unwrap();
             let result1 = result.store.read().unwrap();
             let store_js_value = serde_wasm_bindgen::to_value(&*result1).unwrap();
             (true, Some(store_js_value), None)

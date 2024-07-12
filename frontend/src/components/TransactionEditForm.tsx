@@ -1,7 +1,7 @@
-import { ActionIcon, Code, Container, Divider, Grid, Select, TextInput } from '@mantine/core';
+import { ActionIcon, Autocomplete, Code, Container, Divider, Grid, Select, TextInput } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import DividerWithAction from './basic/DividerWithAction';
-import { IconTextPlus, IconTrashX } from '@tabler/icons';
+import { IconTextPlus, IconTrashX } from '@tabler/icons-react';
 import { useListState } from '@mantine/hooks';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
@@ -9,6 +9,8 @@ import { InfoForNewTransaction, JournalTransactionItem } from '../rest-model';
 import { fetcher } from '../index';
 import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
+import { accountSelectItemsAtom } from '../states/account';
+import { useAtomValue } from 'jotai/index';
 
 interface Posting {
   account: string | null;
@@ -34,7 +36,7 @@ export default function TransactionEditForm(props: Props) {
 
   const [dateOnly] = useState(true);
   const [date, setDate] = useState<Date | null>(props.data?.datetime ? new Date(props.data?.datetime) : new Date());
-  const [payee, setPayee] = useState<string | null>(props.data?.payee ?? null);
+  const [payee, setPayee] = useState<string | undefined>(props.data?.payee ?? undefined);
   const [narration, setNarration] = useState(props.data?.narration ?? '');
   const [postings, postingsHandler] = useListState<Posting>(
     props.data?.postings?.map((item) => ({
@@ -49,6 +51,7 @@ export default function TransactionEditForm(props: Props) {
   const [metas, metaHandler] = useListState<{ key: string; value: string }>(props.data?.metas ?? []);
 
   const [payeeSelectItems, setPayeeSelectItems] = useState<SelectItem[]>([]);
+  const accountItems = useAtomValue(accountSelectItemsAtom);
   useEffect(() => {
     const newPayeeSelectItems: SelectItem[] = (data?.payee ?? []).map((item) => {
       return {
@@ -65,16 +68,19 @@ export default function TransactionEditForm(props: Props) {
         datetime: date?.toISOString(),
         payee: payee ?? '',
         narration: narration,
-        postings: postings.map((it) => ({
-          account: it.account,
-          unit:
-            it.amount.trim() === ''
-              ? null
-              : {
-                  number: it.amount.split(' ')[0],
-                  commodity: it.amount.split(' ')[1],
-                },
-        })),
+        postings: postings.map((it) => {
+          let splitAmount = it.amount.trim().split(' ');
+          return {
+            account: it.account,
+            unit:
+              splitAmount[0] === ''
+                ? null
+                : {
+                    number: splitAmount[0],
+                    commodity: splitAmount[1],
+                  },
+          };
+        }),
         tags: [],
         links: [],
         metas: metas,
@@ -99,42 +105,18 @@ export default function TransactionEditForm(props: Props) {
     return postings.every((posting) => posting.account !== null) && postings.filter((posting) => posting.amount.trim().length === 0).length <= 1;
   };
 
-  const onPayeeCreate = (query: string) => {
-    const newPayee = { label: query, value: query };
-    setPayeeSelectItems([...payeeSelectItems, newPayee]);
-    return newPayee;
-  };
-
   if (error) return <div>failed to load</div>;
   if (!data) return <div>loading...</div>;
-
-  const accountItems = data.account_name.map((singleAccountName) => {
-    const type = singleAccountName.split(':')[0];
-    return {
-      label: singleAccountName,
-      value: singleAccountName,
-      group: type,
-    };
-  });
   return (
     <Container>
       <Grid>
-        <Grid.Col sm={12} lg={4}>
-          <DateInput placeholder="Transaction Date" value={date} onChange={setDate} withAsterisk />
+        <Grid.Col span={{ lg: 4, sm: 12 }}>
+          <DateInput firstDayOfWeek={0} placeholder="Transaction Date" value={date} onChange={setDate} withAsterisk />
         </Grid.Col>
-        <Grid.Col sm={12} lg={4}>
-          <Select
-            placeholder="Payee"
-            data={payeeSelectItems}
-            value={payee}
-            searchable
-            creatable
-            getCreateLabel={(query) => `${t('NEW_TRANSACTION_PAYEE_CREATE')} ${query}`}
-            onCreate={onPayeeCreate}
-            onChange={setPayee}
-          />
+        <Grid.Col span={{ lg: 4, sm: 12 }}>
+          <Autocomplete placeholder="Payee" data={payeeSelectItems} value={payee} onChange={setPayee} />
         </Grid.Col>
-        <Grid.Col sm={12} lg={4}>
+        <Grid.Col span={{ lg: 4, sm: 12 }}>
           <TextInput placeholder="Narration" value={narration} onChange={(e) => setNarration(e.target.value)} />
         </Grid.Col>
       </Grid>
@@ -165,7 +147,7 @@ export default function TransactionEditForm(props: Props) {
             <TextInput placeholder="Amount" value={posting.amount} onChange={(e) => postingsHandler.setItemProp(idx, 'amount', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={1}>
-            <ActionIcon disabled={postings.length <= 2} onClick={() => postingsHandler.remove(idx)}>
+            <ActionIcon variant="white" color="gray" disabled={postings.length <= 2} onClick={() => postingsHandler.remove(idx)}>
               <IconTrashX />
             </ActionIcon>
           </Grid.Col>
@@ -189,13 +171,13 @@ export default function TransactionEditForm(props: Props) {
             <TextInput placeholder="value" value={meta.value} onChange={(e) => metaHandler.setItemProp(idx, 'value', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={1}>
-            <ActionIcon onClick={() => metaHandler.remove(idx)}>
+            <ActionIcon variant="white" color="gray" onClick={() => metaHandler.remove(idx)}>
               <IconTrashX />
             </ActionIcon>
           </Grid.Col>
         </Grid>
       ))}
-      <Divider label="Preview" size="xs" my="md"></Divider>
+      <Divider label={t('TXN_EDIT_PREVIEW')} labelPosition="left" size="xs" my="md"></Divider>
       <Code block>{preview()}</Code>
     </Container>
   );

@@ -10,10 +10,12 @@ export default function DividerWithAction({ value, icon, onActionClick }: Props)
   return (
     <Grid justify="space-between" align="center">
       <Grid.Col span={11}>
-        <Divider label={value} size="xs"></Divider>
+        <Divider label={value} size="xs" labelPosition="left"></Divider>
       </Grid.Col>
       <Grid.Col span={1}>
-        <ActionIcon onClick={onActionClick}>{icon}</ActionIcon>
+        <ActionIcon variant="white" color="gray" onClick={onActionClick}>
+          {icon}
+        </ActionIcon>
       </Grid.Col>
     </Grid>
   );

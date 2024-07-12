@@ -43,9 +43,13 @@ pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<Jour
     let mut operations = ledger.operations();
     let params = params.0;
 
-    let total_count = operations.transaction_counts()?;
-
     let store = operations.read();
+
+    let total_count = store
+        .transactions
+        .values()
+        .filter(|it| params.keyword.as_ref().map(|keyword| it.contains_keyword(keyword)).unwrap_or(true))
+        .count();
 
     let journals: Vec<TransactionDomain> = store
         .transactions
@@ -132,7 +136,6 @@ pub async fn create_new_transaction(
             account: Account::from_str(&posting.account)?,
             units: posting.unit.map(|unit| Amount::new(unit.number, unit.commodity)),
             cost: None,
-            cost_date: None,
             price: None,
             comment: None,
             meta: Default::default(),
@@ -232,7 +235,6 @@ pub async fn update_single_transaction(
             account: Account::from_str(&posting.account)?,
             units: posting.unit.map(|unit| Amount::new(unit.number, unit.commodity)),
             cost: None,
-            cost_date: None,
             price: None,
             comment: None,
             meta: Default::default(),
