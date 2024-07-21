@@ -9,6 +9,14 @@ members = [
     "bindings/python",
     "bindings/wasm",
 ]
+default-members = [
+    "zhang-core",
+    "zhang-ast",
+    "zhang-server",
+    "zhang-cli",
+    "extensions/*",
+    "bindings/python",
+]
 
 [workspace.dependencies]
 base64 = "0.22"

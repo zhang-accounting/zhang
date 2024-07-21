@@ -13,11 +13,8 @@ mod data_source;
 mod utils;
 
 // use console_error_panic_hook::hook;
-// When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
-// allocator.
-#[cfg(feature = "wee_alloc")]
 #[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+static ALLOCATOR: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct PlayGroundParse {
