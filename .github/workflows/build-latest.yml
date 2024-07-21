@@ -69,7 +69,7 @@ jobs:
         run: mkdir -p build
         working-directory: ./frontend
       - name: Run test
-        run: cargo test --workspace --exclude zhang-wasm --features ${{matrix.features}}
+        run: cargo test --workspace --features ${{matrix.features}}
   wasm-test:
     runs-on: ubuntu-latest
     steps:
