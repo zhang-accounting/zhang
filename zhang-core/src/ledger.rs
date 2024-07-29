@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, RwLock};
 
+use cfg_if::cfg_if;
 use itertools::Itertools;
 use log::{error, info};
 use zhang_ast::{Directive, DirectiveType, Options, Plugin, SpanInfo, Spanned};
@@ -324,18 +325,15 @@ impl Ledger {
 
     fn handle_plugin_execution(&mut self, other_directives: Vec<Spanned<Directive>>) -> ZhangResult<Vec<Spanned<Directive>>> {
         let other_directives = Ledger::sort_directives_datetime(other_directives);
-        let d = feature_enable!(
-            self.options.features.plugins,
-            {
-                #[cfg(feature = "plugin_runtime")]
-                {
+        let d = if self.options.features.plugins {
+            cfg_if! {
+                if #[cfg(feature = "plugin_runtime")] {
                     let mut directives = other_directives;
                     let options = self.operations().options()?;
                     // execute the plugins of processor type
                     for plugin in self.plugins.processors.iter() {
                         directives = plugin.execute_as_processor(directives, &options)?;
                     }
-
                     directives = Ledger::sort_directives_datetime(directives);
 
                     // execute the plugins of mapper type
@@ -345,12 +343,14 @@ impl Ledger {
                         directives = plugin_ret?.into_iter().flatten().collect_vec();
                     }
                     Ledger::sort_directives_datetime(directives)
+
+                }else {
+                    other_directives
                 }
-                #[cfg(not(feature = "plugin_runtime"))]
-                other_directives
-            },
+            }
+        } else {
             other_directives
-        );
+        };
         Ok(d)
     }
 }
