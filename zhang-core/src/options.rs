@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
+use cfg_if::cfg_if;
 use chrono_tz::Tz;
 use itertools::Itertools;
 use log::error;
@@ -39,24 +40,25 @@ pub enum BuiltinOption {
 }
 
 fn detect_timezone() -> String {
-    #[cfg(feature = "iana-time-zone")]
-    {
-        static DETECTED_TZ: OnceCell<String> = OnceCell::new();
-        DETECTED_TZ
-            .get_or_init(|| match iana_time_zone::get_timezone() {
-                Ok(timezone) => {
-                    log::info!("detect system timezone is {}", timezone);
-                    timezone
-                }
-                Err(e) => {
-                    log::warn!("cannot get timezone, fall back to use GMT+8 as default timezone: {}", e);
-                    DEFAULT_TIMEZONE.to_owned()
-                }
-            })
-            .to_string()
+    cfg_if! {
+        if #[cfg(feature = "iana-time-zone")] {
+            static DETECTED_TZ: OnceCell<String> = OnceCell::new();
+            DETECTED_TZ
+                .get_or_init(|| match iana_time_zone::get_timezone() {
+                    Ok(timezone) => {
+                        log::info!("detect system timezone is {}", timezone);
+                        timezone
+                    }
+                    Err(e) => {
+                        log::warn!("cannot get timezone, fall back to use GMT+8 as default timezone: {}", e);
+                        DEFAULT_TIMEZONE.to_owned()
+                    }
+                })
+                .to_string()
+        }else {
+             crate::constants::DEFAULT_TIMEZONE.to_owned()
+        }
     }
-    #[cfg(not(feature = "iana-time-zone"))]
-    crate::constants::DEFAULT_TIMEZONE.to_owned()
 }
 
 impl BuiltinOption {
