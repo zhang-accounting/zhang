@@ -127,6 +127,7 @@ jobs:
         working-directory: ./frontend
       - name: Format
         run: cargo fmt --all -- --check
+
   clippy-check:
     runs-on: ubuntu-latest
     needs: test
@@ -145,5 +146,6 @@ jobs:
   typo-checker:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: typos-action
         uses: crate-ci/typos@v1.23.6
