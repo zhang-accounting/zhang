@@ -262,9 +262,9 @@ mod test {
                 1970-01-01 commodity CNY
                 1970-01-01 open Assets:A
                 1970-01-01 open Expenses:B
-                1970-01-01 open Equity:Open-Balacing
+                1970-01-01 open Equity:Open-Balancing
 
-                2023-01-01 balance Assets:A 3000 CNY with pad Equity:Open-Balacing
+                2023-01-01 balance Assets:A 3000 CNY with pad Equity:Open-Balancing
 
                 2023-01-02 "Shopping" ""
                     Assets:A -30 CNY

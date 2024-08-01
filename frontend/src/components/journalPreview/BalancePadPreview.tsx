@@ -1,6 +1,6 @@
 import { Badge, Box, Group, Text } from '@mantine/core';
 import { format } from 'date-fns';
-import { JournalBlancePadItem } from '../../rest-model';
+import { JournalBalancePadItem } from '../../rest-model';
 import Amount from '../Amount';
 import DashLine from '../DashedLine';
 import Section from '../Section';
@@ -19,7 +19,7 @@ const useStyles = createStyles((theme, _, u) => ({
 }));
 
 interface Props {
-  data: JournalBlancePadItem;
+  data: JournalBalancePadItem;
 }
 
 export default function BalancePadPreview(props: Props) {

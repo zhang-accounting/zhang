@@ -35,17 +35,17 @@ interface Props {
   amount: string;
   currency: string;
   detail?: any;
-  negetive?: boolean;
+  negative?: boolean;
   hint?: string;
 }
 
-export default function StatisticBox({ text, amount, currency, negetive, hint }: Props) {
+export default function StatisticBox({ text, amount, currency, negative, hint }: Props) {
   const { t } = useTranslation();
   const { classes } = useStyles();
   const displayBox = (
     <Stack mt="sm" gap={'xs'} className={classes.card}>
       <Text className={classes.lead}>
-        <Amount amount={amount} negative={negetive} currency={currency} />
+        <Amount amount={amount} negative={negative} currency={currency} />
       </Text>
       <Text className={classes.label}>{t(text)}</Text>
     </Stack>

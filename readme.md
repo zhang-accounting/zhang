@@ -31,18 +31,19 @@ This will pull the latest Zhang Docker image and run it, exposing the service on
 
 ## Features
 
-- **Independent Direcitve**: all directives in zhang are independent, you can write them in any file with any order.
+- **Independent Directive**: all directives in zhang are independent, you can write them in any file with any order.
 - **More Precise Control**: features, like commodity decimal precision and datetime supported for directive, provide
   more control
 - **Document Management Enhancement**: zhang has a good document management feature to allow you collect and control
-  document easiler and effective, like receipts.
-- **New Functionalities**: The latest version introduces enhanced budget management, improved error handling, and support for multiple currencies.
+  document easier and effective, like receipts.
+- **New Functionalities**: The latest version introduces enhanced budget management, improved error handling, and
+  support for multiple currencies.
 
 ### Compatibility with beancount
 
 beancount and zhang are both text based accounting tools, and they are some familiar.
 
-But zhang deprecates some directives, like `note`, `pad` and `push_tag`, and aslo evolves some direcitves,
+But zhang deprecates some directives, like `note`, `pad` and `push_tag`, and also evolves some directives,
 like `balance`. So your beancount file may not be compatible with zhang, we will provide a tool to convert beancount
 format to zhang format, and vice versa.
 
@@ -52,7 +53,9 @@ For detailed setup and installation guides, please refer to the [documentation](
 
 ## Community and Support
 
-Join our [Discord server](https://discord.gg/EGjwhnV267) for community discussions, support, and to stay updated with the latest news. For iOS users, you can join our TestFlight to try out the latest features [here](https://testflight.apple.com/join/3pm50he2).
+Join our [Discord server](https://discord.gg/EGjwhnV267) for community discussions, support, and to stay updated with
+the latest news. For iOS users, you can join our TestFlight to try out the latest
+features [here](https://testflight.apple.com/join/3pm50he2).
 
 ## Star History
 
