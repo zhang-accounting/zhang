@@ -61,9 +61,7 @@ export default function ErrorBox() {
         />
         <Group justify="space-between" mt={'lg'}>
           <Group>
-            <Anchor
-              href={`https://zhang-accounting.kilerd.me/user-guide/error-code/#${selectError?.error_type.toLocaleLowerCase()}`}
-              target="_blank">
+            <Anchor href={`https://zhang-accounting.kilerd.me/user-guide/error-code/#${selectError?.error_type.toLocaleLowerCase()}`} target="_blank">
               {t('ERROR_BOX_WHY')}
             </Anchor>
           </Group>
@@ -92,8 +90,7 @@ export default function ErrorBox() {
             ))}
 
             <Group justify="center">
-              <Pagination size="sm" mt="xs" total={errors.data.total_page} value={errors.data.current_page}
-                          onChange={handlePageChange} />
+              <Pagination size="sm" mt="xs" total={errors.data.total_page} value={errors.data.current_page} onChange={handlePageChange} />
             </Group>
           </>
         )}

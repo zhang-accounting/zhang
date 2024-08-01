@@ -9,10 +9,7 @@ export default function StatisticBar() {
   const beginning_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 1);
   const end_time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-  const {
-    data,
-    error,
-  } = useSWR<StatisticResponse>(`/api/statistic/summary?from=${beginning_time.toISOString()}&to=${end_time.toISOString()}`, fetcher);
+  const { data, error } = useSWR<StatisticResponse>(`/api/statistic/summary?from=${beginning_time.toISOString()}&to=${end_time.toISOString()}`, fetcher);
 
   if (error) return <div>failed to load</div>;
   if (!data) return <>loading</>;
@@ -25,12 +22,9 @@ export default function StatisticBar() {
         currency={data.balance.calculated.currency}
         hint={'include assets and liabilities'}
       />
-      <StatisticBox text={'LIABILITY'} amount={data.liability.calculated.number}
-                    currency={data.liability.calculated.currency} negative />
-      <StatisticBox text={'CURRENT_MONTH_INCOME'} amount={data.income.calculated.number}
-                    currency={data.income.calculated.currency} negative />
-      <StatisticBox text={'CURRENT_MONTH_EXPENSE'} amount={data.expense.calculated.number}
-                    currency={data.expense.calculated.currency} />
+      <StatisticBox text={'LIABILITY'} amount={data.liability.calculated.number} currency={data.liability.calculated.currency} negative />
+      <StatisticBox text={'CURRENT_MONTH_INCOME'} amount={data.income.calculated.number} currency={data.income.calculated.currency} negative />
+      <StatisticBox text={'CURRENT_MONTH_EXPENSE'} amount={data.expense.calculated.number} currency={data.expense.calculated.currency} />
     </SimpleGrid>
   );
 }
