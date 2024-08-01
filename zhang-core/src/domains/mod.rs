@@ -438,8 +438,8 @@ impl Operations {
 
         Ok(ret
             .into_iter()
-            .flat_map(|(account, account_invetory)| {
-                account_invetory
+            .flat_map(|(account, account_inventory)| {
+                account_inventory
                     .into_iter()
                     .map(|(_, mut dated)| {
                         let (date, amount) = dated.pop_last().expect("");

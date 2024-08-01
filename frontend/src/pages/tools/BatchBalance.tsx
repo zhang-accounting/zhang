@@ -67,8 +67,8 @@ export default function BatchBalance() {
     if (reflectOnUnbalancedAmount) {
       if (padAccount === undefined) {
         if (balanceAmount.trim() !== '') {
-          const isBlanced = new BigNumber(targetAccount.currentAmount).eq(new BigNumber(balanceAmount));
-          accountsHandler.setItemProp(idx, 'error', !isBlanced);
+          const isBalanced = new BigNumber(targetAccount.currentAmount).eq(new BigNumber(balanceAmount));
+          accountsHandler.setItemProp(idx, 'error', !isBalanced);
           return;
         }
       }
@@ -77,7 +77,7 @@ export default function BatchBalance() {
   };
 
   const onSave = async () => {
-    const accountsToBlance = accounts
+    const accountsToBalance = accounts
       .filter((account) => account.balanceAmount.trim() !== '')
       .map((account) => ({
         type: account.pad ? 'Pad' : 'Check',
@@ -89,11 +89,11 @@ export default function BatchBalance() {
         pad: account.pad,
       }));
     showNotification({
-      title: `Start balance ${accountsToBlance.length} Accounts`,
+      title: `Start balance ${accountsToBalance.length} Accounts`,
       message: '',
     });
     try {
-      await axiosInstance.post('/api/accounts/batch-balances', accountsToBlance);
+      await axiosInstance.post('/api/accounts/batch-balances', accountsToBalance);
       showNotification({
         title: 'Balance account successfully',
         message: 'waiting page to refetch latest data',
@@ -115,7 +115,8 @@ export default function BatchBalance() {
         <Chip checked={maskCurrentAmount} onChange={() => setMaskCurrentAmount(!maskCurrentAmount)}>
           Mask Current Amount
         </Chip>
-        <Chip checked={reflectOnUnbalancedAmount} onChange={() => setReflectOnUnbalancedAmount(!reflectOnUnbalancedAmount)}>
+        <Chip checked={reflectOnUnbalancedAmount}
+              onChange={() => setReflectOnUnbalancedAmount(!reflectOnUnbalancedAmount)}>
           Reflect on unbalanced amount
         </Chip>
       </Group>
@@ -130,39 +131,40 @@ export default function BatchBalance() {
           </Table.Tr>
         </Table.Thead>
         <tbody>
-          {accounts.map((account, idx) => (
-            <Table.Tr key={`${account.accountName}-${account.commodity}`}>
-              <Table.Td>{account.accountName}</Table.Td>
-              <Table.Td>{account.commodity}</Table.Td>
-              <Table.Td>
-                <Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity}></Amount>
-              </Table.Td>
-              <Table.Td>
-                <Select
-                  searchable
-                  clearable
-                  placeholder="Pad to"
-                  data={accountItems}
-                  value={account.pad}
-                  onChange={(e) => {
-                    updateBalanceLineItem(idx, e ?? undefined, account.balanceAmount);
-                  }}
-                />
-              </Table.Td>
-              <Table.Td>
-                <TextInput
-                  error={account.error}
-                  value={account.balanceAmount}
-                  onChange={(e) => {
-                    updateBalanceLineItem(idx, account.pad ?? undefined, e.target.value);
-                  }}
-                ></TextInput>
-              </Table.Td>
-            </Table.Tr>
-          ))}
+        {accounts.map((account, idx) => (
+          <Table.Tr key={`${account.accountName}-${account.commodity}`}>
+            <Table.Td>{account.accountName}</Table.Td>
+            <Table.Td>{account.commodity}</Table.Td>
+            <Table.Td>
+              <Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity}></Amount>
+            </Table.Td>
+            <Table.Td>
+              <Select
+                searchable
+                clearable
+                placeholder="Pad to"
+                data={accountItems}
+                value={account.pad}
+                onChange={(e) => {
+                  updateBalanceLineItem(idx, e ?? undefined, account.balanceAmount);
+                }}
+              />
+            </Table.Td>
+            <Table.Td>
+              <TextInput
+                error={account.error}
+                value={account.balanceAmount}
+                onChange={(e) => {
+                  updateBalanceLineItem(idx, account.pad ?? undefined, e.target.value);
+                }}
+              ></TextInput>
+            </Table.Td>
+          </Table.Tr>
+        ))}
         </tbody>
       </Table>
-      <Button disabled={accounts.filter((account) => account.balanceAmount.trim() !== '').length === 0} onClick={onSave}>
+      <Button disabled={accounts.filter((account) => account.balanceAmount.trim() !== '').length === 0}
+              onClick={onSave}>
         Submit
       </Button>
     </Container>
