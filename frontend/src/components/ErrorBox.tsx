@@ -29,7 +29,7 @@ export default function ErrorBox() {
     setIsOpen(true);
   };
 
-  const saveErrorModfiyData = () => {
+  const saveErrorModifyData = () => {
     //   modifyFile({
     //     variables: {
     //       file: selectError?.span.filename,
@@ -69,7 +69,7 @@ export default function ErrorBox() {
             <Button onClick={onModalReset} variant="default">
               {t('RESET')}
             </Button>
-            <Button onClick={saveErrorModfiyData} variant="default">
+            <Button onClick={saveErrorModifyData} variant="default">
               {t('SAVE')}
             </Button>
           </Group>

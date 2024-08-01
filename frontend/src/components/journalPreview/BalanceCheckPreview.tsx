@@ -9,6 +9,7 @@ import Section from '../Section';
 interface Props {
   data: JournalBalanceCheckItem;
 }
+
 export default function BalanceCheckPreview(props: Props) {
   const isBalanced = new BigNumber(props.data.postings[0].account_after_number).eq(new BigNumber(props.data.postings[0].account_before_number));
   const checkInfo = props.data.postings[0];
@@ -55,7 +56,7 @@ export default function BalanceCheckPreview(props: Props) {
             <>
               <DashLine>
                 <Text lineClamp={1} my="xs">
-                  Accumlated Amount
+                  Accumulated Amount
                 </Text>
                 <Text lineClamp={1}>
                   <Amount amount={checkInfo.account_before_number} currency={checkInfo.account_before_commodity} />

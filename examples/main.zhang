@@ -32,17 +32,17 @@ option "operating_currency" "CNY"
 1970-01-01 open Expenses:Clothing CNY, USD
 1970-01-01 open Expenses:Medical CNY, USD
 1970-01-01 open Expenses:Sport CNY, USD
-1970-01-01 open Expenses:Transportaion CNY, USD
+1970-01-01 open Expenses:Transportation CNY, USD
 1970-01-01 open Expenses:GrandLordCompany:Tax CNY, USD
 1970-01-01 open Expenses:RemunerationTax CNY, USD
 
 
-1970-01-01 open Equity:OpenBlancing CNY, USD
+1970-01-01 open Equity:OpenBalancing CNY, USD
 
 
-2023-05-31 01:01:01 balance Assets:Paypal 135125 CNY with pad Equity:OpenBlancing
-2023-05-31 01:01:01 balance Assets:WeChat 146340 CNY with pad Equity:OpenBlancing
-2023-05-31 01:01:01 balance Assets:CitiBank:9999 158059 CNY with pad Equity:OpenBlancing
+2023-05-31 01:01:01 balance Assets:Paypal 135125 CNY with pad Equity:OpenBalancing
+2023-05-31 01:01:01 balance Assets:WeChat 146340 CNY with pad Equity:OpenBalancing
+2023-05-31 01:01:01 balance Assets:CitiBank:9999 158059 CNY with pad Equity:OpenBalancing
 
 
 

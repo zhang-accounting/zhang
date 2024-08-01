@@ -4733,6 +4733,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bigdecimal",
+ "cfg-if",
  "chrono",
  "chrono-tz",
  "extism",

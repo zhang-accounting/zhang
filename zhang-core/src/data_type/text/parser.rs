@@ -195,7 +195,7 @@ impl ZhangParser {
     }
 
     #[allow(dead_code)]
-    fn identation(input: Node) -> Result<()> {
+    fn indentation(input: Node) -> Result<()> {
         Ok(())
     }
 

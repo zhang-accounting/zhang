@@ -83,7 +83,7 @@ mod test {
     use crate::utils::string_::{escape_with_quote, StringExt};
 
     #[test]
-    fn test_escapse_with_quote() {
+    fn test_escape_with_quote() {
         assert_eq!(r#""a""#, escape_with_quote("a"));
         assert_eq!(r#""a\"""#, escape_with_quote("a\""));
         assert_eq!(r#""a\$""#, escape_with_quote("a$"));

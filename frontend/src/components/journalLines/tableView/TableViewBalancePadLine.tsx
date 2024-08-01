@@ -1,7 +1,7 @@
 import { ActionIcon, Badge, Group, Table } from '@mantine/core';
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
-import { JournalBlancePadItem, JournalItem } from '../../../rest-model';
+import { JournalBalancePadItem, JournalItem } from '../../../rest-model';
 import Amount from '../../Amount';
 import { IconZoomExclamation } from '@tabler/icons-react';
 import { openContextModal } from '@mantine/modals';
@@ -44,7 +44,7 @@ const useStyles = createStyles((theme, _, u) => ({
 }));
 
 interface Props {
-  data: JournalBlancePadItem;
+  data: JournalBalancePadItem;
   onClick?: Dispatch<SetStateAction<JournalItem | undefined>>;
 }
 

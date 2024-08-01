@@ -39,6 +39,7 @@ export interface AccountInfo {
   alias?: String;
   amount: CalculatedAmountResponse;
 }
+
 export interface AccountBalanceHistory {
   [commodity: string]: AccountBalanceHistoryItem[];
 }
@@ -109,9 +110,9 @@ export interface CommodityPrice {
   target_commodity: string;
 }
 
-export type JournalItem = JournalTransactionItem | JournalBlancePadItem | JournalBalanceCheckItem;
+export type JournalItem = JournalTransactionItem | JournalBalancePadItem | JournalBalanceCheckItem;
 
-export interface JournalBlancePadItem {
+export interface JournalBalancePadItem {
   type: 'BalancePad';
   id: string;
   datetime: string;

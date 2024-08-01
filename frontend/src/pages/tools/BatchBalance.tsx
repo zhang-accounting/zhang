@@ -67,8 +67,8 @@ export default function BatchBalance() {
     if (reflectOnUnbalancedAmount) {
       if (padAccount === undefined) {
         if (balanceAmount.trim() !== '') {
-          const isBlanced = new BigNumber(targetAccount.currentAmount).eq(new BigNumber(balanceAmount));
-          accountsHandler.setItemProp(idx, 'error', !isBlanced);
+          const isBalanced = new BigNumber(targetAccount.currentAmount).eq(new BigNumber(balanceAmount));
+          accountsHandler.setItemProp(idx, 'error', !isBalanced);
           return;
         }
       }
@@ -77,7 +77,7 @@ export default function BatchBalance() {
   };
 
   const onSave = async () => {
-    const accountsToBlance = accounts
+    const accountsToBalance = accounts
       .filter((account) => account.balanceAmount.trim() !== '')
       .map((account) => ({
         type: account.pad ? 'Pad' : 'Check',
@@ -89,11 +89,11 @@ export default function BatchBalance() {
         pad: account.pad,
       }));
     showNotification({
-      title: `Start balance ${accountsToBlance.length} Accounts`,
+      title: `Start balance ${accountsToBalance.length} Accounts`,
       message: '',
     });
     try {
-      await axiosInstance.post('/api/accounts/batch-balances', accountsToBlance);
+      await axiosInstance.post('/api/accounts/batch-balances', accountsToBalance);
       showNotification({
         title: 'Balance account successfully',
         message: 'waiting page to refetch latest data',
