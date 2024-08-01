@@ -1,0 +1,2 @@
+[files]
+extend-exclude = ["integration-tests/*", "CHANGELOG.md"]
