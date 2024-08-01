@@ -141,3 +141,9 @@ jobs:
         working-directory: ./frontend
       - name: Clippy
         run: cargo clippy --all-features --all-targets -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs
+
+  typo-checker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: typos-action
+        uses: crate-ci/typos@v1.23.6
