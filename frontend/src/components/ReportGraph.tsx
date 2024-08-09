@@ -24,7 +24,7 @@ function ChartTooltip({
       </Text>
       {payload.map((item: any) => (
         <Text key={item.name} c={item.color} fz="sm">
-          {item.name}: <Amount amount={item.name !== 'total' ? item.value - total_min : item.value} currency={commodity}></Amount>
+          {item.name}: <Amount amount={item.value} currency={commodity}></Amount>
         </Text>
       ))}
     </Paper>
@@ -44,17 +44,16 @@ export default function ReportGraph(props: Props) {
     const target_day = props.data.balances[date];
     return new BigNumber(target_day.calculated.number).toNumber();
   });
-  let total_domain = [min(total_dataset) ?? 0, max(total_dataset) ?? 0];
+  let total_domain = [(min(total_dataset)  ?? 0) * 0.999, (max(total_dataset) ?? 0) *1.001];
 
   const income_dataset = sequencedDate
     .map((date) => props.data.changes[date]?.[AccountType.Income])
-    .map((amount) => -1 * new BigNumber(amount?.calculated.number ?? '0').toNumber())
-    .map((amount) => amount + total_domain[0]);
+    .map((amount) => -1 * new BigNumber(amount?.calculated.number ?? '0').toNumber());
 
   const expense_dataset = sequencedDate
     .map((date) => props.data.changes[date]?.[AccountType.Expenses])
-    .map((amount) => new BigNumber(amount?.calculated.number ?? '0').toNumber())
-    .map((amount) => amount + total_domain[0]);
+    .map((amount) => new BigNumber(amount?.calculated.number ?? '0').toNumber());
+
   const data = labels.map((label, idx) => ({
     date: label,
     total: total_dataset[idx],
@@ -69,8 +68,9 @@ export default function ReportGraph(props: Props) {
         data={data}
         dataKey="date"
         withDots={false}
-        withYAxis={false}
+        withRightYAxis
         withLegend
+    
         tooltipProps={{
           content: ({ label, payload }) => (
             <ChartTooltip total_min={total_domain[0]} commodity={Object.values(props.data.balances)[0].calculated.currency} label={label} payload={payload} />
@@ -79,8 +79,8 @@ export default function ReportGraph(props: Props) {
         yAxisProps={{ type: 'number', scale: 'log', domain: total_domain }}
         series={[
           { name: 'total', color: 'violet.6' },
-          { name: 'income', color: 'indigo.6' },
-          { name: 'expense', color: 'pink' },
+          { name: 'income', color: 'indigo.6', yAxisId: 'right' },
+          { name: 'expense', color: 'pink', yAxisId: 'right' },
         ]}
         connectNulls
         curveType="bump"
