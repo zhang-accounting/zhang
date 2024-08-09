@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Group, Table } from '@mantine/core';
+import { ActionIcon, Badge, Group, Stack, Table, Text } from '@mantine/core';
 import { IconFile, IconPencil, IconZoomExclamation } from '@tabler/icons-react';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../../rest-model';
@@ -85,10 +85,14 @@ export default function TableViewTransactionLine({ data }: Props) {
         </Badge>
       </Table.Td>
       <Table.Td>
+        <Stack gap={"xs"}>
         <Group align="center" gap="xs">
           <PayeeNarration payee={data.payee} narration={data.narration} />
+          {data.links && data.links.map(it=> <Text>^{it}</Text>)}
           {hasDocuments && <IconFile size="1rem" color={'gray'} stroke={1}></IconFile>}
         </Group>
+        </Stack>
+        
       </Table.Td>
       <Table.Td>
         {Array.from(summary.values()).map((each) => (
