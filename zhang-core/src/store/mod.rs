@@ -1,5 +1,6 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
+use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate};
 use chrono_tz::Tz;
@@ -7,8 +8,6 @@ use indexmap::IndexMap;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Flag, SpanInfo};
-
-use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain};
 
 #[derive(Default, serde::Serialize)]
 pub struct Store {
@@ -32,7 +31,7 @@ pub struct Store {
     pub errors: Vec<ErrorDomain>,
 }
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, Debug)]
 pub struct TransactionDomain {
     pub id: Uuid,
     pub sequence: i32,
@@ -47,28 +46,63 @@ pub struct TransactionDomain {
 }
 
 impl TransactionDomain {
-    pub fn contains_keyword(&self, keyword: &str) -> bool {
-        let keyword = keyword.to_lowercase();
-        ({
-            let is_payee_matched = self.payee.as_ref().map(|it| it.to_lowercase().contains(&keyword)).unwrap_or(false);
-            is_payee_matched
+    pub fn match_keywords(&self, keyword: Option<&String>, tags: &Option<HashSet<String>>, links: &Option<HashSet<String>>) -> bool {
+        let keyword = keyword.map(|it| it.to_lowercase());
+        let tag_matched = if let Some(tag_candidates) = tags.as_ref() {
+            // if one of the tags matched, return the transaction
+            self.tags.iter().any(|trx_tag| tag_candidates.contains(trx_tag))
+        } else {
+            // if tags are not specified, all transactions are matched
+            true
+        };
+        let link_matched = if let Some(link_candidates) = links.as_ref() {
+            // if one of the links matched, return the transaction
+            self.links.iter().any(|trx_link| link_candidates.contains(trx_link))
+        } else {
+            // if tags are not specified, all transactions are matched
+            true
+        };
+        let keyword_matched = ({
+            if let Some(keyword) = keyword.as_ref() {
+                let is_payee_matched = self.payee.as_ref().map(|it| it.to_lowercase().contains(keyword)).unwrap_or(false);
+                is_payee_matched
+            } else {
+                true
+            }
         }) || ({
-            let is_narration_matched = self.narration.as_ref().map(|it| it.to_lowercase().contains(&keyword)).unwrap_or(false);
-            is_narration_matched
+            if let Some(keyword) = keyword.as_ref() {
+                let is_narration_matched = self.narration.as_ref().map(|it| it.to_lowercase().contains(keyword)).unwrap_or(false);
+                is_narration_matched
+            } else {
+                true
+            }
         }) || ({
-            let is_any_tags_matched = self.tags.iter().any(|it| it.to_lowercase().contains(&keyword));
-            is_any_tags_matched
+            if let Some(keyword) = keyword.as_ref() {
+                let is_any_tags_matched = self.tags.iter().any(|it| it.to_lowercase().contains(keyword));
+                is_any_tags_matched
+            } else {
+                true
+            }
         }) || ({
-            let is_any_links_matched = self.links.iter().any(|it| it.to_lowercase().contains(&keyword));
-            is_any_links_matched
+            if let Some(keyword) = keyword.as_ref() {
+                let is_any_links_matched = self.links.iter().any(|it| it.to_lowercase().contains(keyword));
+                is_any_links_matched
+            } else {
+                true
+            }
         }) || ({
-            let is_any_posting_account_matched = self.postings.iter().any(|posting| posting.account.name().to_lowercase().contains(&keyword));
-            is_any_posting_account_matched
-        })
+            if let Some(keyword) = keyword.as_ref() {
+                let is_any_posting_account_matched = self.postings.iter().any(|posting| posting.account.name().to_lowercase().contains(keyword));
+                is_any_posting_account_matched
+            } else {
+                true
+            }
+        });
+        tag_matched && link_matched && keyword_matched
     }
 }
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, Debug)]
 pub struct PostingDomain {
     pub id: Uuid,
     pub trx_id: Uuid,

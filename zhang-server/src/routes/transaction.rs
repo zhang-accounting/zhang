@@ -1,7 +1,7 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::extract::{Multipart, Path, Query, State};
+use axum::extract::{Multipart, Path, State};
 use axum::Json;
 use indexmap::IndexSet;
 use itertools::Itertools;
@@ -23,6 +23,8 @@ use crate::response::{
     JournalTransactionPostingResponse, Pageable, ResponseWrapper,
 };
 use crate::{ApiResult, ReloadSender};
+
+use super::Query;
 
 // todo rename api
 pub async fn get_info_for_new_transactions(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<InfoForNewTransaction> {
@@ -48,13 +50,13 @@ pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<Jour
     let total_count = store
         .transactions
         .values()
-        .filter(|it| params.keyword.as_ref().map(|keyword| it.contains_keyword(keyword)).unwrap_or(true))
+        .filter(|it| it.match_keywords(params.keyword.as_ref(), &params.tags, &params.links))
         .count();
 
     let journals: Vec<TransactionDomain> = store
         .transactions
         .values()
-        .filter(|it| params.keyword.as_ref().map(|keyword| it.contains_keyword(keyword)).unwrap_or(true))
+        .filter(|it| it.match_keywords(params.keyword.as_ref(), &params.tags, &params.links))
         .sorted_by_key(|it| -it.sequence)
         .skip(params.offset() as usize)
         .take(params.limit() as usize)

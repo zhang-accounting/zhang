@@ -3044,6 +3044,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_qs"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd34f36fe4c5ba9654417139a9b3a20d2e1de6012ee678ad14d240c22c78d8d6"
+dependencies = [
+ "percent-encoding",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "serde_spanned"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4796,6 +4807,7 @@ dependencies = [
  "self_update",
  "serde",
  "serde_json",
+ "serde_qs",
  "strum",
  "thiserror",
  "tokio",

@@ -42,6 +42,7 @@ mime_guess = "2"
 self_update = "0.39"
 tower-http = { version = "0.5.0", features = ["cors", "limit", "auth"] }
 async-stream = "0.3.5"
+serde_qs = "0.13.0"
 
 [build-dependencies]
 chrono = { version = "0.4" }

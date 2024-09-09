@@ -1,0 +1,33 @@
+[
+  {
+    "uri": "/api/journals",
+    "validations": [
+      [
+        "$.data.records.length()",
+        2
+      ],
+      [
+        "$.data.records[0].postings.length()",
+        2
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals?tags[]=tag1",
+    "validations": [
+      [
+        "$.data.records.length()",
+        2
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals?tags[]=tag2",
+    "validations": [
+      [
+        "$.data.records.length()",
+        1
+      ]
+    ]
+  }
+]
