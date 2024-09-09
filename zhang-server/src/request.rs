@@ -1,8 +1,8 @@
-use std::cmp::max;
-
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Datelike, Local, Utc};
 use serde::Deserialize;
+use std::cmp::max;
+use std::collections::HashSet;
 use zhang_ast::Flag;
 
 #[derive(Deserialize)]
@@ -47,6 +47,8 @@ pub struct JournalRequest {
     pub page: Option<u32>,
     pub size: Option<u32>,
     pub keyword: Option<String>,
+    pub tags: Option<HashSet<String>>,
+    pub links: Option<HashSet<String>>,
 }
 impl JournalRequest {
     pub fn page(&self) -> u32 {
