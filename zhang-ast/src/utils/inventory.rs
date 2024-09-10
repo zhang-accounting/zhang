@@ -57,6 +57,7 @@ impl LotMeta {
 }
 
 /// Inventory likes a warehouse to record how many commodities are used, and how much are they.
+/// 
 /// And for investment tracing purpose, we need to record more details about how much we brought the commodity, and when.
 /// That's why we need to use `lots` to record the info.
 #[derive(Debug, Clone)]

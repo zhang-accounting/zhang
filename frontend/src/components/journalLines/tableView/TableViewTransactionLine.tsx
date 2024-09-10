@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Group, Stack, Table, Text } from '@mantine/core';
+import { ActionIcon, Badge, Group, Stack, Table } from '@mantine/core';
 import { IconFile, IconPencil, IconZoomExclamation } from '@tabler/icons-react';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../../rest-model';
