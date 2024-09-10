@@ -1,4 +1,4 @@
-import { Badge, Button, CloseButton, Group, Input, Pagination, Pill, Table, Text } from '@mantine/core';
+import { Button, CloseButton, Group, Input, Pagination, Pill, Table, Text } from '@mantine/core';
 import { useEffect, useMemo, useState } from 'react';
 import TableViewJournalLine from '../components/journalLines/tableView/TableViewJournalLine';
 import { Heading } from '../components/basic/Heading';
