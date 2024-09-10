@@ -44,7 +44,7 @@ export default function ReportGraph(props: Props) {
     const target_day = props.data.balances[date];
     return new BigNumber(target_day.calculated.number).toNumber();
   });
-  let total_domain = [(min(total_dataset)  ?? 0) * 0.999, (max(total_dataset) ?? 0) *1.001];
+  let total_domain = [(min(total_dataset) ?? 0) * 0.999, (max(total_dataset) ?? 0) * 1.001];
 
   const income_dataset = sequencedDate
     .map((date) => props.data.changes[date]?.[AccountType.Income])
@@ -70,7 +70,6 @@ export default function ReportGraph(props: Props) {
         withDots={false}
         withRightYAxis
         withLegend
-    
         tooltipProps={{
           content: ({ label, payload }) => (
             <ChartTooltip total_min={total_domain[0]} commodity={Object.values(props.data.balances)[0].calculated.currency} label={label} payload={payload} />

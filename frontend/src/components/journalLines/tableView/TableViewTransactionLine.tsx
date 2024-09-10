@@ -7,6 +7,8 @@ import Amount from '../../Amount';
 import { openContextModal } from '@mantine/modals';
 import PayeeNarration from '../../basic/PayeeNarration';
 import { createStyles, getStylesRef } from '@mantine/emotion';
+import { journalLinksAtom, journalTagsAtom } from '../../../states/journals';
+import { useAtom } from 'jotai';
 
 const useStyles = createStyles((theme, _, u) => ({
   positiveAmount: {
@@ -51,6 +53,26 @@ export default function TableViewTransactionLine({ data }: Props) {
 
   const time = format(new Date(data.datetime), 'HH:mm:ss');
 
+  const [, setJournalTags] = useAtom(journalTagsAtom);
+  const [, setJournalLinks] = useAtom(journalLinksAtom);
+
+  const handleTagClick = (tag: string) => () => {
+    setJournalTags((prevTags) => {
+      if (prevTags.includes(tag)) {
+        return prevTags;
+      }
+      return [...prevTags, tag];
+    });
+  };
+  const handleLinkClick = (link: string) => () => {
+    setJournalLinks((prevLinks) => {
+      if (prevLinks.includes(link)) {
+        return prevLinks;
+      }
+      return [...prevLinks, link];
+    });
+  };
+
   const openPreviewModal = (e: any) => {
     openContextModal({
       modal: 'transactionPreviewModal',
@@ -85,14 +107,24 @@ export default function TableViewTransactionLine({ data }: Props) {
         </Badge>
       </Table.Td>
       <Table.Td>
-        <Stack gap={"xs"}>
-        <Group align="center" gap="xs">
-          <PayeeNarration payee={data.payee} narration={data.narration} />
-          {data.links && data.links.map(it=> <Text>^{it}</Text>)}
-          {hasDocuments && <IconFile size="1rem" color={'gray'} stroke={1}></IconFile>}
-        </Group>
+        <Stack gap={'xs'}>
+          <Group align="center" gap="xs">
+            <PayeeNarration payee={data.payee} narration={data.narration} />
+            {data.links &&
+              data.links.map((it) => (
+                <Badge key={it} color="blue" variant="outline" size="xs" onClick={() => handleLinkClick(it)()}>
+                  ^{it}
+                </Badge>
+              ))}
+            {data.tags &&
+              data.tags.map((tag) => (
+                <Badge key={tag} color="blue" variant="outline" size="xs" onClick={() => handleTagClick(tag)()}>
+                  #{tag}
+                </Badge>
+              ))}
+            {hasDocuments && <IconFile size="1rem" color={'gray'} stroke={1}></IconFile>}
+          </Group>
         </Stack>
-        
       </Table.Td>
       <Table.Td>
         {Array.from(summary.values()).map((each) => (

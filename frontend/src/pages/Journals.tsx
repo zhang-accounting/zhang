@@ -1,4 +1,4 @@
-import { Button, CloseButton, Group, Input, Pagination, Table, Text } from '@mantine/core';
+import { Badge, Button, CloseButton, Group, Input, Pagination, Pill, Table, Text } from '@mantine/core';
 import { useEffect, useMemo, useState } from 'react';
 import TableViewJournalLine from '../components/journalLines/tableView/TableViewJournalLine';
 import { Heading } from '../components/basic/Heading';
@@ -8,7 +8,7 @@ import { IconFilter } from '@tabler/icons-react';
 import { JournalListSkeleton } from '../components/skeletons/journalListSkeleton';
 import { useAtomValue } from 'jotai/index';
 import { titleAtom } from '../states/basic';
-import { groupedJournalsAtom, journalAtom, journalFetcher, journalKeywordAtom, journalPageAtom } from '../states/journals';
+import { groupedJournalsAtom, journalAtom, journalFetcher, journalKeywordAtom, journalLinksAtom, journalPageAtom, journalTagsAtom } from '../states/journals';
 import { useAtom, useSetAtom } from 'jotai';
 import { loadable_unwrap } from '../states';
 import { selectAtom } from 'jotai/utils';
@@ -28,6 +28,19 @@ function Journals() {
   const journalItems = useAtomValue(journalAtom);
   const total_count = useAtomValue(useMemo(() => selectAtom(journalAtom, (val) => loadable_unwrap(val, 0, (val) => val.total_count)), []));
   const total_page = useAtomValue(useMemo(() => selectAtom(journalAtom, (val) => loadable_unwrap(val, 0, (val) => val.total_page)), []));
+
+  const [journalTags, setJournalTags] = useAtom(journalTagsAtom);
+  const [journalLinks, setJournalLinks] = useAtom(journalLinksAtom);
+
+  const removeTag = (tagToRemove: string) => {
+    let newTags = journalTags.filter((tag) => tag !== tagToRemove);
+    setJournalTags(newTags);
+  };
+
+  const removeLink = (linkToRemove: string) => {
+    let newLinks = journalLinks.filter((tag) => tag !== linkToRemove);
+    setJournalLinks(newLinks);
+  };
 
   useEffect(() => {
     setKeyword(debouncedFilter);
@@ -51,6 +64,18 @@ function Journals() {
           onChange={(event: any) => setFilter(event.currentTarget.value)}
           rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')} onClick={() => setFilter('')} />}
         />
+      </Group>
+      <Group my="lg" px="sm">
+        {journalTags.map((tag, index) => (
+          <Pill key={index} withRemoveButton onRemove={() => removeTag(tag)}>
+            #{tag}
+          </Pill>
+        ))}
+        {journalLinks.map((link, index) => (
+          <Pill key={index} withRemoveButton onRemove={() => removeLink(link)}>
+            ^{link}
+          </Pill>
+        ))}
       </Group>
       <Table verticalSpacing="xs" withTableBorder>
         <Table.Thead>
