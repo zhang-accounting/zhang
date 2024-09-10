@@ -8,11 +8,29 @@ import { format } from 'date-fns';
 
 export const journalKeywordAtom = atom('');
 export const journalPageAtom = atom(1);
+export const journalTagsAtom = atom<string[]>([]);
+export const journalLinksAtom = atom<string[]>([]);
 
 export const journalFetcher = atomWithRefresh(async (get) => {
   const page = get(journalPageAtom);
   const keyword = get(journalKeywordAtom);
-  const url = keyword.trim() === '' ? `/api/journals?page=${page}` : `/api/journals?page=${page}&keyword=${keyword.trim()}`;
+  const tags = get(journalTagsAtom);
+  const links = get(journalLinksAtom);
+
+  let url = `/api/journals?page=${page}`;
+
+  if (keyword.trim() !== '') {
+    url += `&keyword=${encodeURIComponent(keyword.trim())}`;
+  }
+
+  if (tags.length > 0) {
+    url += tags.map((tag) => `&tags[]=${encodeURIComponent(tag)}`).join('');
+  }
+
+  if (links.length > 0) {
+    url += links.map((link) => `&links[]=${encodeURIComponent(link)}`).join('');
+  }
+
   const ret = await fetcher<Pageable<JournalItem>>(url);
   return ret;
 });
