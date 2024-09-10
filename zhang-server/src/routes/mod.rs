@@ -12,11 +12,10 @@ pub mod plugin;
 #[cfg(feature = "frontend")]
 pub mod frontend;
 
-use axum::{
-    async_trait,
-    extract::FromRequestParts,
-    http::{request::Parts, StatusCode},
-};
+use axum::async_trait;
+use axum::extract::FromRequestParts;
+use axum::http::request::Parts;
+use axum::http::StatusCode;
 use serde::de::DeserializeOwned;
 use serde_qs;
 
