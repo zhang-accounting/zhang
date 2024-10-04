@@ -24,7 +24,6 @@ import NewTransactionButton from './components/NewTransactionButton';
 import { notifications } from '@mantine/notifications';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { axiosInstance, serverBaseUrl } from './index';
 import { basicInfoFetcher, onlineAtom, titleAtom, updatableVersionAtom } from './states/basic';
 import { useSWRConfig } from 'swr';
 import { createStyles } from '@mantine/emotion';
@@ -34,6 +33,7 @@ import { errorCountAtom, errorsFetcher } from './states/errors';
 import { accountFetcher } from './states/account';
 import { commoditiesFetcher } from './states/commodity';
 import { journalFetcher } from './states/journals';
+import { axiosInstance, serverBaseUrl } from './global.ts';
 
 const useStyles = createStyles((theme, _, u) => ({
   onlineIcon: {
@@ -312,7 +312,8 @@ export default function App() {
     </UnstyledButton>
   ));
   return (
-    <AppShell padding="xs" header={{ height: 128, collapsed: !isMobile }} navbar={{ width: 240, breakpoint: 'sm', collapsed: { mobile: !opened } }}>
+    <AppShell padding="xs" header={{ height: 128, collapsed: !isMobile }}
+              navbar={{ width: 240, breakpoint: 'sm', collapsed: { mobile: !opened } }}>
       {isMobile && (
         <AppShell.Header>
           <Box m="xs">
@@ -341,7 +342,8 @@ export default function App() {
                 <IconRefresh size="1.125rem" />
               </ActionIcon>
             </Group>
-            <TextInput placeholder="Search" size="xs" leftSectionPointerEvents="none" leftSection={<IconSearch size={12} stroke={1.5} />} />
+            <TextInput placeholder="Search" size="xs" leftSectionPointerEvents="none"
+                       leftSection={<IconSearch size={12} stroke={1.5} />} />
             <NewTransactionButton />
           </Stack>
         </AppShell.Section>

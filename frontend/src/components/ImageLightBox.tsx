@@ -1,12 +1,13 @@
-import { serverBaseUrl } from '../index';
 import { Buffer } from 'buffer';
-import React from 'react';
+import * as React from 'react';
 import Lightbox from 'yet-another-react-lightbox';
+import { serverBaseUrl } from '../global.ts';
 
 interface Props {
   src?: string;
   onChange: (src: string | undefined) => void;
 }
+
 export function ImageLightBox(props: Props) {
   return (
     <Lightbox

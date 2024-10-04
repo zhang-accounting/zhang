@@ -3,7 +3,7 @@ import { useState } from 'react';
 
 import { Button, Container, Group, Modal } from '@mantine/core';
 import { IconSquarePlus } from '@tabler/icons-react';
-import { axiosInstance } from '..';
+import { axiosInstance } from '../global.ts';
 import { showNotification } from '@mantine/notifications';
 import TransactionEditForm from './TransactionEditForm';
 
@@ -24,7 +24,7 @@ export default function NewTransactionButton() {
           message: '',
         });
       })
-      .catch(function (error) {
+      .catch(function(error) {
         showNotification({
           title: 'Fail to create new Transaction',
           color: 'red',

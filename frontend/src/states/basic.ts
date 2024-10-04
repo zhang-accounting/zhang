@@ -1,4 +1,4 @@
-import { fetcher } from '..';
+import { fetcher } from '../global.ts';
 import { atom } from 'jotai';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { loadable_unwrap } from './index';

@@ -1,5 +1,5 @@
 import { loadable_unwrap } from '.';
-import { fetcher } from '..';
+import { fetcher } from '../global.ts';
 import { CommodityListItem } from '../rest-model';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { groupBy } from 'lodash-es';

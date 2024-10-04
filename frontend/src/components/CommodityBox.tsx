@@ -1,5 +1,5 @@
 import { Group, Stack, Text } from '@mantine/core';
-import React from 'react';
+import * as React from 'react';
 import Amount from './Amount';
 import { useNavigate } from 'react-router';
 import { createStyles } from '@mantine/emotion';
@@ -50,7 +50,8 @@ export default function CommodityBox(props: Props) {
           <Group justify={'space-between'}>
             <div></div>
             <Text size={'xs'} c={'dimmed'}>
-              <Amount amount={1} currency={props.name} /> = <Amount amount={props.latest_price_amount} currency={props.latest_price_commodity!} />
+              <Amount amount={1} currency={props.name} /> = <Amount amount={props.latest_price_amount}
+                                                                    currency={props.latest_price_commodity!} />
             </Text>
           </Group>
         )}

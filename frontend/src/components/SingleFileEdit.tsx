@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Buffer } from 'buffer';
 import { useEffect, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
-import { fetcher, serverBaseUrl } from '..';
+import { fetcher, serverBaseUrl } from '../global.ts';
 import CodeMirror from '@uiw/react-codemirror';
 
 interface Props {
@@ -22,10 +22,10 @@ export default function SingleFileEdit({ path }: Props) {
       .put(`${serverBaseUrl}/api/files/${encodedPath}`, {
         content: content,
       })
-      .then(function (response) {
+      .then(function(response) {
         mutate(`/api/files/${encodedPath}`);
       })
-      .catch(function (error) {
+      .catch(function(error) {
         console.log(error);
       });
   };

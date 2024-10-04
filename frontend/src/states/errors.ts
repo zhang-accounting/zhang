@@ -1,4 +1,4 @@
-import { fetcher } from '..';
+import { fetcher } from '../global.ts';
 import { Pageable, SpanInfo } from '../rest-model';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { atom } from 'jotai';

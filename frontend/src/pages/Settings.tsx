@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Setting } from '../components/basic/Setting';
 import Section from '../components/Section';
 import useSWR from 'swr';
-import { fetcher } from '..';
+import { fetcher } from '../global.ts';
 import { Option, PluginResponse } from '../rest-model';
 import { Heading } from '../components/basic/Heading';
 import PluginBox from '../components/PluginBox';
@@ -68,23 +68,23 @@ export default function Settings() {
             </Table.Tr>
           </Table.Thead>
           <tbody>
-            {!data ? (
-              <Table.Tr>
-                <Table.Td>
-                  <Skeleton height={20} mt={10} radius="xs" />
-                </Table.Td>
-                <Table.Td>
-                  <Skeleton height={20} mt={10} radius="xs" />
-                </Table.Td>
+          {!data ? (
+            <Table.Tr>
+              <Table.Td>
+                <Skeleton height={20} mt={10} radius="xs" />
+              </Table.Td>
+              <Table.Td>
+                <Skeleton height={20} mt={10} radius="xs" />
+              </Table.Td>
+            </Table.Tr>
+          ) : (
+            data.map((option) => (
+              <Table.Tr key={option.key}>
+                <Table.Td>{option.key}</Table.Td>
+                <Table.Td>{option.value}</Table.Td>
               </Table.Tr>
-            ) : (
-              data.map((option) => (
-                <Table.Tr key={option.key}>
-                  <Table.Td>{option.key}</Table.Td>
-                  <Table.Td>{option.value}</Table.Td>
-                </Table.Tr>
-              ))
-            )}
+            ))
+          )}
           </tbody>
         </Table>
       </Section>

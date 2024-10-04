@@ -1,6 +1,6 @@
 import { Container, Grid, Title } from '@mantine/core';
 import useSWR from 'swr';
-import { fetcher } from '..';
+import { fetcher } from '../global.ts';
 import SingleFileEdit from '../components/SingleFileEdit';
 import { TableOfContentsFloating, Tier, ZHANG_VALUE } from '../components/basic/TableOfContentsFloating';
 import { useState } from 'react';

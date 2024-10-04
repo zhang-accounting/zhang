@@ -2,8 +2,8 @@ import { Text } from '@mantine/core';
 import { Dropzone } from '@mantine/dropzone';
 import { useEffect, useState } from 'react';
 import { FileWithPath } from 'react-dropzone';
-import { axiosInstance } from '../index';
 import { useSWRConfig } from 'swr';
+import { axiosInstance } from '../global.ts';
 
 interface Props {
   url: string;
@@ -21,7 +21,8 @@ export default function AccountDocumentUpload(props: Props) {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
-          onUploadProgress: () => {},
+          onUploadProgress: () => {
+          },
         })
         .then(() => {
           setFiles([]);

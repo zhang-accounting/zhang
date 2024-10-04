@@ -7,7 +7,6 @@ import Amount from '../components/Amount';
 import ReportGraph from '../components/ReportGraph';
 import Section from '../components/Section';
 import StatusGroup from '../components/StatusGroup';
-import { fetcher } from '../index';
 import { StatisticGraphResponse, StatisticResponse, StatisticTypeResponse } from '../rest-model';
 import PayeeNarration from '../components/basic/PayeeNarration';
 import BigNumber from 'bignumber.js';
@@ -15,6 +14,7 @@ import { Heading } from '../components/basic/Heading';
 import { useDocumentTitle } from '@mantine/hooks';
 import { useAtomValue } from 'jotai/index';
 import { titleAtom } from '../states/basic';
+import { fetcher } from '../global.ts';
 
 const color_set = ['pink', 'grape', 'violet'];
 
@@ -138,18 +138,18 @@ export default function Report() {
                   </Table.Tr>
                 </Table.Thead>
                 <tbody>
-                  {income_data?.top_transactions.map((journal) => (
-                    <Table.Tr>
-                      <Table.Td>{journal.datetime}</Table.Td>
-                      <Table.Td>{journal.account}</Table.Td>
-                      <Table.Td>
-                        <PayeeNarration payee={journal.payee} narration={journal.narration} />
-                      </Table.Td>
-                      <Table.Td>
-                        <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
+                {income_data?.top_transactions.map((journal) => (
+                  <Table.Tr>
+                    <Table.Td>{journal.datetime}</Table.Td>
+                    <Table.Td>{journal.account}</Table.Td>
+                    <Table.Td>
+                      <PayeeNarration payee={journal.payee} narration={journal.narration} />
+                    </Table.Td>
+                    <Table.Td>
+                      <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
                 </tbody>
               </Table>
             </Grid.Col>
@@ -183,19 +183,19 @@ export default function Report() {
                   </Table.Tr>
                 </Table.Thead>
                 <tbody>
-                  {expenses_data?.top_transactions.map((journal) => (
-                    // <JournalLine key={idx} data={journal} />
-                    <Table.Tr>
-                      <Table.Td>{journal.datetime}</Table.Td>
-                      <Table.Td>{journal.account}</Table.Td>
-                      <Table.Td>
-                        {journal.payee} {journal.narration}
-                      </Table.Td>
-                      <Table.Td>
-                        <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
+                {expenses_data?.top_transactions.map((journal) => (
+                  // <JournalLine key={idx} data={journal} />
+                  <Table.Tr>
+                    <Table.Td>{journal.datetime}</Table.Td>
+                    <Table.Td>{journal.account}</Table.Td>
+                    <Table.Td>
+                      {journal.payee} {journal.narration}
+                    </Table.Td>
+                    <Table.Td>
+                      <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
                 </tbody>
               </Table>
             </Grid.Col>

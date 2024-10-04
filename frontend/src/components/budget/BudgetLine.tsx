@@ -1,12 +1,13 @@
 import { Group, Space, Table } from '@mantine/core';
-import React from 'react';
+import * as React from 'react';
 import { BudgetListItem } from '../../rest-model';
 import Amount from '../Amount';
 import BigNumber from 'bignumber.js';
 import BackgroundProgress from '../basic/BackgroundProgress';
 import { useNavigate } from 'react-router';
 
-interface Props extends BudgetListItem {}
+interface Props extends BudgetListItem {
+}
 
 export default function BudgetLine(props: Props) {
   const navigate = useNavigate();

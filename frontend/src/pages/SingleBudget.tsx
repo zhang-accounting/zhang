@@ -3,7 +3,7 @@ import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
 import useSWR from 'swr';
-import { fetcher } from '..';
+import { fetcher } from '../global.ts';
 import Amount from '../components/Amount';
 import PayeeNarration from '../components/basic/PayeeNarration';
 import { BudgetInfoResponse, BudgetIntervalEventResponse } from '../rest-model';
@@ -53,19 +53,22 @@ function SingleBudget() {
             <Text size="xs" c={'dimmed'}>
               Assigned Amount
             </Text>
-            <Amount amount={budget_info.assigned_amount.number} currency={budget_info.assigned_amount.currency}></Amount>
+            <Amount amount={budget_info.assigned_amount.number}
+                    currency={budget_info.assigned_amount.currency}></Amount>
           </Stack>
           <Stack gap="xs" align={'end'}>
             <Text size="xs" c={'dimmed'}>
               Activity Amount
             </Text>
-            <Amount amount={budget_info.activity_amount.number} currency={budget_info.activity_amount.currency}></Amount>
+            <Amount amount={budget_info.activity_amount.number}
+                    currency={budget_info.activity_amount.currency}></Amount>
           </Stack>
           <Stack gap="xs" align={'end'}>
             <Text size="xs" c={'dimmed'}>
               Available Amount
             </Text>
-            <Amount amount={budget_info.available_amount.number} currency={budget_info.available_amount.currency}></Amount>
+            <Amount amount={budget_info.available_amount.number}
+                    currency={budget_info.available_amount.currency}></Amount>
           </Stack>
         </Group>
       </Group>
@@ -76,7 +79,8 @@ function SingleBudget() {
         </ActionIcon>
         <Popover position="bottom" withArrow shadow="md">
           <Popover.Target>
-            <Text style={{ display: 'inline-block', cursor: 'pointer' }} py="md" px="xs">{`${format(date, 'MMM, yyyy')}`}</Text>
+            <Text style={{ display: 'inline-block', cursor: 'pointer' }} py="md"
+                  px="xs">{`${format(date, 'MMM, yyyy')}`}</Text>
           </Popover.Target>
           <Popover.Dropdown>
             <MonthPicker value={date} maxDate={new Date()} onChange={(newDate) => setDate(newDate ?? new Date())} />
@@ -102,25 +106,28 @@ function SingleBudget() {
           </Table.Tr>
         </Table.Thead>
         <tbody>
-          {(budget_interval_event ?? []).map((it) => {
-            return (
-              <Table.Tr>
-                <Table.Td>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</Table.Td>
-                <Table.Td>{'event_type' in it ? it.event_type : <PayeeNarration payee={it.payee} narration={it.narration} />}</Table.Td>
-                <Table.Td>
-                  {!('event_type' in it) && (
-                    <Badge color="pink" variant="filled">
-                      {it.account}
-                    </Badge>
-                  )}
-                </Table.Td>
-                <Table.Td style={{ textAlign: 'end' }}>{'event_type' in it && <Amount amount={it.amount.number} currency={it.amount.currency} />}</Table.Td>
-                <Table.Td style={{ textAlign: 'end' }}>
-                  {!('event_type' in it) && <Amount amount={it.inferred_unit_number} currency={it.inferred_unit_commodity} />}
-                </Table.Td>
-              </Table.Tr>
-            );
-          })}
+        {(budget_interval_event ?? []).map((it) => {
+          return (
+            <Table.Tr>
+              <Table.Td>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</Table.Td>
+              <Table.Td>{'event_type' in it ? it.event_type :
+                <PayeeNarration payee={it.payee} narration={it.narration} />}</Table.Td>
+              <Table.Td>
+                {!('event_type' in it) && (
+                  <Badge color="pink" variant="filled">
+                    {it.account}
+                  </Badge>
+                )}
+              </Table.Td>
+              <Table.Td style={{ textAlign: 'end' }}>{'event_type' in it &&
+                <Amount amount={it.amount.number} currency={it.amount.currency} />}</Table.Td>
+              <Table.Td style={{ textAlign: 'end' }}>
+                {!('event_type' in it) &&
+                  <Amount amount={it.inferred_unit_number} currency={it.inferred_unit_commodity} />}
+              </Table.Td>
+            </Table.Tr>
+          );
+        })}
         </tbody>
       </Table>
     </Container>
