@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import viteCompression from 'vite-plugin-compression';
+import path from 'path';
 
 export default defineConfig({
   plugins: [react(), viteCompression({
@@ -12,7 +13,7 @@ export default defineConfig({
   })],
   resolve: {
     alias: {
-      '@': '/src',
+      '@': path.resolve(__dirname, './src'),
     },
   },
   server: {
