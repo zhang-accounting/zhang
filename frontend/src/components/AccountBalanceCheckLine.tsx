@@ -1,11 +1,11 @@
 import { Autocomplete, Button, Group, Table, TextInput } from '@mantine/core';
 import { useState } from 'react';
-import { axiosInstance } from '../index';
 import { showNotification } from '@mantine/notifications';
 import { accountFetcher, accountSelectItemsAtom } from '../states/account';
 import Amount from './Amount';
 import { useAtomValue } from 'jotai';
 import { useSetAtom } from 'jotai/index';
+import { axiosInstance } from '../global.ts';
 
 interface Props {
   currentAmount: string;
@@ -62,7 +62,8 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
         </Table.Td>
         <Table.Td>
           <Group gap={'xs'}>
-            <TextInput placeholder={`Balanced ${commodity} Amount`} value={amount} onChange={(e) => setAmount(e.target.value)}></TextInput>
+            <TextInput placeholder={`Balanced ${commodity} Amount`} value={amount}
+                       onChange={(e) => setAmount(e.target.value)}></TextInput>
             <Button size="sm" onClick={submitCheck} disabled={amount.length === 0}>
               {padAccount ? 'Pad' : 'Balance'}
             </Button>

@@ -3,7 +3,6 @@ import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
 import { format } from 'date-fns';
 import useSWR from 'swr';
 import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
-import { fetcher } from '../index';
 import { Document } from '../rest-model';
 import { Heading } from '../components/basic/Heading';
 import { groupBy, reverse, sortBy } from 'lodash-es';
@@ -15,6 +14,7 @@ import { ImageLightBox } from '../components/ImageLightBox';
 import { isDocumentAnImage } from '../utils/documents';
 import { useAtomValue } from 'jotai/index';
 import { titleAtom } from '../states/basic';
+import { fetcher } from '../global.ts';
 
 export default function Documents() {
   let navigate = useNavigate();
@@ -48,7 +48,8 @@ export default function Documents() {
               <Title key={`title=${idx}`} order={3} mt={'lg'} mb="sm">
                 {format(new Date(targetMonthDocuments[0].datetime), 'MMM yyyy')}
               </Title>
-              <SimpleGrid key={`grid=${idx}`} cols={{ base: 1, sm: 2, md: 4 }} spacing={{ base: 'ms', md: 'md', lg: 'lg' }}>
+              <SimpleGrid key={`grid=${idx}`} cols={{ base: 1, sm: 2, md: 4 }}
+                          spacing={{ base: 'ms', md: 'md', lg: 'lg' }}>
                 {targetMonthDocuments.map((document, idx) => (
                   <AccountDocumentLine onClick={setLightboxSrc} key={idx} {...document} />
                 ))}
@@ -67,19 +68,20 @@ export default function Documents() {
             </Table.Tr>
           </Table.Thead>
           <tbody>
-            {documents.map((document, idx) => (
-              <Table.Tr>
-                <Table.Td onClick={isDocumentAnImage(document.path) ? () => setLightboxSrc(document.path) : undefined}>
-                  <div>{document.filename}</div>
-                </Table.Td>
-                <Table.Td>
-                  {document.account && <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
-                  {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
-                </Table.Td>
-                <Table.Td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
-                <Table.Td></Table.Td>
-              </Table.Tr>
-            ))}
+          {documents.map((document, idx) => (
+            <Table.Tr>
+              <Table.Td onClick={isDocumentAnImage(document.path) ? () => setLightboxSrc(document.path) : undefined}>
+                <div>{document.filename}</div>
+              </Table.Td>
+              <Table.Td>
+                {document.account &&
+                  <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
+                {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
+              </Table.Td>
+              <Table.Td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
+              <Table.Td></Table.Td>
+            </Table.Tr>
+          ))}
           </tbody>
         </Table>
       )}

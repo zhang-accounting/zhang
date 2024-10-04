@@ -2,7 +2,7 @@ import { Container, Table, Tabs } from '@mantine/core';
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
 import useSWR from 'swr';
-import { fetcher } from '..';
+import { fetcher } from '../global.ts';
 import Amount from '../components/Amount';
 import { CommodityDetail } from '../rest-model';
 import { Heading } from '../components/basic/Heading';
@@ -39,20 +39,20 @@ export default function SingleCommodity() {
               </Table.Tr>
             </Table.Thead>
             <tbody>
-              {data.lots.map((it, idx) => (
-                <Table.Tr key={idx}>
-                  <Table.Td>{it.account}</Table.Td>
-                  <Table.Td style={{ textAlign: 'right' }}>
-                    {it.cost?.number} {it.cost?.currency}
-                  </Table.Td>
-                  <Table.Td style={{ textAlign: 'right' }}>
-                    {it.price?.number} {it.price?.currency}
-                  </Table.Td>
-                  <Table.Td style={{ textAlign: 'right' }}>
-                    <Amount amount={it.amount} currency={''} />
-                  </Table.Td>
-                </Table.Tr>
-              ))}
+            {data.lots.map((it, idx) => (
+              <Table.Tr key={idx}>
+                <Table.Td>{it.account}</Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  {it.cost?.number} {it.cost?.currency}
+                </Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  {it.price?.number} {it.price?.currency}
+                </Table.Td>
+                <Table.Td style={{ textAlign: 'right' }}>
+                  <Amount amount={it.amount} currency={''} />
+                </Table.Td>
+              </Table.Tr>
+            ))}
             </tbody>
           </Table>
         </Tabs.Panel>
@@ -66,14 +66,14 @@ export default function SingleCommodity() {
               </Table.Tr>
             </Table.Thead>
             <tbody>
-              {data.prices.map((it, idx) => (
-                <Table.Tr key={idx}>
-                  <Table.Td>{format(new Date(it.datetime), 'yyyy-MM-dd')}</Table.Td>
-                  <Table.Td>
-                    <Amount amount={it.amount} currency={it.target_commodity} />
-                  </Table.Td>
-                </Table.Tr>
-              ))}
+            {data.prices.map((it, idx) => (
+              <Table.Tr key={idx}>
+                <Table.Td>{format(new Date(it.datetime), 'yyyy-MM-dd')}</Table.Td>
+                <Table.Td>
+                  <Amount amount={it.amount} currency={it.target_commodity} />
+                </Table.Td>
+              </Table.Tr>
+            ))}
             </tbody>
           </Table>
         </Tabs.Panel>

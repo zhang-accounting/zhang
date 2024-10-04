@@ -1,6 +1,7 @@
-import React from 'react';
+import * as React from 'react';
 import useSWR from 'swr';
-import { fetcher } from '../../index';
+
+import { fetcher } from '../../global.ts';
 
 interface Props<T> {
   url: string;

@@ -6,11 +6,11 @@ import { useListState } from '@mantine/hooks';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { InfoForNewTransaction, JournalTransactionItem } from '../rest-model';
-import { fetcher } from '../index';
 import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import { accountSelectItemsAtom } from '../states/account';
 import { useAtomValue } from 'jotai/index';
+import { fetcher } from '../global.ts';
 
 interface Posting {
   account: string | null;
@@ -76,9 +76,9 @@ export default function TransactionEditForm(props: Props) {
               splitAmount[0] === ''
                 ? null
                 : {
-                    number: splitAmount[0],
-                    commodity: splitAmount[1],
-                  },
+                  number: splitAmount[0],
+                  commodity: splitAmount[1],
+                },
           };
         }),
         tags: [],
@@ -144,10 +144,12 @@ export default function TransactionEditForm(props: Props) {
             />
           </Grid.Col>
           <Grid.Col span={3}>
-            <TextInput placeholder="Amount" value={posting.amount} onChange={(e) => postingsHandler.setItemProp(idx, 'amount', e.target.value)} />
+            <TextInput placeholder="Amount" value={posting.amount}
+                       onChange={(e) => postingsHandler.setItemProp(idx, 'amount', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={1}>
-            <ActionIcon variant="white" color="gray" disabled={postings.length <= 2} onClick={() => postingsHandler.remove(idx)}>
+            <ActionIcon variant="white" color="gray" disabled={postings.length <= 2}
+                        onClick={() => postingsHandler.remove(idx)}>
               <IconTrashX />
             </ActionIcon>
           </Grid.Col>
@@ -165,10 +167,12 @@ export default function TransactionEditForm(props: Props) {
       {metas.map((meta, idx) => (
         <Grid align="center" key={idx}>
           <Grid.Col span={4}>
-            <TextInput placeholder="key" value={meta.key} onChange={(e) => metaHandler.setItemProp(idx, 'key', e.target.value)} />
+            <TextInput placeholder="key" value={meta.key}
+                       onChange={(e) => metaHandler.setItemProp(idx, 'key', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={7}>
-            <TextInput placeholder="value" value={meta.value} onChange={(e) => metaHandler.setItemProp(idx, 'value', e.target.value)} />
+            <TextInput placeholder="value" value={meta.value}
+                       onChange={(e) => metaHandler.setItemProp(idx, 'value', e.target.value)} />
           </Grid.Col>
           <Grid.Col span={1}>
             <ActionIcon variant="white" color="gray" onClick={() => metaHandler.remove(idx)}>

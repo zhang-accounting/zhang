@@ -4,7 +4,6 @@ import useSWR from 'swr';
 import ErrorBox from '../components/ErrorBox';
 import Section from '../components/Section';
 import StatisticBar from '../components/StatisticBar';
-import { fetcher } from '../index';
 import { StatisticGraphResponse } from '../rest-model';
 import ReportGraph from '../components/ReportGraph';
 import { Heading } from '../components/basic/Heading';
@@ -12,6 +11,7 @@ import { useDocumentTitle } from '@mantine/hooks';
 import { useAtomValue } from 'jotai';
 import { errorCountAtom } from '../states/errors';
 import { titleAtom } from '../states/basic';
+import { fetcher } from '../global.ts';
 
 function Home() {
   const error_total_number = useAtomValue(errorCountAtom);

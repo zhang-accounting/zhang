@@ -3,7 +3,7 @@ import { IconMessageCircle, IconPhoto, IconSettings } from '@tabler/icons-react'
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
 import useSWR from 'swr';
-import { fetcher } from '..';
+import { fetcher } from '../global.ts';
 import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
 import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
@@ -36,7 +36,10 @@ function SingleAccount() {
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
   const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
-  const { data: account_balance_data, error: account_balance_error } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
+  const {
+    data: account_balance_data,
+    error: account_balance_error,
+  } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
 
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
@@ -97,28 +100,28 @@ function SingleAccount() {
               </Table.Tr>
             </Table.Thead>
             <tbody>
-              <LoadingComponent
-                url={`/api/accounts/${accountName}/journals`}
-                skeleton={<div>loading</div>}
-                render={(data: AccountJournalItem[]) => (
-                  <>
-                    {(data ?? []).map((item) => (
-                      <Table.Tr>
-                        <Table.Td>{format(new Date(item.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
-                        <Table.Td>
-                          <PayeeNarration payee={item.payee} narration={item.narration} />
-                        </Table.Td>
-                        <Table.Td style={{ textAlign: 'right' }}>
-                          <Amount amount={item.inferred_unit_number} currency={item.inferred_unit_commodity} />
-                        </Table.Td>
-                        <Table.Td style={{ textAlign: 'right' }}>
-                          <Amount amount={item.account_after_number} currency={item.account_after_commodity} />
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                  </>
-                )}
-              />
+            <LoadingComponent
+              url={`/api/accounts/${accountName}/journals`}
+              skeleton={<div>loading</div>}
+              render={(data: AccountJournalItem[]) => (
+                <>
+                  {(data ?? []).map((item) => (
+                    <Table.Tr>
+                      <Table.Td>{format(new Date(item.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
+                      <Table.Td>
+                        <PayeeNarration payee={item.payee} narration={item.narration} />
+                      </Table.Td>
+                      <Table.Td style={{ textAlign: 'right' }}>
+                        <Amount amount={item.inferred_unit_number} currency={item.inferred_unit_commodity} />
+                      </Table.Td>
+                      <Table.Td style={{ textAlign: 'right' }}>
+                        <Amount amount={item.account_after_number} currency={item.account_after_commodity} />
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </>
+              )}
+            />
             </tbody>
           </Table>
         </Tabs.Panel>
@@ -133,7 +136,8 @@ function SingleAccount() {
                 <SimpleGrid cols={{ base: 4, md: 3, sm: 2, xs: 1 }} spacing={{ base: 'sm', md: 'md', sm: 'sm' }}>
                   <AccountDocumentUpload url={`/api/accounts/${accountName}/documents`} />
                   {data.map((document, idx) => (
-                    <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} uri={document.path} filename={document.path} />
+                    <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} uri={document.path}
+                                     filename={document.path} />
                   ))}
                 </SimpleGrid>
               </>
@@ -153,9 +157,10 @@ function SingleAccount() {
               </Table.Tr>
             </Table.Thead>
             <tbody>
-              {Object.entries(account?.amount.detail ?? {}).map(([commodity, amount]) => (
-                <AccountBalanceCheckLine key={commodity} currentAmount={amount} commodity={commodity} accountName={account.name} />
-              ))}
+            {Object.entries(account?.amount.detail ?? {}).map(([commodity, amount]) => (
+              <AccountBalanceCheckLine key={commodity} currentAmount={amount} commodity={commodity}
+                                       accountName={account.name} />
+            ))}
             </tbody>
           </Table>
         </Tabs.Panel>

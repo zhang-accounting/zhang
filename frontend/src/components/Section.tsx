@@ -1,5 +1,5 @@
 import { Box, Group, Stack, Text } from '@mantine/core';
-import React from 'react';
+import * as React from 'react';
 import { createStyles } from '@mantine/emotion';
 
 const useStyles = createStyles((theme, _, u) => ({

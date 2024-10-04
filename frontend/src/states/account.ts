@@ -1,5 +1,5 @@
 import { loadable_unwrap } from '.';
-import { fetcher } from '..';
+import { fetcher } from '../global.ts';
 import { Account } from '../rest-model';
 import { groupBy } from 'lodash-es';
 import { atomWithRefresh, loadable } from 'jotai/utils';

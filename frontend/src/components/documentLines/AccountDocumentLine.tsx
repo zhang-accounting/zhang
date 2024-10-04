@@ -1,9 +1,9 @@
 import { Box, Card, Text } from '@mantine/core';
 import { Buffer } from 'buffer';
-import { serverBaseUrl } from '../../index';
 import { Document } from '../../rest-model';
 import { createStyles } from '@mantine/emotion';
 import { isDocumentAnImage } from '../../utils/documents';
+import { serverBaseUrl } from '../../global.ts';
 
 const useStyles = createStyles((theme, _, u) => ({
   imgBox: {
@@ -70,7 +70,8 @@ export default function AccountDocumentLine(props: Props) {
   const canPreview = isDocumentAnImage(props.path);
 
   return (
-    <Card shadow="sm" p="xs" radius="sm" withBorder onClick={isDocumentAnImage(props.path) ? () => props.onClick(props.path) : undefined}>
+    <Card shadow="sm" p="xs" radius="sm" withBorder
+          onClick={isDocumentAnImage(props.path) ? () => props.onClick(props.path) : undefined}>
       <Card.Section className={classes.imgBox}>
         {canPreview ? (
           <img

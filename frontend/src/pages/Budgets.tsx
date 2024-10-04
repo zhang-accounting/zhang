@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { BudgetListItem } from '../rest-model';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
-import { fetcher } from '../index';
 import { groupBy, sortBy } from 'lodash-es';
 import BudgetCategory from '../components/budget/BudgetCategory';
 import { format } from 'date-fns';
@@ -12,6 +11,7 @@ import { MonthPicker } from '@mantine/dates';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import { useAtomValue } from 'jotai/index';
 import { titleAtom } from '../states/basic';
+import { fetcher } from '../global.ts';
 
 export default function Budgets() {
   const { t } = useTranslation();
@@ -23,7 +23,10 @@ export default function Budgets() {
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`Budgets - ${ledgerTitle}`);
 
-  const { data: budgets, error } = useSWR<BudgetListItem[]>(`/api/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, fetcher);
+  const {
+    data: budgets,
+    error,
+  } = useSWR<BudgetListItem[]>(`/api/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, fetcher);
   if (error) return <div>failed to load</div>;
   if (!budgets) return <div>loading...</div>;
 
@@ -41,7 +44,8 @@ export default function Budgets() {
         </ActionIcon>
         <Popover position="bottom" withArrow shadow="md">
           <Popover.Target>
-            <Title style={{ display: 'inline-block', cursor: 'pointer' }} order={2} py="md" px="xs">{`${format(date, 'MMM, yyyy')}`}</Title>
+            <Title style={{ display: 'inline-block', cursor: 'pointer' }} order={2} py="md"
+                   px="xs">{`${format(date, 'MMM, yyyy')}`}</Title>
           </Popover.Target>
           <Popover.Dropdown>
             <MonthPicker value={date} maxDate={new Date()} onChange={(newDate) => setDate(newDate ?? new Date())} />
@@ -75,9 +79,10 @@ export default function Budgets() {
           </Table.Tr>
         </Table.Thead>
         <tbody>
-          {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (
-            <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]} items={entry[1]}></BudgetCategory>
-          ))}
+        {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (
+          <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]}
+                          items={entry[1]}></BudgetCategory>
+        ))}
         </tbody>
       </Table>
     </Container>

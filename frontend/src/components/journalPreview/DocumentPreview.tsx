@@ -1,6 +1,6 @@
 import { Box } from '@mantine/core';
 import { Buffer } from 'buffer';
-import { serverBaseUrl } from '../..';
+import { serverBaseUrl } from '../../global.ts';
 import { createStyles } from '@mantine/emotion';
 import { isDocumentAnImage } from '../../utils/documents';
 

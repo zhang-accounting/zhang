@@ -3,14 +3,14 @@ import { JournalTransactionItem } from '../../rest-model';
 import TransactionEditForm from '../TransactionEditForm';
 import { useState } from 'react';
 import { Button, Group } from '@mantine/core';
-import { axiosInstance } from '../../index';
 import { showNotification } from '@mantine/notifications';
+import { axiosInstance } from '../../global.ts';
 
 export const TransactionEditModal = ({
-  context,
-  id,
-  innerProps,
-}: ContextModalProps<{
+                                       context,
+                                       id,
+                                       innerProps,
+                                     }: ContextModalProps<{
   data: JournalTransactionItem;
 }>) => {
   const [data, setData] = useState<any>({});
@@ -25,7 +25,7 @@ export const TransactionEditModal = ({
         });
         context.closeModal('transactionEditModal');
       })
-      .catch(function (error) {
+      .catch(function(error) {
         showNotification({
           title: 'Fail to update new Transaction',
           color: 'red',
