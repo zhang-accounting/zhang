@@ -1,6 +1,5 @@
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { Notifications } from '@mantine/notifications';
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -17,6 +16,7 @@ import '@mantine/dropzone/styles.css';
 import { TransactionEditModal } from './components/modals/TransactionEditModal';
 import { MantineEmotionProvider } from '@mantine/emotion';
 import { TooltipProvider } from './components/ui/tooltip';
+import { Toaster } from './components/ui/sonner';
 
 
 createRoot(document.getElementById('root')!).render(
@@ -33,8 +33,8 @@ createRoot(document.getElementById('root')!).render(
           }}
         >
           <BrowserRouter>
-            <Notifications />
             <App />
+            <Toaster />
           </BrowserRouter>
         </ModalsProvider>
       </MantineEmotionProvider>
