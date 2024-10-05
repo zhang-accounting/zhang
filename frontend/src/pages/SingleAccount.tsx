@@ -92,12 +92,12 @@ function SingleAccount() {
         <Tabs.Panel value="journals" pt="xs">
           <Table verticalSpacing="xs" highlightOnHover>
             <Table.Thead>
-              <Table.Tr>
+              <TableRow>
                 <Table.Th>Date</Table.Th>
                 <Table.Th>Payee & Narration</Table.Th>
                 <Table.Th style={{ textAlign: 'right' }}>Change Amount</Table.Th>
                 <Table.Th style={{ textAlign: 'right' }}>After Change Amount</Table.Th>
-              </Table.Tr>
+              </TableRow>
             </Table.Thead>
             <tbody>
             <LoadingComponent
@@ -106,18 +106,18 @@ function SingleAccount() {
               render={(data: AccountJournalItem[]) => (
                 <>
                   {(data ?? []).map((item) => (
-                    <Table.Tr>
-                      <Table.Td>{format(new Date(item.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
-                      <Table.Td>
+                    <TableRow>
+                      <TableCell>{format(new Date(item.datetime), 'yyyy-MM-dd HH:mm:ss')}</TableCell>
+                      <TableCell>
                         <PayeeNarration payee={item.payee} narration={item.narration} />
-                      </Table.Td>
-                      <Table.Td style={{ textAlign: 'right' }}>
+                      </TableCell>
+                      <TableCell style={{ textAlign: 'right' }}>
                         <Amount amount={item.inferred_unit_number} currency={item.inferred_unit_commodity} />
-                      </Table.Td>
-                      <Table.Td style={{ textAlign: 'right' }}>
+                      </TableCell>
+                      <TableCell style={{ textAlign: 'right' }}>
                         <Amount amount={item.account_after_number} currency={item.account_after_commodity} />
-                      </Table.Td>
-                    </Table.Tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
                 </>
               )}
@@ -148,13 +148,13 @@ function SingleAccount() {
         <Tabs.Panel value="settings" pt="xs">
           <Table verticalSpacing="xs" highlightOnHover>
             <Table.Thead>
-              <Table.Tr>
+              <TableRow>
                 <Table.Th>Currency</Table.Th>
                 <Table.Th>Current Balance</Table.Th>
                 <Table.Th>Latest Balance Time</Table.Th>
                 <Table.Th>Pad Account</Table.Th>
                 <Table.Th>Destination</Table.Th>
-              </Table.Tr>
+              </TableRow>
             </Table.Thead>
             <tbody>
             {Object.entries(account?.amount.detail ?? {}).map(([commodity, amount]) => (

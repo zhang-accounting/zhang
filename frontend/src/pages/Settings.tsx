@@ -62,27 +62,27 @@ export default function Settings() {
       <Section title="Options">
         <Table verticalSpacing="xs" highlightOnHover>
           <Table.Thead>
-            <Table.Tr>
+            <TableRow>
               <Table.Th>Key</Table.Th>
               <Table.Th>Value</Table.Th>
-            </Table.Tr>
+            </TableRow>
           </Table.Thead>
           <tbody>
           {!data ? (
-            <Table.Tr>
-              <Table.Td>
+            <TableRow>
+              <TableCell>
                 <Skeleton height={20} mt={10} radius="xs" />
-              </Table.Td>
-              <Table.Td>
+              </TableCell>
+              <TableCell>
                 <Skeleton height={20} mt={10} radius="xs" />
-              </Table.Td>
-            </Table.Tr>
+              </TableCell>
+            </TableRow>
           ) : (
             data.map((option) => (
-              <Table.Tr key={option.key}>
-                <Table.Td>{option.key}</Table.Td>
-                <Table.Td>{option.value}</Table.Td>
-              </Table.Tr>
+              <TableRow key={option.key}>
+                <TableCell>{option.key}</TableCell>
+                <TableCell>{option.value}</TableCell>
+              </TableRow>
             ))
           )}
           </tbody>

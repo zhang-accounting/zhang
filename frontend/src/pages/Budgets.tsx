@@ -70,13 +70,13 @@ export default function Budgets() {
       </Group>
       <Table verticalSpacing="xs" withTableBorder>
         <Table.Thead>
-          <Table.Tr>
+          <TableRow>
             <Table.Th>Category</Table.Th>
             <Table.Th style={{ textAlign: 'end' }}>Percentage</Table.Th>
             <Table.Th style={{ textAlign: 'end' }}>Assigned</Table.Th>
             <Table.Th style={{ textAlign: 'end' }}>Activity</Table.Th>
             <Table.Th style={{ textAlign: 'end' }}>Available</Table.Th>
-          </Table.Tr>
+          </TableRow>
         </Table.Thead>
         <tbody>
         {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (

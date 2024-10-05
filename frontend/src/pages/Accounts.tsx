@@ -1,4 +1,3 @@
-import { Button, Checkbox, CloseButton, Container, Group, Input, Table } from '@mantine/core';
 import { useDocumentTitle, useInputState, useLocalStorage } from '@mantine/hooks';
 import AccountLine from '../components/AccountLine';
 import { AccountStatus } from '../rest-model';
@@ -12,6 +11,11 @@ import { selectAtom } from 'jotai/utils';
 import AccountTrie from '../utils/AccountTrie';
 import { titleAtom } from '../states/basic';
 import { useMemo } from 'react';
+import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 export default function Accounts() {
   const { t } = useTranslation();
@@ -51,39 +55,49 @@ export default function Accounts() {
   useDocumentTitle(`Accounts - ${ledgerTitle}`);
 
   return (
-    <Container fluid>
-      <Heading title={'Accounts'}></Heading>
-      <Group my="lg">
+    <div>
+
+<div className="flex flex-1 items-center justify-between space-x-2 mb-4">
+        <div className="flex flex-1 space-x-2 items-center">
         <Input
-          leftSection={<IconFilter size="1rem" />}
+          className="w-[33%]"
           placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
           value={filterKeyword}
           onChange={setFilterKeyword}
-          rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')} onClick={() => setFilterKeyword('')} />}
         />
-      </Group>
-      <Group my="lg">
-        <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => refreshAccounts()}>
+
+<div className="flex items-center space-x-2">
+      <Switch id="airplane-mode" checked={hideClosedAccount} onCheckedChange={setHideClosedAccount} />
+      <Label htmlFor="airplane-mode" className={hideClosedAccount ? '' : 'text-gray-500'}>Hide closed accounts</Label>
+    </div>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => refreshAccounts()}
+        >
           {t('REFRESH')}
         </Button>
-        <Checkbox checked={hideClosedAccount} onChange={() => setHideClosedAccount(!hideClosedAccount)} label={'Hide closed accounts'} />
-      </Group>
+      </div>
+      
+      
 
-      <Table verticalSpacing="xs" withTableBorder highlightOnHover>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Name</Table.Th>
-            <Table.Th style={{ textAlign: 'end' }}>Balance</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
+      <div className="rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead className="text-right">Balance</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {Object.keys(accountTrie.children)
             .sort()
             .map((item) => (
               <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
             ))}
-        </Table.Tbody>
+        </TableBody>
       </Table>
-    </Container>
+      </div>
+    </div>
   );
 }

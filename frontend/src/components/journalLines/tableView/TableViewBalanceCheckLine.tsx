@@ -7,6 +7,7 @@ import { IconZoomExclamation } from '@tabler/icons-react';
 import { openContextModal } from '@mantine/modals';
 import PayeeNarration from '../../basic/PayeeNarration';
 import { createStyles, getStylesRef } from '@mantine/emotion';
+import { TableRow, TableCell } from '@/components/ui/table';
 
 const useStyles = createStyles((theme, _, u) => ({
   payee: {
@@ -75,17 +76,17 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
   };
   const isBalanced = new BigNumber(data.postings[0].account_after_number).eq(new BigNumber(data.postings[0].account_before_number));
   return (
-    <Table.Tr className={`${classes.actionHider} ${!isBalanced ? classes.notBalance : ''}`}>
-      <Table.Td>{time}</Table.Td>
-      <Table.Td>
+    <TableRow className={`${classes.actionHider} ${!isBalanced ? classes.notBalance : ''}`}>
+      <TableCell>{time}</TableCell>
+      <TableCell>
         <Badge size="xs" variant="outline">
           Check
         </Badge>
-      </Table.Td>
-      <Table.Td>
+      </TableCell>
+      <TableCell>
         <PayeeNarration payee={data.payee} narration={data.narration} />
-      </Table.Td>
-      <Table.Td>
+      </TableCell>
+      <TableCell>
         <div className={classes.wrapper}>
           <div className={!isBalanced ? classes.negativeAmount : classes.positiveAmount}>
             <Amount amount={data.postings[0].account_after_number} currency={data.postings[0].account_after_commodity} />
@@ -96,14 +97,14 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
             </span>
           )}
         </div>
-      </Table.Td>
-      <Table.Td>
+      </TableCell>
+      <TableCell>
         <div className={classes.actions}>
           <ActionIcon color="gray" variant="white" size="sm" onClick={openPreviewModal}>
             <IconZoomExclamation size="1.125rem" />
           </ActionIcon>
         </div>
-      </Table.Td>
-    </Table.Tr>
+      </TableCell>
+    </TableRow>
   );
 }

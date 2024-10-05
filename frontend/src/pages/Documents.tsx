@@ -60,27 +60,27 @@ export default function Documents() {
       ) : (
         <Table verticalSpacing="xs" highlightOnHover>
           <Table.Thead>
-            <Table.Tr>
+            <TableRow>
               <Table.Th>Filename</Table.Th>
               <Table.Th style={{}}>Linked Directive</Table.Th>
               <Table.Th>Created Date</Table.Th>
               <Table.Th>Operation</Table.Th>
-            </Table.Tr>
+            </TableRow>
           </Table.Thead>
           <tbody>
           {documents.map((document, idx) => (
-            <Table.Tr>
-              <Table.Td onClick={isDocumentAnImage(document.path) ? () => setLightboxSrc(document.path) : undefined}>
+            <TableRow>
+              <TableCell onClick={isDocumentAnImage(document.path) ? () => setLightboxSrc(document.path) : undefined}>
                 <div>{document.filename}</div>
-              </Table.Td>
-              <Table.Td>
+              </TableCell>
+              <TableCell>
                 {document.account &&
                   <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
                 {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
-              </Table.Td>
-              <Table.Td>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</Table.Td>
-              <Table.Td></Table.Td>
-            </Table.Tr>
+              </TableCell>
+              <TableCell>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</TableCell>
+              <TableCell></TableCell>
+            </TableRow>
           ))}
           </tbody>
         </Table>

@@ -6,6 +6,7 @@ import { AccountStatus } from '../rest-model';
 import AccountTrie from '../utils/AccountTrie';
 import Amount from './Amount';
 import { createStyles } from '@mantine/emotion';
+import { TableCell, TableRow } from './ui/table';
 
 const useStyles = createStyles((theme, _, u) => ({
   leaf: {
@@ -38,8 +39,8 @@ export default function AccountLine({ data, spacing }: Props) {
 
   return (
     <>
-      <Table.Tr>
-        <Table.Td>
+      <TableRow>
+        <TableCell>
           <div style={{ display: 'flex' }}>
             <Space w={spacing * 22}></Space>
             {hasChildren ? (
@@ -66,8 +67,8 @@ export default function AccountLine({ data, spacing }: Props) {
               )}
             </div>
           </div>
-        </Table.Td>
-        <Table.Td>
+        </TableCell>
+        <TableCell>
           <Group justify="right">
             {haveMultipleCommodity ? (
               <HoverCard width={280} shadow="md" withArrow position="left">
@@ -98,8 +99,8 @@ export default function AccountLine({ data, spacing }: Props) {
               </Group>
             )}
           </Group>
-        </Table.Td>
-      </Table.Tr>
+        </TableCell>
+      </TableRow>
 
       {isShow &&
         Object.keys(data.children)

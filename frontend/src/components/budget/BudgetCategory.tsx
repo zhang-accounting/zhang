@@ -49,8 +49,8 @@ export default function BudgetCategory(props: Props) {
 
   return (
     <>
-      <Table.Tr style={{ position: 'relative', zIndex: 1 }}>
-        <Table.Td>
+      <TableRow style={{ position: 'relative', zIndex: 1 }}>
+        <TableCell>
           <BackgroundProgress percentage={number} />
           <Group gap={'xs'}>
             <ActionIcon size="sm" color="gray" variant="transparent" onClick={() => setCollapse(!isShow)}>
@@ -58,26 +58,26 @@ export default function BudgetCategory(props: Props) {
             </ActionIcon>{' '}
             <b>{props.name}</b>
           </Group>
-        </Table.Td>
-        <Table.Td style={{ textAlign: 'end' }}>
+        </TableCell>
+        <TableCell style={{ textAlign: 'end' }}>
           <b>{number} %</b>
-        </Table.Td>
-        <Table.Td style={{ textAlign: 'end' }}>
+        </TableCell>
+        <TableCell style={{ textAlign: 'end' }}>
           <b>
             <Amount amount={assigned_amount.number} currency={assigned_amount.commodity} />
           </b>
-        </Table.Td>
-        <Table.Td style={{ textAlign: 'end' }}>
+        </TableCell>
+        <TableCell style={{ textAlign: 'end' }}>
           <b>
             <Amount amount={activity_amount.number} currency={activity_amount.commodity} />
           </b>
-        </Table.Td>
-        <Table.Td style={{ textAlign: 'end' }}>
+        </TableCell>
+        <TableCell style={{ textAlign: 'end' }}>
           <b>
             <Amount amount={available_amount.number} currency={available_amount.commodity} />
           </b>
-        </Table.Td>
-      </Table.Tr>
+        </TableCell>
+      </TableRow>
       {isShow && props.items.sort().map((item) => <BudgetLine key={`${item.name}`} {...item}></BudgetLine>)}
     </>
   );

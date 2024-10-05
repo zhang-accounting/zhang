@@ -31,27 +31,27 @@ export default function SingleCommodity() {
         <Tabs.Panel value="lots" pt="xs">
           <Table verticalSpacing="xs" highlightOnHover>
             <Table.Thead>
-              <Table.Tr>
+              <TableRow>
                 <Table.Th>Account</Table.Th>
                 <Table.Th style={{ textAlign: 'right' }}>Cost</Table.Th>
                 <Table.Th style={{ textAlign: 'right' }}>Price</Table.Th>
                 <Table.Th style={{ textAlign: 'right' }}>Balance</Table.Th>
-              </Table.Tr>
+              </TableRow>
             </Table.Thead>
             <tbody>
             {data.lots.map((it, idx) => (
-              <Table.Tr key={idx}>
-                <Table.Td>{it.account}</Table.Td>
-                <Table.Td style={{ textAlign: 'right' }}>
+              <TableRow key={idx}>
+                <TableCell>{it.account}</TableCell>
+                <TableCell style={{ textAlign: 'right' }}>
                   {it.cost?.number} {it.cost?.currency}
-                </Table.Td>
-                <Table.Td style={{ textAlign: 'right' }}>
+                </TableCell>
+                <TableCell style={{ textAlign: 'right' }}>
                   {it.price?.number} {it.price?.currency}
-                </Table.Td>
-                <Table.Td style={{ textAlign: 'right' }}>
+                </TableCell>
+                <TableCell style={{ textAlign: 'right' }}>
                   <Amount amount={it.amount} currency={''} />
-                </Table.Td>
-              </Table.Tr>
+                </TableCell>
+              </TableRow>
             ))}
             </tbody>
           </Table>
@@ -60,19 +60,19 @@ export default function SingleCommodity() {
         <Tabs.Panel value="price_history" pt="xs">
           <Table verticalSpacing="xs" highlightOnHover>
             <Table.Thead>
-              <Table.Tr>
+              <TableRow>
                 <Table.Th>Date</Table.Th>
                 <Table.Th>Price</Table.Th>
-              </Table.Tr>
+              </TableRow>
             </Table.Thead>
             <tbody>
             {data.prices.map((it, idx) => (
-              <Table.Tr key={idx}>
-                <Table.Td>{format(new Date(it.datetime), 'yyyy-MM-dd')}</Table.Td>
-                <Table.Td>
+              <TableRow key={idx}>
+                <TableCell>{format(new Date(it.datetime), 'yyyy-MM-dd')}</TableCell>
+                <TableCell>
                   <Amount amount={it.amount} currency={it.target_commodity} />
-                </Table.Td>
-              </Table.Tr>
+                </TableCell>
+              </TableRow>
             ))}
             </tbody>
           </Table>
