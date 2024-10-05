@@ -1,5 +1,3 @@
-import { Box, Container, SimpleGrid, Title } from '@mantine/core';
-import { Heading } from '../components/basic/Heading';
 import CommodityBox from '../components/CommodityBox';
 import { useDocumentTitle } from '@mantine/hooks';
 import { useAtomValue } from 'jotai/index';
@@ -13,33 +11,31 @@ export default function Commodities() {
   const groupedCommodities = useAtomValue(groupedCommoditiesAtom);
 
   return (
-    <Container fluid>
-      <Heading title={`Commodities`}></Heading>
+    <div>
 
       {FRONTEND_DEFAULT_GROUP in groupedCommodities && (
-        <Box mt={'lg'}>
-          <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }} spacing={{ base: 'sm', md: 'md' }}>
+        <div className="mt-4">
+          <div className="text-sm text-gray-500">Default</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mt-2">
             {groupedCommodities[FRONTEND_DEFAULT_GROUP].map((commodity) => (
               <CommodityBox key={commodity.name} {...commodity} operating_currency={false}></CommodityBox>
             ))}
-          </SimpleGrid>
-        </Box>
+          </div>
+        </div>
       )}
       {Object.keys(groupedCommodities)
         .filter((it) => it !== FRONTEND_DEFAULT_GROUP)
         .sort()
         .map((groupName) => (
-          <Box mt={'lg'}>
-            <Title fw={500} order={5} c={'dimmed'}>
-              {groupName}
-            </Title>
-            <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }} spacing={{ base: 'sm', md: 'md' }}>
+          <div className="mt-4">
+            <div className="text-sm text-gray-500">{groupName}</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mt-2">
               {groupedCommodities[groupName].map((commodity) => (
                 <CommodityBox {...commodity} operating_currency={false}></CommodityBox>
               ))}
-            </SimpleGrid>
-          </Box>
+            </div>
+          </div>
         ))}
-    </Container>
+    </div>
   );
 }
