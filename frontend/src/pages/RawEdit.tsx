@@ -1,4 +1,3 @@
-import { Container, Grid, Title } from '@mantine/core';
 import useSWR from 'swr';
 import { fetcher } from '../global.ts';
 import SingleFileEdit from '../components/SingleFileEdit';
@@ -7,6 +6,9 @@ import { useState } from 'react';
 import { useDocumentTitle } from '@mantine/hooks';
 import { useAtomValue } from 'jotai/index';
 import { titleAtom } from '../states/basic';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+
+
 
 function RawEdit() {
   const { data, error } = useSWR<string[]>('/api/files', fetcher);
@@ -31,19 +33,15 @@ function RawEdit() {
       ref_tree[ZHANG_VALUE] = entry;
     });
   return (
-    <Container fluid>
-      <Grid>
-        <Grid.Col span={2}>
-          {' '}
-          <Title order={4}>Nav</Title>
-          <TableOfContentsFloating files={tree} onChange={(value) => setSelectedFile(value)} />
-        </Grid.Col>
-        <Grid.Col span={10}>
-          <Title order={4}>File:{selectedFile}</Title>
-          {selectedFile && <SingleFileEdit name={selectedFile} path={selectedFile} />}
-        </Grid.Col>
-      </Grid>
-    </Container>
+    <Card className="rounded-sm">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 ">
+        <CardTitle>File: {selectedFile}</CardTitle>
+        <TableOfContentsFloating files={tree} onChange={(value) => setSelectedFile(value)} />
+      </CardHeader>
+      <CardContent>
+        {selectedFile && <SingleFileEdit name={selectedFile} path={selectedFile} />}
+      </CardContent>
+    </Card>
   );
 }
 
