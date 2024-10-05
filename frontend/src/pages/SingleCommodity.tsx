@@ -1,4 +1,3 @@
-import { Container, Table, Tabs } from '@mantine/core';
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
 import useSWR from 'swr';
@@ -9,6 +8,9 @@ import { Heading } from '../components/basic/Heading';
 import { useDocumentTitle } from '@mantine/hooks';
 import { useAtomValue } from 'jotai/index';
 import { titleAtom } from '../states/basic';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.tsx';
+import { Table, TableHeader, TableRow, TableCell, TableHead, TableBody } from '@/components/ui/table.tsx';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 
 export default function SingleCommodity() {
   let { commodityName } = useParams();
@@ -20,64 +22,86 @@ export default function SingleCommodity() {
   if (!data) return <div>loading123</div>;
 
   return (
-    <Container fluid>
-      <Heading title={commodityName!}></Heading>
-      <Tabs keepMounted={false} variant="outline" defaultValue="lots" mt="lg">
-        <Tabs.List>
-          <Tabs.Tab value="lots">Lots</Tabs.Tab>
-          <Tabs.Tab value="price_history">Price History</Tabs.Tab>
-        </Tabs.List>
+    <div>
 
-        <Tabs.Panel value="lots" pt="xs">
-          <Table verticalSpacing="xs" highlightOnHover>
-            <Table.Thead>
-              <TableRow>
-                <Table.Th>Account</Table.Th>
-                <Table.Th style={{ textAlign: 'right' }}>Cost</Table.Th>
-                <Table.Th style={{ textAlign: 'right' }}>Price</Table.Th>
-                <Table.Th style={{ textAlign: 'right' }}>Balance</Table.Th>
-              </TableRow>
-            </Table.Thead>
-            <tbody>
-            {data.lots.map((it, idx) => (
-              <TableRow key={idx}>
-                <TableCell>{it.account}</TableCell>
-                <TableCell style={{ textAlign: 'right' }}>
-                  {it.cost?.number} {it.cost?.currency}
-                </TableCell>
-                <TableCell style={{ textAlign: 'right' }}>
-                  {it.price?.number} {it.price?.currency}
-                </TableCell>
-                <TableCell style={{ textAlign: 'right' }}>
-                  <Amount amount={it.amount} currency={''} />
-                </TableCell>
-              </TableRow>
-            ))}
-            </tbody>
-          </Table>
-        </Tabs.Panel>
+      <div className="flex items-center gap-4 pb-6">
 
-        <Tabs.Panel value="price_history" pt="xs">
-          <Table verticalSpacing="xs" highlightOnHover>
-            <Table.Thead>
-              <TableRow>
-                <Table.Th>Date</Table.Th>
-                <Table.Th>Price</Table.Th>
-              </TableRow>
-            </Table.Thead>
-            <tbody>
-            {data.prices.map((it, idx) => (
-              <TableRow key={idx}>
-                <TableCell>{format(new Date(it.datetime), 'yyyy-MM-dd')}</TableCell>
-                <TableCell>
-                  <Amount amount={it.amount} currency={it.target_commodity} />
-                </TableCell>
-              </TableRow>
-            ))}
-            </tbody>
-          </Table>
-        </Tabs.Panel>
+        <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">
+          {commodityName!}
+        </h1>
+
+
+      </div>
+      <Tabs defaultValue="lots" >
+        <TabsList>
+          <TabsTrigger value="lots">Lots</TabsTrigger>
+          <TabsTrigger value="price_history">Price History</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="lots">
+          <Card className="mt-2 rounded-sm ">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 ">
+              <CardTitle>Lots</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table >
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Account</TableHead>
+                    <TableHead style={{ textAlign: 'right' }}>Cost</TableHead>
+                    <TableHead style={{ textAlign: 'right' }}>Price</TableHead>
+                    <TableHead style={{ textAlign: 'right' }}>Balance</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.lots.map((it, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>{it.account}</TableCell>
+                      <TableCell style={{ textAlign: 'right' }}>
+                        {it.cost?.number} {it.cost?.currency}
+                      </TableCell>
+                      <TableCell style={{ textAlign: 'right' }}>
+                        {it.price?.number} {it.price?.currency}
+                      </TableCell>
+                      <TableCell style={{ textAlign: 'right' }}>
+                        <Amount amount={it.amount} currency={''} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="price_history">
+          <Card className="mt-2 rounded-sm ">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 ">
+              <CardTitle>Price History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table >
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Price</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.prices.map((it, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>{format(new Date(it.datetime), 'yyyy-MM-dd')}</TableCell>
+                      <TableCell>
+                        <Amount amount={it.amount} currency={it.target_commodity} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
-    </Container>
+    </div>
   );
 }
