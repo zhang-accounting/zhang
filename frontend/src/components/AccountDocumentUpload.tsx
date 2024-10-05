@@ -1,4 +1,3 @@
-import { Text } from '@mantine/core';
 import { Dropzone } from '@mantine/dropzone';
 import { useEffect, useState } from 'react';
 import { FileWithPath } from 'react-dropzone';
@@ -45,11 +44,11 @@ export default function AccountDocumentUpload(props: Props) {
         </div>
       ) : (
         <div style={{ pointerEvents: 'none' }}>
-          <Text ta="center" fw={700} size="md" mt="md">
+          <div className="text-center font-bold text-lg mt-4">
             <Dropzone.Accept>Drop files here</Dropzone.Accept>
             <Dropzone.Reject>Pdf file less than 30mb</Dropzone.Reject>
             <Dropzone.Idle>Upload Document</Dropzone.Idle>
-          </Text>
+          </div>
         </div>
       )}
     </Dropzone>

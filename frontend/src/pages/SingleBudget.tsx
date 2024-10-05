@@ -23,7 +23,7 @@ function SingleBudget() {
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${budgetName} | Budgets - ${ledgerTitle}`);
   useEffect(() => {
-    setBreadcrumb([BUDGETS_LINK, { label: budgetName ?? '', uri: `/budgets/${budgetName}` }]);
+    setBreadcrumb([BUDGETS_LINK, { label: budgetName ?? '', uri: `/budgets/${budgetName}`, noTranslate: true }]);
   }, [budgetName]);
 
   const goToMonth = (gap: number) => {

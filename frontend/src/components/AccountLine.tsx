@@ -87,7 +87,7 @@ export default function AccountLine({ data, spacing }: Props) {
                 </Tooltip>
               </TooltipProvider>
             ) : (
-              <div className={cn(data.isLeaf ? "cursor-pointer" : "", 'flex gap-2')}>
+              <div className={cn(data.isLeaf ? "" : "text-gray-500", 'flex gap-2')}>
                 <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
               </div>
             )}

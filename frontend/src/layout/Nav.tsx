@@ -51,7 +51,7 @@ export function Nav() {
                     {breadcrumb.map((item, index) => (
                         <BreadcrumbItem key={item.uri}>
                             <BreadcrumbLink asChild>
-                                <Link to={item.uri}>{t(item.label)}</Link>
+                                <Link to={item.uri}>{(item.noTranslate ?? true) ? t(item.label) : item.label}</Link>
                             </BreadcrumbLink>
                             {index < breadcrumb.length - 1 && <BreadcrumbSeparator />}
                         </BreadcrumbItem>
