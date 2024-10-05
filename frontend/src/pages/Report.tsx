@@ -1,6 +1,3 @@
-import { Container, Grid, Progress, Table, Tooltip } from '@mantine/core';
-import { DatePickerInput } from '@mantine/dates';
-import { IconCalendar } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import Amount from '../components/Amount';
@@ -10,30 +7,47 @@ import StatusGroup from '../components/StatusGroup';
 import { StatisticGraphResponse, StatisticResponse, StatisticTypeResponse } from '../rest-model';
 import PayeeNarration from '../components/basic/PayeeNarration';
 import BigNumber from 'bignumber.js';
-import { Heading } from '../components/basic/Heading';
 import { useDocumentTitle } from '@mantine/hooks';
 import { useAtomValue } from 'jotai/index';
 import { titleAtom } from '../states/basic';
 import { fetcher } from '../global.ts';
+import { Table, TableBody, TableHead } from '@/components/ui/table.tsx';
+import { TableRow } from '@/components/ui/table.tsx';
+import { TableHeader } from '@/components/ui/table.tsx';
+import { TableCell } from '@/components/ui/table.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx';
+import { cn } from '@/lib/utils.ts';
+import { CalendarIcon } from '@radix-ui/react-icons';
+import { format } from 'date-fns';
+import { Calendar } from '@/components/ui/calendar.tsx';
+import { DateRange } from 'react-day-picker';
+import { ChartConfig } from '@/components/ui/chart.tsx';
+import { encodeBase64 } from '@/utils/encode.ts';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 
-const color_set = ['pink', 'grape', 'violet'];
+
+const color_set = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
+
+
 
 export default function Report() {
-  const [value, setValue] = useState<[Date | null, Date | null]>([
-    new Date(new Date().getFullYear(), new Date().getMonth(), 1, 0, 0, 1),
-    new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59),
-  ]);
+  const [value, setValue] = useState<DateRange | undefined>({
+    from: new Date(new Date().getFullYear(), new Date().getMonth(), 1, 0, 0, 1),
+    to: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59),
+  });
 
   const [dateRange, setDateRange] = useState<[Date, Date]>([
     new Date(new Date().getFullYear(), new Date().getMonth(), 1, 0, 0, 1),
     new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59),
   ]);
+
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`Report - ${ledgerTitle}`);
 
   useEffect(() => {
-    if (value[0] !== null && value[1] !== null) {
-      setDateRange([value[0], value[1]]);
+    if (value?.from !== undefined && value?.to !== undefined) {
+      setDateRange([value.from, value.to]);
     }
   }, [value]);
 
@@ -57,13 +71,7 @@ export default function Report() {
     fetcher,
   );
 
-  const income_total =
-    income_data?.detail.reduce((acc, current) => acc.plus(new BigNumber(current.amount.calculated.number)), new BigNumber(0)).toNumber() ?? 0;
-  const expense_total =
-    expenses_data?.detail.reduce((acc, current) => acc.plus(new BigNumber(current.amount.calculated.number)), new BigNumber(0)).toNumber() ?? 0;
 
-  // if (reportError) return <div>failed to load</div>;
-  // if (!reportData) return <>loading</>;
   if (!graph_data) return <>loading</>;
 
   if (error) return <div>failed to load</div>;
@@ -71,20 +79,49 @@ export default function Report() {
 
   return (
     <>
-      <Container fluid>
-        <Heading
-          title={`Report`}
-          rightSection={
-            <DatePickerInput
-              leftSection={<IconCalendar size="1.1rem" stroke={1.5} />}
-              clearable
-              type="range"
-              allowSingleDateInRange
-              value={value}
-              onChange={setValue}
-            />
-          }
-        ></Heading>
+      <div>
+
+        <div className='flex items-center justify-between gap-4 mb-4'>
+          <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">Report</h1>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                id="date"
+                variant={"outline"}
+                className={cn(
+                  "w-[300px] justify-start text-left font-normal",
+                  !value && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {value?.from ? (
+                  value.to ? (
+                    <>
+                      {format(value.from, "LLL dd, y")} -{" "}
+                      {format(value.to, "LLL dd, y")}
+                    </>
+                  ) : (
+                    format(value.from, "LLL dd, y")
+                  )
+                ) : (
+                  <span>Pick a date</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                initialFocus
+                mode="range"
+                defaultMonth={value?.from}
+                selected={value}
+                onSelect={setValue}
+                numberOfMonths={2}
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
+
+
         <StatusGroup
           data={[
             {
@@ -108,100 +145,76 @@ export default function Report() {
         />
 
         <Section title="Graph">
-          <ReportGraph data={graph_data} height={90}></ReportGraph>
+          <ReportGraph data={graph_data} height={20}></ReportGraph>
         </Section>
 
-        <Section title="Incomes">
-          <Grid>
-            <Grid.Col span={12}>
-              <Progress.Root radius="sm" size={24}>
-                {income_data?.detail.map((item, idx) => (
-                  <Tooltip label={`${item.account} - ${item.amount.calculated.number}`}>
-                    <Progress.Section
-                      value={new BigNumber(item.amount.calculated.number).div(income_total).multipliedBy(100).toNumber()}
-                      color={color_set[idx % color_set.length]}
-                    >
-                      <Progress.Label>{item.account}</Progress.Label>
-                    </Progress.Section>
-                  </Tooltip>
-                ))}
-              </Progress.Root>
-            </Grid.Col>
-            <Grid.Col span={12}>
-              <Table verticalSpacing="xs" highlightOnHover>
-                <Table.Thead>
+        <Card className="mt-2 rounded-sm ">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 ">
+              <CardTitle>Top 10 Incomes</CardTitle>
+            </CardHeader>
+            <CardContent>
+            <Table >
+                <TableHeader>
                   <TableRow>
-                    <Table.Th>Date</Table.Th>
-                    <Table.Th>Account</Table.Th>
-                    <Table.Th style={{}}>Payee & Narration</Table.Th>
-                    <Table.Th>Amount</Table.Th>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Account</TableHead>
+                    <TableHead style={{}}>Payee & Narration</TableHead>
+                    <TableHead>Amount</TableHead>
                   </TableRow>
-                </Table.Thead>
-                <tbody>
-                {income_data?.top_transactions.map((journal) => (
-                  <TableRow>
-                    <TableCell>{journal.datetime}</TableCell>
-                    <TableCell>{journal.account}</TableCell>
-                    <TableCell>
-                      <PayeeNarration payee={journal.payee} narration={journal.narration} />
-                    </TableCell>
-                    <TableCell>
-                      <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-                </tbody>
+                </TableHeader>
+                <TableBody>
+                  {income_data?.top_transactions.map((journal) => (
+                    <TableRow>
+                      <TableCell>{journal.datetime}</TableCell>
+                      <TableCell>{journal.account}</TableCell>
+                      <TableCell>
+                        <PayeeNarration payee={journal.payee} narration={journal.narration} />
+                      </TableCell>
+                      <TableCell>
+                        <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
               </Table>
-            </Grid.Col>
-          </Grid>
-        </Section>
+            </CardContent>
+        </Card>
 
-        <Section title="Expenses">
-          <Grid>
-            <Grid.Col span={12}>
-              <Progress.Root radius="sm" size={24}>
-                {expenses_data?.detail.map((item, idx) => (
-                  <Tooltip label={`${item.account} - ${item.amount.calculated.number}`}>
-                    <Progress.Section
-                      value={new BigNumber(item.amount.calculated.number).div(expense_total).multipliedBy(100).toNumber()}
-                      color={color_set[idx % color_set.length]}
-                    >
-                      <Progress.Label>{item.account}</Progress.Label>
-                    </Progress.Section>
-                  </Tooltip>
-                ))}
-              </Progress.Root>
-            </Grid.Col>
-            <Grid.Col span={12}>
-              <Table verticalSpacing="xs" highlightOnHover>
-                <Table.Thead>
+       
+
+        <Card className="mt-2 rounded-sm ">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 ">
+              <CardTitle>Top 10 Expenses</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <Table.Th>Date</Table.Th>
-                    <Table.Th>Account</Table.Th>
-                    <Table.Th style={{}}>Payee & Narration</Table.Th>
-                    <Table.Th>Amount</Table.Th>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Account</TableHead>
+                    <TableHead style={{}}>Payee & Narration</TableHead>
+                    <TableHead>Amount</TableHead>
                   </TableRow>
-                </Table.Thead>
+                </TableHeader>
                 <tbody>
-                {expenses_data?.top_transactions.map((journal) => (
-                  // <JournalLine key={idx} data={journal} />
-                  <TableRow>
-                    <TableCell>{journal.datetime}</TableCell>
-                    <TableCell>{journal.account}</TableCell>
-                    <TableCell>
-                      {journal.payee} {journal.narration}
-                    </TableCell>
-                    <TableCell>
-                      <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
-                    </TableCell>
-                  </TableRow>
-                ))}
+                  {expenses_data?.top_transactions.map((journal) => (
+                    // <JournalLine key={idx} data={journal} />
+                    <TableRow>
+                      <TableCell>{journal.datetime}</TableCell>
+                      <TableCell>{journal.account}</TableCell>
+                      <TableCell>
+                        {journal.payee} {journal.narration}
+                      </TableCell>
+                      <TableCell>
+                        <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </tbody>
               </Table>
-            </Grid.Col>
-          </Grid>
-        </Section>
-      </Container>
+            </CardContent>
+          </Card>
+      </div>
     </>
   );
 }

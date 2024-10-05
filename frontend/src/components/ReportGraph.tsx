@@ -55,10 +55,10 @@ export default function ReportGraph(props: Props) {
     expense: expense_dataset[idx],
   }));
 
-  console.log(data);
+  console.log(data, props.height);
   return (
     <>
-      <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
+      <ChartContainer config={chartConfig} className={`h-[300px] w-full`}>
         <ComposedChart accessibilityLayer data={data}>
           <XAxis
             dataKey="date"
