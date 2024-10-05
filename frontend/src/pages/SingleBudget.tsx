@@ -5,21 +5,26 @@ import { fetcher } from '../global.ts';
 import Amount from '../components/Amount';
 import PayeeNarration from '../components/basic/PayeeNarration';
 import { BudgetInfoResponse, BudgetIntervalEventResponse } from '../rest-model';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useDocumentTitle } from '@mantine/hooks';
-import { useAtomValue } from 'jotai/index';
-import { titleAtom } from '../states/basic';
+import { useAtomValue, useSetAtom } from 'jotai/index';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
 import { Badge } from '@/components/ui/badge.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { ChevronLeftIcon, ChevronRightIcon } from '@radix-ui/react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+import { BUDGETS_LINK } from '@/layout/Sidebar.tsx';
 
 function SingleBudget() {
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   let { budgetName } = useParams();
   const [date, setDate] = useState<Date>(new Date());
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${budgetName} | Budgets - ${ledgerTitle}`);
+  useEffect(() => {
+    setBreadcrumb([BUDGETS_LINK, { label: budgetName ?? '', uri: `/budgets/${budgetName}` }]);
+  }, [budgetName]);
 
   const goToMonth = (gap: number) => {
     let newDate = new Date(date);

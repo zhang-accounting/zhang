@@ -6,15 +6,16 @@ import Section from '../components/Section';
 import useSWR from 'swr';
 import { fetcher } from '../global.ts';
 import { Option, PluginResponse } from '../rest-model';
-import { Heading } from '../components/basic/Heading';
 import PluginBox from '../components/PluginBox';
-import { titleAtom, versionAtom } from '../states/basic';
-import { useAtomValue } from 'jotai/index';
+import { breadcrumbAtom, titleAtom, versionAtom } from '../states/basic';
+import { useAtomValue, useSetAtom } from 'jotai/index';
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
 import { Skeleton } from '@/components/ui/skeleton.tsx';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select.tsx';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.tsx';
+import { SETTINGS_LINK } from '@/layout/Sidebar.tsx';
 
 export default function Settings() {
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { i18n } = useTranslation();
   const [lang, setLang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
   const { data } = useSWR<Option[]>('/api/options', fetcher);
@@ -24,7 +25,10 @@ export default function Settings() {
   const ledgerVersion = useAtomValue(versionAtom);
 
   useDocumentTitle(`Settings - ${ledgerTitle}`);
-
+  useEffect(() => {
+    setBreadcrumb([SETTINGS_LINK]);
+  }, []);
+  
   const onLanguageChange = (lang: string) => {
     setLang(lang);
   };

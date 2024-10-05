@@ -1,22 +1,27 @@
-import { ActionIcon, Divider, Grid } from '@mantine/core';
 import { ReactNode } from 'react';
+import { Button } from '../ui/button';
 
 interface Props {
   value: String;
-  icon: ReactNode;
-  onActionClick(): void;
+  icon?: ReactNode;
+  onActionClick?(): void;
 }
 export default function DividerWithAction({ value, icon, onActionClick }: Props) {
   return (
-    <Grid justify="space-between" align="center">
-      <Grid.Col span={11}>
-        <Divider label={value} size="xs" labelPosition="left"></Divider>
-      </Grid.Col>
-      <Grid.Col span={1}>
-        <ActionIcon variant="white" color="gray" onClick={onActionClick}>
+    <div className="flex items-center justify-between my-2">
+      <div className="flex-grow">
+        <div className="flex items-center">
+          <span className="text-xs font-medium text-gray-500 mr-2">{value}</span>
+          <div className="flex-grow h-px bg-gray-200"></div>
+        </div>
+      </div>
+      {icon && (
+        <Button variant="ghost" size="icon"
+        className='mx-1'
+           onClick={onActionClick}>
           {icon}
-        </ActionIcon>
-      </Grid.Col>
-    </Grid>
+        </Button>
+      )}
+    </div>
   );
 }

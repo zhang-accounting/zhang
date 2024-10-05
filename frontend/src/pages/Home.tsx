@@ -1,4 +1,3 @@
-import { Container, Grid } from '@mantine/core';
 
 import useSWR from 'swr';
 import ErrorBox from '../components/ErrorBox';
@@ -6,14 +5,16 @@ import Section from '../components/Section';
 import StatisticBar from '../components/StatisticBar';
 import { StatisticGraphResponse } from '../rest-model';
 import ReportGraph from '../components/ReportGraph';
-import { Heading } from '../components/basic/Heading';
 import { useDocumentTitle } from '@mantine/hooks';
-import { useAtomValue } from 'jotai';
+import { useAtomValue, useSetAtom } from 'jotai';
 import { errorCountAtom } from '../states/errors';
-import { titleAtom } from '../states/basic';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { fetcher } from '../global.ts';
+import { useEffect } from 'react';
+import { DASHBOARD_LINK } from '@/layout/Sidebar.tsx';
 
 function Home() {
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const error_total_number = useAtomValue(errorCountAtom);
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`Dashboard - ${ledgerTitle}`);
@@ -26,6 +27,10 @@ function Home() {
     `/api/statistic/graph?from=${beginning_time.toISOString()}&to=${end_time.toISOString()}&interval=Day`,
     fetcher,
   );
+
+  useEffect(() => {
+    setBreadcrumb([DASHBOARD_LINK]);
+  }, []);
 
   if (error) return <div>failed to load</div>;
   if (!data) return <>loading</>;

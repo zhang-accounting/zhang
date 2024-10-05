@@ -18,3 +18,5 @@ export const titleAtom = atom((get) => {
 export const versionAtom = atom((get) => {
   return loadable_unwrap(get(basicInfoAtom), undefined, (data) => data.version);
 });
+
+export const breadcrumbAtom = atom<{label: string, uri: string}[]>([]);

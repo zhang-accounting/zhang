@@ -6,16 +6,18 @@ import { Document } from '../rest-model';
 import { groupBy, reverse, sortBy } from 'lodash-es';
 import { TextBadge } from '../components/basic/TextBadge';
 import { useNavigate } from 'react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import 'yet-another-react-lightbox/styles.css';
 import { ImageLightBox } from '../components/ImageLightBox';
 import { isDocumentAnImage } from '../utils/documents';
-import { useAtomValue } from 'jotai/index';
-import { titleAtom } from '../states/basic';
+import { useAtomValue, useSetAtom } from 'jotai/index';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { fetcher } from '../global.ts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
+import { DOCUMENTS_LINK } from '@/layout/Sidebar.tsx';
 
 export default function Documents() {
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   let navigate = useNavigate();
   const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
   const { data: documents, error } = useSWR<Document[]>('/api/documents', fetcher);
@@ -23,7 +25,9 @@ export default function Documents() {
 
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`Documents - ${ledgerTitle}`);
-
+  useEffect(() => {
+    setBreadcrumb([DOCUMENTS_LINK]);
+  }, []);
   if (error) return <div>failed to load</div>;
   if (!documents) return <div>loading...</div>;
 

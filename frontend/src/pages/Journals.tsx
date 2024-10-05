@@ -1,11 +1,10 @@
-import { Card, Group, Pill, Text } from '@mantine/core';
 import { useEffect, useMemo, useState } from 'react';
 import TableViewJournalLine from '../components/journalLines/tableView/TableViewJournalLine';
 import { useTranslation } from 'react-i18next';
 import { useDebouncedValue, useDocumentTitle } from '@mantine/hooks';
 import { JournalListSkeleton } from '../components/skeletons/journalListSkeleton';
 import { useAtomValue } from 'jotai/index';
-import { titleAtom } from '../states/basic';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { groupedJournalsAtom, journalAtom, journalFetcher, journalKeywordAtom, journalLinksAtom, journalPageAtom, journalTagsAtom } from '../states/journals';
 import { useAtom, useSetAtom } from 'jotai';
 import { loadable_unwrap } from '../states';
@@ -13,10 +12,11 @@ import { selectAtom } from 'jotai/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
-import { EnvelopeOpenIcon } from '@radix-ui/react-icons';
-import {  X } from 'lucide-react';
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
+import { X } from 'lucide-react';
+import { JOURNALS_LINK } from '@/layout/Sidebar';
 function Journals() {
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { t } = useTranslation();
   const [filter, setFilter] = useState('');
   const [debouncedFilter] = useDebouncedValue(filter, 200);
@@ -48,7 +48,9 @@ function Journals() {
   useEffect(() => {
     setKeyword(debouncedFilter);
   }, [setKeyword, debouncedFilter]);
-
+  useEffect(() => {
+    setBreadcrumb([JOURNALS_LINK]);
+  }, []); 
   const onPage = (page: number) => {
     setJournalPage(page);
   };
@@ -103,9 +105,9 @@ function Journals() {
                   <>
                     <TableRow key={date}>
                       <TableCell colSpan={6}>
-                        <Text c={'dimmed'} size={'sm'}>
+                        <span className="text-sm text-gray-500">
                           {date}
-                        </Text>
+                        </span>
                       </TableCell>
                     </TableRow>
                     {groupedRecords[date].map((journal) => (

@@ -1,15 +1,20 @@
 import CommodityBox from '../components/CommodityBox';
 import { useDocumentTitle } from '@mantine/hooks';
-import { useAtomValue } from 'jotai/index';
-import { titleAtom } from '../states/basic';
+import { useAtomValue, useSetAtom } from 'jotai/index';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { FRONTEND_DEFAULT_GROUP, groupedCommoditiesAtom } from '../states/commodity';
+import { COMMODITIES_LINK } from '@/layout/Sidebar';
+import { useEffect } from 'react';
 
 export default function Commodities() {
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`Commodities - ${ledgerTitle}`);
 
   const groupedCommodities = useAtomValue(groupedCommoditiesAtom);
-
+  useEffect(() => {
+    setBreadcrumb([COMMODITIES_LINK]);
+  }, []);
   return (
     <div>
 
