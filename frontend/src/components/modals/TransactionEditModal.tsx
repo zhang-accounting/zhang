@@ -37,6 +37,9 @@ export const TransactionEditModal = () => {
       });
   };
   const onChange = (open: boolean) => {
+    if (open === false) {
+      setEditTransaction(undefined);
+    }
     isOpenHandler.toggle();
   };
 

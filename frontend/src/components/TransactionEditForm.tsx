@@ -28,29 +28,6 @@ interface SelectItem {
   group?: string;
 }
 
-const frameworks = [
-  {
-    value: "next.js",
-    label: "Next.js",
-  },
-  {
-    value: "sveltekit",
-    label: "SvelteKit",
-  },
-  {
-    value: "nuxt.js",
-    label: "Nuxt.js",
-  },
-  {
-    value: "remix",
-    label: "Remix",
-  },
-  {
-    value: "astro",
-    label: "Astro",
-  },
-]
-
 
 interface Props {
   onChange(data: any, isValid: boolean): void;
@@ -77,9 +54,6 @@ export default function TransactionEditForm(props: Props) {
       { account: undefined, amount: '' },
     ],
   );
-
-  const [autoCompleteOpen, setAutoCompleteOpen] = useState(false)
-  const [autoCompleteValue, setAutoCompleteValue] = useState("")
 
   const [metas, metaHandler] = useListState<{ key: string; value: string }>(props.data?.metas ?? []);
 
