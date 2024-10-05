@@ -19,7 +19,7 @@ export default function SingleCommodity() {
   useDocumentTitle(`${commodityName} | Commodities - ${ledgerTitle}`);
 
   if (error) return <div>failed to load</div>;
-  if (!data) return <div>loading123</div>;
+  if (!data) return <div>loading</div>;
 
   return (
     <div>
