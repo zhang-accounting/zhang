@@ -30,22 +30,22 @@ function Home() {
   if (error) return <div>failed to load</div>;
   if (!data) return <>loading</>;
   return (
-    <Container fluid>
-      <Heading title={`Dashboard`}></Heading>
+    <div>
       <StatisticBar />
-      <Grid>
-        <Grid.Col span={8}>
+      
+      <div className="grid grid-cols-12 gap-4">
+        <div className="col-span-8">
           <Section title="Current Statistics">
             <ReportGraph data={data} height={130}></ReportGraph>
           </Section>
-        </Grid.Col>
-        <Grid.Col span={4}>
+        </div>
+        <div className="col-span-4">
           <Section title={`${error_total_number} Errors`}>
             <ErrorBox></ErrorBox>
           </Section>
-        </Grid.Col>
-      </Grid>
-    </Container>
+        </div>
+      </div>
+    </div>
   );
 }
 

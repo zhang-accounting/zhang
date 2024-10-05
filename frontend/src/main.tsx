@@ -16,10 +16,14 @@ import '@mantine/charts/styles.css';
 import '@mantine/dropzone/styles.css';
 import { TransactionEditModal } from './components/modals/TransactionEditModal';
 import { MantineEmotionProvider } from '@mantine/emotion';
+import { TooltipProvider } from './components/ui/tooltip';
 
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
+    <TooltipProvider>
+
+    
     <MantineProvider theme={themeConfig}>
       <MantineEmotionProvider>
         <ModalsProvider
@@ -35,5 +39,6 @@ createRoot(document.getElementById('root')!).render(
         </ModalsProvider>
       </MantineEmotionProvider>
     </MantineProvider>
+    </TooltipProvider>
   </React.StrictMode>,
 );

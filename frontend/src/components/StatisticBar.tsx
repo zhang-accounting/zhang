@@ -18,8 +18,11 @@ export default function StatisticBar() {
   if (!data) return <>loading</>;
 
   return (
-    <SimpleGrid cols={4}>
-      <StatisticBox
+
+
+    <>
+    <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
+    <StatisticBox
         text={'ASSET_BALANCE'}
         amount={data.balance.calculated.number}
         currency={data.balance.calculated.currency}
@@ -31,6 +34,9 @@ export default function StatisticBar() {
                     currency={data.income.calculated.currency} negative />
       <StatisticBox text={'CURRENT_MONTH_EXPENSE'} amount={data.expense.calculated.number}
                     currency={data.expense.calculated.currency} />
-    </SimpleGrid>
+
+          
+        </div>
+        </>
   );
 }
