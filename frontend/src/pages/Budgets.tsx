@@ -1,21 +1,23 @@
 import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BudgetListItem } from '../rest-model';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 import { groupBy, sortBy } from 'lodash-es';
 import BudgetCategory from '../components/budget/BudgetCategory';
 import { format } from 'date-fns';
-import { useAtomValue } from 'jotai/index';
-import { titleAtom } from '../states/basic';
+import { useAtomValue, useSetAtom } from 'jotai/index';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { fetcher } from '../global.ts';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { Switch } from '@/components/ui/switch.tsx';
 import { Label } from '@/components/ui/label.tsx';
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
+import { BUDGETS_LINK } from '@/layout/Sidebar.tsx';
 
 export default function Budgets() {
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { t } = useTranslation();
   const [hideZeroAssignBudget, setHideZeroAssignBudget] = useLocalStorage({
     key: 'hideZeroAssignBudget',
@@ -24,6 +26,10 @@ export default function Budgets() {
   const [date, setDate] = useState<Date>(new Date());
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`Budgets - ${ledgerTitle}`);
+
+  useEffect(() => {
+    setBreadcrumb([BUDGETS_LINK, { label: `Budget ${format(date, 'MMM, yyyy')}`, uri: `/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}` }]);
+  }, [date]);
 
   const {
     data: budgets,

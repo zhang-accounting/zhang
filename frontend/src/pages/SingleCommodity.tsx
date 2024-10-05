@@ -4,20 +4,24 @@ import useSWR from 'swr';
 import { fetcher } from '../global.ts';
 import Amount from '../components/Amount';
 import { CommodityDetail } from '../rest-model';
-import { Heading } from '../components/basic/Heading';
 import { useDocumentTitle } from '@mantine/hooks';
-import { useAtomValue } from 'jotai/index';
-import { titleAtom } from '../states/basic';
+import { useAtomValue, useSetAtom } from 'jotai/index';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.tsx';
 import { Table, TableHeader, TableRow, TableCell, TableHead, TableBody } from '@/components/ui/table.tsx';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+import { COMMODITIES_LINK } from '@/layout/Sidebar.tsx';
+import { useEffect } from 'react';
 
 export default function SingleCommodity() {
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   let { commodityName } = useParams();
   const { data, error } = useSWR<CommodityDetail>(`/api/commodities/${commodityName}`, fetcher);
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${commodityName} | Commodities - ${ledgerTitle}`);
-
+  useEffect(() => {
+    setBreadcrumb([COMMODITIES_LINK, { label: commodityName ?? '', uri: `/commodities/${commodityName}` }]);
+  }, [commodityName]);  
   if (error) return <div>failed to load</div>;
   if (!data) return <div>loading</div>;
 

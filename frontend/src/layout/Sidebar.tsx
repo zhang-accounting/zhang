@@ -25,19 +25,29 @@ import { axiosInstance } from "@/global";
 import { notifications } from "@mantine/notifications";
 
 
+export const DASHBOARD_LINK = { icon: CircleGauge, label: 'NAV_DASHBOARD', uri: '/' };
+export const JOURNALS_LINK = { icon: Notebook, label: 'NAV_JOURNALS', uri: '/journals' };
+export const ACCOUNTS_LINK = { icon: WalletMinimal, label: 'NAV_ACCOUNTS', uri: '/accounts' };
+export const COMMODITIES_LINK = { icon: Receipt, label: 'NAV_COMMODITIES', uri: '/commodities' };
+export const BUDGETS_LINK = { icon: Bitcoin, label: 'NAV_BUDGETS', uri: '/budgets' };
+export const DOCUMENTS_LINK = { icon: FileStack, label: 'NAV_DOCUMENTS', uri: '/documents' };
+export const REPORT_LINK = { icon: ChartArea, label: 'NAV_REPORT', uri: '/report' };
+export const LIABILITY_LINK = { icon: CreditCard, label: 'NAV_LIABILITY', uri: '/liability' };
+export const RAW_EDITING_LINK = { icon: PencilRuler, label: 'NAV_RAW_EDITING', uri: '/edit' };
+export const TOOLS_LINK = { icon: PocketKnife, label: 'NAV_TOOLS', uri: '/tools' };
+export const SETTINGS_LINK = { icon: Cog, label: 'NAV_SETTING', uri: '/settings' };
 
-// CircleGauge
-const links = [
-  { icon: Notebook, label: 'NAV_JOURNALS', uri: '/journals' },
-  { icon: WalletMinimal, label: 'NAV_ACCOUNTS', uri: '/accounts' },
-  { icon: Receipt, label: 'NAV_COMMODITIES', uri: '/commodities' },
-  { icon: Bitcoin, label: 'NAV_BUDGETS', uri: '/budgets' },
-  { icon: FileStack, label: 'NAV_DOCUMENTS', uri: '/documents' },
-  { icon: ChartArea, label: 'NAV_REPORT', uri: '/report' },
-  { icon: CreditCard, label: 'NAV_LIABILITY', uri: '/liability' },
-  { icon: PencilRuler, label: 'NAV_RAW_EDITING', uri: '/edit' },
-  { icon: PocketKnife, label: 'NAV_TOOLS', uri: '/tools' },
-  { icon: Cog, label: 'NAV_SETTING', uri: '/settings' },
+export const links = [
+  JOURNALS_LINK,
+  ACCOUNTS_LINK,
+  COMMODITIES_LINK,
+  BUDGETS_LINK,
+  DOCUMENTS_LINK,
+  REPORT_LINK,
+  LIABILITY_LINK,
+  RAW_EDITING_LINK,
+  TOOLS_LINK,
+  SETTINGS_LINK,
 ];
 
 
@@ -79,11 +89,11 @@ export default function Sidebar() {
             <nav className="grid items-start px-2 text-sm font-medium lg:px-4">
 
             <Link
-                to="/"
-                className={`flex items-center gap-3 rounded-lg px-3 py-3 text-muted-foreground transition-all hover:text-primary ${location.pathname === '/' ? ' bg-muted text-primary' : ''}`}
+                to={DASHBOARD_LINK.uri}
+                className={`flex items-center gap-3 rounded-lg px-3 py-3 text-muted-foreground transition-all hover:text-primary ${location.pathname === DASHBOARD_LINK.uri ? ' bg-muted text-primary' : ''}`}
               >
-                <CircleGauge className="h-4 w-4" />
-                {t('NAV_HOME')}
+                <DASHBOARD_LINK.icon className="h-4 w-4" />
+                {t(DASHBOARD_LINK.label)}
                 {errorsCount > 0 && (
                   <Badge className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
                     {errorsCount}

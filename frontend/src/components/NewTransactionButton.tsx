@@ -1,15 +1,17 @@
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import { useState } from 'react';
 
-import { Button, Container, Group, Modal } from '@mantine/core';
 import { IconSquarePlus } from '@tabler/icons-react';
 import { axiosInstance } from '../global.ts';
 import { showNotification } from '@mantine/notifications';
 import TransactionEditForm from './TransactionEditForm';
+import { Button } from './ui/button.tsx';
+import { useTranslation } from 'react-i18next';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog.tsx';
 
 export default function NewTransactionButton() {
   const isMobile = useMediaQuery('(max-width: 600px)');
-
+  const { t } = useTranslation();
   const [isOpen, isOpenHandler] = useDisclosure(false);
   const [data, setData] = useState<any>({});
   const [isValid, setIsValid] = useState<boolean>(false);
@@ -24,7 +26,7 @@ export default function NewTransactionButton() {
           message: '',
         });
       })
-      .catch(function(error) {
+      .catch(function (error) {
         showNotification({
           title: 'Fail to create new Transaction',
           color: 'red',
@@ -37,21 +39,19 @@ export default function NewTransactionButton() {
 
   return (
     <>
-      <Button size="xs" fullWidth leftSection={<IconSquarePlus />} onClick={() => isOpenHandler.open()}>
-        NEW TRANSACTION
-      </Button>
-
-      <Modal
-        onClose={() => isOpenHandler.close()}
-        opened={isOpen}
-        size="xl"
-        centered
-        closeOnEscape
-        // overflow="inside"
-        title="New Transaction"
-        fullScreen={isMobile}
-      >
-        <Container>
+      <Dialog open={isOpen} onOpenChange={isOpenHandler.toggle} >
+        <DialogTrigger>
+          <Button onClick={() => isOpenHandler.open()}>
+          {t('NEW_TRANSACTION_BUTTON')}
+        </Button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>{t('NEW_TRANSACTION_DIALOG_TITLE')}</DialogTitle>
+            <DialogDescription hidden>
+              {t('NEW_TRANSACTION_DIALOG_DESCRIPTION')}
+            </DialogDescription>
+          </DialogHeader>
           <TransactionEditForm
             onChange={(data, isValid) => {
               setData(data);
@@ -60,16 +60,17 @@ export default function NewTransactionButton() {
             }}
           ></TransactionEditForm>
 
-          <Group justify="right" my="md">
+          <DialogFooter>
             <Button variant="outline" onClick={isOpenHandler.close}>
-              Cancel
+              {t('NEW_TRANSACTION_CANCEL')}
             </Button>
-            <Button mr={3} onClick={onCreate} disabled={!isValid}>
-              Save
+            <Button onClick={onCreate} disabled={!isValid}>
+              {t('NEW_TRANSACTION_SAVE')}
             </Button>
-          </Group>
-        </Container>
-      </Modal>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </>
   );
 }

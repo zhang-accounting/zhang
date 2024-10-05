@@ -7,15 +7,17 @@ import { useTranslation } from 'react-i18next';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { selectAtom } from 'jotai/utils';
 import AccountTrie from '../utils/AccountTrie';
-import { titleAtom } from '../states/basic';
-import { useMemo } from 'react';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
+import { useEffect, useMemo } from 'react';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { ACCOUNTS_LINK } from '@/layout/Sidebar';
 
 export default function Accounts() {
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { t } = useTranslation();
   const [filterKeyword, setFilterKeyword] = useInputState('');
   const [hideClosedAccount, setHideClosedAccount] = useLocalStorage({ key: 'hideClosedAccount', defaultValue: false });
@@ -51,7 +53,9 @@ export default function Accounts() {
   const ledgerTitle = useAtomValue(titleAtom);
 
   useDocumentTitle(`Accounts - ${ledgerTitle}`);
-
+  useEffect(() => {
+    setBreadcrumb([ACCOUNTS_LINK]);
+  }, []);
   return (
     <div>
 

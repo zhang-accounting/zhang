@@ -13,15 +13,16 @@ import DocumentPreview from '../components/journalPreview/DocumentPreview';
 import { useDocumentTitle } from '@mantine/hooks';
 import { createStyles } from '@mantine/emotion';
 import { AccountBalanceHistoryGraph } from '../components/AccountBalanceHistoryGraph';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ImageLightBox } from '../components/ImageLightBox';
-import { useAtomValue } from 'jotai/index';
-import { titleAtom } from '../states/basic';
+import { useAtomValue, useSetAtom } from 'jotai/index';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { TableRow, TableCell, Table, TableHead, TableBody, TableHeader } from '@/components/ui/table.tsx';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx';
 import { CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 import { Card } from '@/components/ui/card.tsx';
 import { Badge } from '@/components/ui/badge.tsx';
+import { ACCOUNTS_LINK } from '@/layout/Sidebar.tsx';
 
 const useStyles = createStyles((theme, _) => ({
   calculatedAmount: {
@@ -34,6 +35,8 @@ const useStyles = createStyles((theme, _) => ({
 }));
 
 function SingleAccount() {
+  
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   let { accountName } = useParams();
   const { classes } = useStyles();
 
@@ -47,6 +50,10 @@ function SingleAccount() {
 
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
+  
+  useEffect(() => {
+    setBreadcrumb([ACCOUNTS_LINK, { label: accountName ?? '', uri: `/accounts/${accountName}` }]);
+  }, [accountName]);
 
   if (error) return <div>failed to load</div>;
   if (!account) return <div>{error}</div>;

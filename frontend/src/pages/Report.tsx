@@ -6,7 +6,6 @@ import Section from '../components/Section';
 import StatusGroup from '../components/StatusGroup';
 import { StatisticGraphResponse, StatisticResponse, StatisticTypeResponse } from '../rest-model';
 import PayeeNarration from '../components/basic/PayeeNarration';
-import BigNumber from 'bignumber.js';
 import { useDocumentTitle } from '@mantine/hooks';
 import { useAtomValue } from 'jotai/index';
 import { titleAtom } from '../states/basic';
@@ -22,8 +21,6 @@ import { CalendarIcon } from '@radix-ui/react-icons';
 import { format } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar.tsx';
 import { DateRange } from 'react-day-picker';
-import { ChartConfig } from '@/components/ui/chart.tsx';
-import { encodeBase64 } from '@/utils/encode.ts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 
 

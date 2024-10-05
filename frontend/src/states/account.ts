@@ -21,7 +21,10 @@ export const accountSelectItemsAtom = atom((get) => {
       .sort()
       .map((groupName) => ({
         group: groupName,
-        items: groupedAccount[groupName],
+        items: groupedAccount[groupName].map((it) => ({
+          value: it,
+          label: it,
+        })),
       }));
   });
 });
