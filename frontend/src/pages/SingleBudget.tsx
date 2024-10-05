@@ -97,35 +97,35 @@ function SingleBudget() {
 
       <Table verticalSpacing="xs" withTableBorder>
         <Table.Thead>
-          <Table.Tr>
+          <TableRow>
             <Table.Th>Date</Table.Th>
             <Table.Th>Activity</Table.Th>
             <Table.Th>Account</Table.Th>
             <Table.Th style={{ textAlign: 'end' }}>Assigned Amount</Table.Th>
             <Table.Th style={{ textAlign: 'end' }}>Activity Amount</Table.Th>
-          </Table.Tr>
+          </TableRow>
         </Table.Thead>
         <tbody>
         {(budget_interval_event ?? []).map((it) => {
           return (
-            <Table.Tr>
-              <Table.Td>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</Table.Td>
-              <Table.Td>{'event_type' in it ? it.event_type :
-                <PayeeNarration payee={it.payee} narration={it.narration} />}</Table.Td>
-              <Table.Td>
+            <TableRow>
+              <TableCell>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</TableCell>
+              <TableCell>{'event_type' in it ? it.event_type :
+                <PayeeNarration payee={it.payee} narration={it.narration} />}</TableCell>
+              <TableCell>
                 {!('event_type' in it) && (
                   <Badge color="pink" variant="filled">
                     {it.account}
                   </Badge>
                 )}
-              </Table.Td>
-              <Table.Td style={{ textAlign: 'end' }}>{'event_type' in it &&
-                <Amount amount={it.amount.number} currency={it.amount.currency} />}</Table.Td>
-              <Table.Td style={{ textAlign: 'end' }}>
+              </TableCell>
+              <TableCell style={{ textAlign: 'end' }}>{'event_type' in it &&
+                <Amount amount={it.amount.number} currency={it.amount.currency} />}</TableCell>
+              <TableCell style={{ textAlign: 'end' }}>
                 {!('event_type' in it) &&
                   <Amount amount={it.inferred_unit_number} currency={it.inferred_unit_commodity} />}
-              </Table.Td>
-            </Table.Tr>
+              </TableCell>
+            </TableRow>
           );
         })}
         </tbody>

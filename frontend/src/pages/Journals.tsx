@@ -1,10 +1,8 @@
-import { Button, CloseButton, Group, Input, Pagination, Pill, Table, Text } from '@mantine/core';
+import { Card, Group, Pill, Text } from '@mantine/core';
 import { useEffect, useMemo, useState } from 'react';
 import TableViewJournalLine from '../components/journalLines/tableView/TableViewJournalLine';
-import { Heading } from '../components/basic/Heading';
 import { useTranslation } from 'react-i18next';
 import { useDebouncedValue, useDocumentTitle } from '@mantine/hooks';
-import { IconFilter } from '@tabler/icons-react';
 import { JournalListSkeleton } from '../components/skeletons/journalListSkeleton';
 import { useAtomValue } from 'jotai/index';
 import { titleAtom } from '../states/basic';
@@ -12,7 +10,12 @@ import { groupedJournalsAtom, journalAtom, journalFetcher, journalKeywordAtom, j
 import { useAtom, useSetAtom } from 'jotai';
 import { loadable_unwrap } from '../states';
 import { selectAtom } from 'jotai/utils';
-
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
+import { EnvelopeOpenIcon } from '@radix-ui/react-icons';
+import {  X } from 'lucide-react';
 function Journals() {
   const { t } = useTranslation();
   const [filter, setFilter] = useState('');
@@ -51,68 +54,101 @@ function Journals() {
   };
 
   return (
-    <>
-      <Heading title={`${total_count} Journals`}></Heading>
-      <Group my="lg" px="sm">
-        <Button variant="outline" color="gray" radius="xl" size="xs" onClick={() => refreshJournals()}>
-          {t('REFRESH')}
-        </Button>
+    <div>
+      <div className="flex flex-1 items-center justify-between space-x-2 mb-4">
+        <div className="flex flex-1 space-x-2 items-end">
         <Input
-          leftSection={<IconFilter size="1rem" />}
+          className="w-[33%]"
           placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
           value={filter}
           onChange={(event: any) => setFilter(event.currentTarget.value)}
-          rightSection={<CloseButton aria-label={t('ACCOUNT_FILTER_CLOSE_BUTTON_ARIA')} onClick={() => setFilter('')} />}
         />
-      </Group>
-      <Group my="lg" px="sm">
-        {journalTags.map((tag, index) => (
-          <Pill key={index} withRemoveButton onRemove={() => removeTag(tag)}>
+        {journalTags.map((tag) => (
+            <Button className="pr-1" variant="secondary" size="sm" onClick={() => removeTag(tag)}>
             #{tag}
-          </Pill>
+            <X className="ml-1 h-3 w-3" />
+            </Button>
         ))}
-        {journalLinks.map((link, index) => (
-          <Pill key={index} withRemoveButton onRemove={() => removeLink(link)}>
-            ^{link}
-          </Pill>
+        {journalLinks.map((link) => (
+          <Button key={link} onClick={() => removeLink(link)} variant="secondary" size="sm" className="pr-1">
+          ^{link}
+          <X className="ml-1 h-3 w-3" />
+        </Button>
         ))}
-      </Group>
-      <Table verticalSpacing="xs" withTableBorder>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th style={{ width: '100px' }}>Date</Table.Th>
-            <Table.Th style={{ width: '10px' }}>Type</Table.Th>
-            <Table.Th>Payee · Narration</Table.Th>
-            <Table.Th style={{ textAlign: 'right' }}>Amount</Table.Th>
-            <Table.Th style={{ textAlign: 'right' }}>Operation</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {(journalItems.state === 'loading' || journalItems.state === 'hasError') && <JournalListSkeleton />}
-          {journalItems.state === 'hasData' &&
-            Object.keys(groupedRecords).map((date) => {
-              return (
-                <>
-                  <Table.Tr key={date}>
-                    <Table.Td colSpan={6}>
-                      <Text c={'dimmed'} size={'sm'}>
-                        {date}
-                      </Text>
-                    </Table.Td>
-                  </Table.Tr>
-                  {groupedRecords[date].map((journal) => (
-                    <TableViewJournalLine key={journal.id} data={journal} />
-                  ))}
-                </>
-              );
-            })}
-        </Table.Tbody>
-      </Table>
-
-      <Group justify={'center'}>
-        <Pagination my="xs" total={total_page} value={journalPage} onChange={onPage} />
-      </Group>
-    </>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => refreshJournals()}
+        >
+          {t('REFRESH')}
+        </Button>
+      </div>
+     
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[100px] ">Date</TableHead>
+              <TableHead className=""></TableHead>
+              <TableHead className="">Payee · Narration</TableHead>
+              <TableHead className="text-right ">Amount</TableHead>
+              <TableHead className="text-right ">Operation</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(journalItems.state === 'loading' || journalItems.state === 'hasError') && <JournalListSkeleton />}
+            {journalItems.state === 'hasData' &&
+              Object.keys(groupedRecords).map((date) => {
+                return (
+                  <>
+                    <TableRow key={date}>
+                      <TableCell colSpan={6}>
+                        <Text c={'dimmed'} size={'sm'}>
+                          {date}
+                        </Text>
+                      </TableCell>
+                    </TableRow>
+                    {groupedRecords[date].map((journal) => (
+                      <TableViewJournalLine key={journal.id} data={journal} />
+                    ))}
+                  </>
+                );
+              })}
+          </TableBody>
+        </Table>
+      </div>
+      <Pagination>
+        <PaginationContent>
+          {journalPage > 1 && (
+            <PaginationItem>
+              <PaginationPrevious href="#" onClick={() => onPage(journalPage - 1)} />
+            </PaginationItem>
+          )}
+          {journalPage > 1 && (
+            <PaginationItem>
+              <PaginationLink href="#">
+                {journalPage - 1}
+              </PaginationLink>
+            </PaginationItem>
+          )}
+          <PaginationItem>
+            <PaginationLink href="#" isActive>
+              {journalPage}
+            </PaginationLink>
+          </PaginationItem>
+          {journalPage < total_page && (
+            <PaginationItem>
+              <PaginationLink href="#">{journalPage + 1}</PaginationLink>
+            </PaginationItem>
+          )}
+          {journalPage < total_page && (
+            <PaginationItem>
+              <PaginationNext href="#" onClick={() => onPage(journalPage + 1)} />
+            </PaginationItem>
+          )}
+        </PaginationContent>
+      </Pagination>
+    </div>
   );
 }
 

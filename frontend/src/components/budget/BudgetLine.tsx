@@ -15,8 +15,8 @@ export default function BudgetLine(props: Props) {
     2,
   );
   return (
-    <Table.Tr style={{ position: 'relative', zIndex: 1 }}>
-      <Table.Td>
+    <TableRow style={{ position: 'relative', zIndex: 1 }}>
+      <TableCell>
         <BackgroundProgress percentage={number} />
         <Group>
           <Space w={16}></Space>
@@ -24,17 +24,17 @@ export default function BudgetLine(props: Props) {
             {props.alias ?? props.name}
           </span>
         </Group>
-      </Table.Td>
-      <Table.Td style={{ textAlign: 'end' }}>{number} %</Table.Td>
-      <Table.Td style={{ textAlign: 'end' }}>
+      </TableCell>
+      <TableCell style={{ textAlign: 'end' }}>{number} %</TableCell>
+      <TableCell style={{ textAlign: 'end' }}>
         <Amount amount={props.assigned_amount.number} currency={props.assigned_amount.currency} />
-      </Table.Td>
-      <Table.Td style={{ textAlign: 'end' }}>
+      </TableCell>
+      <TableCell style={{ textAlign: 'end' }}>
         <Amount amount={props.activity_amount.number} currency={props.activity_amount.currency} />
-      </Table.Td>
-      <Table.Td style={{ textAlign: 'end' }}>
+      </TableCell>
+      <TableCell style={{ textAlign: 'end' }}>
         <Amount amount={props.available_amount.number} currency={props.available_amount.currency} />
-      </Table.Td>
-    </Table.Tr>
+      </TableCell>
+    </TableRow>
   );
 }

@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Group, Stack, Table } from '@mantine/core';
+import { ActionIcon, Group, Stack, Table } from '@mantine/core';
 import { IconFile, IconPencil, IconZoomExclamation } from '@tabler/icons-react';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../../rest-model';
@@ -9,6 +9,8 @@ import PayeeNarration from '../../basic/PayeeNarration';
 import { createStyles, getStylesRef } from '@mantine/emotion';
 import { journalLinksAtom, journalTagsAtom } from '../../../states/journals';
 import { useAtom } from 'jotai';
+import { TableRow, TableCell } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
 
 const useStyles = createStyles((theme, _, u) => ({
   positiveAmount: {
@@ -99,34 +101,34 @@ export default function TableViewTransactionLine({ data }: Props) {
   const summary = calculate(data);
   const hasDocuments = data.metas.some((meta) => meta.key === 'document');
   return (
-    <Table.Tr className={`${classes.actionHider} ${!data.is_balanced ? classes.notBalance : ''} ${data.flag === '!' ? classes.warning : ''}`}>
-      <Table.Td>{time}</Table.Td>
-      <Table.Td>
-        <Badge color="gray" size="xs" variant="outline">
+    <TableRow className={` p-1 ${classes.actionHider} ${!data.is_balanced ? 'border-l-[3px] border-l-red-500' : ''} ${data.flag === '!' ? 'border-l-[3px] border-l-orange-500' : ''}`}>
+      <TableCell>{time}</TableCell>
+      <TableCell>
+        <Badge color="gray" variant="outline">
           TRX
         </Badge>
-      </Table.Td>
-      <Table.Td>
+      </TableCell>
+      <TableCell>
         <Stack gap={'xs'}>
           <Group align="center" gap="xs">
             <PayeeNarration payee={data.payee} narration={data.narration} />
             {data.links &&
               data.links.map((it) => (
-                <Badge key={it} color="blue" variant="outline" size="xs" onClick={() => handleLinkClick(it)()}>
+                <Badge key={it} className="cursor-pointer" color="blue" variant="secondary"  onClick={() => handleLinkClick(it)()}>
                   ^{it}
                 </Badge>
               ))}
             {data.tags &&
               data.tags.map((tag) => (
-                <Badge key={tag} color="blue" variant="outline" size="xs" onClick={() => handleTagClick(tag)()}>
+                <Badge key={tag} className="cursor-pointer" color="blue" variant="secondary"  onClick={() => handleTagClick(tag)()}>
                   #{tag}
                 </Badge>
               ))}
             {hasDocuments && <IconFile size="1rem" color={'gray'} stroke={1}></IconFile>}
           </Group>
         </Stack>
-      </Table.Td>
-      <Table.Td>
+      </TableCell>
+      <TableCell>
         {Array.from(summary.values()).map((each) => (
           <Group
             align="center"
@@ -138,8 +140,8 @@ export default function TableViewTransactionLine({ data }: Props) {
             <Amount amount={each.number} currency={each.currency} />
           </Group>
         ))}
-      </Table.Td>
-      <Table.Td>
+      </TableCell>
+      <TableCell>
         <div className={classes.actions}>
           <ActionIcon color="gray" variant="white" size="sm" onClick={openEditModel}>
             <IconPencil size="1rem" />
@@ -148,7 +150,7 @@ export default function TableViewTransactionLine({ data }: Props) {
             <IconZoomExclamation size="1rem" />
           </ActionIcon>
         </div>
-      </Table.Td>
-    </Table.Tr>
+      </TableCell>
+    </TableRow>
   );
 }

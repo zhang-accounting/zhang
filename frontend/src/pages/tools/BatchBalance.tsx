@@ -122,23 +122,23 @@ export default function BatchBalance() {
       </Group>
       <Table verticalSpacing="xs" highlightOnHover>
         <Table.Thead>
-          <Table.Tr>
+          <TableRow>
             <Table.Th>Account</Table.Th>
             <Table.Th>Commodity</Table.Th>
             <Table.Th>Current Balance</Table.Th>
             <Table.Th>Pad Account</Table.Th>
             <Table.Th>Destination</Table.Th>
-          </Table.Tr>
+          </TableRow>
         </Table.Thead>
         <tbody>
         {accounts.map((account, idx) => (
-          <Table.Tr key={`${account.accountName}-${account.commodity}`}>
-            <Table.Td>{account.accountName}</Table.Td>
-            <Table.Td>{account.commodity}</Table.Td>
-            <Table.Td>
+          <TableRow key={`${account.accountName}-${account.commodity}`}>
+            <TableCell>{account.accountName}</TableCell>
+            <TableCell>{account.commodity}</TableCell>
+            <TableCell>
               <Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity}></Amount>
-            </Table.Td>
-            <Table.Td>
+            </TableCell>
+            <TableCell>
               <Select
                 searchable
                 clearable
@@ -149,8 +149,8 @@ export default function BatchBalance() {
                   updateBalanceLineItem(idx, e ?? undefined, account.balanceAmount);
                 }}
               />
-            </Table.Td>
-            <Table.Td>
+            </TableCell>
+            <TableCell>
               <TextInput
                 error={account.error}
                 value={account.balanceAmount}
@@ -158,8 +158,8 @@ export default function BatchBalance() {
                   updateBalanceLineItem(idx, account.pad ?? undefined, e.target.value);
                 }}
               ></TextInput>
-            </Table.Td>
-          </Table.Tr>
+            </TableCell>
+          </TableRow>
         ))}
         </tbody>
       </Table>

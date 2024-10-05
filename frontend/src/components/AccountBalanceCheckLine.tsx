@@ -51,16 +51,16 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
   };
   return (
     <>
-      <Table.Tr>
-        <Table.Td>{commodity}</Table.Td>
-        <Table.Td>
+      <TableRow>
+        <TableCell>{commodity}</TableCell>
+        <TableCell>
           <Amount amount={currentAmount} currency={commodity} />
-        </Table.Td>
-        <Table.Td>{}</Table.Td>
-        <Table.Td>
+        </TableCell>
+        <TableCell>{}</TableCell>
+        <TableCell>
           <Autocomplete placeholder="Pad to" data={accountItems} value={padAccount} onChange={setPadAccount} />
-        </Table.Td>
-        <Table.Td>
+        </TableCell>
+        <TableCell>
           <Group gap={'xs'}>
             <TextInput placeholder={`Balanced ${commodity} Amount`} value={amount}
                        onChange={(e) => setAmount(e.target.value)}></TextInput>
@@ -68,8 +68,8 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
               {padAccount ? 'Pad' : 'Balance'}
             </Button>
           </Group>
-        </Table.Td>
-      </Table.Tr>
+        </TableCell>
+      </TableRow>
     </>
   );
 }

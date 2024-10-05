@@ -1,58 +1,59 @@
-import { Skeleton, Table } from '@mantine/core';
+import { Skeleton } from '@mantine/core';
+import { TableRow, TableCell } from '../ui/table';
 
 export function JournalListSkeleton() {
   return (
     <>
-      <Table.Tr>
-        <Table.Td colSpan={6}>
+      <TableRow>
+        <TableCell colSpan={6}>
           <Skeleton height={20} width="30%" mt={10} radius="xs" />
-        </Table.Td>
-      </Table.Tr>
-      <Table.Tr>
-        <Table.Td colSpan={6}>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell colSpan={6}>
           <Skeleton height={20} mt={10} radius="xs" />
-        </Table.Td>
-      </Table.Tr>
-      <Table.Tr>
-        <Table.Td colSpan={6}>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell colSpan={6}>
           <Skeleton height={20} mt={10} radius="xs" />
-        </Table.Td>
-      </Table.Tr>
-      <Table.Tr>
-        <Table.Td colSpan={6}>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell colSpan={6}>
           <Skeleton height={20} mt={10} radius="xs" />
-        </Table.Td>
-      </Table.Tr>
-      <Table.Tr>
-        <Table.Td colSpan={6}>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell colSpan={6}>
           <Skeleton height={20} width="30%" mt={10} radius="xs" />
-        </Table.Td>
-      </Table.Tr>
-      <Table.Tr>
-        <Table.Td colSpan={6}>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell colSpan={6}>
           <Skeleton height={20} mt={10} radius="xs" />
-        </Table.Td>
-      </Table.Tr>
-      <Table.Tr>
-        <Table.Td colSpan={6}>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell colSpan={6}>
           <Skeleton height={20} mt={10} radius="xs" />
-        </Table.Td>
-      </Table.Tr>
-      <Table.Tr>
-        <Table.Td colSpan={6}>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell colSpan={6}>
           <Skeleton height={20} mt={10} radius="xs" />
-        </Table.Td>
-      </Table.Tr>
-      <Table.Tr>
-        <Table.Td colSpan={6}>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell colSpan={6}>
           <Skeleton height={20} width="30%" mt={10} radius="xs" />
-        </Table.Td>
-      </Table.Tr>
-      <Table.Tr>
-        <Table.Td colSpan={6}>
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell colSpan={6}>
           <Skeleton height={20} mt={10} radius="xs" />
-        </Table.Td>
-      </Table.Tr>
+        </TableCell>
+      </TableRow>
     </>
   );
 }
