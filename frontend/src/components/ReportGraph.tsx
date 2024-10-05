@@ -2,39 +2,33 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 import { max, min, sortBy } from 'lodash-es';
 import { AccountType, StatisticGraphResponse } from '../rest-model';
-import { ChartTooltipProps, LineChart } from '@mantine/charts';
-import { Paper, Text } from '@mantine/core';
-import Amount from './Amount';
+import { Bar, CartesianGrid, ComposedChart, Line, XAxis } from 'recharts';
+import { ChartConfig, ChartContainer, ChartTooltipContent, ChartTooltip } from './ui/chart';
 
-function ChartTooltip({
-  label,
-  payload,
-  total_min,
-  commodity,
-}: ChartTooltipProps & {
-  total_min: number;
-  commodity: string;
-}) {
-  if (!payload) return null;
 
-  return (
-    <Paper px="md" py="sm" withBorder shadow="md" radius="md">
-      <Text fw={500} mb={5}>
-        {label}
-      </Text>
-      {payload.map((item: any) => (
-        <Text key={item.name} c={item.color} fz="sm">
-          {item.name}: <Amount amount={item.value} currency={commodity}></Amount>
-        </Text>
-      ))}
-    </Paper>
-  );
-}
+const chartConfig = {
+  total: {
+    label: "Total",
+    color: "#ff7300",
+  },
+  income: {
+    label: "Income",
+    color: "#2563eb",
+  },
+  expense: {
+    label: "Expense",
+    color: "#60a5fa",
+  },
+ 
+  } satisfies ChartConfig
+
 
 interface Props {
   data: StatisticGraphResponse;
   height: number;
 }
+
+
 
 export default function ReportGraph(props: Props) {
   const sequencedDate = sortBy(Object.keys(props.data.balances), (date) => new Date(date));
@@ -61,29 +55,28 @@ export default function ReportGraph(props: Props) {
     expense: expense_dataset[idx],
   }));
 
+  console.log(data);
   return (
     <>
-      <LineChart
-        h={300}
-        data={data}
-        dataKey="date"
-        withDots={false}
-        withRightYAxis
-        withLegend
-        tooltipProps={{
-          content: ({ label, payload }) => (
-            <ChartTooltip total_min={total_domain[0]} commodity={Object.values(props.data.balances)[0].calculated.currency} label={label} payload={payload} />
-          ),
-        }}
-        yAxisProps={{ type: 'number', scale: 'log', domain: total_domain }}
-        series={[
-          { name: 'total', color: 'violet.6' },
-          { name: 'income', color: 'indigo.6', yAxisId: 'right' },
-          { name: 'expense', color: 'pink', yAxisId: 'right' },
-        ]}
-        connectNulls
-        curveType="bump"
-      />
+      <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
+        <ComposedChart accessibilityLayer data={data}>
+          <XAxis
+            dataKey="date"
+            tickLine={false}
+            tickMargin={10}
+            axisLine={false}
+          />
+          <ChartTooltip content={<ChartTooltipContent />} />
+          <CartesianGrid vertical={false} />
+          
+          <Bar dataKey="income" stackId="a" fill="var(--color-income)" yAxisId="right" radius={4} />
+          <Bar dataKey="expense" stackId="a" fill="var(--color-expense)" yAxisId="right" radius={4} />
+          <Line type="monotone" dataKey="total" stroke="#ff7300" yAxisId="left" />
+        </ComposedChart>
+      </ChartContainer>
+
+      {/* todo log y axis */}
+      {/* todo chart color */}
     </>
   );
 }

@@ -54,7 +54,7 @@
     "react-router": "^6.23.1",
     "react-router-dom": "^6.23.1",
     "react-select": "^5.8.0",
-    "recharts": "2",
+    "recharts": "^2.12.7",
     "swr": "^2.2.5",
     "tailwind-merge": "^2.5.3",
     "tailwindcss-animate": "^1.0.7",
