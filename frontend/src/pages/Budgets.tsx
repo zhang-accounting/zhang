@@ -1,4 +1,3 @@
-import { ActionIcon, Button, Chip, Container, Group, Popover, Table, Title } from '@mantine/core';
 import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
 import { useState } from 'react';
 import { BudgetListItem } from '../rest-model';
@@ -7,11 +6,14 @@ import useSWR from 'swr';
 import { groupBy, sortBy } from 'lodash-es';
 import BudgetCategory from '../components/budget/BudgetCategory';
 import { format } from 'date-fns';
-import { MonthPicker } from '@mantine/dates';
-import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import { useAtomValue } from 'jotai/index';
 import { titleAtom } from '../states/basic';
 import { fetcher } from '../global.ts';
+import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { Switch } from '@/components/ui/switch.tsx';
+import { Label } from '@/components/ui/label.tsx';
+import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
 
 export default function Budgets() {
   const { t } = useTranslation();
@@ -37,54 +39,52 @@ export default function Budgets() {
   };
 
   return (
-    <Container fluid>
-      <Group>
-        <ActionIcon variant="white" onClick={() => goToMonth(-1)}>
-          <IconChevronLeft size="1.125rem" />
-        </ActionIcon>
-        <Popover position="bottom" withArrow shadow="md">
-          <Popover.Target>
-            <Title style={{ display: 'inline-block', cursor: 'pointer' }} order={2} py="md"
-                   px="xs">{`${format(date, 'MMM, yyyy')}`}</Title>
-          </Popover.Target>
-          <Popover.Dropdown>
-            <MonthPicker value={date} maxDate={new Date()} onChange={(newDate) => setDate(newDate ?? new Date())} />
-          </Popover.Dropdown>
-        </Popover>
-        <ActionIcon
-          variant="white"
-          onClick={() => goToMonth(1)}
-          disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}
-        >
-          <IconChevronRight size="1.125rem" />
-        </ActionIcon>
-      </Group>
+    <div>
 
-      <Group my="lg">
-        <Button variant="outline" color="gray" radius="xl" size="xs">
+      <div className='flex items-center justify-between gap-2'>
+        <div className='flex items-center gap-2'>
+          <Button variant="ghost" onClick={() => goToMonth(-1)}>
+            <ChevronLeftIcon className="h-4 w-4" />
+          </Button>
+          <h1 className="inline-block shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{`${format(date, 'MMM, yyyy')}`}</h1>
+          <Button
+            variant="ghost"
+            onClick={() => goToMonth(1)}
+            disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}
+          >
+            <ChevronRightIcon className="h-4 w-4" />
+          </Button>
+        </div>
+        <Button variant="outline" color="gray" >
           {t('REFRESH')}
         </Button>
-        <Chip checked={hideZeroAssignBudget} onChange={() => setHideZeroAssignBudget(!hideZeroAssignBudget)}>
-          Hide Zero Amount Assigned Budget
-        </Chip>
-      </Group>
-      <Table verticalSpacing="xs" withTableBorder>
-        <Table.Thead>
-          <TableRow>
-            <Table.Th>Category</Table.Th>
-            <Table.Th style={{ textAlign: 'end' }}>Percentage</Table.Th>
-            <Table.Th style={{ textAlign: 'end' }}>Assigned</Table.Th>
-            <Table.Th style={{ textAlign: 'end' }}>Activity</Table.Th>
-            <Table.Th style={{ textAlign: 'end' }}>Available</Table.Th>
-          </TableRow>
-        </Table.Thead>
-        <tbody>
-        {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (
-          <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]}
-                          items={entry[1]}></BudgetCategory>
-        ))}
-        </tbody>
-      </Table>
-    </Container>
+
+      </div>
+      <div className='flex items-center gap-2 mt-2'>
+        <Switch checked={hideZeroAssignBudget} onCheckedChange={(checked) => setHideZeroAssignBudget(checked)} />
+        <Label>Hide Zero Amount Assigned Budget</Label>
+      </div>
+
+
+      <div className="rounded-md border mt-4">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Category</TableHead>
+              <TableHead className="text-right">Percentage</TableHead>
+              <TableHead className="text-right">Assigned</TableHead>
+              <TableHead className="text-right">Activity</TableHead>
+              <TableHead className="text-right">Available</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (
+              <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]}
+                items={entry[1]}></BudgetCategory>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
   );
 }
