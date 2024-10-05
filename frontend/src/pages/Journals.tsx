@@ -15,6 +15,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
 import { X } from 'lucide-react';
 import { JOURNALS_LINK } from '@/layout/Sidebar';
+import { TransactionPreviewModal } from '@/components/modals/TransactionPreviewModal';
+import { TransactionEditModal } from '@/components/modals/TransactionEditModal';
 function Journals() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { t } = useTranslation();
@@ -51,12 +53,15 @@ function Journals() {
   useEffect(() => {
     setBreadcrumb([JOURNALS_LINK]);
   }, []); 
+  
   const onPage = (page: number) => {
     setJournalPage(page);
   };
 
   return (
     <div>
+      <TransactionPreviewModal />
+      <TransactionEditModal />
       <div className="flex flex-1 items-center justify-between space-x-2 mb-4">
         <div className="flex flex-1 space-x-2 items-end">
         <Input

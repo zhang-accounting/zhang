@@ -20,8 +20,7 @@ interface Props {
 
 export function Combobox(props: Props) {
   const [open, setOpen] = React.useState(false)
-  const [value, setValue] = React.useState("")
-
+  console.log("combobox", props.value);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -32,8 +31,8 @@ export function Combobox(props: Props) {
           aria-expanded={open}
           className="w-full justify-between"
         >
-          {value
-            ? props.options.find((option) => option.items.find((it) => it.value === value))?.items.find((it) => it.value === value)?.label
+          {props.value
+            ? props.options.flatMap(group => group.items).find(item => item.value === props.value)?.label
             : "Select Account..."}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -50,7 +49,6 @@ export function Combobox(props: Props) {
                     key={option.value}
                     value={option.value}
                     onSelect={(currentValue) => {
-                      setValue(currentValue === value ? "" : currentValue);
                       setOpen(false);
                       props.onChange?.(currentValue);
                     }}
@@ -58,7 +56,7 @@ export function Combobox(props: Props) {
                     <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value === option.value ? "opacity-100" : "opacity-0"
+                      props.value === option.value ? "opacity-100" : "opacity-0"
                     )}
                   />
                     {option.label}

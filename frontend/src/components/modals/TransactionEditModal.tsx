@@ -1,31 +1,32 @@
-import { ContextModalProps } from '@mantine/modals';
-import { JournalTransactionItem } from '../../rest-model';
 import TransactionEditForm from '../TransactionEditForm';
-import { useState } from 'react';
-import { Button, Group } from '@mantine/core';
+import { useEffect, useState } from 'react';
 import { showNotification } from '@mantine/notifications';
 import { axiosInstance } from '../../global.ts';
+import { useAtom } from 'jotai';
+import { editTransactionAtom } from '../../states/journals';
+import { useDisclosure } from '@mantine/hooks';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog.tsx';
 
-export const TransactionEditModal = ({
-                                       context,
-                                       id,
-                                       innerProps,
-                                     }: ContextModalProps<{
-  data: JournalTransactionItem;
-}>) => {
+import { t } from 'i18next';
+import { Button } from '../ui/button.tsx';
+export const TransactionEditModal = () => {
+
+  const [isOpen, isOpenHandler] = useDisclosure(false);
+  const [editTransaction, setEditTransaction] = useAtom(editTransactionAtom);
   const [data, setData] = useState<any>({});
   const [isValid, setIsValid] = useState<boolean>(false);
   const onUpdate = () => {
     axiosInstance
-      .put(`/api/transactions/${innerProps.data.id}`, data)
+      .put(`/api/transactions/${editTransaction?.id}`, data)
       .then((res) => {
         showNotification({
           title: 'transaction is updated',
           message: '',
         });
-        context.closeModal('transactionEditModal');
+        setEditTransaction(undefined);
+        isOpenHandler.close();
       })
-      .catch(function(error) {
+      .catch(function (error) {
         showNotification({
           title: 'Fail to update new Transaction',
           color: 'red',
@@ -35,21 +36,48 @@ export const TransactionEditModal = ({
         console.error(error);
       });
   };
+  const onChange = (open: boolean) => {
+    isOpenHandler.toggle();
+  };
+
+  useEffect(() => {
+    if (editTransaction) {
+      setData(editTransaction);
+      isOpenHandler.open();
+    }
+  }, [editTransaction]);
+
   return (
     <>
-      <TransactionEditForm
-        data={innerProps.data}
-        onChange={(data, isValid) => {
-          setData(data);
-          setIsValid(isValid);
-        }}
-      ></TransactionEditForm>
 
-      <Group justify="right" my="md">
-        <Button mr={3} onClick={onUpdate} disabled={!isValid}>
-          Save
-        </Button>
-      </Group>
+      <Dialog open={isOpen} onOpenChange={onChange}  >
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>{t('TRANSACTION_EDIT_MODAL_TITLE')}</DialogTitle>
+            <DialogDescription hidden>
+              {t('TRANSACTION_EDIT_MODAL_DESCRIPTION')}
+            </DialogDescription>
+          </DialogHeader>
+          <TransactionEditForm
+            data={editTransaction}
+            onChange={(data, isValid) => {
+              setData(data);
+              setIsValid(isValid);
+            }}
+          ></TransactionEditForm>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onChange(false)}>
+              {t('TRANSACTION_EDIT_MODAL_CLOSE')}
+            </Button>
+            <Button onClick={onUpdate} disabled={!isValid}>
+              {t('TRANSACTION_EDIT_MODAL_SAVE')}
+            </Button>
+
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </>
   );
 };
