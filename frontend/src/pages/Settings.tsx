@@ -1,4 +1,3 @@
-import { Box, Container, SegmentedControl, SimpleGrid, Skeleton, Table } from '@mantine/core';
 import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +10,9 @@ import { Heading } from '../components/basic/Heading';
 import PluginBox from '../components/PluginBox';
 import { titleAtom, versionAtom } from '../states/basic';
 import { useAtomValue } from 'jotai/index';
+import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
+import { Skeleton } from '@/components/ui/skeleton.tsx';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select.tsx';
 
 export default function Settings() {
   const { i18n } = useTranslation();
@@ -32,62 +34,66 @@ export default function Settings() {
   }, [lang, i18n]);
 
   return (
-    <Container fluid>
-      <Heading title={`Settings`}></Heading>
+    <div>
+      <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">Settings</h1>
       <Section title="Basic Setting">
-        <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Setting title="title" uppercase value={ledgerTitle} />
           <Setting title="version" uppercase value={ledgerVersion} />
-          <Box>
+          <div>
             <Setting title="language" uppercase />
-            <SegmentedControl
-              value={lang}
-              onChange={onLanguageChange}
-              color="blue"
-              data={[
-                { label: '中文', value: 'zh' },
-                { label: 'English', value: 'en' },
-              ]}
-            />
-          </Box>
-        </SimpleGrid>
+            <div className="mt-2">
+              <Select value={lang} onValueChange={onLanguageChange}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Select a fruit" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="zh">中文</SelectItem>
+                    <SelectItem value="en">English</SelectItem>
+                </SelectContent>
+              </Select>
+
+            </div>
+          </div>
+        </div>
       </Section>
       <Section title="Plugins">
-        <SimpleGrid cols={2}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {(plugins ?? []).map((plugin) => (
             <PluginBox name={plugin.name} version={plugin.version} plugin_type={plugin.plugin_type}></PluginBox>
           ))}
-        </SimpleGrid>
+        </div>
       </Section>
       <Section title="Options">
-        <Table verticalSpacing="xs" highlightOnHover>
-          <Table.Thead>
+
+        <Table >
+          <TableHeader>
             <TableRow>
-              <Table.Th>Key</Table.Th>
-              <Table.Th>Value</Table.Th>
+              <TableHead>Key</TableHead>
+              <TableHead>Value</TableHead>
             </TableRow>
-          </Table.Thead>
+          </TableHeader>
           <tbody>
-          {!data ? (
-            <TableRow>
-              <TableCell>
-                <Skeleton height={20} mt={10} radius="xs" />
-              </TableCell>
-              <TableCell>
-                <Skeleton height={20} mt={10} radius="xs" />
-              </TableCell>
-            </TableRow>
-          ) : (
-            data.map((option) => (
-              <TableRow key={option.key}>
-                <TableCell>{option.key}</TableCell>
-                <TableCell>{option.value}</TableCell>
+            {!data ? (
+              <TableRow>
+                <TableCell>
+                  <Skeleton className="h-20 w-full" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-20 w-full" />
+                </TableCell>
               </TableRow>
-            ))
-          )}
+            ) : (
+              data.map((option) => (
+                <TableRow key={option.key}>
+                  <TableCell className="m-1">{option.key}</TableCell>
+                  <TableCell className="m-1">{option.value}</TableCell>
+                </TableRow>
+              ))
+            )}
           </tbody>
         </Table>
       </Section>
-    </Container>
+    </div>
   );
 }
