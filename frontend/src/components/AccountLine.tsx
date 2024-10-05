@@ -1,23 +1,14 @@
-import { ActionIcon, Badge, Divider, Group, HoverCard, Space, Stack, Table, Text } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
-import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useNavigate } from 'react-router';
 import { AccountStatus } from '../rest-model';
 import AccountTrie from '../utils/AccountTrie';
 import Amount from './Amount';
-import { createStyles } from '@mantine/emotion';
 import { TableCell, TableRow } from './ui/table';
+import { Badge } from './ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { cn } from '@/lib/utils';
+import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 
-const useStyles = createStyles((theme, _, u) => ({
-  leaf: {
-    cursor: 'pointer',
-  },
-  nonLeaf: {},
-  leafAmount: {},
-  nonLeafAmount: {
-    color: theme.colors.gray[5],
-  },
-}));
 
 interface Props {
   data: AccountTrie;
@@ -26,13 +17,14 @@ interface Props {
 
 export default function AccountLine({ data, spacing }: Props) {
   let navigate = useNavigate();
-  const { classes } = useStyles();
   const [isShow, setCollapse] = useLocalStorage({ key: `account-collapse-${data.path}`, defaultValue: false });
 
   const haveMultipleCommodity = Object.keys(data.amount.data).length > 1;
   const onNavigate = () => {
     if (data?.val?.name) {
       navigate(data?.val?.name);
+    }else {
+      setCollapse(!isShow)
     }
   };
   const hasChildren = Object.keys(data.children).length > 0;
@@ -41,67 +33,67 @@ export default function AccountLine({ data, spacing }: Props) {
     <>
       <TableRow>
         <TableCell>
-          <div style={{ display: 'flex' }}>
-            <Space w={spacing * 22}></Space>
-            {hasChildren ? (
-              <ActionIcon size="sm" color="gray" variant="transparent" onClick={() => setCollapse(!isShow)}>
-                {isShow ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
-              </ActionIcon>
-            ) : (
-              <Space w={22}></Space>
+          <div className="flex items-center gap-2">
+            <div style={{width: `${spacing * 20}px`}}></div>
+            {hasChildren ? 
+                isShow 
+                ?  <ChevronDownIcon onClick={() => setCollapse(!isShow)} className="h-5 w-5 cursor-pointer" />
+                 :  <ChevronRightIcon onClick={() => setCollapse(!isShow)} className="h-5 w-5 cursor-pointer" />
+            : (
+              <div style={{width: `${spacing * 20}px`}}></div>
             )}
-            <div onClick={onNavigate} className={data.isLeaf ? classes.leaf : classes.nonLeaf}>
-              <Group>
+            <div onClick={onNavigate} className="cursor-pointer">
+              <div className="flex items-center gap-2">
                 <span>{data.val?.alias ?? data.word}</span>
                 {data.val?.status === AccountStatus.Close && (
-                  <Badge size="xs" color="red" variant="dot">
+                  <Badge variant="outline">
                     {data.val?.status}
                   </Badge>
                 )}
-              </Group>
+              </div>
 
               {data.val && (
-                <Text color="dimmed" size="xs">
+                <span className="text-xs text-gray-500">
                   {data.val?.name}
-                </Text>
+                </span>
               )}
             </div>
           </div>
         </TableCell>
         <TableCell>
-          <Group justify="right">
+          <div className="flex justify-end gap-2">
             {haveMultipleCommodity ? (
-              <HoverCard width={280} shadow="md" withArrow position="left">
-                <HoverCard.Target>
-                  <Group gap="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
-                    <Text>≈</Text> <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
-                  </Group>
-                </HoverCard.Target>
-                <HoverCard.Dropdown>
-                  <Stack gap="xs">
-                    {Object.entries(data.amount.data).map(([key, value]) => (
-                      <Group justify="space-between">
-                        <Text>+</Text>
-                        <Amount amount={value} currency={key}></Amount>
-                      </Group>
-                    ))}
-                    <Divider variant="dashed" labelPosition="left" />
-                    <Group justify="space-between">
-                      <Text>=</Text>
-                      <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
-                    </Group>
-                  </Stack>
-                </HoverCard.Dropdown>
-              </HoverCard>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <div className={cn(data.isLeaf ? "cursor-pointer" : "", 'flex gap-2')}>
+                      <span>≈</span> <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <div className="flex flex-col gap-2">
+                      {Object.entries(data.amount.data).map(([key, value]) => (
+                        <div className="flex justify-between">
+                          <span>+</span>
+                          <Amount amount={value} currency={key}></Amount>
+                        </div>
+                      ))}
+                      <div className="flex justify-between">
+                        <span>=</span>
+                        <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
+                      </div>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             ) : (
-              <Group gap="xs" className={data.isLeaf ? classes.leafAmount : classes.nonLeafAmount}>
+              <div className={cn(data.isLeaf ? "cursor-pointer" : "", 'flex gap-2')}>
                 <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
-              </Group>
+              </div>
             )}
-          </Group>
+          </div>
         </TableCell>
       </TableRow>
-
       {isShow &&
         Object.keys(data.children)
           .sort()

@@ -1,4 +1,3 @@
-import { Autocomplete, Button, Group, Table, TextInput } from '@mantine/core';
 import { useState } from 'react';
 import { showNotification } from '@mantine/notifications';
 import { accountFetcher, accountSelectItemsAtom } from '../states/account';
@@ -7,6 +6,10 @@ import { useAtomValue } from 'jotai';
 import { useSetAtom } from 'jotai/index';
 import { axiosInstance } from '../global.ts';
 import { TableRow, TableCell } from './ui/table.tsx';
+import { Combobox } from './ui/combobox.tsx';
+import { Input } from './ui/input.tsx';
+import { Group } from '@mantine/core';
+import { Button } from './ui/button.tsx';
 
 interface Props {
   currentAmount: string;
@@ -59,16 +62,16 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
         </TableCell>
         <TableCell>{}</TableCell>
         <TableCell>
-          <Autocomplete placeholder="Pad to" data={accountItems} value={padAccount} onChange={setPadAccount} />
+          <Combobox placeholder="Pad to" options={accountItems} value={padAccount} onChange={(value) => setPadAccount(value ?? '')} />
         </TableCell>
         <TableCell>
-          <Group gap={'xs'}>
-            <TextInput placeholder={`Balanced ${commodity} Amount`} value={amount}
-                       onChange={(e) => setAmount(e.target.value)}></TextInput>
+          <div className="flex items-center gap-2">
+            <Input type="number" placeholder={`Balanced ${commodity} Amount`} value={amount}
+                       onChange={(e) => setAmount(e.target.value)}></Input>
             <Button size="sm" onClick={submitCheck} disabled={amount.length === 0}>
               {padAccount ? 'Pad' : 'Balance'}
             </Button>
-          </Group>
+          </div>
         </TableCell>
       </TableRow>
     </>

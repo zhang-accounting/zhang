@@ -6,7 +6,7 @@ import React from "react"
 import { cn } from "@/lib/utils"
 
 interface Props {
-
+  placeholder?: string
   value?: string
   onChange?: (value?: string) => void
   options: {
@@ -33,7 +33,7 @@ export function Combobox(props: Props) {
         >
           {props.value
             ? props.options.flatMap(group => group.items).find(item => item.value === props.value)?.label
-            : "Select Account..."}
+            : props.placeholder ?? "Select Account..."}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
