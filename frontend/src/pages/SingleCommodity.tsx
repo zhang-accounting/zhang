@@ -20,7 +20,7 @@ export default function SingleCommodity() {
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${commodityName} | Commodities - ${ledgerTitle}`);
   useEffect(() => {
-    setBreadcrumb([COMMODITIES_LINK, { label: commodityName ?? '', uri: `/commodities/${commodityName}` }]);
+    setBreadcrumb([COMMODITIES_LINK, { label: commodityName ?? '', uri: `/commodities/${commodityName}`, noTranslate: true }]);
   }, [commodityName]);  
   if (error) return <div>failed to load</div>;
   if (!data) return <div>loading</div>;

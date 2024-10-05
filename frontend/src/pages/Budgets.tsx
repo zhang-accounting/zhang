@@ -28,7 +28,7 @@ export default function Budgets() {
   useDocumentTitle(`Budgets - ${ledgerTitle}`);
 
   useEffect(() => {
-    setBreadcrumb([BUDGETS_LINK, { label: `Budget ${format(date, 'MMM, yyyy')}`, uri: `/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}` }]);
+    setBreadcrumb([BUDGETS_LINK, { label: `Budget ${format(date, 'MMM, yyyy')}`, uri: `/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, noTranslate: true }]);
   }, [date]);
 
   const {

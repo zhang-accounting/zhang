@@ -52,7 +52,7 @@ function SingleAccount() {
   useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
   
   useEffect(() => {
-    setBreadcrumb([ACCOUNTS_LINK, { label: accountName ?? '', uri: `/accounts/${accountName}` }]);
+    setBreadcrumb([ACCOUNTS_LINK, { label: accountName ?? '', uri: `/accounts/${accountName}`, noTranslate: false }]);
   }, [accountName]);
 
   if (error) return <div>failed to load</div>;
