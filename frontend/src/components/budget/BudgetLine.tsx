@@ -5,6 +5,8 @@ import Amount from '../Amount';
 import BigNumber from 'bignumber.js';
 import BackgroundProgress from '../basic/BackgroundProgress';
 import { useNavigate } from 'react-router';
+import { TableCell } from '../ui/table';
+import { TableRow } from '../ui/table';
 
 interface Props extends BudgetListItem {
 }
@@ -15,8 +17,8 @@ export default function BudgetLine(props: Props) {
     2,
   );
   return (
-    <TableRow style={{ position: 'relative', zIndex: 1 }}>
-      <TableCell>
+    <TableRow className='relative z-[1]'>
+      <TableCell className='py-3'>
         <BackgroundProgress percentage={number} />
         <Group>
           <Space w={16}></Space>

@@ -1,4 +1,3 @@
-import { ActionIcon, Group, Table } from '@mantine/core';
 import * as React from 'react';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useLocalStorage } from '@mantine/hooks';
@@ -8,6 +7,8 @@ import BudgetLine from './BudgetLine';
 import BigNumber from 'bignumber.js';
 import Amount from '../Amount';
 import BackgroundProgress from '../basic/BackgroundProgress';
+import { TableCell, TableRow } from '../ui/table';
+import { Button } from '../ui/button';
 
 interface Props {
   name: string;
@@ -49,33 +50,33 @@ export default function BudgetCategory(props: Props) {
 
   return (
     <>
-      <TableRow style={{ position: 'relative', zIndex: 1 }}>
+      <TableRow className="relative z-[1]">
         <TableCell>
           <BackgroundProgress percentage={number} />
-          <Group gap={'xs'}>
-            <ActionIcon size="sm" color="gray" variant="transparent" onClick={() => setCollapse(!isShow)}>
-              {isShow ? <IconChevronDown size={28} /> : <IconChevronRight size={48} />}
-            </ActionIcon>{' '}
-            <b>{props.name}</b>
-          </Group>
+          <div className="flex items-center gap-2">
+            <Button className="hover:bg-transparent" size="icon" variant="ghost" onClick={() => setCollapse(!isShow)}>
+              {isShow ? <IconChevronDown className="h-4 w-4" /> : <IconChevronRight className="h-4 w-4" />}
+            </Button>
+            <span className="font-bold">{props.name}</span>
+          </div>
         </TableCell>
-        <TableCell style={{ textAlign: 'end' }}>
-          <b>{number} %</b>
+        <TableCell className="text-right">
+          <span className="font-bold">{number} %</span>
         </TableCell>
-        <TableCell style={{ textAlign: 'end' }}>
-          <b>
+        <TableCell className="text-right">
+          <span className="font-bold">
             <Amount amount={assigned_amount.number} currency={assigned_amount.commodity} />
-          </b>
+          </span>
         </TableCell>
-        <TableCell style={{ textAlign: 'end' }}>
-          <b>
+        <TableCell className="text-right">
+          <span className="font-bold">
             <Amount amount={activity_amount.number} currency={activity_amount.commodity} />
-          </b>
+          </span>
         </TableCell>
-        <TableCell style={{ textAlign: 'end' }}>
-          <b>
+        <TableCell className="text-right">
+          <span className="font-bold">
             <Amount amount={available_amount.number} currency={available_amount.commodity} />
-          </b>
+          </span>
         </TableCell>
       </TableRow>
       {isShow && props.items.sort().map((item) => <BudgetLine key={`${item.name}`} {...item}></BudgetLine>)}
