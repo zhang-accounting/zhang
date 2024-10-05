@@ -1,34 +1,8 @@
-import { Stack, Text } from '@mantine/core';
 import { useTranslation } from 'react-i18next';
 import Amount from './Amount';
-import { createStyles } from '@mantine/emotion';
+import { CardContent, CardHeader } from './ui/card';
+import { Card, CardTitle } from './ui/card';
 
-const useStyles = createStyles((theme, _, u) => ({
-  card: {
-    backgroundColor: 'transparent',
-    padding: theme.spacing.lg,
-    border: `2px solid ${theme.colors.gray[1]}`,
-    borderRadius: theme.radius.sm,
-    '&:hover': {
-      border: `2px solid ${theme.colors[theme.primaryColor][6]}`,
-    },
-  },
-
-  label: {
-    fontFamily: `Greycliff CF, ${theme.fontFamily}`,
-    lineHeight: 1,
-    color: theme.colors.gray[9],
-    fontSize: theme.fontSizes.sm,
-    marginTop: 4,
-  },
-
-  lead: {
-    fontWeight: 700,
-    fontSize: `calc(${theme.fontSizes.xl}  * 1.15)`,
-    lineHeight: 1,
-    color: theme.colors.gray[9],
-  },
-}));
 
 interface Props {
   text: string;
@@ -41,14 +15,20 @@ interface Props {
 
 export default function StatisticBox({ text, amount, currency, negative, hint }: Props) {
   const { t } = useTranslation();
-  const { classes } = useStyles();
-  const displayBox = (
-    <Stack mt="sm" gap={'xs'} className={classes.card}>
-      <Text className={classes.lead}>
-        <Amount amount={amount} negative={negative} currency={currency} />
-      </Text>
-      <Text className={classes.label}>{t(text)}</Text>
-    </Stack>
+  
+  return (
+    <Card className="rounded-sm">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">
+          {t(text)}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold"><Amount amount={amount} negative={negative} currency={currency} /></div>
+        {/* {hint && <p className="text-xs text-muted-foreground">
+                {hint}
+              </p>} */}
+      </CardContent>
+    </Card>
   );
-  return displayBox;
 }

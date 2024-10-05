@@ -34,6 +34,8 @@ import { accountFetcher } from './states/account';
 import { commoditiesFetcher } from './states/commodity';
 import { journalFetcher } from './states/journals';
 import { axiosInstance, serverBaseUrl } from './global.ts';
+import Sidebar from './layout/Sidebar.tsx';
+import { Nav } from './layout/Nav.tsx';
 
 const useStyles = createStyles((theme, _, u) => ({
   onlineIcon: {
@@ -198,26 +200,17 @@ const links: LinkItem[] = [
 
 export default function App() {
   const { mutate } = useSWRConfig();
-  const { classes } = useStyles();
-  const { t, i18n } = useTranslation();
-  const location = useLocation();
+  const { i18n } = useTranslation();
   const [lang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
-  const [opened] = useDisclosure();
-  const isMobile = useMediaQuery('(max-width: 768px)');
 
-  const errorsCount = useAtomValue(errorCountAtom);
-  const ledgerTitle = useAtomValue(titleAtom);
-  const [ledgerOnline, setLedgerOnline] = useAtom(onlineAtom);
-  const [updatableVersion, setUpdatableVersion] = useAtom(updatableVersionAtom);
+  const setLedgerOnline = useSetAtom(onlineAtom);
+  const setUpdatableVersion = useSetAtom(updatableVersionAtom);
 
   const refreshErrors = useSetAtom(errorsFetcher);
   const refreshAccounts = useSetAtom(accountFetcher);
   const refreshBasicInfo = useSetAtom(basicInfoFetcher);
   const refreshCommodities = useSetAtom(commoditiesFetcher);
   const refreshJournal = useSetAtom(journalFetcher);
-  const refreshLedger = async () => {
-    await axiosInstance.post('/api/reload');
-  };
 
   useEffect(() => {
     if (i18n.language !== lang) {
@@ -276,115 +269,17 @@ export default function App() {
     };
   }, [mutate]); // eslint-disable-line
 
-  const sendReloadEvent = () => {
-    notifications.show({
-      id: 'leger-reload',
-      title: '[Ledger Reload] reload event is sent',
-      message: 'please wait for ledger reload',
-      loading: true,
-      autoClose: false,
-    });
-    refreshLedger();
-  };
 
-  const mainLinks = links.map((link) => (
-    <UnstyledButton
-      component={RouteLink}
-      to={link.uri}
-      key={link.label}
-      className={`${classes.mainLink} ${matchPath(location.pathname, link.uri) ? classes.activeMainLink : ''}`}
-    >
-      <div className={classes.mainLinkInner}>
-        <link.icon size={20} className={classes.mainLinkIcon} stroke={1.5} />
-        <span>{t(link.label)}</span>
-      </div>
-      {link.notifications && (
-        <Badge size="sm" variant="filled" className={classes.mainLinkBadge}>
-          {link.notifications}
-        </Badge>
-      )}
-    </UnstyledButton>
-  ));
-
-  const mobileMainLinks = links.map((link) => (
-    <UnstyledButton component={RouteLink} to={link.uri} key={link.label}>
-      <link.icon size={20} stroke={1.5} />
-    </UnstyledButton>
-  ));
   return (
-    <AppShell padding="xs" header={{ height: 128, collapsed: !isMobile }}
-              navbar={{ width: 240, breakpoint: 'sm', collapsed: { mobile: !opened } }}>
-      {isMobile && (
-        <AppShell.Header>
-          <Box m="xs">
-            <Group justify="space-between">
-              <Group gap="xs" justify="left">
-                <IconReceipt2 stroke={1.5} />
-                <Text>ZHANG</Text>
-              </Group>
-              <NewTransactionButton />
-            </Group>
-            <Group justify="space-between" mt="xs">
-              {mobileMainLinks}
-            </Group>
-          </Box>
-        </AppShell.Header>
-      )}
-      <AppShell.Navbar>
-        <AppShell.Section className={classes.header}>
-          <Stack>
-            <Group justify="space-between">
-              <Group gap="xs" justify="left">
-                <IconBroadcast stroke={3} className={ledgerOnline ? classes.onlineIcon : classes.offlineIcon} />
-                <Text lineClamp={1}>{ledgerTitle}</Text>
-              </Group>
-              <ActionIcon variant="white" color="gray" size="sm" onClick={sendReloadEvent}>
-                <IconRefresh size="1.125rem" />
-              </ActionIcon>
-            </Group>
-            <TextInput placeholder="Search" size="xs" leftSectionPointerEvents="none"
-                       leftSection={<IconSearch size={12} stroke={1.5} />} />
-            <NewTransactionButton />
-          </Stack>
-        </AppShell.Section>
-
-        {/*<Navbar.Section grow className={classes.section} >*/}
-        <AppShell.Section grow className={classes.section} mx="sm">
-          <div className={classes.mainLinks}>
-            <UnstyledButton
-              component={RouteLink}
-              to={'/'}
-              key={'NAV_HOME'}
-              className={`${classes.mainLink} ${matchPath(location.pathname, '/') ? classes.activeMainLink : ''}`}
-            >
-              <div className={classes.mainLinkInner}>
-                <IconSmartHome size={20} className={classes.mainLinkIcon} stroke={1.5} />
-                <span>{t('NAV_HOME')}</span>
-              </div>
-              {errorsCount > 0 && (
-                <Badge size="sm" color="pink" variant="filled" className={classes.mainLinkBadge}>
-                  {errorsCount}
-                </Badge>
-              )}
-            </UnstyledButton>
-            {mainLinks}
-          </div>
-        </AppShell.Section>
-
-        {updatableVersion && (
-          <AppShell.Section className={classes.section}>
-            <Group justify="center" gap={'sm'}>
-              <Anchor href="https://zhang-accounting.kilerd.me/installation/4-upgrade/" target="_blank">
-                🎉 New Version is available!
-              </Anchor>
-            </Group>
-          </AppShell.Section>
-        )}
-      </AppShell.Navbar>
-
-      <AppShell.Main>
-        <Router />
-      </AppShell.Main>
-    </AppShell>
+    <div className="grid min-h-screen w-full md:grid-cols-[180px_1fr] lg:grid-cols-[280px_1fr]">
+      <Sidebar />
+      <div className="flex flex-col sm:gap-4 sm:py-4">
+        <Nav />
+        <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
+          <Router />
+        </main>
+      </div>
+    </div>
   );
+
 }
