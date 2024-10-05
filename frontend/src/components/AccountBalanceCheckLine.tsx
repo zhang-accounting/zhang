@@ -6,6 +6,7 @@ import Amount from './Amount';
 import { useAtomValue } from 'jotai';
 import { useSetAtom } from 'jotai/index';
 import { axiosInstance } from '../global.ts';
+import { TableRow, TableCell } from './ui/table.tsx';
 
 interface Props {
   currentAmount: string;
