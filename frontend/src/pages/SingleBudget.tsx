@@ -1,5 +1,3 @@
-import { ActionIcon, Badge, Code, Container, Group, Popover, Stack, Table, Text, Title } from '@mantine/core';
-import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
 import useSWR from 'swr';
@@ -7,11 +5,15 @@ import { fetcher } from '../global.ts';
 import Amount from '../components/Amount';
 import PayeeNarration from '../components/basic/PayeeNarration';
 import { BudgetInfoResponse, BudgetIntervalEventResponse } from '../rest-model';
-import { MonthPicker } from '@mantine/dates';
 import { useState } from 'react';
 import { useDocumentTitle } from '@mantine/hooks';
 import { useAtomValue } from 'jotai/index';
 import { titleAtom } from '../states/basic';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
+import { Badge } from '@/components/ui/badge.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { ChevronLeftIcon, ChevronRightIcon } from '@radix-ui/react-icons';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 
 function SingleBudget() {
   let { budgetName } = useParams();
@@ -33,104 +35,125 @@ function SingleBudget() {
   if (error) return <div>failed to load</div>;
   if (!budget_info) return <div>{error}</div>;
   return (
-    <Container fluid>
-      <Group justify="space-between" py="md" px="sm" align="center">
-        <Stack>
-          <Group>
-            <Title order={2}>{budget_info.alias ?? budget_info.name}</Title>
-            {budget_info.alias && <Code>{budget_info.name}</Code>}
-          </Group>
-          <Group>
-            {budget_info.related_accounts.map((account) => (
-              <Badge key={account} color="pink" variant="filled">
-                {account}
-              </Badge>
-            ))}
-          </Group>
-        </Stack>
-        <Group gap={'lg'}>
-          <Stack gap="xs" align={'end'}>
-            <Text size="xs" c={'dimmed'}>
-              Assigned Amount
-            </Text>
-            <Amount amount={budget_info.assigned_amount.number}
+    <div>
+      <div className='grid grid-cols-12 gap-4'>
+        <Card className="mt-2 rounded-sm  col-span-8">
+          <CardHeader className="flex flex-row  justify-between space-y-0 pb-2 bg-gray-100">
+            <CardTitle>
+                <div className='flex items-center gap-2'>
+
+                  <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{budget_info.alias ?? budget_info.name}</h1>
+                  {budget_info.alias && <Badge variant="outline" className="text-sm text-gray-500">{budget_info.name}</Badge>}
+                </div>
+                </CardTitle>
+                <div className='flex items-center gap-2'>
+                  <Button variant="ghost" onClick={() => goToMonth(-1)}>
+                    <ChevronLeftIcon className="h-4 w-4" />
+                  </Button>
+                  <h1 className="inline-block shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{`${format(date, 'MMM, yyyy')}`}</h1>
+                  <Button
+                    variant="ghost"
+                    onClick={() => goToMonth(1)}
+                    disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}
+                  >
+                    <ChevronRightIcon className="h-4 w-4" />
+                  </Button>
+                </div>
+            
+
+          </CardHeader>
+          <CardContent className=" mt-4 text-sm">
+            <div className="grid gap-3">
+              <div className="font-semibold">Related Accounts</div>
+                
+               <div className='flex flex-wrap gap-2'>
+                {budget_info.related_accounts.map((account) => (
+                    <Badge key={account} >
+                      {account}
+                    </Badge>
+                ))}
+                </div>
+
+            </div>
+          </CardContent>
+        </Card>
+
+
+
+
+        <Card className="mt-2 rounded-sm col-span-4">
+          <CardHeader className="flex flex-row  justify-between space-y-0 pb-2 bg-gray-100">
+            <CardTitle>Budget Balance</CardTitle>
+          </CardHeader>
+          <CardContent className=" mt-4 text-sm">
+          <ul className="grid gap-3">
+                <li className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    Assigned Amount
+                  </span>
+                  <Amount amount={budget_info.assigned_amount.number}
                     currency={budget_info.assigned_amount.currency}></Amount>
-          </Stack>
-          <Stack gap="xs" align={'end'}>
-            <Text size="xs" c={'dimmed'}>
-              Activity Amount
-            </Text>
-            <Amount amount={budget_info.activity_amount.number}
+                </li>
+
+                <li className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    Activity Amount
+                  </span>
+                  <Amount amount={budget_info.activity_amount.number}
                     currency={budget_info.activity_amount.currency}></Amount>
-          </Stack>
-          <Stack gap="xs" align={'end'}>
-            <Text size="xs" c={'dimmed'}>
-              Available Amount
-            </Text>
-            <Amount amount={budget_info.available_amount.number}
+                </li>
+
+                <li className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    Available Amount
+                  </span>
+                  <Amount amount={budget_info.available_amount.number}
                     currency={budget_info.available_amount.currency}></Amount>
-          </Stack>
-        </Group>
-      </Group>
+                </li>
+              </ul>
+          </CardContent>
+        </Card>
 
-      <Group>
-        <ActionIcon variant="white" onClick={() => goToMonth(-1)}>
-          <IconChevronLeft size="1rem" />
-        </ActionIcon>
-        <Popover position="bottom" withArrow shadow="md">
-          <Popover.Target>
-            <Text style={{ display: 'inline-block', cursor: 'pointer' }} py="md"
-                  px="xs">{`${format(date, 'MMM, yyyy')}`}</Text>
-          </Popover.Target>
-          <Popover.Dropdown>
-            <MonthPicker value={date} maxDate={new Date()} onChange={(newDate) => setDate(newDate ?? new Date())} />
-          </Popover.Dropdown>
-        </Popover>
-        <ActionIcon
-          variant="white"
-          onClick={() => goToMonth(1)}
-          disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}
-        >
-          <IconChevronRight size="1rem" />
-        </ActionIcon>
-      </Group>
+      </div>
 
-      <Table verticalSpacing="xs" withTableBorder>
-        <Table.Thead>
-          <TableRow>
-            <Table.Th>Date</Table.Th>
-            <Table.Th>Activity</Table.Th>
-            <Table.Th>Account</Table.Th>
-            <Table.Th style={{ textAlign: 'end' }}>Assigned Amount</Table.Th>
-            <Table.Th style={{ textAlign: 'end' }}>Activity Amount</Table.Th>
-          </TableRow>
-        </Table.Thead>
-        <tbody>
-        {(budget_interval_event ?? []).map((it) => {
-          return (
+      <div className="rounded-md border mt-4">
+        <Table >
+          <TableHeader>
             <TableRow>
-              <TableCell>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</TableCell>
-              <TableCell>{'event_type' in it ? it.event_type :
-                <PayeeNarration payee={it.payee} narration={it.narration} />}</TableCell>
-              <TableCell>
-                {!('event_type' in it) && (
-                  <Badge color="pink" variant="filled">
-                    {it.account}
-                  </Badge>
-                )}
-              </TableCell>
-              <TableCell style={{ textAlign: 'end' }}>{'event_type' in it &&
-                <Amount amount={it.amount.number} currency={it.amount.currency} />}</TableCell>
-              <TableCell style={{ textAlign: 'end' }}>
-                {!('event_type' in it) &&
-                  <Amount amount={it.inferred_unit_number} currency={it.inferred_unit_commodity} />}
-              </TableCell>
+              <TableHead>Date</TableHead>
+              <TableHead>Activity</TableHead>
+              <TableHead>Account</TableHead>
+              <TableHead style={{ textAlign: 'end' }}>Assigned Amount</TableHead>
+              <TableHead style={{ textAlign: 'end' }}>Activity Amount</TableHead>
             </TableRow>
-          );
-        })}
-        </tbody>
-      </Table>
-    </Container>
+          </TableHeader>
+          <TableBody>
+            {(budget_interval_event ?? []).map((it) => {
+              return (
+                <TableRow>
+                  <TableCell>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</TableCell>
+                  <TableCell>{'event_type' in it ? it.event_type :
+                    <PayeeNarration payee={it.payee} narration={it.narration} />}</TableCell>
+                  <TableCell>
+                    {!('event_type' in it) && (
+                      <Badge>
+                        {it.account}
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell style={{ textAlign: 'end' }}>{'event_type' in it &&
+                    <Amount amount={it.amount.number} currency={it.amount.currency} />}</TableCell>
+                  <TableCell style={{ textAlign: 'end' }}>
+                    {!('event_type' in it) &&
+                      <Amount amount={it.inferred_unit_number} currency={it.inferred_unit_commodity} />}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </div >
   );
 }
 
