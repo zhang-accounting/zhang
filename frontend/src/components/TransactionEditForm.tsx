@@ -59,6 +59,7 @@ interface Props {
 }
 
 export default function TransactionEditForm(props: Props) {
+  console.log("transaction edit form", props.data);
   const { t } = useTranslation();
 
   const { data, error } = useSWR<InfoForNewTransaction>('/api/for-new-transaction', fetcher);
@@ -187,7 +188,6 @@ export default function TransactionEditForm(props: Props) {
 
       {postings.map((posting, idx) => (
         <div className='flex items-center gap-2 py-2' key={idx}>
-
           <Combobox
             options={accountItems}
             value={posting.account}

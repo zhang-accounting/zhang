@@ -1,5 +1,5 @@
 import { fetcher } from '../global.ts';
-import { JournalItem, Pageable } from '../rest-model';
+import { JournalItem, JournalTransactionItem, Pageable } from '../rest-model';
 import { atom } from 'jotai';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { loadable_unwrap } from './index';
@@ -42,3 +42,7 @@ export const groupedJournalsAtom = atom((get) => {
     return groupBy(data.records, (record) => format(new Date(record.datetime), 'yyyy-MM-dd'));
   });
 });
+
+
+export const previewJournalAtom = atom<JournalItem|undefined>(undefined);
+export const editTransactionAtom = atom<JournalTransactionItem|undefined>(undefined);

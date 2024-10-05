@@ -7,8 +7,8 @@ import Amount from '../../Amount';
 import { openContextModal } from '@mantine/modals';
 import PayeeNarration from '../../basic/PayeeNarration';
 import { createStyles, getStylesRef } from '@mantine/emotion';
-import { journalLinksAtom, journalTagsAtom } from '../../../states/journals';
-import { useAtom } from 'jotai';
+import { editTransactionAtom, journalLinksAtom, journalTagsAtom, previewJournalAtom } from '../../../states/journals';
+import { useAtom, useSetAtom } from 'jotai';
 import { TableRow, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 
@@ -57,7 +57,9 @@ export default function TableViewTransactionLine({ data }: Props) {
 
   const [, setJournalTags] = useAtom(journalTagsAtom);
   const [, setJournalLinks] = useAtom(journalLinksAtom);
-
+  const setPreviewJournal = useSetAtom(previewJournalAtom);
+  const setEditTransaction = useSetAtom(editTransactionAtom);
+  
   const handleTagClick = (tag: string) => () => {
     setJournalTags((prevTags) => {
       if (prevTags.includes(tag)) {
@@ -76,26 +78,11 @@ export default function TableViewTransactionLine({ data }: Props) {
   };
 
   const openPreviewModal = (e: any) => {
-    openContextModal({
-      modal: 'transactionPreviewModal',
-      title: 'Transaction Detail',
-      size: 'lg',
-      centered: true,
-      innerProps: {
-        journalId: data.id,
-      },
-    });
+    setPreviewJournal(data);
   };
+
   const openEditModel = (e: any) => {
-    openContextModal({
-      modal: 'transactionEditModal',
-      title: 'Transaction Detail',
-      size: 'lg',
-      centered: true,
-      innerProps: {
-        data: data,
-      },
-    });
+    setEditTransaction(data);
   };
 
   const summary = calculate(data);

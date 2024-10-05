@@ -1,9 +1,9 @@
-import { Home, PanelLeft, Package2, Package, Users2, ShoppingCart, LineChart, Search } from "lucide-react";
+import { Home, PanelLeft, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Link } from "react-router-dom";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Input } from "@/components/ui/input";
 import { links } from "./Sidebar";
 import { useTranslation } from "react-i18next";
