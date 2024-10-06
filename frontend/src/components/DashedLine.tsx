@@ -7,7 +7,7 @@ interface Props {
 
 export default function DashLine({ children }: Props) {
   return (
-    <div className="flex item-center border-t border-dashed border-dark-0 my-1 [&+&]:border-t [&+&]:border-dashed [&+&]:border-dark-0 [&+&]:my-1  justify-between">
+    <div className="flex items-center justify-between py-2 [&+&]:border-t [&+&]:border-dashed [&+&]:border-dark-0 ">
       {children}
     </div>
   );

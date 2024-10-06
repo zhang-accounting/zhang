@@ -34,16 +34,16 @@ export default function TransactionPreview(props: Props) {
     <div>
       <Section title="Transaction Info">
         <DashLine>
-          <p className="line-clamp-1 my-2">Datetime</p>
+          <p className="line-clamp-1">Datetime</p>
           <p className='line-clamp-1'>{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</p>
         </DashLine>
 
         <DashLine>
-          <p className="line-clamp-1 my-2">Type</p>
+          <p className="line-clamp-1">Type</p>
           <p className="line-clamp-1">Transaction</p>
         </DashLine>
         <DashLine>
-          <p className="line-clamp-1 my-2">Check Status</p>
+          <p className="line-clamp-1">Check Status</p>
           <p className='line-clamp-1'>
             {props.data.is_balanced ? (
               <Badge variant="outline">
@@ -55,17 +55,17 @@ export default function TransactionPreview(props: Props) {
           </p>
         </DashLine>
         <DashLine>
-          <p className="line-clamp-1 my-2">Payee</p>
+          <p className="line-clamp-1">Payee</p>
           <p className='line-clamp-1'>{props.data.payee}</p>
         </DashLine>
         <DashLine>
-          <p className="line-clamp-1 my-2">Narration</p>
+          <p className="line-clamp-1">Narration</p>
           <p className='line-clamp-1'>{props.data.narration}</p>
         </DashLine>
         
         {(props.data.links || []).length > 0 && (
           <DashLine>
-            <p className="line-clamp-1 my-2">Links</p>
+            <p className="line-clamp-1">Links</p>
             <p className='line-clamp-1'>
               <div className='flex items-center gap-2'>
                 {(props.data.links || []).map((link) => (
@@ -80,7 +80,7 @@ export default function TransactionPreview(props: Props) {
 
         {(props.data.tags || []).length > 0 && (
           <DashLine>
-            <p className="line-clamp-1 my-2">Tags</p>
+            <p className="line-clamp-1">Tags</p>
             <p className='line-clamp-1'>
               <div className='flex items-center gap-2'>
                 {(props.data.tags || []).map((tag) => (
@@ -98,7 +98,7 @@ export default function TransactionPreview(props: Props) {
           <>
             {props.data.postings.map((posting, idx) => (
               <DashLine key={idx}>
-                <p className='line-clamp-1 my-2'>
+                <p className='line-clamp-1'>
                   {posting.account}
                 </p>
                 <div className={classes.amount}>
@@ -119,7 +119,7 @@ export default function TransactionPreview(props: Props) {
             .filter((meta) => meta.key !== 'document')
             .map((meta, idx) => (
               <DashLine key={idx}>
-                <p className='line-clamp-1 my-2'>
+                <p className='line-clamp-1'>
                   {meta.key}
                 </p>
                 <p className='line-clamp-1'>{meta.value}</p>

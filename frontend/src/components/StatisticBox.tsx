@@ -7,7 +7,7 @@ import { Card, CardTitle } from './ui/card';
 interface Props {
   text: string;
   amount: string;
-  currency: string;
+  currency?: string;
   detail?: any;
   negative?: boolean;
   hint?: string;
@@ -24,7 +24,9 @@ export default function StatisticBox({ text, amount, currency, negative, hint }:
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold"><Amount amount={amount} negative={negative} currency={currency} /></div>
+        <div className="text-2xl font-bold">
+          {currency ? <Amount amount={amount} negative={negative} currency={currency} /> : amount}
+        </div>
         {/* {hint && <p className="text-xs text-muted-foreground">
                 {hint}
               </p>} */}
