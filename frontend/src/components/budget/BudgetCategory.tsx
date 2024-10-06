@@ -1,5 +1,3 @@
-import * as React from 'react';
-import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useLocalStorage } from '@mantine/hooks';
 import { BudgetListItem } from '../../rest-model';
 import { Buffer } from 'buffer';
@@ -9,6 +7,7 @@ import Amount from '../Amount';
 import BackgroundProgress from '../basic/BackgroundProgress';
 import { TableCell, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 interface Props {
   name: string;
@@ -55,7 +54,7 @@ export default function BudgetCategory(props: Props) {
           <BackgroundProgress percentage={number} />
           <div className="flex items-center gap-2">
             <Button className="hover:bg-transparent" size="icon" variant="ghost" onClick={() => setCollapse(!isShow)}>
-              {isShow ? <IconChevronDown className="h-4 w-4" /> : <IconChevronRight className="h-4 w-4" />}
+              {isShow ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             </Button>
             <span className="font-bold">{props.name}</span>
           </div>

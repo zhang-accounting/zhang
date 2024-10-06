@@ -1,4 +1,3 @@
-import { IconMessageCircle, IconPhoto, IconSettings } from '@tabler/icons-react';
 import { format } from 'date-fns';
 import { useParams } from 'react-router';
 import useSWR from 'swr';
@@ -22,6 +21,7 @@ import { CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 import { Card } from '@/components/ui/card.tsx';
 import { Badge } from '@/components/ui/badge.tsx';
 import { ACCOUNTS_LINK } from '@/layout/Sidebar.tsx';
+import { Cog, FileStack, Notebook } from 'lucide-react';
 
 function SingleAccount() {
   
@@ -86,9 +86,9 @@ function SingleAccount() {
 
       <Tabs defaultValue="journals">
         <TabsList>
-          <TabsTrigger value="journals"><IconPhoto size={14} /> Journals</TabsTrigger>
-          <TabsTrigger value="documents"><IconMessageCircle size={14} /> Documents</TabsTrigger>
-          <TabsTrigger value="settings"><IconSettings size={14} /> Settings</TabsTrigger>
+          <TabsTrigger value="journals"><Notebook className='w-4 h-4 mr-2' /> Journals</TabsTrigger>
+          <TabsTrigger value="documents"><FileStack className='w-4 h-4 mr-2' /> Documents</TabsTrigger>
+          <TabsTrigger value="settings"><Cog className='w-4 h-4 mr-2' /> Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="journals">

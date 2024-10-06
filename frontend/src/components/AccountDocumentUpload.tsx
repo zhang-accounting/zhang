@@ -3,7 +3,6 @@ import { FileWithPath } from 'react-dropzone';
 import { useSWRConfig } from 'swr';
 import { axiosInstance } from '../global.ts';
 import {useDropzone} from 'react-dropzone'
-import Dropzone from 'react-dropzone'
 
 interface Props {
   url: string;
@@ -40,12 +39,6 @@ export default function AccountDocumentUpload(props: Props) {
     }
   }, [files, props.url, mutate]);
 
-  const filesDom = files.map((file: FileWithPath) => (
-    <li key={file.path}>
-      {file.path} - {file.size} bytes
-    </li>
-  ));
-
   return (
 
     <div {...getRootProps()} className="relative overflow-hidden rounded-md after:content-[''] after:block after:pb-[100%] bg-gray-100 dark:bg-dark-700">
@@ -55,7 +48,7 @@ export default function AccountDocumentUpload(props: Props) {
         <div className="absolute w-full h-full flex flex-col items-center justify-center text-center p-4">
         <p>Drop the files here ...</p> :
         </div>
-        : <div className="absolute w-full h-full flex flex-col items-center justify-center text-center p-4">
+        : <div className="cursor-pointer absolute w-full h-full flex flex-col items-center justify-center text-center p-4">
         <p>Drag 'n' drop some files here, or click to select files</p>
         </div>
       }
