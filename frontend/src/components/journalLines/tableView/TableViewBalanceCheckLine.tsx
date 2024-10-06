@@ -1,85 +1,37 @@
 import { JournalBalanceCheckItem } from '../../../rest-model';
-import { ActionIcon, Badge, Table } from '@mantine/core';
 import { format } from 'date-fns';
 import Amount from '../../Amount';
 import BigNumber from 'bignumber.js';
-import { IconZoomExclamation } from '@tabler/icons-react';
-import { openContextModal } from '@mantine/modals';
 import PayeeNarration from '../../basic/PayeeNarration';
-import { createStyles, getStylesRef } from '@mantine/emotion';
 import { TableRow, TableCell } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
+import { useSetAtom } from 'jotai';
+import { previewJournalAtom } from '@/states/journals';
+import { LineMenu } from './LineMenu';
+import { ZoomIn } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
-const useStyles = createStyles((theme, _, u) => ({
-  payee: {
-    fontWeight: 'bold',
-  },
-  narration: {},
-  accumulated: {
-    color: theme.colors.gray[7],
-    fontFeatureSettings: 'tnum',
-    fontSize: `calc(${theme.fontSizes.sm} * 0.75)`,
-  },
-  positiveAmount: {
-    color: theme.colors.gray[7],
-    fontWeight: 'bold',
-    fontFeatureSettings: 'tnum',
-    fontSize: `calc(${theme.fontSizes.sm} * 0.95)`,
-  },
-  negativeAmount: {
-    color: theme.colors.red[5],
-    fontWeight: 'bold',
-    fontFeatureSettings: 'tnum',
-    fontSize: theme.fontSizes.sm,
-  },
-  notBalance: {
-    borderLeft: '3px solid red',
-  },
-  wrapper: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'end',
-  },
-  actionHider: {
-    '&:hover': {
-      [`& .${getStylesRef('actions')}`]: {
-        display: 'flex',
-        alignItems: 'end',
-        justifyContent: 'end',
-      },
-    },
-  },
-  actions: {
-    ref: getStylesRef('actions'),
-    display: 'none',
-  },
-}));
 
 interface Props {
   data: JournalBalanceCheckItem;
 }
 
 export default function TableViewBalanceCheckLine({ data }: Props) {
-  const { classes } = useStyles();
-
+  const setPreviewJournal = useSetAtom(previewJournalAtom);
   const time = format(new Date(data.datetime), 'HH:mm:ss');
 
   const openPreviewModal = (e: any) => {
-    openContextModal({
-      modal: 'transactionPreviewModal',
-      title: 'Balance Check Detail',
-      size: 'lg',
-      centered: true,
-      innerProps: {
-        journalId: data.id,
-      },
-    });
+    setPreviewJournal(data);
   };
   const isBalanced = new BigNumber(data.postings[0].account_after_number).eq(new BigNumber(data.postings[0].account_before_number));
   return (
-    <TableRow className={`${classes.actionHider} ${!isBalanced ? classes.notBalance : ''}`}>
+    <TableRow className={cn(
+      'p-1',
+      !isBalanced && 'border-l-[3px] border-l-red-500',
+    )}>
       <TableCell>{time}</TableCell>
       <TableCell>
-        <Badge size="xs" variant="outline">
+        <Badge variant="outline">
           Check
         </Badge>
       </TableCell>
@@ -87,23 +39,27 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
         <PayeeNarration payee={data.payee} narration={data.narration} />
       </TableCell>
       <TableCell>
-        <div className={classes.wrapper}>
-          <div className={!isBalanced ? classes.negativeAmount : classes.positiveAmount}>
+
+        <div className="flex flex-col items-end">
+          <div className={cn(
+            'font-bold text-gray-700 text-sm tabular-nums',
+            !isBalanced && 'text-red-500'
+          )}>
             <Amount amount={data.postings[0].account_after_number} currency={data.postings[0].account_after_commodity} />
           </div>
           {!isBalanced && (
-            <span className={classes.accumulated}>
+            <span className="text-gray-700 text-sm tabular-nums">
               accumulated: <Amount amount={data.postings[0].account_before_number} currency={data.postings[0].account_before_commodity} />
             </span>
           )}
         </div>
       </TableCell>
-      <TableCell>
-        <div className={classes.actions}>
-          <ActionIcon color="gray" variant="white" size="sm" onClick={openPreviewModal}>
-            <IconZoomExclamation size="1.125rem" />
-          </ActionIcon>
-        </div>
+      <TableCell className="flex justify-end">
+        <LineMenu actions={[{
+          label: 'Preview',
+          icon: ZoomIn,
+          onClick: () => openPreviewModal(data),
+        }]} />  
       </TableCell>
     </TableRow>
   );
