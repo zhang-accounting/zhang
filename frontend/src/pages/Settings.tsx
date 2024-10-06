@@ -38,7 +38,7 @@ export default function Settings() {
   }, [lang, i18n]);
 
   return (
-    <div>
+    <div className='flex flex-col gap-4'>
       <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">Settings</h1>
       <Section title="Basic Setting">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
