@@ -4,7 +4,6 @@ import useSWR from 'swr';
 import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
 import { Document } from '../rest-model';
 import { groupBy, reverse, sortBy } from 'lodash-es';
-import { TextBadge } from '../components/basic/TextBadge';
 import { useNavigate } from 'react-router';
 import { useEffect, useState } from 'react';
 import 'yet-another-react-lightbox/styles.css';
@@ -15,6 +14,7 @@ import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { fetcher } from '../global.ts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
 import { DOCUMENTS_LINK } from '@/layout/Sidebar.tsx';
+import { Badge } from '@/components/ui/badge.tsx';
 
 export default function Documents() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
@@ -106,8 +106,8 @@ export default function Documents() {
               </TableCell>
               <TableCell>
                 {document.account &&
-                  <TextBadge onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</TextBadge>}
-                {document.trx_id && <TextBadge key={idx}>{document.trx_id}</TextBadge>}
+                  <Badge variant="outline" onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</Badge>}
+                {document.trx_id && <Badge variant="outline" key={idx}>{document.trx_id}</Badge>}
               </TableCell>
               <TableCell>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</TableCell>
               <TableCell></TableCell>

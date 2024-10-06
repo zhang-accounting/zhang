@@ -5,22 +5,10 @@ import DashLine from '../DashedLine';
 import Section from '../Section';
 import DocumentPreview from './DocumentPreview';
 import AccountDocumentUpload from '../AccountDocumentUpload';
-import { createStyles } from '@mantine/emotion';
 import { ImageLightBox } from '../ImageLightBox';
 import { useState } from 'react';
-import { Badge } from '../ui/badge';
+import { Badge } from '@/components/ui/badge.tsx';
 
-const useStyles = createStyles((theme, _, u) => ({
-  amount: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'end',
-  },
-  balance: {
-    fontSize: theme.fontSizes.sm,
-    color: theme.colors.gray[7],
-  },
-}));
 
 interface Props {
   data: JournalTransactionItem;
@@ -29,7 +17,6 @@ interface Props {
 export default function TransactionPreview(props: Props) {
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
-  const { classes } = useStyles();
   return (
     <div>
       <Section title="Transaction Info">
@@ -101,9 +88,9 @@ export default function TransactionPreview(props: Props) {
                 <p className='line-clamp-1'>
                   {posting.account}
                 </p>
-                <div className={classes.amount}>
+                  <div className={"flex flex-col items-end"}>
                   <Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} />
-                  <div className={classes.balance}>
+                  <div className={"text-sm text-gray-500"}>
                     Balance: <Amount amount={posting.account_after_number} currency={posting.account_after_commodity} />
                   </div>
                 </div>

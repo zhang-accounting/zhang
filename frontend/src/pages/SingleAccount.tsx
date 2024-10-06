@@ -11,7 +11,6 @@ import PayeeNarration from '../components/basic/PayeeNarration';
 import { AccountBalanceHistory, AccountInfo, AccountJournalItem, Document } from '../rest-model';
 import DocumentPreview from '../components/journalPreview/DocumentPreview';
 import { useDocumentTitle } from '@mantine/hooks';
-import { createStyles } from '@mantine/emotion';
 import { AccountBalanceHistoryGraph } from '../components/AccountBalanceHistoryGraph';
 import { useEffect, useState } from 'react';
 import { ImageLightBox } from '../components/ImageLightBox';
@@ -24,21 +23,10 @@ import { Card } from '@/components/ui/card.tsx';
 import { Badge } from '@/components/ui/badge.tsx';
 import { ACCOUNTS_LINK } from '@/layout/Sidebar.tsx';
 
-const useStyles = createStyles((theme, _) => ({
-  calculatedAmount: {
-    fontSize: `calc(${theme.fontSizes.xl} * 1.1)`,
-    fontWeight: 500,
-  },
-  detailAmount: {
-    fontSize: theme.fontSizes.lg,
-  },
-}));
-
 function SingleAccount() {
   
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
   let { accountName } = useParams();
-  const { classes } = useStyles();
 
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
@@ -80,7 +68,7 @@ function SingleAccount() {
             {Object.keys(account.amount.detail).length > 1 && (
             <>
               {Object.entries(account.amount.detail ?? {}).map(([key, value]) => (
-                <Amount key={key} className={classes.detailAmount} amount={value} currency={key}></Amount>
+                <Amount key={key} className="text-lg" amount={value} currency={key}></Amount>
               ))}
             </>
           )}
