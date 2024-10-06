@@ -1,57 +1,21 @@
-import { ActionIcon, Group, Stack, Table } from '@mantine/core';
-import { IconFile, IconPencil, IconZoomExclamation } from '@tabler/icons-react';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../../rest-model';
 import { calculate } from '../../../utils/trx-calculator';
 import Amount from '../../Amount';
-import { openContextModal } from '@mantine/modals';
 import PayeeNarration from '../../basic/PayeeNarration';
-import { createStyles, getStylesRef } from '@mantine/emotion';
 import { editTransactionAtom, journalLinksAtom, journalTagsAtom, previewJournalAtom } from '../../../states/journals';
 import { useAtom, useSetAtom } from 'jotai';
 import { TableRow, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-
-const useStyles = createStyles((theme, _, u) => ({
-  positiveAmount: {
-    color: theme.colors.green[8],
-    fontWeight: 'bold',
-    fontFeatureSettings: 'tnum',
-    fontSize: theme.fontSizes.sm,
-  },
-  negativeAmount: {
-    color: theme.colors.red[5],
-    fontWeight: 'bold',
-    fontFeatureSettings: 'tnum',
-    fontSize: theme.fontSizes.sm,
-  },
-  notBalance: {
-    borderLeft: '3px solid red',
-  },
-  warning: {
-    borderLeft: `3px solid ${theme.colors.orange[7]}`,
-  },
-  actionHider: {
-    '&:hover': {
-      [`& .${getStylesRef('actions')}`]: {
-        display: 'flex',
-        alignItems: 'end',
-        justifyContent: 'end',
-      },
-    },
-  },
-  actions: {
-    ref: getStylesRef('actions'),
-    display: 'none',
-  },
-}));
+import { cn } from '@/lib/utils';
+import { LineMenu } from './LineMenu';
+import { Files, Pencil, ZoomIn } from 'lucide-react';
 
 interface Props {
   data: JournalTransactionItem;
 }
 
 export default function TableViewTransactionLine({ data }: Props) {
-  const { classes } = useStyles();
 
   const time = format(new Date(data.datetime), 'HH:mm:ss');
 
@@ -59,7 +23,7 @@ export default function TableViewTransactionLine({ data }: Props) {
   const [, setJournalLinks] = useAtom(journalLinksAtom);
   const setPreviewJournal = useSetAtom(previewJournalAtom);
   const setEditTransaction = useSetAtom(editTransactionAtom);
-  
+
   const handleTagClick = (tag: string) => () => {
     setJournalTags((prevTags) => {
       if (prevTags.includes(tag)) {
@@ -77,18 +41,22 @@ export default function TableViewTransactionLine({ data }: Props) {
     });
   };
 
-  const openPreviewModal = (e: any) => {
+  const openPreviewModal = () => {
     setPreviewJournal(data);
   };
 
-  const openEditModel = (e: any) => {
+  const openEditModel = () => {
     setEditTransaction(data);
   };
 
   const summary = calculate(data);
   const hasDocuments = data.metas.some((meta) => meta.key === 'document');
   return (
-    <TableRow className={` p-1 ${classes.actionHider} ${!data.is_balanced ? 'border-l-[3px] border-l-red-500' : ''} ${data.flag === '!' ? 'border-l-[3px] border-l-orange-500' : ''}`}>
+    <TableRow className={cn(
+      'p-1',
+      !data.is_balanced && 'border-l-[3px] border-l-red-500',
+      data.flag === '!' && 'border-l-[3px] border-l-orange-500'
+    )}>
       <TableCell>{time}</TableCell>
       <TableCell>
         <Badge color="gray" variant="outline">
@@ -96,47 +64,44 @@ export default function TableViewTransactionLine({ data }: Props) {
         </Badge>
       </TableCell>
       <TableCell>
-        <Stack gap={'xs'}>
-          <Group align="center" gap="xs">
-            <PayeeNarration payee={data.payee} narration={data.narration} />
-            {data.links &&
-              data.links.map((it) => (
-                <Badge key={it} className="cursor-pointer" color="blue" variant="secondary"  onClick={() => handleLinkClick(it)()}>
-                  ^{it}
-                </Badge>
-              ))}
-            {data.tags &&
-              data.tags.map((tag) => (
-                <Badge key={tag} className="cursor-pointer" color="blue" variant="secondary"  onClick={() => handleTagClick(tag)()}>
-                  #{tag}
-                </Badge>
-              ))}
-            {hasDocuments && <IconFile size="1rem" color={'gray'} stroke={1}></IconFile>}
-          </Group>
-        </Stack>
-      </TableCell>
-      <TableCell>
-        {Array.from(summary.values()).map((each) => (
-          <Group
-            align="center"
-            justify="right"
-            gap="xs"
-            key={each.currency}
-            className={each.number.isPositive() ? classes.positiveAmount : classes.negativeAmount}
-          >
-            <Amount amount={each.number} currency={each.currency} />
-          </Group>
-        ))}
-      </TableCell>
-      <TableCell>
-        <div className={classes.actions}>
-          <ActionIcon color="gray" variant="white" size="sm" onClick={openEditModel}>
-            <IconPencil size="1rem" />
-          </ActionIcon>
-          <ActionIcon color="gray" variant="white" size="sm" onClick={openPreviewModal}>
-            <IconZoomExclamation size="1rem" />
-          </ActionIcon>
+        <div className="flex items-center gap-2">
+          <PayeeNarration payee={data.payee} narration={data.narration} />
+          {data.links &&
+            data.links.map((it) => (
+              <Badge key={it} className="cursor-pointer" color="blue" variant="secondary" onClick={() => handleLinkClick(it)()}>
+                ^{it}
+              </Badge>
+            ))}
+          {data.tags &&
+            data.tags.map((tag) => (
+              <Badge key={tag} className="cursor-pointer" color="blue" variant="secondary" onClick={() => handleTagClick(tag)()}>
+                #{tag}
+              </Badge>
+            ))}
+          {hasDocuments && <Files className="w-4 h-4 text-gray-500" />}
         </div>
+      </TableCell>
+      <TableCell className="">
+        <div className="flex flex-col items-end gap-2">
+          {Array.from(summary.values()).map((each) => (
+
+            <Amount key={each.currency} className={cn(
+              "font-bold text-sm",
+              each.number.isPositive() ? 'text-green-600' : 'text-red-500'
+            )} amount={each.number} currency={each.currency} />
+          ))}
+        </div>
+      </TableCell>
+      <TableCell className="flex justify-end">
+        <LineMenu actions={[{
+          label: 'Edit',
+          icon: Pencil,
+          onClick: openEditModel,
+        }, {
+          label: 'Preview',
+          icon: ZoomIn,
+          onClick: openPreviewModal,
+        },]} />
       </TableCell>
     </TableRow>
   );
