@@ -1,4 +1,3 @@
-import { Text } from '@mantine/core';
 import { ReactElement } from 'react';
 
 interface Props {
@@ -12,10 +11,10 @@ export function Setting({ title, value, children, uppercase }: Props) {
   const shouldUppercase = uppercase ?? false;
   return (
     <div>
-      <Text c="gray" fw="700" fz="sm">
+      <p className="text-gray-500 text-sm font-bold">
         {shouldUppercase ? title.toUpperCase() : title}
-      </Text>
-      {value && <Text>{value}</Text>}
+      </p>
+      {value && <p>{value}</p>}
       {children}
     </div>
   );

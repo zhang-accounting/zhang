@@ -1,5 +1,3 @@
-import { Group, Space, Table } from '@mantine/core';
-import * as React from 'react';
 import { BudgetListItem } from '../../rest-model';
 import Amount from '../Amount';
 import BigNumber from 'bignumber.js';
@@ -20,12 +18,12 @@ export default function BudgetLine(props: Props) {
     <TableRow className='relative z-[1]'>
       <TableCell className='py-3'>
         <BackgroundProgress percentage={number} />
-        <Group>
-          <Space w={16}></Space>
-          <span style={{ cursor: 'pointer' }} onClick={() => navigate(props.name)}>
+        <div className='flex items-center gap-2'>
+          <div className='w-9 h-4 bg-transparent'></div>
+          <span className='cursor-pointer' onClick={() => navigate(props.name)}>
             {props.alias ?? props.name}
           </span>
-        </Group>
+        </div>
       </TableCell>
       <TableCell style={{ textAlign: 'end' }}>{number} %</TableCell>
       <TableCell style={{ textAlign: 'end' }}>
