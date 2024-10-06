@@ -65,7 +65,7 @@ export default function TableViewTransactionLine({ data }: Props) {
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-2">
-          <PayeeNarration payee={data.payee} narration={data.narration} />
+          <PayeeNarration payee={data.payee} narration={data.narration} onClick={openPreviewModal} />
           {data.links &&
             data.links.map((it) => (
               <Badge key={it} className="cursor-pointer" color="blue" variant="secondary" onClick={() => handleLinkClick(it)()}>
