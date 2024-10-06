@@ -10,3 +10,4 @@ zhang-frontend/.DS_Store
 .env
 .build_version
 lconv.info
+.cache
