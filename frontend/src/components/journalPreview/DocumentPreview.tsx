@@ -1,64 +1,6 @@
-import { Box } from '@mantine/core';
 import { Buffer } from 'buffer';
 import { serverBaseUrl } from '../../global.ts';
-import { createStyles } from '@mantine/emotion';
 import { isDocumentAnImage } from '../../utils/documents';
-
-const useStyles = createStyles((theme, _, u) => ({
-  imgBox: {
-    overflow: 'hidden',
-    position: 'relative',
-    borderRadius: '4px',
-    '&:after': {
-      content: '" "',
-      display: 'block',
-      paddingBottom: '100%',
-    },
-  },
-  img: {
-    '&:hover': {
-      cursor: 'pointer',
-    },
-    position: 'absolute',
-    // top: theme.spacing.xs,
-    // left: theme.spacing.xs,
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-  },
-
-  empty: {
-    '&:hover': {
-      cursor: 'pointer',
-    },
-    position: 'absolute',
-    // top: theme.spacing.xs,
-    // left: theme.spacing.xs,
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#f8f9fa',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textAlign: 'center',
-  },
-
-  title: {
-    '&:hover': {
-      cursor: 'pointer',
-    },
-    fontSize: theme.fontSizes.sm,
-    marginTop: theme.spacing.sm,
-  },
-}));
 
 interface Props {
   uri: string;
@@ -67,20 +9,24 @@ interface Props {
 }
 
 export default function DocumentPreview(props: Props) {
-  const { classes } = useStyles();
   const canPreview = isDocumentAnImage(props.filename);
 
   return (
-    <Box className={classes.imgBox} onClick={canPreview ? () => props.onClick(props.filename) : undefined}>
+    <div 
+      className="relative overflow-hidden rounded-md after:content-[''] after:block after:pb-[100%]"
+      onClick={canPreview ? () => props.onClick(props.filename) : undefined}
+    >
       {canPreview ? (
         <img
-          className={classes.img}
+          className="absolute top-0 left-0 right-0 bottom-0 w-full h-full object-cover hover:cursor-pointer"
           alt={props.filename}
           src={canPreview ? `${serverBaseUrl}/api/documents/${Buffer.from(props.filename).toString('base64')}` : ''}
         />
       ) : (
-        <Box className={classes.empty}>This document cannot be previewed</Box>
+        <div className="absolute top-0 left-0 right-0 bottom-0 w-full h-full bg-gray-100 flex items-center justify-center text-center hover:cursor-pointer">
+          This document cannot be previewed
+        </div>
       )}
-    </Box>
+    </div>
   );
 }

@@ -1,10 +1,10 @@
-import { Badge, Box, Text } from '@mantine/core';
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 import { JournalBalanceCheckItem } from '../../rest-model';
 import Amount from '../Amount';
 import DashLine from '../DashedLine';
 import Section from '../Section';
+import { Badge } from '../ui/badge';
 
 interface Props {
   data: JournalBalanceCheckItem;
@@ -15,66 +15,64 @@ export default function BalanceCheckPreview(props: Props) {
   const checkInfo = props.data.postings[0];
   return (
     <div>
-      <Box mb={10}>
         <Section title="Check Info">
           <DashLine>
-            <Text lineClamp={1} my="xs">
+            <p className='line-clamp-1'>
               Datetime
-            </Text>
-            <Text lineClamp={1}>{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</Text>
+            </p>
+            <p className='line-clamp-1'>{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</p>
           </DashLine>
           <DashLine>
-            <Text lineClamp={1} my="xs">
+            <p className='line-clamp-1'>
               Account
-            </Text>
-            <Text lineClamp={1}>{checkInfo.account}</Text>
+            </p>
+            <p className='line-clamp-1'>{checkInfo.account}</p>
           </DashLine>
           <DashLine>
-            <Text lineClamp={1} my="xs">
+            <p className='line-clamp-1'>
               Check Status
-            </Text>
-            <Text lineClamp={1}>
+            </p>
+            <p className='line-clamp-1'>
               {isBalanced ? (
-                <Badge size="lg" color={'green'}>
+                <Badge color={'green'}>
                   Pass
                 </Badge>
               ) : (
                 <Badge color={'red'}>UNBALANCED</Badge>
               )}
-            </Text>
+            </p>
           </DashLine>
           <DashLine>
-            <Text lineClamp={1} my="xs">
+            <p className='line-clamp-1'>
               Balance Amount
-            </Text>
-            <Text lineClamp={1}>
+            </p>
+            <p className='line-clamp-1'>
               <Amount amount={checkInfo.account_after_number} currency={checkInfo.account_after_commodity} />
-            </Text>
+            </p>
           </DashLine>
 
           {!isBalanced && (
             <>
               <DashLine>
-                <Text lineClamp={1} my="xs">
+                <p className='line-clamp-1'>
                   Accumulated Amount
-                </Text>
-                <Text lineClamp={1}>
+                </p>
+                <p className='line-clamp-1'>
                   <Amount amount={checkInfo.account_before_number} currency={checkInfo.account_before_commodity} />
-                </Text>
+                </p>
               </DashLine>
 
               <DashLine>
-                <Text lineClamp={1} my="xs">
+                <p className='line-clamp-1'>
                   Distance
-                </Text>
-                <Text lineClamp={1}>
+                </p>
+                <p className='line-clamp-1'>
                   <Amount amount={checkInfo.inferred_unit_number} currency={checkInfo.inferred_unit_commodity} />
-                </Text>
+                </p>
               </DashLine>
             </>
           )}
         </Section>
-      </Box>
     </div>
   );
 }

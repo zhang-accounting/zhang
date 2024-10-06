@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 
 import { t } from 'i18next';
 import { Button } from '../ui/button.tsx';
+import { toast } from 'sonner';
 export const TransactionEditModal = () => {
 
   const [isOpen, isOpenHandler] = useDisclosure(false);
@@ -45,7 +46,7 @@ export const TransactionEditModal = () => {
     <>
 
       <Dialog open={isOpen} onOpenChange={onChange}  >
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[660px]">
           <DialogHeader>
             <DialogTitle>{t('TRANSACTION_EDIT_MODAL_TITLE')}</DialogTitle>
             <DialogDescription hidden>
