@@ -38,12 +38,12 @@ function Home() {
       <StatisticBar />
 
       <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-8">
+        <div className="col-span-12 lg:col-span-8">
           <Section title="Current Statistics">
             <ReportGraph data={data} height={130}></ReportGraph>
           </Section>
         </div>
-        <div className="col-span-4">
+        <div className="col-span-12 lg:col-span-4">
           <Section title={`${error_total_number} Errors`}>
             <ErrorBox></ErrorBox>
           </Section>
