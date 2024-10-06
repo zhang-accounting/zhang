@@ -20,7 +20,7 @@ export default function StatisticBar() {
 
 
     <>
-    <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
+    <div className="grid gap-4 md:grid-cols-2 md:gap-4 lg:grid-cols-4">
     <StatisticBox
         text={'ASSET_BALANCE'}
         amount={data.balance.calculated.number}
@@ -33,8 +33,6 @@ export default function StatisticBar() {
                     currency={data.income.calculated.currency} negative />
       <StatisticBox text={'CURRENT_MONTH_EXPENSE'} amount={data.expense.calculated.number}
                     currency={data.expense.calculated.currency} />
-
-          
         </div>
         </>
   );

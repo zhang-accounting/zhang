@@ -35,7 +35,7 @@ function Home() {
   if (error) return <div>failed to load</div>;
   if (!data) return <>loading</>;
   return (
-    <div>
+    <div className='flex flex-col gap-4'>
       <StatisticBar />
       
       <div className="grid grid-cols-12 gap-4">
