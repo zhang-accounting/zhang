@@ -60,7 +60,6 @@ export function Nav() {
           </div>
         </div>
       </div>
-      {/* todo new transcation button */}
     </header>
   );
 }
