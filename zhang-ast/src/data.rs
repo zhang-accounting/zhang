@@ -154,7 +154,7 @@ pub struct TxnPosting<'a> {
     pub posting: &'a Posting,
 }
 
-impl<'a> TxnPosting<'a> {
+impl TxnPosting<'_> {
     pub fn units(&self) -> Option<Amount> {
         self.posting.units.clone()
     }
