@@ -17,7 +17,7 @@ export default function NewTransactionButton() {
   const onCreate = () => {
     axiosInstance
       .post(`/api/transactions`, data)
-      .then((res) => {
+      .then(() => {
         isOpenHandler.close();
         toast.success('New transaction is created');
       })

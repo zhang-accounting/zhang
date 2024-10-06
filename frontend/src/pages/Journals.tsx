@@ -59,10 +59,13 @@ function Journals() {
   };
 
   return (
-    <div>
+    <div className="flex flex-col gap-4">
       <TransactionPreviewModal />
       <TransactionEditModal />
-      <div className="flex flex-1 items-center justify-between space-x-2 mb-4">
+      <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">
+        {total_count} {t('JOURNALS_TITLE')}
+      </h1>
+      <div className="flex flex-1 items-center justify-between space-x-2">
         <div className="flex flex-1 space-x-2 items-end">
           <Input
             className="w-[33%]"

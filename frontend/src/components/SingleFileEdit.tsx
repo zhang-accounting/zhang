@@ -5,6 +5,7 @@ import useSWR, { useSWRConfig } from 'swr';
 import { fetcher, serverBaseUrl } from '../global.ts';
 import CodeMirror from '@uiw/react-codemirror';
 import { Button } from './ui/button.tsx';
+import { toast } from 'sonner';
 
 interface Props {
   name?: string;
@@ -22,8 +23,11 @@ export default function SingleFileEdit({ path }: Props) {
       .put(`${serverBaseUrl}/api/files/${encodedPath}`, {
         content: content,
       })
-      .then(function (response) {
+      .then(function () {
         mutate(`/api/files/${encodedPath}`);
+        toast.success('File updated', {
+          description: 'Ledger will be refreshed in a moment',
+        });
       })
       .catch(function (error) {
         console.log(error);

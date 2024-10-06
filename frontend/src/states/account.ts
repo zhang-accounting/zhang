@@ -5,7 +5,7 @@ import { groupBy } from 'lodash-es';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { atom } from 'jotai';
 
-export const accountFetcher = atomWithRefresh(async (get) => {
+export const accountFetcher = atomWithRefresh(async () => {
   return await fetcher<Account[]>(`/api/accounts`);
 });
 

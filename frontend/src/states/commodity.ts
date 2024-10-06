@@ -7,7 +7,7 @@ import { atom } from 'jotai';
 
 export const FRONTEND_DEFAULT_GROUP = '__ZHANG__FRONTEND_DEFAULT__GROUP__';
 
-export const commoditiesFetcher = atomWithRefresh(async (get) => {
+export const commoditiesFetcher = atomWithRefresh(async () => {
   const ret = await fetcher<CommodityListItem[]>(`/api/commodities`);
   return Object.fromEntries(ret.map((item: CommodityListItem) => [item.name, item]));
 });
