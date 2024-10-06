@@ -124,7 +124,7 @@ function Journals() {
           </TableBody>
         </Table>
       </div>
-      <Pagination>
+      <Pagination className='my-4'>
         <PaginationContent>
           {journalPage > 1 && (
             <PaginationItem>

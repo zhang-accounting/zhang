@@ -1,32 +1,25 @@
 import { AccountBalanceHistory } from '../rest-model';
-import { ChartTooltipProps, LineChart } from '@mantine/charts';
 import { groupBy, max, min, sortBy } from 'lodash-es';
 import BigNumber from 'bignumber.js';
-import { Paper, Text } from '@mantine/core';
-import Amount from './Amount';
+import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from './ui/chart';
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
 
-export function ChartTooltip({ label, payload }: ChartTooltipProps) {
-  if (!payload) return null;
 
-  return (
-    <Paper px="md" py="sm" withBorder shadow="md" radius="md">
-      <Text fw={500} mb={5}>
-        {label}
-      </Text>
-      {payload.map((item: any) => (
-        <Text key={item.name} c={item.color} fz="sm">
-          {item.name}: <Amount amount={item.value} currency={item.name}></Amount>
-        </Text>
-      ))}
-    </Paper>
-  );
+
+const COLOR_SET = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
+
+
+
+
+function buildChartConfig(series: { name: string, color: string }[]): ChartConfig {
+  return series.reduce((acc, current, idx) => ({ ...acc, [current.name]: { label: current.name, color: COLOR_SET[idx % COLOR_SET.length] } }), {}) satisfies ChartConfig
 }
+
+
 
 interface Props {
   data?: AccountBalanceHistory;
 }
-
-const LINE_COLOR = ['cyan.6', 'indigo.6', 'blue.6', 'teal.6'];
 
 export function AccountBalanceHistoryGraph(props: Props) {
   if (!props.data) {
@@ -70,20 +63,48 @@ export function AccountBalanceHistoryGraph(props: Props) {
     .sort()
     .map((it, idx) => ({
       name: it,
-      color: LINE_COLOR[idx % LINE_COLOR.length],
+      color: COLOR_SET[idx % COLOR_SET.length],
     }));
+
+  console.log("account graph", data, series)
   return (
-    <LineChart
-      h={250}
-      dotProps={{ r: 0, strokeWidth: 1 }}
-      data={data}
-      dataKey="date"
-      series={series}
-      yAxisProps={{ type: 'number', scale: 'log', domain: [minAmount, maxAmount] }}
-      tooltipProps={{
-        content: ({ label, payload }) => <ChartTooltip label={label} payload={payload} />,
-      }}
-      curveType="linear"
-    />
+
+
+    <ChartContainer config={buildChartConfig(series)} className={`h-[300px] w-full`}>
+      <LineChart
+        accessibilityLayer
+        data={data}
+        margin={{
+          left: 12,
+          right: 12,
+        }}
+      >
+        <CartesianGrid vertical={false} />
+        <XAxis
+          dataKey="date"
+          tickLine={false}
+          axisLine={false}
+          tickMargin={8}
+        />
+        <YAxis hide type="number" domain={[minAmount, maxAmount]} yAxisId="default" scale="log" padding={{ top: 20, bottom: 20 }} />
+        <ChartTooltip
+          cursor={false}
+          content={<ChartTooltipContent/>}
+        />
+        {series.map((it) => (
+          <Line
+            dataKey={it.name}
+            type="natural"
+            stroke={it.color}
+            strokeWidth={2}
+            dot={false}
+            yAxisId="default"
+          />
+        ))}
+      </LineChart>
+    </ChartContainer>
+
+
+
   );
 }

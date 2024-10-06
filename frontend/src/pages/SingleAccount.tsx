@@ -88,12 +88,13 @@ function SingleAccount() {
         </div>
       </div>
       
-      
+      <div className="my-4">
       {account_balance_error ? (
         <div>fail to fetch account balance history</div>
       ) : (
         account_balance_data && <AccountBalanceHistoryGraph data={account_balance_data} />
       )}
+      </div>
 
       <Tabs defaultValue="journals">
         <TabsList>
