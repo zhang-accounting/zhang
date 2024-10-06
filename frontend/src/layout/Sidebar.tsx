@@ -22,6 +22,7 @@ import { errorCountAtom } from '@/states/errors';
 import { titleAtom, updatableVersionAtom } from '@/states/basic';
 import { axiosInstance } from '@/global';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 export const DASHBOARD_LINK = {
   icon: CircleGauge,
@@ -125,17 +126,27 @@ export default function Sidebar() {
           <nav className="grid items-start px-2 text-sm font-medium lg:px-4">
             <Link
               to={DASHBOARD_LINK.uri}
-              className={`flex items-center gap-3 rounded-lg px-3 py-3 text-muted-foreground transition-all hover:text-primary ${location.pathname === DASHBOARD_LINK.uri ? ' bg-muted text-primary' : ''}`}
+              className={cn(
+                'flex items-center gap-3 rounded-lg px-3 py-3 text-muted-foreground transition-all hover:text-primary',
+                location.pathname === DASHBOARD_LINK.uri && 'bg-muted text-primary',
+              )}
             >
               <DASHBOARD_LINK.icon className="h-4 w-4" />
               {t(DASHBOARD_LINK.label)}
-              {errorsCount > 0 && <Badge className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full">{errorsCount}</Badge>}
+              {errorsCount > 0 && (
+                <Badge className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-600">
+                  {errorsCount}
+                </Badge>
+              )}
             </Link>
             {links.map((link) => (
               <Link
                 key={link.label}
                 to={link.uri}
-                className={`flex items-center gap-3 rounded-lg px-3 py-3 text-muted-foreground transition-all hover:text-primary ${location.pathname === link.uri ? ' bg-muted text-primary' : ''}`}
+                className={cn(
+                  'flex items-center gap-3 rounded-lg px-3 py-3 text-muted-foreground transition-all hover:text-primary',
+                  location.pathname === link.uri && 'bg-muted text-primary',
+                )}
               >
                 <link.icon className="h-4 w-4" />
                 {t(link.label)}
