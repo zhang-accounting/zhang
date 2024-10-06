@@ -2,21 +2,21 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 import { max, min, sortBy } from 'lodash-es';
 import { AccountType, StatisticGraphResponse } from '../rest-model';
-import { Bar, CartesianGrid, ComposedChart, Line, XAxis } from 'recharts';
+import { Bar, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from 'recharts';
 import { ChartConfig, ChartContainer, ChartTooltipContent, ChartTooltip } from './ui/chart';
 
 const chartConfig = {
   total: {
     label: 'Total',
-    color: '#ff7300',
+    color: 'hsl(var(--chart-2))',
   },
   income: {
     label: 'Income',
-    color: '#2563eb',
+    color: 'var(--color-green-500)',
   },
   expense: {
     label: 'Expense',
-    color: '#60a5fa',
+    color: 'var(--color-red-500)',
   },
 } satisfies ChartConfig;
 
@@ -33,7 +33,7 @@ export default function ReportGraph(props: Props) {
     const target_day = props.data.balances[date];
     return new BigNumber(target_day.calculated.number).toNumber();
   });
-  let total_domain = [(min(total_dataset) ?? 0) * 0.999, (max(total_dataset) ?? 0) * 1.001];
+  let total_domain = [min(total_dataset) ?? 0, max(total_dataset) ?? 0];
 
   const income_dataset = sequencedDate
     .map((date) => props.data.changes[date]?.[AccountType.Income])
@@ -42,6 +42,8 @@ export default function ReportGraph(props: Props) {
   const expense_dataset = sequencedDate
     .map((date) => props.data.changes[date]?.[AccountType.Expenses])
     .map((amount) => new BigNumber(amount?.calculated.number ?? '0').toNumber());
+
+  const max_income = Math.max(...income_dataset) + Math.max(...expense_dataset);
 
   const data = labels.map((label, idx) => ({
     date: label,
@@ -56,17 +58,18 @@ export default function ReportGraph(props: Props) {
       <ChartContainer config={chartConfig} className={`h-[300px] w-full`}>
         <ComposedChart accessibilityLayer data={data}>
           <XAxis dataKey="date" tickLine={false} tickMargin={10} axisLine={false} />
+
+          <YAxis hide type="number" domain={total_domain} yAxisId="left" scale="log" padding={{ top: 20, bottom: 20 }} />
+          <YAxis hide type="number" domain={[0, max_income]} yAxisId="right" padding={{ top: 20, bottom: 0 }} />
+
           <ChartTooltip content={<ChartTooltipContent />} />
           <CartesianGrid vertical={false} />
 
-          <Bar dataKey="income" stackId="a" fill="var(--color-income)" yAxisId="right" radius={4} />
-          <Bar dataKey="expense" stackId="a" fill="var(--color-expense)" yAxisId="right" radius={4} />
-          <Line type="monotone" dataKey="total" stroke="#ff7300" yAxisId="left" />
+          <Bar dataKey="income" stackId="a" fill="#3b82f6" yAxisId="right" />
+          <Bar dataKey="expense" stackId="a" fill="#ef4444" yAxisId="right" />
+          <Line type="monotone" dataKey="total" stroke="var(--color-total)" strokeWidth={2} dot={true} yAxisId="left" />
         </ComposedChart>
       </ChartContainer>
-
-      {/* todo log y axis */}
-      {/* todo chart color */}
     </>
   );
 }
