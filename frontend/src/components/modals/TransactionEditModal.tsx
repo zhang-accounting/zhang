@@ -1,6 +1,5 @@
 import TransactionEditForm from '../TransactionEditForm';
 import { useEffect, useState } from 'react';
-import { showNotification } from '@mantine/notifications';
 import { axiosInstance } from '../../global.ts';
 import { useAtom } from 'jotai';
 import { editTransactionAtom } from '../../states/journals';
@@ -19,20 +18,12 @@ export const TransactionEditModal = () => {
     axiosInstance
       .put(`/api/transactions/${editTransaction?.id}`, data)
       .then((res) => {
-        showNotification({
-          title: 'transaction is updated',
-          message: '',
-        });
+        toast.success('transaction is updated');
         setEditTransaction(undefined);
         isOpenHandler.close();
       })
       .catch(function (error) {
-        showNotification({
-          title: 'Fail to update new Transaction',
-          color: 'red',
-          message: error?.response?.data ?? '',
-          autoClose: false,
-        });
+        toast.error('Fail to update new Transaction', {description: error?.response?.data ?? ''});
         console.error(error);
       });
   };

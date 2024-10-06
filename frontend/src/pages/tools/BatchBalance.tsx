@@ -1,14 +1,20 @@
-import { Button, Chip, Container, Group, Select, Table, TextInput, Title } from '@mantine/core';
 import { useListState, useLocalStorage } from '@mantine/hooks';
 import { useEffect, useMemo } from 'react';
 import Amount from '../../components/Amount';
 import { loadable_unwrap } from '../../states';
 import { accountAtom, accountFetcher, accountSelectItemsAtom } from '../../states/account';
 import BigNumber from 'bignumber.js';
-import { showNotification } from '@mantine/notifications';
 import { axiosInstance } from '../../global.ts';
 import { useAtomValue, useSetAtom } from 'jotai/index';
 import { selectAtom } from 'jotai/utils';
+import { toast } from 'sonner';
+import { Switch } from '@/components/ui/switch.tsx';
+import { Label } from '@/components/ui/label.tsx';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
+import { Input } from '@/components/ui/input.tsx';
+import { Combobox } from '@/components/ui/combobox.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { cn } from '@/lib/utils.ts';
 
 interface BalanceLineItem {
   commodity: string;
@@ -88,62 +94,61 @@ export default function BatchBalance() {
         },
         pad: account.pad,
       }));
-    showNotification({
-      title: `Start balance ${accountsToBalance.length} Accounts`,
-      message: '',
-    });
+    toast.info(`Start balance ${accountsToBalance.length} Accounts`);
+    
     try {
       await axiosInstance.post('/api/accounts/batch-balances', accountsToBalance);
-      showNotification({
-        title: 'Balance account successfully',
-        message: 'waiting page to refetch latest data',
+
+      toast.success('Balance account successfully', {
+        description: 'waiting page to refetch latest data',
       });
       refreshAccounts();
     } catch (e: any) {
-      showNotification({
-        title: 'Fail to Balance Account',
-        color: 'red',
-        message: e?.response?.data ?? '',
-        autoClose: false,
+
+      toast.error('Fail to Balance Account', {
+        description: e?.response?.data ?? '',
       });
+
     }
   };
   return (
-    <Container fluid>
-      <Title order={2}>Batch Balance</Title>
-      <Group my="lg">
-        <Chip checked={maskCurrentAmount} onChange={() => setMaskCurrentAmount(!maskCurrentAmount)}>
-          Mask Current Amount
-        </Chip>
-        <Chip checked={reflectOnUnbalancedAmount}
-              onChange={() => setReflectOnUnbalancedAmount(!reflectOnUnbalancedAmount)}>
-          Reflect on unbalanced amount
-        </Chip>
-      </Group>
-      <Table verticalSpacing="xs" highlightOnHover>
-        <Table.Thead>
+    <div>
+
+<h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">
+      Batch Balance
+      </h1>
+      <div className="flex items-center gap-2 mt-4">
+
+        <Switch checked={maskCurrentAmount} onCheckedChange={setMaskCurrentAmount}>
+          </Switch>
+        <Label>Mask Current Amount</Label>
+        <Switch checked={reflectOnUnbalancedAmount} onCheckedChange={setReflectOnUnbalancedAmount}>
+        </Switch>
+        <Label>Reflect on unbalanced amount</Label>
+      </div>
+      <div className="rounded-md border mt-4">
+      <Table >
+        <TableHeader>
           <TableRow>
-            <Table.Th>Account</Table.Th>
-            <Table.Th>Commodity</Table.Th>
-            <Table.Th>Current Balance</Table.Th>
-            <Table.Th>Pad Account</Table.Th>
-            <Table.Th>Destination</Table.Th>
+            <TableHead>Account</TableHead>
+            <TableHead>Commodity</TableHead>
+            <TableHead className='text-right'>Current Balance</TableHead>
+            <TableHead >Pad Account</TableHead>
+            <TableHead >Destination</TableHead>
           </TableRow>
-        </Table.Thead>
-        <tbody>
+        </TableHeader>
+        <TableBody>
         {accounts.map((account, idx) => (
           <TableRow key={`${account.accountName}-${account.commodity}`}>
             <TableCell>{account.accountName}</TableCell>
             <TableCell>{account.commodity}</TableCell>
-            <TableCell>
+            <TableCell className='text-right'>
               <Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity}></Amount>
             </TableCell>
             <TableCell>
-              <Select
-                searchable
-                clearable
+              <Combobox
                 placeholder="Pad to"
-                data={accountItems}
+                options={accountItems}
                 value={account.pad}
                 onChange={(e) => {
                   updateBalanceLineItem(idx, e ?? undefined, account.balanceAmount);
@@ -151,22 +156,26 @@ export default function BatchBalance() {
               />
             </TableCell>
             <TableCell>
-              <TextInput
-                error={account.error}
+              <Input
+                type='number'
+                className={cn(account.error ? 'border-red-500' : '')}
                 value={account.balanceAmount}
                 onChange={(e) => {
                   updateBalanceLineItem(idx, account.pad ?? undefined, e.target.value);
                 }}
-              ></TextInput>
+              ></Input>
             </TableCell>
           </TableRow>
         ))}
-        </tbody>
+        </TableBody>
       </Table>
+      </div>
+      <div className='flex justify-end mt-4'>
       <Button disabled={accounts.filter((account) => account.balanceAmount.trim() !== '').length === 0}
               onClick={onSave}>
         Submit
       </Button>
-    </Container>
+      </div>
+    </div>
   );
 }

@@ -1,10 +1,10 @@
-import { Button } from '@mantine/core';
 import axios from 'axios';
 import { Buffer } from 'buffer';
 import { useEffect, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { fetcher, serverBaseUrl } from '../global.ts';
 import CodeMirror from '@uiw/react-codemirror';
+import { Button } from './ui/button.tsx';
 
 interface Props {
   name?: string;
@@ -49,7 +49,7 @@ export default function SingleFileEdit({ path }: Props) {
           setContent(value);
         }}
       />
-      <Button ml="xs" mt="xs" disabled={data.content === content} onClick={onUpdate}>
+      <Button className="ml-2 mt-2" disabled={data.content === content} onClick={onUpdate}>
         Update
       </Button>
     </div>
