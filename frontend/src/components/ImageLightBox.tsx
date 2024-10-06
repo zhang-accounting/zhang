@@ -1,5 +1,4 @@
 import { Buffer } from 'buffer';
-import * as React from 'react';
 import Lightbox from 'yet-another-react-lightbox';
 import { serverBaseUrl } from '../global.ts';
 

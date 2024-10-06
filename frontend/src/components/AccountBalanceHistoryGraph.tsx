@@ -84,7 +84,7 @@ export function AccountBalanceHistoryGraph(props: Props) {
         <YAxis hide type="number" domain={[minAmount, maxAmount]} yAxisId="default" scale="log" padding={{ top: 20, bottom: 20 }} />
         <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
         {series.map((it) => (
-          <Line dataKey={it.name} type="natural" stroke={it.color} strokeWidth={2} dot={false} yAxisId="default" />
+          <Line dataKey={it.name} type="monotone" stroke={it.color} strokeWidth={2} dot yAxisId="default" />
         ))}
       </LineChart>
     </ChartContainer>

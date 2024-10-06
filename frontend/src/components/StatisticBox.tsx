@@ -12,7 +12,7 @@ interface Props {
   hint?: string;
 }
 
-export default function StatisticBox({ text, amount, currency, negative, hint }: Props) {
+export default function StatisticBox({ text, amount, currency, negative }: Props) {
   const { t } = useTranslation();
 
   return (

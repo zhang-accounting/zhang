@@ -74,7 +74,7 @@ export default function App() {
         description: 'Client can not connect to server',
       });
     };
-  }, [mutate]); // eslint-disable-line
+  }, [mutate]);
 
   return (
     <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[220px_1fr]">

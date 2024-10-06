@@ -6,7 +6,7 @@ import { loadable_unwrap } from './index';
 export const onlineAtom = atom<boolean>(false);
 export const updatableVersionAtom = atom<string | undefined>(undefined);
 
-export const basicInfoFetcher = atomWithRefresh(async (get) => {
+export const basicInfoFetcher = atomWithRefresh(async () => {
   return await fetcher<{ title: string; version: string }>(`/api/info`);
 });
 

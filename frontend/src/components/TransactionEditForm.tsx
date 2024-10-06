@@ -22,12 +22,6 @@ interface Posting {
   amount: string;
 }
 
-interface SelectItem {
-  label: string;
-  value: string;
-  group?: string;
-}
-
 interface Props {
   onChange(data: any, isValid: boolean): void;
 
@@ -56,17 +50,7 @@ export default function TransactionEditForm(props: Props) {
 
   const [metas, metaHandler] = useListState<{ key: string; value: string }>(props.data?.metas ?? []);
 
-  const [payeeSelectItems, setPayeeSelectItems] = useState<SelectItem[]>([]);
   const accountItems = useAtomValue(accountSelectItemsAtom);
-  useEffect(() => {
-    const newPayeeSelectItems: SelectItem[] = (data?.payee ?? []).map((item) => {
-      return {
-        label: item,
-        value: item,
-      };
-    });
-    setPayeeSelectItems(newPayeeSelectItems);
-  }, [data, setPayeeSelectItems]);
 
   useEffect(() => {
     props.onChange(
