@@ -1,4 +1,3 @@
-
 import useSWR from 'swr';
 import ErrorBox from '../components/ErrorBox';
 import Section from '../components/Section';
@@ -35,9 +34,9 @@ function Home() {
   if (error) return <div>failed to load</div>;
   if (!data) return <>loading</>;
   return (
-    <div className='flex flex-col gap-4'>
+    <div className="flex flex-col gap-4">
       <StatisticBar />
-      
+
       <div className="grid grid-cols-12 gap-4">
         <div className="col-span-8">
           <Section title="Current Statistics">

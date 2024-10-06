@@ -43,6 +43,5 @@ export const groupedJournalsAtom = atom((get) => {
   });
 });
 
-
-export const previewJournalAtom = atom<JournalItem|undefined>(undefined);
-export const editTransactionAtom = atom<JournalTransactionItem|undefined>(undefined);
+export const previewJournalAtom = atom<JournalItem | undefined>(undefined);
+export const editTransactionAtom = atom<JournalTransactionItem | undefined>(undefined);

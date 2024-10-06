@@ -12,7 +12,7 @@ export default function DocumentPreview(props: Props) {
   const canPreview = isDocumentAnImage(props.filename);
 
   return (
-    <div 
+    <div
       className="relative overflow-hidden rounded-md after:content-[''] after:block after:pb-[100%]"
       onClick={canPreview ? () => props.onClick(props.filename) : undefined}
     >

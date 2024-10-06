@@ -1,6 +1,5 @@
 import { PluginResponse } from '../rest-model';
 
-
 interface Props extends PluginResponse {}
 
 export default function PluginBox(props: Props) {
@@ -12,7 +11,9 @@ export default function PluginBox(props: Props) {
       </div>
       <div className="flex flex-wrap gap-2">
         {props.plugin_type.map((item, index) => (
-          <span key={index} className="bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">{item}</span>
+          <span key={index} className="bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
+            {item}
+          </span>
         ))}
       </div>
     </div>

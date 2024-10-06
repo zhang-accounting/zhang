@@ -184,7 +184,9 @@ export interface StatisticResponse {
 export interface StatisticGraphResponse {
   // todo: to be deleted
   balances: { [date: string]: CalculatedAmountResponse };
-  changes: { [date: string]: { [accountType: string]: CalculatedAmountResponse } };
+  changes: {
+    [date: string]: { [accountType: string]: CalculatedAmountResponse };
+  };
 }
 
 export interface CalculatedAmountResponse {

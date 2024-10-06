@@ -6,8 +6,7 @@ import { useNavigate } from 'react-router';
 import { TableCell } from '../ui/table';
 import { TableRow } from '../ui/table';
 
-interface Props extends BudgetListItem {
-}
+interface Props extends BudgetListItem {}
 
 export default function BudgetLine(props: Props) {
   const navigate = useNavigate();
@@ -15,12 +14,12 @@ export default function BudgetLine(props: Props) {
     2,
   );
   return (
-    <TableRow className='relative z-[1]'>
-      <TableCell className='py-3'>
+    <TableRow className="relative z-[1]">
+      <TableCell className="py-3">
         <BackgroundProgress percentage={number} />
-        <div className='flex items-center gap-2'>
-          <div className='w-9 h-4 bg-transparent'></div>
-          <span className='cursor-pointer' onClick={() => navigate(props.name)}>
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-4 bg-transparent"></div>
+          <span className="cursor-pointer" onClick={() => navigate(props.name)}>
             {props.alias ?? props.name}
           </span>
         </div>

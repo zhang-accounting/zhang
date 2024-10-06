@@ -50,7 +50,7 @@ export default function ErrorBox() {
   return (
     <>
       <Dialog open={isOpen} onOpenChange={() => isOpenHandler.close()}>
-        <DialogContent className='max-h-[90vh] w-2/3 overflow-y-auto'>
+        <DialogContent className="max-h-[90vh] w-2/3 overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{`${selectError?.span.filename}:L${selectError?.span.start}:${selectError?.span.end}`}</DialogTitle>
             <DialogDescription>
@@ -78,13 +78,13 @@ export default function ErrorBox() {
       <div className="flex flex-col gap-2">
         {errors.data.total_count === 0 ? (
           <div className="flex flex-col items-center">
-            <img className='w-1/2 rounded-md' src={Joyride} />
-            <p className='text-xl font-bold'>{t('LEDGER_IS_HEALTHY')}</p>
+            <img className="w-1/2 rounded-md" src={Joyride} />
+            <p className="text-xl font-bold">{t('LEDGER_IS_HEALTHY')}</p>
           </div>
         ) : (
           <>
             {errors.data.records.map((error, idx) => (
-              <p key={idx} className='cursor-pointer' onClick={() => toggleError(error)}>
+              <p key={idx} className="cursor-pointer" onClick={() => toggleError(error)}>
                 {t(`ERROR.${error.error_type}`)}
               </p>
             ))}
@@ -98,9 +98,7 @@ export default function ErrorBox() {
                 )}
                 {errors.data.current_page > 1 && (
                   <PaginationItem>
-                    <PaginationLink href="#">
-                      {errors.data.current_page - 1}
-                    </PaginationLink>
+                    <PaginationLink href="#">{errors.data.current_page - 1}</PaginationLink>
                   </PaginationItem>
                 )}
                 <PaginationItem>

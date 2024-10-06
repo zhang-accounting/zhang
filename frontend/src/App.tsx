@@ -15,7 +15,6 @@ import Sidebar from './layout/Sidebar.tsx';
 import { Nav } from './layout/Nav.tsx';
 import { toast } from 'sonner';
 
-
 export default function App() {
   const { mutate } = useSWRConfig();
   const { i18n } = useTranslation();
@@ -43,11 +42,11 @@ export default function App() {
       const data = JSON.parse(event.data);
       switch (data?.type) {
         case 'Reload':
-          toast.success('[Ledger Reload] reloaded',{
+          toast.success('[Ledger Reload] reloaded', {
             id: 'leger-reload',
             description: 'reloading latest ledger info',
           });
-          
+
           mutate('/api/for-new-transaction');
           refreshErrors();
           refreshAccounts();
@@ -70,14 +69,12 @@ export default function App() {
     };
     events.onerror = () => {
       setLedgerOnline(false);
-      toast.error('Server Offline',{
+      toast.error('Server Offline', {
         id: 'offline',
         description: 'Client can not connect to server',
       });
-      
     };
   }, [mutate]); // eslint-disable-line
-
 
   return (
     <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[220px_1fr]">
@@ -90,5 +87,4 @@ export default function App() {
       </div>
     </div>
   );
-
 }

@@ -16,7 +16,6 @@ interface Props {
 }
 
 export default function TableViewTransactionLine({ data }: Props) {
-
   const time = format(new Date(data.datetime), 'HH:mm:ss');
 
   const [, setJournalTags] = useAtom(journalTagsAtom);
@@ -52,11 +51,7 @@ export default function TableViewTransactionLine({ data }: Props) {
   const summary = calculate(data);
   const hasDocuments = data.metas.some((meta) => meta.key === 'document');
   return (
-    <TableRow className={cn(
-      'p-1',
-      !data.is_balanced && 'border-l-[3px] border-l-red-500',
-      data.flag === '!' && 'border-l-[3px] border-l-orange-500'
-    )}>
+    <TableRow className={cn('p-1', !data.is_balanced && 'border-l-[3px] border-l-red-500', data.flag === '!' && 'border-l-[3px] border-l-orange-500')}>
       <TableCell>{time}</TableCell>
       <TableCell>
         <Badge color="gray" variant="outline">
@@ -84,24 +79,30 @@ export default function TableViewTransactionLine({ data }: Props) {
       <TableCell className="">
         <div className="flex flex-col items-end gap-2">
           {Array.from(summary.values()).map((each) => (
-
-            <Amount key={each.currency} className={cn(
-              "font-bold text-sm",
-              each.number.isPositive() ? 'text-green-600' : 'text-red-500'
-            )} amount={each.number} currency={each.currency} />
+            <Amount
+              key={each.currency}
+              className={cn('font-bold text-sm', each.number.isPositive() ? 'text-green-600' : 'text-red-500')}
+              amount={each.number}
+              currency={each.currency}
+            />
           ))}
         </div>
       </TableCell>
       <TableCell className="flex justify-end">
-        <LineMenu actions={[{
-          label: 'Edit',
-          icon: Pencil,
-          onClick: openEditModel,
-        }, {
-          label: 'Preview',
-          icon: ZoomIn,
-          onClick: openPreviewModal,
-        },]} />
+        <LineMenu
+          actions={[
+            {
+              label: 'Edit',
+              icon: Pencil,
+              onClick: openEditModel,
+            },
+            {
+              label: 'Preview',
+              icon: ZoomIn,
+              onClick: openPreviewModal,
+            },
+          ]}
+        />
       </TableCell>
     </TableRow>
   );

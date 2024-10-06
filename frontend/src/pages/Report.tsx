@@ -23,10 +23,7 @@ import { DateRange } from 'react-day-picker';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 import StatisticBox from '@/components/StatisticBox.tsx';
 
-
 const color_set = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
-
-
 
 export default function Report() {
   const [value, setValue] = useState<DateRange | undefined>({
@@ -68,7 +65,6 @@ export default function Report() {
     fetcher,
   );
 
-
   if (!graph_data) return <>loading</>;
 
   if (error) return <div>failed to load</div>;
@@ -76,29 +72,20 @@ export default function Report() {
 
   return (
     <>
-      <div className='flex flex-col gap-4'>
-
-        <div className='flex items-center justify-between gap-4 mb-4'>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-4 mb-4">
           <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">Report</h1>
           <Popover>
             <PopoverTrigger asChild>
-              <Button
-                id="date"
-                variant={"outline"}
-                className={cn(
-                  "w-[300px] justify-start text-left font-normal",
-                  !value && "text-muted-foreground"
-                )}
-              >
+              <Button id="date" variant={'outline'} className={cn('w-[300px] justify-start text-left font-normal', !value && 'text-muted-foreground')}>
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {value?.from ? (
                   value.to ? (
                     <>
-                      {format(value.from, "LLL dd, y")} -{" "}
-                      {format(value.to, "LLL dd, y")}
+                      {format(value.from, 'LLL dd, y')} - {format(value.to, 'LLL dd, y')}
                     </>
                   ) : (
-                    format(value.from, "LLL dd, y")
+                    format(value.from, 'LLL dd, y')
                   )
                 ) : (
                   <span>Pick a date</span>
@@ -106,14 +93,7 @@ export default function Report() {
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                initialFocus
-                mode="range"
-                defaultMonth={value?.from}
-                selected={value}
-                onSelect={setValue}
-                numberOfMonths={2}
-              />
+              <Calendar initialFocus mode="range" defaultMonth={value?.from} selected={value} onSelect={setValue} numberOfMonths={2} />
             </PopoverContent>
           </Popover>
         </div>
@@ -125,12 +105,9 @@ export default function Report() {
             currency={data.balance.calculated.currency}
             hint={'include assets and liabilities'}
           />
-          <StatisticBox text={'收入'} amount={data.income.calculated.number}
-            currency={data.income.calculated.currency} negative />
-          <StatisticBox text={'支出'} amount={data.expense.calculated.number}
-            currency={data.expense.calculated.currency} negative />
-          <StatisticBox text={'交易数'} amount={data.transaction_number.toString()}
-          />
+          <StatisticBox text={'收入'} amount={data.income.calculated.number} currency={data.income.calculated.currency} negative />
+          <StatisticBox text={'支出'} amount={data.expense.calculated.number} currency={data.expense.calculated.currency} negative />
+          <StatisticBox text={'交易数'} amount={data.transaction_number.toString()} />
         </div>
 
         <Section title="Graph">
@@ -142,7 +119,7 @@ export default function Report() {
             <CardTitle>Top 10 Incomes</CardTitle>
           </CardHeader>
           <CardContent>
-            <Table >
+            <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
@@ -168,8 +145,6 @@ export default function Report() {
             </Table>
           </CardContent>
         </Card>
-
-
 
         <Card className="mt-2 rounded-sm ">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 ">

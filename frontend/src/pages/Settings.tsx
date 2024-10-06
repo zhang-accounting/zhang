@@ -28,7 +28,7 @@ export default function Settings() {
   useEffect(() => {
     setBreadcrumb([SETTINGS_LINK]);
   }, []);
-  
+
   const onLanguageChange = (lang: string) => {
     setLang(lang);
   };
@@ -38,7 +38,7 @@ export default function Settings() {
   }, [lang, i18n]);
 
   return (
-    <div className='flex flex-col gap-4'>
+    <div className="flex flex-col gap-4">
       <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">Settings</h1>
       <Section title="Basic Setting">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -52,11 +52,10 @@ export default function Settings() {
                   <SelectValue placeholder="Select a fruit" />
                 </SelectTrigger>
                 <SelectContent>
-                    <SelectItem value="zh">中文</SelectItem>
-                    <SelectItem value="en">English</SelectItem>
+                  <SelectItem value="zh">中文</SelectItem>
+                  <SelectItem value="en">English</SelectItem>
                 </SelectContent>
               </Select>
-
             </div>
           </div>
         </div>
@@ -69,8 +68,7 @@ export default function Settings() {
         </div>
       </Section>
       <Section title="Options">
-
-        <Table >
+        <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Key</TableHead>

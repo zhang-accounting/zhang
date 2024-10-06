@@ -24,23 +24,26 @@ import { ACCOUNTS_LINK } from '@/layout/Sidebar.tsx';
 import { Cog, FileStack, Notebook } from 'lucide-react';
 
 function SingleAccount() {
-  
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
   let { accountName } = useParams();
 
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
   const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
-  const {
-    data: account_balance_data,
-    error: account_balance_error,
-  } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
+  const { data: account_balance_data, error: account_balance_error } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
 
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
-  
+
   useEffect(() => {
-    setBreadcrumb([ACCOUNTS_LINK, { label: accountName ?? '', uri: `/accounts/${accountName}`, noTranslate: false }]);
+    setBreadcrumb([
+      ACCOUNTS_LINK,
+      {
+        label: accountName ?? '',
+        uri: `/accounts/${accountName}`,
+        noTranslate: false,
+      },
+    ]);
   }, [accountName]);
 
   if (error) return <div>failed to load</div>;
@@ -49,46 +52,51 @@ function SingleAccount() {
     <div>
       <div className="flex items-center gap-4 pb-6">
         <div>
-          <div className='flex items-center gap-2'>
-            <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">
-          {account.alias ?? account.name}
-        </h1>
-        <Badge variant="outline" className="ml-auto sm:ml-0">
-          {account.status}
-        </Badge></div>
-        {!!account.alias && <h4 className="text-sm text-gray-500">{account.name}</h4>}
+          <div className="flex items-center gap-2">
+            <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{account.alias ?? account.name}</h1>
+            <Badge variant="outline" className="ml-auto sm:ml-0">
+              {account.status}
+            </Badge>
+          </div>
+          {!!account.alias && <h4 className="text-sm text-gray-500">{account.name}</h4>}
         </div>
-        
+
         <div className="hidden items-center gap-2 md:ml-auto md:flex">
           <div className="text-right">
-            <div className='flex items-center justify-end gap-2 text-lg'>
-            {Object.keys(account.amount.detail).length > 1 && <p>≈</p>}
-            <Amount amount={account.amount.calculated.number} currency={account.amount.calculated.currency}></Amount>
+            <div className="flex items-center justify-end gap-2 text-lg">
+              {Object.keys(account.amount.detail).length > 1 && <p>≈</p>}
+              <Amount amount={account.amount.calculated.number} currency={account.amount.calculated.currency}></Amount>
             </div>
             {Object.keys(account.amount.detail).length > 1 && (
-            <>
-              {Object.entries(account.amount.detail ?? {}).map(([key, value]) => (
-                <Amount key={key} className="text-lg" amount={value} currency={key}></Amount>
-              ))}
-            </>
-          )}
+              <>
+                {Object.entries(account.amount.detail ?? {}).map(([key, value]) => (
+                  <Amount key={key} className="text-lg" amount={value} currency={key}></Amount>
+                ))}
+              </>
+            )}
           </div>
         </div>
       </div>
-      
+
       <div className="my-4">
-      {account_balance_error ? (
-        <div>fail to fetch account balance history</div>
-      ) : (
-        account_balance_data && <AccountBalanceHistoryGraph data={account_balance_data} />
-      )}
+        {account_balance_error ? (
+          <div>fail to fetch account balance history</div>
+        ) : (
+          account_balance_data && <AccountBalanceHistoryGraph data={account_balance_data} />
+        )}
       </div>
 
       <Tabs defaultValue="journals">
         <TabsList>
-          <TabsTrigger value="journals"><Notebook className='w-4 h-4 mr-2' /> Journals</TabsTrigger>
-          <TabsTrigger value="documents"><FileStack className='w-4 h-4 mr-2' /> Documents</TabsTrigger>
-          <TabsTrigger value="settings"><Cog className='w-4 h-4 mr-2' /> Settings</TabsTrigger>
+          <TabsTrigger value="journals">
+            <Notebook className="w-4 h-4 mr-2" /> Journals
+          </TabsTrigger>
+          <TabsTrigger value="documents">
+            <FileStack className="w-4 h-4 mr-2" /> Documents
+          </TabsTrigger>
+          <TabsTrigger value="settings">
+            <Cog className="w-4 h-4 mr-2" /> Settings
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="journals">
@@ -133,7 +141,6 @@ function SingleAccount() {
               </Table>
             </CardContent>
           </Card>
-
         </TabsContent>
         <TabsContent value="documents">
           <Card className="mt-2 rounded-sm ">
@@ -150,12 +157,7 @@ function SingleAccount() {
                     <div className="grid grid-cols-1 xs:grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
                       <AccountDocumentUpload url={`/api/accounts/${accountName}/documents`} />
                       {data.map((document, idx) => (
-                        <DocumentPreview 
-                          onClick={(path) => setLightboxSrc(path)} 
-                          key={idx} 
-                          uri={document.path}
-                          filename={document.path} 
-                        />
+                        <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} uri={document.path} filename={document.path} />
                       ))}
                     </div>
                   </>
@@ -163,7 +165,6 @@ function SingleAccount() {
               ></LoadingComponent>
             </CardContent>
           </Card>
-
         </TabsContent>
         <TabsContent value="settings">
           <Card className="mt-2 rounded-sm ">
@@ -171,7 +172,7 @@ function SingleAccount() {
               <CardTitle>Settings</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table >
+              <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Currency</TableHead>
@@ -183,24 +184,14 @@ function SingleAccount() {
                 </TableHeader>
                 <TableBody>
                   {Object.entries(account?.amount.detail ?? {}).map(([commodity, amount]) => (
-                    <AccountBalanceCheckLine key={commodity} currentAmount={amount} commodity={commodity}
-                      accountName={account.name} />
+                    <AccountBalanceCheckLine key={commodity} currentAmount={amount} commodity={commodity} accountName={account.name} />
                   ))}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
-
         </TabsContent>
       </Tabs>
-
-
-
-
-
-
-
-
     </div>
   );
 }

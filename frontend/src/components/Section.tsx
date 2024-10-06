@@ -15,9 +15,7 @@ export default function Section({ children, title, rightSection }: Props) {
         <CardTitle className="text-sm font-medium text-gray-900">{title}</CardTitle>
         {rightSection}
       </CardHeader>
-      <CardContent className='mt-2'>
-        {children}
-      </CardContent>
+      <CardContent className="mt-2">{children}</CardContent>
     </Card>
   );
 }

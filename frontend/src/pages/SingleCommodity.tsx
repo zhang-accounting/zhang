@@ -20,23 +20,24 @@ export default function SingleCommodity() {
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${commodityName} | Commodities - ${ledgerTitle}`);
   useEffect(() => {
-    setBreadcrumb([COMMODITIES_LINK, { label: commodityName ?? '', uri: `/commodities/${commodityName}`, noTranslate: true }]);
-  }, [commodityName]);  
+    setBreadcrumb([
+      COMMODITIES_LINK,
+      {
+        label: commodityName ?? '',
+        uri: `/commodities/${commodityName}`,
+        noTranslate: true,
+      },
+    ]);
+  }, [commodityName]);
   if (error) return <div>failed to load</div>;
   if (!data) return <div>loading</div>;
 
   return (
     <div>
-
       <div className="flex items-center gap-4 pb-6">
-
-        <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">
-          {commodityName!}
-        </h1>
-
-
+        <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{commodityName!}</h1>
       </div>
-      <Tabs defaultValue="lots" >
+      <Tabs defaultValue="lots">
         <TabsList>
           <TabsTrigger value="lots">Lots</TabsTrigger>
           <TabsTrigger value="price_history">Price History</TabsTrigger>
@@ -48,7 +49,7 @@ export default function SingleCommodity() {
               <CardTitle>Lots</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table >
+              <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Account</TableHead>
@@ -84,7 +85,7 @@ export default function SingleCommodity() {
               <CardTitle>Price History</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table >
+              <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>

@@ -20,7 +20,10 @@ export default function Accounts() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { t } = useTranslation();
   const [filterKeyword, setFilterKeyword] = useInputState('');
-  const [hideClosedAccount, setHideClosedAccount] = useLocalStorage({ key: 'hideClosedAccount', defaultValue: false });
+  const [hideClosedAccount, setHideClosedAccount] = useLocalStorage({
+    key: 'hideClosedAccount',
+    defaultValue: false,
+  });
 
   const [accountTrie] = useAtom(
     useMemo(
@@ -58,47 +61,38 @@ export default function Accounts() {
   }, []);
   return (
     <div>
-
-<div className="flex flex-1 items-center justify-between space-x-2 mb-4">
+      <div className="flex flex-1 items-center justify-between space-x-2 mb-4">
         <div className="flex flex-1 space-x-2 items-center">
-        <Input
-          className="w-[33%]"
-          placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
-          value={filterKeyword}
-          onChange={setFilterKeyword}
-        />
+          <Input className="w-[33%]" placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')} value={filterKeyword} onChange={setFilterKeyword} />
 
-<div className="flex items-center space-x-2">
-      <Switch id="airplane-mode" checked={hideClosedAccount} onCheckedChange={setHideClosedAccount} />
-      <Label htmlFor="airplane-mode" className={hideClosedAccount ? '' : 'text-gray-500'}>Hide closed accounts</Label>
-    </div>
+          <div className="flex items-center space-x-2">
+            <Switch id="airplane-mode" checked={hideClosedAccount} onCheckedChange={setHideClosedAccount} />
+            <Label htmlFor="airplane-mode" className={hideClosedAccount ? '' : 'text-gray-500'}>
+              Hide closed accounts
+            </Label>
+          </div>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => refreshAccounts()}
-        >
+        <Button variant="outline" onClick={() => refreshAccounts()}>
           {t('REFRESH')}
         </Button>
       </div>
-      
-      
 
       <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead className="text-right">Balance</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {Object.keys(accountTrie.children)
-            .sort()
-            .map((item) => (
-              <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
-            ))}
-        </TableBody>
-      </Table>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead className="text-right">Balance</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {Object.keys(accountTrie.children)
+              .sort()
+              .map((item) => (
+                <AccountLine spacing={0} key={accountTrie.children[item].path} data={accountTrie.children[item]} />
+              ))}
+          </TableBody>
+        </Table>
       </div>
     </div>
   );

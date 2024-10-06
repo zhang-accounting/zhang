@@ -19,28 +19,26 @@ export default function NewTransactionButton() {
       .post(`/api/transactions`, data)
       .then((res) => {
         isOpenHandler.close();
-        toast.success('New transaction is created');       
+        toast.success('New transaction is created');
       })
       .catch(function (error) {
-        toast.error('Fail to create new Transaction', {description: error?.response?.data ?? ''});
+        toast.error('Fail to create new Transaction', {
+          description: error?.response?.data ?? '',
+        });
         console.log(error);
       });
   };
 
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={isOpenHandler.toggle} >
+      <Dialog open={isOpen} onOpenChange={isOpenHandler.toggle}>
         <DialogTrigger>
-          <Button onClick={() => isOpenHandler.open()}>
-          {t('NEW_TRANSACTION_BUTTON')}
-        </Button>
+          <Button onClick={() => isOpenHandler.open()}>{t('NEW_TRANSACTION_BUTTON')}</Button>
         </DialogTrigger>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>{t('NEW_TRANSACTION_DIALOG_TITLE')}</DialogTitle>
-            <DialogDescription hidden>
-              {t('NEW_TRANSACTION_DIALOG_DESCRIPTION')}
-            </DialogDescription>
+            <DialogDescription hidden>{t('NEW_TRANSACTION_DIALOG_DESCRIPTION')}</DialogDescription>
           </DialogHeader>
           <TransactionEditForm
             onChange={(data, isValid) => {
@@ -60,7 +58,6 @@ export default function NewTransactionButton() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </>
   );
 }

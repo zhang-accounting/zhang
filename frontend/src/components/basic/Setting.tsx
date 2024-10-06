@@ -11,9 +11,7 @@ export function Setting({ title, value, children, uppercase }: Props) {
   const shouldUppercase = uppercase ?? false;
   return (
     <div>
-      <p className="text-gray-500 text-sm font-bold">
-        {shouldUppercase ? title.toUpperCase() : title}
-      </p>
+      <p className="text-gray-500 text-sm font-bold">{shouldUppercase ? title.toUpperCase() : title}</p>
       {value && <p>{value}</p>}
       {children}
     </div>

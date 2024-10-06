@@ -17,7 +17,6 @@ export default function Commodities() {
   }, []);
   return (
     <div>
-
       {FRONTEND_DEFAULT_GROUP in groupedCommodities && (
         <div className="mt-4">
           <div className="text-sm text-gray-500">Default</div>
