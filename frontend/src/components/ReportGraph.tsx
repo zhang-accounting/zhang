@@ -5,30 +5,25 @@ import { AccountType, StatisticGraphResponse } from '../rest-model';
 import { Bar, CartesianGrid, ComposedChart, Line, XAxis } from 'recharts';
 import { ChartConfig, ChartContainer, ChartTooltipContent, ChartTooltip } from './ui/chart';
 
-
 const chartConfig = {
   total: {
-    label: "Total",
-    color: "#ff7300",
+    label: 'Total',
+    color: '#ff7300',
   },
   income: {
-    label: "Income",
-    color: "#2563eb",
+    label: 'Income',
+    color: '#2563eb',
   },
   expense: {
-    label: "Expense",
-    color: "#60a5fa",
+    label: 'Expense',
+    color: '#60a5fa',
   },
- 
-  } satisfies ChartConfig
-
+} satisfies ChartConfig;
 
 interface Props {
   data: StatisticGraphResponse;
   height: number;
 }
-
-
 
 export default function ReportGraph(props: Props) {
   const sequencedDate = sortBy(Object.keys(props.data.balances), (date) => new Date(date));
@@ -60,15 +55,10 @@ export default function ReportGraph(props: Props) {
     <>
       <ChartContainer config={chartConfig} className={`h-[300px] w-full`}>
         <ComposedChart accessibilityLayer data={data}>
-          <XAxis
-            dataKey="date"
-            tickLine={false}
-            tickMargin={10}
-            axisLine={false}
-          />
+          <XAxis dataKey="date" tickLine={false} tickMargin={10} axisLine={false} />
           <ChartTooltip content={<ChartTooltipContent />} />
           <CartesianGrid vertical={false} />
-          
+
           <Bar dataKey="income" stackId="a" fill="var(--color-income)" yAxisId="right" radius={4} />
           <Bar dataKey="expense" stackId="a" fill="var(--color-expense)" yAxisId="right" radius={4} />
           <Line type="monotone" dataKey="total" stroke="#ff7300" yAxisId="left" />

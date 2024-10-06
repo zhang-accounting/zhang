@@ -15,64 +15,44 @@ export default function BalanceCheckPreview(props: Props) {
   const checkInfo = props.data.postings[0];
   return (
     <div>
-        <Section title="Check Info">
-          <DashLine>
-            <p className='line-clamp-1'>
-              Datetime
-            </p>
-            <p className='line-clamp-1'>{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</p>
-          </DashLine>
-          <DashLine>
-            <p className='line-clamp-1'>
-              Account
-            </p>
-            <p className='line-clamp-1'>{checkInfo.account}</p>
-          </DashLine>
-          <DashLine>
-            <p className='line-clamp-1'>
-              Check Status
-            </p>
-            <p className='line-clamp-1'>
-              {isBalanced ? (
-                <Badge color={'green'}>
-                  Pass
-                </Badge>
-              ) : (
-                <Badge color={'red'}>UNBALANCED</Badge>
-              )}
-            </p>
-          </DashLine>
-          <DashLine>
-            <p className='line-clamp-1'>
-              Balance Amount
-            </p>
-            <p className='line-clamp-1'>
-              <Amount amount={checkInfo.account_after_number} currency={checkInfo.account_after_commodity} />
-            </p>
-          </DashLine>
+      <Section title="Check Info">
+        <DashLine>
+          <p className="line-clamp-1">Datetime</p>
+          <p className="line-clamp-1">{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</p>
+        </DashLine>
+        <DashLine>
+          <p className="line-clamp-1">Account</p>
+          <p className="line-clamp-1">{checkInfo.account}</p>
+        </DashLine>
+        <DashLine>
+          <p className="line-clamp-1">Check Status</p>
+          <p className="line-clamp-1">{isBalanced ? <Badge color={'green'}>Pass</Badge> : <Badge color={'red'}>UNBALANCED</Badge>}</p>
+        </DashLine>
+        <DashLine>
+          <p className="line-clamp-1">Balance Amount</p>
+          <p className="line-clamp-1">
+            <Amount amount={checkInfo.account_after_number} currency={checkInfo.account_after_commodity} />
+          </p>
+        </DashLine>
 
-          {!isBalanced && (
-            <>
-              <DashLine>
-                <p className='line-clamp-1'>
-                  Accumulated Amount
-                </p>
-                <p className='line-clamp-1'>
-                  <Amount amount={checkInfo.account_before_number} currency={checkInfo.account_before_commodity} />
-                </p>
-              </DashLine>
+        {!isBalanced && (
+          <>
+            <DashLine>
+              <p className="line-clamp-1">Accumulated Amount</p>
+              <p className="line-clamp-1">
+                <Amount amount={checkInfo.account_before_number} currency={checkInfo.account_before_commodity} />
+              </p>
+            </DashLine>
 
-              <DashLine>
-                <p className='line-clamp-1'>
-                  Distance
-                </p>
-                <p className='line-clamp-1'>
-                  <Amount amount={checkInfo.inferred_unit_number} currency={checkInfo.inferred_unit_commodity} />
-                </p>
-              </DashLine>
-            </>
-          )}
-        </Section>
+            <DashLine>
+              <p className="line-clamp-1">Distance</p>
+              <p className="line-clamp-1">
+                <Amount amount={checkInfo.inferred_unit_number} currency={checkInfo.inferred_unit_commodity} />
+              </p>
+            </DashLine>
+          </>
+        )}
+      </Section>
     </div>
   );
 }

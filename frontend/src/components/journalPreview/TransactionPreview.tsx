@@ -9,7 +9,6 @@ import { ImageLightBox } from '../ImageLightBox';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge.tsx';
 
-
 interface Props {
   data: JournalTransactionItem;
 }
@@ -22,7 +21,7 @@ export default function TransactionPreview(props: Props) {
       <Section title="Transaction Info">
         <DashLine>
           <p className="line-clamp-1">Datetime</p>
-          <p className='line-clamp-1'>{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</p>
+          <p className="line-clamp-1">{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</p>
         </DashLine>
 
         <DashLine>
@@ -31,36 +30,28 @@ export default function TransactionPreview(props: Props) {
         </DashLine>
         <DashLine>
           <p className="line-clamp-1">Check Status</p>
-          <p className='line-clamp-1'>
-            {props.data.is_balanced ? (
-              <Badge variant="outline">
-                Pass
-              </Badge>
-            ) : (
-              <Badge color={'red'}>UNBALANCED</Badge>
-            )}
-          </p>
+          <p className="line-clamp-1">{props.data.is_balanced ? <Badge variant="outline">Pass</Badge> : <Badge color={'red'}>UNBALANCED</Badge>}</p>
         </DashLine>
         <DashLine>
           <p className="line-clamp-1">Payee</p>
-          <p className='line-clamp-1'>{props.data.payee}</p>
+          <p className="line-clamp-1">{props.data.payee}</p>
         </DashLine>
         <DashLine>
           <p className="line-clamp-1">Narration</p>
-          <p className='line-clamp-1'>{props.data.narration}</p>
+          <p className="line-clamp-1">{props.data.narration}</p>
         </DashLine>
-        
+
         {(props.data.links || []).length > 0 && (
           <DashLine>
             <p className="line-clamp-1">Links</p>
-            <p className='line-clamp-1'>
-              <div className='flex items-center gap-2'>
+            <p className="line-clamp-1">
+              <div className="flex items-center gap-2">
                 {(props.data.links || []).map((link) => (
                   <Badge key={link} variant="outline">
                     {link}
                   </Badge>
                 ))}
-              </div >
+              </div>
             </p>
           </DashLine>
         )}
@@ -68,8 +59,8 @@ export default function TransactionPreview(props: Props) {
         {(props.data.tags || []).length > 0 && (
           <DashLine>
             <p className="line-clamp-1">Tags</p>
-            <p className='line-clamp-1'>
-              <div className='flex items-center gap-2'>
+            <p className="line-clamp-1">
+              <div className="flex items-center gap-2">
                 {(props.data.tags || []).map((tag) => (
                   <Badge key={tag} variant="outline">
                     {tag}
@@ -80,17 +71,15 @@ export default function TransactionPreview(props: Props) {
           </DashLine>
         )}
       </Section>
-      <div className='mx-1 my-4'>
+      <div className="mx-1 my-4">
         <Section title="Postings">
           <>
             {props.data.postings.map((posting, idx) => (
               <DashLine key={idx}>
-                <p className='line-clamp-1'>
-                  {posting.account}
-                </p>
-                  <div className={"flex flex-col items-end"}>
+                <p className="line-clamp-1">{posting.account}</p>
+                <div className={'flex flex-col items-end'}>
                   <Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} />
-                  <div className={"text-sm text-gray-500"}>
+                  <div className={'text-sm text-gray-500'}>
                     Balance: <Amount amount={posting.account_after_number} currency={posting.account_after_commodity} />
                   </div>
                 </div>
@@ -106,15 +95,13 @@ export default function TransactionPreview(props: Props) {
             .filter((meta) => meta.key !== 'document')
             .map((meta, idx) => (
               <DashLine key={idx}>
-                <p className='line-clamp-1'>
-                  {meta.key}
-                </p>
-                <p className='line-clamp-1'>{meta.value}</p>
+                <p className="line-clamp-1">{meta.key}</p>
+                <p className="line-clamp-1">{meta.value}</p>
               </DashLine>
             ))}
         </Section>
       )}
-      <div className='mx-1 my-4'>
+      <div className="mx-1 my-4">
         <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">

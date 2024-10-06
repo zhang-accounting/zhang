@@ -19,7 +19,10 @@ import { Badge } from '@/components/ui/badge.tsx';
 export default function Documents() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
   let navigate = useNavigate();
-  const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
+  const [layout, setLayout] = useLocalStorage({
+    key: `document-list-layout`,
+    defaultValue: 'Grid',
+  });
   const { data: documents, error } = useSWR<Document[]>('/api/documents', fetcher);
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
@@ -40,15 +43,11 @@ export default function Documents() {
   return (
     <div>
       <div className="flex items-center justify-between gap-4 pb-6">
-        <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">
-          Documents
-        </h1>
+        <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">Documents</h1>
         <div className="inline-flex gap-2 rounded-md shadow-sm  bg-gray-100 px-2 py-1 sm:w-auto" role="group">
           <button
             className={`px-2 py-1 text-sm   rounded-md  ${
-              layout === 'Grid'
-                ? 'bg-white text-gray-700 shadow-sm font-semibold'
-                : 'bg-transparent text-gray-700 hover:bg-gray-100'
+              layout === 'Grid' ? 'bg-white text-gray-700 shadow-sm font-semibold' : 'bg-transparent text-gray-700 hover:bg-gray-100'
             }`}
             onClick={() => setLayout('Grid')}
           >
@@ -56,22 +55,16 @@ export default function Documents() {
           </button>
           <button
             className={`px-2 py-1 text-sm  rounded-md  ${
-              layout === 'Table'
-                ? 'bg-white text-gray-700 shadow-sm font-semibold'
-                : 'bg-transparent text-gray-700 hover:bg-gray-100'
+              layout === 'Table' ? 'bg-white text-gray-700 shadow-sm font-semibold' : 'bg-transparent text-gray-700 hover:bg-gray-100'
             }`}
             onClick={() => setLayout('Table')}
           >
             Table
           </button>
         </div>
-
-        
-            
       </div>
       <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
-      
-      
+
       {layout === 'Grid' ? (
         <>
           {groupedDocuments.map((targetMonthDocuments, idx) => (
@@ -89,32 +82,39 @@ export default function Documents() {
         </>
       ) : (
         <div className="rounded-md border">
-        <Table >
-          <TableHeader>
-            <TableRow>
-              <TableHead>Filename</TableHead>
-              <TableHead>Linked Directive</TableHead>
-              <TableHead>Created Date</TableHead>
-              <TableHead>Operation</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-          {documents.map((document, idx) => (
-            <TableRow>
-              <TableCell onClick={isDocumentAnImage(document.path) ? () => setLightboxSrc(document.path) : undefined}>
-                <div>{document.filename}</div>
-              </TableCell>
-              <TableCell>
-                {document.account &&
-                  <Badge variant="outline" onClick={() => navigate(`/accounts/${document.account}`)}>{document.account}</Badge>}
-                {document.trx_id && <Badge variant="outline" key={idx}>{document.trx_id}</Badge>}
-              </TableCell>
-              <TableCell>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</TableCell>
-              <TableCell></TableCell>
-            </TableRow>
-          ))}
-          </TableBody>
-        </Table>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Filename</TableHead>
+                <TableHead>Linked Directive</TableHead>
+                <TableHead>Created Date</TableHead>
+                <TableHead>Operation</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {documents.map((document, idx) => (
+                <TableRow>
+                  <TableCell onClick={isDocumentAnImage(document.path) ? () => setLightboxSrc(document.path) : undefined}>
+                    <div>{document.filename}</div>
+                  </TableCell>
+                  <TableCell>
+                    {document.account && (
+                      <Badge variant="outline" onClick={() => navigate(`/accounts/${document.account}`)}>
+                        {document.account}
+                      </Badge>
+                    )}
+                    {document.trx_id && (
+                      <Badge variant="outline" key={idx}>
+                        {document.trx_id}
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</TableCell>
+                  <TableCell></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>

@@ -9,10 +9,8 @@ import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { RAW_EDITING_LINK } from '@/layout/Sidebar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 
-
-
 function RawEdit() {
-  const setBreadcrumb = useSetAtom(breadcrumbAtom); 
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { data, error } = useSWR<string[]>('/api/files', fetcher);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const ledgerTitle = useAtomValue(titleAtom);
@@ -42,9 +40,7 @@ function RawEdit() {
         <CardTitle>File: {selectedFile}</CardTitle>
         <TableOfContentsFloating files={tree} onChange={(value) => setSelectedFile(value)} />
       </CardHeader>
-      <CardContent>
-        {selectedFile && <SingleFileEdit name={selectedFile} path={selectedFile} />}
-      </CardContent>
+      <CardContent>{selectedFile && <SingleFileEdit name={selectedFile} path={selectedFile} />}</CardContent>
     </Card>
   );
 }

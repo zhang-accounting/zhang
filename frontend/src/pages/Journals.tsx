@@ -52,8 +52,8 @@ function Journals() {
   }, [setKeyword, debouncedFilter]);
   useEffect(() => {
     setBreadcrumb([JOURNALS_LINK]);
-  }, []); 
-  
+  }, []);
+
   const onPage = (page: number) => {
     setJournalPage(page);
   };
@@ -64,33 +64,30 @@ function Journals() {
       <TransactionEditModal />
       <div className="flex flex-1 items-center justify-between space-x-2 mb-4">
         <div className="flex flex-1 space-x-2 items-end">
-        <Input
-          className="w-[33%]"
-          placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
-          value={filter}
-          onChange={(event: any) => setFilter(event.currentTarget.value)}
-        />
-        {journalTags.map((tag) => (
+          <Input
+            className="w-[33%]"
+            placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
+            value={filter}
+            onChange={(event: any) => setFilter(event.currentTarget.value)}
+          />
+          {journalTags.map((tag) => (
             <Button className="pr-1" variant="secondary" size="sm" onClick={() => removeTag(tag)}>
-            #{tag}
-            <X className="ml-1 h-3 w-3" />
+              #{tag}
+              <X className="ml-1 h-3 w-3" />
             </Button>
-        ))}
-        {journalLinks.map((link) => (
-          <Button key={link} onClick={() => removeLink(link)} variant="secondary" size="sm" className="pr-1">
-          ^{link}
-          <X className="ml-1 h-3 w-3" />
-        </Button>
-        ))}
+          ))}
+          {journalLinks.map((link) => (
+            <Button key={link} onClick={() => removeLink(link)} variant="secondary" size="sm" className="pr-1">
+              ^{link}
+              <X className="ml-1 h-3 w-3" />
+            </Button>
+          ))}
         </div>
-        <Button
-          variant="outline"
-          onClick={() => refreshJournals()}
-        >
+        <Button variant="outline" onClick={() => refreshJournals()}>
           {t('REFRESH')}
         </Button>
       </div>
-     
+
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -110,9 +107,7 @@ function Journals() {
                   <>
                     <TableRow key={date}>
                       <TableCell colSpan={6}>
-                        <span className="text-sm text-gray-500">
-                          {date}
-                        </span>
+                        <span className="text-sm text-gray-500">{date}</span>
                       </TableCell>
                     </TableRow>
                     {groupedRecords[date].map((journal) => (
@@ -124,7 +119,7 @@ function Journals() {
           </TableBody>
         </Table>
       </div>
-      <Pagination className='my-4'>
+      <Pagination className="my-4">
         <PaginationContent>
           {journalPage > 1 && (
             <PaginationItem>
@@ -133,9 +128,7 @@ function Journals() {
           )}
           {journalPage > 1 && (
             <PaginationItem>
-              <PaginationLink href="#">
-                {journalPage - 1}
-              </PaginationLink>
+              <PaginationLink href="#">{journalPage - 1}</PaginationLink>
             </PaginationItem>
           )}
           <PaginationItem>

@@ -16,9 +16,7 @@ export default function DividerWithAction({ value, icon, onActionClick }: Props)
         </div>
       </div>
       {icon && (
-        <Button variant="ghost" size="icon"
-        className='mx-1'
-           onClick={onActionClick}>
+        <Button variant="ghost" size="icon" className="mx-1" onClick={onActionClick}>
           {icon}
         </Button>
       )}

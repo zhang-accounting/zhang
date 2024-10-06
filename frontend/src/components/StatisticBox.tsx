@@ -3,7 +3,6 @@ import Amount from './Amount';
 import { CardContent, CardHeader } from './ui/card';
 import { Card, CardTitle } from './ui/card';
 
-
 interface Props {
   text: string;
   amount: string;
@@ -15,18 +14,14 @@ interface Props {
 
 export default function StatisticBox({ text, amount, currency, negative, hint }: Props) {
   const { t } = useTranslation();
-  
+
   return (
     <Card className="rounded-sm">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">
-          {t(text)}
-        </CardTitle>
+        <CardTitle className="text-sm font-medium">{t(text)}</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">
-          {currency ? <Amount amount={amount} negative={negative} currency={currency} /> : amount}
-        </div>
+        <div className="text-2xl font-bold">{currency ? <Amount amount={amount} negative={negative} currency={currency} /> : amount}</div>
         {/* {hint && <p className="text-xs text-muted-foreground">
                 {hint}
               </p>} */}

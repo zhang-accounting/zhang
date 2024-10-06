@@ -22,10 +22,10 @@ export default function SingleFileEdit({ path }: Props) {
       .put(`${serverBaseUrl}/api/files/${encodedPath}`, {
         content: content,
       })
-      .then(function(response) {
+      .then(function (response) {
         mutate(`/api/files/${encodedPath}`);
       })
-      .catch(function(error) {
+      .catch(function (error) {
         console.log(error);
       });
   };

@@ -34,11 +34,13 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
         pad: padAccount,
       });
       toast.success('Balance account successfully');
-      
+
       refreshAccounts();
     } catch (e: any) {
-      toast.error('Fail to Balance Account', {description: e?.response?.data ?? '', duration: 10000});
-      
+      toast.error('Fail to Balance Account', {
+        description: e?.response?.data ?? '',
+        duration: 10000,
+      });
     }
   };
 
@@ -59,8 +61,7 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
         </TableCell>
         <TableCell>
           <div className="flex items-center gap-2">
-            <Input type="number" placeholder={`Balanced ${commodity} Amount`} value={amount}
-                       onChange={(e) => setAmount(e.target.value)}></Input>
+            <Input type="number" placeholder={`Balanced ${commodity} Amount`} value={amount} onChange={(e) => setAmount(e.target.value)}></Input>
             <Button size="sm" onClick={submitCheck} disabled={amount.length === 0}>
               {padAccount ? 'Pad' : 'Balance'}
             </Button>

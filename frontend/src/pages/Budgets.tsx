@@ -28,13 +28,17 @@ export default function Budgets() {
   useDocumentTitle(`Budgets - ${ledgerTitle}`);
 
   useEffect(() => {
-    setBreadcrumb([BUDGETS_LINK, { label: `Budget ${format(date, 'MMM, yyyy')}`, uri: `/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, noTranslate: true }]);
+    setBreadcrumb([
+      BUDGETS_LINK,
+      {
+        label: `Budget ${format(date, 'MMM, yyyy')}`,
+        uri: `/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`,
+        noTranslate: true,
+      },
+    ]);
   }, [date]);
 
-  const {
-    data: budgets,
-    error,
-  } = useSWR<BudgetListItem[]>(`/api/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, fetcher);
+  const { data: budgets, error } = useSWR<BudgetListItem[]>(`/api/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, fetcher);
   if (error) return <div>failed to load</div>;
   if (!budgets) return <div>loading...</div>;
 
@@ -46,9 +50,8 @@ export default function Budgets() {
 
   return (
     <div>
-
-      <div className='flex items-center justify-between gap-2'>
-        <div className='flex items-center gap-2'>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
           <Button variant="ghost" onClick={() => goToMonth(-1)}>
             <ChevronLeftIcon className="h-4 w-4" />
           </Button>
@@ -61,16 +64,14 @@ export default function Budgets() {
             <ChevronRightIcon className="h-4 w-4" />
           </Button>
         </div>
-        <Button variant="outline" color="gray" >
+        <Button variant="outline" color="gray">
           {t('REFRESH')}
         </Button>
-
       </div>
-      <div className='flex items-center gap-2 mt-2'>
+      <div className="flex items-center gap-2 mt-2">
         <Switch checked={hideZeroAssignBudget} onCheckedChange={(checked) => setHideZeroAssignBudget(checked)} />
         <Label>Hide Zero Amount Assigned Budget</Label>
       </div>
-
 
       <div className="rounded-md border mt-4">
         <Table>
@@ -85,8 +86,7 @@ export default function Budgets() {
           </TableHeader>
           <TableBody>
             {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (
-              <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]}
-                items={entry[1]}></BudgetCategory>
+              <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]} items={entry[1]}></BudgetCategory>
             ))}
           </TableBody>
         </Table>

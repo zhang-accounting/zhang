@@ -19,23 +19,20 @@ export const TransactionPreviewModal = () => {
     }
   }, [previewJournal]);
 
-
   const onChange = (b: boolean) => {
     if (b === false) {
       setPreviewJournal(undefined);
       isOpenHandler.close();
     }
-  }
+  };
 
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={onChange}  >
+      <Dialog open={isOpen} onOpenChange={onChange}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>{t('TRANSACTION_PREVIEW_MODAL_TITLE')}</DialogTitle>
-            <DialogDescription hidden>
-              {t('TRANSACTION_PREVIEW_MODAL_DESCRIPTION')}
-            </DialogDescription>
+            <DialogDescription hidden>{t('TRANSACTION_PREVIEW_MODAL_DESCRIPTION')}</DialogDescription>
           </DialogHeader>
           <JournalPreview data={previewJournal} />
 
@@ -43,7 +40,6 @@ export const TransactionPreviewModal = () => {
             <Button variant="outline" onClick={() => onChange(false)}>
               {t('TRANSACTION_PREVIEW_MODAL_CLOSE')}
             </Button>
-
           </DialogFooter>
         </DialogContent>
       </Dialog>

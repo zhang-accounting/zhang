@@ -5,8 +5,6 @@ import { selectAtom } from 'jotai/utils';
 import { useAtomValue } from 'jotai';
 import { useMemo } from 'react';
 
-
-
 interface Props {
   amount: string | number | BigNumber;
   currency: string;
@@ -16,7 +14,6 @@ interface Props {
 }
 
 export default function Amount({ amount, currency, negative, mask, className }: Props) {
-  
   const commodity = useAtomValue(useMemo(() => selectAtom(commoditiesAtom, (val) => loadable_unwrap(val, undefined, (val) => val[currency])), [currency]));
 
   const flag = negative || false ? -1 : 1;

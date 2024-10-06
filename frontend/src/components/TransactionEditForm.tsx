@@ -28,7 +28,6 @@ interface SelectItem {
   group?: string;
 }
 
-
 interface Props {
   onChange(data: any, isValid: boolean): void;
 
@@ -36,7 +35,7 @@ interface Props {
 }
 
 export default function TransactionEditForm(props: Props) {
-  console.log("transaction edit form", props.data);
+  console.log('transaction edit form', props.data);
   const { t } = useTranslation();
 
   const { data, error } = useSWR<InfoForNewTransaction>('/api/for-new-transaction', fetcher);
@@ -83,9 +82,9 @@ export default function TransactionEditForm(props: Props) {
               splitAmount[0] === ''
                 ? null
                 : {
-                  number: splitAmount[0],
-                  commodity: splitAmount[1],
-                },
+                    number: splitAmount[0],
+                    commodity: splitAmount[1],
+                  },
           };
         }),
         tags: [],
@@ -115,43 +114,32 @@ export default function TransactionEditForm(props: Props) {
   if (error) return <div>failed to load</div>;
   if (!data) return <div>loading...</div>;
   return (
-    <div className='my-4'>
-      <div className='grid grid-cols-12 gap-4'>
-        <div className='col-span-12 lg:col-span-12'>
+    <div className="my-4">
+      <div className="grid grid-cols-12 gap-4">
+        <div className="col-span-12 lg:col-span-12">
           <Popover>
             <PopoverTrigger asChild>
-              <Button
-                variant={"outline"}
-                className={cn(
-                  "w-full justify-start text-left font-normal",
-                  !date && "text-muted-foreground"
-                )}
-              >
+              <Button variant={'outline'} className={cn('w-full justify-start text-left font-normal', !date && 'text-muted-foreground')}>
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {date ? format(date, "PPP") : <span>Pick a date</span>}
+                {date ? format(date, 'PPP') : <span>Pick a date</span>}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0">
-              <Calendar
-                mode="single"
-                selected={date}
-                onSelect={setDate}
-                initialFocus
-              />
+              <Calendar mode="single" selected={date} onSelect={setDate} initialFocus />
             </PopoverContent>
           </Popover>
         </div>
-        <div className='col-span-12 lg:col-span-6'>
-          <Input className='w-full' placeholder="Payee" value={payee} onChange={(e) => setPayee(e.target.value)} />
+        <div className="col-span-12 lg:col-span-6">
+          <Input className="w-full" placeholder="Payee" value={payee} onChange={(e) => setPayee(e.target.value)} />
         </div>
-        <div className='col-span-12 lg:col-span-6'>
-          <Input className='w-full' placeholder="Narration" value={narration} onChange={(e) => setNarration(e.target.value)} />
+        <div className="col-span-12 lg:col-span-6">
+          <Input className="w-full" placeholder="Narration" value={narration} onChange={(e) => setNarration(e.target.value)} />
         </div>
       </div>
 
       <DividerWithAction
         value="Postings"
-        icon={<CirclePlus className='w-4 h-4' />}
+        icon={<CirclePlus className="w-4 h-4" />}
         onActionClick={() =>
           postingsHandler.append({
             account: undefined,
@@ -161,39 +149,30 @@ export default function TransactionEditForm(props: Props) {
       ></DividerWithAction>
 
       {postings.map((posting, idx) => (
-        <div className='flex items-center gap-2 py-2' key={idx}>
-          <Combobox
-            options={accountItems}
-            value={posting.account}
-            onChange={(e) => postingsHandler.setItemProp(idx, 'account', e)}
-          />
+        <div className="flex items-center gap-2 py-2" key={idx}>
+          <Combobox options={accountItems} value={posting.account} onChange={(e) => postingsHandler.setItemProp(idx, 'account', e)} />
 
-          <Input placeholder="Amount" value={posting.amount}
-            onChange={(e) => postingsHandler.setItemProp(idx, 'amount', e.target.value)} />
-          <Button variant="ghost" size="icon"
-            disabled={postings.length <= 2}
-            onClick={() => postingsHandler.remove(idx)}>
-            <X className='w-4 h-4' />
+          <Input placeholder="Amount" value={posting.amount} onChange={(e) => postingsHandler.setItemProp(idx, 'amount', e.target.value)} />
+          <Button variant="ghost" size="icon" disabled={postings.length <= 2} onClick={() => postingsHandler.remove(idx)}>
+            <X className="w-4 h-4" />
           </Button>
         </div>
       ))}
 
       <DividerWithAction
         value="Metas"
-        icon={<CirclePlus className='w-4 h-4' />}
+        icon={<CirclePlus className="w-4 h-4" />}
         onActionClick={() => {
           metaHandler.append({ key: '', value: '' });
         }}
       ></DividerWithAction>
 
       {metas.map((meta, idx) => (
-        <div className='flex items-center gap-2 py-2' key={idx}>
-          <Input placeholder="key" value={meta.key}
-            onChange={(e) => metaHandler.setItemProp(idx, 'key', e.target.value)} />
-          <Input placeholder="value" value={meta.value}
-            onChange={(e) => metaHandler.setItemProp(idx, 'value', e.target.value)} />
+        <div className="flex items-center gap-2 py-2" key={idx}>
+          <Input placeholder="key" value={meta.key} onChange={(e) => metaHandler.setItemProp(idx, 'key', e.target.value)} />
+          <Input placeholder="value" value={meta.value} onChange={(e) => metaHandler.setItemProp(idx, 'value', e.target.value)} />
           <Button variant="ghost" size="icon" onClick={() => metaHandler.remove(idx)}>
-            <X className='w-4 h-4' />
+            <X className="w-4 h-4" />
           </Button>
         </div>
       ))}
@@ -203,9 +182,7 @@ export default function TransactionEditForm(props: Props) {
           <AccordionTrigger>{t('TXN_EDIT_PREVIEW')}</AccordionTrigger>
           <AccordionContent>
             <pre className="bg-gray-100 p-4 rounded-md overflow-x-auto">
-              <code className="text-sm font-mono whitespace-pre-wrap break-words">
-                {preview()}
-              </code>
+              <code className="text-sm font-mono whitespace-pre-wrap break-words">{preview()}</code>
             </pre>
           </AccordionContent>
         </AccordionItem>

@@ -10,7 +10,6 @@ import { t } from 'i18next';
 import { Button } from '../ui/button.tsx';
 import { toast } from 'sonner';
 export const TransactionEditModal = () => {
-
   const [isOpen, isOpenHandler] = useDisclosure(false);
   const [editTransaction, setEditTransaction] = useAtom(editTransactionAtom);
   const [data, setData] = useState<any>({});
@@ -18,13 +17,15 @@ export const TransactionEditModal = () => {
   const onUpdate = () => {
     axiosInstance
       .put(`/api/transactions/${editTransaction?.id}`, data)
-      .then((res) => {
+      .then(() => {
         toast.success('transaction is updated');
         setEditTransaction(undefined);
         isOpenHandler.close();
       })
       .catch(function (error) {
-        toast.error('Fail to update new Transaction', {description: error?.response?.data ?? ''});
+        toast.error('Fail to update new Transaction', {
+          description: error?.response?.data ?? '',
+        });
         console.error(error);
       });
   };
@@ -44,14 +45,11 @@ export const TransactionEditModal = () => {
 
   return (
     <>
-
-      <Dialog open={isOpen} onOpenChange={onChange}  >
+      <Dialog open={isOpen} onOpenChange={onChange}>
         <DialogContent className="sm:max-w-[660px]">
           <DialogHeader>
             <DialogTitle>{t('TRANSACTION_EDIT_MODAL_TITLE')}</DialogTitle>
-            <DialogDescription hidden>
-              {t('TRANSACTION_EDIT_MODAL_DESCRIPTION')}
-            </DialogDescription>
+            <DialogDescription hidden>{t('TRANSACTION_EDIT_MODAL_DESCRIPTION')}</DialogDescription>
           </DialogHeader>
           <TransactionEditForm
             data={editTransaction}
@@ -68,11 +66,9 @@ export const TransactionEditModal = () => {
             <Button onClick={onUpdate} disabled={!isValid}>
               {t('TRANSACTION_EDIT_MODAL_SAVE')}
             </Button>
-
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </>
   );
 };

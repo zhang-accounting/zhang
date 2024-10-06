@@ -14,37 +14,27 @@ export default function BalancePadPreview(props: Props) {
     <div>
       <Section title="Check Info">
         <DashLine>
-          <p className='line-clamp-1'>
-            Datetime
-          </p>
-          <p className='line-clamp-1'>{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</p>
+          <p className="line-clamp-1">Datetime</p>
+          <p className="line-clamp-1">{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</p>
         </DashLine>
 
         <DashLine>
-          <p className='line-clamp-1'>
-            Type
-          </p>
-          <p className='line-clamp-1'>Balance Pad</p>
+          <p className="line-clamp-1">Type</p>
+          <p className="line-clamp-1">Balance Pad</p>
         </DashLine>
         <DashLine>
-          <p className='line-clamp-1'>
-            Balance Account
-          </p>
-          <p className='line-clamp-1'>{props.data.postings[0].account}</p>
+          <p className="line-clamp-1">Balance Account</p>
+          <p className="line-clamp-1">{props.data.postings[0].account}</p>
         </DashLine>
         <DashLine>
-          <p className='line-clamp-1'>
-            Pad Account
-          </p>
-          <p className='line-clamp-1'>{props.data.postings[1].account}</p>
+          <p className="line-clamp-1">Pad Account</p>
+          <p className="line-clamp-1">{props.data.postings[1].account}</p>
         </DashLine>
         {(props.data.links || []).length > 0 && (
           <DashLine>
-            <p className='line-clamp-1'>
-              Links
-            </p>
-            <p className='line-clamp-1'>
-              <div className='flex item-center mx-1 my-2 gap-2'>
+            <p className="line-clamp-1">Links</p>
+            <p className="line-clamp-1">
+              <div className="flex item-center mx-1 my-2 gap-2">
                 {(props.data.links || []).map((link) => (
                   <Badge key={link} variant="outline">
                     {link}
@@ -53,18 +43,15 @@ export default function BalancePadPreview(props: Props) {
               </div>
             </p>
           </DashLine>
-         
         )}
 
         {(props.data.tags || []).length > 0 && (
           <DashLine>
-            <p className='line-clamp-1'>
-              Tags
-            </p>
-            <p className='line-clamp-1'>
-              <div className='flex item-center mx-1 my-2 gap-2'>
+            <p className="line-clamp-1">Tags</p>
+            <p className="line-clamp-1">
+              <div className="flex item-center mx-1 my-2 gap-2">
                 {(props.data.tags || []).map((tag) => (
-                  <Badge key={tag}  variant="outline">
+                  <Badge key={tag} variant="outline">
                     {tag}
                   </Badge>
                 ))}
@@ -73,14 +60,12 @@ export default function BalancePadPreview(props: Props) {
           </DashLine>
         )}
       </Section>
-      <div className='mx-1 my-4'>
+      <div className="mx-1 my-4">
         <Section title="Postings">
           <>
             {props.data.postings.map((posting, idx) => (
               <DashLine key={idx}>
-                <p className='line-clamp-1'>
-                  {posting.account}
-                </p>
+                <p className="line-clamp-1">{posting.account}</p>
                 <div className="flex flex-col items-end">
                   <Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} />
                   <div className="text-sm text-gray-500">
@@ -99,10 +84,8 @@ export default function BalancePadPreview(props: Props) {
             .filter((meta) => meta.key !== 'document')
             .map((meta, idx) => (
               <DashLine key={idx}>
-                <p className='line-clamp-1 my-xs'>
-                  {meta.key}
-                </p>
-                <p className='line-clamp-1'>{meta.value}</p>
+                <p className="line-clamp-1 my-xs">{meta.key}</p>
+                <p className="line-clamp-1">{meta.value}</p>
               </DashLine>
             ))}
         </Section>

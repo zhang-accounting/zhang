@@ -95,7 +95,7 @@ export default function BatchBalance() {
         pad: account.pad,
       }));
     toast.info(`Start balance ${accountsToBalance.length} Accounts`);
-    
+
     try {
       await axiosInstance.post('/api/accounts/batch-balances', accountsToBalance);
 
@@ -104,77 +104,68 @@ export default function BatchBalance() {
       });
       refreshAccounts();
     } catch (e: any) {
-
       toast.error('Fail to Balance Account', {
         description: e?.response?.data ?? '',
       });
-
     }
   };
   return (
     <div>
-
-<h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">
-      Batch Balance
-      </h1>
+      <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">Batch Balance</h1>
       <div className="flex items-center gap-2 mt-4">
-
-        <Switch checked={maskCurrentAmount} onCheckedChange={setMaskCurrentAmount}>
-          </Switch>
+        <Switch checked={maskCurrentAmount} onCheckedChange={setMaskCurrentAmount}></Switch>
         <Label>Mask Current Amount</Label>
-        <Switch checked={reflectOnUnbalancedAmount} onCheckedChange={setReflectOnUnbalancedAmount}>
-        </Switch>
+        <Switch checked={reflectOnUnbalancedAmount} onCheckedChange={setReflectOnUnbalancedAmount}></Switch>
         <Label>Reflect on unbalanced amount</Label>
       </div>
       <div className="rounded-md border mt-4">
-      <Table >
-        <TableHeader>
-          <TableRow>
-            <TableHead>Account</TableHead>
-            <TableHead>Commodity</TableHead>
-            <TableHead className='text-right'>Current Balance</TableHead>
-            <TableHead >Pad Account</TableHead>
-            <TableHead >Destination</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-        {accounts.map((account, idx) => (
-          <TableRow key={`${account.accountName}-${account.commodity}`}>
-            <TableCell>{account.accountName}</TableCell>
-            <TableCell>{account.commodity}</TableCell>
-            <TableCell className='text-right'>
-              <Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity}></Amount>
-            </TableCell>
-            <TableCell>
-              <Combobox
-                placeholder="Pad to"
-                options={accountItems}
-                value={account.pad}
-                onChange={(e) => {
-                  updateBalanceLineItem(idx, e ?? undefined, account.balanceAmount);
-                }}
-              />
-            </TableCell>
-            <TableCell>
-              <Input
-                type='number'
-                className={cn(account.error ? 'border-red-500' : '')}
-                value={account.balanceAmount}
-                onChange={(e) => {
-                  updateBalanceLineItem(idx, account.pad ?? undefined, e.target.value);
-                }}
-              ></Input>
-            </TableCell>
-          </TableRow>
-        ))}
-        </TableBody>
-      </Table>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Account</TableHead>
+              <TableHead>Commodity</TableHead>
+              <TableHead className="text-right">Current Balance</TableHead>
+              <TableHead>Pad Account</TableHead>
+              <TableHead>Destination</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {accounts.map((account, idx) => (
+              <TableRow key={`${account.accountName}-${account.commodity}`}>
+                <TableCell>{account.accountName}</TableCell>
+                <TableCell>{account.commodity}</TableCell>
+                <TableCell className="text-right">
+                  <Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity}></Amount>
+                </TableCell>
+                <TableCell>
+                  <Combobox
+                    placeholder="Pad to"
+                    options={accountItems}
+                    value={account.pad}
+                    onChange={(e) => {
+                      updateBalanceLineItem(idx, e ?? undefined, account.balanceAmount);
+                    }}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number"
+                    className={cn(account.error ? 'border-red-500' : '')}
+                    value={account.balanceAmount}
+                    onChange={(e) => {
+                      updateBalanceLineItem(idx, account.pad ?? undefined, e.target.value);
+                    }}
+                  ></Input>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
-      <div className='flex justify-end mt-4'>
-      <Button disabled={accounts.filter((account) => account.balanceAmount.trim() !== '').length === 0}
-              onClick={onSave}>
-        Submit
-      </Button>
+      <div className="flex justify-end mt-4">
+        <Button disabled={accounts.filter((account) => account.balanceAmount.trim() !== '').length === 0} onClick={onSave}>
+          Submit
+        </Button>
       </div>
     </div>
   );

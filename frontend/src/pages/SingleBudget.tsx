@@ -23,7 +23,14 @@ function SingleBudget() {
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${budgetName} | Budgets - ${ledgerTitle}`);
   useEffect(() => {
-    setBreadcrumb([BUDGETS_LINK, { label: budgetName ?? '', uri: `/budgets/${budgetName}`, noTranslate: true }]);
+    setBreadcrumb([
+      BUDGETS_LINK,
+      {
+        label: budgetName ?? '',
+        uri: `/budgets/${budgetName}`,
+        noTranslate: true,
+      },
+    ]);
   }, [budgetName]);
 
   const goToMonth = (gap: number) => {
@@ -41,88 +48,73 @@ function SingleBudget() {
   if (!budget_info) return <div>{error}</div>;
   return (
     <div>
-      <div className='grid grid-cols-12 gap-4'>
+      <div className="grid grid-cols-12 gap-4">
         <Card className="mt-2 rounded-sm  col-span-8">
           <CardHeader className="flex flex-row  justify-between space-y-0 pb-2 bg-gray-100">
             <CardTitle>
-                <div className='flex items-center gap-2'>
-
-                  <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{budget_info.alias ?? budget_info.name}</h1>
-                  {budget_info.alias && <Badge variant="outline" className="text-sm text-gray-500">{budget_info.name}</Badge>}
-                </div>
-                </CardTitle>
-                <div className='flex items-center gap-2'>
-                  <Button variant="ghost" onClick={() => goToMonth(-1)}>
-                    <ChevronLeftIcon className="h-4 w-4" />
-                  </Button>
-                  <h1 className="inline-block shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{`${format(date, 'MMM, yyyy')}`}</h1>
-                  <Button
-                    variant="ghost"
-                    onClick={() => goToMonth(1)}
-                    disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}
-                  >
-                    <ChevronRightIcon className="h-4 w-4" />
-                  </Button>
-                </div>
-            
-
+              <div className="flex items-center gap-2">
+                <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{budget_info.alias ?? budget_info.name}</h1>
+                {budget_info.alias && (
+                  <Badge variant="outline" className="text-sm text-gray-500">
+                    {budget_info.name}
+                  </Badge>
+                )}
+              </div>
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" onClick={() => goToMonth(-1)}>
+                <ChevronLeftIcon className="h-4 w-4" />
+              </Button>
+              <h1 className="inline-block shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{`${format(date, 'MMM, yyyy')}`}</h1>
+              <Button
+                variant="ghost"
+                onClick={() => goToMonth(1)}
+                disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}
+              >
+                <ChevronRightIcon className="h-4 w-4" />
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className=" mt-4 text-sm">
             <div className="grid gap-3">
               <div className="font-semibold">Related Accounts</div>
-                
-               <div className='flex flex-wrap gap-2'>
-                {budget_info.related_accounts.map((account) => (
-                    <Badge key={account} >
-                      {account}
-                    </Badge>
-                ))}
-                </div>
 
+              <div className="flex flex-wrap gap-2">
+                {budget_info.related_accounts.map((account) => (
+                  <Badge key={account}>{account}</Badge>
+                ))}
+              </div>
             </div>
           </CardContent>
         </Card>
-
-
-
 
         <Card className="mt-2 rounded-sm col-span-4">
           <CardHeader className="flex flex-row  justify-between space-y-0 pb-2 bg-gray-100">
             <CardTitle>Budget Balance</CardTitle>
           </CardHeader>
           <CardContent className=" mt-4 text-sm">
-          <ul className="grid gap-3">
-                <li className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Assigned Amount
-                  </span>
-                  <Amount amount={budget_info.assigned_amount.number}
-                    currency={budget_info.assigned_amount.currency}></Amount>
-                </li>
+            <ul className="grid gap-3">
+              <li className="flex items-center justify-between">
+                <span className="text-muted-foreground">Assigned Amount</span>
+                <Amount amount={budget_info.assigned_amount.number} currency={budget_info.assigned_amount.currency}></Amount>
+              </li>
 
-                <li className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Activity Amount
-                  </span>
-                  <Amount amount={budget_info.activity_amount.number}
-                    currency={budget_info.activity_amount.currency}></Amount>
-                </li>
+              <li className="flex items-center justify-between">
+                <span className="text-muted-foreground">Activity Amount</span>
+                <Amount amount={budget_info.activity_amount.number} currency={budget_info.activity_amount.currency}></Amount>
+              </li>
 
-                <li className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Available Amount
-                  </span>
-                  <Amount amount={budget_info.available_amount.number}
-                    currency={budget_info.available_amount.currency}></Amount>
-                </li>
-              </ul>
+              <li className="flex items-center justify-between">
+                <span className="text-muted-foreground">Available Amount</span>
+                <Amount amount={budget_info.available_amount.number} currency={budget_info.available_amount.currency}></Amount>
+              </li>
+            </ul>
           </CardContent>
         </Card>
-
       </div>
 
       <div className="rounded-md border mt-4">
-        <Table >
+        <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Date</TableHead>
@@ -137,20 +129,11 @@ function SingleBudget() {
               return (
                 <TableRow>
                   <TableCell>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</TableCell>
-                  <TableCell>{'event_type' in it ? it.event_type :
-                    <PayeeNarration payee={it.payee} narration={it.narration} />}</TableCell>
-                  <TableCell>
-                    {!('event_type' in it) && (
-                      <Badge>
-                        {it.account}
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell style={{ textAlign: 'end' }}>{'event_type' in it &&
-                    <Amount amount={it.amount.number} currency={it.amount.currency} />}</TableCell>
+                  <TableCell>{'event_type' in it ? it.event_type : <PayeeNarration payee={it.payee} narration={it.narration} />}</TableCell>
+                  <TableCell>{!('event_type' in it) && <Badge>{it.account}</Badge>}</TableCell>
+                  <TableCell style={{ textAlign: 'end' }}>{'event_type' in it && <Amount amount={it.amount.number} currency={it.amount.currency} />}</TableCell>
                   <TableCell style={{ textAlign: 'end' }}>
-                    {!('event_type' in it) &&
-                      <Amount amount={it.inferred_unit_number} currency={it.inferred_unit_commodity} />}
+                    {!('event_type' in it) && <Amount amount={it.inferred_unit_number} currency={it.inferred_unit_commodity} />}
                   </TableCell>
                 </TableRow>
               );
@@ -158,7 +141,7 @@ function SingleBudget() {
           </TableBody>
         </Table>
       </div>
-    </div >
+    </div>
   );
 }
 
