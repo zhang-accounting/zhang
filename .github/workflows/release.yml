@@ -48,7 +48,7 @@ jobs:
           name: frontend-build
           if-no-files-found: error
           retention-days: 1
-          path: ./frontend/build
+          path: ./frontend/dist
 
   publish:
     name: Binary ${{ matrix.target }} (on ${{ matrix.os }})
@@ -109,7 +109,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: frontend-build
-          path: ./frontend/build
+          path: ./frontend/dist
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable

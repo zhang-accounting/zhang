@@ -16,7 +16,7 @@ pub async fn serve_frontend(uri: Uri) -> impl IntoResponse {
 }
 
 #[derive(rust_embed::RustEmbed)]
-#[folder = "../frontend/build"]
+#[folder = "../frontend/dist"]
 struct Asset;
 
 pub struct StaticFile<T>(pub T);
