@@ -41,7 +41,7 @@ function SingleAccount() {
       {
         label: accountName ?? '',
         uri: `/accounts/${accountName}`,
-        noTranslate: false,
+        noTranslate: true,
       },
     ]);
   }, [accountName]);

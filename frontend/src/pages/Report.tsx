@@ -6,8 +6,8 @@ import Section from '../components/Section';
 import { StatisticGraphResponse, StatisticResponse, StatisticTypeResponse } from '../rest-model';
 import PayeeNarration from '../components/basic/PayeeNarration';
 import { useDocumentTitle } from '@mantine/hooks';
-import { useAtomValue } from 'jotai/index';
-import { titleAtom } from '../states/basic';
+import { useAtomValue, useSetAtom } from 'jotai/index';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { fetcher } from '../global.ts';
 import { Table, TableBody, TableHead } from '@/components/ui/table.tsx';
 import { TableRow } from '@/components/ui/table.tsx';
@@ -22,6 +22,7 @@ import { Calendar } from '@/components/ui/calendar.tsx';
 import { DateRange } from 'react-day-picker';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 import StatisticBox from '@/components/StatisticBox.tsx';
+import { REPORT_LINK } from '@/layout/Sidebar.tsx';
 
 export default function Report() {
   const [value, setValue] = useState<DateRange | undefined>({
@@ -34,6 +35,8 @@ export default function Report() {
     new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59),
   ]);
 
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
+
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`Report - ${ledgerTitle}`);
 
@@ -42,6 +45,10 @@ export default function Report() {
       setDateRange([value.from, value.to]);
     }
   }, [value]);
+
+  useEffect(() => {
+    setBreadcrumb([REPORT_LINK]);
+  }, []);
 
   const { data, error } = useSWR<StatisticResponse>(
     `/api/statistic/summary?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}&interval=Day`,
@@ -98,14 +105,14 @@ export default function Report() {
 
         <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4`}>
           <StatisticBox
-            text={'资产余额'}
+            text={'ASSET_BALANCE'}
             amount={data.balance.calculated.number}
             currency={data.balance.calculated.currency}
             hint={'include assets and liabilities'}
           />
-          <StatisticBox text={'收入'} amount={data.income.calculated.number} currency={data.income.calculated.currency} negative />
-          <StatisticBox text={'支出'} amount={data.expense.calculated.number} currency={data.expense.calculated.currency} negative />
-          <StatisticBox text={'交易数'} amount={data.transaction_number.toString()} />
+          <StatisticBox text={'INCOME'} amount={data.income.calculated.number} currency={data.income.calculated.currency} negative />
+          <StatisticBox text={'EXPENSE'} amount={data.expense.calculated.number} currency={data.expense.calculated.currency} negative />
+          <StatisticBox text={'TRANSACTION_COUNT'} amount={data.transaction_number.toString()} />
         </div>
 
         <Section title="Graph">
