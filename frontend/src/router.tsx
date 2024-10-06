@@ -11,7 +11,6 @@ import SingleBudget from './pages/SingleBudget';
 import RawEdit from './pages/RawEdit';
 import Report from './pages/Report';
 import ToolList from './pages/tools/ToolList';
-import WechatExporter from './pages/tools/WechatExporter';
 import BatchBalance from './pages/tools/BatchBalance';
 import Settings from './pages/Settings';
 
@@ -30,7 +29,6 @@ export function Router() {
       <Route path="/edit" element={<RawEdit />} />
       <Route path="/report" element={<Report />} />
       <Route path="/tools" element={<ToolList />} />
-      <Route path="/tools/wechat-exporter" element={<WechatExporter />} />
       <Route path="/tools/batch-balance" element={<BatchBalance />} />
       <Route path="/settings" element={<Settings />} />
     </Routes>

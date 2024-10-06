@@ -1,16 +1,14 @@
-import { useDisclosure, useMediaQuery } from '@mantine/hooks';
+import { useDisclosure } from '@mantine/hooks';
 import { useState } from 'react';
 
-import { IconSquarePlus } from '@tabler/icons-react';
 import { axiosInstance } from '../global.ts';
-import { showNotification } from '@mantine/notifications';
 import TransactionEditForm from './TransactionEditForm';
 import { Button } from './ui/button.tsx';
 import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog.tsx';
+import { toast } from 'sonner';
 
 export default function NewTransactionButton() {
-  const isMobile = useMediaQuery('(max-width: 600px)');
   const { t } = useTranslation();
   const [isOpen, isOpenHandler] = useDisclosure(false);
   const [data, setData] = useState<any>({});
@@ -21,18 +19,10 @@ export default function NewTransactionButton() {
       .post(`/api/transactions`, data)
       .then((res) => {
         isOpenHandler.close();
-        showNotification({
-          title: 'New transaction is created',
-          message: '',
-        });
+        toast.success('New transaction is created');       
       })
       .catch(function (error) {
-        showNotification({
-          title: 'Fail to create new Transaction',
-          color: 'red',
-          message: error?.response?.data ?? '',
-          autoClose: false,
-        });
+        toast.error('Fail to create new Transaction', {description: error?.response?.data ?? ''});
         console.log(error);
       });
   };

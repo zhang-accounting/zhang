@@ -1,4 +1,3 @@
-import { MantineProvider } from '@mantine/core';
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -11,9 +10,10 @@ import '@mantine/notifications/styles.css';
 import '@mantine/dates/styles.css';
 import '@mantine/charts/styles.css';
 import '@mantine/dropzone/styles.css';
-import { MantineEmotionProvider } from '@mantine/emotion';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/sonner';
+import { MantineProvider } from '@mantine/core';
+import { MantineEmotionProvider } from '@mantine/emotion';
 
 
 createRoot(document.getElementById('root')!).render(
@@ -21,7 +21,7 @@ createRoot(document.getElementById('root')!).render(
     <TooltipProvider>
 
     
-    <MantineProvider theme={themeConfig}>
+    <MantineProvider>
       <MantineEmotionProvider>
         
           <BrowserRouter>

@@ -7,7 +7,6 @@ import {
   CreditCard,
   FileStack,
   Notebook,
-  Package2,
   PencilRuler,
   PocketKnife,
   Receipt,
@@ -22,7 +21,7 @@ import { useAtomValue } from "jotai";
 import { errorCountAtom } from "@/states/errors";
 import { titleAtom, updatableVersionAtom } from "@/states/basic";
 import { axiosInstance } from "@/global";
-import { notifications } from "@mantine/notifications";
+import { toast } from "sonner";
 
 
 export const DASHBOARD_LINK = { icon: CircleGauge, label: 'NAV_DASHBOARD', uri: '/' };
@@ -64,12 +63,9 @@ export default function Sidebar() {
     await axiosInstance.post('/api/reload');
   };
   const sendReloadEvent = () => {
-    notifications.show({
+    toast.info('[Ledger Reload] reload event is sent', {
       id: 'leger-reload',
-      title: '[Ledger Reload] reload event is sent',
-      message: 'please wait for ledger reload',
-      loading: true,
-      autoClose: false,
+      description: 'please wait for ledger reload',
     });
     refreshLedger();
   };

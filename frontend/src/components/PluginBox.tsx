@@ -1,31 +1,20 @@
 import { PluginResponse } from '../rest-model';
-import { Badge, Group, Stack, Text } from '@mantine/core';
-import { createStyles } from '@mantine/emotion';
 
-const useStyles = createStyles((theme, _, u) => ({
-  card: {
-    backgroundColor: 'transparent',
-    padding: theme.spacing.sm,
-    border: `2px solid ${theme.colors.gray[1]}`,
-    borderRadius: theme.radius.sm,
-  },
-}));
 
 interface Props extends PluginResponse {}
 
 export default function PluginBox(props: Props) {
-  const { classes } = useStyles();
   return (
-    <Stack className={classes.card} gap={'xs'}>
-      <Group justify={'space-between'}>
-        <Text>{props.name}</Text>
-        <Badge variant={'filled'}>{props.version}</Badge>
-      </Group>
-      <Group>
-        {props.plugin_type.map((item) => (
-          <Badge>{item}</Badge>
+    <div className="bg-transparent p-4 border-2 border-gray-100 rounded-md">
+      <div className="flex justify-between items-center mb-2">
+        <span className="text-lg font-semibold">{props.name}</span>
+        <span className="bg-blue-500 text-white px-2 py-1 rounded-full text-sm">{props.version}</span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {props.plugin_type.map((item, index) => (
+          <span key={index} className="bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">{item}</span>
         ))}
-      </Group>
-    </Stack>
+      </div>
+    </div>
   );
 }

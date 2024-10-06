@@ -1,4 +1,3 @@
-import { Badge, Box, Group, SimpleGrid, Text } from '@mantine/core';
 import { format } from 'date-fns';
 import { JournalTransactionItem } from '../../rest-model';
 import Amount from '../Amount';
@@ -9,6 +8,7 @@ import AccountDocumentUpload from '../AccountDocumentUpload';
 import { createStyles } from '@mantine/emotion';
 import { ImageLightBox } from '../ImageLightBox';
 import { useState } from 'react';
+import { Badge } from '../ui/badge';
 
 const useStyles = createStyles((theme, _, u) => ({
   amount: {
@@ -34,86 +34,73 @@ export default function TransactionPreview(props: Props) {
     <div>
       <Section title="Transaction Info">
         <DashLine>
-          <Text lineClamp={1} my="xs">
-            Datetime
-          </Text>
-          <Text lineClamp={1}>{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</Text>
+          <p className="line-clamp-1 my-2">Datetime</p>
+          <p className='line-clamp-1'>{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</p>
         </DashLine>
 
         <DashLine>
-          <Text lineClamp={1} my="xs">
-            Type
-          </Text>
-          <Text lineClamp={1}>Transaction</Text>
+          <p className="line-clamp-1 my-2">Type</p>
+          <p className="line-clamp-1">Transaction</p>
         </DashLine>
         <DashLine>
-          <Text lineClamp={1} my="xs">
-            Check Status
-          </Text>
-          <Text lineClamp={1}>
+          <p className="line-clamp-1 my-2">Check Status</p>
+          <p className='line-clamp-1'>
             {props.data.is_balanced ? (
-              <Badge size="lg" color={'green'}>
+              <Badge variant="outline">
                 Pass
               </Badge>
             ) : (
               <Badge color={'red'}>UNBALANCED</Badge>
             )}
-          </Text>
+          </p>
         </DashLine>
         <DashLine>
-          <Text lineClamp={1} my="xs">
-            Payee
-          </Text>
-          <Text lineClamp={1}>{props.data.payee}</Text>
+          <p className="line-clamp-1 my-2">Payee</p>
+          <p className='line-clamp-1'>{props.data.payee}</p>
         </DashLine>
         <DashLine>
-          <Text lineClamp={1} my="xs">
-            Narration
-          </Text>
-          <Text lineClamp={1}>{props.data.narration}</Text>
+          <p className="line-clamp-1 my-2">Narration</p>
+          <p className='line-clamp-1'>{props.data.narration}</p>
         </DashLine>
+        
         {(props.data.links || []).length > 0 && (
           <DashLine>
-            <Text lineClamp={1} my="xs">
-              Links
-            </Text>
-            <Text lineClamp={1}>
-              <Group mx={1} my={2} gap="sm">
+            <p className="line-clamp-1 my-2">Links</p>
+            <p className='line-clamp-1'>
+              <div className='flex items-center gap-2'>
                 {(props.data.links || []).map((link) => (
-                  <Badge key={link} size="lg" variant="dot">
+                  <Badge key={link} variant="outline">
                     {link}
                   </Badge>
                 ))}
-              </Group>
-            </Text>
+              </div >
+            </p>
           </DashLine>
         )}
 
         {(props.data.tags || []).length > 0 && (
           <DashLine>
-            <Text lineClamp={1} my="xs">
-              Tags
-            </Text>
-            <Text lineClamp={1}>
-              <Group mx={1} my={2} gap="sm">
+            <p className="line-clamp-1 my-2">Tags</p>
+            <p className='line-clamp-1'>
+              <div className='flex items-center gap-2'>
                 {(props.data.tags || []).map((tag) => (
-                  <Badge key={tag} size="lg" color="orange" variant="dot">
+                  <Badge key={tag} variant="outline">
                     {tag}
                   </Badge>
                 ))}
-              </Group>
-            </Text>
+              </div>
+            </p>
           </DashLine>
         )}
       </Section>
-      <Box mx={1} my={4}>
+      <div className='mx-1 my-4'>
         <Section title="Postings">
           <>
             {props.data.postings.map((posting, idx) => (
               <DashLine key={idx}>
-                <Text lineClamp={1} my="xs">
+                <p className='line-clamp-1 my-2'>
                   {posting.account}
-                </Text>
+                </p>
                 <div className={classes.amount}>
                   <Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} />
                   <div className={classes.balance}>
@@ -124,7 +111,7 @@ export default function TransactionPreview(props: Props) {
             ))}
           </>
         </Section>
-      </Box>
+      </div>
 
       {(props.data.metas ?? []).length > 0 && (
         <Section title="Metas">
@@ -132,27 +119,27 @@ export default function TransactionPreview(props: Props) {
             .filter((meta) => meta.key !== 'document')
             .map((meta, idx) => (
               <DashLine key={idx}>
-                <Text lineClamp={1} my="xs">
+                <p className='line-clamp-1 my-2'>
                   {meta.key}
-                </Text>
-                <Text lineClamp={1}>{meta.value}</Text>
+                </p>
+                <p className='line-clamp-1'>{meta.value}</p>
               </DashLine>
             ))}
         </Section>
       )}
-      <Box mx={1} my={4}>
+      <div className='mx-1 my-4'>
         <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
         <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
-          <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }} spacing={{ base: 'sm', md: 'md', sm: 'sm', xs: 'sm' }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
             {props.data.metas
               .filter((meta) => meta.key === 'document')
               .map((meta, idx) => (
                 <DocumentPreview onClick={() => setLightboxSrc(meta.value)} key={idx} uri={meta.value} filename={meta.value} />
               ))}
             <AccountDocumentUpload url={`/api/transactions/${props.data.id}/documents`} />
-          </SimpleGrid>
+          </div>
         </Section>
-      </Box>
+      </div>
     </div>
   );
 }

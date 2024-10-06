@@ -1,4 +1,4 @@
-import { Skeleton } from '@mantine/core';
+import { Skeleton } from '../ui/skeleton';
 import { TableRow, TableCell } from '../ui/table';
 
 export function JournalListSkeleton() {
@@ -6,52 +6,52 @@ export function JournalListSkeleton() {
     <>
       <TableRow>
         <TableCell colSpan={6}>
-          <Skeleton height={20} width="30%" mt={10} radius="xs" />
+          <Skeleton className="h-5 w-[30%] mt-2.5 rounded-sm" />
         </TableCell>
       </TableRow>
       <TableRow>
         <TableCell colSpan={6}>
-          <Skeleton height={20} mt={10} radius="xs" />
+          <Skeleton className="h-5 w-full mt-2.5 rounded-sm" />
         </TableCell>
       </TableRow>
       <TableRow>
         <TableCell colSpan={6}>
-          <Skeleton height={20} mt={10} radius="xs" />
+          <Skeleton className="h-5 w-full mt-2.5 rounded-sm" />
         </TableCell>
       </TableRow>
       <TableRow>
         <TableCell colSpan={6}>
-          <Skeleton height={20} mt={10} radius="xs" />
+          <Skeleton className="h-5 w-full mt-2.5 rounded-sm" />
         </TableCell>
       </TableRow>
       <TableRow>
         <TableCell colSpan={6}>
-          <Skeleton height={20} width="30%" mt={10} radius="xs" />
+          <Skeleton className="h-5 w-[30%] mt-2.5 rounded-sm" />
         </TableCell>
       </TableRow>
       <TableRow>
         <TableCell colSpan={6}>
-          <Skeleton height={20} mt={10} radius="xs" />
+          <Skeleton className="h-5 w-full mt-2.5 rounded-sm" />
         </TableCell>
       </TableRow>
       <TableRow>
         <TableCell colSpan={6}>
-          <Skeleton height={20} mt={10} radius="xs" />
+          <Skeleton className="h-5 w-[30%] mt-2.5 rounded-sm" />
         </TableCell>
       </TableRow>
       <TableRow>
         <TableCell colSpan={6}>
-          <Skeleton height={20} mt={10} radius="xs" />
+          <Skeleton className="h-5 w-full mt-2.5 rounded-sm" />
         </TableCell>
       </TableRow>
       <TableRow>
         <TableCell colSpan={6}>
-          <Skeleton height={20} width="30%" mt={10} radius="xs" />
+          <Skeleton className="h-5 w-full mt-2.5 rounded-sm" />
         </TableCell>
       </TableRow>
       <TableRow>
         <TableCell colSpan={6}>
-          <Skeleton height={20} mt={10} radius="xs" />
+          <Skeleton className="h-5 w-[30%] mt-2.5 rounded-sm" />
         </TableCell>
       </TableRow>
     </>

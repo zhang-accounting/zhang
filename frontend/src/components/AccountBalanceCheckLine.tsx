@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { showNotification } from '@mantine/notifications';
 import { accountFetcher, accountSelectItemsAtom } from '../states/account';
 import Amount from './Amount';
 import { useAtomValue } from 'jotai';
@@ -8,8 +7,8 @@ import { axiosInstance } from '../global.ts';
 import { TableRow, TableCell } from './ui/table.tsx';
 import { Combobox } from './ui/combobox.tsx';
 import { Input } from './ui/input.tsx';
-import { Group } from '@mantine/core';
 import { Button } from './ui/button.tsx';
+import { toast } from 'sonner';
 
 interface Props {
   currentAmount: string;
@@ -34,18 +33,12 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
         },
         pad: padAccount,
       });
-      showNotification({
-        title: 'Balance account successfully',
-        message: '',
-      });
+      toast.success('Balance account successfully');
+      
       refreshAccounts();
     } catch (e: any) {
-      showNotification({
-        title: 'Fail to Balance Account',
-        color: 'red',
-        message: e?.response?.data ?? '',
-        autoClose: false,
-      });
+      toast.error('Fail to Balance Account', {description: e?.response?.data ?? '', duration: 10000});
+      
     }
   };
 

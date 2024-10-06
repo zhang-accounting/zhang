@@ -1,4 +1,3 @@
-import { SimpleGrid } from '@mantine/core';
 import StatisticBox from './StatisticBox';
 import useSWR from 'swr';
 import { StatisticResponse } from '../rest-model';
