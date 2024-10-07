@@ -94,7 +94,7 @@
   },
   "husky": {
     "hooks": {
-      "pre-commit": "p run prettier:fix"
+      "pre-commit": "pnpm run prettier:fix"
     }
   }
 }
