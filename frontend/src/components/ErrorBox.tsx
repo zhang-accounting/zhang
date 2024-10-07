@@ -54,7 +54,7 @@ export default function ErrorBox() {
           <DialogHeader>
             <DialogTitle>{`${selectError?.span.filename}:L${selectError?.span.start}:${selectError?.span.end}`}</DialogTitle>
             <DialogDescription>
-              <p>{t(`ERROR.${selectError?.error_type || ''}`)}</p>
+              <p>{selectError?.error_type === undefined ? '' : t(`ERROR.${selectError.error_type}`)}</p>
               <Textarea
                 rows={selectErrorContent.split('\n').length}
                 value={selectErrorContent}

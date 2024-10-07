@@ -68,7 +68,7 @@ export default function Accounts() {
           <div className="flex items-center space-x-2">
             <Switch id="airplane-mode" checked={hideClosedAccount} onCheckedChange={setHideClosedAccount} />
             <Label htmlFor="airplane-mode" className={hideClosedAccount ? '' : 'text-gray-500'}>
-              Hide closed accounts
+              {t('accounts.hide_closed_accounts')}
             </Label>
           </div>
         </div>
