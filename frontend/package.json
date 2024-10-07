@@ -9,10 +9,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "prettier:check": "prettier --check 'src/**/*.{js,jsx,ts,tsx,json,css,scss,md}'",
-    "prettier:fix": "prettier --write 'src/**/*.{js,jsx,ts,tsx,json,css,scss,md}'"
+    "prettier:fix": "prettier --write 'src/**/*.{js,jsx,ts,tsx,json,css,scss,md}'",
+    "i18n-server": "node src/server.js"
   },
   "dependencies": {
-
     "@mantine/hooks": "^7.12.0",
     "@radix-ui/react-accordion": "^1.2.1",
     "@radix-ui/react-dialog": "^1.1.2",
@@ -45,7 +45,7 @@
     "react-day-picker": "8.10.1",
     "react-dom": "^18.3.1",
     "react-dropzone": "^14.2.3",
-    "react-i18next": "^14.1.1",
+    "react-i18next": "^15.0.2",
     "react-router": "^6.23.1",
     "react-router-dom": "^6.23.1",
     "recharts": "^2.12.7",
@@ -70,10 +70,13 @@
     "@vitejs/plugin-react": "^4.3.2",
     "@vitejs/plugin-react-swc": "^3.5.0",
     "autoprefixer": "^10.4.20",
+    "body-parser": "^1.20.3",
+    "cors": "^2.8.5",
     "eslint": "^9.11.1",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.12",
+    "express": "^4.21.0",
     "globals": "^15.9.0",
     "husky": "^9.0.11",
     "i18next-parser": "^8.13.0",
@@ -86,5 +89,10 @@
     "typescript-eslint": "^8.7.0",
     "vite": "^5.4.8",
     "vite-plugin-compression": "^0.5.1"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "pnpm run prettier:fix"
+    }
   }
 }

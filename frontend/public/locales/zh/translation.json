@@ -35,5 +35,21 @@
     "UnbalancedTransaction": "交易不平衡"
   },
   "ERROR_BOX_WHY": "为什么出错?",
-  "LEDGER_IS_HEALTHY": "不可思议，账本一点错都没有"
+  "LEDGER_IS_HEALTHY": "不可思议，账本一点错都没有",
+  "accounts": {
+    "hide_closed_accounts": "隐藏已关闭账户"
+  },
+  "NEW_TRANSACTION_BUTTON": "新增交易",
+  "NEW_TRANSACTION_DIALOG_TITLE": "新增交易",
+  "NEW_TRANSACTION_DIALOG_DESCRIPTION": "新增交易以记录您的财务活动。",
+  "NEW_TRANSACTION_CANCEL": "取消",
+  "NEW_TRANSACTION_SAVE": "保存",
+  "JOURNALS_TITLE": "条流水",
+  "TRANSACTION_PREVIEW_MODAL_TITLE": "预览流水项",
+  "TRANSACTION_EDIT_MODAL_CLOSE": "关闭",
+  "TRANSACTION_PREVIEW_MODAL_DESCRIPTION": "预览",
+  "TRANSACTION_EDIT_MODAL_SAVE": "保存",
+  "TRANSACTION_PREVIEW_MODAL_CLOSE": "关闭",
+  "TRANSACTION_EDIT_MODAL_DESCRIPTION": "编辑流水项",
+  "TRANSACTION_EDIT_MODAL_TITLE": "编辑流水项"
 }
