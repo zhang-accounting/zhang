@@ -125,9 +125,6 @@ dependencies:
   tailwindcss-animate:
     specifier: ^1.0.7
     version: 1.0.7(tailwindcss@3.4.13)
-  translation-check:
-    specifier: ^1.1.0
-    version: 1.1.0
   web-vitals:
     specifier: ^3.5.2
     version: 3.5.2
@@ -202,9 +199,6 @@ devDependencies:
   husky:
     specifier: ^9.0.11
     version: 9.1.6
-  i18next-http-middleware:
-    specifier: ^3.6.0
-    version: 3.6.0
   i18next-parser:
     specifier: ^8.13.0
     version: 8.13.0
@@ -411,13 +405,6 @@ packages:
       '@babel/core': 7.25.7
       '@babel/helper-plugin-utils': 7.25.7
     dev: true
-
-  /@babel/runtime@7.21.0:
-    resolution: {integrity: sha512-xwII0//EObnq89Ji5AKYQaRYiW/nZ3llSv29d49IuxPhKbtJoLP+9QUUZ4nVragQVtaVGeZrpB+ZtG/Pdy/POw==}
-    engines: {node: '>=6.9.0'}
-    dependencies:
-      regenerator-runtime: 0.13.11
-    dev: false
 
   /@babel/runtime@7.25.7:
     resolution: {integrity: sha512-FjoyLe754PMiYsFaN5C94ttGiOmBNYTf6pLr4xXHAT5uctHb092PBszndLDR5XA/jghQvn4n7JMHl7dmTgbm9w==}
@@ -4535,10 +4522,6 @@ packages:
       - encoding
     dev: false
 
-  /i18next-http-middleware@3.6.0:
-    resolution: {integrity: sha512-pLyTOC8Dzj83byN0s4hd/i/Ewg6T36YjMrc+Zfnqz2Ca0G5ab9IPvPR8xZqr6TS0s/ZtPs2MZucDkWgqoRmNXA==}
-    dev: true
-
   /i18next-parser@8.13.0:
     resolution: {integrity: sha512-XU7resoeNcpJazh29OncQQUH6HsgCxk06RqBBDAmLHldafxopfCHY1vElyG/o3EY0Sn7XjelAmPTV0SgddJEww==}
     engines: {node: '>=16.0.0 || >=18.0.0 || >=20.0.0', npm: '>=6', yarn: '>=1'}
@@ -5762,10 +5745,6 @@ packages:
       strip-indent: 3.0.0
     dev: true
 
-  /regenerator-runtime@0.13.11:
-    resolution: {integrity: sha512-kY1AZVr2Ra+t+piVaJ4gxaFaReZVH40AKNo7UCX6W+dEwBo/2oZJzqfuN1qLq1oL45o56cPaTXELwrTh8Fpggg==}
-    dev: false
-
   /regenerator-runtime@0.14.1:
     resolution: {integrity: sha512-dYnhHh0nJoMfnkZs6GmmhFknAGRrLznOu5nc9ML+EJxGvrx6H7teuevqVqCuPcPK//3eDrrjQhehXVx9cnkGdw==}
 
@@ -6315,12 +6294,6 @@ packages:
 
   /tr46@0.0.3:
     resolution: {integrity: sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==}
-    dev: false
-
-  /translation-check@1.1.0:
-    resolution: {integrity: sha512-01WpBwJp+kKHBTME2bRHt4wXpMVwi6orEAV1pnuSneBrUJq0k/JO5kKQycvrb224/FFbkNlL3hw8gIiu7fwPvg==}
-    dependencies:
-      '@babel/runtime': 7.21.0
     dev: false
 
   /ts-api-utils@1.3.0(typescript@5.6.2):
