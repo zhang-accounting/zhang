@@ -348,17 +348,26 @@ impl ZhangParser {
         );
         Ok(ret)
     }
-    fn tags(input: Node) -> Result<Vec<String>> {
-        let ret = match_nodes!(input.into_children();
-            [tag(tags)..] => tags.collect(),
-        );
-        Ok(ret)
-    }
-    fn links(input: Node) -> Result<Vec<String>> {
-        let ret = match_nodes!(input.into_children();
-            [link(links)..] => links.collect(),
-        );
-        Ok(ret)
+
+    fn tags_or_links(input: Node) -> Result<(Vec<String>, Vec<String>)> {
+        let mut tags = vec![];
+        let mut links = vec![];
+        let nodes = input.into_children();
+        for node in nodes {
+            match node.as_rule() {
+                Rule::tag => {
+                    tags.push(Self::tag(node)?);
+                }
+                Rule::link => {
+                    links.push(Self::link(node)?);
+                }
+                _ => {
+                    // Optionally handle unexpected rules
+                }
+            }
+        }
+
+        Ok((tags, links))
     }
 
     fn transaction(input: Node) -> Result<Directive> {
@@ -367,28 +376,27 @@ impl ZhangParser {
             Option<Flag>,
             Option<ZhangString>,
             Option<ZhangString>,
-            Vec<String>,
-            Vec<String>,
+            (Vec<String>, Vec<String>),
             Vec<(Option<Posting>, Option<(String, ZhangString)>)>,
         ) = match_nodes!(input.into_children();
-            [date(date), quote_string(payee), tags(tags), links(links), transaction_lines(lines)] => (date, None, Some(payee), None, tags, links,lines),
-            [date(date), quote_string(payee), quote_string(narration), tags(tags), links(links), transaction_lines(lines)] => (date, None, Some(payee), Some(narration), tags, links,lines),
-            [date(date), transaction_flag(flag), tags(tags), links(links), transaction_lines(lines)] => (date, flag, None, None, tags, links, lines),
-            [date(date), transaction_flag(flag), quote_string(narration), tags(tags), links(links), transaction_lines(lines)] => (date, flag, None, Some(narration), tags, links, lines),
-            [date(date), transaction_flag(flag), quote_string(payee), quote_string(narration), tags(tags), links(links), transaction_lines(lines)] => (date, flag, Some(payee), Some(narration), tags, links,lines),
+            [date(date), quote_string(payee), tags_or_links(tags_or_links), transaction_lines(lines)] => (date, None, Some(payee), None, tags_or_links,lines),
+            [date(date), quote_string(payee), quote_string(narration), tags_or_links(tags_or_links), transaction_lines(lines)] => (date, None, Some(payee), Some(narration), tags_or_links,lines),
+            [date(date), transaction_flag(flag), tags_or_links(tags_or_links), transaction_lines(lines)] => (date, flag, None, None, tags_or_links, lines),
+            [date(date), transaction_flag(flag), quote_string(narration), tags_or_links(tags_or_links), transaction_lines(lines)] => (date, flag, None, Some(narration), tags_or_links, lines),
+            [date(date), transaction_flag(flag), quote_string(payee), quote_string(narration), tags_or_links(tags_or_links), transaction_lines(lines)] => (date, flag, Some(payee), Some(narration), tags_or_links,lines),
         );
         let mut transaction = Transaction {
             date: ret.0,
             flag: ret.1,
             payee: ret.2,
             narration: ret.3,
-            tags: ret.4.into_iter().collect(),
-            links: ret.5.into_iter().collect(),
+            tags: ret.4 .0.into_iter().collect(),
+            links: ret.4 .1.into_iter().collect(),
             postings: vec![],
             meta: MultiValueMap::default(),
         };
 
-        for line in ret.6 {
+        for line in ret.5 {
             match line {
                 (Some(trx), None) => {
                     transaction.postings.push(trx);

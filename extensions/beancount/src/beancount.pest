@@ -33,12 +33,14 @@ valuable_comment =  { space* ~ comment_prefix ~ space* ~ comment_value }
 comment_prefix   =  { ";" | "*" | "#" | "//" }
 comment_value    =  { (!line ~ ANY)* }
 
-transaction           =  { date ~ transaction_flag? ~ (space+ ~ quote_string){0, 2} ~ tags? ~ links? ~ space* ~ comment? ~ transaction_detail }
+transaction = { date ~ transaction_flag? ~ (space+ ~ quote_string){0, 2} ~ tags_or_links? ~ space* ~ comment? ~ transaction_detail }
+
 transaction_flag      =  { space+ ~ ("!" | "*" | "#" | ASCII_ALPHA_UPPER) }
-tags                  =  { (space* ~ tag)* }
+
+tags_or_links = { (space* ~ (tag | link))* }
 tag                   =  { "#" ~ unquote_string }
-links                 =  { (space* ~ link)* }
 link                  =  { "^" ~ unquote_string }
+
 transaction_detail    = _{ indentation_push ~ transaction_lines ~ DROP }
 transaction_lines     =  { transaction_line ~ (transaction_next_line)* }
 transaction_line      =  { (transaction_posting | key_value_line) ~ space* ~ valuable_comment? }
