@@ -95,7 +95,7 @@ impl ZhangDataTypeExportable for Transaction {
         let mut transaction = self
             .postings
             .into_iter()
-            .flat_map(|posting| posting.export())
+            .map(|posting| posting.export())
             .map(|it| format!("  {}", it))
             .collect_vec();
         transaction.insert(0, header.into_iter().flatten().join(" "));
@@ -107,8 +107,8 @@ impl ZhangDataTypeExportable for Transaction {
 }
 
 impl ZhangDataTypeExportable for Posting {
-    type Output = Vec<String>;
-    fn export(self) -> Vec<String> {
+    type Output = String;
+    fn export(self) -> String {
         // todo cost and price
         let cost_string = self.cost.map(|it| it.export());
         let vec1 = vec![
@@ -118,10 +118,7 @@ impl ZhangDataTypeExportable for Posting {
             cost_string,
             self.price.map(|it| it.export()),
         ];
-        let mut ret = self.meta.export().into_iter().map(|it| format!("  {}", it)).collect_vec();
-        ret.insert(0, vec1.into_iter().flatten().join(" "));
-
-        ret
+        vec1.into_iter().flatten().join(" ")
     }
 }
 
@@ -540,12 +537,12 @@ mod test {
         );
 
         assert_parse!(
-            "transaction posting with meta",
+            "transaction posting and meta",
             indoc! {r#"
             1970-01-01 * "Payee" "Narration" ^link1 ^link-2
               Assets:123 -1 CNY
-                a: b
               Expenses:TestCategory:One 1 CCC @@ 1 CNY
+              a: b
         "#}
         );
     }

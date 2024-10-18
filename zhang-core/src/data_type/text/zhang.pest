@@ -25,7 +25,7 @@ budget_add      =  { date ~ space+ ~ "budget-add" ~ space+ ~ unquote_string ~ sp
 budget_transfer =  { date ~ space+ ~ "budget-transfer" ~ space+ ~ unquote_string ~ space+ ~ unquote_string ~ space+ ~ posting_amount ~ metas? }
 budget_close    =  { date ~ space+ ~ "budget-close" ~ space+ ~ unquote_string ~ metas? }
 
-transaction = { date ~ transaction_flag? ~ (space+ ~ quote_string){0, 2} ~ tags_or_links? ~ space* ~ comment? ~ transaction_detail }
+transaction = { date ~ transaction_flag? ~ (space+ ~ quote_string){0, 2} ~ tags_or_links? ~ space* ~ comment? ~ transaction_lines }
 
 comment          = _{(";" | "*" | "#" | "//") ~ (!line ~ ANY)* }
 valuable_comment =  { space* ~ comment_prefix ~ space* ~ comment_value }
@@ -38,37 +38,35 @@ tags_or_links = { (space* ~ (tag | link))* }
 tag                   =  { "#" ~ unquote_string }
 link                  =  { "^" ~ unquote_string }
 
-transaction_detail    = _{ indentation_push ~ transaction_lines ~ DROP }
-transaction_lines     =  { transaction_line ~ (transaction_next_line)* }
-transaction_line      =  { (transaction_posting | key_value_line) ~ space* ~ valuable_comment? }
-transaction_posting   =  { transaction_flag? ~ account_name ~ (space+ ~ posting_unit)? ~ metas? }
-transaction_next_line = _{ indentation ~ transaction_line }
+transaction_lines     =  { transaction_line+}
+transaction_line      =  { indentation ~ (transaction_posting | key_value_line)? ~ space* ~ valuable_comment?  }
+transaction_posting   =  { transaction_flag? ~ account_name ~ (space+ ~ posting_unit)? }
+
 
 posting_unit   = { (posting_amount)? ~ posting_meta }
-posting_amount = { number_expr ~ space+ ~ commodity_name }
-posting_meta   = { (space+ ~ posting_cost_prefix ~ space* ~ posting_cost? ~ price_cost_date? ~ space* ~ posting_cost_postfix)? ~ space* ~ posting_price? }
+posting_amount = { number_expr ~ space* ~ commodity_name }
+posting_meta   = { (space* ~ posting_cost_prefix ~ space* ~ posting_cost? ~ price_cost_date? ~ space* ~ posting_cost_postfix)? ~ space* ~ posting_price? }
 
 
 posting_cost_prefix = { "{" }
 posting_cost_postfix = { "}" }
-posting_cost    =  { number_expr ~ space+ ~ commodity_name }
+posting_cost    =  { number_expr ~ space* ~ commodity_name }
 price_cost_date = _{ space* ~ "," ~ space* ~ date }
 posting_price   =  { posting_single_price | posting_total_price }
 
-posting_single_price = { "@" ~ space+ ~ number_expr ~ space+ ~ commodity_name }
-posting_total_price  = { "@@" ~ space+ ~ number_expr ~ space+ ~ commodity_name }
+posting_single_price = { "@" ~ space* ~ number_expr ~ space* ~ commodity_name }
+posting_total_price  = { "@@" ~ space* ~ number_expr ~ space* ~ commodity_name }
 
 string_or_account = { account_name | string }
 
-metas = { indentation_push ~ key_value_lines ~ DROP }
+metas = { key_value_lines }
 
-indentation      = _{ line ~ PEEK_ALL }
-indentation_push = _{ indentation ~ PUSH(space+) }
 
-key_value_lines             = _{ key_value_line_with_comment ~ (key_value_next_line)* }
-key_value_next_line         = _{ indentation ~ key_value_line_with_comment }
-key_value_line              =  { string ~ space* ~ ":" ~ space* ~ string }
+indentation = _{ line ~ space+ }
+
+key_value_lines             = _{ (line ~ space+ ~ key_value_line_with_comment)+ }
 key_value_line_with_comment =  _{ key_value_line ~ space* ~ comment? }
+key_value_line              =  { string ~ space* ~ ":" ~ space* ~ string }
 
 date = { datetime | date_hour | date_only }
 

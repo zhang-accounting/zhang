@@ -283,20 +283,14 @@ impl ZhangParser {
             Option<Flag>,
             Account,
             Option<(Option<Amount>, Option<(Option<PostingCost>, Option<SingleTotalPrice>)>)>,
-            Meta,
         ) = match_nodes!(input.into_children();
-            [account_name(account_name)] => (None, account_name, None, Meta::default()),
-            [account_name(account_name), posting_unit(unit)] => (None, account_name, Some(unit), Meta::default()),
-            [transaction_flag(flag), account_name(account_name)] => (flag, account_name, None, Meta::default()),
-            [transaction_flag(flag), account_name(account_name), posting_unit(unit)] => (flag, account_name, Some(unit), Meta::default()),
-
-            [account_name(account_name), metas(meta)] => (None, account_name, None, meta),
-            [account_name(account_name), posting_unit(unit), metas(meta)] => (None, account_name, Some(unit), meta),
-            [transaction_flag(flag), account_name(account_name), metas(meta)] => (flag, account_name, None, meta),
-            [transaction_flag(flag), account_name(account_name), posting_unit(unit), metas(meta)] => (flag, account_name, Some(unit), meta),
+            [account_name(account_name)] => (None, account_name, None),
+            [account_name(account_name), posting_unit(unit)] => (None, account_name, Some(unit)),
+            [transaction_flag(flag), account_name(account_name)] => (flag, account_name, None),
+            [transaction_flag(flag), account_name(account_name), posting_unit(unit)] => (flag, account_name, Some(unit)),
         );
 
-        let (flag, account, unit, meta) = ret;
+        let (flag, account, unit) = ret;
 
         let mut line = Posting {
             flag,
@@ -305,7 +299,6 @@ impl ZhangParser {
             cost: None,
             price: None,
             comment: None,
-            meta,
         };
 
         if let Some((amount, meta)) = unit {
@@ -325,7 +318,7 @@ impl ZhangParser {
             [transaction_posting(posting), valuable_comment(comment)] => (Some(posting.set_comment(comment)), None),
             [key_value_line(meta)] => (None, Some(meta)),
             [key_value_line(meta), valuable_comment(_)] => (None, Some(meta)),
-
+            [valuable_comment(_)] => (None, None),
         );
         Ok(ret)
     }
@@ -1162,16 +1155,6 @@ mod test {
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
                 assert_eq!(Some(PostingCost { base: None, date: None }), posting.cost);
                 assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
-            }
-            #[test]
-            fn should_parse_metas_in_posting() {
-                let mut trx = get_first_posting(indoc! {r#"
-                2022-06-02 "balanced transaction"
-                  Assets:Card -100 USD
-                    a: b
-                "#});
-                let posting = trx.postings.pop().unwrap();
-                assert_eq!("b", posting.meta.get_one("a").cloned().unwrap().to_plain_string());
             }
 
             #[test]
