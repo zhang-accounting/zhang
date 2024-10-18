@@ -34,10 +34,12 @@ export default function Amount({ amount, currency, negative, mask, className }: 
   const displayedValue = value.abs().toFormat(commodity?.precision ?? 2);
   const maskedValue = shouldMask ? displayedValue.replace(/\d/g, '*') : displayedValue;
   return (
-    <span className={`inline-flex gap-[calc(theme.spacing.xs*0.25)] ${className}`}>
+    <span className={`inline-flex gap-0.5 ${className}`}>
       {isNegative && <span className="font-feature-settings-tnum">-</span>}
       <span className="font-feature-settings-tnum">
         {commodity?.prefix}
+        </span>
+      <span className="font-feature-settings-tnum">
         {maskedValue}
       </span>
       {commodity?.suffix && <span className="font-feature-settings-tnum">{commodity?.suffix}</span>}

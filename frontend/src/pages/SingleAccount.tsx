@@ -30,7 +30,10 @@ function SingleAccount() {
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
   const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
-  const { data: account_balance_data, error: account_balance_error } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
+  const {
+    data: account_balance_data,
+    error: account_balance_error,
+  } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
 
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
@@ -53,7 +56,8 @@ function SingleAccount() {
       <div className="flex items-center gap-4 pb-6">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{account.alias ?? account.name}</h1>
+            <h1
+              className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{account.alias ?? account.name}</h1>
             <Badge variant="outline" className="ml-auto sm:ml-0">
               {account.status}
             </Badge>
@@ -63,16 +67,16 @@ function SingleAccount() {
 
         <div className="hidden items-center gap-2 md:ml-auto md:flex">
           <div className="text-right">
-            <div className="flex items-center justify-end gap-2 text-lg">
+            <div className="flex items-center justify-end gap-1 text-lg">
               {Object.keys(account.amount.detail).length > 1 && <p>≈</p>}
               <Amount amount={account.amount.calculated.number} currency={account.amount.calculated.currency}></Amount>
             </div>
             {Object.keys(account.amount.detail).length > 1 && (
-              <>
+              <div className="flex flex-col gap-0.5 items-end text-base">
                 {Object.entries(account.amount.detail ?? {}).map(([key, value]) => (
-                  <Amount key={key} className="text-lg" amount={value} currency={key}></Amount>
+                  <Amount key={key} amount={value} currency={key}></Amount>
                 ))}
-              </>
+              </div>
             )}
           </div>
         </div>
@@ -154,10 +158,12 @@ function SingleAccount() {
                 render={(data: Document[]) => (
                   <>
                     <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
-                    <div className="grid grid-cols-1 xs:grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
+                    <div
+                      className="grid grid-cols-1 xs:grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
                       <AccountDocumentUpload url={`/api/accounts/${accountName}/documents`} />
                       {data.map((document, idx) => (
-                        <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} uri={document.path} filename={document.path} />
+                        <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} uri={document.path}
+                                         filename={document.path} />
                       ))}
                     </div>
                   </>
@@ -184,7 +190,8 @@ function SingleAccount() {
                 </TableHeader>
                 <TableBody>
                   {Object.entries(account?.amount.detail ?? {}).map(([commodity, amount]) => (
-                    <AccountBalanceCheckLine key={commodity} currentAmount={amount} commodity={commodity} accountName={account.name} />
+                    <AccountBalanceCheckLine key={commodity} currentAmount={amount} commodity={commodity}
+                                             accountName={account.name} />
                   ))}
                 </TableBody>
               </Table>
