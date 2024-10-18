@@ -39,12 +39,12 @@ export default function AccountLine({ data, spacing }: Props) {
             <div style={{ width: `${spacing * 20}px` }}></div>
             {hasChildren ? (
               isShow ? (
-                <ChevronDownIcon onClick={() => setCollapse(!isShow)} className="h-5 w-5 cursor-pointer" />
+                <ChevronDownIcon onClick={() => setCollapse(!isShow)} className="h-4 w-4 cursor-pointer" />
               ) : (
-                <ChevronRightIcon onClick={() => setCollapse(!isShow)} className="h-5 w-5 cursor-pointer" />
+                <ChevronRightIcon onClick={() => setCollapse(!isShow)} className="h-4 w-4 cursor-pointer" />
               )
             ) : (
-              <div style={{ width: `${spacing * 20}px` }}></div>
+              <div style={{ width: `20px` }}></div>
             )}
             <div onClick={onNavigate} className="cursor-pointer">
               <div className="flex items-center gap-2">
@@ -62,7 +62,7 @@ export default function AccountLine({ data, spacing }: Props) {
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger>
-                    <div className={cn(data.isLeaf ? 'cursor-pointer' : '', 'flex gap-2')}>
+                    <div className={cn(data.isLeaf ? 'cursor-pointer' : 'text-gray-500', 'flex gap-2')}>
                       <span>≈</span> <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
                     </div>
                   </TooltipTrigger>
@@ -83,7 +83,7 @@ export default function AccountLine({ data, spacing }: Props) {
                 </Tooltip>
               </TooltipProvider>
             ) : (
-              <div className={cn(data.isLeaf ? '' : 'text-gray-500', 'flex gap-2')}>
+              <div className={cn(data.isLeaf ? ' ' : 'text-gray-500', 'flex gap-2')}>
                 <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
               </div>
             )}
@@ -93,7 +93,8 @@ export default function AccountLine({ data, spacing }: Props) {
       {isShow &&
         Object.keys(data.children)
           .sort()
-          .map((child) => <AccountLine key={data.children[child].path} data={data.children[child]} spacing={spacing + 1} />)}
+          .map((child) => <AccountLine key={data.children[child].path} data={data.children[child]}
+                                       spacing={spacing + 1} />)}
     </>
   );
 }
