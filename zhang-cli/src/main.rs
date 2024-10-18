@@ -266,74 +266,76 @@ mod test {
             for validation in validations {
                 pprintln!("      \x1b[0;32mTesting\x1b[0;0m: {}", &validation.uri);
 
-                let is_zhang_test = test_temp_folder.join("main.zhang").exists();
-                let data_source = OpendalDataSource::from_env(
-                    FileSystem::Fs,
-                    &mut ServerOpts {
-                        path: test_temp_folder.to_path_buf(),
-                        endpoint: if is_zhang_test { "main.zhang".to_owned() } else { "main.bean".to_owned() },
-                        addr: "".to_string(),
-                        port: 0,
-                        auth: None,
-                        source: None,
-                        no_report: false,
-                    },
-                )
-                .await;
-                let data_source = Arc::new(data_source);
-                let ledger = Ledger::async_load(
-                    test_temp_folder.to_path_buf(),
-                    if is_zhang_test { "main.zhang".to_owned() } else { "main.bean".to_owned() },
-                    data_source.clone(),
-                )
-                .await
-                .expect("cannot load ledger");
-                let ledger_data = Arc::new(RwLock::new(ledger));
-                let broadcaster = Broadcaster::create();
-                let (tx, _) = mpsc::channel(1);
-                let reload_sender = Arc::new(ReloadSender(tx));
-                let app = create_server_app(ledger_data, broadcaster, reload_sender, None);
-
-                let response = app
-                    .oneshot(
-                        Request::builder()
-                            .method(http::Method::GET)
-                            .uri(&validation.uri)
-                            .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
-                            .body(Body::empty())
-                            .unwrap(),
+                for main_file in ["main.zhang", "main.bean"] {
+                    let main_file_exists = test_temp_folder.join(main_file).exists();
+                    if !main_file_exists {
+                        continue;
+                    }
+                    pprintln!("      \x1b[0;32mDetected main file\x1b[0;0m: {}", &main_file);
+                    let data_source = OpendalDataSource::from_env(
+                        FileSystem::Fs,
+                        &mut ServerOpts {
+                            path: test_temp_folder.to_path_buf(),
+                            endpoint: main_file.to_string(),
+                            addr: "".to_string(),
+                            port: 0,
+                            auth: None,
+                            source: None,
+                            no_report: false,
+                        },
                     )
-                    .await
-                    .unwrap();
+                    .await;
+                    let data_source = Arc::new(data_source);
+                    let ledger = Ledger::async_load(test_temp_folder.to_path_buf(), main_file.to_string(), data_source.clone())
+                        .await
+                        .expect("cannot load ledger");
+                    let ledger_data = Arc::new(RwLock::new(ledger));
+                    let broadcaster = Broadcaster::create();
+                    let (tx, _) = mpsc::channel(1);
+                    let reload_sender = Arc::new(ReloadSender(tx));
+                    let app = create_server_app(ledger_data, broadcaster, reload_sender, None);
 
-                assert_eq!(response.status(), StatusCode::OK);
+                    let response = app
+                        .oneshot(
+                            Request::builder()
+                                .method(http::Method::GET)
+                                .uri(&validation.uri)
+                                .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                                .body(Body::empty())
+                                .unwrap(),
+                        )
+                        .await
+                        .unwrap();
 
-                let body = response.into_body().collect().await.unwrap().to_bytes();
-                let res: Value = serde_json::from_slice(&body).unwrap();
+                    assert_eq!(response.status(), StatusCode::OK);
 
-                for point in validation.validations {
-                    pprintln!(
-                        "        \x1b[0;32mValidating\x1b[0;0m: \x1b[0;34m{}\x1b[0;0m to be \x1b[0;34m{}\x1b[0;0m",
-                        point.0,
-                        &point.1
-                    );
+                    let body = response.into_body().collect().await.unwrap().to_bytes();
+                    let res: Value = serde_json::from_slice(&body).unwrap();
 
-                    let value = res.clone().path(&point.0).unwrap();
-                    let expected_value = Value::Array(vec![point.1]);
-                    if !expected_value.eq(&value) {
-                        panic!(
-                            "Validation fail\n\
+                    for point in validation.validations.iter() {
+                        pprintln!(
+                            "        \x1b[0;32mValidating\x1b[0;0m: \x1b[0;34m{}\x1b[0;0m to be \x1b[0;34m{}\x1b[0;0m",
+                            point.0,
+                            &point.1
+                        );
+
+                        let value = res.clone().path(&point.0).unwrap();
+                        let expected_value = Value::Array(vec![point.1.clone()]);
+                        if !expected_value.eq(&value) {
+                            panic!(
+                                "Validation fail\n\
                          Test case: {} \n\
                          Test URL: {} \n\
                          Test rule: {} \n\
                          Excepted value: {} \n\
                          Get: {}",
-                            original_test_source_folder.display(),
-                            &validation.uri,
-                            point.0,
-                            &expected_value,
-                            &value
-                        );
+                                original_test_source_folder.display(),
+                                &validation.uri,
+                                point.0,
+                                &expected_value,
+                                &value
+                            );
+                        }
                     }
                 }
             }
