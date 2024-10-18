@@ -59,7 +59,8 @@ export default function ReportGraph(props: Props) {
         <ComposedChart accessibilityLayer data={data}>
           <XAxis dataKey="date" tickLine={false} tickMargin={10} axisLine={false} />
 
-          <YAxis hide type="number" domain={total_domain} yAxisId="left" scale="log" padding={{ top: 20, bottom: 20 }} />
+          <YAxis hide type="number" domain={total_domain} yAxisId="left" scale="log"
+                 padding={{ top: 20, bottom: 20 }} />
           <YAxis hide type="number" domain={[0, max_income]} yAxisId="right" padding={{ top: 20, bottom: 0 }} />
 
           <ChartTooltip content={<ChartTooltipContent />} />
@@ -67,7 +68,8 @@ export default function ReportGraph(props: Props) {
 
           <Bar dataKey="income" stackId="a" fill="#3b82f6" yAxisId="right" />
           <Bar dataKey="expense" stackId="a" fill="#ef4444" yAxisId="right" />
-          <Line type="monotone" dataKey="total" stroke="var(--color-total)" strokeWidth={2} dot={true} yAxisId="left" />
+          <Line type="monotone" dataKey="total" stroke="var(--color-total)" strokeWidth={2} dot={false} activeDot
+                yAxisId="left" />
         </ComposedChart>
       </ChartContainer>
     </>
