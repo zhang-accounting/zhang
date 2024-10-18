@@ -139,7 +139,6 @@ pub async fn create_new_transaction(
             cost: None,
             price: None,
             comment: None,
-            meta: Default::default(),
         });
     }
 
@@ -238,7 +237,6 @@ pub async fn update_single_transaction(
             cost: None,
             price: None,
             comment: None,
-            meta: Default::default(),
         });
     }
     let mut metas = Meta::default();

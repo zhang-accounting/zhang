@@ -47,7 +47,6 @@ impl DirectiveProcess for BalancePad {
                     cost: None,
                     price: None,
                     comment: None,
-                    meta: Default::default(),
                 },
                 Posting {
                     flag: None,
@@ -56,7 +55,6 @@ impl DirectiveProcess for BalancePad {
                     cost: None,
                     price: None,
                     comment: None,
-                    meta: Default::default(),
                 },
             ],
             meta: Default::default(),
@@ -109,7 +107,6 @@ impl DirectiveProcess for BalanceCheck {
                 cost: None,
                 price: None,
                 comment: None,
-                meta: Default::default(),
             }],
             meta: Default::default(),
         };

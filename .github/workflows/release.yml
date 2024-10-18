@@ -121,6 +121,10 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: sudo apt install pkg-config libssl-dev
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
       - name: cargo build
         uses: houseabsolute/actions-rust-cross@v0
         with:

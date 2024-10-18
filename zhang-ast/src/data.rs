@@ -100,7 +100,6 @@ pub struct Posting {
     pub cost: Option<PostingCost>,
     pub price: Option<SingleTotalPrice>,
     pub comment: Option<String>,
-    pub meta: Meta,
 }
 impl Posting {
     pub fn set_comment(mut self, comment: String) -> Self {

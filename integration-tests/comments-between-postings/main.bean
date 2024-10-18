@@ -1,0 +1,27 @@
+option "operating_currency" "CNY"
+
+1970-01-01 open Assets:BankCard CNY
+
+1970-01-01 open Expenses:Food CNY
+
+2023-12-06 "KFC" "VME50 Package"
+  ; comment here
+  Assets:BankCard -50 CNY
+  Expenses:Food
+
+2023-12-06 "KFC" "VME50 Package"
+  Assets:BankCard -50 CNY
+  ; comment here
+  Expenses:Food
+  ; comment here
+
+2023-12-06 "KFC" "VME50 Package"
+  Assets:BankCard -50 CNY
+  Expenses:Food
+  ; comment here
+
+2023-12-06 "KFC" "VME50 Package"
+  Assets:BankCard -50 CNY
+  Expenses:Food
+  ; comment here
+  ; comment here

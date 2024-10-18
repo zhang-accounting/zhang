@@ -1,0 +1,23 @@
+[
+  {
+    "uri": "/api/journals",
+    "validations": [
+      [
+        "$.data.records[0].postings.length()",
+        2
+      ],
+      [
+        "$.data.records[1].postings.length()",
+        2
+      ],
+      [
+        "$.data.records[2].postings.length()",
+        2
+      ],
+      [
+        "$.data.records[3].postings.length()",
+        2
+      ]
+    ]
+  }
+]

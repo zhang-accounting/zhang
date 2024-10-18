@@ -274,20 +274,14 @@ impl BeancountParser {
             Option<Flag>,
             Account,
             Option<(Option<Amount>, Option<(Option<PostingCost>, Option<SingleTotalPrice>)>)>,
-            Meta,
         ) = match_nodes!(input.into_children();
-            [account_name(account_name)] => (None, account_name, None, Meta::default()),
-            [account_name(account_name), posting_unit(unit)] => (None, account_name, Some(unit), Meta::default()),
-            [transaction_flag(flag), account_name(account_name)] => (flag, account_name, None, Meta::default()),
-            [transaction_flag(flag), account_name(account_name), posting_unit(unit)] => (flag, account_name, Some(unit), Meta::default()),
-
-            [account_name(account_name), metas(meta)] => (None, account_name, None, meta),
-            [account_name(account_name), posting_unit(unit), metas(meta)] => (None, account_name, Some(unit), meta),
-            [transaction_flag(flag), account_name(account_name), metas(meta)] => (flag, account_name, None, meta),
-            [transaction_flag(flag), account_name(account_name), posting_unit(unit), metas(meta)] => (flag, account_name, Some(unit), meta),
+            [account_name(account_name)] => (None, account_name, None),
+            [account_name(account_name), posting_unit(unit)] => (None, account_name, Some(unit)),
+            [transaction_flag(flag), account_name(account_name)] => (flag, account_name, None),
+            [transaction_flag(flag), account_name(account_name), posting_unit(unit)] => (flag, account_name, Some(unit)),
         );
 
-        let (flag, account, unit, meta) = ret;
+        let (flag, account, unit) = ret;
 
         let mut line = Posting {
             flag,
@@ -296,7 +290,6 @@ impl BeancountParser {
             cost: None,
             price: None,
             comment: None,
-            meta,
         };
 
         if let Some((amount, meta)) = unit {
@@ -316,7 +309,7 @@ impl BeancountParser {
             [transaction_posting(posting), valuable_comment(c)] => (Some(posting.set_comment(c)), None),
             [key_value_line(meta)] => (None, Some(meta)),
             [key_value_line(meta),  valuable_comment(_)] => (None, Some(meta)),
-
+            [valuable_comment(_)] => (None, None),
         );
         Ok(ret)
     }
@@ -764,16 +757,6 @@ mod test {
         use crate::parser::test::get_txn;
 
         #[test]
-        fn should_parse_posting_meta() {
-            let directive = get_txn(indoc! {r#"
-                            1970-01-01 "Payee" "Narration"
-                              Assets:Bank
-                                a: b
-                        "#});
-            assert_eq!(directive.postings.first().unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
-        }
-
-        #[test]
         fn should_parse_with_comment() {
             let directive = get_txn(indoc! {r#"
                             1970-01-01 "Payee" "Narration" ; 123123
@@ -783,7 +766,6 @@ mod test {
                               a: b
                               b: c ;123123
                         "#});
-            assert_eq!(directive.postings.first().unwrap().meta.get_one("a").cloned().unwrap().to_plain_string(), "b");
             assert_eq!(directive.postings.get(1).unwrap().comment.as_ref().unwrap(), "123213");
         }
 
