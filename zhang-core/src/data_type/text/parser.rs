@@ -354,11 +354,16 @@ impl ZhangParser {
         let mut links = vec![];
         let nodes = input.into_children();
         for node in nodes {
-            let rule = node.as_rule();
-            if rule == Rule::tag {
-                tags.push(Self::tag(node)?);
-            } else if rule == Rule::link {
-                links.push(Self::link(node)?);
+            match node.as_rule() {
+                Rule::tag => {
+                    tags.push(Self::tag(node)?);
+                }
+                Rule::link => {
+                    links.push(Self::link(node)?);
+                }
+                _ => {
+                    // Optionally handle unexpected rules
+                }
             }
         }
 
