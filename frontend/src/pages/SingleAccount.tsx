@@ -30,10 +30,7 @@ function SingleAccount() {
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
   const { data: account, error } = useSWR<AccountInfo>(`/api/accounts/${accountName}`, fetcher);
-  const {
-    data: account_balance_data,
-    error: account_balance_error,
-  } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
+  const { data: account_balance_data, error: account_balance_error } = useSWR<AccountBalanceHistory>(`/api/accounts/${accountName}/balances`, fetcher);
 
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${accountName} | Accounts - ${ledgerTitle}`);
@@ -56,8 +53,7 @@ function SingleAccount() {
       <div className="flex items-center gap-4 pb-6">
         <div>
           <div className="flex items-center gap-2">
-            <h1
-              className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{account.alias ?? account.name}</h1>
+            <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{account.alias ?? account.name}</h1>
             <Badge variant="outline" className="ml-auto sm:ml-0">
               {account.status}
             </Badge>
@@ -158,12 +154,10 @@ function SingleAccount() {
                 render={(data: Document[]) => (
                   <>
                     <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
-                    <div
-                      className="grid grid-cols-1 xs:grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
+                    <div className="grid grid-cols-1 xs:grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
                       <AccountDocumentUpload url={`/api/accounts/${accountName}/documents`} />
                       {data.map((document, idx) => (
-                        <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} uri={document.path}
-                                         filename={document.path} />
+                        <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} uri={document.path} filename={document.path} />
                       ))}
                     </div>
                   </>
@@ -190,8 +184,7 @@ function SingleAccount() {
                 </TableHeader>
                 <TableBody>
                   {Object.entries(account?.amount.detail ?? {}).map(([commodity, amount]) => (
-                    <AccountBalanceCheckLine key={commodity} currentAmount={amount} commodity={commodity}
-                                             accountName={account.name} />
+                    <AccountBalanceCheckLine key={commodity} currentAmount={amount} commodity={commodity} accountName={account.name} />
                   ))}
                 </TableBody>
               </Table>
