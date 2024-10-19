@@ -81,12 +81,10 @@ export function AccountBalanceHistoryGraph(props: Props) {
       >
         <CartesianGrid vertical={false} />
         <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
-        <YAxis hide type="number" domain={[minAmount, maxAmount]} yAxisId="default" scale="log"
-               padding={{ top: 20, bottom: 20 }} />
+        <YAxis hide type="number" domain={[minAmount, maxAmount]} yAxisId="default" scale="log" padding={{ top: 20, bottom: 20 }} />
         <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
         {series.map((it) => (
-          <Line dataKey={it.name} type="monotone" stroke={it.color} strokeWidth={2} dot={false} activeDot
-                yAxisId="default" />
+          <Line dataKey={it.name} type="monotone" stroke={it.color} strokeWidth={2} dot={false} activeDot yAxisId="default" />
         ))}
       </LineChart>
     </ChartContainer>

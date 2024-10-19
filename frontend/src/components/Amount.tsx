@@ -36,12 +36,8 @@ export default function Amount({ amount, currency, negative, mask, className }: 
   return (
     <span className={`inline-flex gap-0.5 ${className}`}>
       {isNegative && <span className="font-feature-settings-tnum">-</span>}
-      <span className="font-feature-settings-tnum">
-        {commodity?.prefix}
-        </span>
-      <span className="font-feature-settings-tnum">
-        {maskedValue}
-      </span>
+      <span className="font-feature-settings-tnum">{commodity?.prefix}</span>
+      <span className="font-feature-settings-tnum">{maskedValue}</span>
       {commodity?.suffix && <span className="font-feature-settings-tnum">{commodity?.suffix}</span>}
       {shouldDisplayCurrencyName && <span className="font-feature-settings-tnum">{currency}</span>}
     </span>

@@ -51,8 +51,7 @@ export default function TableViewTransactionLine({ data }: Props) {
   const summary = calculate(data);
   const hasDocuments = data.metas.some((meta) => meta.key === 'document');
   return (
-    <TableRow
-      className={cn('p-1', !data.is_balanced && 'border-l-[3px] border-l-red-500', data.flag === '!' && 'border-l-[3px] border-l-orange-500')}>
+    <TableRow className={cn('p-1', !data.is_balanced && 'border-l-[3px] border-l-red-500', data.flag === '!' && 'border-l-[3px] border-l-orange-500')}>
       <TableCell>{time}</TableCell>
       <TableCell>
         <Badge color="gray" variant="outline">
@@ -64,15 +63,13 @@ export default function TableViewTransactionLine({ data }: Props) {
           <PayeeNarration payee={data.payee} narration={data.narration} onClick={openPreviewModal} />
           {data.links &&
             data.links.map((it) => (
-              <Badge key={it} className="cursor-pointer" color="blue" variant="secondary"
-                     onClick={() => handleLinkClick(it)()}>
+              <Badge key={it} className="cursor-pointer" color="blue" variant="secondary" onClick={() => handleLinkClick(it)()}>
                 ^{it}
               </Badge>
             ))}
           {data.tags &&
             data.tags.map((tag) => (
-              <Badge key={tag} className="cursor-pointer" color="blue" variant="secondary"
-                     onClick={() => handleTagClick(tag)()}>
+              <Badge key={tag} className="cursor-pointer" color="blue" variant="secondary" onClick={() => handleTagClick(tag)()}>
                 #{tag}
               </Badge>
             ))}
