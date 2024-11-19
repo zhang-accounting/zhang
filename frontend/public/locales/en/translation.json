@@ -55,5 +55,7 @@
   "accounts": {
     "hide_closed_accounts": "Hide closed accounts"
   },
-  "PAGE": "page"
+  "PAGE": "page",
+  "PAGINATION_PREVIOUS": "Previous",
+  "PAGINATION_NEXT": "Next"
 }
