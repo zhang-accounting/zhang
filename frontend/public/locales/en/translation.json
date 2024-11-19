@@ -54,5 +54,6 @@
   "LEDGER_IS_HEALTHY": "Ledger is healthy",
   "accounts": {
     "hide_closed_accounts": "Hide closed accounts"
-  }
+  },
+  "PAGE": "page"
 }

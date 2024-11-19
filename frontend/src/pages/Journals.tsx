@@ -5,18 +5,34 @@ import { useDebouncedValue, useDocumentTitle } from '@mantine/hooks';
 import { JournalListSkeleton } from '../components/skeletons/journalListSkeleton';
 import { useAtomValue } from 'jotai/index';
 import { breadcrumbAtom, titleAtom } from '../states/basic';
-import { groupedJournalsAtom, journalAtom, journalFetcher, journalKeywordAtom, journalLinksAtom, journalPageAtom, journalTagsAtom } from '../states/journals';
+import {
+  groupedJournalsAtom,
+  journalAtom,
+  journalFetcher,
+  journalKeywordAtom,
+  journalLinksAtom,
+  journalPageAtom,
+  journalTagsAtom,
+} from '../states/journals';
 import { useAtom, useSetAtom } from 'jotai';
 import { loadable_unwrap } from '../states';
 import { selectAtom } from 'jotai/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination';
 import { X } from 'lucide-react';
 import { JOURNALS_LINK } from '@/layout/Sidebar';
 import { TransactionPreviewModal } from '@/components/modals/TransactionPreviewModal';
 import { TransactionEditModal } from '@/components/modals/TransactionEditModal';
+
 function Journals() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { t } = useTranslation();
@@ -122,35 +138,55 @@ function Journals() {
           </TableBody>
         </Table>
       </div>
-      <Pagination className="my-4">
-        <PaginationContent>
-          {journalPage > 1 && (
+      <div className="flex items-center gap-4 my-4">
+        <div
+          className={'inline-block'}>{journalItems.state === 'hasData' ? journalItems.data?.total_page : 0} {t('PAGE')}</div>
+        <Pagination>
+          <PaginationContent>
+            {journalPage > 1 && (
+              <PaginationItem>
+                <PaginationPrevious className="cursor-pointer" onClick={() => onPage(journalPage - 1)} />
+              </PaginationItem>
+            )}
+            {journalPage > 2 && (
+              <PaginationItem>
+                <PaginationLink className="cursor-pointer"
+                                onClick={() => onPage(journalPage - 2)}>{journalPage - 2}</PaginationLink>
+              </PaginationItem>
+            )}
+            {journalPage > 1 && (
+              <PaginationItem>
+                <PaginationLink className="cursor-pointer"
+                                onClick={() => onPage(journalPage - 1)}>{journalPage - 1}</PaginationLink>
+              </PaginationItem>
+            )}
             <PaginationItem>
-              <PaginationPrevious href="#" onClick={() => onPage(journalPage - 1)} />
+              <PaginationLink isActive>
+                {journalPage}
+              </PaginationLink>
             </PaginationItem>
-          )}
-          {journalPage > 1 && (
-            <PaginationItem>
-              <PaginationLink href="#">{journalPage - 1}</PaginationLink>
-            </PaginationItem>
-          )}
-          <PaginationItem>
-            <PaginationLink href="#" isActive>
-              {journalPage}
-            </PaginationLink>
-          </PaginationItem>
-          {journalPage < total_page && (
-            <PaginationItem>
-              <PaginationLink href="#">{journalPage + 1}</PaginationLink>
-            </PaginationItem>
-          )}
-          {journalPage < total_page && (
-            <PaginationItem>
-              <PaginationNext href="#" onClick={() => onPage(journalPage + 1)} />
-            </PaginationItem>
-          )}
-        </PaginationContent>
-      </Pagination>
+            {journalPage < total_page && (
+              <PaginationItem>
+                <PaginationLink className="cursor-pointer"
+                                onClick={() => onPage(journalPage + 1)}>{journalPage + 1}</PaginationLink>
+              </PaginationItem>
+            )}
+            {journalPage + 1 < total_page && (
+              <PaginationItem>
+                <PaginationLink className="cursor-pointer"
+                                onClick={() => onPage(journalPage + 2)}>{journalPage + 2}</PaginationLink>
+              </PaginationItem>
+            )}
+            {journalPage < total_page && (
+              <PaginationItem>
+                <PaginationNext className="cursor-pointer" onClick={() => onPage(journalPage + 1)} />
+              </PaginationItem>
+            )}
+          </PaginationContent>
+        </Pagination>
+        <div></div>
+      </div>
+
     </div>
   );
 }
