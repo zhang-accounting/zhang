@@ -1343,16 +1343,16 @@ checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 [[package]]
 name = "gotcha"
 version = "0.2.2"
-source = "git+https://github.com/kilerd/gotcha.git?branch=main#f4e9034543bf47aa7deaee516bed0f0aed696740"
+source = "git+https://github.com/kilerd/gotcha.git?branch=main#8713e7aed4788ebe9814ca92374b81d5e3e33d9c"
 dependencies = [
  "async-trait",
  "axum",
  "axum-macros",
+ "bigdecimal",
  "cfg-if",
  "chrono",
  "convert_case",
  "either",
- "gotcha_core",
  "gotcha_macro",
  "http 0.2.12",
  "inventory",
@@ -1360,6 +1360,7 @@ dependencies = [
  "mofa",
  "oas",
  "once_cell",
+ "regex",
  "serde",
  "serde_json",
  "thiserror",
@@ -1368,32 +1369,15 @@ dependencies = [
  "tower-service",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "gotcha_core"
-version = "0.2.0"
-source = "git+https://github.com/kilerd/gotcha.git?branch=main#f4e9034543bf47aa7deaee516bed0f0aed696740"
-dependencies = [
- "axum",
- "bigdecimal",
- "chrono",
- "convert_case",
- "either",
- "http 0.2.12",
- "oas",
- "regex",
- "serde_json",
  "uuid",
 ]
 
 [[package]]
 name = "gotcha_macro"
 version = "0.2.0"
-source = "git+https://github.com/kilerd/gotcha.git?branch=main#f4e9034543bf47aa7deaee516bed0f0aed696740"
+source = "git+https://github.com/kilerd/gotcha.git?branch=main#8713e7aed4788ebe9814ca92374b81d5e3e33d9c"
 dependencies = [
  "darling 0.14.4",
- "gotcha_core",
  "proc-macro-error",
  "proc-macro2",
  "quote",

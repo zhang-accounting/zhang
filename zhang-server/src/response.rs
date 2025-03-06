@@ -106,8 +106,11 @@ impl<T: Serialize + Schematic> Pageable<T> {
 
 
 #[derive(Serialize, Schematic)]
+/// the status of the account
 pub enum AccountStatusEntity {
+    /// the account is open
     Open,
+    /// the account is close
     Close,
 }
 
@@ -122,8 +125,11 @@ impl From<AccountStatus> for AccountStatusEntity {
 
 
 #[derive(Serialize, Schematic)]
+/// represent the number and currency pair
 pub struct AmountEntity {
+    /// the number of the amount
     pub number: BigDecimal,
+    /// the currency of the amount
     pub currency: String,
 }
 
@@ -138,8 +144,11 @@ impl From<Amount> for AmountEntity {
 
 
 #[derive(Serialize, Schematic)]
+/// represent the calculated amount, normally used for multiple currency
 pub struct CalculatedAmountEntity {
+    /// the calculated amount
     pub calculated: AmountEntity,
+    /// the detail of the calculated amount
     pub detail: HashMap<String, BigDecimal>,
 }
 
