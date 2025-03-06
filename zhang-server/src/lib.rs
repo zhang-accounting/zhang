@@ -54,10 +54,10 @@ pub type ServerResult<T> = Result<T, ServerError>;
 pub type ApiResult<T> = ServerResult<ResponseWrapper<T>>;
 
 pub struct ServerApp {
+    opts: ServeConfig,
     ledger: Arc<RwLock<Ledger>>,
     broadcaster: Arc<Broadcaster>,
     reload_sender: Arc<ReloadSender>,
-    auth_credential: Option<String>,
 }
 
 impl GotchaApp for ServerApp {
@@ -68,8 +68,8 @@ impl GotchaApp for ServerApp {
     async fn config(&self) -> Result<ConfigWrapper<Self::Config>, Box<dyn std::error::Error>> {
         Ok(ConfigWrapper{
             basic: BasicConfig{
-                host: "0.0.0.0".to_string(),
-                port: 8080,
+                host: self.opts.addr.clone(),
+                port: self.opts.port,
             },
             application: (),
         })
@@ -79,7 +79,7 @@ impl GotchaApp for ServerApp {
         &self, router: GotchaRouter<GotchaContext<Self::State, Self::Config>>,
     ) -> GotchaRouter<GotchaContext<Self::State, Self::Config>> {
 
-        let basic_credential = self.auth_credential.as_ref().map(|credential| {
+        let basic_credential = self.opts.auth_credential.as_ref().map(|credential| {
             let token_part = credential.splitn(2, ':').map(|it| it.to_owned()).collect_vec();
             (
                 token_part.first().cloned().expect("cannot retrieve credential user_id"),
@@ -323,22 +323,22 @@ fn start_reload_listener(ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcas
 pub async fn start_server(
     opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>,
 ) -> ZhangResult<()> {
-    let addr = SocketAddrV4::new(opts.addr.parse()?, opts.port);
     info!("zhang is listening on http://{}:{}/", opts.addr, opts.port);
 
-    let app = create_server_app(ledger_data, broadcaster, reload_sender, opts.auth_credential);
+    let app = create_server_app(opts, ledger_data, broadcaster, reload_sender);
     app.run().await.unwrap();
     Ok(())
 }
 
 pub fn create_server_app(
-    ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>, auth_credential: Option<String>,
+    opts: ServeConfig,
+    ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>,
 ) -> ServerApp {
     let app = ServerApp {
+        opts,
         ledger,
         broadcaster,
         reload_sender,
-        auth_credential,
     };
       app  
 }
