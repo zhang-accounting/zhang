@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
+use gotcha::api;
 use itertools::Itertools;
 use tokio::sync::RwLock;
 use zhang_core::constants::COMMODITY_GROUP;
@@ -8,9 +9,11 @@ use zhang_core::domains::schemas::{CommodityDomain, MetaType};
 use zhang_core::ledger::Ledger;
 
 use crate::response::{CommodityDetailResponse, CommodityListItemResponse, CommodityLotResponse, CommodityPrice, ResponseWrapper};
+use crate::state::SharedLedger;
 use crate::ApiResult;
 
-pub async fn get_all_commodities(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<CommodityListItemResponse>> {
+#[api(group = "commodity")]
+pub async fn get_all_commodities(ledger: State<SharedLedger>) -> ApiResult<Vec<CommodityListItemResponse>> {
     let ledger = ledger.read().await;
 
     let operations = ledger.operations();
@@ -42,7 +45,8 @@ pub async fn get_all_commodities(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResul
     ResponseWrapper::json(ret)
 }
 
-pub async fn get_single_commodity(ledger: State<Arc<RwLock<Ledger>>>, params: Path<(String,)>) -> ApiResult<CommodityDetailResponse> {
+#[api(group = "commodity")]
+pub async fn get_single_commodity(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<CommodityDetailResponse> {
     let commodity_name = params.0 .0;
     let ledger = ledger.read().await;
     let operating_currency = ledger.options.operating_currency.clone();
@@ -74,8 +78,8 @@ pub async fn get_single_commodity(ledger: State<Arc<RwLock<Ledger>>>, params: Pa
         .map(|it| CommodityLotResponse {
             account: it.account.name().to_owned(),
             amount: it.amount,
-            cost: it.cost,
-            price: it.price,
+            cost: it.cost.map(|it| it.into()),
+            price: it.price.map(|it| it.into()),
             acquisition_date: it.acquisition_date,
         })
         .collect_vec();

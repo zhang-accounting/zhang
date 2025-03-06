@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use chrono::NaiveDate;
+use gotcha::api;
 use itertools::Itertools;
 use now::DateTimeNow;
 use tokio::sync::RwLock;
@@ -11,11 +12,13 @@ use zhang_ast::amount::Amount;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::BudgetIntervalDetail;
 
-use crate::request::BudgetListRequest;
+use crate::request::{BudgetIntervalDetailRequest, BudgetListRequest};
 use crate::response::{BudgetInfoResponse, BudgetIntervalEventResponse, BudgetListItemResponse, ResponseWrapper};
+use crate::state::SharedLedger;
 use crate::ApiResult;
 
-pub async fn get_budget_list(ledger: State<Arc<RwLock<Ledger>>>, params: Query<BudgetListRequest>) -> ApiResult<Vec<BudgetListItemResponse>> {
+#[api(group = "budget")]
+pub async fn get_budget_list(ledger: State<SharedLedger>, params: Query<BudgetListRequest>) -> ApiResult<Vec<BudgetListItemResponse>> {
     let interval = params.as_interval();
 
     let ledger = ledger.read().await;
@@ -29,16 +32,17 @@ pub async fn get_budget_list(ledger: State<Arc<RwLock<Ledger>>>, params: Query<B
                 alias: budget.alias,
                 category: budget.category,
                 closed: budget.closed,
-                available_amount: interval_detail.assigned_amount.sub(interval_detail.activity_amount.number.clone()),
-                assigned_amount: interval_detail.assigned_amount,
-                activity_amount: interval_detail.activity_amount,
+                available_amount: interval_detail.assigned_amount.sub(interval_detail.activity_amount.number.clone()).into(),
+                assigned_amount: interval_detail.assigned_amount.into(),
+                activity_amount: interval_detail.activity_amount.into(),
             });
         }
     }
     ResponseWrapper::json(ret)
 }
 
-pub async fn get_budget_info(ledger: State<Arc<RwLock<Ledger>>>, paths: Path<(String,)>, params: Query<BudgetListRequest>) -> ApiResult<BudgetInfoResponse> {
+#[api(group = "budget")]
+pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>, params: Query<BudgetListRequest>) -> ApiResult<BudgetInfoResponse> {
     let (budget_name,) = paths.0;
     let ledger = ledger.read().await;
     let operations = ledger.operations();
@@ -68,14 +72,18 @@ pub async fn get_budget_info(ledger: State<Arc<RwLock<Ledger>>>, paths: Path<(St
         category: budget.category,
         closed: budget.closed,
         related_accounts,
-        available_amount: interval_detail.assigned_amount.sub(interval_detail.activity_amount.number.clone()),
-        assigned_amount: interval_detail.assigned_amount,
-        activity_amount: interval_detail.activity_amount,
+        available_amount: interval_detail.assigned_amount.sub(interval_detail.activity_amount.number.clone()).into(),
+        assigned_amount: interval_detail.assigned_amount.into(),
+        activity_amount: interval_detail.activity_amount.into(),
     })
 }
 
-pub async fn get_budget_interval_detail(ledger: State<Arc<RwLock<Ledger>>>, paths: Path<(String, u32, u32)>) -> ApiResult<Vec<BudgetIntervalEventResponse>> {
-    let (budget_name, year, month) = paths.0;
+
+
+
+#[api(group = "budget")]
+pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path<BudgetIntervalDetailRequest>) -> ApiResult<Vec<BudgetIntervalEventResponse>> {
+    let BudgetIntervalDetailRequest { budget_name, year, month } = paths.0;
     let ledger = ledger.read().await;
     let operations = ledger.operations();
 
@@ -92,7 +100,7 @@ pub async fn get_budget_interval_detail(ledger: State<Arc<RwLock<Ledger>>>, path
         .map(|interval| interval.events)
         .unwrap_or_default()
         .into_iter()
-        .map(BudgetIntervalEventResponse::BudgetEvent)
+        .map(|event| BudgetIntervalEventResponse::BudgetEvent(event.into()))
         .collect_vec();
 
     let store = operations.store.read().unwrap();
@@ -107,7 +115,7 @@ pub async fn get_budget_interval_detail(ledger: State<Arc<RwLock<Ledger>>>, path
     let journals = operations
         .accounts_dated_journals(&related_accounts, month_beginning, month_end)?
         .into_iter()
-        .map(BudgetIntervalEventResponse::Posting)
+        .map(|journal| BudgetIntervalEventResponse::Posting(journal.into()))
         .collect_vec();
     let mut ret = vec![];
     ret.extend(budget_events);

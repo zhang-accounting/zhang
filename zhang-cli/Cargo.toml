@@ -38,6 +38,7 @@ urlencoding = "2.1.3"
 
 
 [dev-dependencies]
+gotcha = { workspace = true }
 axum = { workspace = true }
 jsonpath-rust = "0.5"
 tower = "0.4"

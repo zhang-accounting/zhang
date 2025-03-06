@@ -2,15 +2,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::State;
+use gotcha::api;
 use itertools::Itertools;
 use tokio::sync::RwLock;
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin::PluginType;
 
 use crate::response::{PluginResponse, ResponseWrapper};
+use crate::state::SharedLedger;
 use crate::ApiResult;
 
-pub async fn plugin_list(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<PluginResponse>> {
+#[api(group = "plugin")]
+pub async fn plugin_list(ledger: State<SharedLedger>) -> ApiResult<Vec<PluginResponse>> {
     let store = ledger.read().await;
 
     let mut grouped_plugins: HashMap<(String, String), Vec<PluginType>> = HashMap::default();
@@ -34,7 +37,7 @@ pub async fn plugin_list(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Pl
         .map(|(meta, plugin_type)| PluginResponse {
             name: meta.0,
             version: meta.1,
-            plugin_type,
+            plugin_type: plugin_type.into_iter().map(|it| it.into()).collect_vec(),
         })
         .collect_vec();
     ResponseWrapper::json(ret)

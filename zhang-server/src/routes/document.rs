@@ -6,16 +6,19 @@ use axum::response::{AppendHeaders, IntoResponse};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use bytes::Bytes;
+use gotcha::api;
 use itertools::Itertools;
 use log::info;
 use tokio::sync::RwLock;
 use zhang_core::ledger::Ledger;
 
 use crate::response::{DocumentResponse, ResponseWrapper};
+use crate::state::SharedLedger;
 use crate::util::cacheable_data;
 use crate::ApiResult;
 
-pub async fn download_document(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(String,)>) -> impl IntoResponse {
+// TODO(refact) #[api(group = "document")]
+pub async fn download_document(ledger: State<SharedLedger>, path: Path<(String,)>) -> impl IntoResponse {
     let encoded_file_path = path.0 .0;
     let filename = String::from_utf8(BASE64_STANDARD.decode(&encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
@@ -34,7 +37,8 @@ pub async fn download_document(ledger: State<Arc<RwLock<Ledger>>>, path: Path<(S
     (headers, bytes)
 }
 
-pub async fn get_documents(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<DocumentResponse>> {
+#[api(group = "document")]
+pub async fn get_documents(ledger: State<SharedLedger>) -> ApiResult<Vec<DocumentResponse>> {
     let ledger = ledger.read().await;
     let operations = ledger.operations();
     let store = operations.read();

@@ -19,6 +19,12 @@ pub enum ServerError {
 
     #[error("io error: {0}")]
     StrumError(#[from] strum::ParseError),
+
+    #[error("not found")]
+    NotFound,
+
+    #[error("bad request")]
+    BadRequest,
 }
 
 impl From<InvalidAccountError> for ServerError {
@@ -34,6 +40,12 @@ impl IntoResponse for ServerError {
             "origin": "with_rejection"
         });
 
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(payload)).into_response()
+        let status = match self {
+            ServerError::NotFound => StatusCode::NOT_FOUND,
+            ServerError::BadRequest => StatusCode::BAD_REQUEST,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+
+        (status, Json(payload)).into_response()
     }
 }

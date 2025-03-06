@@ -207,7 +207,7 @@ mod test {
     use zhang_core::ledger::Ledger;
     use zhang_server::broadcast::Broadcaster;
     use zhang_server::{create_server_app, ReloadSender};
-
+    use gotcha::{GotchaContext, ConfigWrapper, GotchaApp};
     use crate::opendal::OpendalDataSource;
     use crate::{FileSystem, ServerOpts};
 
@@ -294,8 +294,15 @@ mod test {
                     let (tx, _) = mpsc::channel(1);
                     let reload_sender = Arc::new(ReloadSender(tx));
                     let app = create_server_app(ledger_data, broadcaster, reload_sender, None);
+                    
+                    let config= app.config().await.unwrap();
+                    let state = app.state(&config).await.unwrap();
 
-                    let response = app
+                    let context = GotchaContext { config: config.clone(), state };
+
+                    let router = app.build_router(context.clone()).await.unwrap();
+                    
+                    let response = router
                         .oneshot(
                             Request::builder()
                                 .method(http::Method::GET)
