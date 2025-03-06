@@ -1,10 +1,14 @@
-import { fetcher } from '../global.ts';
-import { JournalItem, JournalTransactionItem, Pageable } from '../rest-model';
 import { atom } from 'jotai';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { loadable_unwrap } from './index';
 import { groupBy } from 'lodash-es';
 import { format } from 'date-fns';
+import { openAPIFetcher } from '../api/requests';
+import { operations } from '../api/schemas';
+
+const findJournals = openAPIFetcher.path('/api/journals').method('get').create()
+
+type JournalItem = operations['get_journals']['responses']['200']['content']['application/json']['data']['records']
 
 export const journalKeywordAtom = atom('');
 export const journalPageAtom = atom(1);
@@ -17,23 +21,10 @@ export const journalFetcher = atomWithRefresh(async (get) => {
   const tags = get(journalTagsAtom);
   const links = get(journalLinksAtom);
 
-  let url = `/api/journals?page=${page}`;
-
-  if (keyword.trim() !== '') {
-    url += `&keyword=${encodeURIComponent(keyword.trim())}`;
-  }
-
-  if (tags.length > 0) {
-    url += tags.map((tag) => `&tags[]=${encodeURIComponent(tag)}`).join('');
-  }
-
-  if (links.length > 0) {
-    url += links.map((link) => `&links[]=${encodeURIComponent(link)}`).join('');
-  }
-
-  const ret = await fetcher<Pageable<JournalItem>>(url);
-  return ret;
+  return (await findJournals({ page, keyword, tags, links, size: 100 })).data.data;
 });
+
+
 
 export const journalAtom = loadable(journalFetcher);
 

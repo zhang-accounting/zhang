@@ -2,12 +2,16 @@ import { fetcher } from '../global.ts';
 import { atom } from 'jotai';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { loadable_unwrap } from './index';
+import { openAPIFetcher } from '../api/requests';
+
+const fetchBaseInfo = openAPIFetcher.path('/api/info').method('get').create()
+
 
 export const onlineAtom = atom<boolean>(false);
 export const updatableVersionAtom = atom<string | undefined>(undefined);
 
 export const basicInfoFetcher = atomWithRefresh(async () => {
-  return await fetcher<{ title: string; version: string }>(`/api/info`);
+  return (await fetchBaseInfo({})).data.data;
 });
 
 export const basicInfoAtom = loadable(basicInfoFetcher);

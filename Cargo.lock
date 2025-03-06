@@ -1343,7 +1343,7 @@ checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 [[package]]
 name = "gotcha"
 version = "0.2.2"
-source = "git+https://github.com/kilerd/gotcha.git?branch=main#8713e7aed4788ebe9814ca92374b81d5e3e33d9c"
+source = "git+https://github.com/kilerd/gotcha.git?branch=main#2ad7b0a83d07d8f0bfdb971da609fe1a8a17f769"
 dependencies = [
  "async-trait",
  "axum",
@@ -1375,7 +1375,7 @@ dependencies = [
 [[package]]
 name = "gotcha_macro"
 version = "0.2.0"
-source = "git+https://github.com/kilerd/gotcha.git?branch=main#8713e7aed4788ebe9814ca92374b81d5e3e33d9c"
+source = "git+https://github.com/kilerd/gotcha.git?branch=main#2ad7b0a83d07d8f0bfdb971da609fe1a8a17f769"
 dependencies = [
  "darling 0.14.4",
  "proc-macro-error",

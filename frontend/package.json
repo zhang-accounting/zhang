@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "prettier:check": "prettier --check 'src/**/*.{js,jsx,ts,tsx,json,css,scss,md}'",
     "prettier:fix": "prettier --write 'src/**/*.{js,jsx,ts,tsx,json,css,scss,md}'",
-    "i18n-server": "node src/server.js"
+    "i18n-server": "node src/server.js",
+    "api": "openapi-typescript http://localhost:8000/openapi.json  --output ./src/api/schemas.ts"
   },
   "dependencies": {
     "@mantine/hooks": "^7.12.0",
@@ -41,6 +42,7 @@
     "lodash-es": "^4.17.21",
     "lucide-react": "^0.447.0",
     "next-themes": "^0.3.0",
+    "openapi-typescript-fetch": "^2.1.0",
     "react": "^18.3.1",
     "react-day-picker": "8.10.1",
     "react-dom": "^18.3.1",
@@ -57,6 +59,7 @@
     "yet-another-react-lightbox": "^3.18.0"
   },
   "devDependencies": {
+    "openapi-typescript": "^6.7.5",
     "@eslint/js": "^9.11.1",
     "@testing-library/jest-dom": "^6.4.5",
     "@testing-library/react": "^15.0.7",

@@ -38,7 +38,7 @@ pub async fn reload(State(reload_sender): State<SharedReloadSender>) -> ApiResul
     ResponseWrapper::json("Ok".to_string())
 }
 
-#[api]
+#[api(group = "common")]
 pub async fn get_basic_info(ledger: State<SharedLedger>) -> ApiResult<BasicInfo> {
     let ledger = ledger.read().await;
     let operations = ledger.operations();
@@ -50,7 +50,7 @@ pub async fn get_basic_info(ledger: State<SharedLedger>) -> ApiResult<BasicInfo>
     })
 }
 
-#[api]
+#[api(group = "error")]
 pub async fn get_errors(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<ErrorEntity>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
@@ -66,7 +66,7 @@ pub async fn get_errors(ledger: State<SharedLedger>, params: Query<JournalReques
     ResponseWrapper::json(Pageable::new(total_count as u32, params.page(), params.limit(), ret))
 }
 
-#[api]
+#[api(group = "common")]
 pub async fn get_all_options(ledger: State<SharedLedger>) -> ApiResult<Vec<OptionEntity>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();

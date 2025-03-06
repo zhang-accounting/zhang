@@ -17,7 +17,7 @@ use crate::state::SharedLedger;
 use crate::util::cacheable_data;
 use crate::ApiResult;
 
-// TODO(refact) #[api(group = "document")]
+// #[api(group = "document")]
 pub async fn download_document(ledger: State<SharedLedger>, path: Path<(String,)>) -> impl IntoResponse {
     let encoded_file_path = path.0 .0;
     let filename = String::from_utf8(BASE64_STANDARD.decode(&encoded_file_path).unwrap()).unwrap();

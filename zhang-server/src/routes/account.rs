@@ -80,6 +80,7 @@ pub async fn get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>
     })
 }
 
+#[api(group = "account")]
 pub async fn upload_account_document(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, mut multipart: Multipart,
 ) -> ServerResult<Created> {

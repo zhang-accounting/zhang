@@ -169,7 +169,7 @@ pub async fn create_new_transaction(
 }
 
 // TODO: handle multipart/form-data
-// #[api(group = "transaction")]
+#[api(group = "transaction")]
 // todo(refact): use exporter to update transaction
 pub async fn upload_transaction_document(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, mut multipart: Multipart,

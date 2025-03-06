@@ -108,7 +108,7 @@ impl GotchaApp for ServerApp {
             .get("/api/accounts/:account_name/documents", get_account_documents)
             .get("/api/accounts/:account_name/journals", get_account_journals)
             .get("/api/accounts/:account_name/balances", get_account_balance_data)
-            .route("/api/accounts/:account_name/balances", post(create_account_balance))
+            .post("/api/accounts/:account_name/balances", create_account_balance)
             .post("/api/accounts/batch-balances", create_batch_account_balances)
             .get("/api/documents", get_documents)
             .get("/api/documents/:file_path", download_document)

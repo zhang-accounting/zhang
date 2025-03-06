@@ -12,7 +12,7 @@ use crate::response::{Created, FileDetailResponse, ResponseWrapper};
 use crate::state::{SharedLedger, SharedReloadSender};
 use crate::{ApiResult, ReloadSender, ServerResult};
 
-#[api]
+#[api(group = "file")]
 pub async fn get_files(ledger: State<SharedLedger>) -> ApiResult<Vec<Option<String>>> {
     let ledger = ledger.read().await;
     let entry_path = &ledger.entry.0;
