@@ -184,7 +184,10 @@ pub async fn get_statistic_rank_detail_by_account_type(
         .into_iter()
         .map(|(account, amounts)| ReportRankItemResponse {
             account,
-            amount: amounts.calculate(params.to.with_timezone(timezone), &mut operations).expect("cannot calculate").into(),
+            amount: amounts
+                .calculate(params.to.with_timezone(timezone), &mut operations)
+                .expect("cannot calculate")
+                .into(),
         })
         .sorted_by(|a, b| a.amount.calculated.number.cmp(&b.amount.calculated.number))
         .collect_vec();

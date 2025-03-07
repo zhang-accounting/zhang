@@ -16,7 +16,8 @@ use axum::async_trait;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::StatusCode;
-use gotcha::{oas::{Parameter, ParameterIn, Referenceable, RequestBody}, Either, ParameterProvider, Schematic};
+use gotcha::oas::{Parameter, ParameterIn, Referenceable, RequestBody};
+use gotcha::{Either, ParameterProvider, Schematic};
 use serde::de::DeserializeOwned;
 use serde_qs;
 
@@ -36,7 +37,6 @@ where
         Ok(Query(params))
     }
 }
-
 
 impl<T> ParameterProvider for Query<T>
 where

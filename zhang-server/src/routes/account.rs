@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use gotcha::api;
 use axum::extract::{Multipart, Path, State};
 use axum::{debug_handler, Json};
 use chrono::Utc;
+use gotcha::api;
 use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
@@ -13,9 +13,12 @@ use zhang_ast::{Account, BalanceCheck, BalancePad, Currency, Date, Directive, Do
 use zhang_core::utils::calculable::Calculable;
 
 use crate::request::AccountBalanceRequest;
-use crate::response::{AccountBalanceHistoryResponse, AccountBalanceItemResponse, AccountInfoResponse, AccountJournalEntity, AccountResponse, AmountResponse, Created, DocumentResponse, ResponseWrapper};
-use crate::{ApiResult, ServerResult};
+use crate::response::{
+    AccountBalanceHistoryResponse, AccountBalanceItemResponse, AccountInfoResponse, AccountJournalEntity, AccountResponse, AmountResponse, Created,
+    DocumentResponse, ResponseWrapper,
+};
 use crate::state::{SharedLedger, SharedReloadSender};
+use crate::{ApiResult, ServerResult};
 
 #[api(group = "account")]
 pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<AccountResponse>> {
@@ -125,26 +128,24 @@ pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<
     let ledger = ledger.read().await;
     let operations = ledger.operations();
 
-    let vec = operations.single_account_all_balances(&account_name)?.into_iter()
-            .map(|(commodity, balance_history)| {
-                let data = balance_history
-                    .into_iter()
-                    .map(|(date, amount)| AccountBalanceItemResponse {
-                        date,
-                        balance: AmountResponse {
-                            number: amount.number,
-                            commodity: amount.currency,
-                        },
-                    })
-                    .collect_vec();
-                (commodity, data)
-            })
-            .collect();
-    ResponseWrapper::json(
-        AccountBalanceHistoryResponse {
-            balance: vec,
-        }
-    )
+    let vec = operations
+        .single_account_all_balances(&account_name)?
+        .into_iter()
+        .map(|(commodity, balance_history)| {
+            let data = balance_history
+                .into_iter()
+                .map(|(date, amount)| AccountBalanceItemResponse {
+                    date,
+                    balance: AmountResponse {
+                        number: amount.number,
+                        commodity: amount.currency,
+                    },
+                })
+                .collect_vec();
+            (commodity, data)
+        })
+        .collect();
+    ResponseWrapper::json(AccountBalanceHistoryResponse { balance: vec })
 }
 
 #[api(group = "account")]

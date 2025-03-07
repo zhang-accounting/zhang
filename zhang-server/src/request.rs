@@ -3,9 +3,9 @@ use std::collections::HashSet;
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Datelike, Local, Utc};
+use gotcha::Schematic;
 use serde::Deserialize;
 use zhang_ast::Flag;
-use gotcha::Schematic;
 
 #[derive(Schematic, Deserialize)]
 #[serde(tag = "type")]
@@ -114,9 +114,6 @@ impl Schematic for FlagRequest {
     }
 }
 
-
-
-
 #[derive(Schematic, Deserialize)]
 pub struct CreateTransactionPostingRequest {
     pub account: String,
@@ -146,7 +143,6 @@ impl BudgetListRequest {
         self.year.unwrap_or(time.year() as u32) * 100 + self.month.unwrap_or(time.month())
     }
 }
-
 
 #[derive(Schematic, Deserialize)]
 pub struct BudgetIntervalDetailRequest {

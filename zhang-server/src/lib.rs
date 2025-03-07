@@ -4,7 +4,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::DefaultBodyLimit;
-use gotcha::{ConfigWrapper, GotchaApp, GotchaContext, GotchaRouter, config::BasicConfig};
+use gotcha::config::BasicConfig;
+use gotcha::{ConfigWrapper, GotchaApp, GotchaContext, GotchaRouter};
 use itertools::Itertools;
 use log::{debug, error, info, trace};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
@@ -40,9 +41,9 @@ pub mod error;
 pub mod request;
 pub mod response;
 pub mod routes;
-pub mod util;
-pub mod tasks;
 pub mod state;
+pub mod tasks;
+pub mod util;
 
 pub type LedgerState = Arc<RwLock<Ledger>>;
 
@@ -63,8 +64,8 @@ impl GotchaApp for ServerApp {
     type Config = ();
 
     async fn config(&self) -> Result<ConfigWrapper<Self::Config>, Box<dyn std::error::Error>> {
-        Ok(ConfigWrapper{
-            basic: BasicConfig{
+        Ok(ConfigWrapper {
+            basic: BasicConfig {
                 host: self.opts.addr.clone(),
                 port: self.opts.port,
             },
@@ -72,10 +73,7 @@ impl GotchaApp for ServerApp {
         })
     }
 
-    fn routes(
-        &self, router: GotchaRouter<GotchaContext<Self::State, Self::Config>>,
-    ) -> GotchaRouter<GotchaContext<Self::State, Self::Config>> {
-
+    fn routes(&self, router: GotchaRouter<GotchaContext<Self::State, Self::Config>>) -> GotchaRouter<GotchaContext<Self::State, Self::Config>> {
         let basic_credential = self.opts.auth_credential.as_ref().map(|credential| {
             let token_part = credential.splitn(2, ':').map(|it| it.to_owned()).collect_vec();
             (
@@ -123,11 +121,11 @@ impl GotchaApp for ServerApp {
             .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */));
 
         let router = if let Some((username, password)) = basic_credential {
-                info!("web basic auth is enabled with username {}", &username);
-                router.layer(ValidateRequestHeaderLayer::basic(&username, password.as_deref().unwrap_or_default()))
-            } else {
-                router
-            };
+            info!("web basic auth is enabled with username {}", &username);
+            router.layer(ValidateRequestHeaderLayer::basic(&username, password.as_deref().unwrap_or_default()))
+        } else {
+            router
+        };
         #[cfg(feature = "frontend")]
         {
             router.fallback(routes::frontend::serve_frontend)
@@ -327,17 +325,14 @@ pub async fn start_server(
     Ok(())
 }
 
-pub fn create_server_app(
-    opts: ServeConfig,
-    ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>,
-) -> ServerApp {
+pub fn create_server_app(opts: ServeConfig, ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>) -> ServerApp {
     let app = ServerApp {
         opts,
         ledger,
         broadcaster,
         reload_sender,
     };
-      app  
+    app
 }
 
 async fn version_report_task() -> ServerResult<()> {

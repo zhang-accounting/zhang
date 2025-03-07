@@ -194,8 +194,6 @@ mod test {
     use std::io::{stdout, Write};
     use std::sync::Arc;
 
-    use crate::opendal::OpendalDataSource;
-    use crate::{FileSystem, ServerOpts};
     use axum::body::Body;
     use axum::extract::Request;
     use gotcha::{GotchaApp, GotchaContext};
@@ -210,6 +208,9 @@ mod test {
     use zhang_core::ledger::Ledger;
     use zhang_server::broadcast::Broadcaster;
     use zhang_server::{create_server_app, ReloadSender, ServeConfig};
+
+    use crate::opendal::OpendalDataSource;
+    use crate::{FileSystem, ServerOpts};
 
     macro_rules! pprintln {
 

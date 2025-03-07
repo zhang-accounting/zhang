@@ -7,7 +7,7 @@ use axum::response::Sse;
 use futures_util::Stream;
 use gotcha::api;
 use itertools::Itertools;
-    
+
 use crate::request::JournalRequest;
 use crate::response::{BasicInfo, ErrorEntity, OptionEntity, Pageable, ResponseWrapper};
 use crate::state::{SharedBroadcaster, SharedLedger, SharedReloadSender};

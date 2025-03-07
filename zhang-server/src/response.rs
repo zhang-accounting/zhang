@@ -9,20 +9,15 @@ use gotcha::{Responsible, Schematic};
 use serde::Serialize;
 use uuid::Uuid;
 use zhang_ast::amount::{Amount, CalculatedAmount};
-use zhang_ast::{AccountType, Currency};
-use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, MetaDomain, OptionDomain};
+use zhang_ast::{AccountType, Currency, SpanInfo};
+use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, ErrorDomain, MetaDomain, OptionDomain};
 use zhang_core::plugin::PluginType;
-use zhang_core::store::{BudgetEvent, PostingDomain};
+use zhang_core::store::{BudgetEvent, BudgetEventType, PostingDomain};
 
 use crate::error::ServerError;
 use crate::ServerResult;
-use zhang_core::store::BudgetEventType;
-use zhang_ast::SpanInfo;
-use zhang_core::domains::schemas::ErrorDomain;
-
 
 pub struct Created;
-
 
 impl Responsible for Created {
     fn response() -> Responses {
@@ -54,13 +49,11 @@ pub struct ResponseWrapper<T: Serialize + Schematic> {
     pub data: T,
 }
 
-
 impl<T: Serialize + Schematic> ResponseWrapper<T> {
     pub fn json(data: T) -> ServerResult<Self> {
         Ok(Self { data })
     }
 
-  
     pub fn not_found() -> ServerResult<Self> {
         Err(ServerError::NotFound)
     }
@@ -68,19 +61,13 @@ impl<T: Serialize + Schematic> ResponseWrapper<T> {
     pub fn bad_request() -> ServerResult<Self> {
         Err(ServerError::BadRequest)
     }
-    
-
 }
 
-impl <T: Serialize + Schematic> IntoResponse for ResponseWrapper<T> {
+impl<T: Serialize + Schematic> IntoResponse for ResponseWrapper<T> {
     fn into_response(self) -> Response {
         (axum::http::StatusCode::OK, Json(self)).into_response()
     }
 }
-
-
-
-
 
 #[derive(Serialize, Schematic)]
 pub struct Pageable<T: Serialize + Schematic> {
@@ -104,7 +91,6 @@ impl<T: Serialize + Schematic> Pageable<T> {
     }
 }
 
-
 #[derive(Serialize, Schematic)]
 /// the status of the account
 pub enum AccountStatusEntity {
@@ -122,7 +108,6 @@ impl From<AccountStatus> for AccountStatusEntity {
         }
     }
 }
-
 
 #[derive(Serialize, Schematic)]
 /// represent the number and currency pair
@@ -142,7 +127,6 @@ impl From<Amount> for AmountEntity {
     }
 }
 
-
 #[derive(Serialize, Schematic)]
 /// represent the calculated amount, normally used for multiple currency
 pub struct CalculatedAmountEntity {
@@ -160,7 +144,6 @@ impl From<CalculatedAmount> for CalculatedAmountEntity {
         }
     }
 }
-
 
 #[derive(Serialize, Schematic)]
 pub struct AccountResponse {
@@ -308,7 +291,7 @@ impl From<Amount> for AmountResponse {
     }
 }
 
-#[derive(Serialize,  Schematic)]
+#[derive(Serialize, Schematic)]
 pub struct CommodityListItemResponse {
     pub name: String,
     pub precision: i32,
@@ -373,7 +356,6 @@ pub struct CurrentStatisticResponse {
     pub income: AmountResponse,
     pub expense: AmountResponse,
 }
-
 
 #[derive(Serialize, Schematic)]
 pub struct AccountJournalEntity {
@@ -532,16 +514,13 @@ pub enum BudgetIntervalEventResponse {
 impl BudgetIntervalEventResponse {
     pub(crate) fn naive_datetime(&self) -> NaiveDateTime {
         match self {
-            BudgetIntervalEventResponse::BudgetEvent(budget_event) => {
-                DateTime::from_timestamp(budget_event.timestamp, 0)
-                    .unwrap_or_else(|| DateTime::from_timestamp_millis(0).unwrap())
-                    .naive_local()
-            },
+            BudgetIntervalEventResponse::BudgetEvent(budget_event) => DateTime::from_timestamp(budget_event.timestamp, 0)
+                .unwrap_or_else(|| DateTime::from_timestamp_millis(0).unwrap())
+                .naive_local(),
             BudgetIntervalEventResponse::Posting(posting) => posting.datetime,
         }
     }
 }
-
 
 #[derive(Serialize, Schematic)]
 pub enum PluginTypeEnum {
@@ -559,7 +538,6 @@ impl From<PluginType> for PluginTypeEnum {
     }
 }
 
-
 #[derive(Serialize, Schematic)]
 pub struct PluginResponse {
     pub name: String,
@@ -572,7 +550,6 @@ pub struct AccountBalanceItemResponse {
     pub date: NaiveDate,
     pub balance: AmountResponse,
 }
-
 
 #[derive(Serialize, Schematic)]
 pub enum ZhangAstErrorKind {
@@ -627,7 +604,12 @@ pub struct SpanInfoEntity {
 
 impl From<SpanInfo> for SpanInfoEntity {
     fn from(value: SpanInfo) -> Self {
-        SpanInfoEntity { start: value.start, end: value.end, content: value.content, filename: value.filename.map(|it| it.to_string_lossy().to_string()) }
+        SpanInfoEntity {
+            start: value.start,
+            end: value.end,
+            content: value.content,
+            filename: value.filename.map(|it| it.to_string_lossy().to_string()),
+        }
     }
 }
 
@@ -657,10 +639,12 @@ pub struct OptionEntity {
 }
 impl From<OptionDomain> for OptionEntity {
     fn from(value: OptionDomain) -> Self {
-        OptionEntity { key: value.key, value: value.value }
+        OptionEntity {
+            key: value.key,
+            value: value.value,
+        }
     }
 }
-
 
 #[derive(Serialize, Schematic)]
 pub struct AccountBalanceHistoryResponse {

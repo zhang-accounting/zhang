@@ -75,9 +75,6 @@ pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>
     })
 }
 
-
-
-
 #[api(group = "budget")]
 pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path<BudgetIntervalDetailRequest>) -> ApiResult<Vec<BudgetIntervalEventResponse>> {
     let BudgetIntervalDetailRequest { budget_name, year, month } = paths.0;

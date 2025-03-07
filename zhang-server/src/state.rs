@@ -20,7 +20,6 @@ impl Deref for SharedLedger {
     }
 }
 
-
 #[derive(Clone)]
 pub struct SharedBroadcaster(pub Arc<Broadcaster>);
 
@@ -49,7 +48,6 @@ pub struct AppState {
     pub broadcaster: SharedBroadcaster,
     pub reload_sender: SharedReloadSender,
 }
-
 
 impl FromRef<GotchaContext<AppState, ()>> for SharedLedger {
     fn from_ref(input: &GotchaContext<AppState, ()>) -> Self {
