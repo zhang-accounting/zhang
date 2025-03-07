@@ -1,20 +1,19 @@
-import { format } from 'date-fns';
-import { useParams } from 'react-router';
-import useSWR from 'swr';
-import { fetcher } from '../global.ts';
-import Amount from '../components/Amount';
-import PayeeNarration from '../components/basic/PayeeNarration';
-import { BudgetInfoResponse, BudgetIntervalEventResponse } from '../rest-model';
-import { useEffect, useState } from 'react';
-import { useDocumentTitle } from '@mantine/hooks';
-import { useAtomValue, useSetAtom } from 'jotai/index';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
+import { retrieveBudgetEvent, retrieveBudgetInfo } from '@/api/requests.ts';
 import { Badge } from '@/components/ui/badge.tsx';
 import { Button } from '@/components/ui/button.tsx';
-import { ChevronLeftIcon, ChevronRightIcon } from '@radix-ui/react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
 import { BUDGETS_LINK } from '@/layout/Sidebar.tsx';
+import { useDocumentTitle } from '@mantine/hooks';
+import { ChevronLeftIcon, ChevronRightIcon } from '@radix-ui/react-icons';
+import { format } from 'date-fns';
+import { useAtomValue, useSetAtom } from 'jotai/index';
+import { useEffect, useState } from 'react';
+import { useParams } from 'react-router';
+import { useAsync } from 'react-use';
+import Amount from '../components/Amount';
+import PayeeNarration from '../components/basic/PayeeNarration';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
 
 function SingleBudget() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
@@ -38,11 +37,14 @@ function SingleBudget() {
     newDate.setMonth(newDate.getMonth() + gap);
     setDate(newDate);
   };
-  const { data: budget_info, error } = useSWR<BudgetInfoResponse>(`/api/budgets/${budgetName}`, fetcher);
-  const { data: budget_interval_event } = useSWR<BudgetIntervalEventResponse[]>(
-    `/api/budgets/${budgetName}/interval/${date.getFullYear()}/${date.getMonth() + 1}`,
-    fetcher,
-  );
+  const { value: budget_info, error } = useAsync(async () => {
+    const res = await retrieveBudgetInfo({ budget_name: budgetName ?? '' });
+    return res.data.data;
+  }, [budgetName]);
+  const { value: budget_interval_event } = useAsync(async () => {
+    const res = await retrieveBudgetEvent({ budget_name: budgetName ?? '', year: date.getFullYear(), month: date.getMonth() + 1 });
+    return res.data.data;
+  }, [budgetName, date]);
 
   if (error) return <div>failed to load</div>;
   if (!budget_info) return <div>{error}</div>;
@@ -131,7 +133,9 @@ function SingleBudget() {
                   <TableCell>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</TableCell>
                   <TableCell>{'event_type' in it ? it.event_type : <PayeeNarration payee={it.payee} narration={it.narration} />}</TableCell>
                   <TableCell>{!('event_type' in it) && <Badge>{it.account}</Badge>}</TableCell>
-                  <TableCell style={{ textAlign: 'end' }}>{'event_type' in it && <Amount amount={it.amount.number} currency={it.amount.currency} />}</TableCell>
+                  <TableCell style={{ textAlign: 'end' }}>
+                    {'event_type' in it && <Amount amount={it.amount?.number!} currency={it.amount?.currency!} />}
+                  </TableCell>
                   <TableCell style={{ textAlign: 'end' }}>
                     {!('event_type' in it) && <Amount amount={it.inferred_unit_number} currency={it.inferred_unit_commodity} />}
                   </TableCell>

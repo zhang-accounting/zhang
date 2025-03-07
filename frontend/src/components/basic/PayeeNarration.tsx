@@ -1,8 +1,8 @@
 import { cn } from '@/lib/utils';
 
 interface Props {
-  payee?: string;
-  narration?: string;
+  payee?: string | null;
+  narration?: string | null;
   onClick?: () => void;
 }
 

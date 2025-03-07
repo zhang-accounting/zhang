@@ -1,17 +1,24 @@
-import useSWR from 'swr';
-import { fetcher } from '../global.ts';
-import SingleFileEdit from '../components/SingleFileEdit';
-import { TableOfContentsFloating, Tier, ZHANG_VALUE } from '../components/basic/TableOfContentsFloating';
-import { useState, useEffect } from 'react';
+import { retrieveFiles } from '@/api/requests.ts';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+import { RAW_EDITING_LINK } from '@/layout/Sidebar';
 import { useDocumentTitle } from '@mantine/hooks';
 import { useAtomValue, useSetAtom } from 'jotai/index';
+import { useEffect, useState } from 'react';
+import { useAsync } from 'react-use';
+import SingleFileEdit from '../components/SingleFileEdit';
+import { TableOfContentsFloating, Tier, ZHANG_VALUE } from '../components/basic/TableOfContentsFloating';
 import { breadcrumbAtom, titleAtom } from '../states/basic';
-import { RAW_EDITING_LINK } from '@/layout/Sidebar';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
 
 function RawEdit() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  const { data, error } = useSWR<string[]>('/api/files', fetcher);
+  const {
+    loading,
+    error,
+    value: data,
+  } = useAsync(async () => {
+    const res = await retrieveFiles({});
+    return res.data.data;
+  }, []);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(selectedFile ? `${selectedFile} | Raw Editing - ${ledgerTitle}` : `Raw Editing - ${ledgerTitle}`);
@@ -19,10 +26,11 @@ function RawEdit() {
     setBreadcrumb([RAW_EDITING_LINK]);
   }, []);
   if (error) return <div>failed to load</div>;
-  if (!data) return <>loading</>;
+  if (loading || !data) return <div>loading...</div>;
 
   const tree: Tier = {};
   data
+    .filter((it) => it !== null)
     .map((it) => it.replace(/^\/|\/$/g, ''))
     .forEach((entry) => {
       let ref_tree = tree;

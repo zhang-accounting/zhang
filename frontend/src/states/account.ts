@@ -1,12 +1,13 @@
 import { loadable_unwrap } from '.';
-import { fetcher } from '../global.ts';
-import { Account } from '../rest-model';
 import { groupBy } from 'lodash-es';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { atom } from 'jotai';
+import { openAPIFetcher } from '../api/fetcher';
+
+const findPetsByStatus = openAPIFetcher.path('/api/accounts').method('get').create();
 
 export const accountFetcher = atomWithRefresh(async () => {
-  return await fetcher<Account[]>(`/api/accounts`);
+  return (await findPetsByStatus({})).data.data;
 });
 
 export const accountAtom = loadable(accountFetcher);

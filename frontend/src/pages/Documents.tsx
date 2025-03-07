@@ -1,20 +1,19 @@
-import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
-import { format } from 'date-fns';
-import useSWR from 'swr';
-import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
-import { Document } from '../rest-model';
-import { groupBy, reverse, sortBy } from 'lodash-es';
-import { useNavigate } from 'react-router';
-import { useEffect, useState } from 'react';
-import 'yet-another-react-lightbox/styles.css';
-import { ImageLightBox } from '../components/ImageLightBox';
-import { isDocumentAnImage } from '../utils/documents';
-import { useAtomValue, useSetAtom } from 'jotai/index';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
-import { fetcher } from '../global.ts';
+import { retrieveDocuments } from '@/api/requests.ts';
+import { Badge } from '@/components/ui/badge.tsx';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
 import { DOCUMENTS_LINK } from '@/layout/Sidebar.tsx';
-import { Badge } from '@/components/ui/badge.tsx';
+import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
+import { format } from 'date-fns';
+import { useAtomValue, useSetAtom } from 'jotai/index';
+import { groupBy, reverse, sortBy } from 'lodash-es';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
+import { useAsync } from 'react-use';
+import 'yet-another-react-lightbox/styles.css';
+import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
+import { ImageLightBox } from '../components/ImageLightBox';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
+import { isDocumentAnImage } from '../utils/documents';
 
 export default function Documents() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
@@ -23,7 +22,15 @@ export default function Documents() {
     key: `document-list-layout`,
     defaultValue: 'Grid',
   });
-  const { data: documents, error } = useSWR<Document[]>('/api/documents', fetcher);
+  const {
+    loading,
+    error,
+    value: documents,
+  } = useAsync(async () => {
+    const res = await retrieveDocuments({});
+    return res.data.data;
+  }, []);
+
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
   const ledgerTitle = useAtomValue(titleAtom);
@@ -32,7 +39,7 @@ export default function Documents() {
     setBreadcrumb([DOCUMENTS_LINK]);
   }, []);
   if (error) return <div>failed to load</div>;
-  if (!documents) return <div>loading...</div>;
+  if (loading || !documents) return <div>loading...</div>;
 
   const groupedDocuments = reverse(
     sortBy(

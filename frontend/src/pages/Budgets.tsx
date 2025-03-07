@@ -1,20 +1,19 @@
+import { retrieveBudgets } from '@/api/requests.ts';
+import { Button } from '@/components/ui/button.tsx';
+import { Label } from '@/components/ui/label.tsx';
+import { Switch } from '@/components/ui/switch.tsx';
+import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
+import { BUDGETS_LINK } from '@/layout/Sidebar.tsx';
 import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
-import { useEffect, useState } from 'react';
-import { BudgetListItem } from '../rest-model';
-import { useTranslation } from 'react-i18next';
-import useSWR from 'swr';
-import { groupBy, sortBy } from 'lodash-es';
-import BudgetCategory from '../components/budget/BudgetCategory';
 import { format } from 'date-fns';
 import { useAtomValue, useSetAtom } from 'jotai/index';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
-import { fetcher } from '../global.ts';
-import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
-import { Button } from '@/components/ui/button.tsx';
-import { Switch } from '@/components/ui/switch.tsx';
-import { Label } from '@/components/ui/label.tsx';
+import { groupBy, sortBy } from 'lodash-es';
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
-import { BUDGETS_LINK } from '@/layout/Sidebar.tsx';
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useAsync } from 'react-use';
+import BudgetCategory from '../components/budget/BudgetCategory';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
 
 export default function Budgets() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
@@ -38,9 +37,17 @@ export default function Budgets() {
     ]);
   }, [date]);
 
-  const { data: budgets, error } = useSWR<BudgetListItem[]>(`/api/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, fetcher);
+  const {
+    loading,
+    error,
+    value: budgets,
+  } = useAsync(async () => {
+    const res = await retrieveBudgets({ year: date.getFullYear(), month: date.getMonth() + 1 });
+    return res.data.data;
+  }, [date]);
+
   if (error) return <div>failed to load</div>;
-  if (!budgets) return <div>loading...</div>;
+  if (loading || !budgets) return <div>loading...</div>;
 
   const goToMonth = (gap: number) => {
     let newDate = new Date(date);

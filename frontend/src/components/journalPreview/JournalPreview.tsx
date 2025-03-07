@@ -1,4 +1,4 @@
-import { JournalBalanceCheckItem, JournalBalancePadItem, JournalItem, JournalTransactionItem } from '../../rest-model';
+import { JournalItem } from '@/api/types';
 import BalanceCheckPreview from './BalanceCheckPreview';
 import BalancePadPreview from './BalancePadPreview';
 import TransactionPreview from './TransactionPreview';
@@ -14,13 +14,13 @@ export default function JournalPreview(props: Props) {
   }
   switch (props.data.type) {
     case 'BalanceCheck':
-      line = <BalanceCheckPreview data={props.data as JournalBalanceCheckItem} />;
+      line = <BalanceCheckPreview data={props.data} />;
       break;
     case 'BalancePad':
-      line = <BalancePadPreview data={props.data as JournalBalancePadItem} />;
+      line = <BalancePadPreview data={props.data} />;
       break;
     case 'Transaction':
-      line = <TransactionPreview data={props.data as JournalTransactionItem} />;
+      line = <TransactionPreview data={props.data} />;
       break;
   }
   return line;

@@ -1,6 +1,5 @@
 import { format } from 'date-fns';
 import { Dispatch, SetStateAction } from 'react';
-import { JournalBalancePadItem, JournalItem } from '../../../rest-model';
 import Amount from '../../Amount';
 import PayeeNarration from '../../basic/PayeeNarration';
 import { TableRow, TableCell } from '@/components/ui/table';
@@ -10,6 +9,7 @@ import { previewJournalAtom } from '@/states/journals';
 import { LineMenu } from './LineMenu';
 import { ZoomIn } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { JournalBalancePadItem, JournalItem } from '@/api/types';
 
 interface Props {
   data: JournalBalancePadItem;

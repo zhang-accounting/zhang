@@ -1,15 +1,16 @@
 import { loadable_unwrap } from '.';
-import { fetcher } from '../global.ts';
-import { CommodityListItem } from '../rest-model';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { groupBy } from 'lodash-es';
 import { atom } from 'jotai';
+import { openAPIFetcher } from '../api/fetcher';
 
 export const FRONTEND_DEFAULT_GROUP = '__ZHANG__FRONTEND_DEFAULT__GROUP__';
 
+const findCommodities = openAPIFetcher.path('/api/commodities').method('get').create();
+
 export const commoditiesFetcher = atomWithRefresh(async () => {
-  const ret = await fetcher<CommodityListItem[]>(`/api/commodities`);
-  return Object.fromEntries(ret.map((item: CommodityListItem) => [item.name, item]));
+  const ret = (await findCommodities({})).data.data;
+  return Object.fromEntries(ret.map((item) => [item.name, item]));
 });
 
 export const commoditiesAtom = loadable(commoditiesFetcher);

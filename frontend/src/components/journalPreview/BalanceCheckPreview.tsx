@@ -1,11 +1,10 @@
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
-import { JournalBalanceCheckItem } from '../../rest-model';
 import Amount from '../Amount';
 import DashLine from '../DashedLine';
 import Section from '../Section';
 import { Badge } from '../ui/badge';
-
+import { JournalBalanceCheckItem } from '@/api/types';
 interface Props {
   data: JournalBalanceCheckItem;
 }

@@ -1,19 +1,17 @@
 use std::str::FromStr;
-use std::sync::Arc;
 
 use axum::extract::{Multipart, Path, State};
 use axum::Json;
+use gotcha::api;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use log::info;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
 use zhang_core::constants::TXN_ID;
 use zhang_core::domains::schemas::MetaType;
-use zhang_core::ledger::Ledger;
 use zhang_core::store::TransactionDomain;
 use zhang_core::utils::string_::{escape_with_quote, StringExt};
 
@@ -23,10 +21,12 @@ use crate::response::{
     InfoForNewTransaction, JournalBalanceCheckItemResponse, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
     JournalTransactionPostingResponse, Pageable, ResponseWrapper,
 };
-use crate::{ApiResult, ReloadSender};
+use crate::state::{SharedLedger, SharedReloadSender};
+use crate::ApiResult;
 
+#[api(group = "transaction")]
 // todo rename api
-pub async fn get_info_for_new_transactions(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<InfoForNewTransaction> {
+pub async fn get_info_for_new_transactions(ledger: State<SharedLedger>) -> ApiResult<InfoForNewTransaction> {
     let guard = ledger.read().await;
     let mut operations = guard.operations();
 
@@ -39,7 +39,8 @@ pub async fn get_info_for_new_transactions(ledger: State<Arc<RwLock<Ledger>>>) -
     })
 }
 
-pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemResponse>> {
+#[api(group = "transaction")]
+pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemResponse>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
     let params = params.0;
@@ -125,8 +126,9 @@ pub async fn get_journals(ledger: State<Arc<RwLock<Ledger>>>, params: Query<Jour
     ResponseWrapper::json(Pageable::new(total_count as u32, params.page(), params.limit(), ret))
 }
 
+#[api(group = "transaction")]
 pub async fn create_new_transaction(
-    ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, Json(payload): Json<CreateTransactionRequest>,
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<CreateTransactionRequest>,
 ) -> ApiResult<String> {
     let ledger = ledger.read().await;
 
@@ -163,9 +165,11 @@ pub async fn create_new_transaction(
     ResponseWrapper::json("Ok".to_string())
 }
 
+// TODO: handle multipart/form-data
+#[api(group = "transaction")]
 // todo(refact): use exporter to update transaction
 pub async fn upload_transaction_document(
-    ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, path: Path<(String,)>, mut multipart: Multipart,
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, mut multipart: Multipart,
 ) -> ApiResult<String> {
     let transaction_id = Uuid::from_str(&path.0 .0).expect("invalid txn id");
     let ledger = ledger.read().await;
@@ -214,8 +218,9 @@ pub async fn upload_transaction_document(
     ResponseWrapper::json("Ok".to_string())
 }
 
+#[api(group = "transaction")]
 pub async fn update_single_transaction(
-    ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, path: Path<(String,)>, Json(payload): Json<CreateTransactionRequest>,
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, Json(payload): Json<CreateTransactionRequest>,
 ) -> ApiResult<()> {
     let Ok(transaction_id) = Uuid::from_str(&path.0 .0) else {
         return ResponseWrapper::bad_request();

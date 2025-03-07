@@ -1,16 +1,15 @@
-use std::sync::Arc;
-
 use axum::extract::State;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
-use tokio::sync::RwLock;
-use zhang_core::ledger::Ledger;
+use gotcha::api;
 
 use crate::request::FileUpdateRequest;
-use crate::response::{FileDetailResponse, ResponseWrapper};
-use crate::{ApiResult, ReloadSender};
+use crate::response::{Created, FileDetailResponse, ResponseWrapper};
+use crate::state::{SharedLedger, SharedReloadSender};
+use crate::{ApiResult, ServerResult};
 
-pub async fn get_files(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Option<String>>> {
+#[api(group = "file")]
+pub async fn get_files(ledger: State<SharedLedger>) -> ApiResult<Vec<Option<String>>> {
     let ledger = ledger.read().await;
     let entry_path = &ledger.entry.0;
 
@@ -23,7 +22,8 @@ pub async fn get_files(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<Opti
     ResponseWrapper::json(ret)
 }
 
-pub async fn get_file_content(ledger: State<Arc<RwLock<Ledger>>>, path: axum::extract::Path<(String,)>) -> ApiResult<FileDetailResponse> {
+#[api(group = "file")]
+pub async fn get_file_content(ledger: State<SharedLedger>, path: axum::extract::Path<(String,)>) -> ApiResult<FileDetailResponse> {
     let encoded_file_path = path.0 .0;
     let filename = String::from_utf8(BASE64_STANDARD.decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
@@ -34,10 +34,11 @@ pub async fn get_file_content(ledger: State<Arc<RwLock<Ledger>>>, path: axum::ex
     ResponseWrapper::json(FileDetailResponse { path: filename, content })
 }
 
+#[api(group = "file")]
 pub async fn update_file_content(
-    ledger: State<Arc<RwLock<Ledger>>>, reload_sender: State<Arc<ReloadSender>>, path: axum::extract::Path<(String,)>,
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: axum::extract::Path<(String,)>,
     axum::extract::Json(payload): axum::extract::Json<FileUpdateRequest>,
-) -> ApiResult<()> {
+) -> ServerResult<Created> {
     let encoded_file_path = path.0 .0;
     let filename = String::from_utf8(BASE64_STANDARD.decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
@@ -46,5 +47,5 @@ pub async fn update_file_content(
     // if parse_zhang(&payload.content, None).is_ok() {
     ledger.data_source.async_save(&ledger, filename, payload.content.as_bytes()).await?;
     reload_sender.reload();
-    ResponseWrapper::<()>::created()
+    Ok(Created)
 }

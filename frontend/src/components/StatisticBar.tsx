@@ -1,17 +1,23 @@
+import { retrieveStatisticSummary } from '@/api/requests.ts';
 import StatisticBox from './StatisticBox';
-import useSWR from 'swr';
-import { StatisticResponse } from '../rest-model';
-import { fetcher } from '../global.ts';
+import { useAsync } from 'react-use';
 
 export default function StatisticBar() {
   const now = new Date();
   const beginning_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 1);
   const end_time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-  const { data, error } = useSWR<StatisticResponse>(`/api/statistic/summary?from=${beginning_time.toISOString()}&to=${end_time.toISOString()}`, fetcher);
+  const {
+    value: data,
+    loading,
+    error,
+  } = useAsync(async () => {
+    const res = await retrieveStatisticSummary({ from: beginning_time.toISOString(), to: end_time.toISOString() });
+    return res.data.data;
+  });
 
   if (error) return <div>failed to load</div>;
-  if (!data) return <>loading</>;
+  if (loading || !data) return <>loading</>;
 
   return (
     <>

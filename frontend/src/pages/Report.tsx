@@ -1,28 +1,24 @@
+import { retrieveStatisticByAccountType, retrieveStatisticGraph, retrieveStatisticSummary } from '@/api/requests.ts';
+import StatisticBox from '@/components/StatisticBox.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { Calendar } from '@/components/ui/calendar.tsx';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
+import { REPORT_LINK } from '@/layout/Sidebar.tsx';
+import { cn } from '@/lib/utils.ts';
+import { useDocumentTitle } from '@mantine/hooks';
+import { CalendarIcon } from '@radix-ui/react-icons';
+import { format } from 'date-fns';
+import { useAtomValue, useSetAtom } from 'jotai/index';
 import { useEffect, useState } from 'react';
-import useSWR from 'swr';
+import { DateRange } from 'react-day-picker';
+import { useAsync } from 'react-use';
 import Amount from '../components/Amount';
 import ReportGraph from '../components/ReportGraph';
 import Section from '../components/Section';
-import { StatisticGraphResponse, StatisticResponse, StatisticTypeResponse } from '../rest-model';
 import PayeeNarration from '../components/basic/PayeeNarration';
-import { useDocumentTitle } from '@mantine/hooks';
-import { useAtomValue, useSetAtom } from 'jotai/index';
 import { breadcrumbAtom, titleAtom } from '../states/basic';
-import { fetcher } from '../global.ts';
-import { Table, TableBody, TableHead } from '@/components/ui/table.tsx';
-import { TableRow } from '@/components/ui/table.tsx';
-import { TableHeader } from '@/components/ui/table.tsx';
-import { TableCell } from '@/components/ui/table.tsx';
-import { Button } from '@/components/ui/button.tsx';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx';
-import { cn } from '@/lib/utils.ts';
-import { CalendarIcon } from '@radix-ui/react-icons';
-import { format } from 'date-fns';
-import { Calendar } from '@/components/ui/calendar.tsx';
-import { DateRange } from 'react-day-picker';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
-import StatisticBox from '@/components/StatisticBox.tsx';
-import { REPORT_LINK } from '@/layout/Sidebar.tsx';
 
 export default function Report() {
   const [value, setValue] = useState<DateRange | undefined>({
@@ -50,30 +46,32 @@ export default function Report() {
     setBreadcrumb([REPORT_LINK]);
   }, []);
 
-  const { data, error } = useSWR<StatisticResponse>(
-    `/api/statistic/summary?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}&interval=Day`,
-    fetcher,
-  );
+  const {
+    value: data,
+    error,
+    loading,
+  } = useAsync(async () => {
+    const res = await retrieveStatisticSummary({ from: dateRange[0]!.toISOString(), to: dateRange[1]!.toISOString() });
+    return res.data.data;
+  }, []);
 
-  const { data: graph_data } = useSWR<StatisticGraphResponse>(
-    `/api/statistic/graph?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}&interval=Day`,
-    fetcher,
-  );
+  const { value: graph_data } = useAsync(async () => {
+    const res = await retrieveStatisticGraph({ from: dateRange[0]!.toISOString(), to: dateRange[1]!.toISOString(), interval: 'Day' });
+    return res.data.data;
+  }, []);
 
-  const { data: income_data } = useSWR<StatisticTypeResponse>(
-    `/api/statistic/Income?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}`,
-    fetcher,
-  );
+  const { value: income_data } = useAsync(async () => {
+    const res = await retrieveStatisticByAccountType({ account_type: 'Income', from: dateRange[0]!.toISOString(), to: dateRange[1]!.toISOString() });
+    return res.data.data;
+  }, []);
 
-  const { data: expenses_data } = useSWR<StatisticTypeResponse>(
-    `/api/statistic/Expenses?from=${dateRange[0]!.toISOString()}&to=${dateRange[1]!.toISOString()}`,
-    fetcher,
-  );
-
-  if (!graph_data) return <>loading</>;
+  const { value: expenses_data } = useAsync(async () => {
+    const res = await retrieveStatisticByAccountType({ account_type: 'Expenses', from: dateRange[0]!.toISOString(), to: dateRange[1]!.toISOString() });
+    return res.data.data;
+  }, []);
 
   if (error) return <div>failed to load</div>;
-  if (!data) return <>loading</>;
+  if (loading || !data) return <>loading</>;
 
   return (
     <>

@@ -1,5 +1,4 @@
 import { format } from 'date-fns';
-import { JournalTransactionItem } from '../../rest-model';
 import Amount from '../Amount';
 import DashLine from '../DashedLine';
 import Section from '../Section';
@@ -8,6 +7,7 @@ import AccountDocumentUpload from '../AccountDocumentUpload';
 import { ImageLightBox } from '../ImageLightBox';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge.tsx';
+import { JournalTransactionItem } from '@/api/types';
 
 interface Props {
   data: JournalTransactionItem;
@@ -91,7 +91,7 @@ export default function TransactionPreview(props: Props) {
 
       {(props.data.metas ?? []).length > 0 && (
         <Section title="Metas">
-          {props.data.metas
+          {(props.data.metas ?? [])
             .filter((meta) => meta.key !== 'document')
             .map((meta, idx) => (
               <DashLine key={idx}>
@@ -103,14 +103,14 @@ export default function TransactionPreview(props: Props) {
       )}
       <div className="mx-1 my-4">
         <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
-        <Section title={`${props.data.metas.filter((meta) => meta.key === 'document').length} Documents`}>
+        <Section title={`${(props.data.metas ?? []).filter((meta) => meta.key === 'document').length} Documents`}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-            {props.data.metas
+            {(props.data.metas ?? [])
               .filter((meta) => meta.key === 'document')
               .map((meta, idx) => (
                 <DocumentPreview onClick={() => setLightboxSrc(meta.value)} key={idx} uri={meta.value} filename={meta.value} />
               ))}
-            <AccountDocumentUpload url={`/api/transactions/${props.data.id}/documents`} />
+            <AccountDocumentUpload id={props.data.id} type="transaction" />
           </div>
         </Section>
       </div>

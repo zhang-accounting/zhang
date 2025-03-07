@@ -1,22 +1,30 @@
-import { format } from 'date-fns';
-import { useParams } from 'react-router';
-import useSWR from 'swr';
-import { fetcher } from '../global.ts';
-import Amount from '../components/Amount';
-import { CommodityDetail } from '../rest-model';
-import { useDocumentTitle } from '@mantine/hooks';
-import { useAtomValue, useSetAtom } from 'jotai/index';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.tsx';
-import { Table, TableHeader, TableRow, TableCell, TableHead, TableBody } from '@/components/ui/table.tsx';
+import { retrieveCommodityInfo } from '@/api/requests.ts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx';
 import { COMMODITIES_LINK } from '@/layout/Sidebar.tsx';
+import { useDocumentTitle } from '@mantine/hooks';
+import { format } from 'date-fns';
+import { useAtomValue, useSetAtom } from 'jotai/index';
 import { useEffect } from 'react';
+import { useParams } from 'react-router';
+import { useAsync } from 'react-use';
+import Amount from '../components/Amount';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
 
 export default function SingleCommodity() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
   let { commodityName } = useParams();
-  const { data, error } = useSWR<CommodityDetail>(`/api/commodities/${commodityName}`, fetcher);
+
+  const {
+    value: commodity,
+    error,
+    loading,
+  } = useAsync(async () => {
+    const res = await retrieveCommodityInfo({ commodity_name: commodityName ?? '' });
+    return res.data.data;
+  }, [commodityName]);
+
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(`${commodityName} | Commodities - ${ledgerTitle}`);
   useEffect(() => {
@@ -30,7 +38,7 @@ export default function SingleCommodity() {
     ]);
   }, [commodityName]);
   if (error) return <div>failed to load</div>;
-  if (!data) return <div>loading</div>;
+  if (loading || !commodity) return <div>loading</div>;
 
   return (
     <div>
@@ -59,7 +67,7 @@ export default function SingleCommodity() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.lots.map((it, idx) => (
+                  {commodity.lots.map((it, idx) => (
                     <TableRow key={idx}>
                       <TableCell>{it.account}</TableCell>
                       <TableCell style={{ textAlign: 'right' }}>
@@ -93,11 +101,11 @@ export default function SingleCommodity() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.prices.map((it, idx) => (
+                  {commodity.prices.map((it, idx) => (
                     <TableRow key={idx}>
                       <TableCell>{format(new Date(it.datetime), 'yyyy-MM-dd')}</TableCell>
                       <TableCell>
-                        <Amount amount={it.amount} currency={it.target_commodity} />
+                        <Amount amount={it.amount} currency={it.target_commodity ?? ''} />
                       </TableCell>
                     </TableRow>
                   ))}

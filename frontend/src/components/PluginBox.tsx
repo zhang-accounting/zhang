@@ -1,6 +1,8 @@
-import { PluginResponse } from '../rest-model';
-
-interface Props extends PluginResponse {}
+interface Props {
+  name: string;
+  plugin_type: ('Processor' | 'Mapper' | 'Router')[];
+  version: string;
+}
 
 export default function PluginBox(props: Props) {
   return (

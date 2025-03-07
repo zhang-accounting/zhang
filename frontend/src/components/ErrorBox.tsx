@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { errorAtom, errorPageAtom, LedgerError } from '../states/errors';
+import { errorAtom, errorPageAtom } from '../states/errors';
 import { ErrorsSkeleton } from './skeletons/errorsSkeleton';
 import { useAtomValue, useSetAtom } from 'jotai';
 import Joyride from '../assets/joyride.svg';
@@ -9,6 +9,7 @@ import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { useDisclosure } from '@mantine/hooks';
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from './ui/pagination';
+import { LedgerError } from '@/api/types';
 
 export default function ErrorBox() {
   const { t } = useTranslation();
@@ -29,7 +30,7 @@ export default function ErrorBox() {
 
   const toggleError = (error: LedgerError) => {
     setSelectError(error);
-    setSelectErrorContent(error.span.content);
+    setSelectErrorContent(error.span?.content || '');
     isOpenHandler.open();
   };
 
@@ -45,14 +46,14 @@ export default function ErrorBox() {
     isOpenHandler.close();
   };
   const onModalReset = () => {
-    setSelectErrorContent(selectError?.span.content || '');
+    setSelectErrorContent(selectError?.span?.content || '');
   };
   return (
     <>
       <Dialog open={isOpen} onOpenChange={() => isOpenHandler.close()}>
         <DialogContent className="max-h-[90vh] w-2/3 overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{`${selectError?.span.filename}:L${selectError?.span.start}:${selectError?.span.end}`}</DialogTitle>
+            <DialogTitle>{`${selectError?.span?.filename}:L${selectError?.span?.start}:${selectError?.span?.end}`}</DialogTitle>
             <DialogDescription>
               <p>{selectError?.error_type === undefined ? '' : t(`ERROR.${selectError.error_type}`)}</p>
               <Textarea

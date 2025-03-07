@@ -1,21 +1,19 @@
-import DividerWithAction from './basic/DividerWithAction';
-import { useListState } from '@mantine/hooks';
-import { useEffect, useState } from 'react';
-import useSWR from 'swr';
-import { InfoForNewTransaction, JournalTransactionItem } from '../rest-model';
-import { useTranslation } from 'react-i18next';
-import { format } from 'date-fns';
-import { accountSelectItemsAtom } from '../states/account';
-import { useAtomValue } from 'jotai/index';
-import { fetcher } from '../global.ts';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.tsx';
-import { Button } from './ui/button.tsx';
+import { JournalTransactionItem } from '@/api/types.ts';
 import { cn } from '@/lib/utils.ts';
+import { useListState } from '@mantine/hooks';
+import { format } from 'date-fns';
+import { useAtomValue } from 'jotai/index';
 import { CalendarIcon, CirclePlus, X } from 'lucide-react';
-import { Calendar } from './ui/calendar.tsx';
-import { Input } from './ui/input.tsx';
-import { Combobox } from './ui/combobox.tsx';
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { accountSelectItemsAtom } from '../states/account';
+import DividerWithAction from './basic/DividerWithAction';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion.tsx';
+import { Button } from './ui/button.tsx';
+import { Calendar } from './ui/calendar.tsx';
+import { Combobox } from './ui/combobox.tsx';
+import { Input } from './ui/input.tsx';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.tsx';
 
 interface Posting {
   account: string | undefined;
@@ -31,8 +29,6 @@ interface Props {
 export default function TransactionEditForm(props: Props) {
   console.log('transaction edit form', props.data);
   const { t } = useTranslation();
-
-  const { data, error } = useSWR<InfoForNewTransaction>('/api/for-new-transaction', fetcher);
 
   const [dateOnly] = useState(true);
   const [date, setDate] = useState<Date | undefined>(props.data?.datetime ? new Date(props.data?.datetime) : new Date());
@@ -95,8 +91,6 @@ export default function TransactionEditForm(props: Props) {
     return postings.every((posting) => posting.account !== null) && postings.filter((posting) => posting.amount.trim().length === 0).length <= 1;
   };
 
-  if (error) return <div>failed to load</div>;
-  if (!data) return <div>loading...</div>;
   return (
     <div className="my-4">
       <div className="grid grid-cols-12 gap-4">

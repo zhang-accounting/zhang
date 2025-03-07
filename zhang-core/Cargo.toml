@@ -12,7 +12,6 @@ default = ["iana-time-zone"]
 wasm = []
 plugin_runtime = ["extism"]
 
-
 [dependencies]
 zhang-ast = { version = "0.1", path = "../zhang-ast" }
 thiserror = { workspace = true }

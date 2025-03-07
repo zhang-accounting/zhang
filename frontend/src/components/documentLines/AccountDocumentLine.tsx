@@ -1,7 +1,6 @@
 import { Buffer } from 'buffer';
-import { Document } from '../../rest-model';
 import { isDocumentAnImage } from '../../utils/documents';
-import { serverBaseUrl } from '../../global.ts';
+import { Document } from '@/api/types';
 
 export interface Props extends Document {
   onClick: (path: string) => void;
@@ -17,7 +16,7 @@ export default function AccountDocumentLine(props: Props) {
           <img
             className="absolute inset-0 w-full h-full object-cover hover:cursor-pointer rounded-t-sm"
             alt={props.filename}
-            src={canPreview ? `${serverBaseUrl}/api/documents/${Buffer.from(props.path).toString('base64')}` : ''}
+            src={canPreview ? `/api/documents/${Buffer.from(props.path).toString('base64')}` : ''}
           />
         ) : (
           <p className="absolute inset-0 w-full h-full flex items-center justify-center text-center bg-gray-100 text-gray-500">

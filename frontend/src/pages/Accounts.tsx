@@ -1,6 +1,5 @@
 import { useDocumentTitle, useInputState, useLocalStorage } from '@mantine/hooks';
 import AccountLine from '../components/AccountLine';
-import { AccountStatus } from '../rest-model';
 import { loadable_unwrap } from '../states';
 import { accountAtom, accountFetcher } from '../states/account';
 import { useTranslation } from 'react-i18next';
@@ -31,7 +30,7 @@ export default function Accounts() {
         selectAtom(accountAtom, (val) => {
           return loadable_unwrap(val, new AccountTrie(), (data) => {
             let trie = new AccountTrie();
-            for (let account of data.filter((it) => (hideClosedAccount ? it.status === AccountStatus.Open : true))) {
+            for (let account of data.filter((it) => (hideClosedAccount ? it.status === 'Open' : true))) {
               let trimmedKeyword = filterKeyword.trim();
               if (trimmedKeyword !== '') {
                 if (

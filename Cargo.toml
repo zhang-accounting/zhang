@@ -26,11 +26,13 @@ thiserror = "1"
 tokio = { version = "1", features = ['macros', "tracing", "signal", "rt-multi-thread"] }
 tokio-util = { version = "0.7", features = ["io", "compat"] }
 log = "0.4"
-itertools = "0.12"
+itertools = "0.14"
 strum = { version = "0.26", features = ["derive"] }
 bigdecimal = { version = "0.4", features = ["serde"] }
 indexmap = { version = "2.2", features = ["serde"] }
 axum = { version = "0.7", features = ["macros", "multipart"] }
+gotcha = { git = "https://github.com/kilerd/gotcha.git", branch = "main", features = ["openapi"] }
+gotcha_core = { git = "https://github.com/kilerd/gotcha.git", branch = "main" }
 bytes = "1.6.0"
 chrono-tz = "0.8"
 http = "1.1"

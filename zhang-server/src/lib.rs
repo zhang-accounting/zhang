@@ -1,11 +1,11 @@
-use std::net::SocketAddrV4;
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{get, post, put};
-use axum::Router;
+use gotcha::config::BasicConfig;
+use gotcha::{ConfigWrapper, GotchaApp, GotchaContext, GotchaRouter};
 use itertools::Itertools;
 use log::{debug, error, info, trace};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
@@ -19,6 +19,7 @@ use routes::statistics::*;
 use routes::transaction::*;
 use self_update::version::bump_is_greater;
 use serde::Serialize;
+use state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::{mpsc, RwLock};
@@ -40,13 +41,109 @@ pub mod error;
 pub mod request;
 pub mod response;
 pub mod routes;
+pub mod state;
+pub mod tasks;
 pub mod util;
 
-pub mod state;
+pub type LedgerState = Arc<RwLock<Ledger>>;
 
 pub type ServerResult<T> = Result<T, ServerError>;
 
-pub type LedgerState = Arc<RwLock<Ledger>>;
+pub type ApiResult<T> = ServerResult<ResponseWrapper<T>>;
+
+pub struct ServerApp {
+    opts: ServeConfig,
+    ledger: Arc<RwLock<Ledger>>,
+    broadcaster: Arc<Broadcaster>,
+    reload_sender: Arc<ReloadSender>,
+}
+
+impl GotchaApp for ServerApp {
+    type State = AppState;
+
+    type Config = ();
+
+    async fn config(&self) -> Result<ConfigWrapper<Self::Config>, Box<dyn std::error::Error>> {
+        Ok(ConfigWrapper {
+            basic: BasicConfig {
+                host: self.opts.addr.clone(),
+                port: self.opts.port,
+            },
+            application: (),
+        })
+    }
+
+    fn routes(&self, router: GotchaRouter<GotchaContext<Self::State, Self::Config>>) -> GotchaRouter<GotchaContext<Self::State, Self::Config>> {
+        let basic_credential = self.opts.auth_credential.as_ref().map(|credential| {
+            let token_part = credential.splitn(2, ':').map(|it| it.to_owned()).collect_vec();
+            (
+                token_part.first().cloned().expect("cannot retrieve credential user_id"),
+                token_part.get(1).cloned(),
+            )
+        });
+
+        let router = router
+            .get("/api/sse", sse)
+            .post("/api/reload", reload)
+            .get("/api/info", get_basic_info)
+            .get("/api/store", get_store_data)
+            .get("/api/options", get_all_options)
+            .get("/api/errors", get_errors)
+            .get("/api/files", get_files)
+            .get("/api/files/:file_path", get_file_content)
+            .put("/api/files/:file_path", update_file_content)
+            .get("/api/for-new-transaction", get_info_for_new_transactions)
+            .get("/api/journals", get_journals)
+            .post("/api/transactions", create_new_transaction)
+            .put("/api/transactions/:transaction_id", update_single_transaction)
+            .post("/api/transactions/:transaction_id/documents", upload_transaction_document)
+            .get("/api/accounts", get_account_list)
+            .get("/api/accounts/:account_name", get_account_info)
+            .post("/api/accounts/:account_name/documents", upload_account_document)
+            .get("/api/accounts/:account_name/documents", get_account_documents)
+            .get("/api/accounts/:account_name/journals", get_account_journals)
+            .get("/api/accounts/:account_name/balances", get_account_balance_data)
+            .post("/api/accounts/:account_name/balances", create_account_balance)
+            .post("/api/accounts/batch-balances", create_batch_account_balances)
+            .get("/api/documents", get_documents)
+            .get("/api/documents/:file_path", download_document)
+            .get("/api/commodities", get_all_commodities)
+            .get("/api/commodities/:commodity_name", get_single_commodity)
+            .get("/api/statistic/summary", get_statistic_summary)
+            .get("/api/statistic/graph", get_statistic_graph)
+            .get("/api/statistic/:account_type", get_statistic_rank_detail_by_account_type)
+            .get("/api/budgets", get_budget_list)
+            .get("/api/budgets/:budget_name", get_budget_info)
+            .get("/api/budgets/:budget_name/interval/:year/:month", get_budget_interval_detail)
+            .get("/api/plugins", routes::plugin::plugin_list)
+            .layer(CorsLayer::permissive())
+            .layer(DefaultBodyLimit::disable())
+            .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */));
+
+        let router = if let Some((username, password)) = basic_credential {
+            info!("web basic auth is enabled with username {}", &username);
+            router.layer(ValidateRequestHeaderLayer::basic(&username, password.as_deref().unwrap_or_default()))
+        } else {
+            router
+        };
+        #[cfg(feature = "frontend")]
+        {
+            router.fallback(routes::frontend::serve_frontend)
+        }
+        #[cfg(not(feature = "frontend"))]
+        {
+            router.fallback(routes::common::backend_only_info)
+        }
+    }
+
+    async fn state(&self, _config: &gotcha::ConfigWrapper<Self::Config>) -> Result<Self::State, Box<dyn std::error::Error>> {
+        Ok(AppState {
+            ledger: SharedLedger(self.ledger.clone()),
+            broadcaster: SharedBroadcaster(self.broadcaster.clone()),
+            reload_sender: SharedReloadSender(self.reload_sender.clone()),
+        })
+    }
+}
 
 fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Result<Event>>)> {
     let (tx, rx) = channel(1);
@@ -77,6 +174,14 @@ pub struct ServeConfig {
 }
 
 pub struct ReloadSender(pub Sender<i32>);
+
+impl Deref for ReloadSender {
+    type Target = Sender<i32>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl ReloadSender {
     fn reload(&self) {
@@ -213,82 +318,19 @@ fn start_reload_listener(ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcas
 pub async fn start_server(
     opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>,
 ) -> ZhangResult<()> {
-    let addr = SocketAddrV4::new(opts.addr.parse()?, opts.port);
     info!("zhang is listening on http://{}:{}/", opts.addr, opts.port);
 
-    let app = create_server_app(ledger_data, broadcaster, reload_sender, opts.auth_credential);
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let app = create_server_app(opts, ledger_data, broadcaster, reload_sender);
+    app.run().await.unwrap();
     Ok(())
 }
-pub fn create_server_app(
-    ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>, auth_credential: Option<String>,
-) -> Router {
-    let basic_credential = auth_credential.map(|credential| {
-        let token_part = credential.splitn(2, ':').map(|it| it.to_owned()).collect_vec();
-        (
-            token_part.first().cloned().expect("cannot retrieve credential user_id"),
-            token_part.get(1).cloned(),
-        )
-    });
 
-    let app = Router::new()
-        .route("/api/sse", get(sse))
-        .route("/api/reload", post(reload))
-        .route("/api/info", get(get_basic_info))
-        .route("/api/store", get(get_store_data))
-        .route("/api/options", get(get_all_options))
-        .route("/api/errors", get(get_errors))
-        .route("/api/files", get(get_files))
-        .route("/api/files/:file_path", get(get_file_content))
-        .route("/api/files/:file_path", put(update_file_content))
-        .route("/api/for-new-transaction", get(get_info_for_new_transactions))
-        .route("/api/journals", get(get_journals))
-        .route("/api/transactions", post(create_new_transaction))
-        .route("/api/transactions/:transaction_id", put(routes::transaction::update_single_transaction))
-        .route("/api/transactions/:transaction_id/documents", post(upload_transaction_document))
-        .route("/api/accounts", get(get_account_list))
-        .route("/api/accounts/:account_name", get(get_account_info))
-        .route("/api/accounts/:account_name/documents", post(upload_account_document))
-        .route("/api/accounts/:account_name/documents", get(get_account_documents))
-        .route("/api/accounts/:account_name/journals", get(get_account_journals))
-        .route("/api/accounts/:account_name/balances", get(get_account_balance_data))
-        .route("/api/accounts/:account_name/balances", post(create_account_balance))
-        .route("/api/accounts/batch-balances", post(create_batch_account_balances))
-        .route("/api/documents", get(get_documents))
-        .route("/api/documents/:file_path", get(download_document))
-        .route("/api/commodities", get(get_all_commodities))
-        .route("/api/commodities/:commodity_name", get(get_single_commodity))
-        .route("/api/statistic/summary", get(get_statistic_summary))
-        .route("/api/statistic/graph", get(get_statistic_graph))
-        .route("/api/statistic/:account_type", get(get_statistic_rank_detail_by_account_type))
-        .route("/api/budgets", get(get_budget_list))
-        .route("/api/budgets/:budget_name", get(get_budget_info))
-        .route("/api/budgets/:budget_name/interval/:year/:month", get(get_budget_interval_detail))
-        .route("/api/plugins", get(routes::plugin::plugin_list))
-        .layer(CorsLayer::permissive())
-        .layer(DefaultBodyLimit::disable())
-        .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */))
-        .with_state(AppState {
-            ledger,
-            broadcaster,
-            reload_sender,
-        });
-
-    let app = if let Some((username, password)) = basic_credential {
-        info!("web basic auth is enabled with username {}", &username);
-        app.layer(ValidateRequestHeaderLayer::basic(&username, password.as_deref().unwrap_or_default()))
-    } else {
-        app
-    };
-
-    #[cfg(feature = "frontend")]
-    {
-        app.fallback(routes::frontend::serve_frontend)
-    }
-    #[cfg(not(feature = "frontend"))]
-    {
-        app.fallback(routes::common::backend_only_info)
+pub fn create_server_app(opts: ServeConfig, ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>) -> ServerApp {
+    ServerApp {
+        opts,
+        ledger,
+        broadcaster,
+        reload_sender,
     }
 }
 
@@ -336,5 +378,3 @@ async fn update_checker(broadcast: Arc<Broadcaster>) -> ServerResult<()> {
     }
     Ok(())
 }
-
-pub type ApiResult<T> = ServerResult<ResponseWrapper<T>>;

@@ -3,20 +3,17 @@ import { useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { basicInfoFetcher, onlineAtom, updatableVersionAtom } from './states/basic';
-import { useSWRConfig } from 'swr';
 import { Router } from './router';
 import { useSetAtom } from 'jotai';
 import { errorsFetcher } from './states/errors';
 import { accountFetcher } from './states/account';
 import { commoditiesFetcher } from './states/commodity';
 import { journalFetcher } from './states/journals';
-import { serverBaseUrl } from './global.ts';
 import Sidebar from './layout/Sidebar.tsx';
 import { Nav } from './layout/Nav.tsx';
 import { toast } from 'sonner';
 
 export default function App() {
-  const { mutate } = useSWRConfig();
   const { i18n } = useTranslation();
   const [lang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
 
@@ -36,7 +33,7 @@ export default function App() {
   }, [i18n, lang]);
 
   useEffect(() => {
-    let events = new EventSource(serverBaseUrl + '/api/sse');
+    let events = new EventSource('/api/sse');
     events.onmessage = (event) => {
       console.log(event);
       const data = JSON.parse(event.data);
@@ -47,7 +44,6 @@ export default function App() {
             description: 'reloading latest ledger info',
           });
 
-          mutate('/api/for-new-transaction');
           refreshErrors();
           refreshAccounts();
           refreshBasicInfo();
@@ -74,7 +70,7 @@ export default function App() {
         description: 'Client can not connect to server',
       });
     };
-  }, [mutate]);
+  }, []);
 
   return (
     <div className="grid h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[220px_1fr]">

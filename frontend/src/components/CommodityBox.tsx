@@ -5,9 +5,9 @@ interface Props {
   name: string;
   total_amount: string;
   operating_currency: boolean;
-  latest_price_amount?: string;
-  latest_price_commodity?: string;
-  latest_price_date?: string;
+  latest_price_amount?: string | null;
+  latest_price_commodity?: string | null;
+  latest_price_date?: string | null;
 }
 
 export default function CommodityBox(props: Props) {

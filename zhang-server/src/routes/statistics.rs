@@ -1,22 +1,22 @@
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use chrono::Utc;
+use gotcha::api;
 use itertools::Itertools;
-use tokio::sync::RwLock;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, AccountType, Flag};
-use zhang_core::ledger::Ledger;
 use zhang_core::utils::calculable::Calculable;
 use zhang_core::utils::date_range::NaiveDateRange;
 
 use crate::request::{StatisticGraphRequest, StatisticRequest};
 use crate::response::{ReportRankItemResponse, ResponseWrapper, StatisticGraphResponse, StatisticRankResponse, StatisticSummaryResponse};
+use crate::state::SharedLedger;
 use crate::ApiResult;
 
-pub async fn get_statistic_summary(ledger: State<Arc<RwLock<Ledger>>>, params: Query<StatisticRequest>) -> ApiResult<StatisticSummaryResponse> {
+#[api(group = "statistic")]
+pub async fn get_statistic_summary(ledger: State<SharedLedger>, params: Query<StatisticRequest>) -> ApiResult<StatisticSummaryResponse> {
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
@@ -86,14 +86,16 @@ pub async fn get_statistic_summary(ledger: State<Arc<RwLock<Ledger>>>, params: Q
     ResponseWrapper::json(StatisticSummaryResponse {
         from: params.from,
         to: params.to,
-        balance,
-        liability,
-        income,
-        expense,
+        balance: balance.into(),
+        liability: liability.into(),
+        income: income.into(),
+        expense: expense.into(),
         transaction_number: trx_number as i64,
     })
 }
-pub async fn get_statistic_graph(ledger: State<Arc<RwLock<Ledger>>>, params: Query<StatisticGraphRequest>) -> ApiResult<StatisticGraphResponse> {
+
+#[api(group = "statistic")]
+pub async fn get_statistic_graph(ledger: State<SharedLedger>, params: Query<StatisticGraphRequest>) -> ApiResult<StatisticGraphResponse> {
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
@@ -116,7 +118,7 @@ pub async fn get_statistic_graph(ledger: State<Arc<RwLock<Ledger>>>, params: Que
             }
         }
         let balance = balances.calculate(params.to.with_timezone(timezone), &mut operations)?;
-        dated_balance.insert(date, balance);
+        dated_balance.insert(date, balance.into());
     }
 
     let mut dated_change = HashMap::new();
@@ -135,7 +137,7 @@ pub async fn get_statistic_graph(ledger: State<Arc<RwLock<Ledger>>>, params: Que
         let mut r = HashMap::new();
         for (account_type, currency_store) in account_type_store.into_iter() {
             let amount = currency_store.calculate(datetime.with_timezone(timezone), &mut operations)?;
-            r.insert(account_type, amount);
+            r.insert(account_type, amount.into());
         }
         dated_change_ret.insert(date, r);
     }
@@ -148,8 +150,9 @@ pub async fn get_statistic_graph(ledger: State<Arc<RwLock<Ledger>>>, params: Que
     })
 }
 
+#[api(group = "statistic")]
 pub async fn get_statistic_rank_detail_by_account_type(
-    ledger: State<Arc<RwLock<Ledger>>>, paths: Path<(String,)>, params: Query<StatisticRequest>,
+    ledger: State<SharedLedger>, paths: Path<(String,)>, params: Query<StatisticRequest>,
 ) -> ApiResult<StatisticRankResponse> {
     let account_type = AccountType::from_str(&paths.0 .0)?;
     let ledger = ledger.read().await;
@@ -181,7 +184,10 @@ pub async fn get_statistic_rank_detail_by_account_type(
         .into_iter()
         .map(|(account, amounts)| ReportRankItemResponse {
             account,
-            amount: amounts.calculate(params.to.with_timezone(timezone), &mut operations).expect("cannot calculate"),
+            amount: amounts
+                .calculate(params.to.with_timezone(timezone), &mut operations)
+                .expect("cannot calculate")
+                .into(),
         })
         .sorted_by(|a, b| a.amount.calculated.number.cmp(&b.amount.calculated.number))
         .collect_vec();
@@ -189,6 +195,6 @@ pub async fn get_statistic_rank_detail_by_account_type(
         from: params.from.naive_local(),
         to: params.to.naive_local(),
         detail,
-        top_transactions,
+        top_transactions: top_transactions.into_iter().map(|it| it.into()).collect_vec(),
     })
 }

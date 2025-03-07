@@ -1,20 +1,17 @@
 use std::convert::Infallible;
-use std::sync::Arc;
 
 use async_stream::try_stream;
 use axum::extract::{Query, State};
 use axum::response::sse::{Event, KeepAlive};
 use axum::response::Sse;
 use futures_util::Stream;
+use gotcha::api;
 use itertools::Itertools;
-use tokio::sync::RwLock;
-use zhang_core::domains::schemas::{ErrorDomain, OptionDomain};
-use zhang_core::ledger::Ledger;
 
-use crate::broadcast::Broadcaster;
 use crate::request::JournalRequest;
-use crate::response::{BasicInfo, Pageable, ResponseWrapper};
-use crate::{ApiResult, ReloadSender};
+use crate::response::{BasicInfo, ErrorEntity, OptionEntity, Pageable, ResponseWrapper};
+use crate::state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
+use crate::ApiResult;
 
 pub async fn backend_only_info() -> &'static str {
     "hello zhang,\n\
@@ -22,8 +19,8 @@ pub async fn backend_only_info() -> &'static str {
     try to enable the feature and compile again"
 }
 
-pub async fn sse(broadcaster: State<Arc<Broadcaster>>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let mut receiver = broadcaster.new_client().await;
+pub async fn sse(broadcaster: State<SharedBroadcaster>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let mut receiver = broadcaster.0.new_client().await;
     Sse::new(try_stream! {
         loop {
             if let Some(event) = receiver.recv().await { yield event; }
@@ -32,12 +29,14 @@ pub async fn sse(broadcaster: State<Arc<Broadcaster>>) -> Sse<impl Stream<Item =
     .keep_alive(KeepAlive::default())
 }
 
-pub async fn reload(reload_sender: State<Arc<ReloadSender>>) -> ApiResult<String> {
-    reload_sender.0 .0.try_send(1).ok();
+#[api(group = "common")]
+pub async fn reload(State(reload_sender): State<SharedReloadSender>) -> ApiResult<String> {
+    reload_sender.reload();
     ResponseWrapper::json("Ok".to_string())
 }
 
-pub async fn get_basic_info(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<BasicInfo> {
+#[api(group = "common")]
+pub async fn get_basic_info(ledger: State<SharedLedger>) -> ApiResult<BasicInfo> {
     let ledger = ledger.read().await;
     let operations = ledger.operations();
 
@@ -48,7 +47,8 @@ pub async fn get_basic_info(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Bas
     })
 }
 
-pub async fn get_errors(ledger: State<Arc<RwLock<Ledger>>>, params: Query<JournalRequest>) -> ApiResult<Pageable<ErrorDomain>> {
+#[api(group = "error")]
+pub async fn get_errors(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<ErrorEntity>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
     let errors = operations.errors()?;
@@ -58,18 +58,20 @@ pub async fn get_errors(ledger: State<Arc<RwLock<Ledger>>>, params: Query<Journa
         .skip(params.offset() as usize)
         .take(params.limit() as usize)
         .cloned()
+        .map(|it| it.into())
         .collect_vec();
     ResponseWrapper::json(Pageable::new(total_count as u32, params.page(), params.limit(), ret))
 }
 
-pub async fn get_all_options(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<Vec<OptionDomain>> {
+#[api(group = "common")]
+pub async fn get_all_options(ledger: State<SharedLedger>) -> ApiResult<Vec<OptionEntity>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
     let options = operations.options()?;
-    ResponseWrapper::json(options)
+    ResponseWrapper::json(options.into_iter().map(|it| it.into()).collect_vec())
 }
 
-pub async fn get_store_data(ledger: State<Arc<RwLock<Ledger>>>) -> ApiResult<serde_json::Value> {
+pub async fn get_store_data(ledger: State<SharedLedger>) -> ApiResult<serde_json::Value> {
     let ledger = ledger.read().await;
     let store = ledger.store.read().unwrap();
     let value = serde_json::to_value(&*store).unwrap();

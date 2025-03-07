@@ -1,11 +1,10 @@
-import { BudgetListItem } from '../../rest-model';
 import Amount from '../Amount';
 import BigNumber from 'bignumber.js';
 import BackgroundProgress from '../basic/BackgroundProgress';
 import { useNavigate } from 'react-router';
 import { TableCell } from '../ui/table';
 import { TableRow } from '../ui/table';
-
+import { BudgetListItem } from '@/api/types';
 interface Props extends BudgetListItem {}
 
 export default function BudgetLine(props: Props) {
