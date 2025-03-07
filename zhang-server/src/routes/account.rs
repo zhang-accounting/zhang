@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::str::FromStr;
 
 use axum::extract::{Multipart, Path, State};
@@ -9,7 +8,7 @@ use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, BalanceCheck, BalancePad, Currency, Date, Directive, Document, ZhangString};
+use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Document, ZhangString};
 use zhang_core::utils::calculable::Calculable;
 
 use crate::request::AccountBalanceRequest;
@@ -108,7 +107,7 @@ pub async fn upload_account_document(
 
         documents.push(Directive::Document(Document {
             date: Date::now(&ledger_stage.options.timezone),
-            account: Account::from_str(&account_name)?.into(),
+            account: Account::from_str(&account_name)?,
             filename: ZhangString::QuoteString(striped_path_string),
             tags: None,
             links: None,
@@ -195,7 +194,7 @@ pub async fn create_account_balance(
     let balance = match payload {
         AccountBalanceRequest::Check { amount, .. } => Directive::BalanceCheck(BalanceCheck {
             date: Date::now(&ledger.options.timezone),
-            account: Account::from_str(&target_account)?.into(),
+            account: Account::from_str(&target_account)?,
             amount: Amount {
                 number: amount.number,
                 currency: amount.commodity,
@@ -204,13 +203,13 @@ pub async fn create_account_balance(
         }),
         AccountBalanceRequest::Pad { amount, pad, .. } => Directive::BalancePad(BalancePad {
             date: Date::now(&ledger.options.timezone),
-            account: Account::from_str(&target_account)?.into(),
+            account: Account::from_str(&target_account)?,
             amount: Amount {
                 number: amount.number,
                 currency: amount.commodity,
             },
             meta: Default::default(),
-            pad: Account::from_str(&pad)?.into(),
+            pad: Account::from_str(&pad)?,
         }),
     };
 
@@ -229,7 +228,7 @@ pub async fn create_batch_account_balances(
         let balance = match balance {
             AccountBalanceRequest::Check { account_name, amount } => Directive::BalanceCheck(BalanceCheck {
                 date: Date::now(&ledger.options.timezone),
-                account: Account::from_str(&account_name)?.into(),
+                account: Account::from_str(&account_name)?,
                 amount: Amount {
                     number: amount.number,
                     currency: amount.commodity,
@@ -238,13 +237,13 @@ pub async fn create_batch_account_balances(
             }),
             AccountBalanceRequest::Pad { account_name, amount, pad } => Directive::BalancePad(BalancePad {
                 date: Date::now(&ledger.options.timezone),
-                account: Account::from_str(&account_name)?.into(),
+                account: Account::from_str(&account_name)?,
                 amount: Amount {
                     number: amount.number,
                     currency: amount.commodity,
                 },
                 meta: Default::default(),
-                pad: Account::from_str(&pad)?.into(),
+                pad: Account::from_str(&pad)?,
             }),
         };
         directives.push(balance);

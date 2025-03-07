@@ -326,13 +326,12 @@ pub async fn start_server(
 }
 
 pub fn create_server_app(opts: ServeConfig, ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>) -> ServerApp {
-    let app = ServerApp {
+    ServerApp {
         opts,
         ledger,
         broadcaster,
         reload_sender,
-    };
-    app
+    }
 }
 
 async fn version_report_task() -> ServerResult<()> {
