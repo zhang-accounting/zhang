@@ -16,7 +16,11 @@ export default function SingleCommodity() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
   let { commodityName } = useParams();
 
-  const { value: commodity, error, loading } = useAsync(async () => {
+  const {
+    value: commodity,
+    error,
+    loading,
+  } = useAsync(async () => {
     const res = await retrieveCommodityInfo({ commodity_name: commodityName ?? '' });
     return res.data.data;
   }, [commodityName]);

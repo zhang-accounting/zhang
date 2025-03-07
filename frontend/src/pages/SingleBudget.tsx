@@ -133,7 +133,9 @@ function SingleBudget() {
                   <TableCell>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</TableCell>
                   <TableCell>{'event_type' in it ? it.event_type : <PayeeNarration payee={it.payee} narration={it.narration} />}</TableCell>
                   <TableCell>{!('event_type' in it) && <Badge>{it.account}</Badge>}</TableCell>
-                  <TableCell style={{ textAlign: 'end' }}>{'event_type' in it && <Amount amount={it.amount?.number!} currency={it.amount?.currency!} />}</TableCell>
+                  <TableCell style={{ textAlign: 'end' }}>
+                    {'event_type' in it && <Amount amount={it.amount?.number!} currency={it.amount?.currency!} />}
+                  </TableCell>
                   <TableCell style={{ textAlign: 'end' }}>
                     {!('event_type' in it) && <Amount amount={it.inferred_unit_number} currency={it.inferred_unit_commodity} />}
                   </TableCell>

@@ -164,7 +164,7 @@ function SingleAccount() {
                   <>
                     <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
                     <div className="grid grid-cols-1 xs:grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
-                      <AccountDocumentUpload url={`/api/accounts/${accountName}/documents`} />
+                      <AccountDocumentUpload id={accountName ?? ''} type="account" />
                       {(data.data ?? []).map((document, idx) => (
                         <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} uri={document.path} filename={document.path} />
                       ))}

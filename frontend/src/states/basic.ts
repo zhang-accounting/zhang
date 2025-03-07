@@ -3,8 +3,7 @@ import { atomWithRefresh, loadable } from 'jotai/utils';
 import { openAPIFetcher } from '../api/fetcher.ts';
 import { loadable_unwrap } from './index';
 
-const fetchBaseInfo = openAPIFetcher.path('/api/info').method('get').create()
-
+const fetchBaseInfo = openAPIFetcher.path('/api/info').method('get').create();
 
 export const onlineAtom = atom<boolean>(false);
 export const updatableVersionAtom = atom<string | undefined>(undefined);

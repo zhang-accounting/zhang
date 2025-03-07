@@ -1,11 +1,10 @@
-import axios from 'axios';
+import { retrieveFile, updateFile } from '@/api/requests.ts';
+import CodeMirror from '@uiw/react-codemirror';
 import { Buffer } from 'buffer';
 import { useEffect, useState } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
-import { fetcher, serverBaseUrl } from '../global.ts';
-import CodeMirror from '@uiw/react-codemirror';
-import { Button } from './ui/button.tsx';
 import { toast } from 'sonner';
+import { Button } from './ui/button.tsx';
+import { useAsync } from 'react-use';
 
 interface Props {
   name?: string;
@@ -13,25 +12,21 @@ interface Props {
 }
 
 export default function SingleFileEdit({ path }: Props) {
-  const { mutate } = useSWRConfig();
-
   let encodedPath = Buffer.from(path).toString('base64');
-  const { data, error } = useSWR<{ content: string; path: string }>(`/api/files/${encodedPath}`, fetcher);
 
-  const onUpdate = () => {
-    axios
-      .put(`${serverBaseUrl}/api/files/${encodedPath}`, {
-        content: content,
-      })
-      .then(function () {
-        mutate(`/api/files/${encodedPath}`);
-        toast.success('File updated', {
-          description: 'Ledger will be refreshed in a moment',
-        });
-      })
-      .catch(function (error) {
-        console.log(error);
-      });
+  const { value: data, error } = useAsync(async () => {
+    const response = await retrieveFile({ file_path: encodedPath });
+    return response.data.data;
+  });
+
+  const onUpdate = async () => {
+    await updateFile({
+      file_path: path,
+      content: content,
+    });
+    toast.success('File updated', {
+      description: 'Ledger will be refreshed in a moment',
+    });
   };
 
   const [content, setContent] = useState('');

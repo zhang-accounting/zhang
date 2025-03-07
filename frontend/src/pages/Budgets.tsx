@@ -37,10 +37,14 @@ export default function Budgets() {
     ]);
   }, [date]);
 
-  const { loading, error, value: budgets } = useAsync(async() => {
+  const {
+    loading,
+    error,
+    value: budgets,
+  } = useAsync(async () => {
     const res = await retrieveBudgets({ year: date.getFullYear(), month: date.getMonth() + 1 });
     return res.data.data;
-  }, [date])
+  }, [date]);
 
   if (error) return <div>failed to load</div>;
   if (loading || !budgets) return <div>loading...</div>;

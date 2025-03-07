@@ -20,9 +20,9 @@ import { useTranslation } from 'react-i18next';
 import { useAtomValue } from 'jotai';
 import { errorCountAtom } from '@/states/errors';
 import { titleAtom, updatableVersionAtom } from '@/states/basic';
-import { axiosInstance } from '@/global';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { reloadLedger } from '@/api/requests';
 
 export const DASHBOARD_LINK = {
   icon: CircleGauge,
@@ -101,7 +101,7 @@ export default function Sidebar() {
   const ledgerTitle = useAtomValue(titleAtom);
 
   const refreshLedger = async () => {
-    await axiosInstance.post('/api/reload');
+    await reloadLedger({});
   };
   const sendReloadEvent = () => {
     toast.info('[Ledger Reload] reload event is sent', {

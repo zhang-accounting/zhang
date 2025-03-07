@@ -6,8 +6,7 @@ import { groupBy } from 'lodash-es';
 import { openAPIFetcher } from '../api/fetcher';
 import { loadable_unwrap } from './index';
 
-const findJournals = openAPIFetcher.path('/api/journals').method('get').create()
-
+const findJournals = openAPIFetcher.path('/api/journals').method('get').create();
 
 export const journalKeywordAtom = atom('');
 export const journalPageAtom = atom(1);
@@ -22,8 +21,6 @@ export const journalFetcher = atomWithRefresh(async (get) => {
 
   return (await findJournals({ page, keyword, tags, links, size: 100 })).data.data;
 });
-
-
 
 export const journalAtom = loadable(journalFetcher);
 

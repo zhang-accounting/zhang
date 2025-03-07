@@ -21,7 +21,11 @@ function Home() {
   const beginning_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 1);
   const end_time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-  const { loading, error, value: data } = useAsync(async () => {
+  const {
+    loading,
+    error,
+    value: data,
+  } = useAsync(async () => {
     const res = await retrieveStatisticGraph({ from: beginning_time.toISOString(), to: end_time.toISOString(), interval: 'Day' });
     return res.data.data;
   }, []);

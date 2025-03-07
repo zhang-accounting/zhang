@@ -4,7 +4,6 @@ import Amount from '../../components/Amount';
 import { loadable_unwrap } from '../../states';
 import { accountAtom, accountFetcher, accountSelectItemsAtom } from '../../states/account';
 import BigNumber from 'bignumber.js';
-import { axiosInstance } from '../../global.ts';
 import { useAtomValue, useSetAtom } from 'jotai/index';
 import { selectAtom } from 'jotai/utils';
 import { toast } from 'sonner';
@@ -15,6 +14,7 @@ import { Input } from '@/components/ui/input.tsx';
 import { Combobox } from '@/components/ui/combobox.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { cn } from '@/lib/utils.ts';
+import { createBatchBalance } from '@/api/requests';
 
 interface BalanceLineItem {
   commodity: string;
@@ -86,18 +86,18 @@ export default function BatchBalance() {
     const accountsToBalance = accounts
       .filter((account) => account.balanceAmount.trim() !== '')
       .map((account) => ({
-        type: account.pad ? 'Pad' : 'Check',
+        type: account.pad ? ('Pad' as const) : ('Check' as const),
         account_name: account.accountName,
         amount: {
           number: account.balanceAmount,
           commodity: account.commodity,
         },
-        pad: account.pad,
+        pad: account.pad ?? '',
       }));
     toast.info(`Start balance ${accountsToBalance.length} Accounts`);
 
     try {
-      await axiosInstance.post('/api/accounts/batch-balances', accountsToBalance);
+      await createBatchBalance(accountsToBalance);
 
       toast.success('Balance account successfully', {
         description: 'waiting page to refetch latest data',

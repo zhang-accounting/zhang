@@ -2,12 +2,11 @@ import { groupBy, max, min, sortBy } from 'lodash-es';
 import BigNumber from 'bignumber.js';
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from './ui/chart';
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
-import {OpReturnType} from "openapi-typescript-fetch"
+import { OpReturnType } from 'openapi-typescript-fetch';
 import { operations } from '@/api/schemas';
 const COLOR_SET = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
 
-
-type AccountBalanceHistory = OpReturnType<operations['get_account_balance_data']>['data']['balance']
+type AccountBalanceHistory = OpReturnType<operations['get_account_balance_data']>['data']['balance'];
 
 function buildChartConfig(series: { name: string; color: string }[]): ChartConfig {
   return series.reduce(

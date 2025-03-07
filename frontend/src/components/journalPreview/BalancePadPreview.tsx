@@ -29,7 +29,6 @@ export default function BalancePadPreview(props: Props) {
           <p className="line-clamp-1">Pad Account</p>
           <p className="line-clamp-1">{props.data.postings[1].account}</p>
         </DashLine>
-       
       </Section>
       <div className="mx-1 my-4">
         <Section title="Postings">
@@ -48,8 +47,6 @@ export default function BalancePadPreview(props: Props) {
           </>
         </Section>
       </div>
-
-      
     </div>
   );
 }

@@ -29,6 +29,7 @@ pub async fn sse(broadcaster: State<SharedBroadcaster>) -> Sse<impl Stream<Item 
     .keep_alive(KeepAlive::default())
 }
 
+#[api(group = "common")]
 pub async fn reload(State(reload_sender): State<SharedReloadSender>) -> ApiResult<String> {
     reload_sender.reload();
     ResponseWrapper::json("Ok".to_string())

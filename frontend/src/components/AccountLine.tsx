@@ -48,7 +48,7 @@ export default function AccountLine({ data, spacing }: Props) {
             <div onClick={onNavigate} className="cursor-pointer">
               <div className="flex items-center gap-2">
                 <span>{data.val?.alias ?? data.word}</span>
-                {data.val?.status === "Close" && <Badge variant="outline">{data.val?.status}</Badge>}
+                {data.val?.status === 'Close' && <Badge variant="outline">{data.val?.status}</Badge>}
               </div>
 
               {data.val && <span className="text-xs text-gray-500">{data.val?.name}</span>}

@@ -22,7 +22,11 @@ export default function Documents() {
     key: `document-list-layout`,
     defaultValue: 'Grid',
   });
-  const { loading, error, value: documents } = useAsync(async () => {
+  const {
+    loading,
+    error,
+    value: documents,
+  } = useAsync(async () => {
     const res = await retrieveDocuments({});
     return res.data.data;
   }, []);

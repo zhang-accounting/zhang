@@ -1,7 +1,7 @@
 interface Props {
   name: string;
-        plugin_type: ("Processor" | "Mapper" | "Router")[];
-        version: string;
+  plugin_type: ('Processor' | 'Mapper' | 'Router')[];
+  version: string;
 }
 
 export default function PluginBox(props: Props) {

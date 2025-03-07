@@ -110,7 +110,7 @@ export default function TransactionPreview(props: Props) {
               .map((meta, idx) => (
                 <DocumentPreview onClick={() => setLightboxSrc(meta.value)} key={idx} uri={meta.value} filename={meta.value} />
               ))}
-            <AccountDocumentUpload url={`/api/transactions/${props.data.id}/documents`} />
+            <AccountDocumentUpload id={props.data.id} type="transaction" />
           </div>
         </Section>
       </div>

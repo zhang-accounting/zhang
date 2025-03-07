@@ -6,7 +6,7 @@ import { ChartConfig, ChartContainer, ChartTooltipContent, ChartTooltip } from '
 import { OpReturnType } from 'openapi-typescript-fetch';
 import { operations } from '@/api/schemas';
 import { AccountType } from '@/api/types';
-type StatisticGraphResponse = OpReturnType<operations['get_statistic_graph']>['data']
+type StatisticGraphResponse = OpReturnType<operations['get_statistic_graph']>['data'];
 
 const chartConfig = {
   total: {
@@ -28,7 +28,7 @@ interface Props {
   height: number;
 }
 
-export default function ReportGraph({data, height}: Props) {
+export default function ReportGraph({ data, height }: Props) {
   if (data === undefined) return null;
 
   const sequencedDate = sortBy(Object.keys(data.balances), (date) => new Date(date));

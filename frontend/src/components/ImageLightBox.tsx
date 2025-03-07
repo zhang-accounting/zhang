@@ -1,6 +1,5 @@
 import { Buffer } from 'buffer';
 import Lightbox from 'yet-another-react-lightbox';
-import { serverBaseUrl } from '../global.ts';
 
 interface Props {
   src?: string;
@@ -12,7 +11,7 @@ export function ImageLightBox(props: Props) {
     <Lightbox
       slides={[
         {
-          src: props.src ? `${serverBaseUrl}/api/documents/${Buffer.from(props.src).toString('base64')}` : '',
+          src: props.src ? `/api/documents/${Buffer.from(props.src).toString('base64')}` : '',
         },
       ]}
       open={props.src !== undefined}

@@ -1,15 +1,14 @@
-import { useState } from 'react';
-import { accountFetcher, accountSelectItemsAtom } from '../states/account';
-import Amount from './Amount';
+import { createAccountBalance } from '@/api/requests';
 import { useAtomValue } from 'jotai';
 import { useSetAtom } from 'jotai/index';
-import { axiosInstance } from '../global.ts';
-import { TableRow, TableCell } from './ui/table.tsx';
+import { useState } from 'react';
+import { toast } from 'sonner';
+import { accountFetcher, accountSelectItemsAtom } from '../states/account';
+import Amount from './Amount';
+import { Button } from './ui/button.tsx';
 import { Combobox } from './ui/combobox.tsx';
 import { Input } from './ui/input.tsx';
-import { Button } from './ui/button.tsx';
-import { toast } from 'sonner';
-
+import { TableCell, TableRow } from './ui/table.tsx';
 interface Props {
   currentAmount: string;
   commodity: string;
@@ -24,17 +23,16 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
 
   const onSave = async () => {
     try {
-      await axiosInstance.post(`/api/accounts/${accountName}/balances`, {
-        type: padAccount ? 'Pad' : 'Check',
+      await createAccountBalance({
         account_name: accountName,
         amount: {
           number: amount,
           commodity: commodity,
         },
         pad: padAccount,
+        type: padAccount ? 'Pad' : 'Check',
       });
       toast.success('Balance account successfully');
-
       refreshAccounts();
     } catch (e: any) {
       toast.error('Fail to Balance Account', {

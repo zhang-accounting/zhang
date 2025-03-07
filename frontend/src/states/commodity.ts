@@ -6,7 +6,7 @@ import { openAPIFetcher } from '../api/fetcher';
 
 export const FRONTEND_DEFAULT_GROUP = '__ZHANG__FRONTEND_DEFAULT__GROUP__';
 
-const findCommodities = openAPIFetcher.path('/api/commodities').method('get').create()
+const findCommodities = openAPIFetcher.path('/api/commodities').method('get').create();
 
 export const commoditiesFetcher = atomWithRefresh(async () => {
   const ret = (await findCommodities({})).data.data;

@@ -81,14 +81,12 @@ export default function Settings() {
             </TableRow>
           </TableHeader>
           <tbody>
-
             {(options ?? []).map((option) => (
               <TableRow key={option.key}>
                 <TableCell className="m-1">{option.key}</TableCell>
                 <TableCell className="m-1">{option.value}</TableCell>
               </TableRow>
-            ))
-            }
+            ))}
           </tbody>
         </Table>
       </Section>

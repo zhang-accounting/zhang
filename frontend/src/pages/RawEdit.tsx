@@ -11,7 +11,11 @@ import { breadcrumbAtom, titleAtom } from '../states/basic';
 
 function RawEdit() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  const { loading, error, value: data } = useAsync(async () => {
+  const {
+    loading,
+    error,
+    value: data,
+  } = useAsync(async () => {
     const res = await retrieveFiles({});
     return res.data.data;
   }, []);

@@ -7,8 +7,12 @@ export default function StatisticBar() {
   const beginning_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 1);
   const end_time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-  const { value: data, loading, error } = useAsync(async () => {
-    const res =  await retrieveStatisticSummary({ from: beginning_time.toISOString(), to: end_time.toISOString() });
+  const {
+    value: data,
+    loading,
+    error,
+  } = useAsync(async () => {
+    const res = await retrieveStatisticSummary({ from: beginning_time.toISOString(), to: end_time.toISOString() });
     return res.data.data;
   });
 

@@ -3,9 +3,7 @@ import { atom } from 'jotai';
 import { loadable_unwrap } from './index';
 import { openAPIFetcher } from '../api/fetcher';
 
-
-
-const findErrors = openAPIFetcher.path('/api/errors').method('get').create()
+const findErrors = openAPIFetcher.path('/api/errors').method('get').create();
 
 /**
  * the page to current error box

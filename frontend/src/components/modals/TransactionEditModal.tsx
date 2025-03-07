@@ -1,33 +1,31 @@
-import TransactionEditForm from '../TransactionEditForm';
-import { useEffect, useState } from 'react';
-import { axiosInstance } from '../../global.ts';
-import { useAtom } from 'jotai';
-import { editTransactionAtom } from '../../states/journals';
 import { useDisclosure } from '@mantine/hooks';
+import { useAtom } from 'jotai';
+import { useEffect, useState } from 'react';
+import { editTransactionAtom } from '../../states/journals';
+import TransactionEditForm from '../TransactionEditForm';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog.tsx';
 
+import { updateTransaction } from '@/api/requests';
 import { t } from 'i18next';
-import { Button } from '../ui/button.tsx';
 import { toast } from 'sonner';
+import { Button } from '../ui/button.tsx';
+
 export const TransactionEditModal = () => {
   const [isOpen, isOpenHandler] = useDisclosure(false);
   const [editTransaction, setEditTransaction] = useAtom(editTransactionAtom);
   const [data, setData] = useState<any>({});
   const [isValid, setIsValid] = useState<boolean>(false);
-  const onUpdate = () => {
-    axiosInstance
-      .put(`/api/transactions/${editTransaction?.id}`, data)
-      .then(() => {
-        toast.success('transaction is updated');
-        setEditTransaction(undefined);
-        isOpenHandler.close();
-      })
-      .catch(function (error) {
-        toast.error('Fail to update new Transaction', {
-          description: error?.response?.data ?? '',
-        });
-        console.error(error);
+  const onUpdate = async () => {
+    try {
+      await updateTransaction(data);
+      toast.success('transaction is updated');
+      setEditTransaction(undefined);
+      isOpenHandler.close();
+    } catch (error) {
+      toast.error('Fail to update new Transaction', {
+        description: String(error),
       });
+    }
   };
   const onChange = (open: boolean) => {
     if (open === false) {

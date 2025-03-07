@@ -46,7 +46,11 @@ export default function Report() {
     setBreadcrumb([REPORT_LINK]);
   }, []);
 
-  const { value: data, error, loading } = useAsync(async () => {
+  const {
+    value: data,
+    error,
+    loading,
+  } = useAsync(async () => {
     const res = await retrieveStatisticSummary({ from: dateRange[0]!.toISOString(), to: dateRange[1]!.toISOString() });
     return res.data.data;
   }, []);

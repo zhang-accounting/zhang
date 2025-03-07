@@ -4,9 +4,7 @@ import { atomWithRefresh, loadable } from 'jotai/utils';
 import { atom } from 'jotai';
 import { openAPIFetcher } from '../api/fetcher';
 
-
-const findPetsByStatus = openAPIFetcher.path('/api/accounts').method('get').create()
-
+const findPetsByStatus = openAPIFetcher.path('/api/accounts').method('get').create();
 
 export const accountFetcher = atomWithRefresh(async () => {
   return (await findPetsByStatus({})).data.data;
