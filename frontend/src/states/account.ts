@@ -2,7 +2,7 @@ import { loadable_unwrap } from '.';
 import { groupBy } from 'lodash-es';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { atom } from 'jotai';
-import { openAPIFetcher } from '../api/requests';
+import { openAPIFetcher } from '../api/fetcher';
 
 
 const findPetsByStatus = openAPIFetcher.path('/api/accounts').method('get').create()

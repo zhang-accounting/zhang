@@ -1,14 +1,13 @@
+import { JournalItem, JournalTransactionItem } from '@/api/types';
+import { format } from 'date-fns';
 import { atom } from 'jotai';
 import { atomWithRefresh, loadable } from 'jotai/utils';
-import { loadable_unwrap } from './index';
 import { groupBy } from 'lodash-es';
-import { format } from 'date-fns';
-import { openAPIFetcher } from '../api/requests';
-import { operations } from '../api/schemas';
+import { openAPIFetcher } from '../api/fetcher';
+import { loadable_unwrap } from './index';
 
 const findJournals = openAPIFetcher.path('/api/journals').method('get').create()
 
-type JournalItem = operations['get_journals']['responses']['200']['content']['application/json']['data']['records']
 
 export const journalKeywordAtom = atom('');
 export const journalPageAtom = atom(1);

@@ -1,13 +1,12 @@
+import { cn } from '@/lib/utils';
 import { useLocalStorage } from '@mantine/hooks';
+import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 import { useNavigate } from 'react-router';
-import { AccountStatus } from '../rest-model';
 import AccountTrie from '../utils/AccountTrie';
 import Amount from './Amount';
-import { TableCell, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
+import { TableCell, TableRow } from './ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
-import { cn } from '@/lib/utils';
-import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 
 interface Props {
   data: AccountTrie;
@@ -49,7 +48,7 @@ export default function AccountLine({ data, spacing }: Props) {
             <div onClick={onNavigate} className="cursor-pointer">
               <div className="flex items-center gap-2">
                 <span>{data.val?.alias ?? data.word}</span>
-                {data.val?.status === AccountStatus.Close && <Badge variant="outline">{data.val?.status}</Badge>}
+                {data.val?.status === "Close" && <Badge variant="outline">{data.val?.status}</Badge>}
               </div>
 
               {data.val && <span className="text-xs text-gray-500">{data.val?.name}</span>}

@@ -1,4 +1,3 @@
-import { JournalBalanceCheckItem } from '../../../rest-model';
 import { format } from 'date-fns';
 import Amount from '../../Amount';
 import BigNumber from 'bignumber.js';
@@ -10,7 +9,7 @@ import { previewJournalAtom } from '@/states/journals';
 import { LineMenu } from './LineMenu';
 import { ZoomIn } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-
+import { JournalBalanceCheckItem } from '@/api/types';
 interface Props {
   data: JournalBalanceCheckItem;
 }

@@ -1,5 +1,4 @@
 import { format } from 'date-fns';
-import { JournalTransactionItem } from '../../../rest-model';
 import { calculate } from '../../../utils/trx-calculator';
 import Amount from '../../Amount';
 import PayeeNarration from '../../basic/PayeeNarration';
@@ -10,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { LineMenu } from './LineMenu';
 import { Files, Pencil, ZoomIn } from 'lucide-react';
-
+import { JournalTransactionItem } from '@/api/types';
 interface Props {
   data: JournalTransactionItem;
 }

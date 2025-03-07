@@ -1,8 +1,7 @@
-import { fetcher } from '../global.ts';
 import { atom } from 'jotai';
 import { atomWithRefresh, loadable } from 'jotai/utils';
+import { openAPIFetcher } from '../api/fetcher.ts';
 import { loadable_unwrap } from './index';
-import { openAPIFetcher } from '../api/requests';
 
 const fetchBaseInfo = openAPIFetcher.path('/api/info').method('get').create()
 

@@ -50,6 +50,7 @@
     "react-i18next": "^15.0.2",
     "react-router": "^6.23.1",
     "react-router-dom": "^6.23.1",
+    "react-use": "^17.6.0",
     "recharts": "^2.12.7",
     "sonner": "^1.5.0",
     "swr": "^2.2.5",
@@ -59,7 +60,6 @@
     "yet-another-react-lightbox": "^3.18.0"
   },
   "devDependencies": {
-    "openapi-typescript": "^6.7.5",
     "@eslint/js": "^9.11.1",
     "@testing-library/jest-dom": "^6.4.5",
     "@testing-library/react": "^15.0.7",
@@ -84,6 +84,7 @@
     "husky": "^9.0.11",
     "i18next-parser": "^8.13.0",
     "lint-staged": "^15.2.2",
+    "openapi-typescript": "^6.7.5",
     "postcss": "^8.4.47",
     "prettier": "^3.2.5",
     "source-map-explorer": "^2.5.3",

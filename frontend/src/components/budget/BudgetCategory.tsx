@@ -1,5 +1,4 @@
 import { useLocalStorage } from '@mantine/hooks';
-import { BudgetListItem } from '../../rest-model';
 import { Buffer } from 'buffer';
 import BudgetLine from './BudgetLine';
 import BigNumber from 'bignumber.js';
@@ -8,7 +7,7 @@ import BackgroundProgress from '../basic/BackgroundProgress';
 import { TableCell, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-
+import { BudgetListItem } from '@/api/types';
 interface Props {
   name: string;
   items: BudgetListItem[];

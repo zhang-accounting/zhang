@@ -2,7 +2,7 @@ import { loadable_unwrap } from '.';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { groupBy } from 'lodash-es';
 import { atom } from 'jotai';
-import { openAPIFetcher } from '../api/requests';
+import { openAPIFetcher } from '../api/fetcher';
 
 export const FRONTEND_DEFAULT_GROUP = '__ZHANG__FRONTEND_DEFAULT__GROUP__';
 

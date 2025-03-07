@@ -1,5 +1,5 @@
+import { JournalTransactionItem } from '@/api/types';
 import { BigNumber } from 'bignumber.js';
-import { JournalTransactionItem } from '../rest-model';
 
 export interface SummaryItem {
   number: BigNumber;

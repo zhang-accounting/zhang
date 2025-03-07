@@ -1,7 +1,7 @@
-import { JournalItem } from '../../../rest-model';
 import TableViewBalancePadLine from './TableViewBalancePadLine';
 import TableViewTransactionLine from './TableViewTransactionLine';
 import TableViewBalanceCheckLine from './TableViewBalanceCheckLine';
+import { JournalItem } from '@/api/types';
 
 interface Props {
   data: JournalItem;

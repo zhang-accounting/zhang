@@ -1,15 +1,15 @@
-import { Account, CalculatedAmountResponse } from '../rest-model';
+import { Account, AccountListItem } from '@/api/types';
 import { BigNumber } from 'bignumber.js';
 
 export default class AccountTrie {
   children: { [layer: string]: AccountTrie } = {};
-  val?: Account;
+  val?: AccountListItem;
   word?: string;
   path: string = '';
   isLeaf?: boolean | undefined = true;
   amount: MultiCommodityAmount = new MultiCommodityAmount();
 
-  insert(account: Account) {
+  insert(account: AccountListItem) {
     let node: AccountTrie = this;
     let word: string = '';
     for (const ch of account.name.split(':')) {
@@ -45,7 +45,7 @@ export class MultiCommodityAmount {
     }
     this.data[commodity] = this.data[commodity].plus(amount);
   }
-  merge(other: CalculatedAmountResponse) {
+  merge(other: Account["amount"]) {
     this.total = this.total.plus(other.calculated.number);
     this.commodity = other.calculated.currency;
     Object.keys(other.detail).forEach((commodity) => {

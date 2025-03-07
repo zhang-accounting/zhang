@@ -1,16 +1,15 @@
-import useSWR from 'swr';
-import ErrorBox from '../components/ErrorBox';
-import Section from '../components/Section';
-import StatisticBar from '../components/StatisticBar';
-import { StatisticGraphResponse } from '../rest-model';
-import ReportGraph from '../components/ReportGraph';
+import { retrieveStatisticGraph } from '@/api/requests.ts';
+import { DASHBOARD_LINK } from '@/layout/Sidebar.tsx';
 import { useDocumentTitle } from '@mantine/hooks';
 import { useAtomValue, useSetAtom } from 'jotai';
-import { errorCountAtom } from '../states/errors';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
-import { fetcher } from '../global.ts';
 import { useEffect } from 'react';
-import { DASHBOARD_LINK } from '@/layout/Sidebar.tsx';
+import { useAsync } from 'react-use';
+import ErrorBox from '../components/ErrorBox';
+import ReportGraph from '../components/ReportGraph';
+import Section from '../components/Section';
+import StatisticBar from '../components/StatisticBar';
+import { breadcrumbAtom, titleAtom } from '../states/basic';
+import { errorCountAtom } from '../states/errors';
 
 function Home() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
@@ -22,17 +21,17 @@ function Home() {
   const beginning_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 1);
   const end_time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-  const { data, error } = useSWR<StatisticGraphResponse>(
-    `/api/statistic/graph?from=${beginning_time.toISOString()}&to=${end_time.toISOString()}&interval=Day`,
-    fetcher,
-  );
+  const { loading, error, value: data } = useAsync(async () => {
+    const res = await retrieveStatisticGraph({ from: beginning_time.toISOString(), to: end_time.toISOString(), interval: 'Day' });
+    return res.data.data;
+  }, []);
 
   useEffect(() => {
     setBreadcrumb([DASHBOARD_LINK]);
   }, []);
 
   if (error) return <div>failed to load</div>;
-  if (!data) return <>loading</>;
+  if (loading || !data) return <div>loading...</div>;
   return (
     <div className="flex flex-col gap-4">
       <StatisticBar />

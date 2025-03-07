@@ -4,11 +4,6 @@
  */
 
 
-/** OneOf type helpers */
-type Without<T, U> = { [P in Exclude<keyof T, keyof U>]?: never };
-type XOR<T, U> = (T | U) extends object ? (Without<T, U> & U) | (Without<U, T> & T) : T | U;
-type OneOf<T extends any[]> = T extends [infer Only] ? Only : T extends [infer A, infer B, ...infer Rest] ? OneOf<[XOR<A, B>, ...Rest]> : never;
-
 export interface paths {
   "/api/accounts": {
     /** Get Account List */
@@ -21,10 +16,14 @@ export interface paths {
   "/api/accounts/:account_name/balances": {
     /** Get Account Balance Data */
     get: operations["get_account_balance_data"];
+    /** Create Account Balance */
+    post: operations["create_account_balance"];
   };
   "/api/accounts/:account_name/documents": {
     /** Get Account Documents */
     get: operations["get_account_documents"];
+    /** Upload Account Document */
+    post: operations["upload_account_document"];
   };
   "/api/accounts/:account_name/journals": {
     /** Get Account Journals */
@@ -111,6 +110,10 @@ export interface paths {
   "/api/transactions/:transaction_id": {
     /** Update Single Transaction */
     put: operations["update_single_transaction"];
+  };
+  "/api/transactions/:transaction_id/documents": {
+    /** Upload Transaction Document */
+    post: operations["upload_transaction_document"];
   };
 }
 
@@ -207,10 +210,55 @@ export interface operations {
         content: {
           "application/json": {
             data: {
-              [key: string]: string;
+              balance: {
+                [key: string]: {
+                    balance: {
+                      commodity: string;
+                      number: string;
+                    };
+                    /** Format: date */
+                    date: string;
+                  }[];
+              };
             };
           };
         };
+      };
+    };
+  };
+  /** Create Account Balance */
+  create_account_balance: {
+    parameters: {
+      path: {
+        account_name: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          account_name: string;
+          amount: {
+            commodity: string;
+            number: string;
+          };
+          /** @enum {string} */
+          type: "Check";
+        } | {
+          account_name: string;
+          amount: {
+            commodity: string;
+            number: string;
+          };
+          pad: string;
+          /** @enum {string} */
+          type: "Pad";
+        };
+      };
+    };
+    responses: {
+      /** @description no content */
+      204: {
+        content: never;
       };
     };
   };
@@ -237,6 +285,26 @@ export interface operations {
               })[];
           };
         };
+      };
+    };
+  };
+  /** Upload Account Document */
+  upload_account_document: {
+    parameters: {
+      path: {
+        account_name: string;
+      };
+    };
+    /** @description Multipart form data */
+    requestBody: {
+      content: {
+        "multipart/form-data": unknown;
+      };
+    };
+    responses: {
+      /** @description no content */
+      204: {
+        content: never;
       };
     };
   };
@@ -274,22 +342,24 @@ export interface operations {
   create_batch_account_balances: {
     requestBody: {
       content: {
-        "application/json": OneOf<[{
+        "application/json": ({
             account_name: string;
             amount: {
               commodity: string;
               number: string;
             };
-            type: Record<string, never>;
-          }, {
+            /** @enum {string} */
+            type: "Check";
+          } | {
             account_name: string;
             amount: {
               commodity: string;
               number: string;
             };
             pad: string;
-            type: Record<string, never>;
-          }]>[];
+            /** @enum {string} */
+            type: "Pad";
+          })[];
       };
     };
     responses: {
@@ -401,7 +471,7 @@ export interface operations {
       200: {
         content: {
           "application/json": {
-            data: (OneOf<[{
+            data: (({
                 amount: {
                   /** @description the currency of the amount */
                   currency: string;
@@ -411,8 +481,9 @@ export interface operations {
                 /** @enum {string} */
                 event_type: "AddAssignedAmount" | "Transfer";
                 timestamp: number;
-                type: Record<string, never>;
-              }, {
+                /** @enum {string} */
+                type: "BudgetEvent";
+              }) | ({
                 account: string;
                 account_after_commodity: string;
                 account_after_number: string;
@@ -424,8 +495,9 @@ export interface operations {
                 payee?: string | null;
                 timestamp: number;
                 trx_id: string;
-                type: Record<string, never>;
-              }]>)[];
+                /** @enum {string} */
+                type: "Posting";
+              }))[];
           };
         };
       };
@@ -684,7 +756,7 @@ export interface operations {
             data: {
               current_page: number;
               page_size: number;
-              records: (OneOf<[{
+              records: (({
                   /** Format: date-time */
                   datetime: string;
                   flag: string;
@@ -713,8 +785,9 @@ export interface operations {
                     })[];
                   sequence: number;
                   tags: string[];
-                  type: Record<string, never>;
-                }, {
+                  /** @enum {string} */
+                  type: "Transaction";
+                }) | ({
                   /** Format: date-time */
                   datetime: string;
                   /** Format: uuid */
@@ -735,9 +808,10 @@ export interface operations {
                       unit_number?: string | null;
                     })[];
                   sequence: number;
-                  type: Record<string, never>;
+                  /** @enum {string} */
+                  type: "BalanceCheck";
                   type_: string;
-                }, {
+                }) | ({
                   /** Format: date-time */
                   datetime: string;
                   /** Format: uuid */
@@ -758,9 +832,10 @@ export interface operations {
                       unit_number?: string | null;
                     })[];
                   sequence: number;
-                  type: Record<string, never>;
+                  /** @enum {string} */
+                  type: "BalancePad";
                   type_: string;
-                }]>)[];
+                }))[];
               total_count: number;
               total_page: number;
             };
@@ -874,10 +949,36 @@ export interface operations {
           "application/json": {
             data: {
               balances: {
-                [key: string]: string;
+                [key: string]: {
+                  /** @description the calculated amount */
+                  calculated: {
+                    /** @description the currency of the amount */
+                    currency: string;
+                    /** @description the number of the amount */
+                    number: string;
+                  };
+                  /** @description the detail of the calculated amount */
+                  detail: {
+                    [key: string]: string;
+                  };
+                };
               };
               changes: {
-                [key: string]: string;
+                [key: string]: {
+                  [key: string]: {
+                    /** @description the calculated amount */
+                    calculated: {
+                      /** @description the currency of the amount */
+                      currency: string;
+                      /** @description the number of the amount */
+                      number: string;
+                    };
+                    /** @description the detail of the calculated amount */
+                    detail: {
+                      [key: string]: string;
+                    };
+                  };
+                };
               };
               /** Format: date-time */
               from: string;
@@ -1036,6 +1137,30 @@ export interface operations {
         content: {
           "application/json": {
             data?: Record<string, never>;
+          };
+        };
+      };
+    };
+  };
+  /** Upload Transaction Document */
+  upload_transaction_document: {
+    parameters: {
+      path: {
+        transaction_id: string;
+      };
+    };
+    /** @description Multipart form data */
+    requestBody: {
+      content: {
+        "multipart/form-data": unknown;
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          "application/json": {
+            data: string;
           };
         };
       };

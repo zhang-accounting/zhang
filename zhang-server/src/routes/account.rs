@@ -13,7 +13,7 @@ use zhang_ast::{Account, BalanceCheck, BalancePad, Currency, Date, Directive, Do
 use zhang_core::utils::calculable::Calculable;
 
 use crate::request::AccountBalanceRequest;
-use crate::response::{AccountBalanceItemResponse, AccountInfoResponse, AccountJournalEntity, AccountResponse, AmountResponse, Created, DocumentResponse, ResponseWrapper};
+use crate::response::{AccountBalanceHistoryResponse, AccountBalanceItemResponse, AccountInfoResponse, AccountJournalEntity, AccountResponse, AmountResponse, Created, DocumentResponse, ResponseWrapper};
 use crate::{ApiResult, ServerResult};
 use crate::state::{SharedLedger, SharedReloadSender};
 
@@ -120,14 +120,12 @@ pub async fn upload_account_document(
 
 #[api(group = "account")]
 #[debug_handler]
-pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<HashMap<Currency, Vec<AccountBalanceItemResponse>>> {
+pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<AccountBalanceHistoryResponse> {
     let account_name = params.0 .0;
     let ledger = ledger.read().await;
     let operations = ledger.operations();
 
-    let vec = operations.single_account_all_balances(&account_name)?;
-    ResponseWrapper::json(
-        vec.into_iter()
+    let vec = operations.single_account_all_balances(&account_name)?.into_iter()
             .map(|(commodity, balance_history)| {
                 let data = balance_history
                     .into_iter()
@@ -141,7 +139,11 @@ pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<
                     .collect_vec();
                 (commodity, data)
             })
-            .collect(),
+            .collect();
+    ResponseWrapper::json(
+        AccountBalanceHistoryResponse {
+            balance: vec,
+        }
     )
 }
 

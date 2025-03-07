@@ -1,15 +1,9 @@
-import { fetcher } from '../global.ts';
-import { Pageable, SpanInfo } from '../rest-model';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { atom } from 'jotai';
 import { loadable_unwrap } from './index';
-import { openAPIFetcher } from '../api/requests';
-export interface LedgerError {
-  id: string;
-  span: SpanInfo;
-  error_type: string;
-  metas: { [key: string]: string };
-}
+import { openAPIFetcher } from '../api/fetcher';
+
+
 
 const findErrors = openAPIFetcher.path('/api/errors').method('get').create()
 

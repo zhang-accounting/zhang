@@ -1,8 +1,7 @@
 import { Buffer } from 'buffer';
-import { Document } from '../../rest-model';
 import { isDocumentAnImage } from '../../utils/documents';
 import { serverBaseUrl } from '../../global.ts';
-
+import { Document } from '@/api/types';
 export interface Props extends Document {
   onClick: (path: string) => void;
 }

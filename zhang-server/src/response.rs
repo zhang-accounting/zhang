@@ -9,7 +9,7 @@ use gotcha::{Responsable, Schematic};
 use serde::Serialize;
 use uuid::Uuid;
 use zhang_ast::amount::{Amount, CalculatedAmount};
-use zhang_ast::AccountType;
+use zhang_ast::{AccountType, Currency};
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, MetaDomain, OptionDomain};
 use zhang_core::plugin::PluginType;
 use zhang_core::store::{BudgetEvent, PostingDomain};
@@ -661,3 +661,8 @@ impl From<OptionDomain> for OptionEntity {
     }
 }
 
+
+#[derive(Serialize, Schematic)]
+pub struct AccountBalanceHistoryResponse {
+    pub balance: HashMap<Currency, Vec<AccountBalanceItemResponse>>,
+}
