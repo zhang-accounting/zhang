@@ -1,4 +1,3 @@
-use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::header;
@@ -9,8 +8,6 @@ use bytes::Bytes;
 use gotcha::api;
 use itertools::Itertools;
 use log::info;
-use tokio::sync::RwLock;
-use zhang_core::ledger::Ledger;
 
 use crate::response::{DocumentResponse, ResponseWrapper};
 use crate::state::SharedLedger;

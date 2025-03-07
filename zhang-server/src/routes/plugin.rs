@@ -1,11 +1,8 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use axum::extract::State;
 use gotcha::api;
 use itertools::Itertools;
-use tokio::sync::RwLock;
-use zhang_core::ledger::Ledger;
 use zhang_core::plugin::PluginType;
 
 use crate::response::{PluginResponse, ResponseWrapper};

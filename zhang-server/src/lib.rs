@@ -1,12 +1,9 @@
-use std::net::SocketAddrV4;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{get, post, put};
-use axum::Router;
 use gotcha::{ConfigWrapper, GotchaApp, GotchaContext, GotchaRouter, config::BasicConfig};
 use itertools::Itertools;
 use log::{debug, error, info, trace};
@@ -141,7 +138,7 @@ impl GotchaApp for ServerApp {
         }
     }
 
-    async fn state(&self, config: &gotcha::ConfigWrapper<Self::Config>) -> Result<Self::State, Box<dyn std::error::Error>> {
+    async fn state(&self, _config: &gotcha::ConfigWrapper<Self::Config>) -> Result<Self::State, Box<dyn std::error::Error>> {
         Ok(AppState {
             ledger: SharedLedger(self.ledger.clone()),
             broadcaster: SharedBroadcaster(self.broadcaster.clone()),

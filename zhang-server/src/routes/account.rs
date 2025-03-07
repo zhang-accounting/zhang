@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::Arc;
 
 use gotcha::api;
 use axum::extract::{Multipart, Path, State};
@@ -8,17 +7,14 @@ use axum::{debug_handler, Json};
 use chrono::Utc;
 use itertools::Itertools;
 use log::info;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, BalanceCheck, BalancePad, Currency, Date, Directive, Document, ZhangString};
-use zhang_core::domains::schemas::AccountJournalDomain;
-use zhang_core::ledger::Ledger;
 use zhang_core::utils::calculable::Calculable;
 
 use crate::request::AccountBalanceRequest;
 use crate::response::{AccountBalanceItemResponse, AccountInfoResponse, AccountJournalEntity, AccountResponse, AmountResponse, Created, DocumentResponse, ResponseWrapper};
-use crate::{ApiResult, LedgerState, ServerResult};
+use crate::{ApiResult, ServerResult};
 use crate::state::{SharedLedger, SharedReloadSender};
 
 #[api(group = "account")]

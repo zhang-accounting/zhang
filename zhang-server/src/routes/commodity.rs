@@ -1,12 +1,9 @@
-use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use gotcha::api;
 use itertools::Itertools;
-use tokio::sync::RwLock;
 use zhang_core::constants::COMMODITY_GROUP;
 use zhang_core::domains::schemas::{CommodityDomain, MetaType};
-use zhang_core::ledger::Ledger;
 
 use crate::response::{CommodityDetailResponse, CommodityListItemResponse, CommodityLotResponse, CommodityPrice, ResponseWrapper};
 use crate::state::SharedLedger;

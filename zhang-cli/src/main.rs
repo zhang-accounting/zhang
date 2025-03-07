@@ -194,8 +194,11 @@ mod test {
     use std::io::{stdout, Write};
     use std::sync::Arc;
 
+    use crate::opendal::OpendalDataSource;
+    use crate::{FileSystem, ServerOpts};
     use axum::body::Body;
     use axum::extract::Request;
+    use gotcha::{GotchaApp, GotchaContext};
     use http::StatusCode;
     use http_body_util::BodyExt;
     use jsonpath_rust::JsonPathQuery;
@@ -206,10 +209,7 @@ mod test {
     use tower::util::ServiceExt;
     use zhang_core::ledger::Ledger;
     use zhang_server::broadcast::Broadcaster;
-    use zhang_server::{create_server_app, ReloadSender};
-    use gotcha::{GotchaContext, ConfigWrapper, GotchaApp};
-    use crate::opendal::OpendalDataSource;
-    use crate::{FileSystem, ServerOpts};
+    use zhang_server::{create_server_app, ReloadSender, ServeConfig};
 
     macro_rules! pprintln {
 
@@ -293,15 +293,29 @@ mod test {
                     let broadcaster = Broadcaster::create();
                     let (tx, _) = mpsc::channel(1);
                     let reload_sender = Arc::new(ReloadSender(tx));
-                    let app = create_server_app(ledger_data, broadcaster, reload_sender, None);
-                    
-                    let config= app.config().await.unwrap();
+                    let app = create_server_app(
+                        ServeConfig {
+                            path: test_temp_folder.to_path_buf(),
+                            endpoint: main_file.to_string(),
+                            addr: "".to_string(),
+                            port: 0,
+                            auth_credential: None,
+                            is_local_fs: true,
+                            no_report: false,
+                            data_source: data_source.clone(),
+                        },
+                        ledger_data,
+                        broadcaster,
+                        reload_sender,
+                    );
+
+                    let config = app.config().await.unwrap();
                     let state = app.state(&config).await.unwrap();
 
                     let context = GotchaContext { config: config.clone(), state };
 
                     let router = app.build_router(context.clone()).await.unwrap();
-                    
+
                     let response = router
                         .oneshot(
                             Request::builder()

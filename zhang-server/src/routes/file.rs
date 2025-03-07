@@ -1,16 +1,12 @@
-use std::sync::Arc;
-
 use axum::extract::State;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use gotcha::api;
-use tokio::sync::RwLock;
-use zhang_core::ledger::Ledger;
 
 use crate::request::FileUpdateRequest;
 use crate::response::{Created, FileDetailResponse, ResponseWrapper};
 use crate::state::{SharedLedger, SharedReloadSender};
-use crate::{ApiResult, ReloadSender, ServerResult};
+use crate::{ApiResult, ServerResult};
 
 #[api(group = "file")]
 pub async fn get_files(ledger: State<SharedLedger>) -> ApiResult<Vec<Option<String>>> {

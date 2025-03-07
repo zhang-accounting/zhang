@@ -1,5 +1,4 @@
 use std::str::FromStr;
-use std::sync::Arc;
 
 use axum::extract::{Multipart, Path, State};
 use axum::Json;
@@ -7,14 +6,12 @@ use gotcha::api;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use log::info;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
 use zhang_core::constants::TXN_ID;
 use zhang_core::domains::schemas::MetaType;
-use zhang_core::ledger::Ledger;
 use zhang_core::store::TransactionDomain;
 use zhang_core::utils::string_::{escape_with_quote, StringExt};
 
@@ -25,7 +22,7 @@ use crate::response::{
     JournalTransactionPostingResponse, Pageable, ResponseWrapper,
 };
 use crate::state::{SharedLedger, SharedReloadSender};
-use crate::{ApiResult, ReloadSender};
+use crate::ApiResult;
 
 #[api(group = "transaction")]
 // todo rename api
