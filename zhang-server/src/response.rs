@@ -5,7 +5,7 @@ use axum::Json;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use gotcha::oas::{Referenceable, Responses};
-use gotcha::{Responsable, Schematic};
+use gotcha::{Responsible, Schematic};
 use serde::Serialize;
 use uuid::Uuid;
 use zhang_ast::amount::{Amount, CalculatedAmount};
@@ -24,7 +24,7 @@ use zhang_core::domains::schemas::ErrorDomain;
 pub struct Created;
 
 
-impl Responsable for Created {
+impl Responsible for Created {
     fn response() -> Responses {
         let mut response = Responses {
             default: None,
