@@ -24,26 +24,36 @@ export function AutoDrawer({
   className,
 }: AutoDrawerProps) {
   const isMobile = useMediaQuery('(max-width: 640px)');
+  const childrenArray = React.Children.toArray(children);
+  const triggerIndex = childrenArray.findIndex(
+    (child) => React.isValidElement(child) && child.type === AutoDrawerTrigger
+  );
+  const trigger = triggerIndex !== -1 ? childrenArray[triggerIndex] : null;
+  const otherChildren = childrenArray.filter((_, index) => index !== triggerIndex);
 
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className={cn("px-4", className)}>
-          {(title || description) && (
+      <>
+        <Drawer open={open} onOpenChange={onOpenChange}>
+          {trigger}
+          <DrawerContent className={cn("px-4", className)}>
+            {(title || description) && (
             <DrawerHeader>
               {title && <DrawerTitle>{title}</DrawerTitle>}
               {description && <DrawerDescription>{description}</DrawerDescription>}
             </DrawerHeader>
           )}
-          {children}
+          {otherChildren}
           {footer && <DrawerFooter>{footer}</DrawerFooter>}
         </DrawerContent>
       </Drawer>
+      </>
     );
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
+      {trigger}
       <DialogContent className={cn("sm:max-w-[425px]", className)}>
         {(title || description) && (
           <DialogHeader>
@@ -51,7 +61,7 @@ export function AutoDrawer({
             {description && <DialogDescription>{description}</DialogDescription>}
           </DialogHeader>
         )}
-        {children}
+        {otherChildren}
         {footer && <DialogFooter>{footer}</DialogFooter>}
       </DialogContent>
     </Dialog>

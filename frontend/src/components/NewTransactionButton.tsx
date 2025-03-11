@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import TransactionEditForm from './TransactionEditForm';
 import { Button } from './ui/button.tsx';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog.tsx';
+import { AutoDrawer, AutoDrawerTrigger } from './ui/auto-drawer.tsx';
 
 export default function NewTransactionButton() {
   const { t } = useTranslation();
@@ -28,11 +29,10 @@ export default function NewTransactionButton() {
 
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={isOpenHandler.toggle}>
-        <DialogTrigger>
+      <AutoDrawer open={isOpen} onOpenChange={isOpenHandler.toggle}>
+        <AutoDrawerTrigger>
           <Button onClick={() => isOpenHandler.open()}>{t('NEW_TRANSACTION_BUTTON')}</Button>
-        </DialogTrigger>
-        <DialogContent className="sm:max-w-[600px]">
+        </AutoDrawerTrigger>
           <DialogHeader>
             <DialogTitle>{t('NEW_TRANSACTION_DIALOG_TITLE')}</DialogTitle>
             <DialogDescription hidden>{t('NEW_TRANSACTION_DIALOG_DESCRIPTION')}</DialogDescription>
@@ -53,8 +53,7 @@ export default function NewTransactionButton() {
               {t('NEW_TRANSACTION_SAVE')}
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </AutoDrawer>
     </>
   );
 }
