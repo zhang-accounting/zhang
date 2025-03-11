@@ -54,5 +54,13 @@
   "TRANSACTION_EDIT_MODAL_TITLE": "编辑流水项",
   "PAGE": "页",
   "PAGINATION_PREVIOUS": "上一页",
-  "PAGINATION_NEXT": "下一页"
+  "PAGINATION_NEXT": "下一页",
+  "PWA_INSTALL_BANNER": {
+    "INSTALL_BUTTON": "安装",
+    "INSTALLED_TITLE": "已安装",
+    "INSTALLED_DESCRIPTION": "Zhang Accounting 已安装在您的设备上。您可以离线使用它。"
+  },
+  "settings": {
+    "title": "设置"
+  }
 }
