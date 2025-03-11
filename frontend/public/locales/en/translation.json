@@ -57,5 +57,13 @@
   },
   "PAGE": "page",
   "PAGINATION_PREVIOUS": "Previous",
-  "PAGINATION_NEXT": "Next"
+  "PAGINATION_NEXT": "Next",
+  "PWA_INSTALL_BANNER": {
+    "INSTALL_BUTTON": "Install",
+    "INSTALLED_TITLE": "Installed",
+    "INSTALLED_DESCRIPTION": "Zhang Accounting is installed on your device. You can use it offline."
+  },
+  "settings": {
+    "title": "Settings"
+  }
 }

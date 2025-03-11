@@ -12,6 +12,8 @@ import { journalFetcher } from './states/journals';
 import Sidebar from './layout/Sidebar.tsx';
 import { Nav } from './layout/Nav.tsx';
 import { toast } from 'sonner';
+import NetworkStatus from './components/NetworkStatus';
+import MobileNavBar from './components/MobileNavBar';
 
 export default function App() {
   const { i18n } = useTranslation();
@@ -73,14 +75,18 @@ export default function App() {
   }, []);
 
   return (
-    <div className="grid h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[220px_1fr]">
-      <Sidebar />
-      <div className="flex flex-col sm:gap-4 sm:py-4 overflow-hidden">
-        <Nav />
-        <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8 overflow-scroll">
-          <Router />
-        </main>
+    <>
+      <div className="grid h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[220px_1fr]">
+        <Sidebar />
+        <div className="flex flex-col sm:gap-4 sm:py-4 overflow-hidden">
+          <Nav />
+          <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8 overflow-scroll pb-16 sm:pb-0">
+            <Router />
+          </main>
+        </div>
       </div>
-    </div>
+      <MobileNavBar />
+      <NetworkStatus />
+    </>
   );
 }
