@@ -1,11 +1,12 @@
-import JournalPreview from '../journalPreview/JournalPreview';
+import { useDisclosure } from '@mantine/hooks';
 import { useAtom } from 'jotai';
 import { useEffect } from 'react';
-import { previewJournalAtom } from '../../states/journals';
-import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { useTranslation } from 'react-i18next';
-import { useDisclosure } from '@mantine/hooks';
+import { previewJournalAtom } from '../../states/journals';
+import JournalPreview from '../journalPreview/JournalPreview';
+import { AutoDrawer, } from '../ui/auto-drawer';
+import { Button } from '../ui/button';
+import { DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 export const TransactionPreviewModal = () => {
   const [previewJournal, setPreviewJournal] = useAtom(previewJournalAtom);
@@ -28,21 +29,13 @@ export const TransactionPreviewModal = () => {
 
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={onChange}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>{t('TRANSACTION_PREVIEW_MODAL_TITLE')}</DialogTitle>
-            <DialogDescription hidden>{t('TRANSACTION_PREVIEW_MODAL_DESCRIPTION')}</DialogDescription>
-          </DialogHeader>
-          <JournalPreview data={previewJournal} />
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => onChange(false)}>
-              {t('TRANSACTION_PREVIEW_MODAL_CLOSE')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AutoDrawer open={isOpen} onOpenChange={onChange} title={t('TRANSACTION_PREVIEW_MODAL_TITLE')} description={t('TRANSACTION_PREVIEW_MODAL_DESCRIPTION')} footer={
+        <Button variant="outline" onClick={() => onChange(false)}>
+          {t('TRANSACTION_PREVIEW_MODAL_CLOSE')}
+        </Button>
+      }>
+        <JournalPreview data={previewJournal} />
+      </AutoDrawer>
     </>
   );
 };

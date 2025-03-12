@@ -17,7 +17,7 @@ export default function TransactionPreview(props: Props) {
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
   return (
-    <div>
+    <div className="overflow-y-auto">
       <Section title="Transaction Info">
         <DashLine>
           <p className="line-clamp-1">Datetime</p>

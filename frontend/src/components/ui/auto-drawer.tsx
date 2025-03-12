@@ -43,7 +43,10 @@ export function AutoDrawer({
               {description && <DrawerDescription>{description}</DrawerDescription>}
             </DrawerHeader>
           )}
+          <div className='max-h-[70vh] overflow-y-auto'>
           {otherChildren}
+
+          </div>
           {footer && <DrawerFooter>{footer}</DrawerFooter>}
         </DrawerContent>
       </Drawer>

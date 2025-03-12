@@ -40,7 +40,7 @@ const MobileNavBar: React.FC = () => {
     },
     { 
       path: '/settings', 
-      label: t('NAV_SETTINGS'), 
+      label: t('NAV_SETTING'), 
       icon: Settings 
     }
   ];
