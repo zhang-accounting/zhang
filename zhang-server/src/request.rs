@@ -7,11 +7,20 @@ use gotcha::Schematic;
 use serde::Deserialize;
 use zhang_ast::Flag;
 
+
+
+#[derive(Schematic, Deserialize)]
+#[serde(tag = "type")]
+pub enum BatchAccountBalanceRequest {
+    Check { account_name: String, amount: AmountRequest },
+    Pad { account_name: String, amount: AmountRequest, pad: String },
+}
+
 #[derive(Schematic, Deserialize)]
 #[serde(tag = "type")]
 pub enum AccountBalanceRequest {
-    Check { account_name: String, amount: AmountRequest },
-    Pad { account_name: String, amount: AmountRequest, pad: String },
+    Check { amount: AmountRequest },
+    Pad { amount: AmountRequest, pad: String },
 }
 
 #[derive(Schematic, Deserialize)]

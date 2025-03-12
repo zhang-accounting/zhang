@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import TableViewJournalLine from '../components/journalLines/tableView/TableViewJournalLine';
 import { useTranslation } from 'react-i18next';
-import { useDebouncedValue, useDocumentTitle } from '@mantine/hooks';
+import { useDebouncedValue, useDocumentTitle, useMediaQuery } from '@mantine/hooks';
 import { JournalListSkeleton } from '../components/skeletons/journalListSkeleton';
 import { useAtomValue } from 'jotai/index';
 import { breadcrumbAtom, titleAtom } from '../states/basic';
@@ -17,6 +17,7 @@ import { X } from 'lucide-react';
 import { JOURNALS_LINK } from '@/layout/Sidebar';
 import { TransactionPreviewModal } from '@/components/modals/TransactionPreviewModal';
 import { TransactionEditModal } from '@/components/modals/TransactionEditModal';
+import MobileViewJournalLine from '@/components/journalLines/mobileView/MobileViewJournalLine';
 
 function Journals() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
@@ -37,6 +38,7 @@ function Journals() {
 
   const [journalTags, setJournalTags] = useAtom(journalTagsAtom);
   const [journalLinks, setJournalLinks] = useAtom(journalLinksAtom);
+  const isMobile = useMediaQuery('(max-width: 640px)');
 
   const removeTag = (tagToRemove: string) => {
     let newTags = journalTags.filter((tag) => tag !== tagToRemove);
@@ -91,38 +93,8 @@ function Journals() {
           {t('REFRESH')}
         </Button>
       </div>
-
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[100px] ">Date</TableHead>
-              <TableHead className=""></TableHead>
-              <TableHead className="">Payee · Narration</TableHead>
-              <TableHead className="text-right ">Amount</TableHead>
-              <TableHead className="text-right ">Operation</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(journalItems.state === 'loading' || journalItems.state === 'hasError') && <JournalListSkeleton />}
-            {journalItems.state === 'hasData' &&
-              Object.keys(groupedRecords).map((date) => {
-                return (
-                  <>
-                    <TableRow key={date}>
-                      <TableCell colSpan={6}>
-                        <span className="text-sm text-gray-500">{date}</span>
-                      </TableCell>
-                    </TableRow>
-                    {groupedRecords[date].map((journal) => (
-                      <TableViewJournalLine key={journal.id} data={journal} />
-                    ))}
-                  </>
-                );
-              })}
-          </TableBody>
-        </Table>
-      </div>
+      {isMobile ? <JournalTableMobile  /> : <JournalTable />}
+      
       <div className="flex items-center gap-4 my-4">
         <div className={'inline-block'}>
           {journalItems.state === 'hasData' ? journalItems.data?.total_page : 0} {t('PAGE')}
@@ -179,3 +151,67 @@ function Journals() {
 }
 
 export default Journals;
+
+
+function JournalTable() {
+  const journalItems = useAtomValue(journalAtom);
+  const groupedRecords = useAtomValue(groupedJournalsAtom);
+  return (
+    <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[100px] ">Date</TableHead>
+              <TableHead className=""></TableHead>
+              <TableHead className="">Payee · Narration</TableHead>
+              <TableHead className="text-right ">Amount</TableHead>
+              <TableHead className="text-right ">Operation</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(journalItems.state === 'loading' || journalItems.state === 'hasError') && <JournalListSkeleton />}
+            {journalItems.state === 'hasData' &&
+              Object.keys(groupedRecords).map((date) => {
+                return (
+                  <>
+                    <TableRow key={date}>
+                      <TableCell colSpan={6}>
+                        <span className="text-sm text-gray-500">{date}</span>
+                      </TableCell>
+                    </TableRow>
+                    {groupedRecords[date].map((journal) => (
+                      <TableViewJournalLine key={journal.id} data={journal} />
+                    ))}
+                  </>
+                );
+              })}
+          </TableBody>
+        </Table>
+      </div>
+  )
+}
+
+function JournalTableMobile() {
+  const journalItems = useAtomValue(journalAtom);
+  const groupedRecords = useAtomValue(groupedJournalsAtom);
+
+  if (journalItems.state === 'loading' || journalItems.state === 'hasError') {
+    return <JournalListSkeleton />
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {journalItems.state === 'hasData' &&
+        Object.keys(groupedRecords).map((date) => {
+        return (
+            <div className="flex flex-col gap-2">
+              <span className="text-sm text-gray-500">{date}</span>
+              {groupedRecords[date].map((journal) => (
+                <MobileViewJournalLine key={journal.id} data={journal} />
+              ))}
+            </div>
+        );
+      })}
+    </div>
+  )
+}
