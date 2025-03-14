@@ -15,7 +15,7 @@ import PwaInstallBanner from '../components/PwaInstallBanner';
 
 export default function Settings() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  const { i18n,t  } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [lang, setLang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
 
   const { value: options } = useAsync(async () => {
@@ -46,11 +46,11 @@ export default function Settings() {
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-6">{t('settings.title')}</h1>
-      
+
       <div className="space-y-6">
         {/* PWA 安装横幅 */}
         <PwaInstallBanner />
-        
+
         <Section title="Basic Setting">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <Setting title="title" uppercase value={ledgerTitle ?? ''} />

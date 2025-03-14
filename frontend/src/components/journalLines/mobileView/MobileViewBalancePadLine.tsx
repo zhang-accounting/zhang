@@ -1,12 +1,9 @@
-import { format } from 'date-fns';
-import Amount from '../../Amount';
-import PayeeNarration from '../../basic/PayeeNarration';
-import { cn } from '@/lib/utils';
-import { useSetAtom } from 'jotai';
-import { previewJournalAtom } from '@/states/journals';
-import { Badge } from '@/components/ui/badge';
 import { JournalBalancePadItem } from '@/api/types';
-import { Calculator, Scale } from 'lucide-react';
+import { previewJournalAtom } from '@/states/journals';
+import { format } from 'date-fns';
+import { useSetAtom } from 'jotai';
+import { Scale } from 'lucide-react';
+import Amount from '../../Amount';
 
 interface Props {
   data: JournalBalancePadItem;
@@ -25,7 +22,7 @@ export default function MobileViewBalancePadLine({ data }: Props) {
       <div className="flex flex-col">
         <div className="flex items-center gap-2">
           <Scale className="w-4 h-4" />
-          <span className='line-clamp-1'>{data.narration ?? ''}</span>
+          <span className="line-clamp-1">{data.narration ?? ''}</span>
         </div>
 
         <div className="flex items-center gap-2 px-6">
