@@ -137,7 +137,7 @@ pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<
                     date,
                     balance: AmountEntity {
                         number: amount.number,
-                        commodity: amount.currency,
+                        currency: amount.currency,
                     },
                 })
                 .collect_vec();

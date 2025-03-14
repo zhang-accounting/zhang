@@ -276,20 +276,6 @@ pub struct InfoForNewTransaction {
     pub account_name: Vec<String>,
 }
 
-#[derive(Serialize, Clone, Schematic)]
-pub struct AmountEntity {
-    pub number: BigDecimal,
-    pub commodity: String,
-}
-
-impl From<Amount> for AmountEntity {
-    fn from(value: Amount) -> Self {
-        AmountEntity {
-            number: value.number,
-            commodity: value.currency,
-        }
-    }
-}
 
 #[derive(Serialize, Schematic)]
 pub struct CommodityListItemEntity {

@@ -55,7 +55,7 @@ export function AccountBalanceHistoryGraph(props: Props) {
       return it.reduce(
         (acc, each) => {
           acc.date = each.date;
-          acc[each.balance.commodity] = new BigNumber(each.balance.number).toNumber();
+          acc[each.balance.currency] = new BigNumber(each.balance.number).toNumber();
           return acc;
         },
         {} as Record<string, string | number>,
