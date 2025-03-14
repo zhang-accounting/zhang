@@ -11,12 +11,10 @@
 [![](https://img.shields.io/docsrs/zhang)](docs.rs/zhang)
 ![](https://img.shields.io/crates/l/zhang)
 
-- Online Playground: [Online Playground](https://zhang-playground.zeabur.app/)
-- Online Demo: [Online Demo](https://zhang-accounting.zeabur.app/)
+- Online Playground: [Online Playground](https://zhang-cloud.kilerd.me/playground)
 - Documentation: [Documentation](https://zhang-accounting.kilerd.me/)
 
 [![Discord Banner 2](https://discord.com/api/guilds/1217736070045896704/widget.png?style=banner2)](https://discord.gg/EGjwhnV267)
-[![testflight icon](/assets/TestFlight_Light.svg)](https://testflight.apple.com/join/3pm50he2)
 
 ## Quick Start
 
