@@ -12,6 +12,8 @@ import PluginBox from '../components/PluginBox';
 import Section from '../components/Section';
 import { breadcrumbAtom, titleAtom, versionAtom } from '../states/basic';
 import PwaInstallBanner from '../components/PwaInstallBanner';
+import { Button } from '@/components/ui/button';
+import { ExternalLink } from 'lucide-react';
 
 export default function Settings() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
@@ -71,6 +73,24 @@ export default function Settings() {
             </div>
           </div>
         </Section>
+
+        <Section title="OpenAPI Documentation">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Button variant="outline" className="flex items-center gap-2" onClick={() => window.open('/openapi.json', '_blank')}>
+              OpenAPI JSON
+              <ExternalLink className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" className="flex items-center gap-2" onClick={() => window.open('/swagger', '_blank')}>
+              Swagger UI
+              <ExternalLink className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" className="flex items-center gap-2" onClick={() => window.open('/scalar', '_blank')}>
+              Scalar
+              <ExternalLink className="h-4 w-4" />
+            </Button>
+          </div>
+        </Section>
+
         <Section title="Plugins">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {(plugins ?? []).map((plugin) => (
