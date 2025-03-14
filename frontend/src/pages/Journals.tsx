@@ -31,7 +31,6 @@ function Journals() {
   const [journalPage, setJournalPage] = useAtom(journalPageAtom);
   const setKeyword = useSetAtom(journalKeywordAtom);
   const refreshJournals = useSetAtom(journalFetcher);
-  const groupedRecords = useAtomValue(groupedJournalsAtom);
   const journalItems = useAtomValue(journalAtom);
   const total_count = useAtomValue(useMemo(() => selectAtom(journalAtom, (val) => loadable_unwrap(val, 0, (val) => val.total_count)), []));
   const total_page = useAtomValue(useMemo(() => selectAtom(journalAtom, (val) => loadable_unwrap(val, 0, (val) => val.total_page)), []));
@@ -93,8 +92,8 @@ function Journals() {
           {t('REFRESH')}
         </Button>
       </div>
-      {isMobile ? <JournalTableMobile  /> : <JournalTable />}
-      
+      {isMobile ? <JournalTableMobile /> : <JournalTable />}
+
       <div className="flex items-center gap-4 my-4">
         <div className={'inline-block'}>
           {journalItems.state === 'hasData' ? journalItems.data?.total_page : 0} {t('PAGE')}
@@ -152,43 +151,42 @@ function Journals() {
 
 export default Journals;
 
-
 function JournalTable() {
   const journalItems = useAtomValue(journalAtom);
   const groupedRecords = useAtomValue(groupedJournalsAtom);
   return (
     <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[100px] ">Date</TableHead>
-              <TableHead className=""></TableHead>
-              <TableHead className="">Payee · Narration</TableHead>
-              <TableHead className="text-right ">Amount</TableHead>
-              <TableHead className="text-right ">Operation</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(journalItems.state === 'loading' || journalItems.state === 'hasError') && <JournalListSkeleton />}
-            {journalItems.state === 'hasData' &&
-              Object.keys(groupedRecords).map((date) => {
-                return (
-                  <>
-                    <TableRow key={date}>
-                      <TableCell colSpan={6}>
-                        <span className="text-sm text-gray-500">{date}</span>
-                      </TableCell>
-                    </TableRow>
-                    {groupedRecords[date].map((journal) => (
-                      <TableViewJournalLine key={journal.id} data={journal} />
-                    ))}
-                  </>
-                );
-              })}
-          </TableBody>
-        </Table>
-      </div>
-  )
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[100px] ">Date</TableHead>
+            <TableHead className=""></TableHead>
+            <TableHead className="">Payee · Narration</TableHead>
+            <TableHead className="text-right ">Amount</TableHead>
+            <TableHead className="text-right ">Operation</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {(journalItems.state === 'loading' || journalItems.state === 'hasError') && <JournalListSkeleton />}
+          {journalItems.state === 'hasData' &&
+            Object.keys(groupedRecords).map((date) => {
+              return (
+                <>
+                  <TableRow key={date}>
+                    <TableCell colSpan={6}>
+                      <span className="text-sm text-gray-500">{date}</span>
+                    </TableCell>
+                  </TableRow>
+                  {groupedRecords[date].map((journal) => (
+                    <TableViewJournalLine key={journal.id} data={journal} />
+                  ))}
+                </>
+              );
+            })}
+        </TableBody>
+      </Table>
+    </div>
+  );
 }
 
 function JournalTableMobile() {
@@ -196,22 +194,22 @@ function JournalTableMobile() {
   const groupedRecords = useAtomValue(groupedJournalsAtom);
 
   if (journalItems.state === 'loading' || journalItems.state === 'hasError') {
-    return <JournalListSkeleton />
+    return <JournalListSkeleton />;
   }
 
   return (
     <div className="flex flex-col gap-4">
       {journalItems.state === 'hasData' &&
         Object.keys(groupedRecords).map((date) => {
-        return (
+          return (
             <div className="flex flex-col gap-2">
               <span className="text-sm text-gray-500">{date}</span>
               {groupedRecords[date].map((journal) => (
                 <MobileViewJournalLine key={journal.id} data={journal} />
               ))}
             </div>
-        );
-      })}
+          );
+        })}
     </div>
-  )
+  );
 }

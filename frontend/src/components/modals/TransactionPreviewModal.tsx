@@ -4,9 +4,8 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { previewJournalAtom } from '../../states/journals';
 import JournalPreview from '../journalPreview/JournalPreview';
-import { AutoDrawer, } from '../ui/auto-drawer';
+import { AutoDrawer } from '../ui/auto-drawer';
 import { Button } from '../ui/button';
-import { DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 export const TransactionPreviewModal = () => {
   const [previewJournal, setPreviewJournal] = useAtom(previewJournalAtom);
@@ -29,11 +28,17 @@ export const TransactionPreviewModal = () => {
 
   return (
     <>
-      <AutoDrawer open={isOpen} onOpenChange={onChange} title={t('TRANSACTION_PREVIEW_MODAL_TITLE')} description={t('TRANSACTION_PREVIEW_MODAL_DESCRIPTION')} footer={
-        <Button variant="outline" onClick={() => onChange(false)}>
-          {t('TRANSACTION_PREVIEW_MODAL_CLOSE')}
-        </Button>
-      }>
+      <AutoDrawer
+        open={isOpen}
+        onOpenChange={onChange}
+        title={t('TRANSACTION_PREVIEW_MODAL_TITLE')}
+        description={t('TRANSACTION_PREVIEW_MODAL_DESCRIPTION')}
+        footer={
+          <Button variant="outline" onClick={() => onChange(false)}>
+            {t('TRANSACTION_PREVIEW_MODAL_CLOSE')}
+          </Button>
+        }
+      >
         <JournalPreview data={previewJournal} />
       </AutoDrawer>
     </>

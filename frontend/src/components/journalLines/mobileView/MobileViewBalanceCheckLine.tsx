@@ -1,13 +1,11 @@
-import { format } from 'date-fns';
-import Amount from '../../Amount';
-import BigNumber from 'bignumber.js';
-import PayeeNarration from '../../basic/PayeeNarration';
-import { cn } from '@/lib/utils';
-import { useSetAtom } from 'jotai';
-import { previewJournalAtom } from '@/states/journals';
-import { Badge } from '@/components/ui/badge';
 import { JournalBalanceCheckItem } from '@/api/types';
-import { BadgeCheck, Scale } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { previewJournalAtom } from '@/states/journals';
+import BigNumber from 'bignumber.js';
+import { format } from 'date-fns';
+import { useSetAtom } from 'jotai';
+import { BadgeCheck } from 'lucide-react';
+import Amount from '../../Amount';
 
 interface Props {
   data: JournalBalanceCheckItem;
@@ -28,7 +26,7 @@ export default function MobileViewBalanceCheckLine({ data }: Props) {
       <div className="flex flex-col">
         <div className="flex items-center gap-2">
           <BadgeCheck className="w-4 h-4 text-primary" />
-          <span className='line-clamp-1'>{data.narration ?? ''}</span>
+          <span className="line-clamp-1">{data.narration ?? ''}</span>
         </div>
 
         <div className="flex items-center gap-2 px-6">
@@ -46,10 +44,7 @@ export default function MobileViewBalanceCheckLine({ data }: Props) {
           />
           {!isBalanced && (
             <div className="text-sm text-gray-500">
-              accumulated: <Amount
-                amount={data.postings[0].account_before_number}
-                currency={data.postings[0].account_before_commodity}
-              />
+              accumulated: <Amount amount={data.postings[0].account_before_number} currency={data.postings[0].account_before_commodity} />
             </div>
           )}
         </div>

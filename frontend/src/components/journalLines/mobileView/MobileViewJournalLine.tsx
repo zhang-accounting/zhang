@@ -19,5 +19,5 @@ export default function MobileViewJournalLine({ data }: Props) {
       line = <MobileViewTransactionLine data={data} />;
       break;
   }
-  return line;  
+  return line;
 }

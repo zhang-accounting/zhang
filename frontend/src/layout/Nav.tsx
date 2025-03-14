@@ -1,15 +1,12 @@
-import { Home, PanelLeft, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Link } from 'react-router-dom';
+import NewTransactionButton from '@/components/NewTransactionButton';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Input } from '@/components/ui/input';
-import { links } from './Sidebar';
-import { useTranslation } from 'react-i18next';
 import { breadcrumbAtom } from '@/states/basic';
 import { useAtomValue } from 'jotai';
-import NewTransactionButton from '@/components/NewTransactionButton';
+import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 
 export function Nav() {
   const { t } = useTranslation();
