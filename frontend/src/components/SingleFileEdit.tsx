@@ -21,7 +21,7 @@ export default function SingleFileEdit({ path }: Props) {
 
   const onUpdate = async () => {
     await updateFile({
-      file_path: path,
+      file_path: encodedPath,
       content: content,
     });
     toast.success('File updated', {

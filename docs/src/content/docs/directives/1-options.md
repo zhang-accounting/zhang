@@ -87,6 +87,41 @@ option "timezone" "Asia/Shanghai"
 - **Example values**: `Asia/Shanghai`, `America/New_York`, `Europe/London`
 - **Usage**: Affects how dates and times are interpreted in your ledger
 
+
+### Directive Output Path
+
+Defines the file path pattern for storing new directives. Uses Python's [Jinja2](https://jinja.palletsprojects.com/) template engine for path formatting.
+
+```beancount
+option "directive_output_path" "data/{{year}}/{{month_str}}.zhang"
+```
+
+- **Default**: `data/{{year}}/{{month_str}}.zhang`
+- **Available placeholders**:
+  - `{type}`: directive type
+  - `{year}`: Current year (e.g., `2023`)
+  - `{month}`: Current month (e.g., `1` for January)
+  - `{month_str}`: Current month (e.g., `01` for January)
+  - `{day}`: Current day (e.g., `5`)
+  - `{day_str}`: Current day (e.g., `05`)
+- **Usage**: When adding new transactions or other directives, they will be stored in files according to this pattern
+
+#### Example Path Patterns
+
+```beancount
+; Store by month (default)
+option "directive_output_path" "data/{{year}}/{{month}}.zhang"
+
+; Store by day
+option "directive_output_path" "data/{{year}}/{{month}}/{{day}}.zhang"
+
+; Store by transaction type in separate files
+option "directive_output_path" "data/{{year}}/{{type}}-{{month}}.zhang"
+
+; Store everything in a single file
+option "directive_output_path" "data/ledger.zhang"
+```
+
 ## Usage Examples
 
 Here's an example of setting multiple options in your ledger file:

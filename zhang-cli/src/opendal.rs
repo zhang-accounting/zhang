@@ -2,9 +2,12 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use crate::{FileSystem, ServerOpts};
 use async_recursion::async_recursion;
 use beancount::Beancount;
-use log::{debug, info};
+use chrono::Datelike;
+use log::{debug, info, warn};
+use minijinja::{context, Environment};
 use opendal::services::{Fs, Github, Webdav};
 use opendal::{ErrorKind, Operator};
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
@@ -15,9 +18,6 @@ use zhang_core::data_type::DataType;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
-
-use crate::{FileSystem, ServerOpts};
-
 pub struct OpendalDataSource {
     operator: Operator,
     data_type: Box<dyn DataType<Carrier = String> + 'static + Send + Sync>,
@@ -113,12 +113,30 @@ impl OpendalDataSource {
         let endpoint = if let Some(file) = file {
             file
         } else if let Some(datetime) = directive.datetime() {
-            let folder = datetime.format("data/%Y/").to_string();
+            let date = datetime.date();
+            let mut env = Environment::new();
+            env.add_template("directive_output_path", &ledger.options.directive_output_path).map_err(|e| {
+                warn!("{}", e);
+                ZhangError::InvalidOptionValue
+            })?;
 
-            self.operator.create_dir(&folder).await.expect("cannot create dir");
+            let tmpl = env.get_template("directive_output_path").map_err(|_e| {
+                warn!("{}", _e);
+                ZhangError::InvalidOptionValue
+            })?;
 
-            let path = format!("data/{}.zhang", datetime.format("%Y/%m"));
-            entry.join(PathBuf::from(path))
+            let save_path = tmpl
+                .render(&context! {
+                    type => directive.directive_type().to_string(),
+                    year => date.year(),
+                    month => date.month(),
+                    month_str => date.format("%m").to_string(),
+                    day => date.day(),
+                    day_str => date.format("%d").to_string(),
+                })
+                .map_err(|_e| ZhangError::InvalidOptionValue)?;
+            let path = PathBuf::from(save_path);
+            entry.join(path)
         } else {
             entry.join(main_file_endpoint)
         };

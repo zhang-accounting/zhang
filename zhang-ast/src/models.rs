@@ -11,7 +11,7 @@ use crate::data::{Close, Comment, Commodity, Custom, Document, Event, Include, N
 use crate::error::ErrorKind;
 use crate::{BalanceCheck, BalancePad, Budget, BudgetAdd, BudgetClose, BudgetTransfer, Meta};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, EnumString, Display)]
 pub enum DirectiveType {
     Open,
     Close,

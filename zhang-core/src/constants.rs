@@ -25,3 +25,5 @@ pub const TRUE: &str = "true";
 pub const TXN_ID: &str = "txn_id";
 
 pub const COMMODITY_GROUP: &str = "group";
+
+pub const DEFAULT_DIRECTIVE_OUTPUT_PATH: &str = r#"data/{{year}}/{{month_str}}.zhang"#;

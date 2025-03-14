@@ -16,6 +16,8 @@ use crate::constants::*;
 use crate::domains::Operations;
 use crate::features::Features;
 use crate::{ZhangError, ZhangResult};
+use minijinja::Environment;
+
 
 #[derive(Debug)]
 pub struct InMemoryOptions {
@@ -25,6 +27,7 @@ pub struct InMemoryOptions {
     pub default_booking_method: BookingMethod,
     pub timezone: Tz,
     pub features: Features,
+    pub directive_output_path: String,
 }
 
 #[derive(Debug, AsRefStr, EnumIter, EnumString)]
@@ -37,6 +40,7 @@ pub enum BuiltinOption {
     DefaultCommodityPrecision,
     DefaultBookingMethod,
     Timezone,
+    DirectiveOutputPath,
 }
 
 fn detect_timezone() -> String {
@@ -70,6 +74,7 @@ impl BuiltinOption {
             BuiltinOption::DefaultCommodityPrecision => DEFAULT_COMMODITY_PRECISION_PLAIN.to_owned(),
             BuiltinOption::DefaultBookingMethod => DEFAULT_BOOKING_METHOD.to_owned(),
             BuiltinOption::Timezone => detect_timezone(),
+            BuiltinOption::DirectiveOutputPath => DEFAULT_DIRECTIVE_OUTPUT_PATH.to_owned(),
         }
     }
     pub fn key(&self) -> &str {
@@ -131,6 +136,14 @@ impl InMemoryOptions {
                 },
                 BuiltinOption::DefaultBookingMethod => {
                     self.default_booking_method = BookingMethod::from_str(&value).map_err(|_| ZhangError::InvalidOptionValue)?
+                },
+                BuiltinOption::DirectiveOutputPath => {
+                    let mut env = Environment::new();
+                    let res = env.add_template("directive_output_path", &value);
+                    if res.is_err() {
+                        return Err(ZhangError::InvalidOptionValue);
+                    }
+                    self.directive_output_path = value.to_string();
                 }
             }
         }
@@ -143,12 +156,13 @@ impl InMemoryOptions {
 impl Default for InMemoryOptions {
     fn default() -> Self {
         InMemoryOptions {
-            operating_currency: "CNY".to_string(),
-            default_rounding: Rounding::RoundDown,
-            default_balance_tolerance_precision: 2,
-            default_booking_method: BookingMethod::Fifo,
-            timezone: BuiltinOption::Timezone.default_value().parse().expect("invalid timezone"),
+            operating_currency: DEFAULT_OPERATING_CURRENCY.to_string(),
+            default_rounding: DEFAULT_ROUNDING,
+            default_balance_tolerance_precision: DEFAULT_BALANCE_TOLERANCE_PRECISION,
+            default_booking_method: DEFAULT_BOOKING_METHOD.parse().expect("invalid booking method"),
+            timezone: DEFAULT_TIMEZONE.parse().expect("invalid timezone"),
             features: Features::default(),
+            directive_output_path: DEFAULT_DIRECTIVE_OUTPUT_PATH.to_string(),
         }
     }
 }

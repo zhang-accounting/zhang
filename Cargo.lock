@@ -2041,6 +2041,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "minijinja"
+version = "2.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e36f1329330bb1614c94b78632b9ce45dd7d761f3304a1bed07b2990a7c5097"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5019,6 +5028,7 @@ dependencies = [
  "base64 0.22.0",
  "beancount",
  "bytes",
+ "chrono",
  "clap",
  "env_logger",
  "gotcha",
@@ -5028,6 +5038,7 @@ dependencies = [
  "jsonpath-rust",
  "log",
  "mime",
+ "minijinja",
  "opendal",
  "openssl",
  "self_update",
@@ -5074,6 +5085,7 @@ dependencies = [
  "indoc 2.0.5",
  "itertools 0.14.0",
  "log",
+ "minijinja",
  "once_cell",
  "pest",
  "pest_consume",

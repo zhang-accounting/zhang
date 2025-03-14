@@ -213,7 +213,7 @@ pub async fn create_account_balance(
         }),
     };
 
-    ledger.data_source.async_append(&ledger, vec![balance]).await.unwrap();
+    ledger.data_source.async_append(&ledger, vec![balance]).await?;
     reload_sender.reload();
     Ok(Created)
 }
