@@ -5,12 +5,12 @@ use gotcha::api;
 use itertools::Itertools;
 use zhang_core::plugin::PluginType;
 
-use crate::response::{PluginResponse, ResponseWrapper};
+use crate::response::{PluginEntity, ResponseWrapper};
 use crate::state::SharedLedger;
 use crate::ApiResult;
 
 #[api(group = "plugin")]
-pub async fn plugin_list(ledger: State<SharedLedger>) -> ApiResult<Vec<PluginResponse>> {
+pub async fn plugin_list(ledger: State<SharedLedger>) -> ApiResult<Vec<PluginEntity>> {
     let store = ledger.read().await;
 
     let mut grouped_plugins: HashMap<(String, String), Vec<PluginType>> = HashMap::default();
@@ -31,7 +31,7 @@ pub async fn plugin_list(ledger: State<SharedLedger>) -> ApiResult<Vec<PluginRes
 
     let ret = grouped_plugins
         .into_iter()
-        .map(|(meta, plugin_type)| PluginResponse {
+        .map(|(meta, plugin_type)| PluginEntity {
             name: meta.0,
             version: meta.1,
             plugin_type: plugin_type.into_iter().map(|it| it.into()).collect_vec(),

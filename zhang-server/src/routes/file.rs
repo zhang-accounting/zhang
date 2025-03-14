@@ -4,7 +4,7 @@ use base64::Engine as _;
 use gotcha::api;
 
 use crate::request::FileUpdateRequest;
-use crate::response::{Created, FileDetailResponse, ResponseWrapper};
+use crate::response::{Created, FileDetailEntity, ResponseWrapper};
 use crate::state::{SharedLedger, SharedReloadSender};
 use crate::{ApiResult, ServerResult};
 
@@ -23,7 +23,7 @@ pub async fn get_files(ledger: State<SharedLedger>) -> ApiResult<Vec<Option<Stri
 }
 
 #[api(group = "file")]
-pub async fn get_file_content(ledger: State<SharedLedger>, path: axum::extract::Path<(String,)>) -> ApiResult<FileDetailResponse> {
+pub async fn get_file_content(ledger: State<SharedLedger>, path: axum::extract::Path<(String,)>) -> ApiResult<FileDetailEntity> {
     let encoded_file_path = path.0 .0;
     let filename = String::from_utf8(BASE64_STANDARD.decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
@@ -31,7 +31,7 @@ pub async fn get_file_content(ledger: State<SharedLedger>, path: axum::extract::
     let content = ledger.data_source.async_get(filename.to_owned()).await?;
     let content = String::from_utf8(content).unwrap();
 
-    ResponseWrapper::json(FileDetailResponse { path: filename, content })
+    ResponseWrapper::json(FileDetailEntity { path: filename, content })
 }
 
 #[api(group = "file")]

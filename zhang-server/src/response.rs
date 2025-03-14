@@ -93,18 +93,18 @@ impl<T: Serialize + Schematic> Pageable<T> {
 
 #[derive(Serialize, Schematic)]
 /// the status of the account
-pub enum AccountStatusEntity {
+pub enum AccountStatusEnum {
     /// the account is open
     Open,
     /// the account is close
     Close,
 }
 
-impl From<AccountStatus> for AccountStatusEntity {
+impl From<AccountStatus> for AccountStatusEnum {
     fn from(value: AccountStatus) -> Self {
         match value {
-            AccountStatus::Open => AccountStatusEntity::Open,
-            AccountStatus::Close => AccountStatusEntity::Close,
+            AccountStatus::Open => AccountStatusEnum::Open,
+            AccountStatus::Close => AccountStatusEnum::Close,
         }
     }
 }
@@ -146,15 +146,15 @@ impl From<CalculatedAmount> for CalculatedAmountEntity {
 }
 
 #[derive(Serialize, Schematic)]
-pub struct AccountResponse {
+pub struct AccountEntity {
     pub name: String,
-    pub status: AccountStatusEntity,
+    pub status: AccountStatusEnum,
     pub alias: Option<String>,
     pub amount: CalculatedAmountEntity,
 }
 
 #[derive(Serialize, Schematic)]
-pub struct DocumentResponse {
+pub struct DocumentEntity {
     pub datetime: NaiveDateTime,
     pub filename: String,
     pub path: String,
@@ -164,19 +164,19 @@ pub struct DocumentResponse {
 }
 
 #[derive(Serialize, Schematic)]
-pub struct StatisticResponse {
-    pub changes: HashMap<NaiveDate, HashMap<String, AmountResponse>>, // summaries:
-    pub details: HashMap<NaiveDate, HashMap<String, AmountResponse>>,
+pub struct StatisticEntity {
+    pub changes: HashMap<NaiveDate, HashMap<String, AmountEntity>>, // summaries:
+    pub details: HashMap<NaiveDate, HashMap<String, AmountEntity>>,
 }
 
 #[derive(Serialize, Schematic)]
-pub struct MetaResponse {
+pub struct MetaEntity {
     key: String,
     value: String,
 }
-impl From<MetaDomain> for MetaResponse {
+impl From<MetaDomain> for MetaEntity {
     fn from(value: MetaDomain) -> Self {
-        MetaResponse {
+        MetaEntity {
             key: value.key,
             value: value.value,
         }
@@ -185,24 +185,24 @@ impl From<MetaDomain> for MetaResponse {
 
 #[derive(Serialize, Schematic)]
 #[serde(tag = "type")]
-pub enum JournalItemResponse {
-    Transaction(JournalTransactionItemResponse),
-    BalanceCheck(JournalBalanceCheckItemResponse),
-    BalancePad(JournalBalancePadItemResponse),
+pub enum JournalItemEntity {
+    Transaction(JournalTransactionItemEntity),
+    BalanceCheck(JournalBalanceCheckItemEntity),
+    BalancePad(JournalBalancePadItemEntity),
 }
 
-impl JournalItemResponse {
+impl JournalItemEntity {
     pub fn sequence(&self) -> i32 {
         match self {
-            JournalItemResponse::Transaction(inner) => inner.sequence,
-            JournalItemResponse::BalanceCheck(inner) => inner.sequence,
-            JournalItemResponse::BalancePad(inner) => inner.sequence,
+            JournalItemEntity::Transaction(inner) => inner.sequence,
+            JournalItemEntity::BalanceCheck(inner) => inner.sequence,
+            JournalItemEntity::BalancePad(inner) => inner.sequence,
         }
     }
 }
 
 #[derive(Serialize, Schematic)]
-pub struct JournalTransactionItemResponse {
+pub struct JournalTransactionItemEntity {
     pub id: Uuid,
     pub sequence: i32,
     pub datetime: NaiveDateTime,
@@ -212,11 +212,11 @@ pub struct JournalTransactionItemResponse {
     pub links: Vec<String>,
     pub flag: String,
     pub is_balanced: bool,
-    pub postings: Vec<JournalTransactionPostingResponse>,
-    pub metas: Vec<MetaResponse>,
+    pub postings: Vec<JournalTransactionPostingEntity>,
+    pub metas: Vec<MetaEntity>,
 }
 #[derive(Serialize, Schematic)]
-pub struct JournalTransactionPostingResponse {
+pub struct JournalTransactionPostingEntity {
     pub account: String,
     pub unit_number: Option<BigDecimal>,
     pub unit_commodity: Option<String>,
@@ -230,9 +230,9 @@ pub struct JournalTransactionPostingResponse {
     pub account_after_commodity: String,
 }
 
-impl From<PostingDomain> for JournalTransactionPostingResponse {
+impl From<PostingDomain> for JournalTransactionPostingEntity {
     fn from(arm: PostingDomain) -> Self {
-        JournalTransactionPostingResponse {
+        JournalTransactionPostingEntity {
             account: arm.account.name().to_owned(),
             unit_number: arm.unit.as_ref().map(|it| it.number.clone()),
             unit_commodity: arm.unit.as_ref().map(|it| it.currency.clone()),
@@ -249,25 +249,25 @@ impl From<PostingDomain> for JournalTransactionPostingResponse {
 }
 
 #[derive(Serialize, Schematic)]
-pub struct JournalBalanceCheckItemResponse {
+pub struct JournalBalanceCheckItemEntity {
     pub id: Uuid,
     pub sequence: i32,
     pub datetime: NaiveDateTime,
     pub payee: String,
     pub narration: Option<String>,
     pub type_: String,
-    pub(crate) postings: Vec<JournalTransactionPostingResponse>,
+    pub(crate) postings: Vec<JournalTransactionPostingEntity>,
 }
 
 #[derive(Serialize, Schematic)]
-pub struct JournalBalancePadItemResponse {
+pub struct JournalBalancePadItemEntity {
     pub id: Uuid,
     pub sequence: i32,
     pub datetime: NaiveDateTime,
     pub payee: String,
     pub narration: Option<String>,
     pub type_: String,
-    pub(crate) postings: Vec<JournalTransactionPostingResponse>,
+    pub(crate) postings: Vec<JournalTransactionPostingEntity>,
 }
 
 #[derive(Serialize, Schematic)]
@@ -277,14 +277,14 @@ pub struct InfoForNewTransaction {
 }
 
 #[derive(Serialize, Clone, Schematic)]
-pub struct AmountResponse {
+pub struct AmountEntity {
     pub number: BigDecimal,
     pub commodity: String,
 }
 
-impl From<Amount> for AmountResponse {
+impl From<Amount> for AmountEntity {
     fn from(value: Amount) -> Self {
-        AmountResponse {
+        AmountEntity {
             number: value.number,
             commodity: value.currency,
         }
@@ -292,7 +292,7 @@ impl From<Amount> for AmountResponse {
 }
 
 #[derive(Serialize, Schematic)]
-pub struct CommodityListItemResponse {
+pub struct CommodityListItemEntity {
     pub name: String,
     pub precision: i32,
     pub prefix: Option<String>,
@@ -307,7 +307,7 @@ pub struct CommodityListItemResponse {
 }
 
 #[derive(Serialize, Schematic)]
-pub struct CommodityLotResponse {
+pub struct CommodityLotEntity {
     pub account: String,
     pub amount: BigDecimal,
 
@@ -317,27 +317,27 @@ pub struct CommodityLotResponse {
 }
 
 #[derive(Serialize, Schematic)]
-pub struct CommodityPrice {
+pub struct CommodityPriceEntity {
     pub datetime: NaiveDateTime,
     pub amount: BigDecimal,
     pub target_commodity: Option<String>,
 }
 
 #[derive(Serialize, Schematic)]
-pub struct CommodityDetailResponse {
-    pub info: CommodityListItemResponse,
-    pub lots: Vec<CommodityLotResponse>,
-    pub prices: Vec<CommodityPrice>,
+pub struct CommodityDetailEntity {
+    pub info: CommodityListItemEntity,
+    pub lots: Vec<CommodityLotEntity>,
+    pub prices: Vec<CommodityPriceEntity>,
 }
 
 #[derive(Serialize, Schematic)]
-pub struct FileDetailResponse {
+pub struct FileDetailEntity {
     pub path: String,
     pub content: String,
 }
 
 #[derive(Serialize, Schematic)]
-pub struct StatisticSummaryResponse {
+pub struct StatisticSummaryEntity {
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
 
@@ -350,11 +350,11 @@ pub struct StatisticSummaryResponse {
 }
 
 #[derive(Serialize, Schematic)]
-pub struct CurrentStatisticResponse {
+pub struct CurrentStatisticEntity {
     pub balance: CalculatedAmountEntity,
     pub liability: CalculatedAmountEntity,
-    pub income: AmountResponse,
-    pub expense: AmountResponse,
+    pub income: AmountEntity,
+    pub expense: AmountEntity,
 }
 
 #[derive(Serialize, Schematic)]
@@ -388,33 +388,33 @@ impl From<AccountJournalDomain> for AccountJournalEntity {
     }
 }
 #[derive(Serialize, Schematic)]
-pub struct ReportResponse {
+pub struct ReportEntity {
     pub from: NaiveDateTime,
     pub to: NaiveDateTime,
 
-    pub balance: AmountResponse,
-    pub liability: AmountResponse,
-    pub income: AmountResponse,
-    pub expense: AmountResponse,
+    pub balance: AmountEntity,
+    pub liability: AmountEntity,
+    pub income: AmountEntity,
+    pub expense: AmountEntity,
     pub transaction_number: i64,
 
-    pub income_rank: Vec<ReportRankItemResponse>,
+    pub income_rank: Vec<ReportRankItemEntity>,
     pub income_top_transactions: Vec<AccountJournalEntity>,
-    pub expense_rank: Vec<ReportRankItemResponse>,
+    pub expense_rank: Vec<ReportRankItemEntity>,
     pub expense_top_transactions: Vec<AccountJournalEntity>,
 }
 
 #[derive(Serialize, Schematic)]
-pub struct StatisticRankResponse {
+pub struct StatisticRankEntity {
     pub from: NaiveDateTime,
     pub to: NaiveDateTime,
 
-    pub detail: Vec<ReportRankItemResponse>,
+    pub detail: Vec<ReportRankItemEntity>,
     pub top_transactions: Vec<AccountJournalEntity>,
 }
 
 #[derive(Serialize, Schematic)]
-pub struct StatisticGraphResponse {
+pub struct StatisticGraphEntity {
     pub from: NaiveDateTime,
     pub to: NaiveDateTime,
 
@@ -423,14 +423,14 @@ pub struct StatisticGraphResponse {
 }
 
 #[derive(Serialize, Schematic)]
-pub struct ReportRankItemResponse {
+pub struct ReportRankItemEntity {
     pub account: String,
     pub amount: CalculatedAmountEntity,
 }
 
 #[derive(Serialize, Schematic)]
 /// the basic info of the server
-pub struct BasicInfo {
+pub struct BasicInfoEntity {
     /// title of ledger
     pub title: Option<String>,
     /// version of zhang accounting
@@ -440,17 +440,17 @@ pub struct BasicInfo {
 }
 
 #[derive(Serialize, Schematic)]
-pub struct AccountInfoResponse {
+pub struct AccountInfoEntity {
     pub date: NaiveDateTime,
     pub r#type: String,
     pub name: String,
-    pub status: AccountStatusEntity,
+    pub status: AccountStatusEnum,
     pub alias: Option<String>,
     pub amount: CalculatedAmountEntity,
 }
 
 #[derive(Serialize, Schematic)]
-pub struct BudgetListItemResponse {
+pub struct BudgetListItemEntity {
     pub name: String,
     pub alias: Option<String>,
     pub category: Option<String>,
@@ -461,7 +461,7 @@ pub struct BudgetListItemResponse {
 }
 
 #[derive(Serialize, Schematic)]
-pub struct BudgetInfoResponse {
+pub struct BudgetInfoEntity {
     pub name: String,
     pub alias: Option<String>,
     pub category: Option<String>,
@@ -506,18 +506,18 @@ impl From<BudgetEventType> for BudgetEventTypeEnum {
 }
 #[derive(Serialize, Schematic)]
 #[serde(tag = "type")]
-pub enum BudgetIntervalEventResponse {
+pub enum BudgetIntervalEventEntity {
     BudgetEvent(BudgetEventEntity),
     Posting(AccountJournalEntity),
 }
 
-impl BudgetIntervalEventResponse {
+impl BudgetIntervalEventEntity {
     pub(crate) fn naive_datetime(&self) -> NaiveDateTime {
         match self {
-            BudgetIntervalEventResponse::BudgetEvent(budget_event) => DateTime::from_timestamp(budget_event.timestamp, 0)
+            BudgetIntervalEventEntity::BudgetEvent(budget_event) => DateTime::from_timestamp(budget_event.timestamp, 0)
                 .unwrap_or_else(|| DateTime::from_timestamp_millis(0).unwrap())
                 .naive_local(),
-            BudgetIntervalEventResponse::Posting(posting) => posting.datetime,
+            BudgetIntervalEventEntity::Posting(posting) => posting.datetime,
         }
     }
 }
@@ -539,20 +539,20 @@ impl From<PluginType> for PluginTypeEnum {
 }
 
 #[derive(Serialize, Schematic)]
-pub struct PluginResponse {
+pub struct PluginEntity {
     pub name: String,
     pub version: String,
     pub plugin_type: Vec<PluginTypeEnum>,
 }
 
 #[derive(Serialize, Schematic)]
-pub struct AccountBalanceItemResponse {
+pub struct AccountBalanceItemEntity {
     pub date: NaiveDate,
-    pub balance: AmountResponse,
+    pub balance: AmountEntity,
 }
 
 #[derive(Serialize, Schematic)]
-pub enum ZhangAstErrorKind {
+pub enum ZhangAstErrorEnum {
     UnbalancedTransaction,
     TransactionCannotInferTradeAmount,
     TransactionHasMultipleImplicitPosting,
@@ -573,23 +573,23 @@ pub enum ZhangAstErrorKind {
 
     ParseInvalidMeta,
 }
-impl From<zhang_ast::error::ErrorKind> for ZhangAstErrorKind {
+impl From<zhang_ast::error::ErrorKind> for ZhangAstErrorEnum {
     fn from(value: zhang_ast::error::ErrorKind) -> Self {
         match value {
-            zhang_ast::error::ErrorKind::UnbalancedTransaction => ZhangAstErrorKind::UnbalancedTransaction,
-            zhang_ast::error::ErrorKind::TransactionCannotInferTradeAmount => ZhangAstErrorKind::TransactionCannotInferTradeAmount,
-            zhang_ast::error::ErrorKind::TransactionHasMultipleImplicitPosting => ZhangAstErrorKind::TransactionHasMultipleImplicitPosting,
-            zhang_ast::error::ErrorKind::TransactionExplicitPostingHaveMultipleCommodity => ZhangAstErrorKind::TransactionExplicitPostingHaveMultipleCommodity,
-            zhang_ast::error::ErrorKind::AccountBalanceCheckError => ZhangAstErrorKind::AccountBalanceCheckError,
-            zhang_ast::error::ErrorKind::AccountDoesNotExist => ZhangAstErrorKind::AccountDoesNotExist,
-            zhang_ast::error::ErrorKind::AccountClosed => ZhangAstErrorKind::AccountClosed,
-            zhang_ast::error::ErrorKind::CommodityDoesNotDefine => ZhangAstErrorKind::CommodityDoesNotDefine,
-            zhang_ast::error::ErrorKind::NoEnoughCommodityLot => ZhangAstErrorKind::NoEnoughCommodityLot,
-            zhang_ast::error::ErrorKind::CloseNonZeroAccount => ZhangAstErrorKind::CloseNonZeroAccount,
-            zhang_ast::error::ErrorKind::BudgetDoesNotExist => ZhangAstErrorKind::BudgetDoesNotExist,
-            zhang_ast::error::ErrorKind::DefineDuplicatedBudget => ZhangAstErrorKind::DefineDuplicatedBudget,
-            zhang_ast::error::ErrorKind::MultipleOperatingCurrencyDetect => ZhangAstErrorKind::MultipleOperatingCurrencyDetect,
-            zhang_ast::error::ErrorKind::ParseInvalidMeta => ZhangAstErrorKind::ParseInvalidMeta,
+            zhang_ast::error::ErrorKind::UnbalancedTransaction => ZhangAstErrorEnum::UnbalancedTransaction,
+            zhang_ast::error::ErrorKind::TransactionCannotInferTradeAmount => ZhangAstErrorEnum::TransactionCannotInferTradeAmount,
+            zhang_ast::error::ErrorKind::TransactionHasMultipleImplicitPosting => ZhangAstErrorEnum::TransactionHasMultipleImplicitPosting,
+            zhang_ast::error::ErrorKind::TransactionExplicitPostingHaveMultipleCommodity => ZhangAstErrorEnum::TransactionExplicitPostingHaveMultipleCommodity,
+            zhang_ast::error::ErrorKind::AccountBalanceCheckError => ZhangAstErrorEnum::AccountBalanceCheckError,
+            zhang_ast::error::ErrorKind::AccountDoesNotExist => ZhangAstErrorEnum::AccountDoesNotExist,
+            zhang_ast::error::ErrorKind::AccountClosed => ZhangAstErrorEnum::AccountClosed,
+            zhang_ast::error::ErrorKind::CommodityDoesNotDefine => ZhangAstErrorEnum::CommodityDoesNotDefine,
+            zhang_ast::error::ErrorKind::NoEnoughCommodityLot => ZhangAstErrorEnum::NoEnoughCommodityLot,
+            zhang_ast::error::ErrorKind::CloseNonZeroAccount => ZhangAstErrorEnum::CloseNonZeroAccount,
+            zhang_ast::error::ErrorKind::BudgetDoesNotExist => ZhangAstErrorEnum::BudgetDoesNotExist,
+            zhang_ast::error::ErrorKind::DefineDuplicatedBudget => ZhangAstErrorEnum::DefineDuplicatedBudget,
+            zhang_ast::error::ErrorKind::MultipleOperatingCurrencyDetect => ZhangAstErrorEnum::MultipleOperatingCurrencyDetect,
+            zhang_ast::error::ErrorKind::ParseInvalidMeta => ZhangAstErrorEnum::ParseInvalidMeta,
         }
     }
 }
@@ -617,7 +617,7 @@ impl From<SpanInfo> for SpanInfoEntity {
 pub struct ErrorEntity {
     pub id: String,
     pub span: Option<SpanInfoEntity>,
-    pub error_type: ZhangAstErrorKind,
+    pub error_type: ZhangAstErrorEnum,
     pub metas: HashMap<String, String>,
 }
 
@@ -645,8 +645,8 @@ impl From<OptionDomain> for OptionEntity {
         }
     }
 }
-
 #[derive(Serialize, Schematic)]
-pub struct AccountBalanceHistoryResponse {
-    pub balance: HashMap<Currency, Vec<AccountBalanceItemResponse>>,
+pub struct AccountBalanceHistoryEntity {
+    pub balance: HashMap<Currency, Vec<AccountBalanceItemEntity>>,
 }
+

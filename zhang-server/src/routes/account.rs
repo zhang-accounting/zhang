@@ -13,14 +13,14 @@ use zhang_core::utils::calculable::Calculable;
 
 use crate::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
 use crate::response::{
-    AccountBalanceHistoryResponse, AccountBalanceItemResponse, AccountInfoResponse, AccountJournalEntity, AccountResponse, AmountResponse, Created,
-    DocumentResponse, ResponseWrapper,
+    AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountInfoEntity, AccountJournalEntity, AccountEntity, AmountEntity, Created,
+    DocumentEntity, ResponseWrapper,
 };
 use crate::state::{SharedLedger, SharedReloadSender};
 use crate::{ApiResult, ServerResult};
 
 #[api(group = "account")]
-pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<AccountResponse>> {
+pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<AccountEntity>> {
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
@@ -37,7 +37,7 @@ pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<Acco
             .calculate(Utc::now().with_timezone(timezone), &mut operations)?
             .persist_commodity(&ledger.options.operating_currency);
 
-        ret.push(AccountResponse {
+        ret.push(AccountEntity {
             name: account,
             status: account_domain.status.into(),
             alias: account_domain.alias,
@@ -48,7 +48,7 @@ pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<Acco
 }
 
 #[api(group = "account")]
-pub async fn get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>) -> ApiResult<AccountInfoResponse> {
+pub async fn get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>) -> ApiResult<AccountInfoEntity> {
     let account_name = path.0 .0;
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
@@ -68,7 +68,7 @@ pub async fn get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>
         .calculate(Utc::now().with_timezone(timezone), &mut operations)?
         .persist_commodity(&ledger.options.operating_currency);
 
-    ResponseWrapper::json(AccountInfoResponse {
+    ResponseWrapper::json(AccountInfoEntity {
         date: account_info.date,
         r#type: account_info.r#type,
         name: account_info.name,
@@ -122,7 +122,7 @@ pub async fn upload_account_document(
 
 #[api(group = "account")]
 #[debug_handler]
-pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<AccountBalanceHistoryResponse> {
+pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<AccountBalanceHistoryEntity> {
     let account_name = params.0 .0;
     let ledger = ledger.read().await;
     let operations = ledger.operations();
@@ -133,9 +133,9 @@ pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<
         .map(|(commodity, balance_history)| {
             let data = balance_history
                 .into_iter()
-                .map(|(date, amount)| AccountBalanceItemResponse {
+                .map(|(date, amount)| AccountBalanceItemEntity {
                     date,
-                    balance: AmountResponse {
+                    balance: AmountEntity {
                         number: amount.number,
                         commodity: amount.currency,
                     },
@@ -144,11 +144,11 @@ pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<
             (commodity, data)
         })
         .collect();
-    ResponseWrapper::json(AccountBalanceHistoryResponse { balance: vec })
+    ResponseWrapper::json(AccountBalanceHistoryEntity { balance: vec })
 }
 
 #[api(group = "account")]
-pub async fn get_account_documents(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<Vec<DocumentResponse>> {
+pub async fn get_account_documents(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<Vec<DocumentEntity>> {
     let account_name = params.0 .0;
 
     let ledger = ledger.read().await;
@@ -160,7 +160,7 @@ pub async fn get_account_documents(ledger: State<SharedLedger>, params: Path<(St
         .iter()
         .filter(|doc| doc.document_type.match_account(&account_name))
         .cloned()
-        .map(|doc| DocumentResponse {
+        .map(|doc| DocumentEntity {
             datetime: doc.datetime.naive_local(),
             filename: doc.filename.unwrap_or_default(),
             path: doc.path,

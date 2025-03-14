@@ -10,12 +10,12 @@ use zhang_ast::amount::Amount;
 use zhang_core::store::BudgetIntervalDetail;
 
 use crate::request::{BudgetIntervalDetailRequest, BudgetListRequest};
-use crate::response::{BudgetInfoResponse, BudgetIntervalEventResponse, BudgetListItemResponse, ResponseWrapper};
+use crate::response::{BudgetInfoEntity, BudgetIntervalEventEntity, BudgetListItemEntity, ResponseWrapper};
 use crate::state::SharedLedger;
 use crate::ApiResult;
 
 #[api(group = "budget")]
-pub async fn get_budget_list(ledger: State<SharedLedger>, params: Query<BudgetListRequest>) -> ApiResult<Vec<BudgetListItemResponse>> {
+pub async fn get_budget_list(ledger: State<SharedLedger>, params: Query<BudgetListRequest>) -> ApiResult<Vec<BudgetListItemEntity>> {
     let interval = params.as_interval();
 
     let ledger = ledger.read().await;
@@ -24,7 +24,7 @@ pub async fn get_budget_list(ledger: State<SharedLedger>, params: Query<BudgetLi
     let mut ret = vec![];
     for budget in operations.all_budgets()? {
         if let Some(interval_detail) = operations.budget_month_detail(&budget.name, interval)? {
-            ret.push(BudgetListItemResponse {
+            ret.push(BudgetListItemEntity {
                 name: budget.name,
                 alias: budget.alias,
                 category: budget.category,
@@ -39,7 +39,7 @@ pub async fn get_budget_list(ledger: State<SharedLedger>, params: Query<BudgetLi
 }
 
 #[api(group = "budget")]
-pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>, params: Query<BudgetListRequest>) -> ApiResult<BudgetInfoResponse> {
+pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>, params: Query<BudgetListRequest>) -> ApiResult<BudgetInfoEntity> {
     let (budget_name,) = paths.0;
     let ledger = ledger.read().await;
     let operations = ledger.operations();
@@ -63,7 +63,7 @@ pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>
         .filter(|meta| meta.value.eq(&budget_name))
         .map(|meta| meta.type_identifier.clone())
         .collect_vec();
-    ResponseWrapper::json(BudgetInfoResponse {
+    ResponseWrapper::json(BudgetInfoEntity {
         name: budget.name,
         alias: budget.alias,
         category: budget.category,
@@ -76,7 +76,7 @@ pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>
 }
 
 #[api(group = "budget")]
-pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path<BudgetIntervalDetailRequest>) -> ApiResult<Vec<BudgetIntervalEventResponse>> {
+pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path<BudgetIntervalDetailRequest>) -> ApiResult<Vec<BudgetIntervalEventEntity>> {
     let BudgetIntervalDetailRequest { budget_name, year, month } = paths.0;
     let ledger = ledger.read().await;
     let operations = ledger.operations();
@@ -94,7 +94,7 @@ pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path
         .map(|interval| interval.events)
         .unwrap_or_default()
         .into_iter()
-        .map(|event| BudgetIntervalEventResponse::BudgetEvent(event.into()))
+        .map(|event| BudgetIntervalEventEntity::BudgetEvent(event.into()))
         .collect_vec();
 
     let store = operations.store.read().unwrap();
@@ -109,7 +109,7 @@ pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path
     let journals = operations
         .accounts_dated_journals(&related_accounts, month_beginning, month_end)?
         .into_iter()
-        .map(|journal| BudgetIntervalEventResponse::Posting(journal.into()))
+        .map(|journal| BudgetIntervalEventEntity::Posting(journal.into()))
         .collect_vec();
     let mut ret = vec![];
     ret.extend(budget_events);

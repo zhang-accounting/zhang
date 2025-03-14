@@ -11,12 +11,12 @@ use zhang_core::utils::calculable::Calculable;
 use zhang_core::utils::date_range::NaiveDateRange;
 
 use crate::request::{StatisticGraphRequest, StatisticRequest};
-use crate::response::{ReportRankItemResponse, ResponseWrapper, StatisticGraphResponse, StatisticRankResponse, StatisticSummaryResponse};
+use crate::response::{ReportRankItemEntity, ResponseWrapper, StatisticGraphEntity, StatisticRankEntity, StatisticSummaryEntity};
 use crate::state::SharedLedger;
 use crate::ApiResult;
 
 #[api(group = "statistic")]
-pub async fn get_statistic_summary(ledger: State<SharedLedger>, params: Query<StatisticRequest>) -> ApiResult<StatisticSummaryResponse> {
+pub async fn get_statistic_summary(ledger: State<SharedLedger>, params: Query<StatisticRequest>) -> ApiResult<StatisticSummaryEntity> {
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
@@ -83,7 +83,7 @@ pub async fn get_statistic_summary(ledger: State<SharedLedger>, params: Query<St
         .filter(|trx| trx.datetime.le(&params.to))
         .count();
 
-    ResponseWrapper::json(StatisticSummaryResponse {
+    ResponseWrapper::json(StatisticSummaryEntity {
         from: params.from,
         to: params.to,
         balance: balance.into(),
@@ -95,7 +95,7 @@ pub async fn get_statistic_summary(ledger: State<SharedLedger>, params: Query<St
 }
 
 #[api(group = "statistic")]
-pub async fn get_statistic_graph(ledger: State<SharedLedger>, params: Query<StatisticGraphRequest>) -> ApiResult<StatisticGraphResponse> {
+pub async fn get_statistic_graph(ledger: State<SharedLedger>, params: Query<StatisticGraphRequest>) -> ApiResult<StatisticGraphEntity> {
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
@@ -142,7 +142,7 @@ pub async fn get_statistic_graph(ledger: State<SharedLedger>, params: Query<Stat
         dated_change_ret.insert(date, r);
     }
 
-    ResponseWrapper::json(StatisticGraphResponse {
+    ResponseWrapper::json(StatisticGraphEntity {
         from: params.from.naive_local(),
         to: params.to.naive_local(),
         balances: dated_balance,
@@ -153,7 +153,7 @@ pub async fn get_statistic_graph(ledger: State<SharedLedger>, params: Query<Stat
 #[api(group = "statistic")]
 pub async fn get_statistic_rank_detail_by_account_type(
     ledger: State<SharedLedger>, paths: Path<(String,)>, params: Query<StatisticRequest>,
-) -> ApiResult<StatisticRankResponse> {
+) -> ApiResult<StatisticRankEntity> {
     let account_type = AccountType::from_str(&paths.0 .0)?;
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
@@ -182,7 +182,7 @@ pub async fn get_statistic_rank_detail_by_account_type(
 
     let detail = account_detail
         .into_iter()
-        .map(|(account, amounts)| ReportRankItemResponse {
+        .map(|(account, amounts)| ReportRankItemEntity {
             account,
             amount: amounts
                 .calculate(params.to.with_timezone(timezone), &mut operations)
@@ -191,7 +191,7 @@ pub async fn get_statistic_rank_detail_by_account_type(
         })
         .sorted_by(|a, b| a.amount.calculated.number.cmp(&b.amount.calculated.number))
         .collect_vec();
-    ResponseWrapper::json(StatisticRankResponse {
+    ResponseWrapper::json(StatisticRankEntity {
         from: params.from.naive_local(),
         to: params.to.naive_local(),
         detail,

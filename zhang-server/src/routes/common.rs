@@ -9,7 +9,7 @@ use gotcha::api;
 use itertools::Itertools;
 
 use crate::request::JournalRequest;
-use crate::response::{BasicInfo, ErrorEntity, OptionEntity, Pageable, ResponseWrapper};
+use crate::response::{BasicInfoEntity, ErrorEntity, OptionEntity, Pageable, ResponseWrapper};
 use crate::state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
 use crate::ApiResult;
 
@@ -36,11 +36,11 @@ pub async fn reload(State(reload_sender): State<SharedReloadSender>) -> ApiResul
 }
 
 #[api(group = "common")]
-pub async fn get_basic_info(ledger: State<SharedLedger>) -> ApiResult<BasicInfo> {
+pub async fn get_basic_info(ledger: State<SharedLedger>) -> ApiResult<BasicInfoEntity> {
     let ledger = ledger.read().await;
     let operations = ledger.operations();
 
-    ResponseWrapper::json(BasicInfo {
+    ResponseWrapper::json(BasicInfoEntity {
         title: operations.option::<String>("title")?,
         version: env!("ZHANG_BUILD_VERSION").to_string(),
         build_date: env!("ZHANG_BUILD_DATE").to_string(),

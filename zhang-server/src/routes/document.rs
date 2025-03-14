@@ -8,7 +8,7 @@ use gotcha::api;
 use itertools::Itertools;
 use log::info;
 
-use crate::response::{DocumentResponse, ResponseWrapper};
+use crate::response::{DocumentEntity, ResponseWrapper};
 use crate::state::SharedLedger;
 use crate::util::cacheable_data;
 use crate::ApiResult;
@@ -34,7 +34,7 @@ pub async fn download_document(ledger: State<SharedLedger>, path: Path<(String,)
 }
 
 #[api(group = "document")]
-pub async fn get_documents(ledger: State<SharedLedger>) -> ApiResult<Vec<DocumentResponse>> {
+pub async fn get_documents(ledger: State<SharedLedger>) -> ApiResult<Vec<DocumentEntity>> {
     let ledger = ledger.read().await;
     let operations = ledger.operations();
     let store = operations.read();
@@ -44,7 +44,7 @@ pub async fn get_documents(ledger: State<SharedLedger>) -> ApiResult<Vec<Documen
         .iter()
         .cloned()
         .rev()
-        .map(|doc| DocumentResponse {
+        .map(|doc| DocumentEntity {
             datetime: doc.datetime.naive_local(),
             filename: doc.filename.unwrap_or_default(),
             path: doc.path.clone(),

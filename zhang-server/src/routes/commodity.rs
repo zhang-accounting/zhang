@@ -4,12 +4,12 @@ use itertools::Itertools;
 use zhang_core::constants::COMMODITY_GROUP;
 use zhang_core::domains::schemas::{CommodityDomain, MetaType};
 
-use crate::response::{CommodityDetailResponse, CommodityListItemResponse, CommodityLotResponse, CommodityPrice, ResponseWrapper};
+use crate::response::{CommodityDetailEntity, CommodityListItemEntity, CommodityLotEntity, CommodityPriceEntity, ResponseWrapper};
 use crate::state::SharedLedger;
 use crate::ApiResult;
 
 #[api(group = "commodity")]
-pub async fn get_all_commodities(ledger: State<SharedLedger>) -> ApiResult<Vec<CommodityListItemResponse>> {
+pub async fn get_all_commodities(ledger: State<SharedLedger>) -> ApiResult<Vec<CommodityListItemEntity>> {
     let ledger = ledger.read().await;
 
     let operations = ledger.operations();
@@ -24,7 +24,7 @@ pub async fn get_all_commodities(ledger: State<SharedLedger>) -> ApiResult<Vec<C
         let group = operations
             .meta(MetaType::CommodityMeta, commodity.name.as_str(), COMMODITY_GROUP)?
             .map(|it| it.value);
-        ret.push(CommodityListItemResponse {
+        ret.push(CommodityListItemEntity {
             name: commodity.name,
             precision: commodity.precision,
             prefix: commodity.prefix,
@@ -42,7 +42,7 @@ pub async fn get_all_commodities(ledger: State<SharedLedger>) -> ApiResult<Vec<C
 }
 
 #[api(group = "commodity")]
-pub async fn get_single_commodity(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<CommodityDetailResponse> {
+pub async fn get_single_commodity(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<CommodityDetailEntity> {
     let commodity_name = params.0 .0;
     let ledger = ledger.read().await;
     let operating_currency = ledger.options.operating_currency.clone();
@@ -55,7 +55,7 @@ pub async fn get_single_commodity(ledger: State<SharedLedger>, params: Path<(Str
     let group = operations
         .meta(MetaType::CommodityMeta, commodity.name.as_str(), COMMODITY_GROUP)?
         .map(|it| it.value);
-    let commodity_item = CommodityListItemResponse {
+    let commodity_item = CommodityListItemEntity {
         name: commodity.name,
         precision: commodity.precision,
         prefix: commodity.prefix,
@@ -71,7 +71,7 @@ pub async fn get_single_commodity(ledger: State<SharedLedger>, params: Path<(Str
     let lots = operations
         .commodity_lots(&commodity_name)?
         .into_iter()
-        .map(|it| CommodityLotResponse {
+        .map(|it| CommodityLotEntity {
             account: it.account.name().to_owned(),
             amount: it.amount,
             cost: it.cost.map(|it| it.into()),
@@ -83,14 +83,14 @@ pub async fn get_single_commodity(ledger: State<SharedLedger>, params: Path<(Str
     let prices = operations
         .commodity_prices(&commodity_name)?
         .into_iter()
-        .map(|price| CommodityPrice {
+        .map(|price| CommodityPriceEntity {
             datetime: price.datetime,
             amount: price.amount,
             target_commodity: Some(price.target_commodity),
         })
         .collect_vec();
 
-    ResponseWrapper::json(CommodityDetailResponse {
+    ResponseWrapper::json(CommodityDetailEntity {
         info: commodity_item,
         lots,
         prices,

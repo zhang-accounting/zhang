@@ -18,8 +18,8 @@ use zhang_core::utils::string_::{escape_with_quote, StringExt};
 use super::Query;
 use crate::request::{CreateTransactionRequest, JournalRequest};
 use crate::response::{
-    InfoForNewTransaction, JournalBalanceCheckItemResponse, JournalBalancePadItemResponse, JournalItemResponse, JournalTransactionItemResponse,
-    JournalTransactionPostingResponse, Pageable, ResponseWrapper,
+    InfoForNewTransaction, JournalBalanceCheckItemEntity, JournalBalancePadItemEntity, JournalItemEntity, JournalTransactionItemEntity,
+    JournalTransactionPostingEntity, Pageable, ResponseWrapper,
 };
 use crate::state::{SharedLedger, SharedReloadSender};
 use crate::ApiResult;
@@ -40,7 +40,7 @@ pub async fn get_info_for_new_transactions(ledger: State<SharedLedger>) -> ApiRe
 }
 
 #[api(group = "transaction")]
-pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemResponse>> {
+pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemEntity>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
     let params = params.0;
@@ -68,8 +68,8 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
     for journal_item in journals {
         let item = match journal_item.flag {
             Flag::BalancePad => {
-                let postings = journal_item.postings.into_iter().map(JournalTransactionPostingResponse::from).collect_vec();
-                JournalItemResponse::BalancePad(JournalBalancePadItemResponse {
+                let postings = journal_item.postings.into_iter().map(JournalTransactionPostingEntity::from).collect_vec();
+                JournalItemEntity::BalancePad(JournalBalancePadItemEntity {
                     id: journal_item.id,
                     sequence: journal_item.sequence,
                     datetime: journal_item.datetime.naive_local(),
@@ -80,8 +80,8 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
                 })
             }
             Flag::BalanceCheck => {
-                let postings = journal_item.postings.into_iter().map(JournalTransactionPostingResponse::from).collect_vec();
-                JournalItemResponse::BalanceCheck(JournalBalanceCheckItemResponse {
+                let postings = journal_item.postings.into_iter().map(JournalTransactionPostingEntity::from).collect_vec();
+                JournalItemEntity::BalanceCheck(JournalBalanceCheckItemEntity {
                     id: journal_item.id,
                     sequence: journal_item.sequence,
                     datetime: journal_item.datetime.naive_local(),
@@ -92,7 +92,7 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
                 })
             }
             _ => {
-                let postings = journal_item.postings.into_iter().map(JournalTransactionPostingResponse::from).collect_vec();
+                let postings = journal_item.postings.into_iter().map(JournalTransactionPostingEntity::from).collect_vec();
                 let metas = operations
                     .metas(MetaType::TransactionMeta, journal_item.id.to_string())
                     .unwrap()
@@ -104,7 +104,7 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
                     .iter()
                     .any(|error| error.error_type == ErrorKind::UnbalancedTransaction);
 
-                JournalItemResponse::Transaction(JournalTransactionItemResponse {
+                JournalItemEntity::Transaction(JournalTransactionItemEntity {
                     id: journal_item.id,
                     sequence: journal_item.sequence,
                     datetime: journal_item.datetime.naive_local(),
