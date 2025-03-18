@@ -8,15 +8,13 @@
     "build": "astro check && astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "deploy": "wrangler deploy",
-    "deploy:dev": "wrangler deploy --env develop"
+    "deploy": "wrangler pages deploy dist --project-name zhang-docs"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.21.2",
-    "@astrojs/cloudflare": "^9.1.0",
-    "astro": "^4.3.5",
-    "sharp": "^0.32.5",
     "@astrojs/check": "^0.5.10",
+    "@astrojs/starlight": "^0.21.2",
+    "astro": "^4.3.5",
+    "sharp": "^0.32.6",
     "typescript": "^5.4.3"
   },
   "devDependencies": {

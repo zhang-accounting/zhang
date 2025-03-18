@@ -1,5 +1,5 @@
 name = "zhang-docs"
-main = "./dist"
+main = "./dist/index.html"
 compatibility_date = "2023-12-01"
 
 # Configuration for Cloudflare Pages
