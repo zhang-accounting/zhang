@@ -1,8 +1,7 @@
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use crate::{FileSystem, ServerOpts};
 use async_recursion::async_recursion;
 use beancount::Beancount;
 use chrono::Datelike;
@@ -18,14 +17,15 @@ use zhang_core::data_type::DataType;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
+
+use crate::{FileSystem, ServerOpts};
 pub struct OpendalDataSource {
     operator: Operator,
     data_type: Box<dyn DataType<Carrier = String> + 'static + Send + Sync>,
     is_beancount: bool,
 }
 
-
-async fn is_wildcard_pathbuf(pathbuf: &PathBuf) -> bool {
+async fn is_wildcard_pathbuf(pathbuf: &Path) -> bool {
     pathbuf.to_string_lossy().to_string().contains("*")
 }
 
@@ -60,7 +60,7 @@ impl DataSource for OpendalDataSource {
         let mut directives = vec![];
         while let Some(pathbuf) = load_queue.pop_front() {
             let striped_pathbuf = &pathbuf.strip_prefix(&entry).expect("Cannot strip entry").to_path_buf();
-            if is_wildcard_pathbuf(&striped_pathbuf).await {
+            if is_wildcard_pathbuf(striped_pathbuf).await {
                 // Split path into components and find wildcard level
                 let mut path_components: Vec<String> = striped_pathbuf.components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect();
                 let first_component = path_components.remove(0);
@@ -73,7 +73,6 @@ impl DataSource for OpendalDataSource {
 
                 let mut final_file_paths: Vec<PathBuf> = vec![];
                 while let Some(mut current_component) = queue.pop_front() {
-
                     let mut current_path = PathBuf::new();
                     current_path.push(current_component.path);
 
@@ -90,7 +89,7 @@ impl DataSource for OpendalDataSource {
                     }
                     // if the next component is a wildcard, we need to add all the files in the current path to the final file paths
 
-                    let current_path_str = format!("{}/", current_path.to_string_lossy().to_string());
+                    let current_path_str = format!("{}/", current_path.to_string_lossy());
                     let files = self
                         .operator
                         .list(&current_path_str)
@@ -104,18 +103,18 @@ impl DataSource for OpendalDataSource {
 
                         if entry.metadata().is_dir() {
                             let striped_entry_name = entry.path().strip_prefix(&current_path_str).unwrap().strip_suffix("/").unwrap();
-                            if re.is_match(&striped_entry_name) {
+                            if re.is_match(striped_entry_name) {
                                 // Build full path
                                 if !current_component.remaining.is_empty() {
-                                    queue.push_back(dbg!(WildcardPathComponent {
+                                    queue.push_back(WildcardPathComponent {
                                         path: current_path.join(striped_entry_name).to_string_lossy().to_string(),
                                         remaining: current_component.remaining.clone(),
-                                    }));
+                                    });
                                 }
                             }
                         } else {
                             let striped_entry_name = entry_name.strip_prefix(&current_path_str).unwrap();
-                            if re.is_match(&striped_entry_name) {
+                            if re.is_match(striped_entry_name) {
                                 // Build full path
                                 let is_remaining_empty = current_component.remaining.is_empty();
                                 if is_remaining_empty {
@@ -154,10 +153,11 @@ impl DataSource for OpendalDataSource {
             directives.extend(entity_directives);
             visited.push(pathbuf);
         }
-        Ok(LoadResult {
+        let res = LoadResult {
             directives: self.transform(directives)?,
             visited_files: visited,
-        })
+        };
+        Ok(res)
     }
 
     async fn async_get(&self, path: String) -> ZhangResult<Vec<u8>> {

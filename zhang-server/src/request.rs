@@ -7,8 +7,6 @@ use gotcha::Schematic;
 use serde::Deserialize;
 use zhang_ast::Flag;
 
-
-
 #[derive(Schematic, Deserialize)]
 #[serde(tag = "type")]
 pub enum BatchAccountBalanceRequest {

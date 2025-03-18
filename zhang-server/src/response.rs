@@ -276,7 +276,6 @@ pub struct InfoForNewTransaction {
     pub account_name: Vec<String>,
 }
 
-
 #[derive(Serialize, Schematic)]
 pub struct CommodityListItemEntity {
     pub name: String,
@@ -635,4 +634,3 @@ impl From<OptionDomain> for OptionEntity {
 pub struct AccountBalanceHistoryEntity {
     pub balance: HashMap<Currency, Vec<AccountBalanceItemEntity>>,
 }
-

@@ -6,6 +6,7 @@ use cfg_if::cfg_if;
 use chrono_tz::Tz;
 use itertools::Itertools;
 use log::error;
+use minijinja::Environment;
 use once_cell::sync::OnceCell;
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
 use zhang_ast::error::ErrorKind;
@@ -16,8 +17,6 @@ use crate::constants::*;
 use crate::domains::Operations;
 use crate::features::Features;
 use crate::{ZhangError, ZhangResult};
-use minijinja::Environment;
-
 
 #[derive(Debug)]
 pub struct InMemoryOptions {
@@ -136,7 +135,7 @@ impl InMemoryOptions {
                 },
                 BuiltinOption::DefaultBookingMethod => {
                     self.default_booking_method = BookingMethod::from_str(&value).map_err(|_| ZhangError::InvalidOptionValue)?
-                },
+                }
                 BuiltinOption::DirectiveOutputPath => {
                     let mut env = Environment::new();
                     let res = env.add_template("directive_output_path", &value);
