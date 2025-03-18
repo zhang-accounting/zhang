@@ -7,13 +7,19 @@
     "start": "astro dev",
     "build": "astro check && astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "deploy": "wrangler deploy",
+    "deploy:dev": "wrangler deploy --env develop"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.21.2",
+    "@astrojs/cloudflare": "^9.1.0",
     "astro": "^4.3.5",
     "sharp": "^0.32.5",
     "@astrojs/check": "^0.5.10",
     "typescript": "^5.4.3"
+  },
+  "devDependencies": {
+    "wrangler": "^3.30.1"
   }
 }

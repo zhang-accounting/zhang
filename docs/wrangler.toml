@@ -1,0 +1,19 @@
+name = "zhang-docs"
+main = "./dist"
+compatibility_date = "2023-12-01"
+
+# Configuration for Cloudflare Pages
+[site]
+bucket = "./dist"
+
+[build]
+command = "pnpm build"
+watch_dir = "src"
+
+[env.production]
+name = "zhang-accounting-prod"
+route = "zhang-accounting.kilerd.me/*"
+
+[env.develop]
+name = "zhang-accounting-dev"
+route = "zhang-accounting-dev.kilerd.me/*" 

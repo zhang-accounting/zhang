@@ -51,4 +51,36 @@ All commands are run from the root of the project, from a terminal:
 
 ## 👀 Want to learn more?
 
-Check out [Starlight’s docs](https://starlight.astro.build/), read [the Astro documentation](https://docs.astro.build), or jump into the [Astro Discord server](https://astro.build/chat).
+Check out [Starlight's docs](https://starlight.astro.build/), read [the Astro documentation](https://docs.astro.build), or jump into the [Astro Discord server](https://astro.build/chat).
+
+## Deploying to Cloudflare Workers
+
+This documentation site is configured to be deployed to Cloudflare Workers. The deployment happens automatically via GitHub Actions when changes are pushed to the `main` or `develop` branches.
+
+### GitHub Secrets Required
+
+To enable automatic deployment, add the following secrets to your GitHub repository:
+
+- `CF_API_TOKEN`: Cloudflare API token with Workers and Pages permissions
+- `CF_ACCOUNT_ID`: Your Cloudflare account ID
+
+### Manual Deployment
+
+To deploy manually:
+
+1. Install dependencies: `pnpm install`
+2. Build the site: `pnpm build`
+3. Deploy to production: `pnpm deploy`
+4. Or deploy to development environment: `pnpm deploy:dev`
+
+### Environment-specific URLs
+
+- Production (main branch): `https://docs.zhang.finance`
+- Development (develop branch): `https://docs-dev.zhang.finance`
+
+### Configuring Custom Domains
+
+1. In your Cloudflare account, go to Workers & Pages
+2. Find your project (`zhang-docs-prod` or `zhang-docs-dev`)
+3. Go to the "Custom domains" tab
+4. Add your custom domain

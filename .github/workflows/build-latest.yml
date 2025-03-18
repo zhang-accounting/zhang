@@ -92,6 +92,39 @@ jobs:
         run: wasm-pack pack
         working-directory: ./bindings/wasm
 
+  docs-build-deploy:
+    runs-on: ubuntu-latest
+    # Only deploy on push to main or develop, not on PRs
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 8
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'pnpm'
+          cache-dependency-path: docs/pnpm-lock.yaml
+      
+      - name: Install dependencies
+        run: pnpm install
+        working-directory: ./docs
+      
+      - name: Build documentation
+        run: pnpm build
+        working-directory: ./docs
+      
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          workingDirectory: './docs'
+          command: deploy
+
   coverage:
     if: false
     runs-on: ubuntu-latest
