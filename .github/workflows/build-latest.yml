@@ -117,13 +117,13 @@ jobs:
         run: pnpm build
         working-directory: ./docs
       
-      - name: Deploy to Cloudflare Workers
+      - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           workingDirectory: './docs'
-          command: deploy
+          command: pages deploy dist --project-name zhang-docs
 
   coverage:
     if: false
