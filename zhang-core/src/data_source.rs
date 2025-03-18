@@ -56,6 +56,11 @@ where
     }
 }
 
+/// `LocalFileSystemDataSource` is the data source that store the data in the local file system.
+/// 
+/// # Warning
+/// This data source is not fully tested yet and may contain bugs. Use with caution.
+/// 
 pub struct LocalFileSystemDataSource {
     data_type: Box<dyn DataType<Carrier = String> + 'static + Send + Sync>,
 }

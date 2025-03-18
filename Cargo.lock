@@ -5041,6 +5041,7 @@ dependencies = [
  "minijinja",
  "opendal",
  "openssl",
+ "regex",
  "self_update",
  "serde",
  "serde_json",
