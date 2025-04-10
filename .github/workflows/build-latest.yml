@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   frontend-style-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -33,7 +33,7 @@ jobs:
         run: pnpm run prettier:check
         working-directory: ./frontend
   frontend-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -56,7 +56,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-latest, windows-latest, macOS-latest ]
+        os: [ ubuntu-22.04, windows-latest, macOS-latest ]
         rust: [ stable ]
         features: [ default, plugin_runtime ]
     steps:
@@ -74,7 +74,7 @@ jobs:
       - name: Run test
         run: cargo test --features ${{matrix.features}}
   wasm-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -93,7 +93,7 @@ jobs:
         working-directory: ./bindings/wasm
 
   docs-build-deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     # Only deploy on push to main or develop, not on PRs
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     steps:
@@ -127,7 +127,7 @@ jobs:
 
   coverage:
     if: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: test
     steps:
       - uses: actions/checkout@v4
@@ -150,7 +150,7 @@ jobs:
           name: code-coverage-report
           path: cobertura.xml
   formatter:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -164,7 +164,7 @@ jobs:
         run: cargo fmt --all -- --check
 
   clippy-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -178,7 +178,7 @@ jobs:
         run: cargo clippy --all-features --all-targets -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs
 
   typo-checker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: typos-action

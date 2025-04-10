@@ -11,7 +11,7 @@ on:
 jobs:
   create-release:
     if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/create-gh-release-action@v1
@@ -20,7 +20,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   build-frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -58,15 +58,15 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             compress: true
             cargo_flags: "--features frontend"
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
             compress: true
             cargo_flags: "--features frontend"
-          #          - os: ubuntu-latest
+          #          - os: ubuntu-22.04
           #            target: riscv64gc-unknown-linux-gnu
           #            compress: false
           #            cargo_flags: "--features frontend"
@@ -82,14 +82,14 @@ jobs:
             target: aarch64-apple-darwin
             compress: false
             cargo_flags: "--features frontend"
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             target: x86_64-unknown-freebsd
             compress: false
             cargo_flags: "--features frontend"
 
     # The type of runner that the job will run on
     # Runs on Ubuntu if other os is not specified above
-    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.os || 'ubuntu-22.04' }}
     timeout-minutes: 90
     permissions:
       contents: write
@@ -155,7 +155,7 @@ jobs:
   
   
   docker-image-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: publish
     # Run for tags and pushes to the default branch
     if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag') || github.event.repository.default_branch == github.ref_name
@@ -204,7 +204,7 @@ jobs:
         if: startsWith(github.ref_name, 'v')
 
   release-wasm:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag')
     steps:
       - uses: actions/checkout@v4
