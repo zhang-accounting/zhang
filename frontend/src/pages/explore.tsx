@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
 import { breadcrumbAtom, titleAtom } from '../states/basic';
+import { BeanOff } from 'lucide-react';
 
 
 export default function Explore() {
@@ -68,8 +69,19 @@ export default function Explore() {
       {executionError && <div className="text-red-500 mb-2 border border-red-500 rounded-md p-2">
         <pre className="text-red-500">{executionError}</pre>
       </div>}
+
       <div className="space-y-6">
-        {result && (
+        {result && result.columns.length === 0 && (
+          <div className=" flex flex-col items-center justify-center gap-4 mt-16">
+            <BeanOff className="w-28 h-28 text-gray-500" />
+            <div className="text-gray-500 text-lg">
+              {t('explore.no_results')}
+            </div>
+          </div>
+        )}
+
+
+        {result && result.columns.length > 0 && (
           <div className="mt-4">
             <h2 className="text-xl font-semibold mb-2">{t('explore.results')}</h2>
             

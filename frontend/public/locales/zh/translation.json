@@ -66,6 +66,7 @@
   },
   "explore": {
     "title": "探索",
-    "results": "结果"
+    "results": "结果",
+    "no_results": "没有结果"
   }
 }

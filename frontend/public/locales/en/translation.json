@@ -69,6 +69,7 @@
   },
   "explore": {
     "title": "Explore",
-    "results": "Results"
+    "results": "Results",
+    "no_results": "No results"
   }
 }
