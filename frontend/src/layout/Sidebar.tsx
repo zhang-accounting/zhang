@@ -11,6 +11,7 @@ import {
   PocketKnife,
   Receipt,
   RotateCw,
+  Search,
   WalletMinimal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -74,6 +75,11 @@ export const TOOLS_LINK = {
   label: 'NAV_TOOLS',
   uri: '/tools',
 };
+export const EXPLORE_LINK = {
+  icon: Search,
+  label: 'NAV_EXPLORE',
+  uri: '/explore',
+};
 export const SETTINGS_LINK = {
   icon: Cog,
   label: 'NAV_SETTING',
@@ -90,6 +96,7 @@ export const links = [
   LIABILITY_LINK,
   RAW_EDITING_LINK,
   TOOLS_LINK,
+  EXPLORE_LINK,
   SETTINGS_LINK,
 ];
 

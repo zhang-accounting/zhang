@@ -5,7 +5,8 @@ pub const KEY_DEFAULT_ROUNDING: &str = "default_rounding";
 pub const KEY_DEFAULT_BALANCE_TOLERANCE_PRECISION: &str = "default_balance_tolerance_precision";
 pub const KEY_DEFAULT_COMMODITY_PRECISION: &str = "default_commodity_precision";
 pub const KEY_TIMEZONE: &str = "timezone";
-
+pub const KEY_DIRECTIVE_OUTPUT_PATH: &str = "directive_output_path";
+pub const KEY_DEFAULT_BOOKING_METHOD: &str = "default_booking_method";
 pub const KEY_FEATURES_PLUGIN: &str = "features.plugin";
 
 pub const DEFAULT_COMMODITY_PRECISION: i32 = 2;

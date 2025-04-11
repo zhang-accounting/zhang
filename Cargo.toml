@@ -7,13 +7,14 @@ members = [
     "zhang-cli",
     "extensions/*",
     "bindings/python",
-    "bindings/wasm",
+    "bindings/wasm", "zhang-sql",
 ]
 default-members = [
     "zhang-core",
     "zhang-ast",
     "zhang-server",
     "zhang-cli",
+    "zhang-sql",
     "extensions/*",
     "bindings/python",
 ]

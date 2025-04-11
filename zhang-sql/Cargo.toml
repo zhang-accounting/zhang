@@ -1,0 +1,16 @@
+[package]
+name = "zhang-sql"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tempfile = "3"
+zhang-core = { path = "../zhang-core" }
+indoc = "0.3"
+itertools = "0.12"
+serde_json = { workspace = true }
+serde = { workspace = true }
+gotcha = { workspace = true }
+duckdb = { version = "1.2", features = ["bundled", "uuid", "chrono", "serde_json"] }
+chrono = { version = "0.4" }
+uuid = "1"

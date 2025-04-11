@@ -20,6 +20,7 @@
   "NAV_TOOLS": "Tools",
   "NAV_SETTING": "Setting",
   "NAV_BUDGETS": "Budget",
+  "NAV_EXPLORE": "Sql Explore",
   "TXN_EDIT_PREVIEW": "Preview",
   "NEW_TRANSACTION_BUTTON": "New Transaction",
   "NEW_TRANSACTION_DIALOG_TITLE": "Create new transaction",
@@ -65,5 +66,9 @@
   },
   "settings": {
     "title": "Settings"
+  },
+  "explore": {
+    "title": "Explore",
+    "results": "Results"
   }
 }

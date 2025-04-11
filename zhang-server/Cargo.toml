@@ -13,6 +13,7 @@ frontend = ["rust-embed"]
 [dependencies]
 zhang-core = { version = "0.1", path = "../zhang-core", features = ["plugin_runtime"] }
 zhang-ast = { version = "0.1", path = "../zhang-ast" }
+zhang-sql = { version = "0.1", path = "../zhang-sql" }
 
 base64 = { workspace = true }
 serde = { workspace = true }

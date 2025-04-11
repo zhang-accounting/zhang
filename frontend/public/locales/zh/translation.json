@@ -20,6 +20,7 @@
   "NAV_TOOLS": "工具",
   "NAV_SETTING": "设置",
   "NAV_BUDGETS": "预算",
+  "NAV_EXPLORE": "Sql 探索",
   "ACCOUNT_FILTER_PLACEHOLDER": "按关键字过滤...",
   "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "清空过滤关键字",
   "TXN_EDIT_PREVIEW": "预览",
@@ -62,5 +63,9 @@
   },
   "settings": {
     "title": "设置"
+  },
+  "explore": {
+    "title": "探索",
+    "results": "结果"
   }
 }
