@@ -34,7 +34,7 @@ indexmap = { version = "2.2", features = ["serde"] }
 axum = { version = "0.7", features = ["macros", "multipart"] }
 gotcha = { git = "https://github.com/kilerd/gotcha.git", branch = "main", features = ["openapi"] }
 gotcha_core = { git = "https://github.com/kilerd/gotcha.git", branch = "main" }
-bytes = "1.6.0"
+bytes = "1.11.1"
 chrono-tz = "0.8"
 http = "1.1"
 async-trait = "0.1"
