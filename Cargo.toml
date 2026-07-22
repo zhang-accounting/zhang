@@ -39,10 +39,6 @@ chrono-tz = "0.8"
 http = "1.1"
 async-trait = "0.1"
 
-pest = "2.1"
-pest_consume = "1.1"
-pest_derive = "2.1"
-
 openssl = { version = "0.10", features = ["vendored"] }
 
 

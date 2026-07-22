@@ -1,681 +1,846 @@
+//! Parser for the beancount text format.
+//!
+//! Hand-written recursive-descent parser built on [`nom`], replacing the previous
+//! `pest` + `pest_consume` grammar (`beancount.pest`). It produces the same
+//! [`BeancountDirective`] AST — the shared test module below is the behavioural
+//! contract.
+//!
+//! beancount-only directives (`balance`, `pad`, `pushtag`, `poptag`) are returned
+//! as [`Either::Right`]; everything else maps onto zhang's [`Directive`] as
+//! [`Either::Left`].
+
 use std::path::PathBuf;
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveTime};
-use itertools::{Either, Itertools};
-use once_cell::sync::OnceCell;
-use pest::iterators::Pairs;
-use pest::pratt_parser::PrattParser;
-use pest_consume::{match_nodes, Error, Parser};
+use itertools::Either;
+use nom::branch::alt;
+use nom::bytes::complete::{tag, take_while, take_while1, take_while_m_n};
+use nom::character::complete::{char, line_ending, not_line_ending, one_of, satisfy, space0, space1};
+use nom::combinator::{map, map_res, opt, peek, recognize, value};
+use nom::multi::{many0, many1, many_m_n, separated_list1};
+use nom::sequence::{delimited, pair, preceded, terminated, tuple};
+use nom::IResult;
 use snailquote::unescape;
 use zhang_ast::amount::Amount;
-use zhang_ast::utils::multi_value_map::MultiValueMap;
 use zhang_ast::*;
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
 
-type Result<T> = std::result::Result<T, Error<Rule>>;
-type Node<'i> = pest_consume::Node<'i, Rule, ()>;
-
-#[derive(Parser)]
-#[grammar = "beancount.pest"]
-pub struct BeancountParser;
-
-/// Construct a global [PrattParser] to handle number expressions.
-fn pratt_number_parser() -> &'static PrattParser<Rule> {
-    static PARSER: OnceCell<PrattParser<Rule>> = OnceCell::new();
-    PARSER.get_or_init(|| {
-        use pest::pratt_parser::Assoc::*;
-        use pest::pratt_parser::Op;
-        use Rule::*;
-        PrattParser::new()
-            .op(Op::infix(add, Left) | Op::infix(subtract, Left))
-            .op(Op::infix(multiply, Left) | Op::infix(divide, Left))
-            .op(Op::prefix(unary_minus))
-    })
+/// Error returned when the input cannot be parsed as beancount text.
+#[derive(Debug, Clone)]
+pub struct ParseError {
+    pub message: String,
 }
 
-/// Define parsing rules for [number_expr] nodes.
-/// Each expression is calculated in-place and reduced to one [BigDecimal].
-fn parse_number_expr(pairs: Pairs<Rule>) -> Result<BigDecimal> {
-    pratt_number_parser()
-        .map_primary(|primary| match primary.as_rule() {
-            Rule::number => BeancountParser::number(Node::new(primary)),
-            Rule::number_expr => parse_number_expr(primary.into_inner()),
-            rule => unreachable!("Unexpected number expr {:?}", rule),
-        })
-        .map_infix(|lhs, op, rhs| match op.as_rule() {
-            Rule::add => Ok(lhs? + rhs?),
-            Rule::subtract => Ok(lhs? - rhs?),
-            Rule::multiply => Ok(lhs? * rhs?),
-            Rule::divide => Ok(lhs? / rhs?),
-            rule => unreachable!("Unexpected infix operation {:?}", rule),
-        })
-        .map_prefix(|op, rhs| match op.as_rule() {
-            Rule::unary_minus => Ok(-rhs?),
-            rule => unreachable!("Unexpected prefix operation {:?}", rule),
-        })
-        .parse(pairs)
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
 }
 
-#[pest_consume::parser]
-impl BeancountParser {
-    #[allow(dead_code)]
-    fn EOI(_input: Node) -> Result<()> {
-        Ok(())
-    }
-    fn number_expr(input: Node) -> Result<BigDecimal> {
-        parse_number_expr(input.into_pair().into_inner())
-    }
+impl std::error::Error for ParseError {}
 
-    fn number(input: Node) -> Result<BigDecimal> {
-        let pure_number = input.as_str().replace([',', '_'], "");
-        Ok(BigDecimal::from_str(&pure_number).unwrap())
-    }
-    fn quote_string(input: Node) -> Result<ZhangString> {
-        let string = input.as_str();
-        Ok(ZhangString::QuoteString(unescape(string).unwrap()))
-    }
+fn offset(original: &str, sub: &str) -> usize {
+    sub.as_ptr() as usize - original.as_ptr() as usize
+}
 
-    fn unquote_string(input: Node) -> Result<ZhangString> {
-        Ok(ZhangString::UnquoteString(input.as_str().to_owned()))
-    }
+fn is_digit(c: char) -> bool {
+    c.is_ascii_digit()
+}
 
-    fn string(input: Node) -> Result<ZhangString> {
-        let ret = match_nodes!(
-            input.into_children();
-            [quote_string(i)] => i,
-            [unquote_string(i)] => i
-        );
-        Ok(ret)
-    }
-    fn commodity_name(input: Node) -> Result<String> {
-        Ok(input.as_str().to_owned())
-    }
-    fn account_type(input: Node) -> Result<String> {
-        Ok(input.as_str().to_owned())
-    }
-    fn account_name(input: Node) -> Result<Account> {
-        let r: (String, Vec<String>) = match_nodes!(input.into_children();
-            [account_type(a), unquote_string(i)..] => {
-                (a, i.map(|it|it.to_plain_string()).collect())
-            },
+// ---------------------------------------------------------------------------
+// low level tokens (shared shape with zhang-core's parser)
+// ---------------------------------------------------------------------------
 
-        );
-        Ok(Account {
-            account_type: AccountType::from_str(&r.0).unwrap(),
-            content: format!("{}:{}", &r.0, r.1.join(":")),
-            components: r.1,
-        })
-    }
-    fn date(input: Node) -> Result<Date> {
-        let datetime: Date = match_nodes!(input.into_children();
-            [date_only(d)] => d,
-        );
-        Ok(datetime)
-    }
+fn blank_line(i: &str) -> IResult<&str, ()> {
+    value((), pair(space0, line_ending))(i)
+}
 
-    fn date_only(input: Node) -> Result<Date> {
-        let date = NaiveDate::parse_from_str(input.as_str(), "%Y-%m-%d").unwrap();
-        Ok(Date::Date(date))
+fn comment_prefix(i: &str) -> IResult<&str, &str> {
+    alt((tag("//"), tag(";"), tag("*"), tag("#")))(i)
+}
+
+fn inline_comment(i: &str) -> IResult<&str, ()> {
+    value((), pair(comment_prefix, not_line_ending))(i)
+}
+
+fn line_trailer(i: &str) -> IResult<&str, ()> {
+    value((), pair(space0, opt(inline_comment)))(i)
+}
+
+fn valuable_comment(i: &str) -> IResult<&str, String> {
+    let (i, _) = space0(i)?;
+    valuable_comment_body(i)
+}
+
+fn valuable_comment_body(i: &str) -> IResult<&str, String> {
+    let (i, _) = comment_prefix(i)?;
+    let (i, _) = space0(i)?;
+    let (i, body) = not_line_ending(i)?;
+    Ok((i, body.to_string()))
+}
+
+fn unquote_string_raw(i: &str) -> IResult<&str, &str> {
+    take_while1(|c: char| !matches!(c, '"' | ':' | '(' | ')' | ',' | ' ' | '\t' | '\n' | '\r'))(i)
+}
+
+fn string_char(i: &str) -> IResult<&str, &str> {
+    alt((
+        recognize(pair(
+            char('\\'),
+            alt((
+                recognize(one_of("\"\\/bfnrt")),
+                recognize(tuple((char('u'), char('{'), take_while_m_n(4, 4, |c: char| c.is_ascii_hexdigit()), char('}')))),
+                recognize(pair(char('u'), take_while_m_n(4, 4, |c: char| c.is_ascii_hexdigit()))),
+            )),
+        )),
+        recognize(satisfy(|c: char| c != '"' && c != '\\')),
+    ))(i)
+}
+
+fn quote_string(i: &str) -> IResult<&str, ZhangString> {
+    let (rest, raw) = recognize(tuple((char('"'), many0(string_char), char('"'))))(i)?;
+    let unescaped = unescape(raw).expect("string contains invalid escape char");
+    Ok((rest, ZhangString::QuoteString(unescaped)))
+}
+
+fn string(i: &str) -> IResult<&str, ZhangString> {
+    alt((map(unquote_string_raw, |s: &str| ZhangString::UnquoteString(s.to_string())), quote_string))(i)
+}
+
+fn commodity_name(i: &str) -> IResult<&str, String> {
+    map(
+        recognize(pair(
+            satisfy(|c: char| c.is_ascii_alphabetic()),
+            take_while(|c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '\'')),
+        )),
+        |s: &str| s.to_string(),
+    )(i)
+}
+
+fn account_type(i: &str) -> IResult<&str, &str> {
+    alt((tag("Assets"), tag("Liabilities"), tag("Equity"), tag("Income"), tag("Expenses")))(i)
+}
+
+fn account_name(i: &str) -> IResult<&str, Account> {
+    let (i, account_type) = account_type(i)?;
+    let (i, components) = many1(preceded(char(':'), map(unquote_string_raw, |s: &str| s.to_string())))(i)?;
+    let content = format!("{}:{}", account_type, components.join(":"));
+    Ok((
+        i,
+        Account {
+            account_type: AccountType::from_str(account_type).expect("invalid account type"),
+            content,
+            components,
+        },
+    ))
+}
+
+/// beancount dates are date-only; time (when present) is carried in metadata and
+/// re-attached by the caller.
+fn parse_date(i: &str) -> IResult<&str, Date> {
+    map_res(
+        recognize(tuple((
+            take_while_m_n(4, 4, is_digit),
+            char('-'),
+            take_while_m_n(1, 2, is_digit),
+            char('-'),
+            take_while_m_n(1, 2, is_digit),
+        ))),
+        |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").map(Date::Date),
+    )(i)
+}
+
+// ---------------------------------------------------------------------------
+// numbers and arithmetic expressions
+// ---------------------------------------------------------------------------
+
+fn number(i: &str) -> IResult<&str, BigDecimal> {
+    map_res(
+        recognize(tuple((
+            take_while1(is_digit),
+            take_while(|c: char| is_digit(c) || matches!(c, ',' | '_')),
+            opt(pair(char('.'), take_while(is_digit))),
+            opt(tuple((one_of("eE"), opt(one_of("+-")), take_while1(is_digit)))),
+        ))),
+        |s: &str| BigDecimal::from_str(&s.replace([',', '_'], "")),
+    )(i)
+}
+
+fn expr_primary(i: &str) -> IResult<&str, BigDecimal> {
+    alt((number, delimited(pair(char('('), space0), number_expr, pair(space0, char(')')))))(i)
+}
+
+fn expr_atom(i: &str) -> IResult<&str, BigDecimal> {
+    let (i, negative) = opt(char('-'))(i)?;
+    let (i, _) = space0(i)?;
+    let (i, value) = expr_primary(i)?;
+    Ok((i, if negative.is_some() { -value } else { value }))
+}
+
+fn binary_operator(operators: &'static str) -> impl Fn(&str) -> IResult<&str, char> {
+    move |i| {
+        let (i, _) = space0(i)?;
+        let (i, operator) = one_of(operators)(i)?;
+        let (i, _) = space0(i)?;
+        Ok((i, operator))
     }
+}
 
-    fn booking_method(input: Node) -> Result<String> {
-        let content = input.as_str();
-        Ok(content[1..content.len() - 1].to_string())
+fn mul_expr(i: &str) -> IResult<&str, BigDecimal> {
+    let (mut i, mut acc) = expr_atom(i)?;
+    while let Ok((next, operator)) = binary_operator("*/")(i) {
+        let (next, rhs) = expr_atom(next)?;
+        acc = if operator == '*' { acc * rhs } else { acc / rhs };
+        i = next;
     }
+    Ok((i, acc))
+}
 
-    fn plugin(input: Node) -> Result<Directive> {
-        let ret: (ZhangString, Vec<ZhangString>) = match_nodes!(input.into_children();
-            [string(module), string(values)..] => (module, values.collect()),
-        );
-        Ok(Directive::Plugin(Plugin {
-            module: ret.0,
-            value: ret.1,
-            meta: Meta::default(),
-        }))
+fn number_expr(i: &str) -> IResult<&str, BigDecimal> {
+    let (mut i, mut acc) = mul_expr(i)?;
+    while let Ok((next, operator)) = binary_operator("+-")(i) {
+        let (next, rhs) = mul_expr(next)?;
+        acc = if operator == '+' { acc + rhs } else { acc - rhs };
+        i = next;
     }
+    Ok((i, acc))
+}
 
-    fn option(input: Node) -> Result<Directive> {
-        let (key, value) = match_nodes!(input.into_children();
-            [string(key), string(value)] => (key, value),
-        );
-        Ok(Directive::Option(Options { key, value }))
-    }
-    fn comment(input: Node) -> Result<Directive> {
-        Ok(Directive::Comment(Comment {
-            content: input.as_str().to_owned(),
-        }))
-    }
+// ---------------------------------------------------------------------------
+// postings
+// ---------------------------------------------------------------------------
 
-    fn open(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, Vec<String>, Option<String>, Meta) = match_nodes!(input.into_children();
-            [date(date), account_name(a), commodity_name(commodities).., metas(metas)] => (date, a, commodities.collect(), None, metas),
-            [date(date), account_name(a), commodity_name(commodities)..] => (date, a, commodities.collect(), None,Meta::default()),
-            [date(date), account_name(a), metas(metas)] => (date, a, vec![], None, metas),
+fn posting_amount(i: &str) -> IResult<&str, Amount> {
+    let (i, number) = number_expr(i)?;
+    let (i, _) = space0(i)?;
+    let (i, currency) = commodity_name(i)?;
+    Ok((i, Amount::new(number, currency)))
+}
 
-            [date(date), account_name(a), commodity_name(commodities).., booking_method(booking_method), metas(metas)] => (date, a, commodities.collect(), Some(booking_method), metas),
-            [date(date), account_name(a), commodity_name(commodities).., booking_method(booking_method)] => (date, a, commodities.collect(), Some(booking_method), Meta::default()),
-            [date(date), account_name(a), booking_method(booking_method), metas(metas)] => (date, a, vec![], Some(booking_method), metas),
-        );
+fn cost_group(i: &str) -> IResult<&str, PostingCost> {
+    let (i, _) = char('{')(i)?;
+    let (i, _) = space0(i)?;
+    let (i, base) = opt(posting_amount)(i)?;
+    let (i, date) = opt(preceded(tuple((space0, char(','), space0)), parse_date))(i)?;
+    let (i, _) = space0(i)?;
+    let (i, _) = char('}')(i)?;
+    Ok((i, PostingCost { base, date }))
+}
 
-        let (date, account, commodities, booking_method, mut meta) = ret;
-        if let Some(booking_method) = booking_method {
-            meta.insert("booking_method".to_string(), ZhangString::quote(booking_method));
+fn posting_price(i: &str) -> IResult<&str, SingleTotalPrice> {
+    alt((
+        map(preceded(pair(tag("@@"), space0), posting_amount), SingleTotalPrice::Total),
+        map(preceded(pair(char('@'), space0), posting_amount), SingleTotalPrice::Single),
+    ))(i)
+}
+
+type PostingMeta = (Option<PostingCost>, Option<SingleTotalPrice>);
+
+fn posting_meta(i: &str) -> IResult<&str, PostingMeta> {
+    let (i, cost) = opt(preceded(space0, cost_group))(i)?;
+    let (i, _) = space0(i)?;
+    let (i, price) = opt(posting_price)(i)?;
+    Ok((i, (cost, price)))
+}
+
+fn posting_unit(i: &str) -> IResult<&str, (Option<Amount>, Option<PostingMeta>)> {
+    let (i, amount) = opt(posting_amount)(i)?;
+    let (i, meta) = posting_meta(i)?;
+    Ok((i, (amount, Some(meta))))
+}
+
+fn transaction_flag(i: &str) -> IResult<&str, Flag> {
+    let (i, _) = space1(i)?;
+    let (i, flag) = satisfy(|c: char| c == '!' || c == '*' || c == '#' || c.is_ascii_uppercase())(i)?;
+    Ok((i, Flag::from_str(&flag.to_string()).expect("invalid flag")))
+}
+
+fn transaction_posting(i: &str) -> IResult<&str, Posting> {
+    let (i, flag) = opt(transaction_flag)(i)?;
+    let (i, account) = account_name(i)?;
+    let (i, unit) = opt(preceded(space1, posting_unit))(i)?;
+
+    let mut posting = Posting {
+        flag,
+        account,
+        units: None,
+        cost: None,
+        price: None,
+        comment: None,
+    };
+    if let Some((amount, meta)) = unit {
+        posting.units = amount;
+        if let Some((cost, price)) = meta {
+            posting.cost = cost;
+            posting.price = price;
         }
-        let open = Open {
+    }
+    Ok((i, posting))
+}
+
+enum TransactionLine {
+    Posting(Posting),
+    Meta((String, ZhangString)),
+}
+
+fn transaction_line(i: &str) -> IResult<&str, (Option<Posting>, Option<(String, ZhangString)>)> {
+    let (i, _) = line_ending(i)?;
+    let (i, _) = space1(i)?;
+    let (i, content) = opt(alt((
+        map(transaction_posting, TransactionLine::Posting),
+        map(key_value_line, TransactionLine::Meta),
+    )))(i)?;
+    let (i, _) = space0(i)?;
+    let (i, comment) = opt(valuable_comment_body)(i)?;
+
+    let result = match content {
+        Some(TransactionLine::Posting(posting)) => {
+            let posting = match comment {
+                Some(comment) => posting.set_comment(comment),
+                None => posting,
+            };
+            (Some(posting), None)
+        }
+        Some(TransactionLine::Meta(meta)) => (None, Some(meta)),
+        None => (None, None),
+    };
+    Ok((i, result))
+}
+
+fn transaction_lines(i: &str) -> IResult<&str, Vec<(Option<Posting>, Option<(String, ZhangString)>)>> {
+    many1(transaction_line)(i)
+}
+
+fn spaced_tag_or_link(i: &str) -> IResult<&str, (bool, String)> {
+    preceded(
+        space0,
+        alt((
+            map(preceded(char('#'), unquote_string_raw), |s: &str| (true, s.to_string())),
+            map(preceded(char('^'), unquote_string_raw), |s: &str| (false, s.to_string())),
+        )),
+    )(i)
+}
+
+fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
+    let mut tags = Vec::new();
+    let mut links = Vec::new();
+    let mut rest = i;
+    while let Ok((next, (is_tag, value))) = spaced_tag_or_link(rest) {
+        if is_tag {
+            tags.push(value);
+        } else {
+            links.push(value);
+        }
+        rest = next;
+    }
+    Ok((rest, (tags, links)))
+}
+
+// ---------------------------------------------------------------------------
+// metadata
+// ---------------------------------------------------------------------------
+
+fn key_value_line(i: &str) -> IResult<&str, (String, ZhangString)> {
+    let (i, key) = string(i)?;
+    let (i, _) = space0(i)?;
+    let (i, _) = char(':')(i)?;
+    let (i, _) = space0(i)?;
+    let (i, value) = string(i)?;
+    Ok((i, (key.to_plain_string(), value)))
+}
+
+fn meta_line(i: &str) -> IResult<&str, (String, ZhangString)> {
+    let (i, _) = line_ending(i)?;
+    let (i, _) = space1(i)?;
+    let (i, pair) = key_value_line(i)?;
+    let (i, _) = space0(i)?;
+    let (i, _) = opt(inline_comment)(i)?;
+    Ok((i, pair))
+}
+
+fn metas_block(i: &str) -> IResult<&str, Meta> {
+    map(many1(meta_line), |pairs| pairs.into_iter().collect())(i)
+}
+
+// ---------------------------------------------------------------------------
+// directive bodies
+// ---------------------------------------------------------------------------
+
+fn comma_separator(i: &str) -> IResult<&str, ()> {
+    value((), tuple((space0, char(','), space0)))(i)
+}
+
+/// `booking_method = "\"" ("STRICT" | "FIFO" | "LIFO" | "AVERAGE" | "AVERAGE_ONLY" | "NONE") "\""`
+fn booking_method(i: &str) -> IResult<&str, String> {
+    delimited(
+        char('"'),
+        map(
+            alt((tag("STRICT"), tag("FIFO"), tag("LIFO"), tag("AVERAGE_ONLY"), tag("AVERAGE"), tag("NONE"))),
+            |s: &str| s.to_string(),
+        ),
+        char('"'),
+    )(i)
+}
+
+fn open_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(i)?;
+    let (i, account) = account_name(i)?;
+    let (i, commodities) = opt(preceded(space1, separated_list1(comma_separator, commodity_name)))(i)?;
+    let (i, booking) = opt(preceded(space1, booking_method))(i)?;
+
+    let mut meta = Meta::default();
+    if let Some(booking) = booking {
+        meta.insert("booking_method".to_string(), ZhangString::quote(booking));
+    }
+    Ok((
+        i,
+        Either::Left(Directive::Open(Open {
             date,
             account,
-            commodities,
+            commodities: commodities.unwrap_or_default(),
             meta,
-        };
-        Ok(Directive::Open(open))
-    }
-    fn close(input: Node) -> Result<Directive> {
-        let ret: (Date, Account) = match_nodes!(input.into_children();
-            [date(date), account_name(a)] => (date, a)
-        );
-        Ok(Directive::Close(Close {
-            date: ret.0,
-            account: ret.1,
-            meta: Default::default(),
-        }))
-    }
+        })),
+    ))
+}
 
-    #[allow(dead_code)]
-    fn indentation(input: Node) -> Result<()> {
-        Ok(())
-    }
-
-    fn key_value_line(input: Node) -> Result<(String, ZhangString)> {
-        let ret: (String, ZhangString) = match_nodes!(input.into_children();
-            [string(key), string(value)] => (key.to_plain_string(), value),
-        );
-        Ok(ret)
-    }
-
-    fn metas(input: Node) -> Result<Meta> {
-        let ret: Vec<(String, ZhangString)> = match_nodes!(input.into_children();
-            [key_value_line(lines)..] => lines.collect(),
-        );
-
-        Ok(ret.into_iter().collect())
-    }
-
-    fn posting_unit(input: Node) -> Result<(Option<Amount>, Option<(Option<PostingCost>, Option<SingleTotalPrice>)>)> {
-        let ret: (Option<Amount>, Option<(Option<PostingCost>, Option<SingleTotalPrice>)>) = match_nodes!(input.into_children();
-            [posting_amount(amount)] => (Some(amount), None),
-            [posting_meta(meta)] => (None, Some(meta)),
-            [posting_amount(amount), posting_meta(meta)] => (Some(amount), Some(meta)),
-        );
-        Ok(ret)
-    }
-
-    fn posting_cost_prefix(input: Node) -> Result<()> {
-        Ok(())
-    }
-    fn posting_cost_postfix(input: Node) -> Result<()> {
-        Ok(())
-    }
-
-    fn posting_cost(input: Node) -> Result<Amount> {
-        let ret: Amount = match_nodes!(input.into_children();
-            [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
-        );
-        Ok(ret)
-    }
-    fn posting_total_price(input: Node) -> Result<Amount> {
-        let ret: Amount = match_nodes!(input.into_children();
-            [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
-        );
-        Ok(ret)
-    }
-    fn posting_single_price(input: Node) -> Result<Amount> {
-        let ret: Amount = match_nodes!(input.into_children();
-            [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
-        );
-        Ok(ret)
-    }
-
-    fn posting_amount(input: Node) -> Result<Amount> {
-        let ret: Amount = match_nodes!(input.into_children();
-            [number_expr(amount), commodity_name(c)] => Amount::new(amount, c),
-        );
-        Ok(ret)
-    }
-
-    fn transaction_flag(input: Node) -> Result<Option<Flag>> {
-        Ok(Some(Flag::from_str(input.as_str().trim()).unwrap()))
-    }
-
-    fn posting_price(input: Node) -> Result<SingleTotalPrice> {
-        let ret: SingleTotalPrice = match_nodes!(input.into_children();
-            [posting_total_price(p)] => SingleTotalPrice::Total(p),
-            [posting_single_price(p)] => SingleTotalPrice::Single(p),
-        );
-        Ok(ret)
-    }
-    fn posting_meta(input: Node) -> Result<(Option<PostingCost>, Option<SingleTotalPrice>)> {
-        let ret: (Option<PostingCost>, Option<SingleTotalPrice>) = match_nodes!(input.into_children();
-            [] => (None, None),
-            [posting_cost_prefix(_), posting_cost_postfix(_)] => (Some(PostingCost{base: None,date: None}), None),
-            [posting_cost_prefix(_), posting_cost(cost), posting_cost_postfix(_)] => (Some(PostingCost{base: Some(cost),date: None}), None),
-            [posting_price(p)] => (None, Some(p)),
-            [posting_cost_prefix(_), posting_cost_postfix(_), posting_price(p)] => (Some(PostingCost{base: None,date: None}), Some(p)),
-            [posting_cost_prefix(_), posting_cost(cost), date(d), posting_cost_postfix(_)] => (Some(PostingCost{base: Some(cost),date: Some(d)}) , None),
-            [posting_cost_prefix(_), posting_cost(cost), posting_cost_postfix(_),  posting_price(p)] => (Some(PostingCost{base: Some(cost),date: None}), Some(p)),
-            [posting_cost_prefix(_), posting_cost(cost), date(d), posting_cost_postfix(_), posting_price(p)] => (Some(PostingCost{base: Some(cost),date: Some(d)}), Some(p)),
-        );
-        Ok(ret)
-    }
-    fn transaction_posting(input: Node) -> Result<Posting> {
-        let ret: (
-            Option<Flag>,
-            Account,
-            Option<(Option<Amount>, Option<(Option<PostingCost>, Option<SingleTotalPrice>)>)>,
-        ) = match_nodes!(input.into_children();
-            [account_name(account_name)] => (None, account_name, None),
-            [account_name(account_name), posting_unit(unit)] => (None, account_name, Some(unit)),
-            [transaction_flag(flag), account_name(account_name)] => (flag, account_name, None),
-            [transaction_flag(flag), account_name(account_name), posting_unit(unit)] => (flag, account_name, Some(unit)),
-        );
-
-        let (flag, account, unit) = ret;
-
-        let mut line = Posting {
-            flag,
+fn close_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(i)?;
+    let (i, account) = account_name(i)?;
+    Ok((
+        i,
+        Either::Left(Directive::Close(Close {
+            date,
             account,
-            units: None,
-            cost: None,
-            price: None,
-            comment: None,
-        };
+            meta: Meta::default(),
+        })),
+    ))
+}
 
-        if let Some((amount, meta)) = unit {
-            line.units = amount;
-
-            if let Some((posting_cost, price)) = meta {
-                line.cost = posting_cost;
-                line.price = price;
-            }
-        }
-        Ok(line)
-    }
-
-    fn transaction_line(input: Node) -> Result<(Option<Posting>, Option<(String, ZhangString)>)> {
-        let ret: (Option<Posting>, Option<(String, ZhangString)>) = match_nodes!(input.into_children();
-            [transaction_posting(posting)] => (Some(posting), None),
-            [transaction_posting(posting), valuable_comment(c)] => (Some(posting.set_comment(c)), None),
-            [key_value_line(meta)] => (None, Some(meta)),
-            [key_value_line(meta),  valuable_comment(_)] => (None, Some(meta)),
-            [valuable_comment(_)] => (None, None),
-        );
-        Ok(ret)
-    }
-    fn transaction_lines(input: Node) -> Result<Vec<(Option<Posting>, Option<(String, ZhangString)>)>> {
-        let ret = match_nodes!(input.into_children();
-            [transaction_line(lines)..] => lines.collect(),
-        );
-        Ok(ret)
-    }
-
-    fn tag(input: Node) -> Result<String> {
-        let ret = match_nodes!(input.into_children();
-            [unquote_string(tag)] => tag.to_plain_string(),
-        );
-        Ok(ret)
-    }
-    fn link(input: Node) -> Result<String> {
-        let ret = match_nodes!(input.into_children();
-            [unquote_string(tag)] => tag.to_plain_string(),
-        );
-        Ok(ret)
-    }
-    fn tags_or_links(input: Node) -> Result<(Vec<String>, Vec<String>)> {
-        let mut tags = vec![];
-        let mut links = vec![];
-        let nodes = input.into_children();
-        for node in nodes {
-            match node.as_rule() {
-                Rule::tag => {
-                    tags.push(Self::tag(node)?);
-                }
-                Rule::link => {
-                    links.push(Self::link(node)?);
-                }
-                _ => {
-                    // Optionally handle unexpected rules
-                }
-            }
-        }
-
-        Ok((tags, links))
-    }
-
-    fn transaction(input: Node) -> Result<Directive> {
-        let ret: (
-            Date,
-            Option<Flag>,
-            Option<ZhangString>,
-            Option<ZhangString>,
-            (Vec<String>, Vec<String>),
-            Vec<(Option<Posting>, Option<(String, ZhangString)>)>,
-        ) = match_nodes!(input.into_children();
-            [date(date), quote_string(payee), tags_or_links(tags_or_links), transaction_lines(lines)] => (date, None, Some(payee), None, tags_or_links,lines),
-            [date(date), quote_string(payee), quote_string(narration), tags_or_links(tags_or_links), transaction_lines(lines)] => (date, None, Some(payee), Some(narration), tags_or_links,lines),
-            [date(date), transaction_flag(flag), tags_or_links(tags_or_links), transaction_lines(lines)] => (date, flag, None, None, tags_or_links, lines),
-            [date(date), transaction_flag(flag), quote_string(narration), tags_or_links(tags_or_links), transaction_lines(lines)] => (date, flag, None, Some(narration), tags_or_links, lines),
-            [date(date), transaction_flag(flag), quote_string(payee), quote_string(narration), tags_or_links(tags_or_links), transaction_lines(lines)] => (date, flag, Some(payee), Some(narration), tags_or_links,lines),
-        );
-        let mut transaction = Transaction {
-            date: ret.0,
-            flag: ret.1,
-            payee: ret.2,
-            narration: ret.3,
-            tags: ret.4 .0.into_iter().collect(),
-            links: ret.4 .1.into_iter().collect(),
-            postings: vec![],
-            meta: MultiValueMap::default(),
-        };
-
-        for line in ret.5 {
-            match line {
-                (Some(trx), None) => {
-                    transaction.postings.push(trx);
-                }
-                (None, Some(meta)) => {
-                    transaction.meta.insert(meta.0, meta.1);
-                }
-                _ => {}
-            }
-        }
-
-        Ok(Directive::Transaction(transaction))
-    }
-
-    fn commodity(input: Node) -> Result<Directive> {
-        let ret = match_nodes!(input.into_children();
-            [date(date), commodity_name(name)] => (date, name, Meta::default()),
-            [date(date), commodity_name(name), metas(meta)] => (date, name, meta),
-        );
-        Ok(Directive::Commodity(Commodity {
-            date: ret.0,
-            currency: ret.1,
-            meta: ret.2,
-        }))
-    }
-
-    fn string_or_account(input: Node) -> Result<StringOrAccount> {
-        let ret: StringOrAccount = match_nodes!(input.into_children();
-            [string(value)] => StringOrAccount::String(value),
-            [account_name(value)] => StringOrAccount::Account(value),
-        );
-        Ok(ret)
-    }
-
-    fn custom(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, Vec<StringOrAccount>) = match_nodes!(input.into_children();
-            [date(date), string(module), string_or_account(options)..] => (date, module, options.collect()),
-        );
-        Ok(Directive::Custom(Custom {
-            date: ret.0,
-            custom_type: ret.1,
-            values: ret.2,
-            meta: Default::default(),
-        }))
-    }
-
-    fn include(input: Node) -> Result<Directive> {
-        let ret: ZhangString = match_nodes!(input.into_children();
-            [quote_string(path)] => path,
-        );
-        let include = Include { file: ret };
-        Ok(Directive::Include(include))
-    }
-
-    fn note(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, ZhangString) = match_nodes!(input.into_children();
-            [date(date), account_name(a), string(path)] => (date, a, path),
-        );
-        Ok(Directive::Note(Note {
-            date: ret.0,
-            account: ret.1,
-            comment: ret.2,
+fn note_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(i)?;
+    let (i, account) = account_name(i)?;
+    let (i, _) = space1(i)?;
+    let (i, comment) = string(i)?;
+    Ok((
+        i,
+        Either::Left(Directive::Note(Note {
+            date,
+            account,
+            comment,
             tags: None,
             links: None,
-            meta: Default::default(),
-        }))
-    }
+            meta: Meta::default(),
+        })),
+    ))
+}
 
-    fn event(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, ZhangString) = match_nodes!(input.into_children();
-            [date(date), string(name), string(value)] => (date, name, value),
-        );
-        Ok(Directive::Event(Event {
-            date: ret.0,
-            event_type: ret.1,
-            description: ret.2,
-            meta: Default::default(),
-        }))
-    }
-
-    fn balance(input: Node) -> Result<BeancountOnlyDirective> {
-        let (date, account, amount, commodity): (Date, Account, BigDecimal, String) = match_nodes!(input.into_children();
-            [date(date), account_name(name), number_expr(amount), commodity_name(commodity)] => (date, name, amount, commodity),
-        );
-        Ok(BeancountOnlyDirective::Balance(BalanceDirective {
+fn balance_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(i)?;
+    let (i, account) = account_name(i)?;
+    let (i, _) = space1(i)?;
+    let (i, amount) = number_expr(i)?;
+    let (i, _) = space1(i)?;
+    let (i, commodity) = commodity_name(i)?;
+    Ok((
+        i,
+        Either::Right(BeancountOnlyDirective::Balance(BalanceDirective {
             date,
             account,
             amount: Amount::new(amount, commodity),
-            meta: Default::default(),
-        }))
-    }
-    fn pad(input: Node) -> Result<BeancountOnlyDirective> {
-        let (date, name, pad): (Date, Account, Account) = match_nodes!(input.into_children();
-            [date(date), account_name(name), account_name(pad)] => (date, name, pad),
-        );
-        Ok(BeancountOnlyDirective::Pad(PadDirective {
-            date,
-            account: name,
-            pad,
-            meta: Default::default(),
-        }))
-    }
+            meta: Meta::default(),
+        })),
+    ))
+}
 
-    fn document(input: Node) -> Result<Directive> {
-        let ret: (Date, Account, ZhangString) = match_nodes!(input.into_children();
-            [date(date), account_name(name), string(path)] => (date, name, path),
-        );
-        Ok(Directive::Document(Document {
-            date: ret.0,
-            account: ret.1,
-            filename: ret.2,
+fn pad_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(i)?;
+    let (i, account) = account_name(i)?;
+    let (i, _) = space1(i)?;
+    let (i, pad) = account_name(i)?;
+    Ok((
+        i,
+        Either::Right(BeancountOnlyDirective::Pad(PadDirective {
+            date,
+            account,
+            pad,
+            meta: Meta::default(),
+        })),
+    ))
+}
+
+fn document_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(i)?;
+    let (i, account) = account_name(i)?;
+    let (i, _) = space1(i)?;
+    let (i, filename) = string(i)?;
+    Ok((
+        i,
+        Either::Left(Directive::Document(Document {
+            date,
+            account,
+            filename,
             tags: None,
             links: None,
-            meta: Default::default(),
-        }))
-    }
+            meta: Meta::default(),
+        })),
+    ))
+}
 
-    fn price(input: Node) -> Result<Directive> {
-        let ret: (Date, String, BigDecimal, String) = match_nodes!(input.into_children();
-            [date(date), commodity_name(source), number_expr(price), commodity_name(target)] => (date, source, price, target)
-        );
-        Ok(Directive::Price(Price {
-            date: ret.0,
-            currency: ret.1,
-            amount: Amount::new(ret.2, ret.3),
-            meta: Default::default(),
-        }))
-    }
-    fn push_tag(input: Node) -> Result<BeancountOnlyDirective> {
-        let ret: String = match_nodes!(input.into_children();
-            [tag(tag)] => tag
-        );
-        Ok(BeancountOnlyDirective::PushTag(ret))
-    }
-    fn pop_tag(input: Node) -> Result<BeancountOnlyDirective> {
-        let ret: String = match_nodes!(input.into_children();
-            [tag(tag)] => tag
-        );
-        Ok(BeancountOnlyDirective::PopTag(ret))
-    }
-    fn comment_prefix(input: Node) -> Result<String> {
-        Ok(input.as_str().to_owned())
-    }
-    fn comment_value(input: Node) -> Result<String> {
-        Ok(input.as_str().to_owned())
-    }
+fn price_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(i)?;
+    let (i, currency) = commodity_name(i)?;
+    let (i, _) = space1(i)?;
+    let (i, amount) = number_expr(i)?;
+    let (i, _) = space1(i)?;
+    let (i, target) = commodity_name(i)?;
+    Ok((
+        i,
+        Either::Left(Directive::Price(Price {
+            date,
+            currency,
+            amount: Amount::new(amount, target),
+            meta: Meta::default(),
+        })),
+    ))
+}
 
-    fn valuable_comment(input: Node) -> Result<String> {
-        let content: String = match_nodes!(input.into_children();
-            [comment_prefix(_), comment_value(v)] => v,
-        );
-        Ok(content)
-    }
-    fn budget(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, String, Meta) = match_nodes!(input.into_children();
-            [date(date), unquote_string(name), commodity_name(commodity)] => (date, name, commodity, Meta::default()),
-            [date(date), unquote_string(name), commodity_name(commodity), metas(metas)] => (date, name, commodity, metas)
-        );
-        Ok(Directive::Budget(Budget {
-            date: ret.0,
-            name: ret.1.to_plain_string(),
-            commodity: ret.2,
-            meta: ret.3,
-        }))
-    }
+fn event_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(i)?;
+    let (i, event_type) = string(i)?;
+    let (i, _) = space1(i)?;
+    let (i, description) = string(i)?;
+    Ok((
+        i,
+        Either::Left(Directive::Event(Event {
+            date,
+            event_type,
+            description,
+            meta: Meta::default(),
+        })),
+    ))
+}
 
-    fn budget_close(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, Meta) = match_nodes!(input.into_children();
-            [date(date), unquote_string(name)] => (date, name, Meta::default()),
-            [date(date), unquote_string(name), metas(metas)] => (date, name, metas)
-        );
-        Ok(Directive::BudgetClose(BudgetClose {
-            date: ret.0,
-            name: ret.1.to_plain_string(),
-            meta: ret.2,
-        }))
-    }
+fn commodity_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(i)?;
+    let (i, currency) = commodity_name(i)?;
+    Ok((
+        i,
+        Either::Left(Directive::Commodity(Commodity {
+            date,
+            currency,
+            meta: Meta::default(),
+        })),
+    ))
+}
 
-    fn budget_add(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, Amount, Meta) = match_nodes!(input.into_children();
-            [date(date), unquote_string(name), posting_amount(amount)] => (date, name, amount, Meta::default()),
-            [date(date), unquote_string(name), posting_amount(amount), metas(metas)] => (date, name, amount, metas)
-        );
-        Ok(Directive::BudgetAdd(BudgetAdd {
-            date: ret.0,
-            name: ret.1.to_plain_string(),
-            amount: ret.2,
-            meta: ret.3,
-        }))
-    }
-    fn budget_transfer(input: Node) -> Result<Directive> {
-        let ret: (Date, ZhangString, ZhangString, Amount, Meta) = match_nodes!(input.into_children();
-            [date(date), unquote_string(from), unquote_string(to), posting_amount(amount)] => (date, from, to, amount, Meta::default()),
-            [date(date), unquote_string(from), unquote_string(to), posting_amount(amount), metas(metas)] => (date, from, to, amount, metas)
-        );
-        Ok(Directive::BudgetTransfer(BudgetTransfer {
-            date: ret.0,
-            from: ret.1.to_plain_string(),
-            to: ret.2.to_plain_string(),
-            amount: ret.3,
-            meta: ret.4,
-        }))
-    }
-    fn metable_head(input: Node) -> Result<BeancountDirective> {
-        let ret: BeancountDirective = match_nodes!(input.into_children();
+fn string_or_account(i: &str) -> IResult<&str, StringOrAccount> {
+    alt((map(account_name, StringOrAccount::Account), map(string, StringOrAccount::String)))(i)
+}
 
-            [open(item)]            => Either::Left(item),
-            [close(item)]           => Either::Left(item),
-            [note(item)]            => Either::Left(item),
-            [event(item)]           => Either::Left(item),
-            [document(item)]        => Either::Left(item),
-            [balance(item)]         => Either::Right(item), // balance
-            [pad(item)]             => Either::Right(item), // pad
-            [price(item)]           => Either::Left(item),
-            [commodity(item)]       => Either::Left(item),
-            [custom(item)]          => Either::Left(item),
-            [budget(item)]          => Either::Left(item),
-            [budget_close(item)]    => Either::Left(item),
-            [budget_add(item)]      => Either::Left(item),
-            [budget_transfer(item)] => Either::Left(item),
-            [plugin(item)]          => Either::Left(item)
-        );
-        Ok(ret)
-    }
-    fn empty_space_line(input: Node) -> Result<()> {
-        Ok(())
-    }
-
-    fn item(input: Node) -> Result<Option<(BeancountDirective, SpanInfo)>> {
-        let span = input.as_span();
-        let span_info = SpanInfo {
-            start: span.start_pos().pos(),
-            end: span.end_pos().pos(),
-            content: span.as_str().to_string(),
-            filename: None,
-        };
-        let ret: Option<BeancountDirective> = match_nodes!(input.into_children();
-            [option(item)]          => Some(Either::Left(item)),
-            [include(item)]         => Some(Either::Left(item)),
-            [push_tag(item)]        => Some(Either::Right(item)),
-            [pop_tag(item)]         => Some(Either::Right(item)),
-            [comment(item)]         => Some(Either::Left(item)),
-            [valuable_comment(item)] => Some(Either::Left(Directive::Comment(Comment { content:item }))),
-
-            [empty_space_line(_)] => None,
-
-            [metable_head(head)]            => Some(head),
-            [metable_head(head), metas(meta)]  => {Some(match head {
-                Either::Left(directive) => Either::Left(directive.set_meta(meta)),
-                Either::Right(directive) => Either::Right(directive.set_meta(meta)),
-            })},
-
-            [transaction(item)]     => Some(Either::Left(item)),
-
-        );
-        Ok(ret.map(|it| (it, span_info)))
-    }
-
-    fn time_part(input: Node) -> Result<u32> {
-        Ok(u32::from_str(input.as_str()).unwrap())
-    }
-
-    fn time(input: Node) -> Result<NaiveTime> {
-        let (hour, min, sec): (u32, u32, u32) = match_nodes!(input.into_children();
-            [time_part(hour), time_part(min), time_part(sec)] => (hour, min, sec),
-        );
-        Ok(NaiveTime::from_hms_opt(hour, min, sec).expect("not a valid time"))
-    }
-
-    fn entry(input: Node) -> Result<Vec<Spanned<BeancountDirective>>> {
-        let ret: Vec<(BeancountDirective, SpanInfo)> = match_nodes!(input.into_children();
-            [item(items).., _] => items.flatten().collect(),
-        );
-        Ok(ret
-            .into_iter()
-            .map(|(directive, span_info)| Spanned {
-                data: directive,
-                span: span_info,
-            })
-            .collect_vec())
+/// `custom` directives. `custom budget ...` (and its `budget-add` / `budget-transfer`
+/// / `budget-close` variants) become budget directives; anything else is a generic
+/// custom directive.
+fn custom_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(i)?;
+    let subtype = peek(unquote_string_raw)(i).ok().map(|(_, word)| word);
+    match subtype {
+        Some("budget") => budget_body(date, i),
+        Some("budget-add") => budget_add_body(date, i),
+        Some("budget-transfer") => budget_transfer_body(date, i),
+        Some("budget-close") => budget_close_body(date, i),
+        _ => {
+            let (i, custom_type) = string(i)?;
+            let (i, values) = many1(preceded(space1, string_or_account))(i)?;
+            Ok((
+                i,
+                Either::Left(Directive::Custom(Custom {
+                    date,
+                    custom_type,
+                    values,
+                    meta: Meta::default(),
+                })),
+            ))
+        }
     }
 }
 
-pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<BeancountDirective>>> {
+fn budget_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = tag("budget")(i)?;
+    let (i, _) = space1(i)?;
+    let (i, name) = unquote_string_raw(i)?;
+    let (i, _) = space1(i)?;
+    let (i, commodity) = commodity_name(i)?;
+    Ok((
+        i,
+        Either::Left(Directive::Budget(Budget {
+            date,
+            name: name.to_string(),
+            commodity,
+            meta: Meta::default(),
+        })),
+    ))
+}
+
+fn budget_add_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = tag("budget-add")(i)?;
+    let (i, _) = space1(i)?;
+    let (i, name) = unquote_string_raw(i)?;
+    let (i, _) = space1(i)?;
+    let (i, amount) = posting_amount(i)?;
+    Ok((
+        i,
+        Either::Left(Directive::BudgetAdd(BudgetAdd {
+            date,
+            name: name.to_string(),
+            amount,
+            meta: Meta::default(),
+        })),
+    ))
+}
+
+fn budget_transfer_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = tag("budget-transfer")(i)?;
+    let (i, _) = space1(i)?;
+    let (i, from) = unquote_string_raw(i)?;
+    let (i, _) = space1(i)?;
+    let (i, to) = unquote_string_raw(i)?;
+    let (i, _) = space1(i)?;
+    let (i, amount) = posting_amount(i)?;
+    Ok((
+        i,
+        Either::Left(Directive::BudgetTransfer(BudgetTransfer {
+            date,
+            from: from.to_string(),
+            to: to.to_string(),
+            amount,
+            meta: Meta::default(),
+        })),
+    ))
+}
+
+fn budget_close_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = tag("budget-close")(i)?;
+    let (i, _) = space1(i)?;
+    let (i, name) = unquote_string_raw(i)?;
+    Ok((
+        i,
+        Either::Left(Directive::BudgetClose(BudgetClose {
+            date,
+            name: name.to_string(),
+            meta: Meta::default(),
+        })),
+    ))
+}
+
+/// A dated directive: parse the shared `date keyword` prefix then dispatch on the
+/// keyword. Fails (so the caller can try a transaction) on an unknown keyword.
+fn dated_directive(original: &str) -> IResult<&str, BeancountDirective> {
+    let (i, date) = terminated(parse_date, space1)(original)?;
+    let (rest, keyword) = take_while1(|c: char| c.is_ascii_lowercase())(i)?;
+    match keyword {
+        "open" => open_body(date, rest),
+        "close" => close_body(date, rest),
+        "note" => note_body(date, rest),
+        "balance" => balance_body(date, rest),
+        "pad" => pad_body(date, rest),
+        "document" => document_body(date, rest),
+        "price" => price_body(date, rest),
+        "event" => event_body(date, rest),
+        "commodity" => commodity_body(date, rest),
+        "custom" => custom_body(date, rest),
+        _ => Err(nom::Err::Error(nom::error::Error::new(original, nom::error::ErrorKind::Tag))),
+    }
+}
+
+fn plugin_directive(i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = tag("plugin")(i)?;
+    let (i, _) = space1(i)?;
+    let (i, module) = string(i)?;
+    let (i, values) = many0(preceded(space1, string))(i)?;
+    Ok((
+        i,
+        Either::Left(Directive::Plugin(Plugin {
+            module,
+            value: values,
+            meta: Meta::default(),
+        })),
+    ))
+}
+
+fn option_directive(i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = tag("option")(i)?;
+    let (i, _) = space1(i)?;
+    let (i, key) = string(i)?;
+    let (i, _) = space1(i)?;
+    let (i, value) = string(i)?;
+    Ok((i, Either::Left(Directive::Option(Options { key, value }))))
+}
+
+fn include_directive(i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = tag("include")(i)?;
+    let (i, _) = space1(i)?;
+    let (i, file) = quote_string(i)?;
+    Ok((i, Either::Left(Directive::Include(Include { file }))))
+}
+
+fn push_tag_directive(i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = tag("pushtag")(i)?;
+    let (i, _) = space1(i)?;
+    let (i, _) = char('#')(i)?;
+    let (i, name) = unquote_string_raw(i)?;
+    Ok((i, Either::Right(BeancountOnlyDirective::PushTag(name.to_string()))))
+}
+
+fn pop_tag_directive(i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = tag("poptag")(i)?;
+    let (i, _) = space1(i)?;
+    let (i, _) = char('#')(i)?;
+    let (i, name) = unquote_string_raw(i)?;
+    Ok((i, Either::Right(BeancountOnlyDirective::PopTag(name.to_string()))))
+}
+
+fn set_meta(directive: BeancountDirective, meta: Meta) -> BeancountDirective {
+    match directive {
+        Either::Left(directive) => Either::Left(directive.set_meta(meta)),
+        Either::Right(directive) => Either::Right(directive.set_meta(meta)),
+    }
+}
+
+fn metable_item(i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, directive) = alt((plugin_directive, dated_directive))(i)?;
+    let (i, _) = space0(i)?;
+    let (i, _) = opt(inline_comment)(i)?;
+    let (i, metas) = opt(metas_block)(i)?;
+    let directive = match metas {
+        Some(meta) => set_meta(directive, meta),
+        None => directive,
+    };
+    Ok((i, directive))
+}
+
+fn transaction(original: &str) -> IResult<&str, BeancountDirective> {
+    let (i, date) = parse_date(original)?;
+    let (i, flag) = opt(transaction_flag)(i)?;
+    let (i, strings) = many_m_n(0, 2, preceded(space1, quote_string))(i)?;
+    let (i, (tags, links)) = tags_or_links(i)?;
+    let (i, _) = space0(i)?;
+    let (i, _) = opt(inline_comment)(i)?;
+    let (i, lines) = transaction_lines(i)?;
+
+    if flag.is_none() && strings.is_empty() {
+        return Err(nom::Err::Error(nom::error::Error::new(original, nom::error::ErrorKind::Verify)));
+    }
+
+    let count = strings.len();
+    let mut strings = strings.into_iter();
+    let (payee, narration) = match (flag.is_some(), count) {
+        (_, 2) => (strings.next(), strings.next()),
+        (false, 1) => (strings.next(), None),
+        (true, 1) => (None, strings.next()),
+        _ => (None, None),
+    };
+
+    let mut transaction = Transaction {
+        date,
+        flag,
+        payee,
+        narration,
+        tags: tags.into_iter().collect(),
+        links: links.into_iter().collect(),
+        postings: Vec::new(),
+        meta: Meta::default(),
+    };
+    for line in lines {
+        match line {
+            (Some(posting), None) => transaction.postings.push(posting),
+            (None, Some((key, value))) => {
+                transaction.meta.insert(key, value);
+            }
+            _ => {}
+        }
+    }
+    Ok((i, Either::Left(Directive::Transaction(transaction))))
+}
+
+fn content_item(i: &str) -> IResult<&str, Option<BeancountDirective>> {
+    alt((
+        map(terminated(option_directive, line_trailer), Some),
+        map(terminated(include_directive, line_trailer), Some),
+        map(terminated(push_tag_directive, line_trailer), Some),
+        map(terminated(pop_tag_directive, line_trailer), Some),
+        map(valuable_comment, |content| Some(Either::Left(Directive::Comment(Comment { content })))),
+        map(metable_item, Some),
+        map(transaction, Some),
+    ))(i)
+}
+
+fn error_at(original: &str, rest: &str, message: &str) -> ParseError {
+    let position = offset(original, rest);
+    let consumed = &original[..position];
+    let line = consumed.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = position - consumed.rfind('\n').map(|index| index + 1).unwrap_or(0) + 1;
+    ParseError {
+        message: format!("failed to parse beancount file: {} at line {}, column {}", message, line, column),
+    }
+}
+
+/// Parse a full beancount text file into a list of spanned directives.
+pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<BeancountDirective>>, ParseError> {
     let file = file.into();
-    let inputs = BeancountParser::parse(Rule::entry, input_str)?;
-    let input = inputs.single()?;
-    BeancountParser::entry(input).map(|mut directives| {
-        directives.iter_mut().for_each(|directive| directive.span.filename.clone_from(&file));
-        directives
-    })
+    let original = input_str;
+    let mut rest = input_str;
+    let mut directives: Vec<Spanned<BeancountDirective>> = Vec::new();
+
+    loop {
+        while let Ok((next, _)) = blank_line(rest) {
+            rest = next;
+        }
+        if rest.is_empty() || rest.bytes().all(|byte| byte == b' ' || byte == b'\t') {
+            break;
+        }
+
+        let start = offset(original, rest);
+        let (next, directive) = content_item(rest).map_err(|_| error_at(original, rest, "unexpected input"))?;
+
+        if offset(original, next) == start {
+            return Err(error_at(original, rest, "parser made no progress"));
+        }
+
+        if let Some(directive) = directive {
+            let end = offset(original, next);
+            directives.push(Spanned {
+                data: directive,
+                span: SpanInfo {
+                    start,
+                    end,
+                    content: original[start..end].to_string(),
+                    filename: file.clone(),
+                },
+            });
+        }
+        rest = next;
+    }
+
+    Ok(directives)
 }
-pub fn parse_time(input_str: &str) -> Result<NaiveTime> {
-    let inputs = BeancountParser::parse(Rule::time, input_str)?;
-    let input = inputs.single()?;
-    BeancountParser::time(input)
+
+/// Parse a `HH:MM:SS` time string, used to lift the `time:` metadata key onto a
+/// directive's date.
+pub fn parse_time(input_str: &str) -> Result<NaiveTime, ParseError> {
+    let invalid = || ParseError {
+        message: format!("invalid time: {}", input_str),
+    };
+    let parts: Vec<&str> = input_str.trim().split(':').collect();
+    if parts.len() != 3 {
+        return Err(invalid());
+    }
+    let hour = parts[0].parse::<u32>().map_err(|_| invalid())?;
+    let minute = parts[1].parse::<u32>().map_err(|_| invalid())?;
+    let second = parts[2].parse::<u32>().map_err(|_| invalid())?;
+    NaiveTime::from_hms_opt(hour, minute, second).ok_or_else(invalid)
 }
 
 #[cfg(test)]
