@@ -10,7 +10,6 @@ import { useAsync } from 'react-use';
 import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { BeanOff } from 'lucide-react';
 
-
 export default function Explore() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { t } = useTranslation();
@@ -37,21 +36,20 @@ export default function Explore() {
       setExecutionError(null);
       return res.data.data;
     } catch (e) {
-      console.log("etype", typeof e, e instanceof executeSql.Error);
+      console.log('etype', typeof e, e instanceof executeSql.Error);
       if (e instanceof executeSql.Error) {
-        // get discriminated union { status, data } 
-        const error = e.getActualType()
-        console.log("error",error,  error?.data.message);
+        // get discriminated union { status, data }
+        const error = e.getActualType();
+        console.log('error', error, error?.data.message);
         if (error.status === 400) {
-
-          setExecutionError(error.data.message ?? "unknown error");
+          setExecutionError(error.data.message ?? 'unknown error');
         } else if (error.status === 500) {
-          setExecutionError(error.data.message ?? "unknown error");
+          setExecutionError(error.data.message ?? 'unknown error');
         } else {
-          setExecutionError("unknown error");
+          setExecutionError('unknown error');
         }
       } else {
-        setExecutionError("unknown error");
+        setExecutionError('unknown error');
       }
     }
   }, [inputSql]);
@@ -61,30 +59,26 @@ export default function Explore() {
       <h1 className="text-2xl font-bold mb-6">{t('explore.title')}</h1>
 
       <div className="space-y-6">
-        <Textarea
-          defaultValue={inputSql}
-          onChange={(event) => setInputSql(event.currentTarget.value)}
-        />
+        <Textarea defaultValue={inputSql} onChange={(event) => setInputSql(event.currentTarget.value)} />
       </div>
-      {executionError && <div className="text-red-500 mb-2 border border-red-500 rounded-md p-2">
-        <pre className="text-red-500">{executionError}</pre>
-      </div>}
+      {executionError && (
+        <div className="text-red-500 mb-2 border border-red-500 rounded-md p-2">
+          <pre className="text-red-500">{executionError}</pre>
+        </div>
+      )}
 
       <div className="space-y-6">
         {result && result.columns.length === 0 && (
           <div className=" flex flex-col items-center justify-center gap-4 mt-16">
             <BeanOff className="w-28 h-28 text-gray-500" />
-            <div className="text-gray-500 text-lg">
-              {t('explore.no_results')}
-            </div>
+            <div className="text-gray-500 text-lg">{t('explore.no_results')}</div>
           </div>
         )}
-
 
         {result && result.columns.length > 0 && (
           <div className="mt-4">
             <h2 className="text-xl font-semibold mb-2">{t('explore.results')}</h2>
-            
+
             <div className="border rounded-md overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -100,7 +94,7 @@ export default function Explore() {
                       {row.columns.map((column, colIndex) => (
                         <TableCell key={colIndex}>
                           {/* @ts-ignore */}
-                          {column.value} 
+                          {column.value}
                         </TableCell>
                       ))}
                     </TableRow>
