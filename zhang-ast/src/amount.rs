@@ -2,20 +2,23 @@ use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use bigdecimal::{BigDecimal, Zero};
+#[cfg(feature = "openapi")]
+use gotcha_core::Schematic;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "openapi", derive(Schematic))]
 pub struct CalculatedAmount {
     pub calculated: Amount,
     pub detail: HashMap<String, BigDecimal>,
 }
 
 impl CalculatedAmount {
-    pub fn new(currency: &str) -> CalculatedAmount {
+    pub fn new(commodity: &str) -> CalculatedAmount {
         let mut detail = HashMap::new();
-        detail.insert(currency.to_owned(), BigDecimal::zero());
+        detail.insert(commodity.to_owned(), BigDecimal::zero());
         CalculatedAmount {
-            calculated: Amount::new(BigDecimal::zero(), currency.to_owned()),
+            calculated: Amount::new(BigDecimal::zero(), commodity.to_owned()),
             detail,
         }
     }
@@ -26,23 +29,24 @@ impl CalculatedAmount {
 }
 
 #[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(Schematic))]
 pub struct Amount {
     pub number: BigDecimal,
-    pub currency: String,
+    pub commodity: String,
 }
 
 impl Amount {
-    pub fn new(number: BigDecimal, currency: impl Into<String>) -> Amount {
+    pub fn new(number: BigDecimal, commodity: impl Into<String>) -> Amount {
         Amount {
             number,
-            currency: currency.into(),
+            commodity: commodity.into(),
         }
     }
 
-    pub fn zero(currency: impl Into<String>) -> Amount {
+    pub fn zero(commodity: impl Into<String>) -> Amount {
         Amount {
             number: BigDecimal::zero(),
-            currency: currency.into(),
+            commodity: commodity.into(),
         }
     }
 
@@ -82,7 +86,7 @@ impl Amount {
     pub fn abs(&self) -> Amount {
         Amount {
             number: self.number.abs(),
-            currency: self.currency.clone(),
+            commodity: self.commodity.clone(),
         }
     }
     /// ```rust
@@ -106,7 +110,7 @@ impl Amount {
     /// );
     /// ```
     pub fn neg(&self) -> Amount {
-        Amount::new((&(self.number)).neg(), self.currency.clone())
+        Amount::new((&(self.number)).neg(), self.commodity.clone())
     }
 }
 
@@ -119,7 +123,7 @@ impl Amount {
 /// ```
 impl std::fmt::Display for Amount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {}", self.number, self.currency)
+        write!(f, "{} {}", self.number, self.commodity)
     }
 }
 
@@ -139,7 +143,7 @@ impl Add<BigDecimal> for &Amount {
     fn add(self, rhs: BigDecimal) -> Self::Output {
         Amount {
             number: (&self.number).add(rhs),
-            currency: self.currency.clone(),
+            commodity: self.commodity.clone(),
         }
     }
 }
@@ -160,7 +164,7 @@ impl Sub<BigDecimal> for &Amount {
     fn sub(self, rhs: BigDecimal) -> Self::Output {
         Amount {
             number: (&self.number).sub(rhs),
-            currency: self.currency.clone(),
+            commodity: self.commodity.clone(),
         }
     }
 }
@@ -181,7 +185,7 @@ impl Mul<BigDecimal> for &Amount {
     fn mul(self, rhs: BigDecimal) -> Self::Output {
         Amount {
             number: (&self.number).mul(rhs),
-            currency: self.currency.clone(),
+            commodity: self.commodity.clone(),
         }
     }
 }
@@ -202,7 +206,7 @@ impl Div<BigDecimal> for &Amount {
     fn div(self, rhs: BigDecimal) -> Self::Output {
         Amount {
             number: (&self.number).div(rhs),
-            currency: self.currency.clone(),
+            commodity: self.commodity.clone(),
         }
     }
 }

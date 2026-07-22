@@ -25,12 +25,12 @@ export default function StatisticBar() {
         <StatisticBox
           text={'ASSET_BALANCE'}
           amount={data.balance.calculated.number}
-          currency={data.balance.calculated.currency}
+          currency={data.balance.calculated.commodity}
           hint={'include assets and liabilities'}
         />
-        <StatisticBox text={'LIABILITY'} amount={data.liability.calculated.number} currency={data.liability.calculated.currency} negative />
-        <StatisticBox text={'CURRENT_MONTH_INCOME'} amount={data.income.calculated.number} currency={data.income.calculated.currency} negative />
-        <StatisticBox text={'CURRENT_MONTH_EXPENSE'} amount={data.expense.calculated.number} currency={data.expense.calculated.currency} />
+        <StatisticBox text={'LIABILITY'} amount={data.liability.calculated.number} currency={data.liability.calculated.commodity} negative />
+        <StatisticBox text={'CURRENT_MONTH_INCOME'} amount={data.income.calculated.number} currency={data.income.calculated.commodity} negative />
+        <StatisticBox text={'CURRENT_MONTH_EXPENSE'} amount={data.expense.calculated.number} currency={data.expense.calculated.commodity} />
       </div>
     </>
   );

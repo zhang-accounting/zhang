@@ -7,15 +7,12 @@ use gotcha::api;
 use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
-use zhang_ast::amount::Amount;
 use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Document, ZhangString};
+use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::utils::calculable::Calculable;
 
 use crate::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
-use crate::response::{
-    AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, AccountJournalEntity, AmountEntity, Created, DocumentEntity,
-    ResponseWrapper,
-};
+use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, Created, DocumentEntity, ResponseWrapper};
 use crate::state::{SharedLedger, SharedReloadSender};
 use crate::{ApiResult, ServerResult};
 
@@ -31,7 +28,7 @@ pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<Acco
         let account_balances = operations
             .single_account_latest_balances(&account)?
             .into_iter()
-            .map(|balance| Amount::new(balance.balance_number, balance.balance_commodity))
+            .map(|balance| balance.balance)
             .collect_vec();
         let amount = account_balances
             .calculate(Utc::now().with_timezone(timezone), &mut operations)?
@@ -39,9 +36,9 @@ pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<Acco
 
         ret.push(AccountEntity {
             name: account,
-            status: account_domain.status.into(),
+            status: account_domain.status,
             alias: account_domain.alias,
-            amount: amount.into(),
+            amount,
         });
     }
     ResponseWrapper::json(ret)
@@ -62,7 +59,7 @@ pub async fn get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>
     let vec = operations
         .single_account_latest_balances(&account_info.name)?
         .into_iter()
-        .map(|balance| Amount::new(balance.balance_number, balance.balance_commodity))
+        .map(|balance| balance.balance)
         .collect_vec();
     let amount = vec
         .calculate(Utc::now().with_timezone(timezone), &mut operations)?
@@ -72,9 +69,9 @@ pub async fn get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>
         date: account_info.date,
         r#type: account_info.r#type,
         name: account_info.name,
-        status: account_info.status.into(),
+        status: account_info.status,
         alias: account_info.alias,
-        amount: amount.into(),
+        amount,
     })
 }
 
@@ -133,13 +130,7 @@ pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<
         .map(|(commodity, balance_history)| {
             let data = balance_history
                 .into_iter()
-                .map(|(date, amount)| AccountBalanceItemEntity {
-                    date,
-                    balance: AmountEntity {
-                        number: amount.number,
-                        currency: amount.currency,
-                    },
-                })
+                .map(|(date, amount)| AccountBalanceItemEntity { date, balance: amount })
                 .collect_vec();
             (commodity, data)
         })
@@ -174,12 +165,12 @@ pub async fn get_account_documents(ledger: State<SharedLedger>, params: Path<(St
 }
 
 #[api(group = "account")]
-pub async fn get_account_journals(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<Vec<AccountJournalEntity>> {
+pub async fn get_account_journals(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<Vec<AccountJournalDomain>> {
     let account_name = params.0 .0;
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
 
-    let journals = operations.account_journals(&account_name)?.into_iter().map(|it| it.into()).collect_vec();
+    let journals = operations.account_journals(&account_name)?;
 
     ResponseWrapper::json(journals)
 }
@@ -195,20 +186,14 @@ pub async fn create_account_balance(
         AccountBalanceRequest::Check { amount } => Directive::BalanceCheck(BalanceCheck {
             date: Date::now(&ledger.options.timezone),
             account: Account::from_str(&target_account)?,
-            amount: Amount {
-                number: amount.number,
-                currency: amount.commodity,
-            },
+            amount,
             tolerance: None,
             meta: Default::default(),
         }),
         AccountBalanceRequest::Pad { amount, pad } => Directive::BalancePad(BalancePad {
             date: Date::now(&ledger.options.timezone),
             account: Account::from_str(&target_account)?,
-            amount: Amount {
-                number: amount.number,
-                currency: amount.commodity,
-            },
+            amount,
             meta: Default::default(),
             pad: Account::from_str(&pad)?,
         }),
@@ -230,20 +215,14 @@ pub async fn create_batch_account_balances(
             BatchAccountBalanceRequest::Check { account_name, amount } => Directive::BalanceCheck(BalanceCheck {
                 date: Date::now(&ledger.options.timezone),
                 account: Account::from_str(&account_name)?,
-                amount: Amount {
-                    number: amount.number,
-                    currency: amount.commodity,
-                },
+                amount,
                 tolerance: None,
                 meta: Default::default(),
             }),
             BatchAccountBalanceRequest::Pad { account_name, amount, pad } => Directive::BalancePad(BalancePad {
                 date: Date::now(&ledger.options.timezone),
                 account: Account::from_str(&account_name)?,
-                amount: Amount {
-                    number: amount.number,
-                    currency: amount.commodity,
-                },
+                amount,
                 meta: Default::default(),
                 pad: Account::from_str(&pad)?,
             }),

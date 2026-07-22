@@ -105,11 +105,11 @@ export default function Report() {
           <StatisticBox
             text={'ASSET_BALANCE'}
             amount={data.balance.calculated.number}
-            currency={data.balance.calculated.currency}
+            currency={data.balance.calculated.commodity}
             hint={'include assets and liabilities'}
           />
-          <StatisticBox text={'INCOME'} amount={data.income.calculated.number} currency={data.income.calculated.currency} negative />
-          <StatisticBox text={'EXPENSE'} amount={data.expense.calculated.number} currency={data.expense.calculated.currency} negative />
+          <StatisticBox text={'INCOME'} amount={data.income.calculated.number} currency={data.income.calculated.commodity} negative />
+          <StatisticBox text={'EXPENSE'} amount={data.expense.calculated.number} currency={data.expense.calculated.commodity} negative />
           <StatisticBox text={'TRANSACTION_COUNT'} amount={data.transaction_number.toString()} />
         </div>
 
@@ -140,7 +140,7 @@ export default function Report() {
                       <PayeeNarration payee={journal.payee} narration={journal.narration} />
                     </TableCell>
                     <TableCell>
-                      <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
+                      <Amount amount={journal.inferred_unit.number} currency={journal.inferred_unit.commodity} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -173,7 +173,7 @@ export default function Report() {
                       {journal.payee} {journal.narration}
                     </TableCell>
                     <TableCell>
-                      <Amount amount={journal.inferred_unit_number} currency={journal.inferred_unit_commodity} />
+                      <Amount amount={journal.inferred_unit.number} currency={journal.inferred_unit.commodity} />
                     </TableCell>
                   </TableRow>
                 ))}

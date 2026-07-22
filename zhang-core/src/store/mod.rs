@@ -3,6 +3,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate};
 use chrono_tz::Tz;
+#[cfg(feature = "openapi")]
+use gotcha_core::Schematic;
 use indexmap::IndexMap;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
@@ -192,6 +194,7 @@ pub struct BudgetEvent {
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
+#[cfg_attr(feature = "openapi", derive(Schematic))]
 pub enum BudgetEventType {
     AddAssignedAmount,
     Transfer,

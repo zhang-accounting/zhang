@@ -32,8 +32,8 @@ strum = { version = "0.26", features = ["derive"] }
 bigdecimal = { version = "0.4", features = ["serde"] }
 indexmap = { version = "2.2", features = ["serde"] }
 axum = { version = "0.7", features = ["macros", "multipart"] }
-gotcha = { git = "https://github.com/kilerd/gotcha.git", branch = "main", features = ["openapi"] }
-gotcha_core = { git = "https://github.com/kilerd/gotcha.git", branch = "main" }
+gotcha = { version = "0.3", features = ["openapi"] }
+gotcha_core = { version = "0.3" }
 bytes = "1.6.0"
 chrono-tz = "0.8"
 http = "1.1"

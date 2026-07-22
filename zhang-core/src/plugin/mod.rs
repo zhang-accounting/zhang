@@ -1,3 +1,5 @@
+#[cfg(feature = "openapi")]
+use gotcha_core::Schematic;
 pub use semver::Version;
 use serde::{Deserialize, Serialize};
 use zhang_ast::{Directive, Spanned};
@@ -8,6 +10,7 @@ pub mod store;
 /// indicate which type the plugin belongs to
 /// the plugin can be multiple types
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(Schematic))]
 pub enum PluginType {
     /// the plugin can handle batches of directive, usually used to filter or combine directives, signature would be like [Plugin::processor]
     Processor,

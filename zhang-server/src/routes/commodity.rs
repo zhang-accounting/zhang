@@ -1,6 +1,7 @@
 use axum::extract::{Path, State};
 use gotcha::api;
 use itertools::Itertools;
+use zhang_ast::amount::Amount;
 use zhang_core::constants::COMMODITY_GROUP;
 use zhang_core::domains::schemas::{CommodityDomain, MetaType};
 
@@ -74,8 +75,8 @@ pub async fn get_single_commodity(ledger: State<SharedLedger>, params: Path<(Str
         .map(|it| CommodityLotEntity {
             account: it.account.name().to_owned(),
             amount: it.amount,
-            cost: it.cost.map(|it| it.into()),
-            price: it.price.map(|it| it.into()),
+            cost: it.cost,
+            price: it.price,
             acquisition_date: it.acquisition_date,
         })
         .collect_vec();
@@ -85,8 +86,7 @@ pub async fn get_single_commodity(ledger: State<SharedLedger>, params: Path<(Str
         .into_iter()
         .map(|price| CommodityPriceEntity {
             datetime: price.datetime,
-            amount: price.amount,
-            target_commodity: Some(price.target_commodity),
+            amount: Amount::new(price.amount, price.target_commodity),
         })
         .collect_vec();
 

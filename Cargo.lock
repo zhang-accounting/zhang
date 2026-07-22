@@ -1665,8 +1665,9 @@ checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 
 [[package]]
 name = "gotcha"
-version = "0.2.2"
-source = "git+https://github.com/kilerd/gotcha.git?branch=main#5e4bfd3ab7333fe286b0bc26846a171d42227268"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4548d9a48d75092ae133dee592b5f371a340facdcb1b386bd9aa74e0d0fd5093"
 dependencies = [
  "async-trait",
  "axum",
@@ -1676,6 +1677,7 @@ dependencies = [
  "chrono",
  "convert_case",
  "either",
+ "gotcha_core",
  "gotcha_macro",
  "http 0.2.12",
  "inventory",
@@ -1684,6 +1686,7 @@ dependencies = [
  "oas",
  "once_cell",
  "regex",
+ "rust_decimal",
  "serde",
  "serde_json",
  "thiserror",
@@ -1696,9 +1699,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "gotcha_core"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8c5c1a2081519c5e3a783134fd59ef08e59f05feaf533310430e50c8cf05a38"
+dependencies = [
+ "axum",
+ "bigdecimal",
+ "chrono",
+ "either",
+ "gotcha_macro",
+ "oas",
+ "regex",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "gotcha_macro"
-version = "0.2.0"
-source = "git+https://github.com/kilerd/gotcha.git?branch=main#5e4bfd3ab7333fe286b0bc26846a171d42227268"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74580a2c995c26e371c3ba2de04466a37b8cbbb373a8b674d7532846e988b30e"
 dependencies = [
  "darling 0.14.4",
  "proc-macro-error",
@@ -5749,6 +5772,7 @@ dependencies = [
  "bigdecimal",
  "chrono",
  "chrono-tz",
+ "gotcha_core",
  "indexmap 2.2.6",
  "indoc 2.0.5",
  "itertools 0.14.0",
@@ -5766,6 +5790,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "extism",
+ "gotcha_core",
  "http 1.1.0",
  "iana-time-zone",
  "indexmap 2.2.6",
@@ -5814,6 +5839,7 @@ dependencies = [
  "futures",
  "futures-util",
  "gotcha",
+ "gotcha_core",
  "indexmap 2.2.6",
  "itertools 0.14.0",
  "log",
@@ -5844,6 +5870,7 @@ dependencies = [
  "chrono",
  "duckdb",
  "gotcha",
+ "gotcha_core",
  "indoc 0.3.6",
  "itertools 0.12.1",
  "serde",

@@ -9,17 +9,16 @@ use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use log::debug;
-use serde::Deserialize;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::utils::inventory::BookingMethod;
 use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, PostingCost, Rounding, SpanInfo, Transaction};
 
 use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType,
     OptionDomain, PriceDomain, TransactionInfoDomain,
 };
+use crate::inventory::{BookingMethod, TransactionInference};
 use crate::store::{
     BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionDomain,
 };
@@ -27,26 +26,6 @@ use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
 pub mod schemas;
-
-#[derive(Debug, Deserialize)]
-pub struct AccountAmount {
-    pub number: BigDecimal,
-    pub commodity: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LotRow {
-    pub amount: f64,
-    pub price_amount: Option<f64>,
-    pub price_commodity: Option<String>,
-}
-
-pub struct StaticRow {
-    pub date: NaiveDate,
-    pub account_type: String,
-    pub amount: BigDecimal,
-    pub commodity: String,
-}
 
 pub struct AccountCommodityLot {
     pub account: Account,
@@ -237,7 +216,7 @@ impl Operations {
         Ok(())
     }
 
-    pub(crate) fn account_target_day_balance(&mut self, account_name: &str, datetime: DateTime<Tz>, currency: &str) -> ZhangResult<Option<AccountAmount>> {
+    pub(crate) fn account_target_day_balance(&mut self, account_name: &str, datetime: DateTime<Tz>, currency: &str) -> ZhangResult<Option<Amount>> {
         let store = self.read();
 
         let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
@@ -246,12 +225,12 @@ impl Operations {
             .postings
             .iter()
             .filter(|posting| posting.account.eq(&account))
-            .filter(|posting| posting.after_amount.currency.eq(&currency))
+            .filter(|posting| posting.after_amount.commodity.eq(&currency))
             .filter(|posting| posting.trx_datetime.le(&datetime))
             .sorted_by_key(|posting| posting.trx_datetime)
             .next_back();
 
-        Ok(posting.map(|it| AccountAmount {
+        Ok(posting.map(|it| Amount {
             number: it.after_amount.number.clone(),
             commodity: currency.to_owned(),
         }))
@@ -432,7 +411,7 @@ impl Operations {
             let date = posting.trx_datetime.naive_local().date();
 
             let account_inventory = ret.entry(posting.account).or_default();
-            let dated_amount = account_inventory.entry(posting.after_amount.currency.clone()).or_default();
+            let dated_amount = account_inventory.entry(posting.after_amount.commodity.clone()).or_default();
             dated_amount.insert(date, posting.after_amount);
         }
 
@@ -446,8 +425,7 @@ impl Operations {
                         AccountDailyBalanceDomain {
                             date,
                             account: account.name().to_owned(),
-                            balance_number: amount.number,
-                            balance_commodity: amount.currency,
+                            balance: amount,
                         }
                     })
                     .collect_vec()
@@ -572,7 +550,7 @@ impl Operations {
             let posting: PostingDomain = posting;
             let date = posting.trx_datetime.naive_local().date();
 
-            let dated_amount = ret.entry(posting.after_amount.currency.clone()).or_default();
+            let dated_amount = ret.entry(posting.after_amount.commodity.clone()).or_default();
             dated_amount.insert(date, posting.after_amount);
         }
 
@@ -584,8 +562,7 @@ impl Operations {
                     datetime: date.and_time(NaiveTime::default()),
                     account: account.name().to_owned(),
                     account_status: AccountStatus::Open,
-                    balance_number: amount.number,
-                    balance_commodity: amount.currency,
+                    balance: amount,
                 }
             })
             .collect_vec())
@@ -610,7 +587,7 @@ impl Operations {
             let posting: PostingDomain = posting;
             let date = posting.trx_datetime.naive_local().date();
 
-            let dated_amount = ret.entry(posting.after_amount.currency.clone()).or_default();
+            let dated_amount = ret.entry(posting.after_amount.commodity.clone()).or_default();
             dated_amount.insert(date, posting.after_amount);
         }
 
@@ -637,10 +614,8 @@ impl Operations {
                 trx_id: posting.id.to_string(),
                 payee: trx_header.and_then(|it| it.payee.clone()),
                 narration: trx_header.and_then(|it| it.narration.clone()),
-                inferred_unit_number: posting.inferred_amount.number,
-                inferred_unit_commodity: posting.inferred_amount.currency,
-                account_after_number: posting.after_amount.number,
-                account_after_commodity: posting.after_amount.currency,
+                inferred_unit: posting.inferred_amount,
+                account_after: posting.after_amount,
             })
         }
         Ok(ret)
@@ -677,10 +652,8 @@ impl Operations {
                 trx_id: posting.trx_id.to_string(),
                 payee: trx.payee,
                 narration: trx.narration,
-                inferred_unit_number: posting.inferred_amount.number,
-                inferred_unit_commodity: posting.inferred_amount.currency,
-                account_after_number: posting.after_amount.number,
-                account_after_commodity: posting.after_amount.currency,
+                inferred_unit: posting.inferred_amount,
+                account_after: posting.after_amount,
             })
         }
         Ok(ret)
@@ -706,10 +679,8 @@ impl Operations {
                 trx_id: posting.trx_id.to_string(),
                 payee: trx.payee,
                 narration: trx.narration,
-                inferred_unit_number: posting.inferred_amount.number,
-                inferred_unit_commodity: posting.inferred_amount.currency,
-                account_after_number: posting.after_amount.number,
-                account_after_commodity: posting.after_amount.currency,
+                inferred_unit: posting.inferred_amount,
+                account_after: posting.after_amount,
             })
         }
         Ok(ret)
@@ -761,40 +732,6 @@ impl Operations {
         Ok(payees.into_iter().collect_vec())
     }
 
-    pub fn static_duration(&mut self, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<StaticRow>> {
-        let store = self.read();
-        let mut cal: HashMap<NaiveDate, HashMap<AccountType, HashMap<Currency, BigDecimal>>> = HashMap::new();
-
-        for posting in store
-            .postings
-            .iter()
-            .filter(|posting| posting.trx_datetime.ge(&from))
-            .filter(|posting| posting.trx_datetime.le(&to))
-            .cloned()
-        {
-            let date = posting.trx_datetime.naive_local().date();
-            let date_store = cal.entry(date).or_default();
-            let account_type_store = date_store.entry(posting.account.account_type).or_default();
-            let balance = account_type_store.entry(posting.after_amount.currency).or_insert_with(BigDecimal::zero);
-            balance.add_assign(&posting.after_amount.number);
-        }
-
-        let mut ret = vec![];
-        for (date, type_store) in cal {
-            for (account_type, currency_store) in type_store {
-                for (currency, balance) in currency_store {
-                    ret.push(StaticRow {
-                        date,
-                        account_type: account_type.to_string(),
-                        amount: balance,
-                        commodity: currency,
-                    })
-                }
-            }
-        }
-        Ok(ret)
-    }
-
     pub fn account_target_date_balance(&self, account_name: impl AsRef<str>, date: DateTime<Utc>) -> ZhangResult<Vec<AccountBalanceDomain>> {
         let store = self.read();
 
@@ -813,7 +750,7 @@ impl Operations {
             let posting: PostingDomain = posting;
             let date = posting.trx_datetime.naive_local().date();
 
-            let dated_amount = ret.entry(posting.after_amount.currency.clone()).or_default();
+            let dated_amount = ret.entry(posting.after_amount.commodity.clone()).or_default();
             dated_amount.insert(date, posting.after_amount);
         }
 
@@ -825,8 +762,7 @@ impl Operations {
                     datetime: date.and_time(NaiveTime::default()),
                     account: account.name().to_owned(),
                     account_status: AccountStatus::Open,
-                    balance_number: amount.number,
-                    balance_commodity: amount.currency,
+                    balance: amount,
                 }
             })
             .collect_vec())

@@ -37,7 +37,7 @@ export default function TransactionEditForm(props: Props) {
   const [postings, postingsHandler] = useListState<Posting>(
     props.data?.postings?.map((item) => ({
       account: item.account ?? undefined,
-      amount: `${item.unit_number ?? ''} ${item.unit_commodity ?? ''}`.trim(),
+      amount: `${item.unit?.number ?? ''} ${item.unit?.commodity ?? ''}`.trim(),
     })) ?? [
       { account: undefined, amount: '' },
       { account: undefined, amount: '' },

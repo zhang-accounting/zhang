@@ -3,8 +3,11 @@ use std::path::PathBuf;
 
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
+#[cfg(feature = "openapi")]
+use gotcha_core::Schematic;
 use serde::Serialize;
 use strum::{AsRefStr, EnumString};
+use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Currency, Rounding, SpanInfo};
 
@@ -16,6 +19,7 @@ pub enum MetaType {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "openapi", derive(Schematic))]
 pub struct OptionDomain {
     pub key: String,
     pub value: String,
@@ -31,6 +35,7 @@ pub struct AccountDomain {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Copy, Serialize, AsRefStr, EnumString)]
+#[cfg_attr(feature = "openapi", derive(Schematic))]
 pub enum AccountStatus {
     Open,
     Close,
@@ -41,17 +46,14 @@ pub struct AccountBalanceDomain {
     pub datetime: NaiveDateTime,
     pub account: String,
     pub account_status: AccountStatus,
-    // todo: combine number and commodity
-    pub balance_number: BigDecimal,
-    pub balance_commodity: String,
+    pub balance: Amount,
 }
 
 #[derive(Debug, Clone)]
 pub struct AccountDailyBalanceDomain {
     pub date: NaiveDate,
     pub account: String,
-    pub balance_number: BigDecimal,
-    pub balance_commodity: String,
+    pub balance: Amount,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -88,6 +90,7 @@ pub struct TransactionInfoDomain {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "openapi", derive(Schematic))]
 pub struct AccountJournalDomain {
     pub datetime: NaiveDateTime,
     pub timestamp: i64,
@@ -95,10 +98,8 @@ pub struct AccountJournalDomain {
     pub trx_id: String,
     pub payee: Option<String>,
     pub narration: Option<String>,
-    pub inferred_unit_number: BigDecimal,
-    pub inferred_unit_commodity: String,
-    pub account_after_number: BigDecimal,
-    pub account_after_commodity: String,
+    pub inferred_unit: Amount,
+    pub account_after: Amount,
 }
 
 #[derive(Debug, Clone, Serialize)]

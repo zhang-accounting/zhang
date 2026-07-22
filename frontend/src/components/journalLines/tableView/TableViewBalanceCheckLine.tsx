@@ -21,7 +21,7 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
   const openPreviewModal = () => {
     setPreviewJournal(data);
   };
-  const isBalanced = new BigNumber(data.postings[0].account_after_number).eq(new BigNumber(data.postings[0].account_before_number));
+  const isBalanced = new BigNumber(data.postings[0].account_after.number).eq(new BigNumber(data.postings[0].account_before.number));
   return (
     <TableRow className={cn('p-1', !isBalanced && 'border-l-[3px] border-l-red-500')}>
       <TableCell>{time}</TableCell>
@@ -34,11 +34,11 @@ export default function TableViewBalanceCheckLine({ data }: Props) {
       <TableCell>
         <div className="flex flex-col items-end">
           <div className={cn('font-bold text-gray-700 text-sm tabular-nums', !isBalanced && 'text-red-500')}>
-            <Amount amount={data.postings[0].account_after_number} currency={data.postings[0].account_after_commodity} />
+            <Amount amount={data.postings[0].account_after.number} currency={data.postings[0].account_after.commodity} />
           </div>
           {!isBalanced && (
             <span className="text-gray-700 text-sm tabular-nums">
-              accumulated: <Amount amount={data.postings[0].account_before_number} currency={data.postings[0].account_before_commodity} />
+              accumulated: <Amount amount={data.postings[0].account_before.number} currency={data.postings[0].account_before.commodity} />
             </span>
           )}
         </div>

@@ -17,7 +17,7 @@ impl DirectiveProcess for Close {
         process::check_account_closed(self.account.name(), ledger, span)?;
 
         let balances = operations.single_account_latest_balances(self.account.name())?;
-        let has_non_zero_balance = balances.into_iter().any(|balance| !balance.balance_number.is_zero());
+        let has_non_zero_balance = balances.into_iter().any(|balance| !balance.balance.number.is_zero());
         if has_non_zero_balance {
             operations.new_error(ErrorKind::CloseNonZeroAccount, span, HashMap::default())?;
         }

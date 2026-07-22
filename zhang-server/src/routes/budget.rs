@@ -29,9 +29,9 @@ pub async fn get_budget_list(ledger: State<SharedLedger>, params: Query<BudgetLi
                 alias: budget.alias,
                 category: budget.category,
                 closed: budget.closed,
-                available_amount: interval_detail.assigned_amount.sub(interval_detail.activity_amount.number.clone()).into(),
-                assigned_amount: interval_detail.assigned_amount.into(),
-                activity_amount: interval_detail.activity_amount.into(),
+                available_amount: interval_detail.assigned_amount.sub(interval_detail.activity_amount.number.clone()),
+                assigned_amount: interval_detail.assigned_amount,
+                activity_amount: interval_detail.activity_amount,
             });
         }
     }
@@ -69,9 +69,9 @@ pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>
         category: budget.category,
         closed: budget.closed,
         related_accounts,
-        available_amount: interval_detail.assigned_amount.sub(interval_detail.activity_amount.number.clone()).into(),
-        assigned_amount: interval_detail.assigned_amount.into(),
-        activity_amount: interval_detail.activity_amount.into(),
+        available_amount: interval_detail.assigned_amount.sub(interval_detail.activity_amount.number.clone()),
+        assigned_amount: interval_detail.assigned_amount,
+        activity_amount: interval_detail.activity_amount,
     })
 }
 
@@ -109,7 +109,7 @@ pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path
     let journals = operations
         .accounts_dated_journals(&related_accounts, month_beginning, month_end)?
         .into_iter()
-        .map(|journal| BudgetIntervalEventEntity::Posting(journal.into()))
+        .map(BudgetIntervalEventEntity::Posting)
         .collect_vec();
     let mut ret = vec![];
     ret.extend(budget_events);

@@ -9,8 +9,9 @@ use gotcha::{Responsible, Schematic};
 use serde::Serialize;
 use uuid::Uuid;
 use zhang_ast::amount::{Amount, CalculatedAmount};
+use zhang_ast::error::ErrorKind;
 use zhang_ast::{AccountType, Currency, SpanInfo};
-use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, ErrorDomain, MetaDomain, OptionDomain};
+use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, ErrorDomain, MetaDomain};
 use zhang_core::plugin::PluginType;
 use zhang_core::store::{BudgetEvent, BudgetEventType, PostingDomain};
 
@@ -92,65 +93,11 @@ impl<T: Serialize + Schematic> Pageable<T> {
 }
 
 #[derive(Serialize, Schematic)]
-/// the status of the account
-pub enum AccountStatusEnum {
-    /// the account is open
-    Open,
-    /// the account is close
-    Close,
-}
-
-impl From<AccountStatus> for AccountStatusEnum {
-    fn from(value: AccountStatus) -> Self {
-        match value {
-            AccountStatus::Open => AccountStatusEnum::Open,
-            AccountStatus::Close => AccountStatusEnum::Close,
-        }
-    }
-}
-
-#[derive(Serialize, Schematic)]
-/// represent the number and currency pair
-pub struct AmountEntity {
-    /// the number of the amount
-    pub number: BigDecimal,
-    /// the currency of the amount
-    pub currency: String,
-}
-
-impl From<Amount> for AmountEntity {
-    fn from(value: Amount) -> Self {
-        AmountEntity {
-            number: value.number,
-            currency: value.currency,
-        }
-    }
-}
-
-#[derive(Serialize, Schematic)]
-/// represent the calculated amount, normally used for multiple currency
-pub struct CalculatedAmountEntity {
-    /// the calculated amount
-    pub calculated: AmountEntity,
-    /// the detail of the calculated amount
-    pub detail: HashMap<String, BigDecimal>,
-}
-
-impl From<CalculatedAmount> for CalculatedAmountEntity {
-    fn from(value: CalculatedAmount) -> Self {
-        CalculatedAmountEntity {
-            calculated: value.calculated.into(),
-            detail: value.detail,
-        }
-    }
-}
-
-#[derive(Serialize, Schematic)]
 pub struct AccountEntity {
     pub name: String,
-    pub status: AccountStatusEnum,
+    pub status: AccountStatus,
     pub alias: Option<String>,
-    pub amount: CalculatedAmountEntity,
+    pub amount: CalculatedAmount,
 }
 
 #[derive(Serialize, Schematic)]
@@ -161,12 +108,6 @@ pub struct DocumentEntity {
     pub extension: Option<String>,
     pub account: Option<String>,
     pub trx_id: Option<String>,
-}
-
-#[derive(Serialize, Schematic)]
-pub struct StatisticEntity {
-    pub changes: HashMap<NaiveDate, HashMap<String, AmountEntity>>, // summaries:
-    pub details: HashMap<NaiveDate, HashMap<String, AmountEntity>>,
 }
 
 #[derive(Serialize, Schematic)]
@@ -187,8 +128,8 @@ impl From<MetaDomain> for MetaEntity {
 #[serde(tag = "type")]
 pub enum JournalItemEntity {
     Transaction(JournalTransactionItemEntity),
-    BalanceCheck(JournalBalanceCheckItemEntity),
-    BalancePad(JournalBalancePadItemEntity),
+    BalanceCheck(JournalBalanceItemEntity),
+    BalancePad(JournalBalanceItemEntity),
 }
 
 impl JournalItemEntity {
@@ -218,49 +159,28 @@ pub struct JournalTransactionItemEntity {
 #[derive(Serialize, Schematic)]
 pub struct JournalTransactionPostingEntity {
     pub account: String,
-    pub unit_number: Option<BigDecimal>,
-    pub unit_commodity: Option<String>,
-    pub cost_number: Option<BigDecimal>,
-    pub cost_commodity: Option<String>,
-    pub inferred_unit_number: BigDecimal,
-    pub inferred_unit_commodity: String,
-    pub account_before_number: BigDecimal,
-    pub account_before_commodity: String,
-    pub account_after_number: BigDecimal,
-    pub account_after_commodity: String,
+    pub unit: Option<Amount>,
+    pub cost: Option<Amount>,
+    pub inferred_unit: Amount,
+    pub account_before: Amount,
+    pub account_after: Amount,
 }
 
 impl From<PostingDomain> for JournalTransactionPostingEntity {
     fn from(arm: PostingDomain) -> Self {
         JournalTransactionPostingEntity {
             account: arm.account.name().to_owned(),
-            unit_number: arm.unit.as_ref().map(|it| it.number.clone()),
-            unit_commodity: arm.unit.as_ref().map(|it| it.currency.clone()),
-            cost_number: arm.cost.as_ref().map(|it| it.number.clone()),
-            cost_commodity: arm.cost.as_ref().map(|it| it.currency.clone()),
-            inferred_unit_number: arm.inferred_amount.number,
-            inferred_unit_commodity: arm.inferred_amount.currency,
-            account_before_number: arm.previous_amount.number,
-            account_before_commodity: arm.previous_amount.currency,
-            account_after_number: arm.after_amount.number,
-            account_after_commodity: arm.after_amount.currency,
+            unit: arm.unit,
+            cost: arm.cost,
+            inferred_unit: arm.inferred_amount,
+            account_before: arm.previous_amount,
+            account_after: arm.after_amount,
         }
     }
 }
 
 #[derive(Serialize, Schematic)]
-pub struct JournalBalanceCheckItemEntity {
-    pub id: Uuid,
-    pub sequence: i32,
-    pub datetime: NaiveDateTime,
-    pub payee: String,
-    pub narration: Option<String>,
-    pub type_: String,
-    pub(crate) postings: Vec<JournalTransactionPostingEntity>,
-}
-
-#[derive(Serialize, Schematic)]
-pub struct JournalBalancePadItemEntity {
+pub struct JournalBalanceItemEntity {
     pub id: Uuid,
     pub sequence: i32,
     pub datetime: NaiveDateTime,
@@ -296,16 +216,15 @@ pub struct CommodityLotEntity {
     pub account: String,
     pub amount: BigDecimal,
 
-    pub cost: Option<AmountEntity>,
-    pub price: Option<AmountEntity>,
+    pub cost: Option<Amount>,
+    pub price: Option<Amount>,
     pub acquisition_date: Option<NaiveDate>,
 }
 
 #[derive(Serialize, Schematic)]
 pub struct CommodityPriceEntity {
     pub datetime: NaiveDateTime,
-    pub amount: BigDecimal,
-    pub target_commodity: Option<String>,
+    pub amount: Amount,
 }
 
 #[derive(Serialize, Schematic)]
@@ -326,67 +245,12 @@ pub struct StatisticSummaryEntity {
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
 
-    pub balance: CalculatedAmountEntity,
-    pub liability: CalculatedAmountEntity,
+    pub balance: CalculatedAmount,
+    pub liability: CalculatedAmount,
 
-    pub income: CalculatedAmountEntity,
-    pub expense: CalculatedAmountEntity,
+    pub income: CalculatedAmount,
+    pub expense: CalculatedAmount,
     pub transaction_number: i64,
-}
-
-#[derive(Serialize, Schematic)]
-pub struct CurrentStatisticEntity {
-    pub balance: CalculatedAmountEntity,
-    pub liability: CalculatedAmountEntity,
-    pub income: AmountEntity,
-    pub expense: AmountEntity,
-}
-
-#[derive(Serialize, Schematic)]
-pub struct AccountJournalEntity {
-    pub datetime: NaiveDateTime,
-    pub timestamp: i64,
-    pub account: String,
-    pub trx_id: String,
-    pub payee: Option<String>,
-    pub narration: Option<String>,
-    pub inferred_unit_number: BigDecimal,
-    pub inferred_unit_commodity: String,
-    pub account_after_number: BigDecimal,
-    pub account_after_commodity: String,
-}
-
-impl From<AccountJournalDomain> for AccountJournalEntity {
-    fn from(value: AccountJournalDomain) -> Self {
-        AccountJournalEntity {
-            datetime: value.datetime,
-            timestamp: value.timestamp,
-            account: value.account,
-            trx_id: value.trx_id,
-            payee: value.payee,
-            narration: value.narration,
-            inferred_unit_number: value.inferred_unit_number,
-            inferred_unit_commodity: value.inferred_unit_commodity,
-            account_after_number: value.account_after_number,
-            account_after_commodity: value.account_after_commodity,
-        }
-    }
-}
-#[derive(Serialize, Schematic)]
-pub struct ReportEntity {
-    pub from: NaiveDateTime,
-    pub to: NaiveDateTime,
-
-    pub balance: AmountEntity,
-    pub liability: AmountEntity,
-    pub income: AmountEntity,
-    pub expense: AmountEntity,
-    pub transaction_number: i64,
-
-    pub income_rank: Vec<ReportRankItemEntity>,
-    pub income_top_transactions: Vec<AccountJournalEntity>,
-    pub expense_rank: Vec<ReportRankItemEntity>,
-    pub expense_top_transactions: Vec<AccountJournalEntity>,
 }
 
 #[derive(Serialize, Schematic)]
@@ -395,7 +259,7 @@ pub struct StatisticRankEntity {
     pub to: NaiveDateTime,
 
     pub detail: Vec<ReportRankItemEntity>,
-    pub top_transactions: Vec<AccountJournalEntity>,
+    pub top_transactions: Vec<AccountJournalDomain>,
 }
 
 #[derive(Serialize, Schematic)]
@@ -403,14 +267,14 @@ pub struct StatisticGraphEntity {
     pub from: NaiveDateTime,
     pub to: NaiveDateTime,
 
-    pub balances: HashMap<NaiveDate, CalculatedAmountEntity>,
-    pub changes: HashMap<NaiveDate, HashMap<AccountType, CalculatedAmountEntity>>,
+    pub balances: HashMap<NaiveDate, CalculatedAmount>,
+    pub changes: HashMap<NaiveDate, HashMap<AccountType, CalculatedAmount>>,
 }
 
 #[derive(Serialize, Schematic)]
 pub struct ReportRankItemEntity {
     pub account: String,
-    pub amount: CalculatedAmountEntity,
+    pub amount: CalculatedAmount,
 }
 
 #[derive(Serialize, Schematic)]
@@ -429,9 +293,9 @@ pub struct AccountInfoEntity {
     pub date: NaiveDateTime,
     pub r#type: String,
     pub name: String,
-    pub status: AccountStatusEnum,
+    pub status: AccountStatus,
     pub alias: Option<String>,
-    pub amount: CalculatedAmountEntity,
+    pub amount: CalculatedAmount,
 }
 
 #[derive(Serialize, Schematic)]
@@ -440,9 +304,9 @@ pub struct BudgetListItemEntity {
     pub alias: Option<String>,
     pub category: Option<String>,
     pub closed: bool,
-    pub assigned_amount: AmountEntity,
-    pub activity_amount: AmountEntity,
-    pub available_amount: AmountEntity,
+    pub assigned_amount: Amount,
+    pub activity_amount: Amount,
+    pub available_amount: Amount,
 }
 
 #[derive(Serialize, Schematic)]
@@ -454,38 +318,24 @@ pub struct BudgetInfoEntity {
 
     pub related_accounts: Vec<String>,
 
-    pub assigned_amount: AmountEntity,
-    pub activity_amount: AmountEntity,
-    pub available_amount: AmountEntity,
+    pub assigned_amount: Amount,
+    pub activity_amount: Amount,
+    pub available_amount: Amount,
 }
 
 #[derive(Serialize, Schematic)]
 pub struct BudgetEventEntity {
     pub timestamp: i64,
-    pub amount: AmountEntity,
-    pub event_type: BudgetEventTypeEnum,
+    pub amount: Amount,
+    pub event_type: BudgetEventType,
 }
 
 impl From<BudgetEvent> for BudgetEventEntity {
     fn from(value: BudgetEvent) -> Self {
         BudgetEventEntity {
             timestamp: value.timestamp,
-            amount: value.amount.into(),
-            event_type: value.event_type.into(),
-        }
-    }
-}
-#[derive(Serialize, Schematic)]
-pub enum BudgetEventTypeEnum {
-    AddAssignedAmount,
-    Transfer,
-}
-
-impl From<BudgetEventType> for BudgetEventTypeEnum {
-    fn from(value: BudgetEventType) -> Self {
-        match value {
-            BudgetEventType::AddAssignedAmount => BudgetEventTypeEnum::AddAssignedAmount,
-            BudgetEventType::Transfer => BudgetEventTypeEnum::Transfer,
+            amount: value.amount,
+            event_type: value.event_type,
         }
     }
 }
@@ -493,7 +343,7 @@ impl From<BudgetEventType> for BudgetEventTypeEnum {
 #[serde(tag = "type")]
 pub enum BudgetIntervalEventEntity {
     BudgetEvent(BudgetEventEntity),
-    Posting(AccountJournalEntity),
+    Posting(AccountJournalDomain),
 }
 
 impl BudgetIntervalEventEntity {
@@ -508,75 +358,16 @@ impl BudgetIntervalEventEntity {
 }
 
 #[derive(Serialize, Schematic)]
-pub enum PluginTypeEnum {
-    Processor,
-    Mapper,
-    Router,
-}
-impl From<PluginType> for PluginTypeEnum {
-    fn from(value: PluginType) -> Self {
-        match value {
-            PluginType::Processor => PluginTypeEnum::Processor,
-            PluginType::Mapper => PluginTypeEnum::Mapper,
-            PluginType::Router => PluginTypeEnum::Router,
-        }
-    }
-}
-
-#[derive(Serialize, Schematic)]
 pub struct PluginEntity {
     pub name: String,
     pub version: String,
-    pub plugin_type: Vec<PluginTypeEnum>,
+    pub plugin_type: Vec<PluginType>,
 }
 
 #[derive(Serialize, Schematic)]
 pub struct AccountBalanceItemEntity {
     pub date: NaiveDate,
-    pub balance: AmountEntity,
-}
-
-#[derive(Serialize, Schematic)]
-pub enum ZhangAstErrorEnum {
-    UnbalancedTransaction,
-    TransactionCannotInferTradeAmount,
-    TransactionHasMultipleImplicitPosting,
-    TransactionExplicitPostingHaveMultipleCommodity,
-
-    AccountBalanceCheckError,
-    AccountDoesNotExist,
-    AccountClosed,
-
-    CommodityDoesNotDefine,
-    NoEnoughCommodityLot,
-    CloseNonZeroAccount,
-
-    BudgetDoesNotExist,
-    DefineDuplicatedBudget,
-
-    MultipleOperatingCurrencyDetect,
-
-    ParseInvalidMeta,
-}
-impl From<zhang_ast::error::ErrorKind> for ZhangAstErrorEnum {
-    fn from(value: zhang_ast::error::ErrorKind) -> Self {
-        match value {
-            zhang_ast::error::ErrorKind::UnbalancedTransaction => ZhangAstErrorEnum::UnbalancedTransaction,
-            zhang_ast::error::ErrorKind::TransactionCannotInferTradeAmount => ZhangAstErrorEnum::TransactionCannotInferTradeAmount,
-            zhang_ast::error::ErrorKind::TransactionHasMultipleImplicitPosting => ZhangAstErrorEnum::TransactionHasMultipleImplicitPosting,
-            zhang_ast::error::ErrorKind::TransactionExplicitPostingHaveMultipleCommodity => ZhangAstErrorEnum::TransactionExplicitPostingHaveMultipleCommodity,
-            zhang_ast::error::ErrorKind::AccountBalanceCheckError => ZhangAstErrorEnum::AccountBalanceCheckError,
-            zhang_ast::error::ErrorKind::AccountDoesNotExist => ZhangAstErrorEnum::AccountDoesNotExist,
-            zhang_ast::error::ErrorKind::AccountClosed => ZhangAstErrorEnum::AccountClosed,
-            zhang_ast::error::ErrorKind::CommodityDoesNotDefine => ZhangAstErrorEnum::CommodityDoesNotDefine,
-            zhang_ast::error::ErrorKind::NoEnoughCommodityLot => ZhangAstErrorEnum::NoEnoughCommodityLot,
-            zhang_ast::error::ErrorKind::CloseNonZeroAccount => ZhangAstErrorEnum::CloseNonZeroAccount,
-            zhang_ast::error::ErrorKind::BudgetDoesNotExist => ZhangAstErrorEnum::BudgetDoesNotExist,
-            zhang_ast::error::ErrorKind::DefineDuplicatedBudget => ZhangAstErrorEnum::DefineDuplicatedBudget,
-            zhang_ast::error::ErrorKind::MultipleOperatingCurrencyDetect => ZhangAstErrorEnum::MultipleOperatingCurrencyDetect,
-            zhang_ast::error::ErrorKind::ParseInvalidMeta => ZhangAstErrorEnum::ParseInvalidMeta,
-        }
-    }
+    pub balance: Amount,
 }
 
 #[derive(Serialize, Schematic)]
@@ -602,7 +393,7 @@ impl From<SpanInfo> for SpanInfoEntity {
 pub struct ErrorEntity {
     pub id: String,
     pub span: Option<SpanInfoEntity>,
-    pub error_type: ZhangAstErrorEnum,
+    pub error_type: ErrorKind,
     pub metas: HashMap<String, String>,
 }
 
@@ -611,25 +402,12 @@ impl From<ErrorDomain> for ErrorEntity {
         ErrorEntity {
             id: value.id,
             span: value.span.map(|it| it.into()),
-            error_type: value.error_type.into(),
+            error_type: value.error_type,
             metas: value.metas,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Schematic)]
-pub struct OptionEntity {
-    pub key: String,
-    pub value: String,
-}
-impl From<OptionDomain> for OptionEntity {
-    fn from(value: OptionDomain) -> Self {
-        OptionEntity {
-            key: value.key,
-            value: value.value,
-        }
-    }
-}
 #[derive(Serialize, Schematic)]
 pub struct AccountBalanceHistoryEntity {
     pub balance: HashMap<Currency, Vec<AccountBalanceItemEntity>>,

@@ -37,9 +37,9 @@ export default function BalancePadPreview(props: Props) {
               <DashLine key={idx}>
                 <p className="line-clamp-1">{posting.account}</p>
                 <div className="flex flex-col items-end">
-                  <Amount amount={posting.inferred_unit_number} currency={posting.inferred_unit_commodity} />
+                  <Amount amount={posting.inferred_unit.number} currency={posting.inferred_unit.commodity} />
                   <div className="text-sm text-gray-500">
-                    Balance: <Amount amount={posting.account_after_number} currency={posting.account_after_commodity} />
+                    Balance: <Amount amount={posting.account_after.number} currency={posting.account_after.commodity} />
                   </div>
                 </div>
               </DashLine>

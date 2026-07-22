@@ -13,7 +13,7 @@ use zhang_ast::{Flag, SpanInfo, Transaction};
 
 use crate::constants::TXN_ID;
 use crate::domains::schemas::MetaType;
-use crate::domains::AccountAmount;
+use crate::inventory::TransactionInference;
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::store::DocumentType;
@@ -79,12 +79,12 @@ impl DirectiveProcess for Transaction {
             let option = operations.account_target_day_balance(
                 txn_posting.posting.account.name(),
                 self.date.to_timezone_datetime(&ledger.options.timezone),
-                &inferred_amount.currency,
+                &inferred_amount.commodity,
             )?;
 
-            let previous = option.unwrap_or(AccountAmount {
+            let previous = option.unwrap_or(Amount {
                 number: BigDecimal::zero(),
-                commodity: inferred_amount.currency.clone(),
+                commodity: inferred_amount.commodity.clone(),
             });
             let after_number = (&previous.number).add(&inferred_amount.number);
             operations.insert_transaction_posting(
@@ -118,7 +118,7 @@ impl DirectiveProcess for Transaction {
                 loop {
                     let target_lot_record = operations.account_lot_by_meta(
                         &txn_posting.account_name(),
-                        &amount.currency,
+                        &amount.commodity,
                         &cost,
                         txn_posting.txn.date.naive_date(),
                         booking_method,
@@ -165,7 +165,7 @@ impl DirectiveProcess for Transaction {
                 }
             } else {
                 // reduction in default lot
-                let target_lot_record = operations.default_account_lot(&txn_posting.account_name(), &amount.currency)?;
+                let target_lot_record = operations.default_account_lot(&txn_posting.account_name(), &amount.commodity)?;
 
                 operations.update_account_lot(
                     &txn_posting.account_name(),

@@ -43,7 +43,7 @@ impl ZhangDataTypeExportable for Account {
 impl ZhangDataTypeExportable for Amount {
     type Output = String;
     fn export(self) -> String {
-        format!("{} {}", self.number, self.currency)
+        format!("{} {}", self.number, self.commodity)
     }
 }
 
@@ -213,7 +213,7 @@ impl ZhangDataTypeExportable for BalanceCheck {
             ..
         } = self;
         let amount_str = match tolerance {
-            Some(tolerance) => format!("{} ~ {} {}", amount.number, tolerance, amount.currency),
+            Some(tolerance) => format!("{} ~ {} {}", amount.number, tolerance, amount.commodity),
             None => amount.export(),
         };
         let line = [date.export(), "balance".to_string(), account.export(), amount_str];

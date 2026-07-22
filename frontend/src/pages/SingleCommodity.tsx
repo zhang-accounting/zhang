@@ -71,10 +71,10 @@ export default function SingleCommodity() {
                     <TableRow key={idx}>
                       <TableCell>{it.account}</TableCell>
                       <TableCell style={{ textAlign: 'right' }}>
-                        {it.cost?.number} {it.cost?.currency}
+                        {it.cost?.number} {it.cost?.commodity}
                       </TableCell>
                       <TableCell style={{ textAlign: 'right' }}>
-                        {it.price?.number} {it.price?.currency}
+                        {it.price?.number} {it.price?.commodity}
                       </TableCell>
                       <TableCell style={{ textAlign: 'right' }}>
                         <Amount amount={it.amount} currency={''} />
@@ -105,7 +105,7 @@ export default function SingleCommodity() {
                     <TableRow key={idx}>
                       <TableCell>{format(new Date(it.datetime), 'yyyy-MM-dd')}</TableCell>
                       <TableCell>
-                        <Amount amount={it.amount} currency={it.target_commodity ?? ''} />
+                        <Amount amount={it.amount.number} currency={it.amount.commodity} />
                       </TableCell>
                     </TableRow>
                   ))}

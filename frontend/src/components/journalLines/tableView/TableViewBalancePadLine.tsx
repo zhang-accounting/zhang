@@ -36,8 +36,8 @@ export default function TableViewBalancePadLine({ data }: Props) {
       <TableCell>
         <div className="flex items-center justify-end gap-2">
           <Amount
-            amount={data.postings[0].account_after_number}
-            currency={data.postings[0].account_after_commodity}
+            amount={data.postings[0].account_after.number}
+            currency={data.postings[0].account_after.commodity}
             className="font-bold text-gray-700 text-sm tabular-nums"
           />
         </div>

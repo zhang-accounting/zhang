@@ -26,12 +26,12 @@ impl DirectiveProcess for BalancePad {
         let option = operations.account_target_day_balance(
             self.account.name(),
             self.date.to_timezone_datetime(&ledger.options.timezone),
-            &self.amount.currency,
+            &self.amount.commodity,
         )?;
 
         let current_balance_amount = option.map(|it| it.number).unwrap_or_else(BigDecimal::zero);
 
-        let distance = Amount::new((&self.amount.number).sub(&current_balance_amount), self.amount.currency.clone());
+        let distance = Amount::new((&self.amount.number).sub(&current_balance_amount), self.amount.commodity.clone());
         let mut transformed_trx = Transaction {
             date: self.date.clone(),
             flag: Some(Flag::BalancePad),
@@ -79,12 +79,12 @@ impl DirectiveProcess for BalanceCheck {
         let option = operations.account_target_day_balance(
             self.account.name(),
             self.date.to_timezone_datetime(&ledger.options.timezone),
-            &self.amount.currency,
+            &self.amount.commodity,
         )?;
 
         let current_balance_amount = option.map(|it| it.number).unwrap_or_else(BigDecimal::zero);
 
-        let distance = Amount::new((&self.amount.number).sub(&current_balance_amount), self.amount.currency.clone());
+        let distance = Amount::new((&self.amount.number).sub(&current_balance_amount), self.amount.commodity.clone());
         let tolerance = self.tolerance.clone().unwrap_or_else(BigDecimal::zero);
         let lower_bound = -tolerance.clone();
         if distance.number > tolerance || distance.number < lower_bound {

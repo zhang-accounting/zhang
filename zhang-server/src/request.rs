@@ -1,24 +1,24 @@
 use std::cmp::max;
 use std::collections::HashSet;
 
-use bigdecimal::BigDecimal;
 use chrono::{DateTime, Datelike, Local, Utc};
 use gotcha::Schematic;
 use serde::Deserialize;
+use zhang_ast::amount::Amount;
 use zhang_ast::Flag;
 
 #[derive(Schematic, Deserialize)]
 #[serde(tag = "type")]
 pub enum BatchAccountBalanceRequest {
-    Check { account_name: String, amount: AmountRequest },
-    Pad { account_name: String, amount: AmountRequest, pad: String },
+    Check { account_name: String, amount: Amount },
+    Pad { account_name: String, amount: Amount, pad: String },
 }
 
 #[derive(Schematic, Deserialize)]
 #[serde(tag = "type")]
 pub enum AccountBalanceRequest {
-    Check { amount: AmountRequest },
-    Pad { amount: AmountRequest, pad: String },
+    Check { amount: Amount },
+    Pad { amount: Amount, pad: String },
 }
 
 #[derive(Schematic, Deserialize)]
@@ -124,13 +124,7 @@ impl Schematic for FlagRequest {
 #[derive(Schematic, Deserialize)]
 pub struct CreateTransactionPostingRequest {
     pub account: String,
-    pub unit: Option<AmountRequest>,
-}
-
-#[derive(Schematic, Deserialize)]
-pub struct AmountRequest {
-    pub number: BigDecimal,
-    pub commodity: String,
+    pub unit: Option<Amount>,
 }
 
 #[derive(Schematic, Deserialize)]

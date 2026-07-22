@@ -206,15 +206,15 @@ impl AsTableDefinition for PostingDomain {
             &self.trx_datetime,
             &self.account.name(),
             &self.unit.as_ref().map(|u| u.number.to_string()),
-            &self.unit.as_ref().map(|u| u.currency.clone()),
+            &self.unit.as_ref().map(|u| u.commodity.clone()),
             &self.cost.as_ref().map(|c| c.number.to_string()),
-            &self.cost.as_ref().map(|c| c.currency.clone()),
+            &self.cost.as_ref().map(|c| c.commodity.clone()),
             &self.inferred_amount.number.to_string(),
-            &self.inferred_amount.currency,
+            &self.inferred_amount.commodity,
             &self.previous_amount.number.to_string(),
-            &self.previous_amount.currency,
+            &self.previous_amount.commodity,
             &self.after_amount.number.to_string(),
-            &self.after_amount.currency,
+            &self.after_amount.commodity,
         ];
         stmt.execute(params).unwrap();
     }
@@ -313,12 +313,12 @@ impl AsTableDefinition for PriceDomain {
     }
 }
 
-pub struct AccountCommodityLot {
+pub struct CommodityLotRow {
     pub account: String,
     pub lot: CommodityLotRecord,
 }
 
-impl AsTableDefinition for AccountCommodityLot {
+impl AsTableDefinition for CommodityLotRow {
     fn as_table_definition() -> TableDefinition {
         TableDefinition {
             name: "commodity_lots",
@@ -340,7 +340,7 @@ impl AsTableDefinition for AccountCommodityLot {
             &self.lot.commodity,
             &self.lot.amount.to_string(),
             &self.lot.cost.as_ref().map(|c| c.number.to_string()),
-            &self.lot.cost.as_ref().map(|c| c.currency.clone()),
+            &self.lot.cost.as_ref().map(|c| c.commodity.clone()),
             &self.lot.acquisition_date,
         ];
         stmt.execute(params).unwrap();
