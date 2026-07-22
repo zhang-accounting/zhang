@@ -79,10 +79,10 @@ export default function TableViewTransactionLine({ data }: Props) {
         <div className="flex flex-col items-end">
           {Array.from(summary.values()).map((each) => (
             <Amount
-              key={each.currency}
+              key={each.commodity}
               className={cn('font-bold text-sm', each.number.isPositive() ? 'text-green-600' : 'text-red-500')}
               amount={each.number}
-              currency={each.currency}
+              currency={each.commodity}
             />
           ))}
         </div>

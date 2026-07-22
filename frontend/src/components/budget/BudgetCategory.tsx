@@ -21,7 +21,7 @@ export default function BudgetCategory(props: Props) {
   const assigned_amount = props.items.reduce(
     (accr, item) => ({
       number: accr.number.plus(new BigNumber(item.assigned_amount.number)),
-      commodity: item.assigned_amount.currency,
+      commodity: item.assigned_amount.commodity,
     }),
     { number: new BigNumber(0), commodity: '' },
   );
@@ -29,7 +29,7 @@ export default function BudgetCategory(props: Props) {
   const activity_amount = props.items.reduce(
     (accr, item) => ({
       number: accr.number.plus(new BigNumber(item.activity_amount.number)),
-      commodity: item.activity_amount.currency,
+      commodity: item.activity_amount.commodity,
     }),
     { number: new BigNumber(0), commodity: '' },
   );
@@ -37,7 +37,7 @@ export default function BudgetCategory(props: Props) {
   const available_amount = props.items.reduce(
     (accr, item) => ({
       number: accr.number.plus(new BigNumber(item.available_amount.number)),
-      commodity: item.available_amount.currency,
+      commodity: item.available_amount.commodity,
     }),
     { number: new BigNumber(0), commodity: '' },
   );

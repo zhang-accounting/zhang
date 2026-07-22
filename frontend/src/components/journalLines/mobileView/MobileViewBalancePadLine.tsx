@@ -34,8 +34,8 @@ export default function MobileViewBalancePadLine({ data }: Props) {
       <div>
         <div className="flex flex-col items-end gap-1 py-1">
           <Amount
-            amount={data.postings[0].account_after_number}
-            currency={data.postings[0].account_after_commodity}
+            amount={data.postings[0].account_after.number}
+            currency={data.postings[0].account_after.commodity}
             className="font-bold text-sm text-gray-700"
           />
         </div>

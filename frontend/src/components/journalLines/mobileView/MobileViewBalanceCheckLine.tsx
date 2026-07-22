@@ -19,7 +19,7 @@ export default function MobileViewBalanceCheckLine({ data }: Props) {
     setPreviewJournal(data);
   };
 
-  const isBalanced = new BigNumber(data.postings[0].account_after_number).eq(new BigNumber(data.postings[0].account_before_number));
+  const isBalanced = new BigNumber(data.postings[0].account_after.number).eq(new BigNumber(data.postings[0].account_before.number));
 
   return (
     <div className={cn('flex py-1 justify-between', !isBalanced && 'border-l-[3px] border-l-red-500')} onClick={openPreviewModal}>
@@ -38,13 +38,13 @@ export default function MobileViewBalanceCheckLine({ data }: Props) {
       <div>
         <div className="flex flex-col items-end gap-1 py-1">
           <Amount
-            amount={data.postings[0].account_after_number}
-            currency={data.postings[0].account_after_commodity}
+            amount={data.postings[0].account_after.number}
+            currency={data.postings[0].account_after.commodity}
             className={cn('font-bold text-sm', !isBalanced && 'text-red-500')}
           />
           {!isBalanced && (
             <div className="text-sm text-gray-500">
-              accumulated: <Amount amount={data.postings[0].account_before_number} currency={data.postings[0].account_before_commodity} />
+              accumulated: <Amount amount={data.postings[0].account_before.number} currency={data.postings[0].account_before.commodity} />
             </div>
           )}
         </div>

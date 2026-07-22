@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function BalanceCheckPreview(props: Props) {
-  const isBalanced = new BigNumber(props.data.postings[0].account_after_number).eq(new BigNumber(props.data.postings[0].account_before_number));
+  const isBalanced = new BigNumber(props.data.postings[0].account_after.number).eq(new BigNumber(props.data.postings[0].account_before.number));
   const checkInfo = props.data.postings[0];
   return (
     <div>
@@ -30,7 +30,7 @@ export default function BalanceCheckPreview(props: Props) {
         <DashLine>
           <p className="line-clamp-1">Balance Amount</p>
           <p className="line-clamp-1">
-            <Amount amount={checkInfo.account_after_number} currency={checkInfo.account_after_commodity} />
+            <Amount amount={checkInfo.account_after.number} currency={checkInfo.account_after.commodity} />
           </p>
         </DashLine>
 
@@ -39,14 +39,14 @@ export default function BalanceCheckPreview(props: Props) {
             <DashLine>
               <p className="line-clamp-1">Accumulated Amount</p>
               <p className="line-clamp-1">
-                <Amount amount={checkInfo.account_before_number} currency={checkInfo.account_before_commodity} />
+                <Amount amount={checkInfo.account_before.number} currency={checkInfo.account_before.commodity} />
               </p>
             </DashLine>
 
             <DashLine>
               <p className="line-clamp-1">Distance</p>
               <p className="line-clamp-1">
-                <Amount amount={checkInfo.inferred_unit_number} currency={checkInfo.inferred_unit_commodity} />
+                <Amount amount={checkInfo.inferred_unit.number} currency={checkInfo.inferred_unit.commodity} />
               </p>
             </DashLine>
           </>

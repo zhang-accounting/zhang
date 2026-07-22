@@ -3,7 +3,7 @@ import { BigNumber } from 'bignumber.js';
 
 export interface SummaryItem {
   number: BigNumber;
-  currency: string;
+  commodity: string;
 }
 
 interface CurrencyCount {
@@ -22,8 +22,8 @@ export function calculate(trx: JournalTransactionItem): Set<SummaryItem> {
   let internal: CurrencyCount = {};
 
   trx.postings.forEach((posting) => {
-    const unit_number = posting.unit_number || posting.inferred_unit_number;
-    const unit_commodity = posting.unit_commodity || posting.inferred_unit_commodity;
+    const unit_number = posting.unit?.number || posting.inferred_unit.number;
+    const unit_commodity = posting.unit?.commodity || posting.inferred_unit.commodity;
     const amount = new BigNumber(unit_number);
 
     switch (posting.account.split(':')[0].toLocaleLowerCase()) {
@@ -53,7 +53,7 @@ export function calculate(trx: JournalTransactionItem): Set<SummaryItem> {
   Object.keys(internal).forEach((currency) => {
     const targetAmount = internal[currency];
     if (!targetAmount.isZero()) {
-      ret.add({ number: targetAmount, currency: currency });
+      ret.add({ number: targetAmount, commodity: currency });
     }
   });
   return ret;

@@ -72,7 +72,7 @@ function SingleAccount() {
           <div className="text-right">
             <div className="flex items-center justify-end gap-1 text-lg">
               {Object.keys(account.amount.detail).length > 1 && <p>≈</p>}
-              <Amount amount={account.amount.calculated.number} currency={account.amount.calculated.currency}></Amount>
+              <Amount amount={account.amount.calculated.number} currency={account.amount.calculated.commodity}></Amount>
             </div>
             {Object.keys(account.amount.detail).length > 1 && (
               <div className="flex flex-col gap-0.5 items-end text-base">
@@ -135,10 +135,10 @@ function SingleAccount() {
                               <PayeeNarration payee={item.payee} narration={item.narration} />
                             </TableCell>
                             <TableCell className="text-right ">
-                              <Amount amount={item.inferred_unit_number} currency={item.inferred_unit_commodity} />
+                              <Amount amount={item.inferred_unit.number} currency={item.inferred_unit.commodity} />
                             </TableCell>
                             <TableCell className="text-right ">
-                              <Amount amount={item.account_after_number} currency={item.account_after_commodity} />
+                              <Amount amount={item.account_after.number} currency={item.account_after.commodity} />
                             </TableCell>
                           </TableRow>
                         ))}

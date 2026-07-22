@@ -25,13 +25,13 @@ export default function BudgetLine(props: Props) {
       </TableCell>
       <TableCell style={{ textAlign: 'end' }}>{number} %</TableCell>
       <TableCell style={{ textAlign: 'end' }}>
-        <Amount amount={props.assigned_amount.number} currency={props.assigned_amount.currency} />
+        <Amount amount={props.assigned_amount.number} currency={props.assigned_amount.commodity} />
       </TableCell>
       <TableCell style={{ textAlign: 'end' }}>
-        <Amount amount={props.activity_amount.number} currency={props.activity_amount.currency} />
+        <Amount amount={props.activity_amount.number} currency={props.activity_amount.commodity} />
       </TableCell>
       <TableCell style={{ textAlign: 'end' }}>
-        <Amount amount={props.available_amount.number} currency={props.available_amount.currency} />
+        <Amount amount={props.available_amount.number} currency={props.available_amount.commodity} />
       </TableCell>
     </TableRow>
   );

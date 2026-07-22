@@ -98,17 +98,17 @@ function SingleBudget() {
             <ul className="grid gap-3">
               <li className="flex items-center justify-between">
                 <span className="text-muted-foreground">Assigned Amount</span>
-                <Amount amount={budget_info.assigned_amount.number} currency={budget_info.assigned_amount.currency}></Amount>
+                <Amount amount={budget_info.assigned_amount.number} currency={budget_info.assigned_amount.commodity}></Amount>
               </li>
 
               <li className="flex items-center justify-between">
                 <span className="text-muted-foreground">Activity Amount</span>
-                <Amount amount={budget_info.activity_amount.number} currency={budget_info.activity_amount.currency}></Amount>
+                <Amount amount={budget_info.activity_amount.number} currency={budget_info.activity_amount.commodity}></Amount>
               </li>
 
               <li className="flex items-center justify-between">
                 <span className="text-muted-foreground">Available Amount</span>
-                <Amount amount={budget_info.available_amount.number} currency={budget_info.available_amount.currency}></Amount>
+                <Amount amount={budget_info.available_amount.number} currency={budget_info.available_amount.commodity}></Amount>
               </li>
             </ul>
           </CardContent>
@@ -134,10 +134,10 @@ function SingleBudget() {
                   <TableCell>{'event_type' in it ? it.event_type : <PayeeNarration payee={it.payee} narration={it.narration} />}</TableCell>
                   <TableCell>{!('event_type' in it) && <Badge>{it.account}</Badge>}</TableCell>
                   <TableCell style={{ textAlign: 'end' }}>
-                    {'event_type' in it && <Amount amount={it.amount?.number!} currency={it.amount?.currency!} />}
+                    {'event_type' in it && <Amount amount={it.amount?.number!} currency={it.amount?.commodity!} />}
                   </TableCell>
                   <TableCell style={{ textAlign: 'end' }}>
-                    {!('event_type' in it) && <Amount amount={it.inferred_unit_number} currency={it.inferred_unit_commodity} />}
+                    {!('event_type' in it) && <Amount amount={it.inferred_unit.number} currency={it.inferred_unit.commodity} />}
                   </TableCell>
                 </TableRow>
               );
