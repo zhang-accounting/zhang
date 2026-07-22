@@ -38,7 +38,7 @@
     "i18next": "^23.11.4",
     "i18next-http-backend": "^2.5.1",
     "jotai": "^2.9.0",
-    "lodash-es": "^4.17.21",
+    "lodash-es": "^4.17.23",
     "lucide-react": "^0.447.0",
     "next-themes": "^0.3.0",
     "openapi-typescript-fetch": "^2.1.0",
