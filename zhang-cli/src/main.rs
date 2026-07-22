@@ -352,10 +352,10 @@ mod test {
                          Excepted value: {} \n\
                          Get: {}",
                                 original_test_source_folder.display(),
-                                &validation.uri,
+                                validation.uri,
                                 point.0,
-                                &expected_value,
-                                &value
+                                expected_value,
+                                value
                             );
                         }
                     }

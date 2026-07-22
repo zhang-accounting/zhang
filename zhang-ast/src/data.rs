@@ -139,7 +139,7 @@ impl Transaction {
         Ok(inventory)
     }
 
-    pub fn txn_postings(&self) -> Vec<TxnPosting> {
+    pub fn txn_postings(&self) -> Vec<TxnPosting<'_>> {
         self.postings.iter().map(|posting| TxnPosting { txn: self, posting }).collect_vec()
     }
     pub fn has_account(&self, name: &String) -> bool {
@@ -203,7 +203,7 @@ impl TxnPosting<'_> {
         self.trade_amount().map(Ok).unwrap_or_else(|| {
             // get other postings' trade amount
             let (trade_amount_postings, non_trade_amount_postings): (Vec<Option<Amount>>, Vec<Option<Amount>>) =
-                self.txn.txn_postings().iter().map(|it| (it.trade_amount())).partition(|it| it.is_some());
+                self.txn.txn_postings().iter().map(|it| it.trade_amount()).partition(|it| it.is_some());
             match non_trade_amount_postings.len() {
                 0 => unreachable!("txn should not have zero posting"),
                 1 => {

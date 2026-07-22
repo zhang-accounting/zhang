@@ -14,12 +14,12 @@ pub trait FromSpan {
 impl FromSpan for Uuid {
     fn from_span(span: &SpanInfo) -> Uuid {
         let file = span.filename.as_ref().and_then(|buf| buf.to_str()).unwrap_or(DEFAULT_PATH);
-        let string = digest(format!("{}-{}", &file, span.start));
+        let string = digest(format!("{}-{}", file, span.start));
         Uuid::from_str(&string[0..32]).expect("invalid uuid")
     }
 
     fn from_txn_posting(txn_id: &Uuid, idx: usize) -> Uuid {
-        let string = digest(format!("{}-{}", &txn_id, idx));
+        let string = digest(format!("{}-{}", txn_id, idx));
         Uuid::from_str(&string[0..32]).expect("invalid uuid")
     }
 }

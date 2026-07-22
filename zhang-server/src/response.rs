@@ -80,7 +80,7 @@ pub struct Pageable<T: Serialize + Schematic> {
 
 impl<T: Serialize + Schematic> Pageable<T> {
     pub fn new(total_count: u32, page: u32, size: u32, records: Vec<T>) -> Self {
-        let total_page = total_count / size + u32::from(total_count % size != 0);
+        let total_page = total_count / size + u32::from(!total_count.is_multiple_of(size));
         Self {
             total_count,
             total_page,

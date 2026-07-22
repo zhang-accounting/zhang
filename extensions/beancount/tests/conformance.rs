@@ -52,18 +52,28 @@ fn supported_language_constructs_parse() {
         ("transaction flag *", "2014-01-01 * \"payee\" \"narr\"\n  Assets:Cash 1 USD\n  Equity:X\n"),
         ("transaction flag !", "2014-01-01 ! \"narr\"\n  Assets:Cash 1 USD\n  Equity:X\n"),
         ("posting cost", "2014-01-01 * \"x\"\n  Assets:Cash 1 HOOL {100 USD}\n  Equity:X\n"),
-        ("posting cost with date", "2014-01-01 * \"x\"\n  Assets:Cash 1 HOOL {100 USD, 2014-01-01}\n  Equity:X\n"),
+        (
+            "posting cost with date",
+            "2014-01-01 * \"x\"\n  Assets:Cash 1 HOOL {100 USD, 2014-01-01}\n  Equity:X\n",
+        ),
         ("posting @ price", "2014-01-01 * \"x\"\n  Assets:Cash 1 HOOL @ 100 USD\n  Equity:X\n"),
         ("posting @@ price", "2014-01-01 * \"x\"\n  Assets:Cash 1 HOOL @@ 100 USD\n  Equity:X\n"),
         ("tags and links", "2014-01-01 * \"x\" #tag1 ^link1\n  Assets:Cash 1 USD\n  Equity:X\n"),
         ("posting metadata", "2014-01-01 * \"x\"\n  Assets:Cash 1 USD\n    answer: 42\n  Equity:X\n"),
-        ("pushtag / poptag", "pushtag #trip\n2014-01-01 * \"x\"\n  Assets:Cash 1 USD\n  Equity:X\npoptag #trip\n"),
+        (
+            "pushtag / poptag",
+            "pushtag #trip\n2014-01-01 * \"x\"\n  Assets:Cash 1 USD\n  Equity:X\npoptag #trip\n",
+        ),
         ("option", "option \"title\" \"My Ledger\"\n"),
         ("plugin", "plugin \"beancount.plugins.auto\" \"config\"\n"),
         ("include", "include \"other.beancount\"\n"),
     ];
 
-    let failed: Vec<&str> = cases.iter().filter(|(_, snippet)| parse(snippet, None::<PathBuf>).is_err()).map(|(name, _)| *name).collect();
+    let failed: Vec<&str> = cases
+        .iter()
+        .filter(|(_, snippet)| parse(snippet, None::<PathBuf>).is_err())
+        .map(|(name, _)| *name)
+        .collect();
 
     assert!(failed.is_empty(), "these supported constructs failed to parse: {:?}", failed);
 }

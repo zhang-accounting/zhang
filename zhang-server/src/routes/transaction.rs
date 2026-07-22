@@ -154,8 +154,8 @@ pub async fn create_new_transaction(
         flag: payload.flag.map(|it| it.into()).or(Some(Flag::Okay)),
         payee: Some(payload.payee.to_quote()),
         narration: payload.narration.map(|it| it.to_quote()),
-        tags: IndexSet::from_iter(payload.tags.into_iter()),
-        links: IndexSet::from_iter(payload.links.into_iter()),
+        tags: IndexSet::from_iter(payload.tags),
+        links: IndexSet::from_iter(payload.links),
         postings,
         meta: metas,
     });
@@ -254,8 +254,8 @@ pub async fn update_single_transaction(
         flag: payload.flag.map(|it| it.into()).or(Some(Flag::Okay)),
         payee: Some(payload.payee.to_quote()),
         narration: payload.narration.map(|it| it.to_quote()),
-        tags: IndexSet::from_iter(payload.tags.into_iter()),
-        links: IndexSet::from_iter(payload.links.into_iter()),
+        tags: IndexSet::from_iter(payload.tags),
+        links: IndexSet::from_iter(payload.links),
         postings,
         meta: metas,
     });

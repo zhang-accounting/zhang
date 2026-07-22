@@ -1,15 +1,15 @@
 use chrono::{DateTime, Utc};
 use duckdb::types::{TimeUnit, ValueRef};
-use zhang_core::domains::schemas::{CommodityDomain, MetaDomain, PriceDomain};
+use zhang_core::domains::schemas::{AccountDomain, CommodityDomain, MetaDomain, PriceDomain};
+use zhang_core::ledger::Ledger;
+use zhang_core::options::InMemoryOptions;
 use zhang_core::store::{DocumentDomain, PostingDomain, TransactionDomain};
-use zhang_core::{domains::schemas::AccountDomain, ledger::Ledger, options::InMemoryOptions};
 
 mod table_definition;
-use table_definition::{AccountCommodityLot, AsTableDefinition, TableDefinition, TrxLink, TrxTag};
-use serde::Serialize;
-use gotcha::Schematic;
-
 use duckdb::{Connection, Result};
+use gotcha::Schematic;
+use serde::Serialize;
+use table_definition::{AccountCommodityLot, AsTableDefinition, TableDefinition, TrxLink, TrxTag};
 
 #[derive(Debug, Serialize, Schematic)]
 pub struct Column {
@@ -22,22 +22,16 @@ pub struct Row {
     columns: Vec<Column>,
 }
 
-
 fn value_ref_to_value(value: ValueRef<'_>) -> serde_json::Value {
     match value {
         ValueRef::Text(s) => serde_json::Value::String(String::from_utf8_lossy(s).to_string()),
         ValueRef::Int(i) => serde_json::Value::Number(serde_json::Number::from(i)),
         ValueRef::Float(f) => serde_json::Value::Number(serde_json::Number::from_f64(f as f64).unwrap()),
         ValueRef::Boolean(b) => serde_json::Value::Bool(b),
-        ValueRef::Timestamp(TimeUnit::Microsecond, i) => {
-            serde_json::Value::String(
-                DateTime::<Utc>::from_timestamp_micros(i).unwrap().to_string()
-            )
-        },
+        ValueRef::Timestamp(TimeUnit::Microsecond, i) => serde_json::Value::String(DateTime::<Utc>::from_timestamp_micros(i).unwrap().to_string()),
         _ => serde_json::Value::Null,
     }
 }
-
 
 pub struct Executor {
     pub table_definitions: Vec<TableDefinition>,
@@ -64,7 +58,7 @@ impl Executor {
     pub fn execute(&self, query: &str) -> Result<ExecutionResult, duckdb::Error> {
         let mut stmt = self.conn.prepare(query)?;
         let mut rows = stmt.query([])?;
-        
+
         let mut ret = vec![];
         let mut is_first = true;
         let mut column_names = vec![];
@@ -78,12 +72,18 @@ impl Executor {
             for (i, col_name) in column_names.iter().enumerate() {
                 let value: ValueRef = row.get_ref(i)?;
                 let value = value_ref_to_value(value);
-                columns.push(Column  { name: col_name.to_string(), value });
+                columns.push(Column {
+                    name: col_name.to_string(),
+                    value,
+                });
             }
             ret.push(Row { columns });
         }
 
-        Ok(ExecutionResult { columns: column_names, rows: ret })
+        Ok(ExecutionResult {
+            columns: column_names,
+            rows: ret,
+        })
     }
 }
 
@@ -94,7 +94,7 @@ pub trait AsExecutor {
 impl AsExecutor for Ledger {
     fn as_executor(&self) -> Executor {
         let table_definitions = vec![
-            InMemoryOptions::as_table_definition(), 
+            InMemoryOptions::as_table_definition(),
             AccountDomain::as_table_definition(),
             CommodityDomain::as_table_definition(),
             TransactionDomain::as_table_definition(),
@@ -118,15 +118,16 @@ impl AsExecutor for Ledger {
                 TrxTag {
                     trx_id: trx.id,
                     tag: tag.clone(),
-                }.insert_data(&executor.conn);
+                }
+                .insert_data(&executor.conn);
             }
             for link in &trx.links {
                 TrxLink {
                     trx_id: trx.id,
                     link: link.clone(),
-                }.insert_data(&executor.conn);
+                }
+                .insert_data(&executor.conn);
             }
-            
         }
         for posting in store.postings.iter() {
             posting.insert_data(&executor.conn);
@@ -142,7 +143,8 @@ impl AsExecutor for Ledger {
                 AccountCommodityLot {
                     account: account.clone(),
                     lot: commodity_lot.clone(),
-                }.insert_data(&executor.conn);
+                }
+                .insert_data(&executor.conn);
             }
         }
         for document in store.documents.iter() {
@@ -159,10 +161,13 @@ impl AsExecutor for Ledger {
 mod tests {
     use std::sync::Arc;
 
-    use super::*;
     use indoc::indoc;
     use tempfile::tempdir;
-    use zhang_core::{data_source::LocalFileSystemDataSource, data_type::text::ZhangDataType, ledger::Ledger};
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::ledger::Ledger;
+
+    use super::*;
 
     fn load_from_temp_str(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().into_path();
@@ -193,5 +198,4 @@ mod tests {
         println!("{:?}", result);
         assert_eq!(result.rows.len(), 1);
     }
-
 }
