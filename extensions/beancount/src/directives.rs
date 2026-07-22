@@ -1,6 +1,7 @@
+use bigdecimal::BigDecimal;
 use itertools::Either;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, Date, Directive, Meta};
+use zhang_ast::{Account, Date, Directive, Meta, ZhangString};
 
 pub type BeancountDirective = Either<Directive, BeancountOnlyDirective>;
 
@@ -8,6 +9,8 @@ pub type BeancountDirective = Either<Directive, BeancountOnlyDirective>;
 pub enum BeancountOnlyDirective {
     PushTag(String),
     PopTag(String),
+    PushMeta(String, ZhangString),
+    PopMeta(String),
     Pad(PadDirective),
     Balance(BalanceDirective),
 }
@@ -17,6 +20,8 @@ impl BeancountOnlyDirective {
         match &mut self {
             BeancountOnlyDirective::PushTag(_) => {}
             BeancountOnlyDirective::PopTag(_) => {}
+            BeancountOnlyDirective::PushMeta(..) => {}
+            BeancountOnlyDirective::PopMeta(_) => {}
             BeancountOnlyDirective::Pad(directive) => directive.meta = meta,
             BeancountOnlyDirective::Balance(directive) => directive.meta = meta,
         }
@@ -38,6 +43,7 @@ pub struct BalanceDirective {
     pub date: Date,
     pub account: Account,
     pub amount: Amount,
+    pub tolerance: Option<BigDecimal>,
 
     pub meta: Meta,
 }

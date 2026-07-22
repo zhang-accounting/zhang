@@ -126,7 +126,8 @@ impl ZhangDataTypeExportable for PostingCost {
     type Output = String;
 
     fn export(self) -> Self::Output {
-        let mut string_builder = vec!["{".to_string()];
+        let (open, close) = if self.total { ("{{", "}}") } else { ("{", "}") };
+        let mut string_builder = vec![open.to_string()];
         if let Some(cost_base) = self.base {
             string_builder.push(cost_base.export());
         };
@@ -134,7 +135,11 @@ impl ZhangDataTypeExportable for PostingCost {
             string_builder.push(",".to_string());
             string_builder.push(date.export());
         };
-        string_builder.push("}".to_string());
+        if let Some(label) = self.label {
+            string_builder.push(",".to_string());
+            string_builder.push(format!("\"{}\"", label));
+        };
+        string_builder.push(close.to_string());
         string_builder.join(" ")
     }
 }
@@ -199,8 +204,20 @@ impl ZhangDataTypeExportable for BalancePad {
 impl ZhangDataTypeExportable for BalanceCheck {
     type Output = String;
     fn export(self) -> String {
-        let line = [self.date.export(), "balance".to_string(), self.account.export(), self.amount.export()];
-        append_meta(self.meta, line.join(" "))
+        let BalanceCheck {
+            date,
+            account,
+            amount,
+            tolerance,
+            meta,
+            ..
+        } = self;
+        let amount_str = match tolerance {
+            Some(tolerance) => format!("{} ~ {} {}", amount.number, tolerance, amount.currency),
+            None => amount.export(),
+        };
+        let line = [date.export(), "balance".to_string(), account.export(), amount_str];
+        append_meta(meta, line.join(" "))
     }
 }
 

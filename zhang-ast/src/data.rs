@@ -80,6 +80,8 @@ pub struct BalanceCheck {
     pub date: Date,
     pub account: Account,
     pub amount: Amount,
+    /// optional absolute tolerance for the assertion (beancount `~` syntax)
+    pub tolerance: Option<BigDecimal>,
     pub meta: Meta,
 }
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -108,10 +110,14 @@ impl Posting {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
 pub struct PostingCost {
     pub base: Option<Amount>,
     pub date: Option<Date>,
+    /// lot label from a `{ ..., "label" }` cost spec
+    pub label: Option<String>,
+    /// true when written as `{{ }}` (total cost) rather than `{ }` (per-unit)
+    pub total: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -161,15 +167,27 @@ impl TxnPosting<'_> {
     /// if cost is not specified, and it can be indicated from price. e.g.
     /// `Assets:Card 1 CNY @ 10 AAA` then cost `10 AAA` can be indicated from single price`@ 10 AAA`
     pub fn costs(&self) -> Option<Amount> {
-        self.posting.cost.as_ref().and_then(|it| it.base.clone()).or_else(|| {
-            self.posting.price.as_ref().map(|price| match price {
-                SingleTotalPrice::Single(single_price) => single_price.clone(),
-                SingleTotalPrice::Total(total_price) => Amount::new(
-                    (&total_price.number).div(self.posting.units.as_ref().map(|it| &it.number).unwrap_or(&BigDecimal::one())),
-                    total_price.currency.clone(),
-                ),
+        self.posting
+            .cost
+            .as_ref()
+            .and_then(|cost| {
+                cost.base.clone().map(|base| {
+                    if cost.total {
+                        base.div(self.posting.units.as_ref().map(|it| it.number.clone()).unwrap_or_else(BigDecimal::one))
+                    } else {
+                        base
+                    }
+                })
             })
-        })
+            .or_else(|| {
+                self.posting.price.as_ref().map(|price| match price {
+                    SingleTotalPrice::Single(single_price) => single_price.clone(),
+                    SingleTotalPrice::Total(total_price) => Amount::new(
+                        (&total_price.number).div(self.posting.units.as_ref().map(|it| &it.number).unwrap_or(&BigDecimal::one())),
+                        total_price.currency.clone(),
+                    ),
+                })
+            })
     }
     /// trade amount means the amount used for other postings to calculate balance
     /// 1. if `unit` is null, return null
@@ -183,7 +201,18 @@ impl TxnPosting<'_> {
             .units
             .as_ref()
             .map(|unit| match (self.posting.cost.as_ref(), self.posting.price.as_ref()) {
-                (Some(PostingCost { base: Some(cost), date: _ }), _) => Amount::new((&unit.number).mul(&cost.number), cost.currency.clone()),
+                (Some(PostingCost { base: Some(cost), total, .. }), _) => {
+                    if *total {
+                        // total cost contributes the signed total, like a total price
+                        if unit.number.is_negative() {
+                            cost.neg()
+                        } else {
+                            cost.clone()
+                        }
+                    } else {
+                        Amount::new((&unit.number).mul(&cost.number), cost.currency.clone())
+                    }
+                }
                 (None, Some(price)) => match price {
                     SingleTotalPrice::Single(single_price) => Amount::new((&unit.number).mul(&single_price.number), single_price.currency.clone()),
                     SingleTotalPrice::Total(total_price) => {
@@ -236,7 +265,14 @@ impl TxnPosting<'_> {
             LotMeta {
                 txn_date: self.txn.date.naive_date(),
 
-                cost: self.posting.cost.clone(),
+                cost: self.posting.cost.clone().map(|mut cost| {
+                    if cost.total {
+                        // normalise total cost to per-unit for lot bookkeeping
+                        cost.base = cost.base.map(|base| base.div(unit.number.clone()));
+                        cost.total = false;
+                    }
+                    cost
+                }),
                 price: self.posting.price.clone().map(|price| match price {
                     SingleTotalPrice::Single(amount) => amount,
 

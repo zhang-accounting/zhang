@@ -8,15 +8,13 @@
 //! 2. `supported_language_constructs_parse` — every construct of the beancount
 //!    language surface we currently support must parse.
 //!
-//! Known-unsupported constructs, tracked for full beancount compatibility. They
-//! are deliberately NOT silently accepted, because parsing them without proper
-//! AST support would drop financially-significant information:
-//!   - balance tolerance:  `2014-01-01 balance Assets:Cash 10 ~ 0.01 USD`
-//!   - query directive:    `2014-01-01 query "name" "SELECT account"`
-//!   - txn keyword flag:   `2014-01-01 txn "payee" "narration"`
-//!   - cost lot label:     `{100 USD, "lot1"}`
-//!   - total cost:         `{{100 USD}}`
-//!   - pushmeta / popmeta
+//! The only remaining unsupported construct is the `query` directive
+//! (`2014-01-01 query "name" "SELECT account"`); representing it needs a
+//! first-class `Directive::Query` variant threaded through the whole codebase.
+//! Everything else on the beancount language surface — including balance
+//! tolerance `~`, the `txn` keyword, cost lot labels, total cost `{{ }}`, and
+//! `pushmeta`/`popmeta` — is supported (see `beancount_compat.rs` for the
+//! behavioural checks).
 
 use std::path::PathBuf;
 
@@ -67,6 +65,11 @@ fn supported_language_constructs_parse() {
         ("option", "option \"title\" \"My Ledger\"\n"),
         ("plugin", "plugin \"beancount.plugins.auto\" \"config\"\n"),
         ("include", "include \"other.beancount\"\n"),
+        ("txn keyword", "2014-01-01 txn \"payee\" \"narr\"\n  Assets:Cash 1 USD\n  Equity:X\n"),
+        ("balance tolerance", "2014-01-01 balance Assets:Cash 10 ~ 0.01 USD\n"),
+        ("cost lot label", "2014-01-01 * \"x\"\n  Assets:Cash 1 HOOL {100 USD, \"lot1\"}\n  Equity:X\n"),
+        ("total cost", "2014-01-01 * \"x\"\n  Assets:Cash 1 HOOL {{100 USD}}\n  Equity:X\n"),
+        ("pushmeta / popmeta", "pushmeta project: \"X\"\n2014-01-01 open Assets:Cash\npopmeta project:\n"),
     ];
 
     let failed: Vec<&str> = cases

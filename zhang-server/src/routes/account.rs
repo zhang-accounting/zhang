@@ -199,6 +199,7 @@ pub async fn create_account_balance(
                 number: amount.number,
                 currency: amount.commodity,
             },
+            tolerance: None,
             meta: Default::default(),
         }),
         AccountBalanceRequest::Pad { amount, pad } => Directive::BalancePad(BalancePad {
@@ -233,6 +234,7 @@ pub async fn create_batch_account_balances(
                     number: amount.number,
                     currency: amount.commodity,
                 },
+                tolerance: None,
                 meta: Default::default(),
             }),
             BatchAccountBalanceRequest::Pad { account_name, amount, pad } => Directive::BalancePad(BalancePad {

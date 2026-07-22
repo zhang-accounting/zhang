@@ -34,6 +34,7 @@ impl DataType for Beancount {
 
         let mut ret = vec![];
         let mut tags_stack: Vec<String> = vec![];
+        let mut meta_stack: Vec<(String, ZhangString)> = vec![];
 
         let mut pad_info: LatestMap<NaiveDate, HashMap<String, Account>> = LatestMap::default();
 
@@ -41,21 +42,37 @@ impl DataType for Beancount {
             let Spanned { span, mut data } = directives;
             self.extract_time_from_meta(&mut data);
             match data {
-                Either::Left(zhang_directive) => match zhang_directive {
-                    Directive::Transaction(mut trx) => {
-                        for tag in &tags_stack {
-                            trx.tags.insert(tag.to_owned());
+                Either::Left(mut zhang_directive) => {
+                    // apply pushed metadata (pushmeta) without overriding explicit keys
+                    if let Some(meta) = zhang_directive.meta_mut() {
+                        for (key, value) in &meta_stack {
+                            if meta.get_one(key).is_none() {
+                                meta.insert(key.clone(), value.clone());
+                            }
                         }
-                        ret.push(Spanned {
-                            span,
-                            data: Directive::Transaction(trx),
-                        });
                     }
-                    _ => ret.push(Spanned { span, data: zhang_directive }),
-                },
+                    match zhang_directive {
+                        Directive::Transaction(mut trx) => {
+                            for tag in &tags_stack {
+                                trx.tags.insert(tag.to_owned());
+                            }
+                            ret.push(Spanned {
+                                span,
+                                data: Directive::Transaction(trx),
+                            });
+                        }
+                        other => ret.push(Spanned { span, data: other }),
+                    }
+                }
                 Either::Right(beancount_directive) => match beancount_directive {
                     BeancountOnlyDirective::PushTag(tag) => tags_stack.push(tag),
                     BeancountOnlyDirective::PopTag(tag) => tags_stack = tags_stack.into_iter().filter(|it| it.ne(&tag)).collect_vec(),
+                    BeancountOnlyDirective::PushMeta(key, value) => meta_stack.push((key, value)),
+                    BeancountOnlyDirective::PopMeta(key) => {
+                        if let Some(pos) = meta_stack.iter().rposition(|(k, _)| k == &key) {
+                            meta_stack.remove(pos);
+                        }
+                    }
                     BeancountOnlyDirective::Pad(pad) => {
                         let date = pad.date.naive_date();
                         if !pad_info.contains_key(&date) {
@@ -95,6 +112,7 @@ impl DataType for Beancount {
                                     date: balance.date,
                                     account: balance.account,
                                     amount: balance.amount,
+                                    tolerance: balance.tolerance,
                                     meta: balance.meta,
                                 }),
                             });
@@ -116,6 +134,7 @@ impl DataType for Beancount {
                 date: check.date,
                 account: check.account,
                 amount: check.amount,
+                tolerance: check.tolerance,
 
                 meta: check.meta,
             }
@@ -133,6 +152,7 @@ impl DataType for Beancount {
                     date: pad.date,
                     account: pad.account,
                     amount: pad.amount,
+                    tolerance: None,
 
                     meta: pad.meta,
                 };
@@ -197,14 +217,26 @@ trait BeancountOnlyExportable {
 
 impl BeancountOnlyExportable for BalanceDirective {
     fn bc_to_string(self) -> String {
+        let BalanceDirective {
+            date,
+            account,
+            amount,
+            tolerance,
+            meta,
+            ..
+        } = self;
+        let amount_str = match tolerance {
+            Some(tolerance) => format!("{} ~ {} {}", amount.number, tolerance, amount.currency),
+            None => ZhangDataTypeExportable::export(amount),
+        };
         let line = [
-            ZhangDataTypeExportable::export(self.date),
+            ZhangDataTypeExportable::export(date),
             "balance".to_string(),
-            ZhangDataTypeExportable::export(self.account),
-            ZhangDataTypeExportable::export(self.amount),
+            ZhangDataTypeExportable::export(account),
+            amount_str,
         ]
         .join(" ");
-        append_meta(self.meta, line)
+        append_meta(meta, line)
     }
 }
 
@@ -448,6 +480,7 @@ mod test {
                 date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
                 account: Account::from_str("Assets:BankAccount").unwrap(),
                 amount: Amount::new(BigDecimal::from(100i32), "CNY"),
+                tolerance: None,
                 meta: Default::default(),
             })
         );
