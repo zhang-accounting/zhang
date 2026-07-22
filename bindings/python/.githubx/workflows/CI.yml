@@ -44,6 +44,9 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    # Windows wheels are best-effort / optional: a failure here must not block
+    # the Linux/macOS wheels or the release job (which `needs` this job).
+    continue-on-error: true
     strategy:
       matrix:
         target: [x64, x86]

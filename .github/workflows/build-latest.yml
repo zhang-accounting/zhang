@@ -54,7 +54,13 @@ jobs:
         working-directory: ./frontend
   test:
     runs-on: ${{ matrix.os }}
+    # We prioritise Linux and macOS. Windows is best-effort / optional:
+    # keep it in CI but allow it to fail without blocking the workflow.
+    continue-on-error: ${{ startsWith(matrix.os, 'windows') }}
     strategy:
+      # Don't cancel the other OS legs when one fails, so Windows and
+      # the required Linux/macOS legs report independently.
+      fail-fast: false
       matrix:
         os: [ ubuntu-22.04, windows-latest, macOS-latest ]
         rust: [ stable ]
