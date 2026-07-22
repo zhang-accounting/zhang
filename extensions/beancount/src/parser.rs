@@ -220,14 +220,37 @@ fn posting_amount(i: &str) -> IResult<&str, Amount> {
     Ok((i, Amount::new(number, currency)))
 }
 
+enum CostComponent {
+    Date(Date),
+    Label(String),
+}
+
+/// A `,`-separated component of a cost spec: an acquisition date or a lot label.
+fn cost_component(i: &str) -> IResult<&str, CostComponent> {
+    alt((
+        map(parse_date, CostComponent::Date),
+        map(quote_string, |label| CostComponent::Label(label.to_plain_string())),
+    ))(i)
+}
+
 fn cost_group(i: &str) -> IResult<&str, PostingCost> {
-    let (i, _) = char('{')(i)?;
+    // `{{ }}` is a total cost, `{ }` is a per-unit cost.
+    let (i, total) = alt((value(true, tag("{{")), value(false, char('{'))))(i)?;
     let (i, _) = space0(i)?;
     let (i, base) = opt(posting_amount)(i)?;
-    let (i, date) = opt(preceded(tuple((space0, char(','), space0)), parse_date))(i)?;
+    let (i, components) = many0(preceded(tuple((space0, char(','), space0)), cost_component))(i)?;
     let (i, _) = space0(i)?;
-    let (i, _) = char('}')(i)?;
-    Ok((i, PostingCost { base, date }))
+    let (i, _) = if total { value((), tag("}}"))(i)? } else { value((), char('}'))(i)? };
+
+    let mut date = None;
+    let mut label = None;
+    for component in components {
+        match component {
+            CostComponent::Date(d) => date = Some(d),
+            CostComponent::Label(l) => label = Some(l),
+        }
+    }
+    Ok((i, PostingCost { base, date, label, total }))
 }
 
 fn posting_price(i: &str) -> IResult<&str, SingleTotalPrice> {
@@ -254,8 +277,13 @@ fn posting_unit(i: &str) -> IResult<&str, (Option<Amount>, Option<PostingMeta>)>
 
 fn transaction_flag(i: &str) -> IResult<&str, Flag> {
     let (i, _) = space1(i)?;
-    let (i, flag) = satisfy(|c: char| c == '!' || c == '*' || c == '#' || c.is_ascii_uppercase())(i)?;
-    Ok((i, Flag::from_str(&flag.to_string()).expect("invalid flag")))
+    alt((
+        // beancount's `txn` keyword is the explicit form of a completed transaction
+        map(tag("txn"), |_| Flag::Okay),
+        map(satisfy(|c: char| c == '!' || c == '*' || c == '#' || c.is_ascii_uppercase()), |c| {
+            Flag::from_str(&c.to_string()).expect("invalid flag")
+        }),
+    ))(i)
 }
 
 fn transaction_posting(i: &str) -> IResult<&str, Posting> {
@@ -442,6 +470,7 @@ fn balance_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
     let (i, account) = account_name(i)?;
     let (i, _) = space1(i)?;
     let (i, amount) = number_expr(i)?;
+    let (i, tolerance) = opt(preceded(tuple((space1, char('~'), space0)), number_expr))(i)?;
     let (i, _) = space1(i)?;
     let (i, commodity) = commodity_name(i)?;
     Ok((
@@ -450,6 +479,7 @@ fn balance_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
             date,
             account,
             amount: Amount::new(amount, commodity),
+            tolerance,
             meta: Meta::default(),
         })),
     ))
@@ -702,6 +732,24 @@ fn pop_tag_directive(i: &str) -> IResult<&str, BeancountDirective> {
     Ok((i, Either::Right(BeancountOnlyDirective::PopTag(name.to_string()))))
 }
 
+/// `pushmeta key: value` — push a metadata pair applied to following directives.
+fn push_meta_directive(i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = tag("pushmeta")(i)?;
+    let (i, _) = space1(i)?;
+    let (i, (key, value)) = key_value_line(i)?;
+    Ok((i, Either::Right(BeancountOnlyDirective::PushMeta(key, value))))
+}
+
+/// `popmeta key:` — pop the most recently pushed metadata pair for `key`.
+fn pop_meta_directive(i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = tag("popmeta")(i)?;
+    let (i, _) = space1(i)?;
+    let (i, key) = string(i)?;
+    let (i, _) = space0(i)?;
+    let (i, _) = char(':')(i)?;
+    Ok((i, Either::Right(BeancountOnlyDirective::PopMeta(key.to_plain_string()))))
+}
+
 fn set_meta(directive: BeancountDirective, meta: Meta) -> BeancountDirective {
     match directive {
         Either::Left(directive) => Either::Left(directive.set_meta(meta)),
@@ -771,6 +819,8 @@ fn content_item(i: &str) -> IResult<&str, Option<BeancountDirective>> {
         map(terminated(include_directive, line_trailer), Some),
         map(terminated(push_tag_directive, line_trailer), Some),
         map(terminated(pop_tag_directive, line_trailer), Some),
+        map(terminated(push_meta_directive, line_trailer), Some),
+        map(terminated(pop_meta_directive, line_trailer), Some),
         map(valuable_comment, |content| Some(Either::Left(Directive::Comment(Comment { content })))),
         map(metable_item, Some),
         map(transaction, Some),
@@ -893,6 +943,7 @@ mod test {
                     date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
                     account: Account::from_str("Assets:BankAccount").unwrap(),
                     amount: Amount::new(BigDecimal::from(2i32), "CNY"),
+                    tolerance: None,
                     meta: Default::default(),
                 }),
                 directive

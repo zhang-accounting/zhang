@@ -132,6 +132,31 @@ impl Directive {
         }
         self
     }
+
+    /// Mutable access to a directive's metadata, if it carries any.
+    pub fn meta_mut(&mut self) -> Option<&mut Meta> {
+        match self {
+            Directive::Open(directive) => Some(&mut directive.meta),
+            Directive::Close(directive) => Some(&mut directive.meta),
+            Directive::Commodity(directive) => Some(&mut directive.meta),
+            Directive::Transaction(directive) => Some(&mut directive.meta),
+            Directive::BalancePad(directive) => Some(&mut directive.meta),
+            Directive::BalanceCheck(directive) => Some(&mut directive.meta),
+            Directive::Note(directive) => Some(&mut directive.meta),
+            Directive::Document(directive) => Some(&mut directive.meta),
+            Directive::Price(directive) => Some(&mut directive.meta),
+            Directive::Event(directive) => Some(&mut directive.meta),
+            Directive::Custom(directive) => Some(&mut directive.meta),
+            Directive::Budget(directive) => Some(&mut directive.meta),
+            Directive::BudgetAdd(directive) => Some(&mut directive.meta),
+            Directive::BudgetTransfer(directive) => Some(&mut directive.meta),
+            Directive::BudgetClose(directive) => Some(&mut directive.meta),
+            Directive::Plugin(directive) => Some(&mut directive.meta),
+            Directive::Option(_) => None,
+            Directive::Include(_) => None,
+            Directive::Comment(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]

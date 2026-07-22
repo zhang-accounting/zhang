@@ -279,14 +279,37 @@ fn posting_amount(i: &str) -> IResult<&str, Amount> {
 }
 
 /// The `{ ... }` cost block of a posting.
+enum CostComponent {
+    Date(Date),
+    Label(String),
+}
+
+/// A `,`-separated component of a cost spec: an acquisition date or a lot label.
+fn cost_component(i: &str) -> IResult<&str, CostComponent> {
+    alt((
+        map(parse_date, CostComponent::Date),
+        map(quote_string, |label| CostComponent::Label(label.to_plain_string())),
+    ))(i)
+}
+
 fn cost_group(i: &str) -> IResult<&str, PostingCost> {
-    let (i, _) = char('{')(i)?;
+    // `{{ }}` is a total cost, `{ }` is a per-unit cost.
+    let (i, total) = alt((value(true, tag("{{")), value(false, char('{'))))(i)?;
     let (i, _) = space0(i)?;
     let (i, base) = opt(posting_amount)(i)?;
-    let (i, date) = opt(preceded(tuple((space0, char(','), space0)), parse_date))(i)?;
+    let (i, components) = many0(preceded(tuple((space0, char(','), space0)), cost_component))(i)?;
     let (i, _) = space0(i)?;
-    let (i, _) = char('}')(i)?;
-    Ok((i, PostingCost { base, date }))
+    let (i, _) = if total { value((), tag("}}"))(i)? } else { value((), char('}'))(i)? };
+
+    let mut date = None;
+    let mut label = None;
+    for component in components {
+        match component {
+            CostComponent::Date(d) => date = Some(d),
+            CostComponent::Label(l) => label = Some(l),
+        }
+    }
+    Ok((i, PostingCost { base, date, label, total }))
 }
 
 /// `posting_price = "@@" ... | "@" ...`
@@ -317,8 +340,13 @@ fn posting_unit(i: &str) -> IResult<&str, (Option<Amount>, Option<PostingMeta>)>
 /// `transaction_flag = space+ ("!" | "*" | "#" | ASCII_ALPHA_UPPER)`
 fn transaction_flag(i: &str) -> IResult<&str, Flag> {
     let (i, _) = space1(i)?;
-    let (i, flag) = satisfy(|c: char| c == '!' || c == '*' || c == '#' || c.is_ascii_uppercase())(i)?;
-    Ok((i, Flag::from_str(&flag.to_string()).expect("invalid flag")))
+    alt((
+        // beancount's `txn` keyword is the explicit form of a completed transaction
+        map(tag("txn"), |_| Flag::Okay),
+        map(satisfy(|c: char| c == '!' || c == '*' || c == '#' || c.is_ascii_uppercase()), |c| {
+            Flag::from_str(&c.to_string()).expect("invalid flag")
+        }),
+    ))(i)
 }
 
 /// `transaction_posting = transaction_flag? account_name (space+ posting_unit)?`
@@ -497,12 +525,14 @@ fn balance_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, account) = account_name(i)?;
     let (i, _) = space1(i)?;
     let (i, amount) = number_expr(i)?;
+    let (i, tolerance) = opt(preceded(tuple((space1, char('~'), space0)), number_expr))(i)?;
     let (i, _) = space1(i)?;
     let (i, commodity) = commodity_name(i)?;
     let (i, pad) = opt(preceded(tuple((space1, tag("with"), space1, tag("pad"), space1)), account_name))(i)?;
 
     let amount = Amount::new(amount, commodity);
     let directive = match pad {
+        // a `~ tolerance` on a `with pad` balance is meaningless (pad makes it exact); drop it
         Some(pad) => Directive::BalancePad(BalancePad {
             date,
             account,
@@ -514,6 +544,7 @@ fn balance_body(date: Date, i: &str) -> IResult<&str, Directive> {
             date,
             account,
             amount,
+            tolerance,
             meta: Meta::default(),
         }),
     };
@@ -935,6 +966,7 @@ mod test {
                     date: Date::DateHour(NaiveDate::from_ymd_opt(2101, 10, 10).unwrap().and_hms_opt(10, 10, 0).unwrap()),
                     account: Account::from_str("Assets:Hello").unwrap(),
                     amount: Amount::new(BigDecimal::from(123i32), "CNY"),
+                    tolerance: None,
                     meta: Default::default()
                 }),
                 balance.data
@@ -1281,7 +1313,8 @@ mod test {
                 assert_eq!(
                     Some(PostingCost {
                         base: Some(Amount::new(BigDecimal::from(7i32), "CNY")),
-                        date: None
+                        date: None,
+                        ..Default::default()
                     }),
                     posting.cost
                 );
@@ -1300,6 +1333,7 @@ mod test {
                     Some(PostingCost {
                         base: Some(Amount::new(BigDecimal::from(7i32), "CNY")),
                         date: Some(Date::Date(NaiveDate::from_ymd_opt(2022, 6, 6).unwrap())),
+                        ..Default::default()
                     }),
                     posting.cost
                 );
@@ -1338,7 +1372,8 @@ mod test {
                 assert_eq!(
                     Some(PostingCost {
                         base: Some(Amount::new(BigDecimal::from_str("6.9").unwrap(), "CNY")),
-                        date: None
+                        date: None,
+                        ..Default::default()
                     }),
                     posting.cost
                 );
@@ -1352,7 +1387,14 @@ mod test {
                 "#});
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(Some(PostingCost { base: None, date: None }), posting.cost);
+                assert_eq!(
+                    Some(PostingCost {
+                        base: None,
+                        date: None,
+                        ..Default::default()
+                    }),
+                    posting.cost
+                );
                 assert_eq!(None, posting.price);
             }
             #[test]
@@ -1363,7 +1405,14 @@ mod test {
                 "#});
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(Some(Amount::new(BigDecimal::from(-100i32), "USD")), posting.units);
-                assert_eq!(Some(PostingCost { base: None, date: None }), posting.cost);
+                assert_eq!(
+                    Some(PostingCost {
+                        base: None,
+                        date: None,
+                        ..Default::default()
+                    }),
+                    posting.cost
+                );
                 assert_eq!(Some(SingleTotalPrice::Single(Amount::new(BigDecimal::from(7i32), "CNY"))), posting.price);
             }
 

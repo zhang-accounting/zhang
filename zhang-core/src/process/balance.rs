@@ -85,7 +85,9 @@ impl DirectiveProcess for BalanceCheck {
         let current_balance_amount = option.map(|it| it.number).unwrap_or_else(BigDecimal::zero);
 
         let distance = Amount::new((&self.amount.number).sub(&current_balance_amount), self.amount.currency.clone());
-        if !distance.is_zero() {
+        let tolerance = self.tolerance.clone().unwrap_or_else(BigDecimal::zero);
+        let lower_bound = -tolerance.clone();
+        if distance.number > tolerance || distance.number < lower_bound {
             operations.new_error(
                 ErrorKind::AccountBalanceCheckError,
                 span,
