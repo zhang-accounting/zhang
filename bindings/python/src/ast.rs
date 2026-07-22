@@ -15,6 +15,6 @@ impl Account {
         &self.0.content
     }
     pub fn __repr__(&self) -> String {
-        format!("<Account: {}>", &self.0.content)
+        format!("<Account: {}>", self.0.content)
     }
 }

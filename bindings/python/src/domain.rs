@@ -29,7 +29,7 @@ impl AccountDomain {
     }
 
     pub fn __repr__(&self) -> String {
-        format!("<AccountDomain: {}>", &self.0.name)
+        format!("<AccountDomain: {}>", self.0.name)
     }
 }
 
@@ -61,7 +61,7 @@ impl CommodityDomain {
     }
 
     pub fn __repr__(&self) -> String {
-        format!("<CommodityDomain: {}>", &self.0.name)
+        format!("<CommodityDomain: {}>", self.0.name)
     }
 }
 
