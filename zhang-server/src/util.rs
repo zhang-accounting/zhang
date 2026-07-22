@@ -2,36 +2,8 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bigdecimal::BigDecimal;
 use log::info;
-use zhang_core::domains::schemas::{AccountBalanceDomain, AccountDailyBalanceDomain};
 use zhang_core::ZhangResult;
-
-pub trait AmountLike {
-    fn number(&self) -> &BigDecimal;
-
-    fn commodity(&self) -> &String;
-}
-
-impl AmountLike for AccountDailyBalanceDomain {
-    fn number(&self) -> &BigDecimal {
-        &self.balance_number
-    }
-
-    fn commodity(&self) -> &String {
-        &self.balance_commodity
-    }
-}
-
-impl AmountLike for AccountBalanceDomain {
-    fn number(&self) -> &BigDecimal {
-        &self.balance_number
-    }
-
-    fn commodity(&self) -> &String {
-        &self.balance_commodity
-    }
-}
 
 /// fetch the data from local if the cache exists, normally used for documents.
 pub async fn cacheable_data<F>(id: &str, miss_fn: F) -> ZhangResult<Vec<u8>>

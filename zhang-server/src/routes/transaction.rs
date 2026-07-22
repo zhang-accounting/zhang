@@ -7,7 +7,6 @@ use indexmap::IndexSet;
 use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
-use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
 use zhang_core::constants::TXN_ID;
@@ -18,8 +17,8 @@ use zhang_core::utils::string_::{escape_with_quote, StringExt};
 use super::Query;
 use crate::request::{CreateTransactionRequest, JournalRequest};
 use crate::response::{
-    InfoForNewTransaction, JournalBalanceCheckItemEntity, JournalBalancePadItemEntity, JournalItemEntity, JournalTransactionItemEntity,
-    JournalTransactionPostingEntity, Pageable, ResponseWrapper,
+    InfoForNewTransaction, JournalBalanceItemEntity, JournalItemEntity, JournalTransactionItemEntity, JournalTransactionPostingEntity, Pageable,
+    ResponseWrapper,
 };
 use crate::state::{SharedLedger, SharedReloadSender};
 use crate::ApiResult;
@@ -69,7 +68,7 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
         let item = match journal_item.flag {
             Flag::BalancePad => {
                 let postings = journal_item.postings.into_iter().map(JournalTransactionPostingEntity::from).collect_vec();
-                JournalItemEntity::BalancePad(JournalBalancePadItemEntity {
+                JournalItemEntity::BalancePad(JournalBalanceItemEntity {
                     id: journal_item.id,
                     sequence: journal_item.sequence,
                     datetime: journal_item.datetime.naive_local(),
@@ -81,7 +80,7 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
             }
             Flag::BalanceCheck => {
                 let postings = journal_item.postings.into_iter().map(JournalTransactionPostingEntity::from).collect_vec();
-                JournalItemEntity::BalanceCheck(JournalBalanceCheckItemEntity {
+                JournalItemEntity::BalanceCheck(JournalBalanceItemEntity {
                     id: journal_item.id,
                     sequence: journal_item.sequence,
                     datetime: journal_item.datetime.naive_local(),
@@ -137,7 +136,7 @@ pub async fn create_new_transaction(
         postings.push(Posting {
             flag: None,
             account: Account::from_str(&posting.account)?,
-            units: posting.unit.map(|unit| Amount::new(unit.number, unit.commodity)),
+            units: posting.unit,
             cost: None,
             price: None,
             comment: None,
@@ -238,7 +237,7 @@ pub async fn update_single_transaction(
         postings.push(Posting {
             flag: None,
             account: Account::from_str(&posting.account)?,
-            units: posting.unit.map(|unit| Amount::new(unit.number, unit.commodity)),
+            units: posting.unit,
             cost: None,
             price: None,
             comment: None,

@@ -11,9 +11,11 @@ edition = "2021"
 default = ["iana-time-zone"]
 wasm = []
 plugin_runtime = ["extism"]
+openapi = ["dep:gotcha_core", "zhang-ast/openapi"]
 
 [dependencies]
 zhang-ast = { version = "0.1", path = "../zhang-ast" }
+gotcha_core = { workspace = true, optional = true }
 thiserror = { workspace = true }
 log = { workspace = true }
 itertools = { workspace = true }

@@ -31,7 +31,7 @@ pub async fn get_statistic_summary(ledger: State<SharedLedger>, params: Query<St
                 .account_target_date_balance(account_name, params.to)?
                 .into_iter()
                 .for_each(|balance| {
-                    balances.push(Amount::new(balance.balance_number, balance.balance_commodity));
+                    balances.push(balance.balance);
                 });
         }
     }
@@ -45,7 +45,7 @@ pub async fn get_statistic_summary(ledger: State<SharedLedger>, params: Query<St
                 .account_target_date_balance(account_name, params.to)?
                 .into_iter()
                 .for_each(|balance| {
-                    liability_amounts.push(Amount::new(balance.balance_number, balance.balance_commodity));
+                    liability_amounts.push(balance.balance);
                 });
         }
     }
@@ -86,10 +86,10 @@ pub async fn get_statistic_summary(ledger: State<SharedLedger>, params: Query<St
     ResponseWrapper::json(StatisticSummaryEntity {
         from: params.from,
         to: params.to,
-        balance: balance.into(),
-        liability: liability.into(),
-        income: income.into(),
-        expense: expense.into(),
+        balance,
+        liability,
+        income,
+        expense,
         transaction_number: trx_number as i64,
     })
 }
@@ -113,12 +113,12 @@ pub async fn get_statistic_graph(ledger: State<SharedLedger>, params: Query<Stat
                     .account_target_date_balance(account_name, date.and_hms_opt(23, 59, 59).unwrap().and_local_timezone(Utc).unwrap())?
                     .into_iter()
                     .for_each(|balance| {
-                        balances.push(Amount::new(balance.balance_number, balance.balance_commodity));
+                        balances.push(balance.balance);
                     });
             }
         }
         let balance = balances.calculate(params.to.with_timezone(timezone), &mut operations)?;
-        dated_balance.insert(date, balance.into());
+        dated_balance.insert(date, balance);
     }
 
     let mut dated_change = HashMap::new();
@@ -137,7 +137,7 @@ pub async fn get_statistic_graph(ledger: State<SharedLedger>, params: Query<Stat
         let mut r = HashMap::new();
         for (account_type, currency_store) in account_type_store.into_iter() {
             let amount = currency_store.calculate(datetime.with_timezone(timezone), &mut operations)?;
-            r.insert(account_type, amount.into());
+            r.insert(account_type, amount);
         }
         dated_change_ret.insert(date, r);
     }
@@ -165,16 +165,16 @@ pub async fn get_statistic_rank_detail_by_account_type(
 
     for posting in &income_transactions {
         let target_account = account_detail.entry(posting.account.clone()).or_default();
-        target_account.push(Amount::new(posting.inferred_unit_number.clone(), posting.inferred_unit_commodity.clone()));
+        target_account.push(posting.inferred_unit.clone());
     }
 
     let top_transactions = income_transactions
         .into_iter()
         .sorted_by(|a, b| {
             if !account_type.positive_type() {
-                a.inferred_unit_number.cmp(&b.inferred_unit_number)
+                a.inferred_unit.number.cmp(&b.inferred_unit.number)
             } else {
-                b.inferred_unit_number.cmp(&a.inferred_unit_number)
+                b.inferred_unit.number.cmp(&a.inferred_unit.number)
             }
         })
         .take(10)
@@ -184,10 +184,7 @@ pub async fn get_statistic_rank_detail_by_account_type(
         .into_iter()
         .map(|(account, amounts)| ReportRankItemEntity {
             account,
-            amount: amounts
-                .calculate(params.to.with_timezone(timezone), &mut operations)
-                .expect("cannot calculate")
-                .into(),
+            amount: amounts.calculate(params.to.with_timezone(timezone), &mut operations).expect("cannot calculate"),
         })
         .sorted_by(|a, b| a.amount.calculated.number.cmp(&b.amount.calculated.number))
         .collect_vec();
@@ -195,6 +192,6 @@ pub async fn get_statistic_rank_detail_by_account_type(
         from: params.from.naive_local(),
         to: params.to.naive_local(),
         detail,
-        top_transactions: top_transactions.into_iter().map(|it| it.into()).collect_vec(),
+        top_transactions,
     })
 }

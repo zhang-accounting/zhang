@@ -34,7 +34,7 @@ pub async fn plugin_list(ledger: State<SharedLedger>) -> ApiResult<Vec<PluginEnt
         .map(|(meta, plugin_type)| PluginEntity {
             name: meta.0,
             version: meta.1,
-            plugin_type: plugin_type.into_iter().map(|it| it.into()).collect_vec(),
+            plugin_type,
         })
         .collect_vec();
     ResponseWrapper::json(ret)

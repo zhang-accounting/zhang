@@ -7,7 +7,7 @@ use crate::{process, ZhangResult};
 impl DirectiveProcess for Price {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
         process::check_commodity_define(&self.currency, ledger, span)?;
-        process::check_commodity_define(&self.amount.currency, ledger, span)?;
+        process::check_commodity_define(&self.amount.commodity, ledger, span)?;
         Ok(true)
     }
 
@@ -18,7 +18,7 @@ impl DirectiveProcess for Price {
             self.date.to_timezone_datetime(&ledger.options.timezone),
             &self.currency,
             &self.amount.number,
-            &self.amount.currency,
+            &self.amount.commodity,
         )?;
 
         Ok(())

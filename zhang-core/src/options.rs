@@ -10,12 +10,12 @@ use minijinja::Environment;
 use once_cell::sync::OnceCell;
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
 use zhang_ast::error::ErrorKind;
-use zhang_ast::utils::inventory::BookingMethod;
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
 use crate::constants::*;
 use crate::domains::Operations;
 use crate::features::Features;
+use crate::inventory::BookingMethod;
 use crate::{ZhangError, ZhangResult};
 
 #[derive(Debug)]

@@ -9,7 +9,7 @@ mod table_definition;
 use duckdb::{Connection, Result};
 use gotcha::Schematic;
 use serde::Serialize;
-use table_definition::{AccountCommodityLot, AsTableDefinition, TableDefinition, TrxLink, TrxTag};
+use table_definition::{AsTableDefinition, CommodityLotRow, TableDefinition, TrxLink, TrxTag};
 
 #[derive(Debug, Serialize, Schematic)]
 pub struct Column {
@@ -99,7 +99,7 @@ impl AsExecutor for Ledger {
             CommodityDomain::as_table_definition(),
             TransactionDomain::as_table_definition(),
             PostingDomain::as_table_definition(),
-            AccountCommodityLot::as_table_definition(),
+            CommodityLotRow::as_table_definition(),
             TrxTag::as_table_definition(),
             TrxLink::as_table_definition(),
             PriceDomain::as_table_definition(),
@@ -140,7 +140,7 @@ impl AsExecutor for Ledger {
         }
         for (account, commodity_lots) in store.commodity_lots.iter() {
             for commodity_lot in commodity_lots.iter() {
-                AccountCommodityLot {
+                CommodityLotRow {
                     account: account.clone(),
                     lot: commodity_lot.clone(),
                 }

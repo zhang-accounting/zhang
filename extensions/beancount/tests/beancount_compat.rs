@@ -8,6 +8,7 @@ use itertools::Either;
 use zhang_ast::{Directive, Flag, SpanInfo, Spanned, Transaction};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
+use zhang_core::inventory::TransactionInference;
 
 fn txn(content: &str) -> Transaction {
     let d = parse(content, None::<PathBuf>).unwrap().into_iter().find_map(|s| s.data.left()).unwrap();

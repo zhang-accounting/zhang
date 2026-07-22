@@ -1062,7 +1062,7 @@ mod test {
             if let Directive::Price(inner) = directive {
                 assert_eq!(inner.date, date!(1970, 1, 1, 1, 1, 1));
                 assert_eq!(inner.currency, "USD");
-                assert_eq!(inner.amount.currency, "CNY");
+                assert_eq!(inner.amount.commodity, "CNY");
                 assert_eq!(inner.amount.number, BigDecimal::from(7i32));
             }
         }

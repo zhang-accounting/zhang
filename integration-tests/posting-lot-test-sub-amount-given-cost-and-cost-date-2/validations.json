@@ -15,7 +15,7 @@
         "10"
       ],
       [
-        "$.data.commodity_lots.['Assets:A'].[0].cost.currency",
+        "$.data.commodity_lots.['Assets:A'].[0].cost.commodity",
         "CNY"
       ],
       [
@@ -35,7 +35,7 @@
         "10"
       ],
       [
-        "$.data.commodity_lots.['Assets:A'].[1].cost.currency",
+        "$.data.commodity_lots.['Assets:A'].[1].cost.commodity",
         "CNY"
       ],
       [

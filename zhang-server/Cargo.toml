@@ -11,9 +11,10 @@ build = "build.rs"
 frontend = ["rust-embed"]
 
 [dependencies]
-zhang-core = { version = "0.1", path = "../zhang-core", features = ["plugin_runtime"] }
-zhang-ast = { version = "0.1", path = "../zhang-ast" }
+zhang-core = { version = "0.1", path = "../zhang-core", features = ["plugin_runtime", "openapi"] }
+zhang-ast = { version = "0.1", path = "../zhang-ast", features = ["openapi"] }
 zhang-sql = { version = "0.1", path = "../zhang-sql" }
+gotcha_core = { workspace = true }
 
 base64 = { workspace = true }
 serde = { workspace = true }

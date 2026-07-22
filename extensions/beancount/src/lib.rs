@@ -177,7 +177,7 @@ impl DataType for Beancount {
                     values: vec![
                         StringOrAccount::String(ZhangString::unquote(budget.name)),
                         StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
-                        StringOrAccount::String(ZhangString::unquote(budget.amount.currency)),
+                        StringOrAccount::String(ZhangString::unquote(budget.amount.commodity)),
                     ],
                     meta: budget.meta,
                 }),
@@ -191,7 +191,7 @@ impl DataType for Beancount {
                         StringOrAccount::String(ZhangString::unquote(budget.from)),
                         StringOrAccount::String(ZhangString::unquote(budget.to)),
                         StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
-                        StringOrAccount::String(ZhangString::unquote(budget.amount.currency)),
+                        StringOrAccount::String(ZhangString::unquote(budget.amount.commodity)),
                     ],
                     meta: budget.meta,
                 }),
@@ -226,7 +226,7 @@ impl BeancountOnlyExportable for BalanceDirective {
             ..
         } = self;
         let amount_str = match tolerance {
-            Some(tolerance) => format!("{} ~ {} {}", amount.number, tolerance, amount.currency),
+            Some(tolerance) => format!("{} ~ {} {}", amount.number, tolerance, amount.commodity),
             None => ZhangDataTypeExportable::export(amount),
         };
         let line = [

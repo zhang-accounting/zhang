@@ -8,6 +8,7 @@ pub mod data_source;
 pub mod data_type;
 pub mod domains;
 pub mod error;
+pub mod inventory;
 pub mod ledger;
 pub mod options;
 #[cfg(feature = "plugin_runtime")]
@@ -246,13 +247,13 @@ mod test {
 
             let lunch_balance = operations.single_account_latest_balances("Expenses:Lunch")?.pop().unwrap();
             assert_eq!(lunch_balance.account, "Expenses:Lunch");
-            assert_eq!(lunch_balance.balance_number, BigDecimal::from(50));
-            assert_eq!(lunch_balance.balance_commodity, "CNY");
+            assert_eq!(lunch_balance.balance.number, BigDecimal::from(50));
+            assert_eq!(lunch_balance.balance.commodity, "CNY");
 
             let card_balance = operations.single_account_latest_balances("Assets:MyCard")?.pop().unwrap();
             assert_eq!(card_balance.account, "Assets:MyCard");
-            assert_eq!(card_balance.balance_number, BigDecimal::from(-50));
-            assert_eq!(card_balance.balance_commodity, "CNY");
+            assert_eq!(card_balance.balance.number, BigDecimal::from(-50));
+            assert_eq!(card_balance.balance.commodity, "CNY");
             Ok(())
         }
 
@@ -275,8 +276,8 @@ mod test {
 
             let mut result = operations.single_account_latest_balances("Assets:A").unwrap();
             let balance = result.pop().unwrap();
-            assert_eq!(balance.balance_number, BigDecimal::from(2970i32));
-            assert_eq!(balance.balance_commodity, "CNY");
+            assert_eq!(balance.balance.number, BigDecimal::from(2970i32));
+            assert_eq!(balance.balance.commodity, "CNY");
         }
     }
     mod commodity {

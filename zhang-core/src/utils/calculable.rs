@@ -23,7 +23,7 @@ impl Calculable for Vec<Amount> {
 
         for amount in self.iter() {
             let number = amount.number.clone();
-            let currency = amount.currency.clone();
+            let currency = amount.commodity.clone();
 
             if currency.eq(&operating_currency) {
                 total.add_assign(&number);

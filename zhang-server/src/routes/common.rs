@@ -7,9 +7,10 @@ use axum::response::Sse;
 use futures_util::Stream;
 use gotcha::api;
 use itertools::Itertools;
+use zhang_core::domains::schemas::OptionDomain;
 
 use crate::request::JournalRequest;
-use crate::response::{BasicInfoEntity, ErrorEntity, OptionEntity, Pageable, ResponseWrapper};
+use crate::response::{BasicInfoEntity, ErrorEntity, Pageable, ResponseWrapper};
 use crate::state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
 use crate::ApiResult;
 
@@ -64,11 +65,11 @@ pub async fn get_errors(ledger: State<SharedLedger>, params: Query<JournalReques
 }
 
 #[api(group = "common")]
-pub async fn get_all_options(ledger: State<SharedLedger>) -> ApiResult<Vec<OptionEntity>> {
+pub async fn get_all_options(ledger: State<SharedLedger>) -> ApiResult<Vec<OptionDomain>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
     let options = operations.options()?;
-    ResponseWrapper::json(options.into_iter().map(|it| it.into()).collect_vec())
+    ResponseWrapper::json(options)
 }
 
 pub async fn get_store_data(ledger: State<SharedLedger>) -> ApiResult<serde_json::Value> {
