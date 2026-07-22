@@ -26,9 +26,7 @@ indexmap = { workspace = true }
 http = { workspace = true }
 async-trait = { workspace = true }
 
-pest = { workspace = true }
-pest_consume = { workspace = true }
-pest_derive = { workspace = true }
+nom = "7"
 
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
 uuid = { version = "1", default-features = false, features = ["v6", "serde"] }

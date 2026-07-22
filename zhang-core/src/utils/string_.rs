@@ -35,7 +35,7 @@ impl StringExt for String {
     }
 }
 
-pub fn escape_with_quote(s: &str) -> Cow<str> {
+pub fn escape_with_quote(s: &str) -> Cow<'_, str> {
     let mut output = String::with_capacity(s.len());
     output.push('"');
 

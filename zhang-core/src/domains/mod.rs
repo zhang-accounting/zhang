@@ -95,10 +95,10 @@ impl Operations {
 }
 
 impl Operations {
-    pub fn read(&self) -> RwLockReadGuard<Store> {
+    pub fn read(&self) -> RwLockReadGuard<'_, Store> {
         self.store.read().expect("poison lock detect")
     }
-    pub fn write(&self) -> RwLockWriteGuard<Store> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, Store> {
         self.store.write().expect("poison lock detect")
     }
 }

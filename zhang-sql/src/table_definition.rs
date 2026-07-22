@@ -1,12 +1,10 @@
 use duckdb::{Connection, ToSql};
 use itertools::Itertools;
 use uuid::Uuid;
-use zhang_core::{
-    constants::*,
-    domains::schemas::{AccountDomain, CommodityDomain, MetaDomain, PriceDomain},
-    options::InMemoryOptions,
-    store::{CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, TransactionDomain},
-};
+use zhang_core::constants::*;
+use zhang_core::domains::schemas::{AccountDomain, CommodityDomain, MetaDomain, PriceDomain};
+use zhang_core::options::InMemoryOptions;
+use zhang_core::store::{CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, TransactionDomain};
 
 #[derive(Debug)]
 pub struct ColumnDefinition {
@@ -47,11 +45,7 @@ impl ColumnDefinition {
             ColumnType::Date => "TIMESTAMPTZ".to_string(),
             ColumnType::Decimal => "DECIMAL".to_string(),
         };
-        if self.nullable {
-            format!("{} NULL", ret)
-        } else {
-            ret
-        }
+        if self.nullable { format!("{} NULL", ret) } else { ret }
     }
 }
 #[derive(Debug)]
@@ -311,7 +305,7 @@ impl AsTableDefinition for PriceDomain {
             ],
         }
     }
-    fn insert_data(&self, conn: &Connection)    {
+    fn insert_data(&self, conn: &Connection) {
         let table_definition = Self::as_table_definition();
         let mut stmt = conn.prepare(table_definition.as_insert_sql().as_str()).unwrap();
         let params: &[&dyn ToSql] = &[&self.datetime, &self.commodity, &self.amount.to_string(), &self.target_commodity];
@@ -353,7 +347,6 @@ impl AsTableDefinition for AccountCommodityLot {
     }
 }
 
-
 impl AsTableDefinition for DocumentDomain {
     fn as_table_definition() -> TableDefinition {
         TableDefinition {
@@ -381,7 +374,7 @@ impl AsTableDefinition for DocumentDomain {
         let params: &[&dyn ToSql] = &[&self.datetime, &document_type, &document_id, &self.filename.clone(), &self.path];
         stmt.execute(params).unwrap();
     }
-}   
+}
 
 impl AsTableDefinition for MetaDomain {
     fn as_table_definition() -> TableDefinition {
