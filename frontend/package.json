@@ -11,7 +11,7 @@
     "prettier:check": "prettier --check 'src/**/*.{js,jsx,ts,tsx,json,css,scss,md}'",
     "prettier:fix": "prettier --write 'src/**/*.{js,jsx,ts,tsx,json,css,scss,md}'",
     "i18n-server": "node src/server.js",
-    "api": "openapi-typescript http://localhost:8000/openapi.json  --output ./src/api/schemas.ts"
+    "api": "openapi-typescript http://localhost:8000/openapi.json --output ./src/api/schemas.ts && prettier --write ./src/api/schemas.ts"
   },
   "dependencies": {
     "@mantine/hooks": "^7.12.0",
