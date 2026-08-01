@@ -338,9 +338,7 @@ impl Ledger {
 
                     // execute the plugins of mapper type
                     for plugin in self.plugins.mappers.iter() {
-                        let plugin_ret: ZhangResult<Vec<Vec<Spanned<Directive>>>> =
-                            directives.into_iter().map(|d| plugin.execute_as_mapper(d, &options)).collect();
-                        directives = plugin_ret?.into_iter().flatten().collect_vec();
+                        directives = plugin.execute_as_mapper(directives, &options)?;
                     }
                     Ledger::sort_directives_datetime(directives)
 
