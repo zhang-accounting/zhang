@@ -57,7 +57,12 @@ impl PluginStore {
         //     base_currency: "USD"
         // `allowed_hosts` grants network access to those hosts only (no entry = no network),
         // every meta entry is handed to the plugin as its config.
-        let allowed_hosts = _plugin.meta.get_all(ALLOWED_HOSTS_KEY).into_iter().map(|it| it.as_str().to_owned()).collect_vec();
+        let allowed_hosts = _plugin
+            .meta
+            .get_all(ALLOWED_HOSTS_KEY)
+            .into_iter()
+            .map(|it| it.as_str().to_owned())
+            .collect_vec();
         let config = _plugin
             .meta
             .clone()
@@ -114,8 +119,7 @@ impl RegisteredPlugin {
             .with_config(config.into_iter())
             // no declared host means the plugin gets no network access at all
             .with_allowed_hosts(self.allowed_hosts.iter().cloned());
-        let plugin =
-            WasmPlugin::new(manifest, [], true).map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
+        let plugin = WasmPlugin::new(manifest, [], true).map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
 
         Ok(plugin)
     }
