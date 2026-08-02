@@ -52,6 +52,10 @@ struct SplitDirectives {
     options_directives: Vec<(Options, SpanInfo)>,
     plugin_directives: Vec<(Plugin, SpanInfo)>,
     other_directives: Vec<Spanned<Directive>>,
+    /// the whole stream incl. option/plugin directives — what pipeline stages see.
+    /// options/plugins are *handled* before stages run; they stay visible in the
+    /// stream so stages get the same full-stream contract as beancount plugins.
+    full_stream: Vec<Spanned<Directive>>,
 }
 
 impl SplitDirectives {
@@ -85,6 +89,8 @@ impl SplitDirectives {
         let mut plugin_directives = vec![];
         let mut other_directives = Vec::with_capacity(grouped_directives.len());
 
+        let full_stream = grouped_directives.clone();
+
         // extract plugins first before handling other directives
         for directive in grouped_directives.into_iter() {
             match directive.data {
@@ -100,6 +106,7 @@ impl SplitDirectives {
             options_directives,
             plugin_directives,
             other_directives,
+            full_stream,
         }
     }
 }
@@ -172,23 +179,26 @@ impl Ledger {
             options_directives: _,
             mut plugin_directives,
             other_directives,
+            full_stream,
         } = split;
         self.handle_plugins(&mut plugin_directives)?;
 
-        let (other_directives, plugins_executed) = self.handle_plugin_execution(other_directives)?;
+        let (processed, plugins_executed) = self.handle_plugin_execution(full_stream)?;
 
-        if plugins_executed {
-            // plugins rewrote the stream: `directives`/`metas` must reflect their output,
+        let fold_input = if plugins_executed {
+            // stages rewrote the stream: `directives`/`metas` must reflect their output,
             // otherwise the store and the directive list disagree
-            let (metas, dated) = Ledger::partition_processed_directives(meta_directives, &other_directives);
+            let (metas, dated) = Ledger::partition_processed_directives(&processed);
             self.metas = metas;
             self.directives = dated;
+            processed
         } else {
             self.metas = meta_directives;
             self.directives = dated_directives;
-        }
+            other_directives
+        };
 
-        self.handle_other_directives(other_directives)?;
+        self.handle_other_directives(fold_input)?;
 
         let mut operations = self.operations();
         let errors = operations.errors()?;
@@ -237,7 +247,7 @@ impl Ledger {
 }
 
 impl Ledger {
-    fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
+    pub(crate) fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
         directives.sort_by(|a, b| match (a.datetime(), b.datetime()) {
             (Some(a_datetime), Some(b_datetime)) => match a_datetime.cmp(&b_datetime) {
                 Ordering::Equal => match (a.directive_type(), b.directive_type()) {
@@ -286,7 +296,9 @@ impl Ledger {
         // handle other directives
         for directive in other_directives.iter_mut() {
             match &mut directive.data {
-                Directive::Option(_) => unreachable!("option directive should not be passed into the processor here"),
+                // options/plugins were handled before the pipeline; they remain in the
+                // stream for stage visibility and are simply skipped here
+                Directive::Option(_) => {}
                 Directive::Open(open) => open.handler(self, &directive.span)?,
                 Directive::Close(close) => close.handler(self, &directive.span)?,
                 Directive::Commodity(commodity) => commodity.handler(self, &directive.span)?,
@@ -298,7 +310,7 @@ impl Ledger {
                 Directive::Price(price) => price.handler(self, &directive.span)?,
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
-                Directive::Plugin(_) => unreachable!("plugin directive should not be passed into the processor here"),
+                Directive::Plugin(_) => {}
                 Directive::Include(_) => {}
                 Directive::Comment(_) => {}
                 Directive::Budget(budget) => budget.handler(self, &directive.span)?,
@@ -310,47 +322,43 @@ impl Ledger {
         Ok(())
     }
 
-    /// split a plugin-processed stream back into (`metas`, `directives`).
-    /// option/plugin directives were extracted before plugins ran, so they are carried
-    /// over from the original meta list; everything else comes from the processed stream.
-    fn partition_processed_directives(
-        meta_directives: Vec<Spanned<Directive>>, processed: &[Spanned<Directive>],
-    ) -> (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) {
-        let (dated, meta_tail): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) = processed.iter().cloned().partition(|it| it.datetime().is_some());
-        let metas = meta_directives
-            .into_iter()
-            .filter(|it| matches!(it.data, Directive::Option(_) | Directive::Plugin(_)))
-            .chain(meta_tail)
-            .collect();
+    /// split a stage-processed stream back into (`metas`, `directives`) by datedness.
+    /// option/plugin directives stay in the meta list exactly as stages left them; a
+    /// stage-synthesized option/plugin does not take effect though — both were handled
+    /// before the pipeline ran.
+    fn partition_processed_directives(processed: &[Spanned<Directive>]) -> (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) {
+        let (dated, metas): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) = processed.iter().cloned().partition(|it| it.datetime().is_some());
         (metas, dated)
     }
 
-    /// run registered plugins over the directive stream.
-    /// the returned flag tells whether any plugin actually rewrote the stream,
-    /// so the caller knows to write the result back into `directives`/`metas`.
-    fn handle_plugin_execution(&mut self, other_directives: Vec<Spanned<Directive>>) -> ZhangResult<(Vec<Spanned<Directive>>, bool)> {
-        let other_directives = Ledger::sort_directives_datetime(other_directives);
+    /// run the plugin pipeline over the full directive stream, in declaration order.
+    /// the returned flag tells whether any stage actually ran, so the caller knows
+    /// to write the result back into `directives`/`metas`.
+    fn handle_plugin_execution(&mut self, directives: Vec<Spanned<Directive>>) -> ZhangResult<(Vec<Spanned<Directive>>, bool)> {
+        let directives = Ledger::sort_directives_datetime(directives);
         if !self.options.features.plugins {
-            return Ok((other_directives, false));
+            return Ok((directives, false));
         }
         cfg_if! {
             if #[cfg(feature = "plugin_runtime")] {
-                let executed = !self.plugins.processors.is_empty() || !self.plugins.mappers.is_empty();
-                let mut directives = other_directives;
-                let options = self.operations().options()?;
-                // execute the plugins of processor type
-                for plugin in self.plugins.processors.iter() {
-                    directives = plugin.execute_as_processor(directives, &options)?;
-                }
-                directives = Ledger::sort_directives_datetime(directives);
+                use crate::pipeline::{run_pipeline, StageContext};
 
-                // execute the plugins of mapper type
-                for plugin in self.plugins.mappers.iter() {
-                    directives = plugin.execute_as_mapper(directives, &options)?;
+                let stages = self.plugins.build_stages();
+                if stages.is_empty() {
+                    return Ok((directives, false));
                 }
-                Ok((Ledger::sort_directives_datetime(directives), executed))
+                let options = self.operations().options()?;
+                let mut ctx = StageContext::new(&options);
+                let directives = run_pipeline(&stages, directives, &mut ctx)?;
+
+                // materialize stage-reported errors into the store
+                let mut operations = self.operations();
+                for error in ctx.into_errors() {
+                    operations.new_error(error.kind, &error.span, error.metas)?;
+                }
+                Ok((directives, true))
             } else {
-                Ok((other_directives, false))
+                Ok((directives, false))
             }
         }
     }
@@ -398,12 +406,11 @@ mod test {
         use crate::ledger::Ledger;
 
         #[test]
-        fn should_carry_over_option_and_plugin_and_take_rest_from_processed_stream() {
-            let metas = test_parse_zhang(indoc! {r#"
+        fn should_split_processed_stream_by_datedness() {
+            // the stream stages see contains option/plugin directives too
+            let mut processed = test_parse_zhang(indoc! {r#"
                 option "title" "t"
                 plugin "foo"
-            "#});
-            let mut processed = test_parse_zhang(indoc! {r#"
                 1970-01-01 open Assets:Cash
                 1970-01-02 commodity CNY
             "#});
@@ -414,7 +421,7 @@ mod test {
                 fake_span_info(),
             ));
 
-            let (new_metas, dated) = Ledger::partition_processed_directives(metas, &processed);
+            let (new_metas, dated) = Ledger::partition_processed_directives(&processed);
 
             assert_eq!(new_metas.len(), 3);
             assert!(matches!(new_metas[0].data, Directive::Option(_)));
@@ -426,17 +433,13 @@ mod test {
         }
 
         #[test]
-        fn should_drop_directives_removed_by_plugins() {
-            let metas = test_parse_zhang(indoc! {r#"
-                option "title" "t"
-            "#});
-            // the plugin filtered everything out
+        fn should_reflect_directives_removed_by_stages() {
+            // the stages filtered everything out
             let processed = vec![];
 
-            let (new_metas, dated) = Ledger::partition_processed_directives(metas, &processed);
+            let (new_metas, dated) = Ledger::partition_processed_directives(&processed);
 
-            assert_eq!(new_metas.len(), 1);
-            assert!(matches!(new_metas[0].data, Directive::Option(_)));
+            assert!(new_metas.is_empty());
             assert!(dated.is_empty());
         }
     }

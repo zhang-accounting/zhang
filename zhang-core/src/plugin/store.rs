@@ -22,6 +22,8 @@ pub struct PluginStore {
     pub processors: Vec<RegisteredPlugin>,
     pub mappers: Vec<RegisteredPlugin>,
     pub routers: Vec<RegisteredPlugin>,
+    /// registration order with the types each plugin supports — this is the execution order
+    pub ordered: Vec<(RegisteredPlugin, Vec<PluginType>)>,
 }
 
 impl PluginStore {
@@ -85,10 +87,27 @@ impl PluginStore {
             self.mappers.push(registered_plugin.clone())
         }
         if plugin_types.contains(&PluginType::Router) {
-            self.routers.push(registered_plugin)
+            self.routers.push(registered_plugin.clone())
         }
+        self.ordered.push((registered_plugin, plugin_types));
 
         Ok(())
+    }
+
+    /// build the pipeline stages in plugin declaration order.
+    /// a plugin supporting both types contributes its processor stage first, then its mapper stage.
+    pub fn build_stages(&self) -> Vec<Box<dyn crate::pipeline::ProcessStage>> {
+        use crate::plugin::stage::{WasmMapperStage, WasmProcessorStage};
+        let mut stages: Vec<Box<dyn crate::pipeline::ProcessStage>> = vec![];
+        for (plugin, types) in &self.ordered {
+            if types.contains(&PluginType::Processor) {
+                stages.push(Box::new(WasmProcessorStage { plugin: plugin.clone() }));
+            }
+            if types.contains(&PluginType::Mapper) {
+                stages.push(Box::new(WasmMapperStage { plugin: plugin.clone() }));
+            }
+        }
+        stages
     }
 }
 

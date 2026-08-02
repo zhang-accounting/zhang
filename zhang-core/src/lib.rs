@@ -11,6 +11,7 @@ pub mod error;
 pub mod inventory;
 pub mod ledger;
 pub mod options;
+pub mod pipeline;
 #[cfg(feature = "plugin_runtime")]
 pub mod plugin;
 pub(crate) mod process;
