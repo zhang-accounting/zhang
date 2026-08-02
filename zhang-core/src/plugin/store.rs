@@ -11,7 +11,6 @@ use sha256::digest;
 use zhang_ast::{Directive, Plugin, Spanned};
 
 use crate::domains::schemas::OptionDomain;
-use crate::error::IoErrorIntoZhangError;
 use crate::plugin::PluginType;
 use crate::{ZhangError, ZhangResult};
 
@@ -32,9 +31,9 @@ impl PluginStore {
         let plugin_cache_file = PathBuf::from_str(".cache/plugins")
             .expect("Cannot create path")
             .join(format!("{}.wasm", plugin_hash));
-        let content = std::fs::read(&plugin_cache_file)?;
+        let module_bytes = std::fs::read(&plugin_cache_file)?;
 
-        let wasm = Wasm::data(content);
+        let wasm = Wasm::data(module_bytes.clone());
         let manifest = Manifest::new([wasm]);
 
         let mut plugin = WasmPlugin::new(manifest, [], true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
@@ -75,7 +74,7 @@ impl PluginStore {
         let registered_plugin = RegisteredPlugin {
             name,
             version,
-            path: plugin_cache_file,
+            module_bytes,
             allowed_hosts,
             config,
         };
@@ -97,7 +96,8 @@ impl PluginStore {
 pub struct RegisteredPlugin {
     pub name: String,
     pub version: String,
-    path: PathBuf,
+    /// the wasm module, kept in memory so executions don't re-read the cache file
+    module_bytes: Vec<u8>,
     /// hosts this plugin may reach over HTTP; empty means no network access
     allowed_hosts: Vec<String>,
     /// the plugin's own configuration, taken from its directive's meta
@@ -113,8 +113,7 @@ impl RegisteredPlugin {
             .map(|it| (it.key.clone(), it.value.clone()))
             .chain(self.config.iter().cloned())
             .collect_vec();
-        let module_bytes = std::fs::read(&self.path).with_path(self.path.as_path())?;
-        let wasm = Wasm::data(module_bytes);
+        let wasm = Wasm::data(self.module_bytes.clone());
         let manifest = Manifest::new([wasm])
             .with_config(config.into_iter())
             // no declared host means the plugin gets no network access at all
