@@ -127,6 +127,56 @@ fn reduction_with_cost_spans_same_cost_lots_lifo() {
     assert_eq!(holdings(TWO_SAME_COST_LOTS, "Assets:Lifo"), "3 AAPL {100 USD, 2024-01-01}");
 }
 
+const TRANSFERRED_IN_OLDER_LOT: &str = r#"
+1970-01-01 open Assets:Fifo
+  booking_method: "FIFO"
+1970-01-01 open Assets:Lifo
+  booking_method: "LIFO"
+
+2024-03-01 * "Broker" "buy"
+  Assets:Fifo     5 AAPL {100 USD}
+  Assets:Lifo     5 AAPL {100 USD}
+  Assets:Bank -1000 USD
+
+2024-04-01 * "Broker" "transfer in a lot acquired earlier"
+  Assets:Fifo     5 AAPL {90 USD, 2023-01-01}
+  Assets:Lifo     5 AAPL {90 USD, 2023-01-01}
+  Assets:Bank  -900 USD
+
+2024-06-01 * "Broker" "sell"
+  Assets:Fifo    -7 AAPL {} @ 150 USD
+  Assets:Lifo    -7 AAPL {} @ 150 USD
+  Assets:Bank   2100 USD
+  Income:Gains
+"#;
+
+/// FIFO and LIFO order the lots by acquisition date, not by the order they were opened in.
+#[test]
+fn reduction_takes_lots_by_acquisition_date() {
+    // beanquery: FIFO -5 {90 USD, 2023-01-01}, -2 {100 USD, 2024-03-01}; LIFO the reverse
+    assert_eq!(
+        postings(TRANSFERRED_IN_OLDER_LOT, "Assets:Fifo")[2..],
+        [
+            row(&["-5", "90", "2023-01-01", "NULL", "150 USD"]),
+            row(&["-2", "100", "2024-03-01", "NULL", "150 USD"]),
+        ]
+    );
+    assert_eq!(holdings(TRANSFERRED_IN_OLDER_LOT, "Assets:Fifo"), "3 AAPL {100 USD, 2024-03-01}");
+    assert_eq!(
+        postings(TRANSFERRED_IN_OLDER_LOT, "Assets:Lifo")[2..],
+        [
+            row(&["-5", "100", "2024-03-01", "NULL", "150 USD"]),
+            row(&["-2", "90", "2023-01-01", "NULL", "150 USD"]),
+        ]
+    );
+    assert_eq!(holdings(TRANSFERRED_IN_OLDER_LOT, "Assets:Lifo"), "3 AAPL {90 USD, 2023-01-01}");
+    // beanquery: -770 USD, the 2100 USD of proceeds less the booked costs, 650 and 680 USD
+    assert_eq!(
+        query(TRANSFERRED_IN_OLDER_LOT, "SELECT number WHERE account = 'Income:Gains'"),
+        vec![row(&["-770"])]
+    );
+}
+
 #[test]
 fn reduction_with_date_matches_only_that_lot() {
     let ledger = r#"

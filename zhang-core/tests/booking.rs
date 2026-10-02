@@ -719,8 +719,9 @@ fn balance_stages_count_the_booked_amount_of_an_implicit_posting() {
 }
 
 #[test]
-fn current_behavior_e5_undated_cost_only_matches_lots_of_the_txn_date() {
-    // current behavior (booking-split design E5, #423); expected to change in the E5 fix PR
+fn e5_undated_cost_reduces_lots_of_any_date() {
+    // booking-split design E5, #423: like beancount, a missing cost date is a wildcard, so the sale
+    // reduces the lot bought the day before
     let ledger = load(&format!(
         "{BUY_10_AT_10}{}",
         indoc! {r#"
@@ -729,8 +730,103 @@ fn current_behavior_e5_undated_cost_only_matches_lots_of_the_txn_date() {
               Income:I 50 CNY
         "#}
     ));
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["5 USD {10 CNY, 2024-05-16}"]);
+}
+
+#[test]
+fn e5_dated_cost_only_reduces_the_lot_of_that_date() {
+    // a given date is still a criterion: no lot was acquired on 2024-05-17, so nothing matches
+    let ledger = load(&format!(
+        "{BUY_10_AT_10}{}",
+        indoc! {r#"
+            2024-05-17 * "sell with a cost date no lot has"
+              Assets:A -5 USD { 10 CNY, 2024-05-17 }
+              Income:I 50 CNY
+        "#}
+    ));
     assert_eq!(errors(&ledger), vec![(ErrorKind::NoEnoughCommodityLot, Some("-5".to_owned()))]);
     assert_eq!(lots(&ledger, "Assets:A"), vec!["10 USD {10 CNY, 2024-05-16}", "-5 USD {10 CNY, 2024-05-17}"]);
+
+    // also without a cost number: `{, date}` reduces the lot of that date, not the first one
+    let ledger = load_two_lots("FIFO", "  Assets:S -5 USD {, 2024-05-17}\n  Income:I");
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(inferred(&ledger, 3), vec!["-5 USD", "55 CNY"]);
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["10 USD {10 CNY, 2024-05-16}", "5 USD {11 CNY, 2024-05-17}"]);
+}
+
+/// two lots of `Assets:S` at the same cost, bought on consecutive days
+const TWO_SAME_COST_LOTS: &str = indoc! {r#"
+    2024-05-16 * "buy"
+      Assets:S 10 USD { 10 CNY }
+      Income:I -100 CNY
+    2024-05-17 * "buy again at the same cost"
+      Assets:S 10 USD { 10 CNY }
+      Income:I -100 CNY
+"#};
+
+/// `Assets:S` opened with `booking_method: "{method}"`, holding [`TWO_SAME_COST_LOTS`], then
+/// `sales` on 2024-05-18
+fn load_two_same_cost_lots(method: &str, sales: &str) -> Ledger {
+    load(&formatdoc! {r#"
+        1970-01-01 open Assets:S
+          booking_method: "{method}"
+        {TWO_SAME_COST_LOTS}
+        2024-05-18 * "sell"
+        {sales}
+    "#})
+}
+
+#[test]
+fn e5_undated_cost_augmentation_opens_a_lot_of_the_txn_date() {
+    // an augmentation names the lot it adds to: the second buy keeps its own lot, dated by its
+    // transaction, instead of joining the first one
+    let ledger = load(&format!("1970-01-01 open Assets:S\n{TWO_SAME_COST_LOTS}"));
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["10 USD {10 CNY, 2024-05-16}", "10 USD {10 CNY, 2024-05-17}"]);
+}
+
+#[test]
+fn e5_undated_cost_reduction_spans_same_cost_lots_by_date() {
+    for (method, expected) in [("FIFO", "5 USD {10 CNY, 2024-05-17}"), ("LIFO", "5 USD {10 CNY, 2024-05-16}")] {
+        let ledger = load_two_same_cost_lots(method, "  Assets:S -15 USD { 10 CNY }\n  Income:I");
+        assert_eq!(errors(&ledger), vec![], "{method}");
+        assert_eq!(inferred(&ledger, 3), vec!["-15 USD", "150 CNY"], "{method}");
+        assert_eq!(lots(&ledger, "Assets:S"), vec![expected], "{method}");
+    }
+
+    // more than both lots: the part no lot covers is a short lot of the sale's date, as before
+    let ledger = load_two_same_cost_lots("FIFO", "  Assets:S -25 USD { 10 CNY }\n  Income:I");
+    assert_eq!(errors(&ledger), vec![(ErrorKind::NoEnoughCommodityLot, Some("-25".to_owned()))]);
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["-5 USD {10 CNY, 2024-05-18}"]);
+}
+
+#[test]
+fn e5_strict_undated_cost_matching_lots_of_several_dates_is_ambiguous() {
+    // beancount's STRICT: the sale matches both 10 CNY lots, so reducing only one of them is
+    // ambiguous. It is still booked like FIFO
+    let ledger = load_two_same_cost_lots("STRICT", "  Assets:S -5 USD { 10 CNY }\n  Income:I");
+    assert_eq!(
+        error_details(&ledger),
+        vec![(
+            ErrorKind::AmbiguousLotMatch,
+            r#"2024-05-18 * "sell""#.to_owned(),
+            metas([
+                ("account_name", "Assets:S"),
+                ("matched_lots", "10 USD {10 CNY, 2024-05-16}, 10 USD {10 CNY, 2024-05-17}"),
+                ("transaction_amount", "-5"),
+            ])
+        )]
+    );
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["5 USD {10 CNY, 2024-05-16}", "10 USD {10 CNY, 2024-05-17}"]);
+
+    // a date names a single lot, and reducing every matching lot in full is not ambiguous
+    let ledger = load_two_same_cost_lots("STRICT", "  Assets:S -5 USD { 10 CNY, 2024-05-17 }\n  Income:I");
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["10 USD {10 CNY, 2024-05-16}", "5 USD {10 CNY, 2024-05-17}"]);
+    let ledger = load_two_same_cost_lots("STRICT", "  Assets:S -20 USD { 10 CNY }\n  Income:I");
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:S"), Vec::<String>::new());
 }
 
 #[test]
@@ -781,22 +877,72 @@ fn current_behavior_e9_empty_cost_reduction_without_cost_lots_adds_a_second_defa
     assert_eq!(lots(&ledger, "Assets:A"), vec!["6 USD", "-3 USD"]);
 }
 
-#[test]
-fn current_behavior_e10_fifo_follows_lot_creation_order() {
-    // current behavior (booking-split design E10, #423); expected to change in the E10 fix PR
-    let ledger = load(indoc! {r#"
+/// `Assets:S` opened with `booking_method: "{method}"`, holding a lot acquired on 2024-05-10, then
+/// an older one transferred in, then `sales` on 2024-05-18
+fn load_transferred_in_lot(method: &str, sales: &str) -> Ledger {
+    load(&formatdoc! {r#"
+        1970-01-01 open Assets:S
+          booking_method: "{method}"
         2024-05-16 * "buy, later acquisition date first"
-          Assets:A 10 USD { 10 CNY, 2024-05-10 }
+          Assets:S 10 USD {{ 10 CNY, 2024-05-10 }}
           Income:I -100 CNY
-        2024-05-17 * "buy, earlier acquisition date second"
-          Assets:A 10 USD { 11 CNY, 2024-01-01 }
+        2024-05-17 * "transfer in, earlier acquisition date second"
+          Assets:S 10 USD {{ 11 CNY, 2024-01-01 }}
           Income:I -110 CNY
-        2024-05-18 * "sell FIFO"
-          Assets:A -5 USD {}
-          Income:I 50 CNY
-    "#});
+        2024-05-18 * "sell"
+        {sales}
+    "#})
+}
+
+#[test]
+fn e10_fifo_and_lifo_pick_lots_by_acquisition_date() {
+    // booking-split design E10, #423: like beancount, FIFO takes the oldest acquisition date first
+    // and LIFO the newest, whatever order the lots were created in. The lots stay in creation order
+    for (method, income, expected) in [
+        ("FIFO", "55 CNY", ["10 USD {10 CNY, 2024-05-10}", "5 USD {11 CNY, 2024-01-01}"]),
+        ("LIFO", "50 CNY", ["5 USD {10 CNY, 2024-05-10}", "10 USD {11 CNY, 2024-01-01}"]),
+    ] {
+        let ledger = load_transferred_in_lot(method, "  Assets:S -5 USD {}\n  Income:I");
+        assert_eq!(errors(&ledger), vec![], "{method}");
+        assert_eq!(inferred(&ledger, 3), vec!["-5 USD", income], "{method}");
+        assert_eq!(lots(&ledger, "Assets:S"), expected, "{method}");
+    }
+
+    // a sale across both lots takes the older one in full first: 10 × 11 + 5 × 10 CNY
+    let ledger = load_transferred_in_lot("FIFO", "  Assets:S -15 USD {}\n  Income:I");
     assert_eq!(errors(&ledger), vec![]);
-    assert_eq!(lots(&ledger, "Assets:A"), vec!["5 USD {10 CNY, 2024-05-10}", "10 USD {11 CNY, 2024-01-01}"]);
+    assert_eq!(inferred(&ledger, 3), vec!["-15 USD", "160 CNY"]);
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["5 USD {10 CNY, 2024-05-10}"]);
+
+    // STRICT books an ambiguous reduction like FIFO, by date too
+    let ledger = load_transferred_in_lot("STRICT", "  Assets:S -5 USD {}\n  Income:I");
+    assert_eq!(errors(&ledger), vec![(ErrorKind::AmbiguousLotMatch, Some("-5".to_owned()))]);
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["10 USD {10 CNY, 2024-05-10}", "5 USD {11 CNY, 2024-01-01}"]);
+}
+
+#[test]
+fn e10_lots_of_the_same_date_go_in_creation_order() {
+    // two lots acquired the same day: FIFO takes the one created first, and LIFO, its exact
+    // reverse, the one created last (beancount's LIFO keeps creation order among them instead)
+    for (method, income, expected) in [
+        ("FIFO", "50 CNY", ["5 USD {10 CNY, 2024-05-16}", "10 USD {11 CNY, 2024-05-16}"]),
+        ("LIFO", "55 CNY", ["10 USD {10 CNY, 2024-05-16}", "5 USD {11 CNY, 2024-05-16}"]),
+    ] {
+        let ledger = load(&formatdoc! {r#"
+            1970-01-01 open Assets:S
+              booking_method: "{method}"
+            2024-05-16 * "two lots, the same day"
+              Assets:S 10 USD {{ 10 CNY }}
+              Assets:S 10 USD {{ 11 CNY }}
+              Income:I -210 CNY
+            2024-05-18 * "sell"
+              Assets:S -5 USD {{}}
+              Income:I
+        "#});
+        assert_eq!(errors(&ledger), vec![], "{method}");
+        assert_eq!(inferred(&ledger, 2), vec!["-5 USD", income], "{method}");
+        assert_eq!(lots(&ledger, "Assets:S"), expected, "{method}");
+    }
 }
 
 #[test]

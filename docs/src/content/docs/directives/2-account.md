@@ -32,12 +32,17 @@ Specifies the method used for handling complex investment scenarios. This is par
 It decides which lot a reduction (for example `-5 AAPL {}`) takes its units from. Without the meta, the account uses
 the `default_booking_method` option (`FIFO` unless set).
 
+Like Beancount, a reduction matches the lots its cost names, and what the cost leaves out matches anything:
+`{100 USD}` matches the lots held at 100 USD whatever their acquisition date, `{100 USD, 2024-01-01}` only the lot
+acquired on that date, and `{}` every lot held at cost. A lot's acquisition date is the date in its cost, or else the
+date of the transaction that opened it.
+
 Supported methods:
 - `STRICT`: Beancount's default. A reduction must match a single lot, or reduce every lot it matches in full.
   Otherwise the ledger reports an [`AmbiguousLotMatch`](/user-guide/error-code/#ambiguouslotmatch) error and books the
   reduction like `FIFO` among the matching lots.
-- `FIFO`: First In First Out
-- `LIFO`: Last In First Out
+- `FIFO`: First In First Out: the matching lot with the oldest acquisition date first.
+- `LIFO`: Last In First Out: the matching lot with the newest acquisition date first.
 
 `AVERAGE`, `AVERAGE_ONLY` and `NONE` are not implemented yet. An account using one of them, or a value that is not a
 booking method, gets an error on its `open` directive
