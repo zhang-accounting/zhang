@@ -135,6 +135,11 @@ impl Settings {
 }
 
 async fn app(dir: &Path, settings: &Settings) -> ServerApp {
+    app_and_ledger(dir, settings).await.0
+}
+
+/// The app, and the ledger it serves.
+async fn app_and_ledger(dir: &Path, settings: &Settings) -> (ServerApp, Arc<RwLock<Ledger>>) {
     let source = Arc::new(RootedFileSystem {
         root: dir.to_path_buf(),
         inner: LocalFileSystemDataSource::new(ZhangDataType {}),
@@ -143,7 +148,8 @@ async fn app(dir: &Path, settings: &Settings) -> ServerApp {
         .await
         .unwrap_or_else(|error| panic!("ledger should load: {error}"));
     let (sender, _receiver) = tokio::sync::mpsc::channel(8);
-    create_server_app(
+    let ledger = Arc::new(RwLock::new(ledger));
+    let app = create_server_app(
         ServeConfig {
             path: dir.to_path_buf(),
             endpoint: "main.zhang".to_owned(),
@@ -159,10 +165,11 @@ async fn app(dir: &Path, settings: &Settings) -> ServerApp {
             trusted_proxy_hops: settings.proxy_hops.unwrap_or(1),
             is_local_fs: false,
         },
-        Arc::new(RwLock::new(ledger)),
+        ledger.clone(),
         Broadcaster::create(),
         Arc::new(ReloadSender(sender)),
-    )
+    );
+    (app, ledger)
 }
 
 async fn server(dir: &Path, settings: &Settings) -> Router {
@@ -1157,4 +1164,33 @@ async fn adding_a_passkey_keeps_the_current_session() {
 
     // a registration with the secret, without a session, still signs in with the new passkey
     assert!(first.set_cookie().contains("Max-Age=2592000"));
+}
+
+#[tokio::test]
+async fn the_passkeys_file_is_not_part_of_the_ledger() {
+    let dir = ScratchDir::new();
+    let (app, ledger) = app_and_ledger(&dir.0, &Settings::passkey()).await;
+    let config = app.config().await.unwrap();
+    let state = app.state(&config).await.unwrap();
+    let router = app.build_router(GotchaContext { config, state }).await.unwrap();
+
+    let mut authenticator = soft_authenticator();
+    let registered = register_passkey(&router, &mut authenticator, &[], json!({"secret": "letmein"})).await;
+    assert_eq!(registered.status, StatusCode::OK, "{}", registered.body);
+    assert_eq!(passkey_login(&router, &mut authenticator).await.status, StatusCode::OK);
+    assert!(dir.passkeys_file().exists());
+
+    // neither a file of the ledger nor an input of its load, before and after a reload
+    for reload in [false, true] {
+        let mut ledger = ledger.write().await;
+        if reload {
+            ledger.async_reload().await.unwrap();
+        }
+        assert!(
+            !ledger.visited_files.iter().any(|path| path.components().any(|it| it.as_os_str() == ".zhang")),
+            "{:?}",
+            ledger.visited_files
+        );
+        assert!(ledger.extra_inputs.is_empty(), "{:?}", ledger.extra_inputs);
+    }
 }

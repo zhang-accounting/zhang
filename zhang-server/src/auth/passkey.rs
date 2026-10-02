@@ -10,6 +10,9 @@ use webauthn_rs::{Webauthn, WebauthnBuilder};
 
 use super::AuthError;
 
+/// zhang's own state in the ledger root, written by the server: never part of the ledger, never an input of a load.
+pub const STATE_DIR: &str = ".zhang";
+
 /// Where the registered passkeys are kept, relative to the ledger root of the data source.
 pub const PASSKEYS_PATH: &str = ".zhang/passkeys.json";
 
@@ -116,9 +119,16 @@ pub fn passkey_name(name: Option<&str>, existing: usize) -> String {
 
 #[cfg(test)]
 mod test {
+    use std::path::Path;
+
     use webauthn_rs::prelude::Url;
 
-    use super::{parse_records, passkey_name, RelyingParty};
+    use super::{parse_records, passkey_name, RelyingParty, PASSKEYS_PATH, STATE_DIR};
+
+    #[test]
+    fn passkeys_are_kept_in_the_state_dir() {
+        assert!(Path::new(PASSKEYS_PATH).starts_with(STATE_DIR));
+    }
 
     #[test]
     fn empty_files_hold_no_passkeys() {

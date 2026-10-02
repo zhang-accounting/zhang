@@ -40,7 +40,7 @@ use zhang_core::{ZhangError, ZhangResult};
 
 use self::limiter::FailureLimiter;
 use self::passkey::{Ceremonies, Ceremony, CeremonyKind, RelyingParty};
-pub use self::passkey::{PasskeyRecord, PASSKEYS_PATH};
+pub use self::passkey::{PasskeyRecord, PASSKEYS_PATH, STATE_DIR};
 use self::session::{SessionClaims, SessionKey};
 use crate::response::{AuthMethodsEntity, AuthStatusEntity, PasskeyEntity, ResponseWrapper};
 use crate::ServeConfig;
