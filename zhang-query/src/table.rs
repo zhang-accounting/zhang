@@ -19,7 +19,7 @@ use std::path::Path;
 use bigdecimal::{BigDecimal, Signed, Zero};
 use chrono::{Datelike, NaiveDate};
 use zhang_ast::amount::Amount;
-use zhang_ast::{Directive, Flag, Meta, PostingCost, SingleTotalPrice, Transaction};
+use zhang_ast::{Directive, Flag, Meta, PostingCost, SingleTotalPrice, SpanInfo, Transaction};
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::inventory::BookingMethod;
 use zhang_core::ledger::Ledger;
@@ -104,13 +104,7 @@ struct Draft<'a> {
 
 impl<'a> Dataset<'a> {
     pub fn new(ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection) -> Self {
-        // the parsed directives, addressable by source position (the store keeps the span)
-        let mut directives: HashMap<(Option<&Path>, usize), &'a Transaction> = HashMap::new();
-        for directive in &ledger.directives {
-            if let Directive::Transaction(txn) = &directive.data {
-                directives.insert((directive.span.filename.as_deref(), directive.span.start), txn);
-            }
-        }
+        let mut directives = Directives::new(ledger);
 
         let mut transactions = store.transactions.values().filter(|txn| txn.flag != Flag::BalanceCheck).collect::<Vec<_>>();
         transactions.sort_by_key(|txn| txn.sequence);
@@ -119,10 +113,7 @@ impl<'a> Dataset<'a> {
         let mut drafts = Vec::with_capacity(store.postings.len());
         for txn in transactions {
             let date = txn.datetime.date_naive();
-            let parsed = directives
-                .get(&(txn.span.filename.as_deref(), txn.span.start))
-                .copied()
-                .filter(|parsed| parsed.postings.len() == txn.postings.len());
+            let parsed = directives.get(&txn.span).filter(|parsed| parsed.postings.len() == txn.postings.len());
             let entry_idx = entries.len();
             entries.push(Entry {
                 txn,
@@ -213,6 +204,64 @@ impl<'a> Dataset<'a> {
             .get(entry.txn.id.to_string().as_str())
             .and_then(|pairs| pairs.iter().find(|(k, _)| *k == key))
             .map(|(_, value)| (*value).to_owned())
+    }
+}
+
+/// The parsed transaction directives, addressable by source position: the store keeps the
+/// span of every transaction. File names are numbered once, so the positions hash as
+/// integers instead of paths (hashing a `Path` walks its components).
+struct Directives<'a> {
+    files: HashMap<&'a Path, usize>,
+    /// (file number, start offset) -> directive; the last directive of a position wins
+    by_position: HashMap<(Option<usize>, usize), &'a Transaction>,
+    /// the file last numbered or looked up, as consecutive spans usually share their file
+    last: Option<(&'a Path, usize)>,
+}
+
+impl<'a> Directives<'a> {
+    fn new(ledger: &'a Ledger) -> Self {
+        let mut directives = Directives {
+            files: HashMap::new(),
+            by_position: HashMap::new(),
+            last: None,
+        };
+        for directive in &ledger.directives {
+            if let Directive::Transaction(txn) = &directive.data {
+                let file = directive.span.filename.as_deref().and_then(|path| directives.file(path, true));
+                directives.by_position.insert((file, directive.span.start), txn);
+            }
+        }
+        directives
+    }
+
+    /// The number of the file `path`, numbering it when `add` is set; `None` for a file
+    /// without directives.
+    fn file(&mut self, path: &'a Path, add: bool) -> Option<usize> {
+        if let Some((last, number)) = self.last {
+            if last == path {
+                return Some(number);
+            }
+        }
+        let number = match self.files.get(path) {
+            Some(number) => *number,
+            None if add => {
+                let number = self.files.len();
+                self.files.insert(path, number);
+                number
+            }
+            None => return None,
+        };
+        self.last = Some((path, number));
+        Some(number)
+    }
+
+    /// The directive at the source position `span`.
+    fn get(&mut self, span: &'a SpanInfo) -> Option<&'a Transaction> {
+        let file = match span.filename.as_deref() {
+            None => None,
+            Some(path) => Some(self.file(path, false)?),
+        };
+        self.by_position.get(&(file, span.start)).copied()
     }
 }
 

@@ -155,6 +155,32 @@ fn entry_columns() {
     assert!(ids.iter().all(|id| id.len() == 36));
 }
 
+/// Rows are matched to their parsed directives by source file and offset: transactions at the
+/// same offset of two files keep their own price annotations and metadata.
+#[test]
+fn directives_are_matched_by_file_and_offset() {
+    let dir = tempfile::tempdir().expect("tempdir").into_path();
+    let transaction = |name: &str, price: &str| format!("2024-01-01 * \"{name}\"\n  k: \"{name}\"\n  Assets:A  1 EUR @ {price} USD\n  Assets:B\n");
+    let opens = "1970-01-01 open Assets:A\n1970-01-01 open Assets:B\n";
+    std::fs::write(
+        dir.join("main.zhang"),
+        format!("{}{opens}include \"other.zhang\"\n", transaction("main", "1.10")),
+    )
+    .unwrap();
+    std::fs::write(dir.join("other.zhang"), transaction("other", "2.20")).unwrap();
+    let ledger = common::load_ledger(dir, "main.zhang");
+    let result = Query::compile("SELECT narration, price, entry_meta('k') WHERE account = 'Assets:A' ORDER BY narration")
+        .unwrap()
+        .execute_at(&ledger, &Params::new(), today())
+        .unwrap();
+    let rows = result
+        .rows
+        .iter()
+        .map(|row| row.iter().map(Value::to_string).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    assert_eq!(rows, vec![vec!["main", "1.10 USD", "main"], vec!["other", "2.20 USD", "other"]]);
+}
+
 #[test]
 fn lot_reductions_are_booked_against_open_lots() {
     assert_eq!(
