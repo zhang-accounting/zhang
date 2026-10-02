@@ -32,7 +32,7 @@ use nom::bytes::complete::{tag, tag_no_case, take_while, take_while1};
 use nom::error::{ErrorKind, ParseError};
 use nom::{Err as NomErr, IResult};
 
-use crate::ast::{BinaryOp, Expr, ExprKind, InTarget, Literal, OrderItem, Select, Target, Targets, UnaryOp};
+use crate::ast::{ArithOp, BinaryOp, Expr, ExprKind, InTarget, Literal, LogicalOp, OrderItem, Select, Target, Targets, UnaryOp};
 use crate::error::{QueryError, QueryErrorKind, Span};
 use crate::params::ParamRef;
 
@@ -160,12 +160,19 @@ fn raw_identifier(i: &str) -> PResult<'_, &str> {
 /// The longest accepted query text, in bytes.
 pub const MAX_QUERY_LENGTH: usize = 64 * 1024;
 
-/// The deepest accepted nesting: both how deeply the parser may recurse (parentheses,
-/// function arguments, `NOT`, unary minus) and the height of the resulting syntax tree, so
-/// that parsing, compiling and evaluating stay well within a 2 MiB thread stack even in
-/// debug builds. Chains of `AND`, `OR`, `+` and `*` are built as balanced trees, so long
-/// lists such as `account = 'a' OR account = 'b' OR ...` stay shallow; a chain mixing `-`
-/// or `/` counts one level per operator.
+/// The deepest accepted nesting, a defence in depth against stack exhaustion.
+///
+/// It bounds both how deeply the parser recurses (parentheses, function arguments, `IN`
+/// lists, `NOT`, unary minus) and the height of the syntax tree it builds. Recursive descent
+/// recurses once per nested parenthesis *before* any later stage could rewrite the tree, so
+/// 10,000 `(` would exhaust the stack in the parser itself; this guard stops it first.
+/// Parentheses only group and never create nodes, and chains of `AND`, `OR` and arithmetic
+/// operators are single n-ary nodes, so long lists such as
+/// `account = 'a' OR account = 'b' OR ...` stay flat whatever their length.
+///
+/// The value keeps parsing, compiling, optimising and evaluating the deepest accepted query
+/// well within a 2 MiB thread stack even in debug builds, where each parser level costs
+/// roughly 13 KiB of stack (measured: about 150 levels fit).
 pub const MAX_DEPTH: usize = 64;
 
 #[cold]
@@ -407,57 +414,44 @@ impl<'s> Parser<'s> {
         self.node(ExprKind::Binary(op, Box::new(left), Box::new(right)), span)
     }
 
-    /// Combine the operands of an associative operator into a balanced tree, keeping their
-    /// left-to-right order (so evaluation order and short-circuiting are unchanged).
-    fn balanced(&self, op: BinaryOp, mut operands: Vec<Expr>) -> Result<Expr, NomErr<PError<'s>>> {
-        while operands.len() > 1 {
-            let mut next = Vec::with_capacity(operands.len() / 2 + 1);
-            let mut iter = operands.into_iter();
-            while let Some(left) = iter.next() {
-                match iter.next() {
-                    Some(right) => next.push(self.binary(op, left, right)?),
-                    None => next.push(left),
-                }
-            }
-            operands = next;
+    /// `a AND b AND ...` / `a OR b OR ...` as one n-ary node.
+    fn logical(&self, op: LogicalOp, operands: Vec<Expr>) -> Result<Expr, NomErr<PError<'s>>> {
+        if operands.len() == 1 {
+            return Ok(operands.into_iter().next().expect("one operand"));
         }
-        Ok(operands.pop().expect("a chain has at least one operand"))
+        let span = Span::new(operands[0].span.start, operands[operands.len() - 1].span.end);
+        self.node(ExprKind::Logical(op, operands), span)
     }
 
-    /// A chain of binary operators of the same precedence: balanced when every operator is
-    /// the associative `balance_op`, left-deep otherwise.
-    fn chain(&self, first: Expr, rest: Vec<(BinaryOp, Expr)>, balance_op: BinaryOp) -> Result<Expr, NomErr<PError<'s>>> {
-        if rest.iter().all(|(op, _)| *op == balance_op) {
-            let operands = std::iter::once(first).chain(rest.into_iter().map(|(_, expr)| expr)).collect();
-            return self.balanced(balance_op, operands);
-        }
-        let mut left = first;
-        for (op, right) in rest {
-            left = self.binary(op, left, right)?;
-        }
-        Ok(left)
+    /// `first op x op y ...` as one left-to-right chain node.
+    fn arith(&self, first: Expr, rest: Vec<(ArithOp, Expr)>) -> Result<Expr, NomErr<PError<'s>>> {
+        let Some((_, last)) = rest.last() else {
+            return Ok(first);
+        };
+        let span = Span::new(first.span.start, last.span.end);
+        self.node(ExprKind::Arith(Box::new(first), rest), span)
     }
 
     fn or_expr(&self, i: &'s str) -> PResult<'s, Expr> {
         let (mut i, first) = self.and_expr(i)?;
-        let mut rest = vec![];
+        let mut operands = vec![first];
         while let Ok((after, _)) = keyword("or")(i) {
             let (after, right) = cut(self.and_expr(after))?;
-            rest.push((BinaryOp::Or, right));
+            operands.push(right);
             i = after;
         }
-        Ok((i, self.chain(first, rest, BinaryOp::Or)?))
+        Ok((i, self.logical(LogicalOp::Or, operands)?))
     }
 
     fn and_expr(&self, i: &'s str) -> PResult<'s, Expr> {
         let (mut i, first) = self.not_expr(i)?;
-        let mut rest = vec![];
+        let mut operands = vec![first];
         while let Ok((after, _)) = keyword("and")(i) {
             let (after, right) = cut(self.not_expr(after))?;
-            rest.push((BinaryOp::And, right));
+            operands.push(right);
             i = after;
         }
-        Ok((i, self.chain(first, rest, BinaryOp::And)?))
+        Ok((i, self.logical(LogicalOp::And, operands)?))
     }
 
     fn not_expr(&self, i: &'s str) -> PResult<'s, Expr> {
@@ -559,11 +553,11 @@ impl<'s> Parser<'s> {
         loop {
             let trimmed = skip_ws(i);
             let op = if trimmed.starts_with('+') {
-                BinaryOp::Add
+                ArithOp::Add
             } else if trimmed.starts_with('-') && !trimmed.starts_with("--") {
-                BinaryOp::Sub
+                ArithOp::Sub
             } else {
-                return Ok((i, self.chain(first, rest, BinaryOp::Add)?));
+                return Ok((i, self.arith(first, rest)?));
             };
             let (after, right) = cut(self.term(&trimmed[1..]))?;
             rest.push((op, right));
@@ -577,11 +571,11 @@ impl<'s> Parser<'s> {
         loop {
             let trimmed = skip_ws(i);
             let op = if trimmed.starts_with('*') {
-                BinaryOp::Mul
+                ArithOp::Mul
             } else if trimmed.starts_with('/') {
-                BinaryOp::Div
+                ArithOp::Div
             } else {
-                return Ok((i, self.chain(first, rest, BinaryOp::Mul)?));
+                return Ok((i, self.arith(first, rest)?));
             };
             let (after, right) = cut(self.unary(&trimmed[1..]))?;
             rest.push((op, right));
@@ -834,18 +828,42 @@ mod tests {
     #[test]
     fn precedence() {
         // a OR b AND NOT c  ==  a OR (b AND (NOT c))
-        let ExprKind::Binary(BinaryOp::Or, _, right) = where_kind("SELECT * WHERE a OR b AND NOT c") else {
+        let ExprKind::Logical(LogicalOp::Or, operands) = where_kind("SELECT * WHERE a OR b AND NOT c") else {
             panic!()
         };
-        let ExprKind::Binary(BinaryOp::And, _, not) = right.kind else { panic!() };
-        assert!(matches!(not.kind, ExprKind::Unary(UnaryOp::Not, _)));
+        let ExprKind::Logical(LogicalOp::And, and_operands) = &operands[1].kind else {
+            panic!()
+        };
+        assert!(matches!(and_operands[1].kind, ExprKind::Unary(UnaryOp::Not, _)));
 
         // 1 + 2 * 3 = 7
         let ExprKind::Binary(BinaryOp::Eq, left, _) = where_kind("SELECT * WHERE 1 + 2 * 3 = 7") else {
             panic!()
         };
-        let ExprKind::Binary(BinaryOp::Add, _, mul) = left.kind else { panic!() };
-        assert!(matches!(mul.kind, ExprKind::Binary(BinaryOp::Mul, _, _)));
+        let ExprKind::Arith(_, rest) = left.kind else { panic!() };
+        assert_eq!(rest[0].0, ArithOp::Add);
+        assert!(matches!(&rest[0].1.kind, ExprKind::Arith(_, mul) if mul[0].0 == ArithOp::Mul));
+    }
+
+    #[test]
+    fn chains_are_flat_and_parentheses_create_no_nodes() {
+        // a + b - c is one chain evaluated left to right
+        let ExprKind::Binary(_, left, _) = where_kind("SELECT * WHERE 1 + 2 - 3 + 4 = 4") else {
+            panic!()
+        };
+        let ExprKind::Arith(_, rest) = &left.kind else { panic!() };
+        assert_eq!(
+            rest.iter().map(|(op, _)| *op).collect::<Vec<_>>(),
+            vec![ArithOp::Add, ArithOp::Sub, ArithOp::Add]
+        );
+        // a thousand ORs are one node of height 2
+        let sql = format!("SELECT * WHERE {}TRUE", "FALSE OR ".repeat(1000));
+        let filter = parse_ok(&sql).where_clause.unwrap();
+        assert!(matches!(&filter.kind, ExprKind::Logical(LogicalOp::Or, operands) if operands.len() == 1001));
+        assert_eq!(filter.height, 2);
+        // parentheses only group
+        let nested = parse_ok("SELECT * WHERE ((((TRUE))))").where_clause.unwrap();
+        assert_eq!((nested.kind, nested.height), (ExprKind::Literal(Literal::Bool(true)), 1));
     }
 
     #[test]

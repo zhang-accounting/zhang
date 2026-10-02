@@ -1,22 +1,22 @@
 //! Type resolution and planning: turns the syntax tree into a typed [`Plan`].
+//!
+//! The query pipeline is: parse ([`crate::parser`]) → compile/bind (this module: resolve
+//! names, check types, plan grouping and ordering) → optimise ([`crate::optimizer`]:
+//! rule-based rewrites) → execute ([`crate::executor`]).
+
+use std::collections::BTreeSet;
+use std::fmt;
 
 use regex::{Regex, RegexBuilder};
 
-use crate::ast::{BinaryOp, Expr, ExprKind, InTarget, Literal, Select, Targets, UnaryOp};
+pub(crate) use crate::ast::ArithOp;
+use crate::ast::{BinaryOp, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
 use crate::error::{LocatedError, Span};
 use crate::functions::aggregates::{is_aggregate, resolve_aggregate};
 use crate::functions::{resolve_scalar, AggregateFunction, ScalarFunction};
 use crate::params::{ParamRef, ParamTypes};
 use crate::table::{column, ColumnDef, WILDCARD_COLUMNS};
 use crate::value::{DataType, Value};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ArithOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CmpOp {
@@ -28,11 +28,32 @@ pub(crate) enum CmpOp {
     Ge,
 }
 
+impl CmpOp {
+    fn symbol(&self) -> &'static str {
+        match self {
+            CmpOp::Eq => "=",
+            CmpOp::Ne => "!=",
+            CmpOp::Lt => "<",
+            CmpOp::Le => "<=",
+            CmpOp::Gt => ">",
+            CmpOp::Ge => ">=",
+        }
+    }
+}
+
 pub(crate) enum RegexPattern {
-    /// a literal pattern, compiled once
-    Static(Regex),
-    /// a pattern computed per row
-    Dynamic { expr: Box<CExpr>, case_insensitive: bool },
+    /// a constant pattern, compiled once by the optimizer
+    Compiled(Regex),
+    /// a pattern computed per row (cached by the executor)
+    Dynamic(Box<CExpr>),
+}
+
+/// One `op operand` step of an arithmetic chain.
+pub(crate) struct ArithStep {
+    pub op: ArithOp,
+    pub operand: CExpr,
+    /// from the start of the chain to the end of this operand, for error positions
+    pub span: Span,
 }
 
 /// A typed, executable expression.
@@ -50,13 +71,13 @@ pub(crate) enum CExpr {
     WidenInt(Box<CExpr>),
     Neg(Box<CExpr>, Span),
     Not(Box<CExpr>),
-    And(Box<CExpr>, Box<CExpr>),
-    Or(Box<CExpr>, Box<CExpr>),
+    /// n-ary, evaluated left to right with three-valued logic
+    And(Vec<CExpr>),
+    Or(Vec<CExpr>),
+    /// `first op x op y ...` evaluated left to right
     Arith {
-        op: ArithOp,
-        left: Box<CExpr>,
-        right: Box<CExpr>,
-        span: Span,
+        first: Box<CExpr>,
+        rest: Vec<ArithStep>,
     },
     Compare {
         op: CmpOp,
@@ -66,8 +87,10 @@ pub(crate) enum CExpr {
     Regex {
         subject: Box<CExpr>,
         pattern: RegexPattern,
+        case_insensitive: bool,
         negated: bool,
         span: Span,
+        pattern_span: Span,
     },
     InSet {
         needle: Box<CExpr>,
@@ -104,6 +127,9 @@ pub(crate) struct Plan {
     /// visible targets first, then hidden ones added by GROUP BY / ORDER BY
     pub targets: Vec<PlannedTarget>,
     pub visible: usize,
+    /// the row filters as compiled: the FROM expression, then WHERE
+    pub filters: Vec<CExpr>,
+    /// the single row filter the executor applies, set by the optimizer from `filters`
     pub filter: Option<CExpr>,
     pub aggregates: Vec<AggregateCall>,
     /// `Some` for aggregate queries: the indexes of the targets forming the group key
@@ -180,18 +206,15 @@ impl Compiler<'_> {
         }
         let visible = targets.len();
 
-        // FROM and WHERE are both row filters
-        let mut filter = None;
+        // FROM and WHERE are both row filters; the optimizer merges them
+        let mut filters = vec![];
         for (clause, expr) in [("FROM", &select.from), ("WHERE", &select.where_clause)] {
             if let Some(expr) = expr {
                 let (compiled, ty) = self.expr(expr, Mode::Row(clause), &mut ExprInfo::default())?;
                 if !matches!(ty, DataType::Bool | DataType::Null) {
                     return err(format!("{} expects a boolean expression, got {}", clause, ty), expr.span);
                 }
-                filter = Some(match filter {
-                    None => compiled,
-                    Some(previous) => CExpr::And(Box::new(previous), Box::new(compiled)),
-                });
+                filters.push(compiled);
             }
         }
 
@@ -264,7 +287,8 @@ impl Compiler<'_> {
         Ok(Plan {
             targets,
             visible,
-            filter,
+            filters,
+            filter: None,
             aggregates: std::mem::take(&mut self.aggregates),
             group_keys,
             order,
@@ -333,7 +357,7 @@ impl Compiler<'_> {
     /// frame small (the parser bounds the tree height by [`crate::MAX_DEPTH`]).
     fn expr(&mut self, expr: &Expr, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
         let span = expr.span;
-        let typed = match &expr.kind {
+        Ok(match &expr.kind {
             ExprKind::Literal(literal) => return Ok(literal_value(literal)),
             ExprKind::Param(param) => return self.param(param, span),
             ExprKind::Column(name) => return column_ref(name, span, info),
@@ -347,6 +371,8 @@ impl Compiler<'_> {
                 let right_typed = self.expr(right, mode, info)?;
                 self.binary(*op, left_typed, left, right_typed, right, span)?
             }
+            ExprKind::Logical(op, operands) => self.logical(*op, operands, mode, info)?,
+            ExprKind::Arith(first, rest) => self.arith(first, rest, mode, info)?,
             ExprKind::In { needle, haystack, negated } => self.in_expr(needle, haystack, *negated, mode, info)?,
             ExprKind::IsNull { expr: inner, negated } => {
                 let (compiled, _) = self.expr(inner, mode, info)?;
@@ -358,8 +384,46 @@ impl Compiler<'_> {
                     DataType::Bool,
                 )
             }
+        })
+    }
+
+    fn logical(&mut self, op: LogicalOp, operands: &[Expr], mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+        let mut compiled = Vec::with_capacity(operands.len());
+        for operand in operands {
+            let (c, ty) = self.expr(operand, mode, info)?;
+            expect_bool(op.symbol(), ty, operand.span)?;
+            compiled.push(c);
+        }
+        let expr = match op {
+            LogicalOp::And => CExpr::And(compiled),
+            LogicalOp::Or => CExpr::Or(compiled),
         };
-        Ok(fold_constants(typed))
+        Ok((expr, DataType::Bool))
+    }
+
+    fn arith(&mut self, first: &Expr, rest: &[(ArithOp, Expr)], mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+        let (first_c, mut ty) = self.expr(first, mode, info)?;
+        let mut steps = Vec::with_capacity(rest.len());
+        for (op, operand) in rest {
+            let (operand_c, operand_ty) = self.expr(operand, mode, info)?;
+            let span = Span::new(first.span.start, operand.span.end);
+            ty = match arith_type(*op, ty, operand_ty) {
+                Some(result) => result,
+                None => return err(format!("operator {} is not supported for ({}, {})", op.symbol(), ty, operand_ty), span),
+            };
+            steps.push(ArithStep {
+                op: *op,
+                operand: operand_c,
+                span,
+            });
+        }
+        Ok((
+            CExpr::Arith {
+                first: Box::new(first_c),
+                rest: steps,
+            },
+            ty,
+        ))
     }
 
     fn param(&mut self, param: &ParamRef, span: Span) -> Result<Typed, LocatedError> {
@@ -470,32 +534,6 @@ impl Compiler<'_> {
         &mut self, op: BinaryOp, (left_c, left_ty): Typed, left: &Expr, (right_c, right_ty): Typed, right: &Expr, span: Span,
     ) -> Result<Typed, LocatedError> {
         match op {
-            BinaryOp::And | BinaryOp::Or => {
-                expect_bool(op.symbol(), left_ty, left.span)?;
-                expect_bool(op.symbol(), right_ty, right.span)?;
-                let (l, r) = (Box::new(left_c), Box::new(right_c));
-                Ok((if op == BinaryOp::And { CExpr::And(l, r) } else { CExpr::Or(l, r) }, DataType::Bool))
-            }
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
-                let arith = match op {
-                    BinaryOp::Add => ArithOp::Add,
-                    BinaryOp::Sub => ArithOp::Sub,
-                    BinaryOp::Mul => ArithOp::Mul,
-                    _ => ArithOp::Div,
-                };
-                let Some(ty) = arith_type(arith, left_ty, right_ty) else {
-                    return err(format!("operator {} is not supported for ({}, {})", op.symbol(), left_ty, right_ty), span);
-                };
-                Ok((
-                    CExpr::Arith {
-                        op: arith,
-                        left: Box::new(left_c),
-                        right: Box::new(right_c),
-                        span,
-                    },
-                    ty,
-                ))
-            }
             BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
                 let cmp = match op {
                     BinaryOp::Eq => CmpOp::Eq,
@@ -547,21 +585,15 @@ impl Compiler<'_> {
                 } else {
                     (left_c, right_c, right.span)
                 };
-                let pattern = match pattern_c {
-                    CExpr::Const(Value::Str(pattern)) => {
-                        RegexPattern::Static(build_regex(&pattern, case_insensitive).map_err(|message| LocatedError::compile(message, pattern_span))?)
-                    }
-                    other => RegexPattern::Dynamic {
-                        expr: Box::new(other),
-                        case_insensitive,
-                    },
-                };
+                // the optimizer compiles constant patterns once
                 Ok((
                     CExpr::Regex {
                         subject: Box::new(subject_c),
-                        pattern,
+                        pattern: RegexPattern::Dynamic(Box::new(pattern_c)),
+                        case_insensitive,
                         negated: op == BinaryOp::NotMatch,
                         span,
+                        pattern_span,
                     },
                     DataType::Bool,
                 ))
@@ -628,43 +660,6 @@ fn unary(op: UnaryOp, (compiled, ty): Typed, operand_span: Span, span: Span) -> 
         UnaryOp::Not => {
             expect_bool("NOT", ty, operand_span)?;
             Ok((CExpr::Not(Box::new(compiled)), DataType::Bool))
-        }
-    }
-}
-
-/// Evaluate a node whose operands are all constants once, at compile time, unless it reads
-/// anything from the execution (today, prices, the row): `account ~ ('^Ex' + 'penses')`
-/// then compiles its regular expression only once.
-fn fold_constants((expr, ty): Typed) -> Typed {
-    if !expr.is_foldable() {
-        return (expr, ty);
-    }
-    match crate::executor::eval_constant(&expr) {
-        Some(value) => (CExpr::Const(value), ty),
-        None => (expr, ty),
-    }
-}
-
-impl CExpr {
-    /// Whether this node computes something from constant operands only.
-    fn is_foldable(&self) -> bool {
-        let constant = |expr: &CExpr| matches!(expr, CExpr::Const(_));
-        match self {
-            CExpr::Const(_) | CExpr::Column(_) | CExpr::Param(_) | CExpr::Aggregate(_) => false,
-            CExpr::Scalar { args, .. } => args.iter().all(constant),
-            CExpr::WidenInt(inner) | CExpr::Neg(inner, _) | CExpr::Not(inner) => constant(inner),
-            CExpr::And(left, right) | CExpr::Or(left, right) => constant(left) && constant(right),
-            CExpr::Arith { left, right, .. } | CExpr::Compare { left, right, .. } => constant(left) && constant(right),
-            CExpr::Regex { subject, pattern, .. } => {
-                constant(subject)
-                    && match pattern {
-                        RegexPattern::Static(_) => true,
-                        RegexPattern::Dynamic { expr, .. } => constant(expr),
-                    }
-            }
-            CExpr::InSet { needle, set, .. } => constant(needle) && constant(set),
-            CExpr::InList { needle, items, .. } => constant(needle) && items.iter().all(constant),
-            CExpr::IsNull { expr, .. } => constant(expr),
         }
     }
 }
@@ -736,5 +731,235 @@ pub(crate) fn arith_type(op: ArithOp, left: DataType, right: DataType) -> Option
         (Int | Decimal, Amount) if op == ArithOp::Mul => Some(Amount),
         (Amount, Amount) if matches!(op, ArithOp::Add | ArithOp::Sub) => Some(Amount),
         _ => None,
+    }
+}
+
+impl CExpr {
+    /// Rebuild this node with every direct child passed through `f` (used by the optimizer's
+    /// bottom-up rewrites).
+    pub(crate) fn map_children<E>(self, f: &mut impl FnMut(CExpr) -> Result<CExpr, E>) -> Result<CExpr, E> {
+        let boxed = |expr: Box<CExpr>, f: &mut dyn FnMut(CExpr) -> Result<CExpr, E>| f(*expr).map(Box::new);
+        Ok(match self {
+            leaf @ (CExpr::Const(_) | CExpr::Column(_) | CExpr::Param(_) | CExpr::Aggregate(_)) => leaf,
+            CExpr::Scalar { function, args, span } => CExpr::Scalar {
+                function,
+                args: args.into_iter().map(&mut *f).collect::<Result<_, _>>()?,
+                span,
+            },
+            CExpr::WidenInt(inner) => CExpr::WidenInt(boxed(inner, f)?),
+            CExpr::Neg(inner, span) => CExpr::Neg(boxed(inner, f)?, span),
+            CExpr::Not(inner) => CExpr::Not(boxed(inner, f)?),
+            CExpr::And(operands) => CExpr::And(operands.into_iter().map(&mut *f).collect::<Result<_, _>>()?),
+            CExpr::Or(operands) => CExpr::Or(operands.into_iter().map(&mut *f).collect::<Result<_, _>>()?),
+            CExpr::Arith { first, rest } => {
+                let first = boxed(first, f)?;
+                let mut steps = Vec::with_capacity(rest.len());
+                for step in rest {
+                    steps.push(ArithStep {
+                        op: step.op,
+                        operand: f(step.operand)?,
+                        span: step.span,
+                    });
+                }
+                CExpr::Arith { first, rest: steps }
+            }
+            CExpr::Compare { op, left, right } => CExpr::Compare {
+                op,
+                left: boxed(left, f)?,
+                right: boxed(right, f)?,
+            },
+            CExpr::Regex {
+                subject,
+                pattern,
+                case_insensitive,
+                negated,
+                span,
+                pattern_span,
+            } => CExpr::Regex {
+                subject: boxed(subject, f)?,
+                pattern: match pattern {
+                    RegexPattern::Dynamic(expr) => RegexPattern::Dynamic(boxed(expr, f)?),
+                    compiled => compiled,
+                },
+                case_insensitive,
+                negated,
+                span,
+                pattern_span,
+            },
+            CExpr::InSet { needle, set, negated } => CExpr::InSet {
+                needle: boxed(needle, f)?,
+                set: boxed(set, f)?,
+                negated,
+            },
+            CExpr::InList { needle, items, negated } => CExpr::InList {
+                needle: boxed(needle, f)?,
+                items: items.into_iter().map(&mut *f).collect::<Result<_, _>>()?,
+                negated,
+            },
+            CExpr::IsNull { expr, negated } => CExpr::IsNull {
+                expr: boxed(expr, f)?,
+                negated,
+            },
+        })
+    }
+
+    /// The direct children of this node.
+    pub(crate) fn children(&self) -> Vec<&CExpr> {
+        match self {
+            CExpr::Const(_) | CExpr::Column(_) | CExpr::Param(_) | CExpr::Aggregate(_) => vec![],
+            CExpr::Scalar { args, .. } => args.iter().collect(),
+            CExpr::WidenInt(inner) | CExpr::Neg(inner, _) | CExpr::Not(inner) => vec![inner],
+            CExpr::And(operands) | CExpr::Or(operands) => operands.iter().collect(),
+            CExpr::Arith { first, rest } => std::iter::once(first.as_ref()).chain(rest.iter().map(|step| &step.operand)).collect(),
+            CExpr::Compare { left, right, .. } => vec![left, right],
+            CExpr::Regex { subject, pattern, .. } => match pattern {
+                RegexPattern::Dynamic(expr) => vec![subject, expr],
+                RegexPattern::Compiled(_) => vec![subject],
+            },
+            CExpr::InSet { needle, set, .. } => vec![needle, set],
+            CExpr::InList { needle, items, .. } => std::iter::once(needle.as_ref()).chain(items.iter()).collect(),
+            CExpr::IsNull { expr, .. } => vec![expr],
+        }
+    }
+
+    /// Add the names of the columns this expression reads to `columns`.
+    pub(crate) fn collect_columns(&self, columns: &mut BTreeSet<&'static str>) {
+        if let CExpr::Column(def) = self {
+            columns.insert(def.name);
+        }
+        for child in self.children() {
+            child.collect_columns(columns);
+        }
+    }
+}
+
+impl Plan {
+    /// The `postings` columns read anywhere in the plan (targets, filter, aggregate
+    /// arguments), for a projection stage that only computes what is used.
+    pub(crate) fn referenced_columns(&self) -> BTreeSet<&'static str> {
+        let mut columns = BTreeSet::new();
+        for target in &self.targets {
+            target.expr.collect_columns(&mut columns);
+        }
+        for filter in self.filters.iter().chain(self.filter.as_ref()) {
+            filter.collect_columns(&mut columns);
+        }
+        for aggregate in &self.aggregates {
+            if let Some(arg) = &aggregate.arg {
+                arg.collect_columns(&mut columns);
+            }
+        }
+        columns
+    }
+}
+
+/// A compact, readable rendering used by `EXPLAIN`-style plan dumps.
+impl fmt::Display for CExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fn list(f: &mut fmt::Formatter<'_>, items: &[CExpr], separator: &str) -> fmt::Result {
+            for (idx, item) in items.iter().enumerate() {
+                if idx > 0 {
+                    f.write_str(separator)?;
+                }
+                write!(f, "{}", item)?;
+            }
+            Ok(())
+        }
+        match self {
+            CExpr::Const(Value::Str(it)) => write!(f, "'{}'", it),
+            CExpr::Const(Value::Date(it)) => write!(f, "{}", it),
+            CExpr::Const(value) => write!(f, "{}", value),
+            CExpr::Column(def) => f.write_str(def.name),
+            CExpr::Param(param) => write!(f, "{}", param),
+            CExpr::Scalar { function, args, .. } => {
+                write!(f, "{}(", function.name)?;
+                list(f, args, ", ")?;
+                f.write_str(")")
+            }
+            CExpr::Aggregate(idx) => write!(f, "agg#{}", idx),
+            CExpr::WidenInt(inner) => write!(f, "decimal({})", inner),
+            CExpr::Neg(inner, _) => write!(f, "-{}", inner),
+            CExpr::Not(inner) => write!(f, "NOT {}", inner),
+            CExpr::And(operands) => {
+                f.write_str("(")?;
+                list(f, operands, " AND ")?;
+                f.write_str(")")
+            }
+            CExpr::Or(operands) => {
+                f.write_str("(")?;
+                list(f, operands, " OR ")?;
+                f.write_str(")")
+            }
+            CExpr::Arith { first, rest } => {
+                write!(f, "({}", first)?;
+                for step in rest {
+                    write!(f, " {} {}", step.op.symbol(), step.operand)?;
+                }
+                f.write_str(")")
+            }
+            CExpr::Compare { op, left, right } => write!(f, "({} {} {})", left, op.symbol(), right),
+            CExpr::Regex {
+                subject,
+                pattern,
+                case_insensitive,
+                negated,
+                ..
+            } => {
+                let op = if *negated { "!~" } else { "~" };
+                match pattern {
+                    RegexPattern::Compiled(regex) => write!(f, "({} {} /{}/{})", subject, op, regex.as_str(), if *case_insensitive { "i" } else { "" }),
+                    RegexPattern::Dynamic(expr) => write!(f, "({} {} regex{}({}))", subject, op, if *case_insensitive { "_i" } else { "" }, expr),
+                }
+            }
+            CExpr::InSet { needle, set, negated } => write!(f, "({} {}IN {})", needle, if *negated { "NOT " } else { "" }, set),
+            CExpr::InList { needle, items, negated } => {
+                write!(f, "({} {}IN (", needle, if *negated { "NOT " } else { "" })?;
+                list(f, items, ", ")?;
+                f.write_str("))")
+            }
+            CExpr::IsNull { expr, negated } => write!(f, "({} IS {}NULL)", expr, if *negated { "NOT " } else { "" }),
+        }
+    }
+}
+
+/// An `EXPLAIN`-style dump of the plan, one clause per line.
+impl fmt::Display for Plan {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (idx, target) in self.targets.iter().enumerate() {
+            let hidden = if idx >= self.visible { " (hidden)" } else { "" };
+            writeln!(f, "target {}: {} = {} : {}{}", idx, target.name, target.expr, target.ty, hidden)?;
+        }
+        for (idx, aggregate) in self.aggregates.iter().enumerate() {
+            match &aggregate.arg {
+                Some(arg) => writeln!(f, "agg#{}: {}({})", idx, aggregate.function.name, arg)?,
+                None => writeln!(f, "agg#{}: {}(*)", idx, aggregate.function.name)?,
+            }
+        }
+        match &self.filter {
+            Some(filter) => writeln!(f, "filter: {}", filter)?,
+            None => {
+                for filter in &self.filters {
+                    writeln!(f, "filter: {}", filter)?;
+                }
+            }
+        }
+        if let Some(keys) = &self.group_keys {
+            writeln!(f, "group by: {:?}", keys)?;
+        }
+        if !self.order.is_empty() {
+            let order = self
+                .order
+                .iter()
+                .map(|(idx, descending)| format!("{} {}", idx, if *descending { "DESC" } else { "ASC" }))
+                .collect::<Vec<_>>();
+            writeln!(f, "order by: {}", order.join(", "))?;
+        }
+        if self.distinct {
+            writeln!(f, "distinct")?;
+        }
+        if let Some(limit) = self.limit {
+            writeln!(f, "limit: {}", limit)?;
+        }
+        Ok(())
     }
 }

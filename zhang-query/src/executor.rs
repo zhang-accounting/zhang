@@ -140,24 +140,15 @@ impl CExpr {
             CExpr::WidenInt(inner) => Ok(widen_int(inner.eval(env)?)),
             CExpr::Neg(inner, span) => negate(inner.eval(env)?, *span),
             CExpr::Not(inner) => Ok(not(inner.eval(env)?)),
-            CExpr::And(left, right) => {
-                let left = left.eval(env)?;
-                if matches!(left, Value::Bool(false)) {
-                    return Ok(Value::Bool(false));
+            CExpr::And(operands) => eval_logical(operands, false, env),
+            CExpr::Or(operands) => eval_logical(operands, true, env),
+            CExpr::Arith { first, rest } => {
+                let mut value = first.eval(env)?;
+                for step in rest {
+                    let operand = step.operand.eval(env)?;
+                    value = arithmetic(step.op, value, operand).map_err(|message| LocatedError::eval(message, Some(step.span)))?;
                 }
-                Ok(and(left, right.eval(env)?))
-            }
-            CExpr::Or(left, right) => {
-                let left = left.eval(env)?;
-                if matches!(left, Value::Bool(true)) {
-                    return Ok(Value::Bool(true));
-                }
-                Ok(or(left, right.eval(env)?))
-            }
-            CExpr::Arith { op, left, right, span } => {
-                let left = left.eval(env)?;
-                let right = right.eval(env)?;
-                arithmetic(*op, left, right).map_err(|message| LocatedError::eval(message, Some(*span)))
+                Ok(value)
             }
             CExpr::Compare { op, left, right } => {
                 let left = left.eval(env)?;
@@ -167,11 +158,13 @@ impl CExpr {
             CExpr::Regex {
                 subject,
                 pattern,
+                case_insensitive,
                 negated,
                 span,
+                ..
             } => {
                 let subject = subject.eval(env)?;
-                eval_regex(subject, pattern, *negated, *span, env)
+                eval_regex(subject, pattern, *case_insensitive, *negated, *span, env)
             }
             CExpr::InSet { needle, set, negated } => {
                 let needle = needle.eval(env)?;
@@ -226,20 +219,18 @@ fn not(value: Value) -> Value {
     }
 }
 
-fn and(left: Value, right: Value) -> Value {
-    match (left, right) {
-        (_, Value::Bool(false)) | (Value::Bool(false), _) => Value::Bool(false),
-        (Value::Bool(true), Value::Bool(true)) => Value::Bool(true),
-        _ => Value::Null,
+/// n-ary `AND` (`absorbing` FALSE) or `OR` (`absorbing` TRUE) with three-valued logic,
+/// evaluated left to right and stopping at the first absorbing operand.
+fn eval_logical(operands: &[CExpr], absorbing: bool, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
+    let mut saw_null = false;
+    for operand in operands {
+        match operand.eval(env)? {
+            Value::Bool(value) if value == absorbing => return Ok(Value::Bool(absorbing)),
+            Value::Bool(_) => {}
+            _ => saw_null = true,
+        }
     }
-}
-
-fn or(left: Value, right: Value) -> Value {
-    match (left, right) {
-        (_, Value::Bool(true)) | (Value::Bool(true), _) => Value::Bool(true),
-        (Value::Bool(false), Value::Bool(false)) => Value::Bool(false),
-        _ => Value::Null,
-    }
+    Ok(if saw_null { Value::Null } else { Value::Bool(!absorbing) })
 }
 
 fn compare(op: CmpOp, left: &Value, right: &Value) -> Value {
@@ -256,18 +247,18 @@ fn compare(op: CmpOp, left: &Value, right: &Value) -> Value {
     })
 }
 
-fn eval_regex(subject: Value, pattern: &RegexPattern, negated: bool, span: Span, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
+fn eval_regex(subject: Value, pattern: &RegexPattern, case_insensitive: bool, negated: bool, span: Span, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
     let Value::Str(subject) = subject else {
         return Ok(Value::Null);
     };
     let matched = match pattern {
-        RegexPattern::Static(regex) => regex.is_match(&subject),
-        RegexPattern::Dynamic { expr, case_insensitive } => {
+        RegexPattern::Compiled(regex) => regex.is_match(&subject),
+        RegexPattern::Dynamic(expr) => {
             let Value::Str(pattern) = expr.eval(env)? else {
                 return Ok(Value::Null);
             };
             env.regexes
-                .get(&pattern, *case_insensitive)
+                .get(&pattern, case_insensitive)
                 .map_err(|message| LocatedError::eval(message, Some(span)))?
                 .is_match(&subject)
         }

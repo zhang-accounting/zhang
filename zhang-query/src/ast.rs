@@ -22,12 +22,45 @@ pub(crate) enum UnaryOp {
     Not,
 }
 
+/// `AND` / `OR`, parsed into n-ary [`ExprKind::Logical`] nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BinaryOp {
+pub(crate) enum LogicalOp {
+    And,
+    Or,
+}
+
+impl LogicalOp {
+    pub fn symbol(&self) -> &'static str {
+        match self {
+            LogicalOp::And => "AND",
+            LogicalOp::Or => "OR",
+        }
+    }
+}
+
+/// Arithmetic operators, parsed into left-to-right [`ExprKind::Arith`] chains.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArithOp {
     Add,
     Sub,
     Mul,
     Div,
+}
+
+impl ArithOp {
+    pub fn symbol(&self) -> &'static str {
+        match self {
+            ArithOp::Add => "+",
+            ArithOp::Sub => "-",
+            ArithOp::Mul => "*",
+            ArithOp::Div => "/",
+        }
+    }
+}
+
+/// Comparison and match operators; these never chain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BinaryOp {
     Eq,
     Ne,
     Lt,
@@ -41,17 +74,11 @@ pub(crate) enum BinaryOp {
     /// `?~`: case-sensitive regular-expression search with the pattern on the LEFT
     /// (`'^Assets' ?~ account`), as in beanquery
     MatchCase,
-    And,
-    Or,
 }
 
 impl BinaryOp {
     pub fn symbol(&self) -> &'static str {
         match self {
-            BinaryOp::Add => "+",
-            BinaryOp::Sub => "-",
-            BinaryOp::Mul => "*",
-            BinaryOp::Div => "/",
             BinaryOp::Eq => "=",
             BinaryOp::Ne => "!=",
             BinaryOp::Lt => "<",
@@ -61,8 +88,6 @@ impl BinaryOp {
             BinaryOp::Match => "~",
             BinaryOp::NotMatch => "!~",
             BinaryOp::MatchCase => "?~",
-            BinaryOp::And => "AND",
-            BinaryOp::Or => "OR",
         }
     }
 }
@@ -88,7 +113,14 @@ pub(crate) enum ExprKind {
         star: bool,
     },
     Unary(UnaryOp, Box<Expr>),
+    /// a comparison or a match: `a = b`, `a ~ b`
     Binary(BinaryOp, Box<Expr>, Box<Expr>),
+    /// `a AND b AND ...` or `a OR b OR ...` with at least two operands; n-ary, so long
+    /// chains such as lists of accounts never nest
+    Logical(LogicalOp, Vec<Expr>),
+    /// `first op1 x1 op2 x2 ...` with at least one operator, evaluated left to right (operators
+    /// of one precedence level; higher-precedence chains are nested operands)
+    Arith(Box<Expr>, Vec<(ArithOp, Expr)>),
     In {
         needle: Box<Expr>,
         haystack: InTarget,
@@ -118,6 +150,8 @@ impl ExprKind {
             ExprKind::Call { args, .. } => max(args),
             ExprKind::Unary(_, inner) => inner.height,
             ExprKind::Binary(_, left, right) => left.height.max(right.height),
+            ExprKind::Logical(_, operands) => max(operands),
+            ExprKind::Arith(first, rest) => rest.iter().map(|(_, it)| it.height).max().unwrap_or(0).max(first.height),
             ExprKind::In { needle, haystack, .. } => needle.height.max(match haystack {
                 InTarget::List(items) => max(items),
                 InTarget::Expr(expr) => expr.height,
@@ -154,6 +188,10 @@ impl Expr {
             ) => a == b && a_star == b_star && same_list(a_args, b_args),
             (ExprKind::Unary(a_op, a), ExprKind::Unary(b_op, b)) => a_op == b_op && a.same_as(b),
             (ExprKind::Binary(a_op, a_l, a_r), ExprKind::Binary(b_op, b_l, b_r)) => a_op == b_op && a_l.same_as(b_l) && a_r.same_as(b_r),
+            (ExprKind::Logical(a_op, a), ExprKind::Logical(b_op, b)) => a_op == b_op && same_list(a, b),
+            (ExprKind::Arith(a_first, a_rest), ExprKind::Arith(b_first, b_rest)) => {
+                a_first.same_as(b_first) && a_rest.len() == b_rest.len() && a_rest.iter().zip(b_rest).all(|((a_op, a), (b_op, b))| a_op == b_op && a.same_as(b))
+            }
             (
                 ExprKind::In {
                     needle: a,

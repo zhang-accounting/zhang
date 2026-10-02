@@ -49,6 +49,7 @@ pub mod decimal;
 pub mod error;
 mod executor;
 pub mod functions;
+mod optimizer;
 pub mod params;
 mod parser;
 pub mod prices;
@@ -97,6 +98,7 @@ impl Query {
     pub fn compile_with_params(query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
         let select = parser::parse(query)?;
         let plan = compiler::compile(query, &select, params).map_err(|err| err.resolve(query))?;
+        let plan = optimizer::optimize(plan).map_err(|err| err.resolve(query))?;
         Ok(Query {
             source: query.to_owned(),
             plan,
@@ -106,6 +108,17 @@ impl Query {
     /// The query text.
     pub fn source(&self) -> &str {
         &self.source
+    }
+
+    /// An `EXPLAIN`-style description of the optimized plan: one line per target, aggregate,
+    /// the filter, grouping, ordering and limit.
+    pub fn explain(&self) -> String {
+        self.plan.to_string()
+    }
+
+    /// The `postings` columns the query reads, in name order.
+    pub fn referenced_columns(&self) -> Vec<&'static str> {
+        self.plan.referenced_columns().into_iter().collect()
     }
 
     /// The result columns.

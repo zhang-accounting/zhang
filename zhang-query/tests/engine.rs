@@ -479,7 +479,6 @@ fn deeply_nested_queries_are_rejected_without_crashing() {
         format!("SELECT {}1{}", "(".repeat(10_000), ")".repeat(10_000)),
         format!("SELECT count(*) WHERE {}TRUE", "NOT ".repeat(5_000)),
         format!("SELECT {}1", "- ".repeat(10_000)),
-        format!("SELECT 1{}", " - 1".repeat(10_000)),
         format!("SELECT {}1{}", "root(".repeat(5_000), ")".repeat(5_000)),
         format!("SELECT 1 IN {}1{}", "(".repeat(5_000), ")".repeat(5_000)),
         format!("SELECT {}1{}", "(".repeat(max + 1), ")".repeat(max + 1)),
@@ -510,7 +509,7 @@ fn nesting_up_to_the_limit_still_runs_on_a_small_stack() {
 }
 
 #[test]
-fn long_or_and_plus_chains_are_balanced() {
+fn long_operator_chains_are_flat() {
     // 10,000 chained ORs: a balanced tree, evaluated on a small stack
     let sql = format!("SELECT count(*) WHERE {}account = 'Assets:Bank'", ":n OR ".repeat(9_999));
     assert!(sql.len() < zhang_query::MAX_QUERY_LENGTH);
@@ -524,6 +523,11 @@ fn long_or_and_plus_chains_are_balanced() {
 
     let rows = run_on_small_stack(format!("SELECT 0{} LIMIT 1", " + 1".repeat(10_000)), Params::new()).unwrap();
     assert_eq!(rows, vec![vec![Value::Int(10_000)]]);
+    // non-associative chains are flat too, and evaluate left to right
+    let rows = run_on_small_stack(format!("SELECT 1{} LIMIT 1", " - 1".repeat(10_000)), Params::new()).unwrap();
+    assert_eq!(rows, vec![vec![Value::Int(-9_999)]]);
+    let rows = run_on_small_stack(format!("SELECT 2{} LIMIT 1", " * 2 / 2".repeat(5_000)), Params::new()).unwrap();
+    assert_eq!(rows, vec![vec![Value::Decimal(2.into())]]);
     let rows = run_on_small_stack(format!("SELECT count(*) WHERE TRUE{}", " AND TRUE".repeat(5_000)), Params::new()).unwrap();
     assert_eq!(rows, vec![vec![Value::Int(18)]]);
 }
@@ -587,4 +591,40 @@ fn metadata_functions_are_row_dependent_when_grouping() {
         vec![vec!["NULL", "16"], vec!["meal", "2"]]
     );
     assert_eq!(one("SELECT count(entry_meta('category'))"), "2");
+}
+
+#[test]
+fn explain_shows_the_optimized_plan() {
+    let query =
+        Query::compile("SELECT account, number * 2 AS double FROM year = 2024 WHERE account ~ ('^Ex' + 'penses') AND NOT NOT TRUE ORDER BY 2 DESC LIMIT 5")
+            .unwrap();
+    assert_eq!(
+        query.explain(),
+        "target 0: account = account : str\n\
+         target 1: double = (number * 2) : decimal\n\
+         filter: ((year = 2024) AND (account ~ /^Expenses/i))\n\
+         order by: 1 DESC\n\
+         limit: 5\n"
+    );
+    let grouped = Query::compile("SELECT root(account, 1) AS r, sum(position) WHERE TRUE OR payee IS NULL GROUP BY r").unwrap();
+    assert_eq!(
+        grouped.explain(),
+        "target 0: r = root(account, 1) : str\n\
+         target 1: sum(position) = agg#0 : inventory\n\
+         agg#0: sum(position)\n\
+         group by: [0]\n"
+    );
+    // a thousand ORs are one flat node
+    let sql = format!("SELECT count(*) WHERE {}account = 'x'", "account = 'y' OR ".repeat(999));
+    let explain = Query::compile(&sql).unwrap().explain();
+    assert_eq!(explain.matches(" OR ").count(), 999);
+    assert!(explain.contains("filter: ((account = 'y') OR "));
+}
+
+#[test]
+fn plans_expose_the_columns_they_read() {
+    let query = Query::compile("SELECT account, sum(position) WHERE year = 2024 AND 'x' IN tags GROUP BY account ORDER BY count(*)").unwrap();
+    assert_eq!(query.referenced_columns(), vec!["account", "position", "tags", "year"]);
+    let query = Query::compile("SELECT count(*)").unwrap();
+    assert!(query.referenced_columns().is_empty());
 }
