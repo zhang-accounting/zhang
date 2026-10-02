@@ -1126,6 +1126,7 @@ export interface operations {
         content: {
           'application/json': {
             data: {
+              /** @description the columns of the `postings` table, the default table */
               columns: {
                 description: string;
                 name: string;
@@ -1139,6 +1140,18 @@ export interface operations {
                 name: string;
                 /** @description e.g. `root(str, int) -> str` */
                 signature: string;
+              }[];
+              /** @description every table, `postings` first */
+              tables: {
+                columns: {
+                  description: string;
+                  name: string;
+                  /** @enum {string} */
+                  type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory';
+                }[];
+                description: string;
+                /** @description the table name, without `#` */
+                name: string;
               }[];
             };
           };

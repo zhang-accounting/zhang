@@ -55,18 +55,6 @@ export interface QueryError {
   column: number | null;
 }
 export type QuerySchema = FetchReturnType<typeof retrieveQuerySchema>['data'];
-// TEMPORARY(qp3): hand-written until the backend's `tables` field of `GET /api/query/schema` lands and
-// `pnpm run api` regenerates schemas.ts. Then derive these from `QuerySchema` and drop `QuerySchemaWithTables`.
-export interface QueryTableColumnDoc {
-  name: string;
-  type: string;
-  description: string;
-}
-export interface QueryTableDoc {
-  /** the table name without `#`, e.g. `prices` for `FROM #prices` */
-  name: string;
-  description: string;
-  columns: QueryTableColumnDoc[];
-}
-export type QuerySchemaWithTables = QuerySchema & { tables?: QueryTableDoc[] };
+export type QueryTableDoc = QuerySchema['tables'][number];
+export type QueryTableColumnDoc = QueryTableDoc['columns'][number];
 export type SavedQuery = FetchReturnType<typeof retrieveSavedQueries>['data'][number];

@@ -1,5 +1,5 @@
 import { retrieveQuerySchema } from '@/api/requests';
-import { QuerySchemaWithTables, QueryTableColumnDoc, QueryTableDoc } from '@/api/types';
+import { QueryTableColumnDoc, QueryTableDoc } from '@/api/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,13 +41,6 @@ function ReferenceItem({
       {description && <p className="text-xs text-muted-foreground">{description}</p>}
     </button>
   );
-}
-
-/** The tables of the schema, the default table first. */
-function tablesOf(schema: QuerySchemaWithTables): QueryTableDoc[] {
-  // TEMPORARY(qp3): a backend without `tables` only has the default table, whose columns are `columns`.
-  const tables = schema.tables ?? [{ name: DEFAULT_TABLE, description: '', columns: schema.columns }];
-  return [...tables].sort((a, b) => Number(b.name === DEFAULT_TABLE) - Number(a.name === DEFAULT_TABLE));
 }
 
 interface TableGroupProps {
@@ -127,13 +120,14 @@ export default function QueryReference({ onInsert }: Props) {
     value: schema,
   } = useAsync(async () => {
     const res = await retrieveQuerySchema({});
-    return res.data.data as QuerySchemaWithTables;
+    return res.data.data;
   }, []);
 
   const keyword = filter.trim().toLowerCase();
   const matches = (...texts: string[]) => keyword === '' || texts.some((text) => text.toLowerCase().includes(keyword));
-  // a table matching the filter lists all its columns, any other table only its matching columns
-  const tables = (schema ? tablesOf(schema) : []).flatMap((table) => {
+  // the tables come default table first; a table matching the filter lists all its columns, any other table only its
+  // matching columns
+  const tables = (schema?.tables ?? []).flatMap((table) => {
     const tableMatches = matches(table.name, `#${table.name}`, table.description);
     const columns = tableMatches ? table.columns : table.columns.filter((column) => matches(column.name, column.description));
     return tableMatches || columns.length > 0 ? [{ table, columns }] : [];
