@@ -25,8 +25,8 @@ use zhang_core::inventory::BookingMethod;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{Store, TransactionDomain};
 
+use super::{Borrow, ColumnDef, Dataset, Get, Reads, POSTINGS};
 use crate::decimal;
-use crate::prices::PriceMap;
 use crate::projector::Projection;
 use crate::value::{Cost, DataType, Inventory, Position, Value};
 
@@ -53,20 +53,6 @@ pub(crate) struct Row<'a> {
     /// per-unit price annotation; only kept when the projection reads it
     /// ([`Projection::keeps_price`]), otherwise always `None`
     pub price: Option<Cow<'a, Amount>>,
-}
-
-/// The rows of one query execution plus lazily built lookup structures.
-///
-/// The rows only carry what [`Dataset::projection`] reads: evaluating a column outside of
-/// it would see a pruned (empty) cost or price.
-pub(crate) struct Dataset<'a> {
-    pub entries: Vec<Entry<'a>>,
-    pub rows: Vec<Row<'a>>,
-    pub today: NaiveDate,
-    pub projection: Projection,
-    store: &'a Store,
-    prices: OnceCell<PriceMap>,
-    store_meta: OnceCell<HashMap<&'a str, Vec<(&'a str, &'a str)>>>,
 }
 
 /// The cost specification (`{...}`) of a posting before lot booking.
@@ -154,8 +140,10 @@ impl<'a> Dataset<'a> {
         let rows = book(drafts, ledger, store, projection.keeps_cost());
 
         Dataset {
+            table: &POSTINGS,
             entries,
             rows,
+            records: vec![],
             today,
             projection,
             store,
@@ -166,10 +154,6 @@ impl<'a> Dataset<'a> {
 
     pub fn entry(&self, row: &Row<'_>) -> &Entry<'a> {
         &self.entries[row.entry]
-    }
-
-    pub fn prices(&self) -> &PriceMap {
-        self.prices.get_or_init(|| PriceMap::from_prices(&self.store.prices))
     }
 
     /// Posting-level metadata `key` of the row, as a string.
@@ -422,53 +406,6 @@ fn book<'a>(drafts: Vec<Draft<'a>>, ledger: &Ledger, store: &Store, keep_cost: b
     rows
 }
 
-/// A column of the `postings` table.
-pub struct ColumnDef {
-    pub name: &'static str,
-    pub ty: DataType,
-    pub description: &'static str,
-    pub(crate) get: fn(&Dataset<'_>, &Row<'_>) -> Value,
-    /// the parts of a booked row the column reads besides its posting and transaction, so
-    /// the projector builds them only for plans that use the column
-    pub(crate) reads: Reads,
-    /// how predicates can read the column in place, without copying it into a [`Value`]
-    pub(crate) borrow: Borrow,
-}
-
-impl std::fmt::Debug for ColumnDef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.name, self.ty)
-    }
-}
-
-/// The parts of a booked row that only some columns read (see [`Row::cost`], [`Row::price`]).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct Reads {
-    /// the cost of the posting's lot
-    pub cost: bool,
-    /// the price annotation of the posting
-    pub price: bool,
-}
-
-impl Reads {
-    /// only the posting and its transaction
-    const POSTING: Reads = Reads { cost: false, price: false };
-    const COST: Reads = Reads { cost: true, price: false };
-    const PRICE: Reads = Reads { cost: false, price: true };
-    const COST_AND_PRICE: Reads = Reads { cost: true, price: true };
-}
-
-/// In-place access to a column, for predicates that only inspect the value.
-#[derive(Clone, Copy)]
-pub(crate) enum Borrow {
-    /// the column is only available as a [`Value`]
-    No,
-    /// a string column, read without copying; `None` is NULL. `get` returns the same string.
-    Str(for<'r> fn(&'r Dataset<'_>, &'r Row<'_>) -> Option<&'r str>),
-    /// a set column, as a membership test that does not build the set
-    Contains(fn(&Dataset<'_>, &Row<'_>, &str) -> bool),
-}
-
 /// The `balance` column. The executor evaluates it as a running sum (see
 /// [`crate::compiler::CExpr::Running`]); its [`ColumnDef::get`] is the row's own
 /// contribution.
@@ -543,7 +480,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "date",
         ty: DataType::Date,
         description: "Date of the transaction.",
-        get: |data, row| Value::Date(data.entry(row).date),
+        get: Get::Posting(|data, row| Value::Date(data.entry(row).date)),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -551,7 +488,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "year",
         ty: DataType::Int,
         description: "Year of the transaction date.",
-        get: |data, row| Value::Int(data.entry(row).date.year() as i64),
+        get: Get::Posting(|data, row| Value::Int(data.entry(row).date.year() as i64)),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -559,7 +496,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "month",
         ty: DataType::Int,
         description: "Month (1-12) of the transaction date.",
-        get: |data, row| Value::Int(data.entry(row).date.month() as i64),
+        get: Get::Posting(|data, row| Value::Int(data.entry(row).date.month() as i64)),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -567,7 +504,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "day",
         ty: DataType::Int,
         description: "Day of month of the transaction date.",
-        get: |data, row| Value::Int(data.entry(row).date.day() as i64),
+        get: Get::Posting(|data, row| Value::Int(data.entry(row).date.day() as i64)),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -575,7 +512,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "flag",
         ty: DataType::Str,
         description: "Flag of the transaction: '*', '!', or 'P' for padding.",
-        get: |data, row| Value::Str(data.entry(row).txn.flag.to_string()),
+        get: Get::Posting(|data, row| Value::Str(data.entry(row).txn.flag.to_string())),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -583,7 +520,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "payee",
         ty: DataType::Str,
         description: "Payee of the transaction.",
-        get: |data, row| opt_str(payee(data, row)),
+        get: Get::Posting(|data, row| opt_str(payee(data, row))),
         reads: Reads::POSTING,
         borrow: Borrow::Str(payee),
     },
@@ -591,7 +528,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "narration",
         ty: DataType::Str,
         description: "Narration of the transaction; '' when absent (as in beancount).",
-        get: |data, row| opt_str(narration(data, row)),
+        get: Get::Posting(|data, row| opt_str(narration(data, row))),
         reads: Reads::POSTING,
         borrow: Borrow::Str(narration),
     },
@@ -599,7 +536,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "description",
         ty: DataType::Str,
         description: "Payee and narration joined with ' | ' (whichever are present).",
-        get: |data, row| {
+        get: Get::Posting(|data, row| {
             let txn = &data.entry(row).txn;
             let parts = [txn.payee.as_deref(), txn.narration.as_deref()]
                 .into_iter()
@@ -607,7 +544,7 @@ pub static COLUMNS: &[ColumnDef] = &[
                 .filter(|it| !it.is_empty())
                 .collect::<Vec<_>>();
             Value::Str(parts.join(" | "))
-        },
+        }),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -615,7 +552,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "tags",
         ty: DataType::Set,
         description: "Tags of the transaction.",
-        get: |data, row| set_of(&data.entry(row).txn.tags),
+        get: Get::Posting(|data, row| set_of(&data.entry(row).txn.tags)),
         reads: Reads::POSTING,
         borrow: Borrow::Contains(|data, row, tag| data.entry(row).txn.tags.iter().any(|it| it == tag)),
     },
@@ -623,7 +560,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "links",
         ty: DataType::Set,
         description: "Links of the transaction.",
-        get: |data, row| set_of(&data.entry(row).txn.links),
+        get: Get::Posting(|data, row| set_of(&data.entry(row).txn.links)),
         reads: Reads::POSTING,
         borrow: Borrow::Contains(|data, row, link| data.entry(row).txn.links.iter().any(|it| it == link)),
     },
@@ -631,7 +568,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "id",
         ty: DataType::Str,
         description: "Unique id of the transaction.",
-        get: |data, row| Value::Str(data.entry(row).txn.id.to_string()),
+        get: Get::Posting(|data, row| Value::Str(data.entry(row).txn.id.to_string())),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -639,7 +576,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "account",
         ty: DataType::Str,
         description: "Account of the posting.",
-        get: |data, row| opt_str(account(data, row)),
+        get: Get::Posting(|data, row| opt_str(account(data, row))),
         reads: Reads::POSTING,
         borrow: Borrow::Str(account),
     },
@@ -647,7 +584,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "number",
         ty: DataType::Decimal,
         description: "Number of units of the posting.",
-        get: |_, row| Value::Decimal(row.units.number.clone()),
+        get: Get::Posting(|_, row| Value::Decimal(row.units.number.clone())),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -655,7 +592,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "currency",
         ty: DataType::Str,
         description: "Currency of the units of the posting.",
-        get: |data, row| opt_str(currency(data, row)),
+        get: Get::Posting(|data, row| opt_str(currency(data, row))),
         reads: Reads::POSTING,
         borrow: Borrow::Str(currency),
     },
@@ -663,7 +600,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "position",
         ty: DataType::Position,
         description: "Units and cost of the posting.",
-        get: |_, row| Value::Position(position(row)),
+        get: Get::Posting(|_, row| Value::Position(position(row))),
         reads: Reads::COST,
         borrow: Borrow::No,
     },
@@ -671,7 +608,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "cost_number",
         ty: DataType::Decimal,
         description: "Per-unit cost number of the posting's lot.",
-        get: |_, row| row.cost.as_ref().map(|cost| Value::Decimal(cost.number.clone())).unwrap_or(Value::Null),
+        get: Get::Posting(|_, row| row.cost.as_ref().map(|cost| Value::Decimal(cost.number.clone())).unwrap_or(Value::Null)),
         reads: Reads::COST,
         borrow: Borrow::No,
     },
@@ -679,7 +616,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "cost_currency",
         ty: DataType::Str,
         description: "Cost currency of the posting's lot.",
-        get: |data, row| opt_str(cost_currency(data, row)),
+        get: Get::Posting(|data, row| opt_str(cost_currency(data, row))),
         reads: Reads::COST,
         borrow: Borrow::Str(cost_currency),
     },
@@ -687,7 +624,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "cost_date",
         ty: DataType::Date,
         description: "Acquisition date of the posting's lot.",
-        get: |_, row| row.cost.as_ref().and_then(|cost| cost.date).map(Value::Date).unwrap_or(Value::Null),
+        get: Get::Posting(|_, row| row.cost.as_ref().and_then(|cost| cost.date).map(Value::Date).unwrap_or(Value::Null)),
         reads: Reads::COST,
         borrow: Borrow::No,
     },
@@ -695,7 +632,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "cost_label",
         ty: DataType::Str,
         description: "Label of the posting's lot; '' when the posting has no cost (as in beanquery).",
-        get: |data, row| opt_str(cost_label(data, row)),
+        get: Get::Posting(|data, row| opt_str(cost_label(data, row))),
         reads: Reads::COST,
         borrow: Borrow::Str(cost_label),
     },
@@ -703,7 +640,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "price",
         ty: DataType::Amount,
         description: "Per-unit price annotation (@ or @@) of the posting.",
-        get: |_, row| row.price.as_ref().map(|price| Value::Amount(price.as_ref().clone())).unwrap_or(Value::Null),
+        get: Get::Posting(|_, row| row.price.as_ref().map(|price| Value::Amount(price.as_ref().clone())).unwrap_or(Value::Null)),
         reads: Reads::PRICE,
         borrow: Borrow::No,
     },
@@ -711,7 +648,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "weight",
         ty: DataType::Amount,
         description: "Amount the posting contributes to the transaction balance: units × cost, else units × price, else units.",
-        get: |_, row| Value::Amount(weight(row)),
+        get: Get::Posting(|_, row| Value::Amount(weight(row))),
         reads: Reads::COST_AND_PRICE,
         borrow: Borrow::No,
     },
@@ -719,7 +656,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "other_accounts",
         ty: DataType::Set,
         description: "Accounts of the other postings of the transaction.",
-        get: |data, row| Value::Set(other_accounts(data, row).map(str::to_owned).collect()),
+        get: Get::Posting(|data, row| Value::Set(other_accounts(data, row).map(str::to_owned).collect())),
         reads: Reads::POSTING,
         borrow: Borrow::Contains(|data, row, account| other_accounts(data, row).any(|it| it == account)),
     },
@@ -728,12 +665,8 @@ pub static COLUMNS: &[ColumnDef] = &[
         ty: DataType::Inventory,
         description: "Running balance: the sum of the positions of the rows produced so far, in ledger order after FROM and WHERE, \
                       including this one; not allowed in FROM or WHERE.",
-        get: |_, row| Value::Inventory(Inventory::from_iter([position(row)])),
+        get: Get::Posting(|_, row| Value::Inventory(Inventory::from_iter([position(row)]))),
         reads: Reads::COST,
         borrow: Borrow::No,
     },
 ];
-
-pub(crate) fn column(name: &str) -> Option<&'static ColumnDef> {
-    COLUMNS.iter().find(|it| it.name.eq_ignore_ascii_case(name))
-}

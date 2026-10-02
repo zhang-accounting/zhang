@@ -361,3 +361,49 @@ mod result_limit_test {
         }
     }
 }
+
+#[cfg(test)]
+mod schema_test {
+    use axum::response::IntoResponse;
+    use gotcha::Schematic;
+
+    use super::get_query_schema;
+    use crate::response::QuerySchemaEntity;
+
+    #[tokio::test]
+    async fn the_schema_lists_every_table_with_its_columns() {
+        let response = get_query_schema().await.into_response();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let schema = &body["data"];
+        assert!(!schema["functions"].as_array().unwrap().is_empty());
+
+        let tables = schema["tables"].as_array().unwrap();
+        // postings comes first, with the same columns as the top-level `columns`
+        assert_eq!(tables[0]["name"], "postings");
+        assert_eq!(tables[0]["columns"], schema["columns"]);
+        assert!(tables.iter().any(|table| table["name"] == "prices"));
+        for table in tables {
+            let name = table["name"].as_str().unwrap();
+            assert!(!name.starts_with('#') && !name.is_empty(), "{}", name);
+            assert!(!table["description"].as_str().unwrap().is_empty(), "{}", name);
+            let columns = table["columns"].as_array().unwrap();
+            assert!(!columns.is_empty(), "{}", name);
+            for column in columns {
+                assert_eq!(column.as_object().unwrap().len(), 3, "{}: {}", name, column);
+                for field in ["name", "type", "description"] {
+                    assert!(!column[field].as_str().unwrap().is_empty(), "{}: {}", name, column);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_openapi_schema_declares_the_tables() {
+        let schema = serde_json::to_value(QuerySchemaEntity::generate_schema().schema).unwrap();
+        assert_eq!(schema["required"], serde_json::json!(["columns", "functions", "tables"]));
+        let table = &schema["properties"]["tables"]["items"];
+        assert_eq!(table["required"], serde_json::json!(["name", "description", "columns"]));
+        assert_eq!(table["properties"]["columns"]["type"], "array");
+    }
+}

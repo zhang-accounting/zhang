@@ -120,6 +120,7 @@ pub(crate) fn balances(keyword: Span, at: Option<AtFunction>, where_clause: Opti
                 alias: Some(format!("sum({})", name)),
             },
         ]),
+        table: None,
         from: None,
         period: None,
         where_clause,
@@ -154,6 +155,7 @@ pub(crate) fn journal(keyword: Span, account: Option<Expr>, at: Option<AtFunctio
     Select {
         distinct: false,
         targets: Targets::List(targets),
+        table: None,
         from: None,
         period: None,
         where_clause,

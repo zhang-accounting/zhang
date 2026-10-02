@@ -138,16 +138,21 @@ impl Query {
         &self.source
     }
 
-    /// An `EXPLAIN`-style description of the optimized plan: one line per target, aggregate,
-    /// the filter, grouping, ordering and limit, then the projected columns (the only ones
-    /// an execution computes).
+    /// An `EXPLAIN`-style description of the optimized plan: the table (unless it is the
+    /// default `postings`), one line per target, aggregate, the filter, grouping, ordering and
+    /// limit, then the projected columns of the table (the only ones an execution computes).
     pub fn explain(&self) -> String {
         format!("{}project: {}\n", self.plan, self.projection)
     }
 
-    /// The `postings` columns the query reads, in name order.
+    /// The columns of the query's [table](Query::table) it reads, in name order.
     pub fn referenced_columns(&self) -> Vec<&'static str> {
         self.plan.referenced_columns().into_iter().collect()
+    }
+
+    /// The name of the table the query reads (`FROM #name`), `postings` by default.
+    pub fn table(&self) -> &'static str {
+        self.plan.table.name
     }
 
     /// The result columns.
@@ -225,7 +230,7 @@ impl Query {
             .map_err(|_| QueryError::new(QueryErrorKind::Eval, "the ledger store is not readable"))?;
         let equity;
         let data = match &period {
-            None => table::Dataset::new(ledger, &store, today, self.projection),
+            None => table::Dataset::build(ledger, &store, today, self.projection),
             Some(period) => {
                 equity = period::EquityAccounts::from_options(&store.options);
                 let data = table::Dataset::new(ledger, &store, today, self.projection.with_cost());
@@ -290,12 +295,21 @@ pub fn execute_with_params(ledger: &Ledger, query: &str, params: &Params) -> Res
     Query::compile_with_params(query, &params.types())?.execute(ledger, params)
 }
 
-/// A column of the `postings` table, for documentation.
+/// A column of a table, for documentation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnDoc {
     pub name: &'static str,
     pub ty: DataType,
     pub description: &'static str,
+}
+
+/// A table a query can read with `FROM #name`, for documentation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableDoc {
+    /// the name, without `#`
+    pub name: &'static str,
+    pub description: &'static str,
+    pub columns: Vec<ColumnDoc>,
 }
 
 /// One function overload, for documentation.
@@ -308,21 +322,37 @@ pub struct FunctionDoc {
     pub aggregate: bool,
 }
 
-/// The queryable columns and functions, generated from the engine's registries.
+/// The queryable tables, columns and functions, generated from the engine's registries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Schema {
+    /// the columns of the `postings` table, the default table
     pub columns: Vec<ColumnDoc>,
     pub functions: Vec<FunctionDoc>,
+    /// every table, `postings` first
+    pub tables: Vec<TableDoc>,
 }
 
-/// Describe the `postings` table and every function overload.
-pub fn schema() -> Schema {
-    let columns = table::COLUMNS
+fn column_docs(table: &table::Table) -> Vec<ColumnDoc> {
+    table
+        .columns
         .iter()
         .map(|column| ColumnDoc {
             name: column.name,
             ty: column.ty,
             description: column.description,
+        })
+        .collect()
+}
+
+/// Describe every table and every function overload.
+pub fn schema() -> Schema {
+    let columns = column_docs(&table::POSTINGS);
+    let tables = table::tables()
+        .iter()
+        .map(|table| TableDoc {
+            name: table.name,
+            description: table.description,
+            columns: column_docs(table),
         })
         .collect();
     let aggregates = functions::aggregates::AGGREGATE_FUNCTIONS.iter().map(|function| FunctionDoc {
@@ -340,5 +370,6 @@ pub fn schema() -> Schema {
     Schema {
         columns,
         functions: aggregates.chain(scalars).collect(),
+        tables,
     }
 }

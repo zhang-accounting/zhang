@@ -414,8 +414,12 @@ fn aggregates_over_zero_rows_return_zero_rows() {
 #[test]
 fn from_is_anded_with_where() {
     assert_eq!(one("SELECT count(*) FROM month = 1 WHERE account ~ 'Food'"), "2");
-    let err = error("SELECT * FROM postings");
-    assert!(err.message.contains("FROM <expression>"), "{}", err);
+    // FROM names the default table explicitly, with or without '#'
+    assert_eq!(query("SELECT * FROM postings"), query("SELECT *"));
+    assert_eq!(
+        query("SELECT * FROM #postings WHERE account ~ 'Food'"),
+        query("SELECT * WHERE account ~ 'Food'")
+    );
 }
 
 #[test]

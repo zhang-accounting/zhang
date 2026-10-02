@@ -16,7 +16,7 @@ use crate::functions::aggregates::{is_aggregate, resolve_aggregate};
 use crate::functions::{resolve_scalar, AggregateFunction, ScalarFunction};
 use crate::params::{ParamRef, ParamTypes};
 use crate::period::{Period, PeriodDate};
-use crate::table::{column, ColumnDef, BALANCE_COLUMN, WILDCARD_COLUMNS};
+use crate::table::{self, ColumnDef, Table, BALANCE_COLUMN, POSTINGS};
 use crate::value::{DataType, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,7 +198,7 @@ pub(crate) struct Execution {
 
 impl Execution {
     pub fn naive(plan: &Plan) -> Execution {
-        let running_balance = plan.referenced_columns().contains(BALANCE_COLUMN);
+        let running_balance = plan.table.is_postings() && plan.referenced_columns().contains(BALANCE_COLUMN);
         Execution {
             running: RunningPlan {
                 eager: running_balance,
@@ -231,6 +231,8 @@ pub(crate) struct PlannedTarget {
 }
 
 pub(crate) struct Plan {
+    /// the table the query reads (`FROM #name`; `postings` by default)
+    pub table: &'static Table,
     /// visible targets first, then hidden ones added by GROUP BY / ORDER BY
     pub targets: Vec<PlannedTarget>,
     pub visible: usize,
@@ -272,6 +274,8 @@ struct ExprInfo {
 
 struct Compiler<'q> {
     src: &'q str,
+    /// the table whose columns the query's names resolve to
+    table: &'static Table,
     param_types: &'q ParamTypes,
     aggregates: Vec<AggregateCall>,
     params: Vec<(ParamRef, DataType, Span)>,
@@ -280,8 +284,24 @@ struct Compiler<'q> {
 type Typed = (CExpr, DataType);
 
 pub(crate) fn compile(src: &str, select: &Select, param_types: &ParamTypes) -> Result<Plan, LocatedError> {
+    let table = match &select.table {
+        None => &POSTINGS,
+        Some(name) => match table::find(&name.name) {
+            Some(table) => table,
+            None => {
+                let names = table::tables().iter().map(|table| format!("#{}", table.name)).collect::<Vec<_>>();
+                let what = if name.bare {
+                    format!("unknown column or table '{}'", name.name)
+                } else {
+                    format!("unknown table '#{}'", name.name)
+                };
+                return err(format!("{}; the tables are {}", what, names.join(", ")), name.span);
+            }
+        },
+    };
     let mut compiler = Compiler {
         src,
+        table,
         param_types,
         aggregates: vec![],
         params: vec![],
@@ -310,7 +330,9 @@ impl Compiler<'_> {
     fn plan(&mut self, select: &Select) -> Result<Plan, LocatedError> {
         // targets
         let target_exprs: Vec<(Expr, Option<String>)> = match &select.targets {
-            Targets::Wildcard => WILDCARD_COLUMNS
+            Targets::Wildcard => self
+                .table
+                .wildcard
                 .iter()
                 .map(|name| (Expr::new(ExprKind::Column((*name).to_owned()), Span::default()), Some((*name).to_owned())))
                 .collect(),
@@ -410,6 +432,7 @@ impl Compiler<'_> {
         };
 
         let mut plan = Plan {
+            table: self.table,
             targets,
             visible,
             period,
@@ -522,7 +545,7 @@ impl Compiler<'_> {
         Ok(match &expr.kind {
             ExprKind::Literal(literal) => return Ok(literal_value(literal)),
             ExprKind::Param(param) => return self.param(param, span),
-            ExprKind::Column(name) => return column_ref(name, span, mode, info),
+            ExprKind::Column(name) => return column_ref(self.table, name, span, mode, info),
             ExprKind::Call { name, args, star } => self.call(name, args, *star, span, mode, info)?,
             ExprKind::Unary(op, inner) => {
                 let operand = self.expr(inner, mode, info)?;
@@ -779,13 +802,13 @@ fn literal_value(literal: &Literal) -> Typed {
     }
 }
 
-fn column_ref(name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
-    match column(name) {
+fn column_ref(table: &'static Table, name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+    match table.column(name) {
         Some(def) => {
             if info.bare_column.is_none() {
                 info.bare_column = Some((def.name.to_owned(), span));
             }
-            if def.name != BALANCE_COLUMN {
+            if !(table.is_postings() && def.name == BALANCE_COLUMN) {
                 return Ok((CExpr::Column(def), def.ty));
             }
             if let Mode::Row(clause @ ("FROM" | "WHERE")) = mode {
@@ -802,7 +825,15 @@ fn column_ref(name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result
             } else {
                 String::new()
             };
-            err(format!("unknown column '{}'{}", name, hint), span)
+            if table.is_postings() {
+                err(format!("unknown column '{}'{}", name, hint), span)
+            } else {
+                let columns = table.columns.iter().map(|column| column.name).collect::<Vec<_>>();
+                err(
+                    format!("unknown column '{}' in #{} (its columns are {}){}", name, table.name, columns.join(", "), hint),
+                    span,
+                )
+            }
         }
     }
 }
@@ -1011,7 +1042,7 @@ impl CExpr {
 }
 
 impl Plan {
-    /// The `postings` columns read anywhere in the plan (targets, filter, aggregate
+    /// The columns of the plan's table read anywhere in the plan (targets, filter, aggregate
     /// arguments), for a projection stage that only computes what is used.
     pub(crate) fn referenced_columns(&self) -> BTreeSet<&'static str> {
         let mut columns = BTreeSet::new();
@@ -1100,9 +1131,13 @@ impl fmt::Display for CExpr {
     }
 }
 
-/// An `EXPLAIN`-style dump of the plan, one clause per line.
+/// An `EXPLAIN`-style dump of the plan, one clause per line. The first line names the table,
+/// unless the plan reads the default `postings` table.
 impl fmt::Display for Plan {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if !self.table.is_postings() {
+            writeln!(f, "table: #{}", self.table.name)?;
+        }
         for (idx, target) in self.targets.iter().enumerate() {
             let hidden = if idx >= self.visible { " (hidden)" } else { "" };
             writeln!(f, "target {}: {} = {} : {}{}", idx, target.name, target.expr, target.ty, hidden)?;

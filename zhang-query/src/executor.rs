@@ -21,7 +21,7 @@ use crate::params::Params;
 use crate::prices::PriceMap;
 use crate::projector::{borrowed_str, set_membership};
 use crate::running::RunningState;
-use crate::table::{Dataset, Row};
+use crate::table::{Dataset, RowRef};
 use crate::value::{Inventory, Position, Value};
 
 /// How many rows are scanned between two deadline checks.
@@ -59,7 +59,7 @@ pub(crate) struct Env<'e, 'a> {
     /// the rows and lookups of this execution; `None` while folding constants at compile time
     pub data: Option<&'e Dataset<'a>>,
     /// the current row; `None` when evaluating finished aggregates
-    pub row: Option<&'e Row<'a>>,
+    pub row: Option<RowRef<'e, 'a>>,
     /// finished aggregate values of the current group
     pub aggregates: &'e [Value],
     /// the running totals including the current row, when the plan reads them
@@ -98,12 +98,12 @@ impl FunctionContext for Env<'_, '_> {
 
     fn entry_meta(&self, key: &str) -> Option<String> {
         self.impure.set(self.impure.get() || self.data.is_none());
-        self.data.zip(self.row).and_then(|(data, row)| data.entry_meta(row, key))
+        self.data.zip(self.row).and_then(|(data, row)| data.row_entry_meta(row, key))
     }
 
     fn posting_meta(&self, key: &str) -> Option<String> {
         self.impure.set(self.impure.get() || self.data.is_none());
-        self.data.zip(self.row).and_then(|(data, row)| data.posting_meta(row, key))
+        self.data.zip(self.row).and_then(|(data, row)| data.row_meta(row, key))
     }
 }
 
@@ -139,7 +139,7 @@ impl CExpr {
             CExpr::Column(def) => match (env.data, env.row) {
                 (Some(data), Some(row)) => {
                     debug_assert!(data.projection.contains(def), "column '{}' is not projected", def.name);
-                    Ok((def.get)(data, row))
+                    Ok(def.value(data, row))
                 }
                 _ => Err(LocatedError::eval(format!("column '{}' is not available here", def.name), None)),
             },
@@ -736,8 +736,10 @@ impl<'x, 'a> Execution<'x, 'a> {
         let mut next = 0;
         for (ordinal, idx) in filtered[..=last].iter().enumerate() {
             Deadline::check(self.deadline, ordinal)?;
-            let row = &self.data.rows[*idx];
-            running.add(row);
+            let row = self.data.row(*idx);
+            if let RowRef::Posting(posting) = row {
+                running.add(posting);
+            }
             let env = Env {
                 row: Some(row),
                 running: Some(&running),
@@ -800,7 +802,7 @@ pub(crate) fn execute_within(
             };
             // DISTINCT without ORDER BY tells rows apart while scanning
             let mut seen = (plan.distinct && strategy.limit == LimitMode::StopScan).then(HashSet::new);
-            for (counter, row) in data.rows.iter().enumerate() {
+            for (counter, row) in data.iter().enumerate() {
                 Deadline::check(execution.deadline, counter)?;
                 if stop_at.is_some_and(|limit| collector.len() >= limit) {
                     break;
@@ -810,8 +812,8 @@ pub(crate) fn execute_within(
                     continue;
                 }
                 let ordinal = filtered.push(counter);
-                if let Some(running) = &mut running {
-                    running.add(row);
+                if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
+                    running.add(posting);
                 }
                 let env = Env {
                     running: running.as_ref(),
@@ -857,15 +859,15 @@ pub(crate) fn execute_within(
             let deferred = &strategy.running.deferred_aggregates;
             let first_groups = plan.limit.filter(|_| strategy.limit == LimitMode::FirstGroups);
             let mut groups: IndexMap<Vec<Value>, Vec<Accumulator>> = IndexMap::new();
-            for (counter, row) in data.rows.iter().enumerate() {
+            for (counter, row) in data.iter().enumerate() {
                 Deadline::check(execution.deadline, counter)?;
                 let env = Env { row: Some(row), ..base };
                 if !passes(&plan.filter, &env)? {
                     continue;
                 }
                 let ordinal = filtered.push(counter);
-                if let Some(running) = &mut running {
-                    running.add(row);
+                if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
+                    running.add(posting);
                 }
                 let env = Env {
                     running: running.as_ref(),
