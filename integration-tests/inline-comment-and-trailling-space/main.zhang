@@ -9,6 +9,8 @@ plugin "name"    // comment here
 include "data.zhang"       ; comment here
 include "data.zhang"   // comment here
 
+1970-01-01 open Assets:BankCard CNY
+1970-01-01 open Expenses:Food CNY
 
 2023-12-02 "KFC" "VME50 Package" ;123213
   Assets:BankCard -50 CNY ;123213123213

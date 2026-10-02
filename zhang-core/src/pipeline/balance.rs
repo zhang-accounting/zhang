@@ -1,4 +1,4 @@
-//! Pure stream-fold helpers shared by the built-in balance stages.
+//! Pure stream-fold helpers shared by the built-in stages.
 //!
 //! [`PadStage`](crate::pipeline::PadStage) and
 //! [`BalanceCheckStage`](crate::pipeline::BalanceCheckStage) are two
@@ -6,12 +6,15 @@
 //! share no mutable state, only these helpers. Each fold sees exactly what the
 //! store fold will book, in stream order — the stream is sorted, so "every
 //! transaction before this directive" is "every transaction up to its datetime".
+//! [`ActiveAccountsStage`](crate::pipeline::ActiveAccountsStage) folds the account
+//! lifecycle ([`AccountStates`]) the same way.
 
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
 use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, Zero};
+use chrono::NaiveDate;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Commodity, Directive, Open, Rounding, Transaction};
@@ -133,7 +136,8 @@ pub fn exceeds_tolerance(distance: &BigDecimal, tolerance: Option<&BigDecimal>) 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AccountState {
     Open,
-    Closed,
+    /// closed by a `close` dated on this day
+    Closed(NaiveDate),
 }
 
 /// account lifecycle folded from `open` / `close` directives, mirroring the store:
@@ -152,7 +156,7 @@ impl AccountStates {
             }
             Directive::Close(close) => {
                 if let Some(state) = self.accounts.get_mut(close.account.name()) {
-                    *state = AccountState::Closed;
+                    *state = AccountState::Closed(close.date.naive_date());
                 }
             }
             _ => {}
@@ -164,7 +168,19 @@ impl AccountStates {
     }
 
     pub fn is_closed(&self, account: &Account) -> bool {
-        self.accounts.get(account.name()) == Some(&AccountState::Closed)
+        matches!(self.accounts.get(account.name()), Some(AccountState::Closed(_)))
+    }
+
+    /// the error a reference made on `date` to the account raises, `None` if the account is active
+    /// then: `AccountDoesNotExist` if no `open` of it was folded yet, `AccountClosed` if it was closed
+    /// on an earlier day. The account stays active through the whole day of its `close`, as in
+    /// beancount, which sorts `close` after every other entry of its day
+    pub fn inactive_error(&self, account: &Account, date: NaiveDate) -> Option<ErrorKind> {
+        match self.accounts.get(account.name()) {
+            None => Some(ErrorKind::AccountDoesNotExist),
+            Some(AccountState::Closed(closed)) if *closed < date => Some(ErrorKind::AccountClosed),
+            Some(_) => None,
+        }
     }
 
     /// the account errors a directive referencing `accounts` raises, in the order
@@ -315,5 +331,12 @@ mod test {
                 (ErrorKind::AccountClosed, "Assets:A".to_owned()),
             ]
         );
+
+        // active through the whole day of the close
+        let day = |day: u32| chrono::NaiveDate::from_ymd_opt(1970, 1, day).unwrap();
+        assert_eq!(states.inactive_error(&closed, day(2)), None);
+        assert_eq!(states.inactive_error(&closed, day(3)), Some(ErrorKind::AccountClosed));
+        assert_eq!(states.inactive_error(&missing, day(1)), Some(ErrorKind::AccountDoesNotExist));
+        assert_eq!(states.inactive_error(&account("Assets:Reopened"), day(4)), None);
     }
 }

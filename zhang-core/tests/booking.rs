@@ -413,6 +413,7 @@ fn empty_cost_sale_with_explicit_postings_balances_on_the_booked_cost() {
         ("Assets:Cash 180 CNY\n  Income:Gains", vec![]),
     ] {
         let ledger = load(&formatdoc! {r#"
+            1970-01-01 open Assets:S
             1970-01-01 open Assets:Cash
             1970-01-01 open Income:Gains
             {TWO_LOTS}
@@ -424,6 +425,7 @@ fn empty_cost_sale_with_explicit_postings_balances_on_the_booked_cost() {
         assert_eq!(lots(&ledger, "Assets:S"), vec!["5 USD {11 CNY, 2024-05-17}"], "{postings}");
     }
     let ledger = load(&formatdoc! {r#"
+        1970-01-01 open Assets:S
         1970-01-01 open Assets:Cash
         1970-01-01 open Income:Gains
         {TWO_LOTS}
@@ -441,6 +443,7 @@ fn zero_gain_empty_cost_sale_books_a_zero_implicit_posting() {
     // CNY, so the implicit gain books zero of the weight commodity and the journal keeps the
     // posting (beancount drops a zero auto-posting)
     let ledger = load(&formatdoc! {r#"
+        1970-01-01 open Assets:S
         1970-01-01 open Assets:Cash
         1970-01-01 open Income:Gains
         {TWO_LOTS}
@@ -460,6 +463,7 @@ fn zero_gain_empty_cost_sale_books_a_zero_implicit_posting() {
 #[test]
 fn implicit_posting_of_an_already_balanced_transaction_books_zero() {
     let ledger = load(indoc! {r#"
+        1970-01-01 open Assets:B
         2024-05-16 * "balanced without the implicit posting"
           Assets:A 10 CNY
           Income:I -10 CNY
@@ -478,6 +482,7 @@ fn implicit_posting_of_a_transaction_balanced_in_several_commodities_cannot_be_i
     // no single commodity to give the implicit posting: the transaction is rejected, as is one with
     // nothing to infer from
     let ledger = load(indoc! {r#"
+        1970-01-01 open Assets:B
         2024-05-16 * "balanced in two commodities"
           Assets:A 10 CNY
           Income:I -10 CNY
@@ -946,8 +951,8 @@ fn e10_lots_of_the_same_date_go_in_creation_order() {
 }
 
 #[test]
-fn current_behavior_e11_postings_to_missing_or_closed_accounts_are_not_reported() {
-    // current behavior (booking-split design E11, #423, tracked in #444); expected to change in the #444 fix PR
+fn e11_postings_to_missing_or_closed_accounts_are_reported() {
+    // one error per account on the transaction, which is still booked
     let ledger = load(indoc! {r#"
         1970-01-01 open Assets:B
         1970-01-02 close Assets:B
@@ -955,7 +960,15 @@ fn current_behavior_e11_postings_to_missing_or_closed_accounts_are_not_reported(
           Assets:Missing 10 CNY
           Assets:B -10 CNY
     "#});
-    assert_eq!(errors(&ledger), vec![]);
+    let span = r#"2024-05-16 * "to a missing and a closed account""#;
+    assert_eq!(
+        error_details(&ledger),
+        vec![
+            (ErrorKind::AccountDoesNotExist, span.to_owned(), metas([("account_name", "Assets:Missing")])),
+            (ErrorKind::AccountClosed, span.to_owned(), metas([("account_name", "Assets:B")])),
+        ]
+    );
+    assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
 }
 
 #[test]

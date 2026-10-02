@@ -2,11 +2,11 @@ use std::cmp::Reverse;
 use std::ops::Sub;
 
 use axum::extract::{Path, Query, State};
-use chrono::NaiveDate;
+use chrono::{Months, NaiveDate, NaiveTime, TimeDelta};
 use gotcha::api;
 use itertools::Itertools;
-use now::DateTimeNow;
 use zhang_ast::amount::Amount;
+use zhang_ast::resolve_local_datetime;
 use zhang_core::store::BudgetIntervalDetail;
 
 use crate::request::{BudgetIntervalDetailRequest, BudgetListRequest};
@@ -84,10 +84,11 @@ pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path
     if !operations.all_budgets()?.into_iter().any(|budget| budget.name.eq(&budget_name)) {
         return ResponseWrapper::not_found();
     };
-    let date = NaiveDate::from_ymd_opt(year as i32, month, 1).unwrap().and_hms_opt(0, 0, 0).unwrap();
-    let datetime = date.and_local_timezone(ledger.options.timezone).unwrap();
-    let month_beginning = datetime.beginning_of_month();
-    let month_end = datetime.end_of_month();
+    let timezone = &ledger.options.timezone;
+    let first_day = NaiveDate::from_ymd_opt(year as i32, month, 1).unwrap();
+    let month_beginning = resolve_local_datetime(timezone, &first_day.and_time(NaiveTime::MIN));
+    let next_month_beginning = resolve_local_datetime(timezone, &(first_day + Months::new(1)).and_time(NaiveTime::MIN));
+    let month_end = next_month_beginning - TimeDelta::nanoseconds(1);
     let interval = year * 100 + month;
     let budget_events = operations
         .budget_month_detail(&budget_name, interval)?

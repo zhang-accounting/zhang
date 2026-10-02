@@ -179,6 +179,7 @@ mod test {
     fn should_not_pad_an_account_already_at_its_target() {
         let (directives, errors) = run_builtin_stages(indoc! {r#"
             1970-01-01 open Assets:A
+            1970-01-01 open Equity:Open
             2023-01-01 * ""
               Assets:A 10 CNY
               Equity:Open
