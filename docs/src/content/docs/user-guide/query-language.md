@@ -71,6 +71,8 @@ order_key = expression | target name | target number
 4. `DISTINCT` removes duplicate rows, keeping the first of each.
 5. `LIMIT` keeps the first rows and drops the rest.
 
+Before any posting is read, Zhang checks the query and simplifies it. Parts that involve only constants, such as `'^Expenses:' + 'Food'`, are computed once at that point. Functions that depend on the ledger or on the current date (`today`, `convert`, `value`, `getprice` and the metadata functions) are not. As a result, an invalid regular expression in a constant pattern is reported immediately, with its position, even if no posting would ever be matched against it.
+
 ### SELECT
 
 The targets are the expressions to compute for each row, separated by commas.
@@ -106,7 +108,7 @@ A query is an aggregate query when one of its targets uses an [aggregate functio
 - A group key can be an expression, a target name (an alias, or the text of a target such as `account`), or a target's position in the `SELECT` list, counting from 1. `GROUP BY 1, 2` groups by the first two targets. Names are matched without regard to case.
 - A group key does not have to be selected. `SELECT sum(position) GROUP BY account` returns one unlabeled total per account.
 - **Without `GROUP BY`**, an aggregate query is grouped by all of its targets that are not aggregates. `SELECT account, sum(position)` is the same as `SELECT account, sum(position) GROUP BY account`. If every target is an aggregate, all matching postings form a single group.
-- **With `GROUP BY`**, every target that reads a column outside of an aggregate function must be a group key. `SELECT account, payee, count(*) GROUP BY account` is an error because `payee` is not grouped. Targets that use no column at all, such as constants, need not be grouped.
+- **With `GROUP BY`**, every target that reads a column, or calls one of the [metadata functions](#metadata-functions), outside of an aggregate function must be a group key. `SELECT account, payee, count(*) GROUP BY account` is an error because `payee` is not grouped. Targets that use neither, such as constants, need not be grouped.
 - In an aggregate query, an `ORDER BY` expression that is not an aggregate must also be a group key.
 - Values of type `set` (such as `tags`) and `inventory` cannot be group keys.
 - A group key cannot contain an aggregate function, and aggregate functions cannot be nested (`sum(count(*))` is an error).
@@ -203,7 +205,7 @@ From highest to lowest precedence:
 |----------|---------|
 | `text ~ pattern` | `TRUE` when `pattern` matches **any part** of `text`, ignoring case. |
 | `text !~ pattern` | The opposite of `~`. |
-| `text ?~ pattern` | Like `~`, but case-sensitive. |
+| `pattern ?~ text` | Case-sensitive match. Note that the pattern comes **first**, as in beanquery. |
 
 | Expression | Result |
 |------------|--------|
@@ -211,12 +213,13 @@ From highest to lowest precedence:
 | `'Expenses:Food:Dining' ~ '^Food'` | `FALSE`, because `^` anchors to the start |
 | `'Expenses:Food:Dining' ~ 'Dining$'` | `TRUE` |
 | `'Expenses:Food:Dining' !~ '^Income'` | `TRUE` |
-| `'Expenses:Food:Dining' ?~ 'food'` | `FALSE`, because `?~` is case-sensitive |
+| `'Food' ?~ 'Expenses:Food:Dining'` | `TRUE` |
+| `'food' ?~ 'Expenses:Food:Dining'` | `FALSE`, because `?~` is case-sensitive |
 
 - Anchor the pattern with `^` and `$` when you need a full match.
 - Patterns use the syntax of the Rust [`regex`](https://docs.rs/regex/latest/regex/#syntax) crate. It is close to Python's, but has no look-around (`(?=...)`, `(?!...)`) and no back-references.
-- An invalid pattern is an error that points at the pattern.
-- Both sides must be strings. If either side is `NULL`, the result is `NULL`, for `!~` as well as for `~`.
+- An invalid pattern is an error that points at the pattern. So is a pattern that would compile to more than 1 MiB, such as `'a{1000}{1000}'`.
+- Both sides must be strings. If either side is `NULL`, the result is `NULL`, for all three operators.
 
 ### Membership
 
@@ -262,8 +265,21 @@ Phase 1 has a single table, `postings`. It has one row for every posting of ever
 - **Included:** all transactions whatever their flag, and the padding transactions that Zhang creates for `balance ... with pad ...` directives. These have the flag `P`, the payee `Balance Pad` and a narration such as `pad Assets:Bank to Equity:Opening`.
 - **Not included:** balance assertions, and directives that are not transactions, such as `open`, `close`, `price`, `note`, `document` and budget directives.
 - A posting written without an amount has the amount that Zhang inferred for it when it balanced the transaction.
-- A posting that reduces a holding without giving a cost number, such as `-7 AAPL {}`, is matched against the open lots of its account: first in, first out, or last in, first out if the account uses the `LIFO` booking method. If it reduces several lots, it produces one row per lot, each with that lot's cost, as in Beancount.
+- Postings held at cost are booked against lots, as described in [Lot booking](#lot-booking). A posting that reduces several lots produces one row per lot.
 - Rows come in ledger order: by date and time, then in the order the transactions appear in your files.
+
+### Lot booking
+
+The `position`, `cost_*` and `weight` columns of a posting held at cost depend on the lot it is booked against. The query engine books lots per account and currency, in ledger order, the way Beancount does:
+
+- **Reductions.** A posting at cost whose sign is opposite to an open lot (selling what you bought, for example) reduces lots. The fields written in its cost, that is the cost number and currency, the date and the label, must match the lot. Fields that are left out match any lot. `-4 AAPL {100 USD}` reduces lots bought at 100 USD on any date, `-4 AAPL {100 USD, 2024-01-02}` reduces only the one bought on 2024-01-02, `-4 AAPL {100 USD, "a"}` only the one labeled `a`, and `-4 AAPL {}` reduces any lot.
+- **Choosing among matching lots.** Matching lots are used oldest first (FIFO), or newest first (LIFO) if the account's `booking_method` is `LIFO`. A reduction that spans several lots is split into one row per lot, each with the units taken from that lot and the lot's cost.
+- **Augmentations.** Any other posting at cost opens a lot, or adds to an identical one. A cost without a date, such as `10 AAPL {100 USD}`, is dated by its transaction, so `cost_date` is never `NULL` for a posting held at cost.
+- **Leftovers.** If no open lot covers all of a reduction, the remainder is booked as an augmentation. A cost without a number, such as `{}`, cannot open a lot, so that remainder has no cost.
+
+:::note
+Two booking cases are still handled differently by Zhang's ledger processing than by the query engine. Zhang currently matches a reduction that gives a cost but no date only against lots dated on the day of the reduction, and records an error otherwise ([#436](https://github.com/zhang-accounting/zhang/issues/436)). The `STRICT`, `AVERAGE`, `AVERAGE_ONLY` and `NONE` booking methods are not implemented yet ([#437](https://github.com/zhang-accounting/zhang/issues/437)), and the query engine books accounts that use them as FIFO for now.
+:::
 
 ### Columns
 
@@ -275,7 +291,7 @@ Phase 1 has a single table, `postings`. It has one row for every posting of ever
 | `day` | `int` | Day of the month of `date`, from 1 to 31. |
 | `flag` | `str` | Flag of the transaction: `*` (also used when no flag is written), `!`, `P` for padding, or a custom flag. |
 | `payee` | `str` | Payee of the transaction, or `NULL` if it has none. When the header has a single string, that string is the narration and the payee is `NULL`. |
-| `narration` | `str` | Narration of the transaction, or `NULL` if it has none. |
+| `narration` | `str` | Narration of the transaction, or `''` (an empty string) if it has none, as in Beancount. |
 | `description` | `str` | Payee and narration joined with `" \| "`. Missing or empty parts are left out, so it is `''` when both are missing. |
 | `tags` | `set` | Tags of the transaction, without the leading `#`. |
 | `links` | `set` | Links of the transaction, without the leading `^`. |
@@ -286,7 +302,7 @@ Phase 1 has a single table, `postings`. It has one row for every posting of ever
 | `position` | `position` | Units of the posting together with its cost lot, if any. |
 | `cost_number` | `decimal` | Cost per unit, or `NULL` if the posting is not held at cost. A total cost written with `{{...}}` is divided by the number of units. |
 | `cost_currency` | `str` | Currency of the cost, or `NULL`. |
-| `cost_date` | `date` | Date of the cost lot, or `NULL` if the posting is not held at cost. A lot without an explicit date is dated by its transaction. |
+| `cost_date` | `date` | Date of the cost lot, or `NULL` if the posting is not held at cost. A lot without an explicit date is dated by the transaction that opened it. |
 | `cost_label` | `str` | Label of the cost lot. It is `''` (an empty string) if the posting is not held at cost, and `NULL` if the lot has no label. |
 | `price` | `amount` | Price per unit written with `@`, or `NULL` if there is none. A total price written with `@@` is divided by the number of units. |
 | `weight` | `amount` | Amount that the posting contributes to balancing its transaction: units times the per-unit cost if the posting is held at cost, otherwise units times the price if it has one, otherwise the units. |
@@ -509,6 +525,7 @@ A successful response has HTTP status 200:
 | `inventory` | object | `{"positions": [ ...positions... ]}` |
 
 - Decimal numbers, including the `number` fields of amounts and costs, are sent as strings so that no precision is lost. They never use exponent notation and keep their decimal places (`"12.50"`). Parse them with a decimal library rather than as floating point.
+- Integers are 64-bit and sent as JSON numbers. JavaScript reads JSON numbers as doubles, so an `int` cell beyond ±2^53 (9,007,199,254,740,992) loses precision in a JavaScript client. Counts and date parts never come close to that.
 - In a position, `cost` is `null` when the position is not held at cost. Otherwise it holds the per-unit cost `number` and `currency`, and the lot's `date` and `label`. Either of the last two can be `null`.
 - The positions of an inventory are sorted by units currency, then by cost, with the position that has no cost first. An empty inventory is `{"positions": []}`.
 
@@ -526,8 +543,22 @@ A query that cannot be parsed, type-checked or run returns HTTP status 400. Unli
 
 - `line` and `column` give the position of the problem in the query text. Both start at 1.
 - `column` counts Unicode characters, not bytes, so a Chinese character or an accented letter counts as one column.
-- Errors include syntax errors, unknown columns or functions, arguments of the wrong type, invalid `GROUP BY` usage, invalid regular expressions and unsupported statements or clauses.
-- A few errors found while rows are evaluated, such as an integer overflow inside `sum`, have no position. `line` and `column` are then `null`.
+- Errors include syntax errors, unknown columns or functions, arguments of the wrong type, invalid `GROUP BY` usage, invalid regular expressions, unsupported statements or clauses, and the [limits](#limits) below.
+- Some errors have no position, and `line` and `column` are then `null`: a query that is too long, a query that runs out of time, and a few errors found while rows are evaluated, such as an integer overflow inside `sum`.
+
+### Limits
+
+These limits protect the server from queries that would take too much memory or time. Exceeding one returns the HTTP 400 error described above.
+
+| Limit | Value | Error |
+|-------|-------|-------|
+| Query length | 64 KiB (65,536 bytes of UTF-8 text) | `the query is too long (...)`, without a position. |
+| Nesting depth | 64 levels | `the query is nested too deeply (at most 64 levels)`, at the position where the limit is reached. |
+| Compiled size of one regular expression | 1 MiB | `invalid regular expression: Compiled regex exceeds size limit ...`, at the pattern. |
+| Execution time | 10 seconds | `the query was stopped because it ran longer than the 10s time limit`, without a position. |
+
+- Nesting counts parentheses, function calls, `IN` lists, `NOT` and unary minus that are placed inside each other. A long chain of `AND`, `OR`, `+` or `*`, such as `account = 'A' OR account = 'B' OR ...`, is not nested and can be as long as the length limit allows.
+- The execution time includes building the rows of the `postings` table. While a query runs, it holds a read lock on the ledger, and the time limit bounds how long that lock is held.
 
 ### Schema
 
@@ -540,14 +571,14 @@ A query that cannot be parsed, type-checked or run returns HTTP status 400. Unli
       { "name": "date", "type": "date", "description": "Date of the transaction." }
     ],
     "functions": [
-      { "name": "count", "signature": "count(*) -> int", "description": "Number of rows." }
+      { "name": "count", "signature": "count(*) -> int", "description": "Number of rows.", "aggregate": true }
     ]
   }
 }
 ```
 
 - `columns` has one entry per column, in the order of the [column table](#columns).
-- `functions` has one entry per overload: first the aggregate functions, then the scalar functions. `signature` uses the same form as the tables on this page.
+- `functions` has one entry per overload: first the aggregate functions, then the scalar functions. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
 
 ## Examples
 
@@ -684,11 +715,12 @@ The roadmap in [#434](https://github.com/zhang-accounting/zhang/issues/434) sche
 
 - **`SELECT *` includes `account`.** beanquery expands `*` to `date, flag, payee, narration, position`. Zhang adds `account` before `position`, because a posting is hard to read without its account.
 - **Standard three-valued logic.** In beanquery, `NOT NULL` is `TRUE`, so `NOT (payee = 'x')` keeps postings without a payee, and `NULL AND FALSE` is `NULL`. In Zhang, `NOT NULL` is `NULL` and `NULL AND FALSE` is `FALSE`, as in SQL.
-- **`?~` takes the pattern on the right.** In beanquery the pattern of `?~` is the left operand. In Zhang, `?~` is simply the case-sensitive form of `~`.
 - **One-element lists work.** `payee IN ('Amazon')` works in Zhang. beanquery reads `('Amazon')` as a parenthesized string and needs `('Amazon',)`.
 - **`meta()` is always `NULL` for now**, because Zhang does not keep posting metadata yet. See [Metadata functions](#metadata-functions).
 - **Comments** start with `--`. beanquery's `;` line comments and `/* */` block comments are not supported. A single `;` is only allowed at the end of the query.
 - **Regular expressions** use Rust syntax, which has no look-around or back-references.
+- **Booking methods.** Accounts that use `STRICT`, `AVERAGE`, `AVERAGE_ONLY` or `NONE` are booked FIFO for now, and an ambiguous `STRICT` match is not an error. See [Lot booking](#lot-booking).
+- **Limits.** Queries are limited in length, nesting depth, regular-expression size and execution time. See [Limits](#limits).
 - **Errors carry a position.** Every query error reports the line and column where it was found, whenever it can be located.
 - **Exact decimals throughout.** Numbers are arbitrary-precision decimals, and amounts are never stored with a fixed number of decimal places.
 

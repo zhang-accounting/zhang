@@ -71,6 +71,8 @@ order_key = expression | target name | target number
 4. `DISTINCT` 去除重复的行，每组重复只保留第一行。
 5. `LIMIT` 保留前面的若干行，丢弃其余的行。
 
+在读取任何分录之前，张记账会先检查并简化查询。只包含常量的部分（例如 `'^Expenses:' + 'Food'`）在这时就计算一次。依赖账本或当前日期的函数（`today`、`convert`、`value`、`getprice` 和元数据函数）不会被提前计算。因此，常量模式中无效的正则表达式会立即报错并给出位置，即使没有任何分录会与它匹配。
+
 ### SELECT
 
 目标（target）是要为每一行计算的表达式，用逗号分隔。
@@ -106,7 +108,7 @@ GROUP BY account
 - 分组键可以是表达式、目标名（别名，或者 `account` 这类目标的原文），或目标在 `SELECT` 列表中的序号（从 1 开始）。`GROUP BY 1, 2` 表示按前两个目标分组。名字的匹配不区分大小写。
 - 分组键不必出现在 `SELECT` 中。`SELECT sum(position) GROUP BY account` 为每个账户返回一个不带标签的合计。
 - **没有 `GROUP BY` 时**，聚合查询按所有非聚合的目标分组。`SELECT account, sum(position)` 等价于 `SELECT account, sum(position) GROUP BY account`。如果所有目标都是聚合函数，所有匹配的分录组成一个分组。
-- **有 `GROUP BY` 时**，每个在聚合函数之外读取了列的目标都必须是分组键。`SELECT account, payee, count(*) GROUP BY account` 会报错，因为 `payee` 没有被分组。不使用任何列的目标（例如常量）不需要分组。
+- **有 `GROUP BY` 时**，每个在聚合函数之外读取了列或调用了[元数据函数](#元数据函数)的目标都必须是分组键。`SELECT account, payee, count(*) GROUP BY account` 会报错，因为 `payee` 没有被分组。两者都不使用的目标（例如常量）不需要分组。
 - 在聚合查询中，`ORDER BY` 里的非聚合表达式也必须是分组键。
 - `set` 类型（如 `tags`）和 `inventory` 类型的值不能作为分组键。
 - 分组键本身不能包含聚合函数，聚合函数也不能嵌套（`sum(count(*))` 会报错）。
@@ -203,7 +205,7 @@ GROUP BY category
 |--------|------|
 | `text ~ pattern` | 当 `pattern` 匹配 `text` 的**任意一部分**（忽略大小写）时为 `TRUE`。 |
 | `text !~ pattern` | 与 `~` 相反。 |
-| `text ?~ pattern` | 与 `~` 相同，但区分大小写。 |
+| `pattern ?~ text` | 区分大小写的匹配。注意模式写在**前面**，与 beanquery 一致。 |
 
 | 表达式 | 结果 |
 |--------|------|
@@ -211,12 +213,13 @@ GROUP BY category
 | `'Expenses:Food:Dining' ~ '^Food'` | `FALSE`，因为 `^` 锚定在开头 |
 | `'Expenses:Food:Dining' ~ 'Dining$'` | `TRUE` |
 | `'Expenses:Food:Dining' !~ '^Income'` | `TRUE` |
-| `'Expenses:Food:Dining' ?~ 'food'` | `FALSE`，因为 `?~` 区分大小写 |
+| `'Food' ?~ 'Expenses:Food:Dining'` | `TRUE` |
+| `'food' ?~ 'Expenses:Food:Dining'` | `FALSE`，因为 `?~` 区分大小写 |
 
 - 需要完整匹配时，请用 `^` 和 `$` 锚定模式。
 - 模式使用 Rust [`regex`](https://docs.rs/regex/latest/regex/#syntax) 库的语法。它与 Python 的语法很接近，但不支持环视（`(?=...)`、`(?!...)`）和反向引用。
-- 无效的模式会报错，错误位置指向该模式。
-- 两边都必须是字符串。任一边为 `NULL` 时结果为 `NULL`，`~` 和 `!~` 都是如此。
+- 无效的模式会报错，错误位置指向该模式。编译后超过 1 MiB 的模式（例如 `'a{1000}{1000}'`）也会这样报错。
+- 两边都必须是字符串。任一边为 `NULL` 时结果为 `NULL`，三个运算符都是如此。
 
 ### 成员测试
 
@@ -262,8 +265,21 @@ WHERE payee IN ('Amazon')
 - **包含：**所有交易（无论标记是什么），以及张记账为 `balance ... with pad ...` 指令生成的补齐交易。补齐交易的标记为 `P`，收款方为 `Balance Pad`，描述形如 `pad Assets:Bank to Equity:Opening`。
 - **不包含：**余额断言，以及所有非交易指令，例如 `open`、`close`、`price`、`note`、`document` 和预算指令。
 - 没有写金额的分录，使用张记账在平衡交易时推断出的金额。
-- 减少持仓但没有给出成本数值的分录（例如 `-7 AAPL {}`）会与该账户中尚未平仓的批次匹配：先进先出；如果账户使用 `LIFO` 记账方法，则后进先出。如果它减少了多个批次，就会像 Beancount 一样，每个批次产生一行，每行带有对应批次的成本。
+- 按成本持有的分录会按[批次记账](#批次记账)中的规则与批次匹配。减少了多个批次的分录会产生多行。
 - 各行按账本顺序排列：先按日期和时间，再按交易在文件中出现的顺序。
+
+### 批次记账
+
+按成本持有的分录，其 `position`、`cost_*` 和 `weight` 列取决于它与哪个批次匹配。查询引擎按账户和货币、按账本顺序记账，规则与 Beancount 相同：
+
+- **减仓。**按成本持有、且符号与某个未平仓批次相反的分录（例如卖出之前买入的持仓）会减少批次。成本中写出的字段（成本数值和货币、日期、标签）必须与批次一致，没有写出的字段可以匹配任何批次。`-4 AAPL {100 USD}` 减少以 100 USD 买入的批次，不论日期；`-4 AAPL {100 USD, 2024-01-02}` 只减少 2024-01-02 买入的那一个；`-4 AAPL {100 USD, "a"}` 只减少标签为 `a` 的那一个；`-4 AAPL {}` 可以减少任何批次。
+- **在匹配的批次中选择。**匹配的批次按先进先出（FIFO）使用；如果账户的 `booking_method` 为 `LIFO`，则后进先出。跨越多个批次的减仓会拆成多行，每个批次一行，每行带有从该批次取出的单位和该批次的成本。
+- **加仓。**其他按成本持有的分录会开立一个新批次，或者加到完全相同的批次上。没有日期的成本（例如 `10 AAPL {100 USD}`）使用其交易的日期，所以按成本持有的分录的 `cost_date` 永远不会是 `NULL`。
+- **剩余部分。**如果未平仓的批次不足以覆盖整个减仓，剩余部分按加仓处理。没有成本数值的成本（例如 `{}`）无法开立批次，所以这部分没有成本。
+
+:::note
+有两种记账情况，张记账的账本处理与查询引擎的结果仍不一致。对于给出了成本但没有日期的减仓，张记账目前只与该减仓当天日期的批次匹配，否则记录一个错误（[#436](https://github.com/zhang-accounting/zhang/issues/436)）。`STRICT`、`AVERAGE`、`AVERAGE_ONLY` 和 `NONE` 记账方法尚未实现（[#437](https://github.com/zhang-accounting/zhang/issues/437)），查询引擎目前把使用这些方法的账户按 FIFO 记账。
+:::
 
 ### 列
 
@@ -275,7 +291,7 @@ WHERE payee IN ('Amazon')
 | `day` | `int` | `date` 在当月的日，1 到 31。 |
 | `flag` | `str` | 交易的标记：`*`（没有写标记时也是它）、`!`、表示补齐的 `P`，或自定义标记。 |
 | `payee` | `str` | 交易的收款方，没有则为 `NULL`。交易头只有一个字符串时，该字符串是描述，收款方为 `NULL`。 |
-| `narration` | `str` | 交易的描述，没有则为 `NULL`。 |
+| `narration` | `str` | 交易的描述，没有则为 `''`（空字符串），与 Beancount 一致。 |
 | `description` | `str` | 用 `" \| "` 连接收款方和描述。缺失或为空的部分会被省略，所以两者都缺失时为 `''`。 |
 | `tags` | `set` | 交易的标签，不含开头的 `#`。 |
 | `links` | `set` | 交易的链接，不含开头的 `^`。 |
@@ -286,7 +302,7 @@ WHERE payee IN ('Amazon')
 | `position` | `position` | 分录的单位及其成本批次（如果有）。 |
 | `cost_number` | `decimal` | 单位成本，未按成本持有则为 `NULL`。用 `{{...}}` 写出的总成本会除以单位数量。 |
 | `cost_currency` | `str` | 成本的货币，或 `NULL`。 |
-| `cost_date` | `date` | 成本批次的日期，未按成本持有则为 `NULL`。没有明确写出日期的批次使用其交易的日期。 |
+| `cost_date` | `date` | 成本批次的日期，未按成本持有则为 `NULL`。没有明确写出日期的批次使用开立它的交易的日期。 |
 | `cost_label` | `str` | 成本批次的标签。未按成本持有时为 `''`（空字符串），批次没有标签时为 `NULL`。 |
 | `price` | `amount` | 用 `@` 写出的单价，没有则为 `NULL`。用 `@@` 写出的总价会除以单位数量。 |
 | `weight` | `amount` | 分录在交易平衡中所占的金额：按成本持有时为单位数量乘以单位成本；否则如果有价格，为单位数量乘以价格；否则为单位本身。 |
@@ -509,6 +525,7 @@ curl -X POST http://localhost:8000/api/query \
 | `inventory` | 对象 | `{"positions": [ ...持仓... ]}` |
 
 - 十进制数（包括金额和成本中的 `number` 字段）以字符串形式发送，以免损失精度。它们不使用指数写法，并保留小数位（`"12.50"`）。请用十进制数库解析，而不要解析为浮点数。
+- 整数是 64 位的，以 JSON 数字发送。JavaScript 把 JSON 数字读作双精度浮点数，所以超出 ±2^53（9,007,199,254,740,992）的 `int` 单元格在 JavaScript 客户端中会损失精度。计数和日期部分远远达不到这个范围。
 - 持仓未按成本持有时 `cost` 为 `null`；否则包含单位成本的 `number` 和 `currency`，以及成本批次的 `date` 和 `label`，后两者都可能为 `null`。
 - 库存中的持仓按单位货币排序，再按成本排序，没有成本的持仓排在最前。空库存为 `{"positions": []}`。
 
@@ -526,8 +543,22 @@ curl -X POST http://localhost:8000/api/query \
 
 - `line` 和 `column` 给出问题在查询文本中的位置，都从 1 开始。
 - `column` 按 Unicode 字符而不是字节计数，一个汉字或带重音的字母算作一列。
-- 错误包括语法错误、未知的列或函数、参数类型错误、不合法的 `GROUP BY` 用法、无效的正则表达式，以及不支持的语句或子句。
-- 少数在计算各行时发现的错误（例如 `sum` 中的整数溢出）没有位置信息，此时 `line` 和 `column` 为 `null`。
+- 错误包括语法错误、未知的列或函数、参数类型错误、不合法的 `GROUP BY` 用法、无效的正则表达式、不支持的语句或子句，以及超出下面的[限制](#限制)。
+- 有些错误没有位置信息，此时 `line` 和 `column` 为 `null`：查询过长、查询超时，以及少数在计算各行时发现的错误（例如 `sum` 中的整数溢出）。
+
+### 限制
+
+这些限制防止查询占用过多的内存或时间。超出任何一项都会返回上面描述的 HTTP 400 错误。
+
+| 限制 | 值 | 错误 |
+|------|----|------|
+| 查询长度 | 64 KiB（65,536 字节的 UTF-8 文本） | `the query is too long (...)`，没有位置信息。 |
+| 嵌套深度 | 64 层 | `the query is nested too deeply (at most 64 levels)`，位置为达到限制的地方。 |
+| 单个正则表达式编译后的大小 | 1 MiB | `invalid regular expression: Compiled regex exceeds size limit ...`，位置指向该模式。 |
+| 执行时间 | 10 秒 | `the query was stopped because it ran longer than the 10s time limit`，没有位置信息。 |
+
+- 嵌套深度统计的是相互嵌套的括号、函数调用、`IN` 列表、`NOT` 和一元负号。由 `AND`、`OR`、`+` 或 `*` 连接的长链（例如 `account = 'A' OR account = 'B' OR ...`）不算嵌套，在长度限制以内可以任意长。
+- 执行时间包括构建 `postings` 表各行的时间。查询运行期间会持有账本的读锁，时间限制也限定了持有读锁的时长。
 
 ### Schema
 
@@ -540,14 +571,14 @@ curl -X POST http://localhost:8000/api/query \
       { "name": "date", "type": "date", "description": "Date of the transaction." }
     ],
     "functions": [
-      { "name": "count", "signature": "count(*) -> int", "description": "Number of rows." }
+      { "name": "count", "signature": "count(*) -> int", "description": "Number of rows.", "aggregate": true }
     ]
   }
 }
 ```
 
 - `columns` 每列一项，顺序与[列](#列)表格相同。
-- `functions` 每个重载一项：先是聚合函数，然后是标量函数。`signature` 的写法与本页表格相同。
+- `functions` 每个重载一项：先是聚合函数，然后是标量函数。`signature` 的写法与本页表格相同；[聚合函数](#聚合函数)的 `aggregate` 为 `true`，其他函数为 `false`。
 
 ## 示例
 
@@ -684,11 +715,12 @@ GROUP BY type
 
 - **`SELECT *` 包含 `account`。**beanquery 把 `*` 展开为 `date, flag, payee, narration, position`。张记账在 `position` 之前加入了 `account`，因为没有账户的分录很难看懂。
 - **标准的三值逻辑。**在 beanquery 中，`NOT NULL` 为 `TRUE`，所以 `NOT (payee = 'x')` 会保留没有收款方的分录；`NULL AND FALSE` 为 `NULL`。在张记账中，与 SQL 一样，`NOT NULL` 为 `NULL`，`NULL AND FALSE` 为 `FALSE`。
-- **`?~` 的模式在右侧。**在 beanquery 中，`?~` 的模式是左操作数。在张记账中，`?~` 只是 `~` 区分大小写的版本。
 - **单元素列表可以使用。**`payee IN ('Amazon')` 在张记账中可以正常使用。beanquery 会把 `('Amazon')` 当作带括号的字符串，必须写成 `('Amazon',)`。
 - **`meta()` 目前总是返回 `NULL`**，因为张记账还不保存分录级的元数据，见[元数据函数](#元数据函数)。
 - **注释**以 `--` 开头。不支持 beanquery 的 `;` 行注释和 `/* */` 块注释。`;` 只能出现在查询末尾。
 - **正则表达式**使用 Rust 语法，不支持环视和反向引用。
+- **记账方法。**使用 `STRICT`、`AVERAGE`、`AVERAGE_ONLY` 或 `NONE` 的账户目前按 FIFO 记账，`STRICT` 下有歧义的匹配也不会报错，见[批次记账](#批次记账)。
+- **限制。**查询的长度、嵌套深度、正则表达式大小和执行时间都有限制，见[限制](#限制)。
 - **错误带有位置信息。**只要能定位，每个查询错误都会给出出错的行和列。
 - **全程使用精确小数。**数字是任意精度的十进制数，金额不会以固定的小数位数存储。
 
