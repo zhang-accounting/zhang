@@ -149,7 +149,10 @@ export default function Explore() {
     const view = viewRef.current;
     if (!view) return;
     const { from, to } = view.state.selection.main;
-    view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length - cursorBack }, scrollIntoView: true });
+    // a word inserted right after another token is kept apart from it, e.g. `SELECT *` + `FROM #prices`
+    const before = view.state.sliceDoc(Math.max(0, from - 1), from);
+    const insert = /^[\w#]/.test(text) && /[\w*)'"]/.test(before) ? ` ${text}` : text;
+    view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length - cursorBack }, scrollIntoView: true });
     view.focus();
   };
 
@@ -174,7 +177,10 @@ export default function Explore() {
                 <ChevronDown className="ml-2 h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[min(28rem,calc(100vw-2rem))]">
+            <DropdownMenuContent
+              align="end"
+              className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto"
+            >
               {QUERY_EXAMPLES.map((example) => (
                 <DropdownMenuItem key={example.title} className="flex flex-col items-start gap-1" onSelect={() => loadAndRun(example.query)}>
                   <span className="font-medium">{t(example.title)}</span>

@@ -3,14 +3,22 @@ import {
   BarDatum,
   buildBars,
   buildLine,
+  buildSeriesBars,
+  buildSeriesLines,
   buildTreemap,
   ChartPoint,
   collectPoints,
+  collectSeries,
   currenciesOf,
   defaultCurrency,
   LineDatum,
   NO_CURRENCY,
   QueryChartKind,
+  Series,
+  SeriesDatum,
+  SeriesLineDatum,
+  SeriesSet,
+  seriesCurrencies,
   TreemapDatum,
 } from '@/components/query/chartData';
 import { formatDecimal } from '@/components/query/values';
@@ -26,10 +34,26 @@ import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, Too
 // Categorical slots 1 (blue) and 2 (orange), stepped separately for the light and dark surfaces. Blue plots values,
 // orange marks negative values in treemaps and bar charts, where the area/length is the absolute value or the sign
 // would otherwise be easy to miss.
+// Multi-series charts use the eight categorical slots in this fixed order (CVD-checked on adjacent pairs), one per
+// value column: a series keeps its colour when another one has nothing to plot in the picked currency.
+const SERIES_COLORS = [
+  { light: '#2a78d6', dark: '#3987e5' },
+  { light: '#eb6834', dark: '#d95926' },
+  { light: '#1baf7a', dark: '#199e70' },
+  { light: '#eda100', dark: '#c98500' },
+  { light: '#e87ba4', dark: '#d55181' },
+  { light: '#008300', dark: '#008300' },
+  { light: '#4a3aa7', dark: '#9085e9' },
+  { light: '#e34948', dark: '#e66767' },
+];
+
 const chartConfig = {
-  value: { theme: { light: '#2a78d6', dark: '#3987e5' } },
-  negative: { theme: { light: '#eb6834', dark: '#d95926' } },
+  value: { theme: SERIES_COLORS[0] },
+  negative: { theme: SERIES_COLORS[1] },
+  ...Object.fromEntries(SERIES_COLORS.map((theme, index) => [`series${index}`, { theme }])),
 } satisfies ChartConfig;
+
+const seriesColor = (series: Series) => `var(--color-series${series.index})`;
 
 const MAX_BARS = 50;
 const BAR_HEIGHT = 28;
@@ -67,6 +91,40 @@ function LegendItem({ color, label }: { color: string; label: string }) {
       <span className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: color }} />
       {label}
     </span>
+  );
+}
+
+/** A tooltip listing the value of every series that has one, in series order. */
+function SeriesTooltipBox({ title, series, datum, currency }: { title: string; series: Series[]; datum: SeriesDatum; currency: string }) {
+  return (
+    <div className="grid min-w-[8rem] max-w-xs gap-1 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+      <div className="break-all font-medium">{title}</div>
+      {series.map((item, index) => {
+        const signed = datum.signed[index];
+        if (signed === null) return null;
+        return (
+          <div key={item.index} className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: seriesColor(item) }} />
+            <span className="truncate text-muted-foreground">{item.name || '—'}</span>
+            <span className="ml-auto pl-3 font-mono tabular-nums text-foreground">{formatExact(signed, currency)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The legend of a multi-series chart, plus the notes on what was left out. */
+function SeriesLegend({ series, notes }: { series: Series[]; notes: (string | false)[] }) {
+  const shownNotes = notes.filter((note): note is string => note !== false);
+  if (series.length < 2 && shownNotes.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      {series.length >= 2 && series.map((item) => <LegendItem key={item.index} color={seriesColor(item)} label={item.name || '—'} />)}
+      {shownNotes.map((note) => (
+        <span key={note}>{note}</span>
+      ))}
+    </div>
   );
 }
 
@@ -243,16 +301,18 @@ function timeTicks(first: number, last: number, maxTicks: number): { ticks: numb
   return { ticks: ticks.length > 0 ? ticks : [first], pattern: ticks.length > 0 ? pattern : 'yyyy-MM-dd' };
 }
 
+/** The time axis of dates sorted in ascending order. A single date gets a day of room on both sides, so its point is not drawn on the axis edge. */
+function timeAxis(first: number, last: number, isMobile: boolean | undefined) {
+  const domain = first === last ? [first - DAY, last + DAY] : [first, last];
+  return { domain, ...timeTicks(domain[0], domain[1], isMobile ? 4 : 8) };
+}
+
 function QueryLineChart({ points, currency }: { points: ChartPoint[]; currency: string }) {
   const isMobile = useMediaQuery('(max-width: 640px)');
   const data = useMemo(() => buildLine(points, currency), [points, currency]);
   if (data.length === 0) return <NothingToPlot />;
 
-  const first = data[0].time;
-  const last = data[data.length - 1].time;
-  // a single date gets a day of room on both sides, so the point is not drawn on the axis edge
-  const domain = first === last ? [first - DAY, last + DAY] : [first, last];
-  const { ticks, pattern } = timeTicks(domain[0], domain[1], isMobile ? 4 : 8);
+  const { domain, ticks, pattern } = timeAxis(data[0].time, data[data.length - 1].time, isMobile);
   const values = data.map((datum) => datum.value);
   const crossesZero = Math.min(...values) < 0 && Math.max(...values) > 0;
 
@@ -303,6 +363,139 @@ function QueryLineChart({ points, currency }: { points: ChartPoint[]; currency: 
   );
 }
 
+// ---- grouped bar chart (one series per value column) ----
+
+function QueryGroupedBarChart({ set, currency }: { set: SeriesSet; currency: string }) {
+  const { t } = useTranslation();
+  const isMobile = useMediaQuery('(max-width: 640px)');
+  const { series, data } = useMemo(() => buildSeriesBars(set, currency), [set, currency]);
+  if (series.length === 0 || data.length === 0) return <NothingToPlot />;
+
+  const shown = data.slice(0, MAX_BARS);
+  const values = shown.flatMap((datum) => datum.values.filter((value): value is number => value !== null));
+  const hasNegative = values.some((value) => value < 0);
+  const hasPositive = values.some((value) => value > 0);
+  // as in the bar chart, the value axis always includes zero
+  const valueDomain: [number | 'auto', number | 'auto'] = [hasNegative ? 'auto' : 0, hasPositive ? 'auto' : 0];
+  const longestLabel = Math.max(...shown.map((datum) => (datum.label || '—').length));
+  const labelWidth = Math.min(isMobile ? 104 : 200, Math.max(40, Math.ceil(longestLabel * CHAR_WIDTH) + 8));
+  const labelChars = Math.floor((labelWidth - 8) / CHAR_WIDTH);
+  // thinner bars for more series, with a 2px gap between the bars of a group
+  const barSize = series.length > 4 ? 6 : 10;
+  const groupHeight = Math.max(BAR_HEIGHT, series.length * (barSize + 2) + 12);
+
+  const tooltip = ({ active, payload }: TooltipProps<number, string>) => {
+    const datum = payload?.[0]?.payload as SeriesDatum | undefined;
+    if (!active || !datum) return null;
+    return <SeriesTooltipBox title={datum.label || '—'} series={series} datum={datum} currency={currency} />;
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <ChartContainer config={chartConfig} className="aspect-auto w-full" style={{ height: shown.length * groupHeight + 40 }}>
+        <BarChart data={shown} layout="vertical" barGap={2} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+          <CartesianGrid horizontal={false} />
+          <XAxis
+            type="number"
+            domain={valueDomain}
+            tickFormatter={(value: number) => compactNumber.format(value)}
+            tickLine={false}
+            axisLine={false}
+            tickMargin={4}
+          />
+          <YAxis
+            type="category"
+            dataKey="label"
+            width={labelWidth}
+            interval={0}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(label: string) => truncate(label || '—', labelChars)}
+          />
+          <ChartTooltip cursor={{ fill: 'hsl(var(--muted))' }} content={tooltip} isAnimationActive={false} />
+          {hasNegative && hasPositive && <ReferenceLine x={0} stroke="hsl(var(--border))" />}
+          {series.map((item, index) => (
+            <Bar
+              key={item.index}
+              dataKey={(datum: SeriesDatum) => datum.values[index]}
+              name={item.name}
+              fill={seriesColor(item)}
+              barSize={barSize}
+              radius={2}
+              isAnimationActive={false}
+            />
+          ))}
+        </BarChart>
+      </ChartContainer>
+      <SeriesLegend series={series} notes={[data.length > shown.length && t('query.chart.bars_truncated', { shown: shown.length, total: data.length })]} />
+    </div>
+  );
+}
+
+// ---- multi-series line chart (one series per value column) ----
+
+function QueryMultiLineChart({ set, currency }: { set: SeriesSet; currency: string }) {
+  const isMobile = useMediaQuery('(max-width: 640px)');
+  const { series, data } = useMemo(() => buildSeriesLines(set, currency), [set, currency]);
+  if (series.length === 0 || data.length === 0) return <NothingToPlot />;
+
+  const { domain, ticks, pattern } = timeAxis(data[0].time, data[data.length - 1].time, isMobile);
+  const values = data.flatMap((datum) => datum.values.filter((value): value is number => value !== null));
+  const crossesZero = Math.min(...values) < 0 && Math.max(...values) > 0;
+
+  const tooltip = ({ active, payload }: TooltipProps<number, string>) => {
+    const datum = payload?.[0]?.payload as SeriesLineDatum | undefined;
+    if (!active || !datum) return null;
+    return <SeriesTooltipBox title={datum.label} series={series} datum={datum} currency={currency} />;
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <ChartContainer config={chartConfig} className="aspect-auto w-full" style={{ height: isMobile ? 240 : 320 }}>
+        <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+          <CartesianGrid vertical={false} />
+          <XAxis
+            dataKey="time"
+            type="number"
+            scale="time"
+            domain={domain}
+            ticks={ticks}
+            tickFormatter={(time: number) => format(time, pattern)}
+            tickLine={false}
+            axisLine={false}
+            tickMargin={8}
+            minTickGap={16}
+          />
+          <YAxis
+            domain={['auto', 'auto']}
+            tickFormatter={(value: number) => compactNumber.format(value)}
+            width={56}
+            tickLine={false}
+            axisLine={false}
+            tickMargin={4}
+          />
+          <ChartTooltip cursor={{ stroke: 'hsl(var(--border))' }} content={tooltip} isAnimationActive={false} />
+          {crossesZero && <ReferenceLine y={0} stroke="hsl(var(--border))" />}
+          {series.map((item, index) => (
+            <Line
+              key={item.index}
+              dataKey={(datum: SeriesLineDatum) => datum.values[index]}
+              name={item.name}
+              type="linear"
+              stroke={seriesColor(item)}
+              strokeWidth={2}
+              dot={data.length <= 40 ? { r: 3, fill: seriesColor(item), strokeWidth: 0 } : false}
+              activeDot={{ r: 4, strokeWidth: 2, stroke: 'hsl(var(--background))' }}
+              isAnimationActive={false}
+            />
+          ))}
+        </LineChart>
+      </ChartContainer>
+      <SeriesLegend series={series} notes={[]} />
+    </div>
+  );
+}
+
 // ---- chart panel ----
 
 function NothingToPlot() {
@@ -321,14 +514,18 @@ export default function QueryResultChart({ result, kind, operatingCurrency }: Pr
   const { t } = useTranslation();
   // the colour variables are also defined on the panel, for the legends rendered outside the chart containers
   const panelId = `query-chart-${useId().replace(/:/g, '')}`;
-  const points = useMemo(() => collectPoints(result), [result]);
-  const currencies = useMemo(() => currenciesOf(points), [points]);
+  const multiSeries = kind === 'grouped_bar' || kind === 'multi_line';
+  const set = useMemo(() => (multiSeries ? collectSeries(result) : null), [result, multiSeries]);
+  const points = useMemo(() => (multiSeries ? [] : collectPoints(result)), [result, multiSeries]);
+  const currencies = useMemo(() => (set ? seriesCurrencies(set) : currenciesOf(points)), [set, points]);
   // the picked currency is kept across runs and used again whenever the new result has it
   const [picked, setPicked] = useState<string | undefined>(undefined);
   const currency = picked !== undefined && currencies.includes(picked) ? picked : defaultCurrency(currencies, operatingCurrency);
 
   let chart: ReactNode;
   if (currency === undefined) chart = <NothingToPlot />;
+  else if (set && kind === 'grouped_bar') chart = <QueryGroupedBarChart set={set} currency={currency} />;
+  else if (set) chart = <QueryMultiLineChart set={set} currency={currency} />;
   else if (kind === 'treemap') chart = <QueryTreemap points={points} currency={currency} />;
   else if (kind === 'bar') chart = <QueryBarChart points={points} currency={currency} />;
   else chart = <QueryLineChart points={points} currency={currency} />;
@@ -356,6 +553,9 @@ export default function QueryResultChart({ result, kind, operatingCurrency }: Pr
         {currencies.length === 1 && currency !== NO_CURRENCY && <span className="text-sm text-muted-foreground">{currency}</span>}
       </div>
       {chart}
+      {set && set.total > set.series.length && (
+        <p className="text-xs text-muted-foreground">{t('query.chart.series_truncated', { shown: set.series.length, total: set.total })}</p>
+      )}
     </div>
   );
 }
