@@ -59,8 +59,7 @@ const PHASE2_FEATURES_LANDED: bool = false;
 /// nothing to call, and every csv case reports the export as missing. On integration, replace
 /// the body with `Some(zhang_query::export::to_csv(result))`.
 fn engine_csv(result: &QueryResult) -> Option<String> {
-    let _ = result;
-    None
+    Some(zhang_query::export::to_csv(result))
 }
 
 /// How a documented deviation from beanquery is checked.
