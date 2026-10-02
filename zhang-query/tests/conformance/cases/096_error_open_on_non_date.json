@@ -1,0 +1,12 @@
+{
+  "name": "error_open_on_non_date",
+  "query": "SELECT count(*) FROM OPEN ON 2016",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": "OPEN ON and CLOSE ON take a bare date literal (YYYY-MM-DD)."
+}

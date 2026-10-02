@@ -1,0 +1,23 @@
+{
+  "name": "balances_at_cost",
+  "query": "BALANCES AT cost WHERE account ~ '^Assets:US:(ETrade|Vanguard)'",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "SUM(cost(position))", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:ETrade:Cash", {"positions": [{"units": {"number": "855.83", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:GLD", {"positions": [{"units": {"number": "4559.80", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:ITOT", {"positions": [{"units": {"number": "6828.88", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:VEA", {"positions": [{"units": {"number": "4959.50", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:VHT", {"positions": [{"units": {"number": "7821.27", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:Vanguard:Cash", {"positions": [{"units": {"number": "-0.02", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:Vanguard:RGAGX", {"positions": [{"units": {"number": "49049.66613", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:Vanguard:VBMPX", {"positions": [{"units": {"number": "32700.35331", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "AT cost sums cost(position), the book value of every lot. Exact products are kept (49049.66613 USD), not rounded to the currency precision."
+}

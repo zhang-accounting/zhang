@@ -1,0 +1,29 @@
+{
+  "name": "journal_several_accounts_and_currencies",
+  "query": "JOURNAL '^Expenses:(Vacation|Home:Rent)$' FROM year = 2017",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "MAXWIDTH(payee, 48)", "type": "str"},
+    {"name": "MAXWIDTH(narration, 80)", "type": "str"},
+    {"name": "account", "type": "str"},
+    {"name": "position", "type": "position"},
+    {"name": "balance", "type": "inventory"}
+  ],
+  "rows": [
+    ["2017-01-03", "*", "RiverBank Properties", "Paying the rent", "Expenses:Home:Rent", {"units": {"number": "2400.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "2400.00", "currency": "USD"}, "cost": null}]}],
+    ["2017-02-04", "*", "RiverBank Properties", "Paying the rent", "Expenses:Home:Rent", {"units": {"number": "2400.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "4800.00", "currency": "USD"}, "cost": null}]}],
+    ["2017-03-06", "*", "RiverBank Properties", "Paying the rent", "Expenses:Home:Rent", {"units": {"number": "2400.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "7200.00", "currency": "USD"}, "cost": null}]}],
+    ["2017-04-03", "*", "RiverBank Properties", "Paying the rent", "Expenses:Home:Rent", {"units": {"number": "2400.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "9600.00", "currency": "USD"}, "cost": null}]}],
+    ["2017-05-03", "*", "RiverBank Properties", "Paying the rent", "Expenses:Home:Rent", {"units": {"number": "2400.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "12000.00", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-03", "*", null, "Consume vacation days", "Expenses:Vacation", {"units": {"number": "128", "currency": "VACHR"}, "cost": null}, {"positions": [{"units": {"number": "12000.00", "currency": "USD"}, "cost": null}, {"units": {"number": "128", "currency": "VACHR"}, "cost": null}]}],
+    ["2017-06-05", "*", "RiverBank Properties", "Paying the rent", "Expenses:Home:Rent", {"units": {"number": "2400.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "14400.00", "currency": "USD"}, "cost": null}, {"units": {"number": "128", "currency": "VACHR"}, "cost": null}]}],
+    ["2017-07-05", "*", "RiverBank Properties", "Paying the rent", "Expenses:Home:Rent", {"units": {"number": "2400.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "16800.00", "currency": "USD"}, "cost": null}, {"units": {"number": "128", "currency": "VACHR"}, "cost": null}]}],
+    ["2017-08-04", "*", "RiverBank Properties", "Paying the rent", "Expenses:Home:Rent", {"units": {"number": "2400.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "19200.00", "currency": "USD"}, "cost": null}, {"units": {"number": "128", "currency": "VACHR"}, "cost": null}]}]
+  ],
+  "notes": "An anchored regex matching two accounts. The balance column is one running inventory over all journal rows, not one per account, so it mixes USD and VACHR. The FROM expression restricts the rows, so the balance starts from zero on the first 2017 row. A NULL payee stays NULL through maxwidth()."
+}

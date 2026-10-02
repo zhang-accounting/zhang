@@ -10,16 +10,23 @@
 //! - rows are compared as a sequence when the fixture is `ordered`, otherwise as a multiset;
 //! - inventories are compared as multisets of positions;
 //! - an `expect: "error"` case passes only when the engine returns an error of the fixture's
-//!   `error_class` (see [`error_class`]).
+//!   `error_class` (see [`error_class`]);
+//! - an `expect: "csv"` case compares zhang's CSV export of the result (see [`engine_csv`])
+//!   with beanquery's numberified CSV, cell by cell (see [`compare_csv`]).
 //!
 //! Every case gets one status:
 //!
-//! | status       | meaning                                                                         | fatal |
-//! |--------------|---------------------------------------------------------------------------------|-------|
-//! | `PASS`       | matches the oracle                                                              | no    |
-//! | `ACCEPTED`   | differs from the oracle exactly as documented in [`ACCEPTED_DEVIATIONS`]        | no    |
-//! | `LEDGER-DEP` | a `ledger-dependent` case listed in [`LEDGER_DEPENDENT_ALLOWED`] that differs   | no    |
-//! | `FAIL`       | anything else, including unlisted `ledger-dependent` cases and missing functions | yes   |
+//! | status           | meaning                                                                         | fatal |
+//! |------------------|---------------------------------------------------------------------------------|-------|
+//! | `PASS`           | matches the oracle                                                              | no    |
+//! | `ACCEPTED`       | differs from the oracle exactly as documented in [`ACCEPTED_DEVIATIONS`]        | no    |
+//! | `LEDGER-DEP`     | a `ledger-dependent` case listed in [`LEDGER_DEPENDENT_ALLOWED`] that differs   | no    |
+//! | `PENDING-PHASE2` | a `"phase": 2` fixture while [`PHASE2_FEATURES_LANDED`] is `false`              | no    |
+//! | `FAIL`           | anything else, including unlisted `ledger-dependent` cases and missing functions | yes   |
+//!
+//! Phase 2 fixtures still run while they are pending, and the detail column shows the status
+//! they would get (`would PASS`, `would FAIL: ...`). Phase 1 fixtures (no `phase` field) are
+//! always strict.
 //!
 //! The test prints the summary table to stderr (always visible, even without `--nocapture`)
 //! and fails when at least one case is `FAIL`, so it serves as a regression gate.
@@ -39,6 +46,22 @@ use chrono::NaiveDate;
 use serde_json::{json, Value as Json};
 use zhang_query::decimal::to_plain_string;
 use zhang_query::{Amount, Params, Position, Query, QueryErrorKind, QueryResult, Value};
+
+/// Temporary gate for the Phase 2 fixtures (issue #434: BALANCES, JOURNAL, the running `balance`
+/// column, `FROM … OPEN/CLOSE/CLEAR` and the CSV export). While it is `false`, every fixture with
+/// `"phase": 2` is reported as `PENDING-PHASE2` and cannot fail the test. Flip it to `true` once
+/// the Phase 2 features have landed, together with wiring [`engine_csv`]; then delete the gate.
+const PHASE2_FEATURES_LANDED: bool = false;
+
+/// zhang's CSV export of a result, compared with the `expect: "csv"` fixtures.
+///
+/// Phase 2 adds `zhang_query::export::to_csv(&QueryResult) -> String`. Until it lands there is
+/// nothing to call, and every csv case reports the export as missing. On integration, replace
+/// the body with `Some(zhang_query::export::to_csv(result))`.
+fn engine_csv(result: &QueryResult) -> Option<String> {
+    let _ = result;
+    None
+}
 
 /// How a documented deviation from beanquery is checked.
 enum Accepted {
@@ -120,6 +143,7 @@ enum Status {
     Pass,
     Accepted,
     LedgerDep,
+    PendingPhase2,
     Fail,
 }
 
@@ -129,19 +153,31 @@ impl Status {
             Status::Pass => "PASS",
             Status::Accepted => "ACCEPTED",
             Status::LedgerDep => "LEDGER-DEP",
+            Status::PendingPhase2 => "PENDING-PHASE2",
             Status::Fail => "FAIL",
         }
     }
+}
+
+/// What a fixture expects (`expect` field).
+enum Expect {
+    /// `"rows"`: the `columns` and `rows` of the fixture
+    Rows,
+    /// `"error"`: an error of this `error_class`
+    Error(String),
+    /// `"csv"`: beanquery's numberified CSV output, one line per item (the `csv` field)
+    Csv(Vec<String>),
 }
 
 struct Fixture {
     file: String,
     name: String,
     query: String,
+    /// 1 for the Phase 1 fixtures (no `phase` field), 2 for `"phase": 2`
+    phase: u64,
     kind: String,
     ordered: bool,
-    /// `Some(class)` for an `expect: "error"` case
-    expect_error: Option<String>,
+    expect: Expect,
     column_types: Vec<String>,
     rows: Vec<Vec<Json>>,
 }
@@ -179,14 +215,25 @@ fn load_fixtures() -> Vec<Fixture> {
             Fixture {
                 name: string("name"),
                 query: string("query"),
+                phase: match json.get("phase").map(|phase| phase.as_u64()) {
+                    None => 1,
+                    Some(Some(phase @ (1 | 2))) => phase,
+                    Some(_) => panic!("{}: `phase` must be 1 or 2", file),
+                },
                 kind: string("kind"),
                 ordered: field("ordered").as_bool().expect("`ordered` is a bool"),
-                expect_error: match string("expect").as_str() {
-                    "rows" => None,
+                expect: match string("expect").as_str() {
+                    "rows" => Expect::Rows,
                     "error" => match string("error_class").as_str() {
-                        class @ ("syntax" | "compile" | "runtime") => Some(class.to_owned()),
+                        class @ ("syntax" | "compile" | "runtime") => Expect::Error(class.to_owned()),
                         other => panic!("{}: unknown error_class `{}`", file, other),
                     },
+                    "csv" => Expect::Csv(
+                        array("csv")
+                            .iter()
+                            .map(|line| line.as_str().unwrap_or_else(|| panic!("{}: `csv` holds a non-string", file)).to_owned())
+                            .collect(),
+                    ),
                     other => panic!("{}: unknown expect `{}`", file, other),
                 },
                 column_types: array("columns")
@@ -389,19 +436,125 @@ fn compare_rows(expected: &[String], actual: &[String], ordered: bool) -> Option
     ))
 }
 
+// ---------------------------------------------------------------------------
+// CSV (`expect: "csv"`, see the README's "CSV fixtures")
+// ---------------------------------------------------------------------------
+
+/// Parses CSV text: `,` separates fields, a field starting with `"` is quoted (`""` is a literal
+/// quote inside it), and records end with CRLF or LF. A final line terminator is optional.
+fn parse_csv(text: &str) -> Result<Vec<Vec<String>>, String> {
+    let mut records = Vec::new();
+    let mut record = Vec::new();
+    let mut field = String::new();
+    // `field_started` distinguishes an empty field from no field at all (blank trailing text)
+    let (mut quoted, mut field_started) = (false, false);
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if quoted {
+            match c {
+                '"' if chars.peek() == Some(&'"') => {
+                    chars.next();
+                    field.push('"');
+                }
+                '"' => quoted = false,
+                _ => field.push(c),
+            }
+            continue;
+        }
+        match c {
+            '"' if field.is_empty() => {
+                quoted = true;
+                field_started = true;
+            }
+            ',' => {
+                record.push(std::mem::take(&mut field));
+                field_started = true;
+            }
+            '\r' if chars.peek() == Some(&'\n') => {}
+            '\n' => {
+                record.push(std::mem::take(&mut field));
+                records.push(std::mem::take(&mut record));
+                field_started = false;
+            }
+            _ => {
+                field.push(c);
+                field_started = true;
+            }
+        }
+    }
+    if quoted {
+        return Err("unterminated quoted field".to_owned());
+    }
+    if field_started || !record.is_empty() {
+        record.push(field);
+        records.push(record);
+    }
+    Ok(records)
+}
+
+/// `-?digits[.digits]`: the cells compared numerically. Anything else (dates, `TRUE`, account
+/// names, sets) is compared as text.
+fn is_plain_number(text: &str) -> bool {
+    let digits = text.strip_prefix('-').unwrap_or(text);
+    let (integral, fractional) = digits.split_once('.').unwrap_or((digits, "0"));
+    let all_digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+    all_digits(integral) && all_digits(fractional)
+}
+
+/// A CSV cell in canonical form: surrounding whitespace removed (beanquery pads numbers to align
+/// them) and plain numbers normalised, so `"  4.00"` equals `"4"`.
+fn canonical_csv_cell(cell: &str) -> String {
+    let cell = cell.trim();
+    if is_plain_number(cell) {
+        to_plain_string(&BigDecimal::from_str(cell).expect("plain number").normalized())
+    } else {
+        cell.to_owned()
+    }
+}
+
+/// `None` when zhang's CSV matches the fixture's, otherwise a short diff. The header row must
+/// match cell by cell (names include numberify's ` (<currency>)` suffix), then the data rows are
+/// compared like typed rows: as a sequence when `ordered`, otherwise as a multiset.
+fn compare_csv(expected: &str, actual: &str, ordered: bool) -> Option<String> {
+    let parse = |text: &str, side: &str| parse_csv(text).map_err(|err| format!("{} CSV: {}", side, err));
+    let (expected, actual) = match (parse(expected, "fixture"), parse(actual, "engine")) {
+        (Ok(expected), Ok(actual)) => (expected, actual),
+        (Err(err), _) | (_, Err(err)) => return Some(err),
+    };
+    let canonical = |records: &[Vec<String>]| {
+        records
+            .iter()
+            .map(|record| Json::Array(record.iter().map(|cell| Json::String(canonical_csv_cell(cell))).collect()).to_string())
+            .collect::<Vec<_>>()
+    };
+    let (expected, actual) = (canonical(&expected), canonical(&actual));
+    match (expected.split_first(), actual.split_first()) {
+        (Some((expected_header, _)), None) => Some(format!("engine CSV is empty, expected header {}", short(expected_header))),
+        (Some((expected_header, _)), Some((actual_header, _))) if expected_header != actual_header => {
+            Some(format!("CSV header: expected {} got {}", short(expected_header), short(actual_header)))
+        }
+        (Some((_, expected_rows)), Some((_, actual_rows))) => compare_rows(expected_rows, actual_rows, ordered).map(|diff| format!("CSV {}", diff)),
+        (None, _) => Some("fixture CSV is empty".to_owned()),
+    }
+}
+
 fn run_case(ledger: &zhang_core::ledger::Ledger, fixture: &Fixture) -> Report {
     let outcome = Query::compile(&fixture.query).and_then(|query| query.execute_at(ledger, &Params::default(), today()));
     let deviation = ACCEPTED_DEVIATIONS.iter().find(|it| it.case == Some(fixture.name.as_str()));
 
-    let mismatch = match (&outcome, &fixture.expect_error) {
-        (Err(err), Some(class)) if error_class(err.kind) == class => None,
-        (Err(err), Some(class)) => Some(format!("expected a {} error, got a {} error: {}", class, error_class(err.kind), err)),
-        (Ok(result), Some(class)) => Some(format!("expected a {} error, the engine returned {} rows", class, result.rows.len())),
-        (Err(err), None) => Some(format!("engine error: {}", err)),
-        (Ok(result), None) => compare_columns(fixture, result).or_else(|| {
+    let mismatch = match (&outcome, &fixture.expect) {
+        (Err(err), Expect::Error(class)) if error_class(err.kind) == class => None,
+        (Err(err), Expect::Error(class)) => Some(format!("expected a {} error, got a {} error: {}", class, error_class(err.kind), err)),
+        (Ok(result), Expect::Error(class)) => Some(format!("expected a {} error, the engine returned {} rows", class, result.rows.len())),
+        (Err(err), Expect::Rows | Expect::Csv(_)) => Some(format!("engine error: {}", err)),
+        (Ok(result), Expect::Rows) => compare_columns(fixture, result).or_else(|| {
             let expected = canonical_fixture_rows(fixture, &fixture.rows);
             compare_rows(&expected, &canonical_engine_rows(result), fixture.ordered)
         }),
+        (Ok(result), Expect::Csv(lines)) => match engine_csv(result) {
+            Some(csv) => compare_csv(&lines.join("\n"), &csv, fixture.ordered),
+            None => Some("no CSV export to compare: engine_csv() is not wired to zhang_query::export::to_csv yet".to_owned()),
+        },
     };
 
     let (status, detail) = match mismatch {
@@ -448,6 +601,12 @@ fn run_case(ledger: &zhang_core::ledger::Ledger, fixture: &Fixture) -> Report {
             }
         }
     };
+    let (status, detail) = if fixture.phase == 2 && !PHASE2_FEATURES_LANDED {
+        let would = format!("would {}", status.label());
+        (Status::PendingPhase2, if detail.is_empty() { would } else { format!("{}: {}", would, detail) })
+    } else {
+        (status, detail)
+    };
     Report {
         file: fixture.file.clone(),
         kind: fixture.kind.clone(),
@@ -492,11 +651,20 @@ fn beanquery_conformance() {
         ));
     }
     out.push('\n');
-    for status in [Status::Pass, Status::Accepted, Status::LedgerDep, Status::Fail] {
+    for status in [Status::Pass, Status::Accepted, Status::LedgerDep, Status::PendingPhase2, Status::Fail] {
         let count = reports.iter().filter(|report| report.status == status).count();
         out.push_str(&format!("{:<16} {}\n", status.label(), count));
     }
     out.push_str(&format!("{:<16} {}\n", "TOTAL", reports.len()));
+    let pending = reports.iter().filter(|report| report.status == Status::PendingPhase2).collect::<Vec<_>>();
+    if !pending.is_empty() {
+        let would_fail = pending.iter().filter(|report| report.detail.starts_with("would FAIL")).count();
+        out.push_str(&format!(
+            "\nPHASE2_FEATURES_LANDED is false: {} phase 2 case(s) pending, {} of them would FAIL\n",
+            pending.len(),
+            would_fail
+        ));
+    }
     let undocumented = ACCEPTED_DEVIATIONS.iter().filter(|it| matches!(it.accepted, Accepted::NoFixture));
     for deviation in undocumented {
         out.push_str(&format!("\naccepted deviation without a fixture: {}\n", deviation.reason));
@@ -515,4 +683,76 @@ fn beanquery_conformance() {
             .collect::<Vec<_>>()
             .join("\n")
     );
+}
+
+/// The CSV comparison rules, checked on the csv fixtures themselves (independent of the engine):
+/// every fixture parses into records of one width, an equivalent rewrite (cells trimmed, numbers
+/// normalised, every cell quoted, LF line ends) compares equal, and a changed number does not.
+#[test]
+fn csv_comparison_rules() {
+    let quote = |cell: &str| format!("\"{}\"", cell.replace('"', "\"\""));
+    let render = |records: &[Vec<String>]| {
+        records
+            .iter()
+            .map(|record| record.iter().map(|cell| quote(cell)).collect::<Vec<_>>().join(","))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let mut checked = 0;
+    for fixture in load_fixtures() {
+        let Expect::Csv(lines) = &fixture.expect else { continue };
+        let text = lines.join("\r\n") + "\r\n";
+        let records = parse_csv(&text).unwrap_or_else(|err| panic!("{}: {}", fixture.file, err));
+        assert_eq!(records.len(), lines.len(), "{}: one record per line", fixture.file);
+        assert!(
+            records.iter().all(|record| record.len() == records[0].len()),
+            "{}: records of different widths",
+            fixture.file
+        );
+        assert_eq!(compare_csv(&text, &text, fixture.ordered), None, "{}: equal to itself", fixture.file);
+
+        let rewritten = records
+            .iter()
+            .map(|record| record.iter().map(|cell| canonical_csv_cell(cell)).collect())
+            .collect::<Vec<Vec<String>>>();
+        assert_eq!(
+            compare_csv(&text, &render(&rewritten), fixture.ordered),
+            None,
+            "{}: equivalent rewrite",
+            fixture.file
+        );
+
+        let mut changed = rewritten.clone();
+        let cell = changed
+            .iter_mut()
+            .skip(1)
+            .flat_map(|record| record.iter_mut())
+            .find(|cell| is_plain_number(cell))
+            .unwrap_or_else(|| panic!("{}: no number to change", fixture.file));
+        cell.push('1');
+        assert!(
+            compare_csv(&text, &render(&changed), fixture.ordered).is_some(),
+            "{}: a changed number must differ",
+            fixture.file
+        );
+
+        let mut renamed = rewritten.clone();
+        renamed[0][0].push('x');
+        assert!(
+            compare_csv(&text, &render(&renamed), fixture.ordered).is_some(),
+            "{}: a changed header must differ",
+            fixture.file
+        );
+        checked += 1;
+    }
+    assert!(checked > 0, "no csv fixtures found in {}", cases_dir().display());
+
+    assert_eq!(
+        parse_csv("a,\"b,c\",\"d\"\"e\"\r\n,,\n\"\"").unwrap(),
+        vec![vec!["a", "b,c", "d\"e"], vec!["", "", ""], vec![""]]
+    );
+    assert!(parse_csv("\"open").is_err());
+    assert!(["4", "-4.00", "0.5"].iter().all(|it| is_plain_number(it)));
+    assert!(["", "-", "4.", ".5", "1e5", "2017-01-12", "TRUE", "NaN"].iter().all(|it| !is_plain_number(it)));
+    assert_eq!(canonical_csv_cell("  -4.500 "), canonical_csv_cell("-4.5"));
 }

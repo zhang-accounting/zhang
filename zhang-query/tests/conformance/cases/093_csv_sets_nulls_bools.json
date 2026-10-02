@@ -1,0 +1,24 @@
+{
+  "name": "csv_sets_nulls_bools",
+  "query": "SELECT date, payee, narration, tags, other_accounts, payee IS NULL AS no_payee, price, number WHERE (account = 'Assets:US:ETrade:Cash' AND year = 2017 AND month <= 3) OR (account = 'Expenses:Food:Coffee' AND year = 2017) ORDER BY date, number",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "csv",
+  "columns": [],
+  "rows": [],
+  "csv": [
+    "date,payee,narration,tags,other_accounts,no_payee,number",
+    "2017-02-15,,Sell shares of GLD,,\"Assets:US:ETrade:GLD,Expenses:Financial:Commissions,Income:US:ETrade:Gains\",TRUE,2723.85",
+    "2017-03-18,,Dividends on portfolio,,Income:US:ETrade:Dividends,TRUE,  91.45",
+    "2017-03-19,,Buy shares of VHT,,\"Assets:US:ETrade:VHT,Expenses:Financial:Commissions\",TRUE,-702.25",
+    "2017-03-19,,Buy shares of ITOT,,\"Assets:US:ETrade:ITOT,Expenses:Financial:Commissions\",TRUE,-683.32",
+    "2017-03-19,,Buy shares of VEA,,\"Assets:US:ETrade:VEA,Expenses:Financial:Commissions\",TRUE,-603.31",
+    "2017-03-19,,Buy shares of GLD,,\"Assets:US:ETrade:GLD,Expenses:Financial:Commissions\",TRUE,-566.93",
+    "2017-05-25,Starbucks,,trip-boston-2017,Liabilities:US:Chase:Slate,FALSE,   6.14",
+    "2017-05-31,Starbucks,,trip-boston-2017,Liabilities:US:Chase:Slate,FALSE,   6.16",
+    "2017-06-01,Starbucks,,trip-boston-2017,Liabilities:US:Chase:Slate,FALSE,   5.54",
+    "2017-06-03,Starbucks,,trip-boston-2017,Liabilities:US:Chase:Slate,FALSE,   7.25"
+  ],
+  "notes": "NULL and the empty string are both an empty cell. A set is its sorted elements joined by ',' (quoted by the CSV writer when it has several). Booleans are TRUE and FALSE, dates YYYY-MM-DD. beanquery pads decimals with spaces to align them; cells are compared trimmed. The price column is NULL on every row, so numberify finds no currency for it and the column DISAPPEARS from the CSV: an amount, position or inventory column without any currency yields zero CSV columns."
+}

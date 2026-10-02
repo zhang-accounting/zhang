@@ -1,0 +1,12 @@
+{
+  "name": "error_close_date_before_open_date",
+  "query": "SELECT count(*) FROM OPEN ON 2017-01-01 CLOSE ON 2016-01-01",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "CLOSE date must follow OPEN date (a compile error, not a syntax error). Equal dates are allowed."
+}

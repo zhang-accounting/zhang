@@ -1,0 +1,31 @@
+{
+  "name": "balance_running_total",
+  "query": "SELECT date, position, balance WHERE account ~ 'Checking' AND date >= 2017-06-01 ORDER BY date LIMIT 15",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "position", "type": "position"},
+    {"name": "balance", "type": "inventory"}
+  ],
+  "rows": [
+    ["2017-06-01", {"units": {"number": "1350.60", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "1350.60", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-04", {"units": {"number": "-4.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "1346.60", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-05", {"units": {"number": "-2400.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-1053.40", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-08", {"units": {"number": "-65.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-1118.40", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-10", {"units": {"number": "-392.77", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-1511.17", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-15", {"units": {"number": "1350.60", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-160.57", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-20", {"units": {"number": "-71.41", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-231.98", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-21", {"units": {"number": "-79.99", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-311.97", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-29", {"units": {"number": "1350.60", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "1038.63", "currency": "USD"}, "cost": null}]}],
+    ["2017-07-04", {"units": {"number": "-4.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "1034.63", "currency": "USD"}, "cost": null}]}],
+    ["2017-07-05", {"units": {"number": "-2400.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-1365.37", "currency": "USD"}, "cost": null}]}],
+    ["2017-07-09", {"units": {"number": "-65.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-1430.37", "currency": "USD"}, "cost": null}]}],
+    ["2017-07-11", {"units": {"number": "-687.03", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-2117.40", "currency": "USD"}, "cost": null}]}],
+    ["2017-07-13", {"units": {"number": "1350.60", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-766.80", "currency": "USD"}, "cost": null}]}],
+    ["2017-07-20", {"units": {"number": "-52.63", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-819.43", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "balance is the running sum (an inventory) of position over the rows that pass FROM and WHERE, in ledger order. It starts empty, so it does not include postings before the WHERE window. The window has one Checking posting per day, so the sums do not depend on ties. Also sensitive to whether zhang's synthetic balance-check transactions (zero-amount postings) are part of the postings table."
+}

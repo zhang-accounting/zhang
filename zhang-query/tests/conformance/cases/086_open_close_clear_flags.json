@@ -1,0 +1,21 @@
+{
+  "name": "open_close_clear_flags",
+  "query": "SELECT flag, count(*) AS n, min(date) AS first, max(date) AS last FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 CLEAR GROUP BY flag ORDER BY flag",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "flag", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "first", "type": "date"},
+    {"name": "last", "type": "date"}
+  ],
+  "rows": [
+    ["*", 1195, "2016-01-01", "2016-12-31"],
+    ["C", 1, "2016-12-31", "2016-12-31"],
+    ["S", 90, "2015-12-31", "2015-12-31"],
+    ["T", 64, "2016-12-31", "2016-12-31"]
+  ],
+  "notes": "Counts and dates of the synthetic postings per flag: S (summarization, 2015-12-31), C (conversions, 2016-12-31) and T (transfers, 2016-12-31), next to the real '*' postings. Also sensitive to whether zhang's synthetic balance-check transactions (zero-amount postings) are part of the postings table."
+}

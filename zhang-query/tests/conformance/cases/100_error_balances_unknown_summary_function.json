@@ -1,0 +1,12 @@
+{
+  "name": "error_balances_unknown_summary_function",
+  "query": "BALANCES AT nosuch",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "AT f applies f to position; an unknown function is a compile error."
+}

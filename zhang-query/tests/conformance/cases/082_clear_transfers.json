@@ -1,0 +1,21 @@
+{
+  "name": "clear_transfers",
+  "query": "SELECT root(account, 1) AS type, count(*) AS n, min(date) AS first, max(date) AS last, sum(position) AS total FROM CLEAR WHERE flag = 'T' GROUP BY 1 ORDER BY 1",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "type", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "first", "type": "date"},
+    {"name": "last", "type": "date"},
+    {"name": "total", "type": "inventory"}
+  ],
+  "rows": [
+    ["Equity", 44, "2017-09-08", "2017-09-08", {"positions": [{"units": {"number": "-103335.53", "currency": "USD"}, "cost": null}, {"units": {"number": "13", "currency": "VACHR"}, "cost": null}]}],
+    ["Expenses", 37, "2017-09-08", "2017-09-08", {"positions": [{"units": {"number": "-54500.00", "currency": "IRAUSD"}, "cost": null}, {"units": {"number": "-254609.05", "currency": "USD"}, "cost": null}, {"units": {"number": "-368", "currency": "VACHR"}, "cost": null}]}],
+    ["Income", 7, "2017-09-08", "2017-09-08", {"positions": [{"units": {"number": "54500", "currency": "IRAUSD"}, "cost": null}, {"units": {"number": "357944.58", "currency": "USD"}, "cost": null}, {"units": {"number": "355", "currency": "VACHR"}, "cost": null}]}]
+  ],
+  "notes": "CLEAR adds one transfer transaction per income/expense account with a non-empty balance: flag T, payee NULL, dated like the last entry (2017-09-08 here), one posting per position that zeroes the account and a counterpart on Equity:Earnings:Current."
+}

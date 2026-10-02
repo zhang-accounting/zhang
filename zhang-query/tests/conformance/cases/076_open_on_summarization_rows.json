@@ -1,0 +1,28 @@
+{
+  "name": "open_on_summarization_rows",
+  "query": "SELECT account, count(*) AS n, sum(position) AS total FROM OPEN ON 2016-01-01 WHERE flag = 'S' AND account !~ ':(RGAGX|VBMPX)$' GROUP BY account ORDER BY account",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "total", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:BofA:Checking", 1, {"positions": [{"units": {"number": "8029.87", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:Cash", 1, {"positions": [{"units": {"number": "184.03", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:GLD", 1, {"positions": [{"units": {"number": "10", "currency": "GLD"}, "cost": {"number": "209.00", "currency": "USD", "date": "2015-11-13", "label": null}}]}],
+    ["Assets:US:ETrade:ITOT", 1, {"positions": [{"units": {"number": "18", "currency": "ITOT"}, "cost": {"number": "58.86", "currency": "USD", "date": "2015-09-15", "label": null}}]}],
+    ["Assets:US:ETrade:VEA", 2, {"positions": [{"units": {"number": "8", "currency": "VEA"}, "cost": {"number": "132.93", "currency": "USD", "date": "2015-09-15", "label": null}}, {"units": {"number": "8", "currency": "VEA"}, "cost": {"number": "136.96", "currency": "USD", "date": "2015-12-30", "label": null}}]}],
+    ["Assets:US:ETrade:VHT", 2, {"positions": [{"units": {"number": "18", "currency": "VHT"}, "cost": {"number": "112.21", "currency": "USD", "date": "2015-11-13", "label": null}}, {"units": {"number": "9", "currency": "VHT"}, "cost": {"number": "113.91", "currency": "USD", "date": "2015-09-15", "label": null}}]}],
+    ["Assets:US:Hoogle:Vacation", 1, {"positions": [{"units": {"number": "63", "currency": "VACHR"}, "cost": null}]}],
+    ["Assets:US:Vanguard:Cash", 1, {"positions": [{"units": {"number": "-0.03", "currency": "USD"}, "cost": null}]}],
+    ["Equity:Conversions:Previous", 1, {"positions": [{"units": {"number": "-0.01346", "currency": "USD"}, "cost": null}]}],
+    ["Equity:Earnings:Previous", 2, {"positions": [{"units": {"number": "-39098.25", "currency": "USD"}, "cost": null}, {"units": {"number": "-63", "currency": "VACHR"}, "cost": null}]}],
+    ["Equity:Opening-Balances", 46, {"positions": [{"units": {"number": "-3490.52000", "currency": "USD"}, "cost": null}]}],
+    ["Liabilities:US:Chase:Slate", 1, {"positions": [{"units": {"number": "-978.70", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "OPEN ON d (1) inserts a conversions transaction dated d - 1 on Equity:Conversions:Previous, (2) transfers each income/expense balance before d to Equity:Earnings:Previous, then (3) replaces every transaction before d by one summarization transaction per account, dated d - 1, flag S, with one posting per position (lot) of the account's balance and one counterpart posting at cost on Equity:Opening-Balances per position. Income and expense accounts therefore get no S rows. Equity:Opening-Balances also summarizes its own balance, so it has many S postings. The Vanguard lot accounts are excluded only to keep the fixture small."
+}

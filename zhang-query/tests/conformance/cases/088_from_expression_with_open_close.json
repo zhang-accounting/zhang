@@ -1,0 +1,19 @@
+{
+  "name": "from_expression_with_open_close",
+  "query": "SELECT date, flag, position, balance FROM account = 'Assets:US:ETrade:Cash' OPEN ON 2017-01-01 CLOSE ON 2017-03-01 ORDER BY date",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "position", "type": "position"},
+    {"name": "balance", "type": "inventory"}
+  ],
+  "rows": [
+    ["2016-12-31", "S", {"units": {"number": "386.22", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "386.22", "currency": "USD"}, "cost": null}]}],
+    ["2017-02-15", "*", {"units": {"number": "2723.85", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "3110.07", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "FROM <expr> OPEN ON ... CLOSE ON ...: the modifiers transform the whole ledger and the expression then filters its postings, so the S row carries the full balance at the OPEN date."
+}
