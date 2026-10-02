@@ -90,14 +90,20 @@ export interface paths {
     /** Plugin List */
     get: operations['plugin_list'];
   };
-  // TEMPORARY(query-explore): hand-written until the native query API lands; regenerate this file with `pnpm run api`.
   '/api/query': {
-    /** Execute Query */
-    post: operations['execute_query'];
+    /**
+     * Run Query
+     * @description Run a BQL-compatible query over the ledger.
+     *
+     * Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
+     */
+    post: operations['run_query'];
   };
-  // TEMPORARY(query-explore): hand-written until the native query API lands; regenerate this file with `pnpm run api`.
   '/api/query/schema': {
-    /** Get Query Schema */
+    /**
+     * Get Query Schema
+     * @description The columns and functions available to queries.
+     */
     get: operations['get_query_schema'];
   };
   '/api/reload': {
@@ -928,13 +934,16 @@ export interface operations {
     };
   };
   /**
-   * Execute Query
-   * TEMPORARY(query-explore): hand-written until the native query API lands; regenerate this file with `pnpm run api`.
+   * Run Query
+   * @description Run a BQL-compatible query over the ledger.
+   *
+   * Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
    */
-  execute_query: {
+  run_query: {
     requestBody: {
       content: {
         'application/json': {
+          /** @description the BQL query text */
           query: string;
         };
       };
@@ -950,18 +959,44 @@ export interface operations {
                 /** @enum {string} */
                 type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory';
               }[];
-              rows: unknown[][];
+              rows?: (
+                | boolean
+                | number
+                | string
+                | string[]
+                | {
+                    currency: string;
+                    number: string;
+                  }
+                | {
+                    cost?: {
+                      currency: string;
+                      date?: string | null;
+                      label?: string | null;
+                      number: string;
+                    } | null;
+                    units: {
+                      currency: string;
+                      number: string;
+                    };
+                  }
+                | {
+                    positions: {
+                      cost?: {
+                        currency: string;
+                        date?: string | null;
+                        label?: string | null;
+                        number: string;
+                      } | null;
+                      units: {
+                        currency: string;
+                        number: string;
+                      };
+                    }[];
+                  }
+                | null
+              )[][];
             };
-          };
-        };
-      };
-      /** @description query error */
-      400: {
-        content: {
-          'application/json': {
-            message: string;
-            line: number | null;
-            column: number | null;
           };
         };
       };
@@ -969,7 +1004,7 @@ export interface operations {
   };
   /**
    * Get Query Schema
-   * TEMPORARY(query-explore): hand-written until the native query API lands; regenerate this file with `pnpm run api`.
+   * @description The columns and functions available to queries.
    */
   get_query_schema: {
     responses: {
@@ -979,14 +1014,16 @@ export interface operations {
           'application/json': {
             data: {
               columns: {
-                name: string;
-                type: string;
                 description: string;
+                name: string;
+                /** @enum {string} */
+                type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory';
               }[];
               functions: {
-                name: string;
-                signature: string;
                 description: string;
+                name: string;
+                /** @description e.g. `root(str, int) -> str` */
+                signature: string;
               }[];
             };
           };

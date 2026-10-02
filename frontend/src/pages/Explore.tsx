@@ -63,7 +63,9 @@ export default function Explore() {
       // the query is sent verbatim so that error positions match the editor content
       const res = await executeQuery({ query: text });
       const elapsedMs = Math.round(performance.now() - startedAt);
-      setOutcome((prev) => ({ id: (prev?.id ?? 0) + 1, result: res.data.data, elapsedMs }));
+      // the generated schema marks `rows` optional although the server always sends it
+      const result: QueryResult = { columns: res.data.data.columns, rows: res.data.data.rows ?? [] };
+      setOutcome((prev) => ({ id: (prev?.id ?? 0) + 1, result, elapsedMs }));
       setError(null);
     } catch (e) {
       setOutcome(null);
