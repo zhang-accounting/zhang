@@ -412,3 +412,200 @@ impl From<ErrorDomain> for ErrorEntity {
 pub struct AccountBalanceHistoryEntity {
     pub balance: HashMap<Currency, Vec<AccountBalanceItemEntity>>,
 }
+
+/// The static type of a query result column.
+#[derive(Serialize, Schematic, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum QueryColumnType {
+    Null,
+    Bool,
+    Int,
+    Decimal,
+    Str,
+    Date,
+    Set,
+    Amount,
+    Position,
+    Inventory,
+}
+
+impl From<zhang_query::DataType> for QueryColumnType {
+    fn from(value: zhang_query::DataType) -> Self {
+        use zhang_query::DataType;
+        match value {
+            DataType::Null => QueryColumnType::Null,
+            DataType::Bool => QueryColumnType::Bool,
+            DataType::Int => QueryColumnType::Int,
+            DataType::Decimal => QueryColumnType::Decimal,
+            DataType::Str => QueryColumnType::Str,
+            DataType::Date => QueryColumnType::Date,
+            DataType::Set => QueryColumnType::Set,
+            DataType::Amount => QueryColumnType::Amount,
+            DataType::Position => QueryColumnType::Position,
+            DataType::Inventory => QueryColumnType::Inventory,
+        }
+    }
+}
+
+#[derive(Serialize, Schematic)]
+pub struct QueryColumnEntity {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub column_type: QueryColumnType,
+}
+
+/// An amount with an exact decimal number, e.g. `{"number": "-12.50", "currency": "USD"}`.
+#[derive(Serialize, Schematic)]
+pub struct QueryAmountEntity {
+    pub number: String,
+    pub currency: String,
+}
+
+/// The cost lot of a position: per-unit cost, acquisition date and label.
+#[derive(Serialize, Schematic)]
+pub struct QueryCostEntity {
+    pub number: String,
+    pub currency: String,
+    pub date: Option<String>,
+    pub label: Option<String>,
+}
+
+#[derive(Serialize, Schematic)]
+pub struct QueryPositionEntity {
+    pub units: QueryAmountEntity,
+    pub cost: Option<QueryCostEntity>,
+}
+
+/// Positions sorted by units currency, then cost.
+#[derive(Serialize, Schematic)]
+pub struct QueryInventoryEntity {
+    pub positions: Vec<QueryPositionEntity>,
+}
+
+/// One result cell. Booleans and integers are JSON booleans and numbers; decimals, strings
+/// and dates (`YYYY-MM-DD`) are strings; sets are sorted string arrays.
+#[derive(Serialize, Schematic)]
+#[serde(untagged)]
+pub enum QueryCell {
+    Bool(bool),
+    Int(i64),
+    Text(String),
+    Set(Vec<String>),
+    Amount(QueryAmountEntity),
+    Position(QueryPositionEntity),
+    Inventory(QueryInventoryEntity),
+}
+
+impl From<&zhang_query::Amount> for QueryAmountEntity {
+    fn from(value: &zhang_query::Amount) -> Self {
+        QueryAmountEntity {
+            number: zhang_query::decimal::to_plain_string(&value.number),
+            currency: value.commodity.clone(),
+        }
+    }
+}
+
+impl From<&zhang_query::Position> for QueryPositionEntity {
+    fn from(value: &zhang_query::Position) -> Self {
+        QueryPositionEntity {
+            units: (&value.units).into(),
+            cost: value.cost.as_ref().map(|cost| QueryCostEntity {
+                number: zhang_query::decimal::to_plain_string(&cost.number),
+                currency: cost.currency.clone(),
+                date: cost.date.map(|date| date.format("%Y-%m-%d").to_string()),
+                label: cost.label.clone(),
+            }),
+        }
+    }
+}
+
+impl QueryCell {
+    pub fn encode(value: &zhang_query::Value) -> Option<QueryCell> {
+        use zhang_query::Value;
+        Some(match value {
+            Value::Null => return None,
+            Value::Bool(it) => QueryCell::Bool(*it),
+            Value::Int(it) => QueryCell::Int(*it),
+            Value::Decimal(it) => QueryCell::Text(zhang_query::decimal::to_plain_string(it)),
+            Value::Str(it) => QueryCell::Text(it.clone()),
+            Value::Date(it) => QueryCell::Text(it.format("%Y-%m-%d").to_string()),
+            Value::Set(it) => QueryCell::Set(it.iter().cloned().collect()),
+            Value::Amount(it) => QueryCell::Amount(it.into()),
+            Value::Position(it) => QueryCell::Position(it.into()),
+            Value::Inventory(it) => QueryCell::Inventory(QueryInventoryEntity {
+                positions: it.positions().map(|position| (&position).into()).collect(),
+            }),
+        })
+    }
+}
+
+/// The result of `POST /api/query`; any cell may be `null`.
+#[derive(Serialize, Schematic)]
+pub struct QueryResultEntity {
+    pub columns: Vec<QueryColumnEntity>,
+    pub rows: Vec<Vec<Option<QueryCell>>>,
+}
+
+impl From<zhang_query::QueryResult> for QueryResultEntity {
+    fn from(value: zhang_query::QueryResult) -> Self {
+        QueryResultEntity {
+            columns: value
+                .columns
+                .into_iter()
+                .map(|column| QueryColumnEntity {
+                    name: column.name,
+                    column_type: column.ty.into(),
+                })
+                .collect(),
+            rows: value.rows.iter().map(|row| row.iter().map(QueryCell::encode).collect()).collect(),
+        }
+    }
+}
+
+#[derive(Serialize, Schematic)]
+pub struct QuerySchemaColumnEntity {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub column_type: QueryColumnType,
+    pub description: String,
+}
+
+#[derive(Serialize, Schematic)]
+pub struct QuerySchemaFunctionEntity {
+    pub name: String,
+    /// e.g. `root(str, int) -> str`
+    pub signature: String,
+    pub description: String,
+}
+
+/// The queryable columns and functions of `POST /api/query`.
+#[derive(Serialize, Schematic)]
+pub struct QuerySchemaEntity {
+    pub columns: Vec<QuerySchemaColumnEntity>,
+    pub functions: Vec<QuerySchemaFunctionEntity>,
+}
+
+impl From<zhang_query::Schema> for QuerySchemaEntity {
+    fn from(value: zhang_query::Schema) -> Self {
+        QuerySchemaEntity {
+            columns: value
+                .columns
+                .into_iter()
+                .map(|column| QuerySchemaColumnEntity {
+                    name: column.name.to_owned(),
+                    column_type: column.ty.into(),
+                    description: column.description.to_owned(),
+                })
+                .collect(),
+            functions: value
+                .functions
+                .into_iter()
+                .map(|function| QuerySchemaFunctionEntity {
+                    name: function.name.to_owned(),
+                    signature: function.signature,
+                    description: function.description.to_owned(),
+                })
+                .collect(),
+        }
+    }
+}

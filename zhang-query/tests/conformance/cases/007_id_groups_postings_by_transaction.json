@@ -1,0 +1,39 @@
+{
+  "name": "id_groups_postings_by_transaction",
+  "query": "SELECT first(date) AS date, first(narration) AS narration, count(*) AS postings WHERE date >= 2015-01-03 AND date <= 2015-01-20 GROUP BY id",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "narration", "type": "str"},
+    {"name": "postings", "type": "int"}
+  ],
+  "rows": [
+    ["2015-01-04", "Monthly bank fee", 2],
+    ["2015-01-04", "Eating out with Bill", 2],
+    ["2015-01-05", "Investing 40% of cash in VBMPX", 2],
+    ["2015-01-05", "Investing 60% of cash in RGAGX", 2],
+    ["2015-01-05", "Investing 40% of cash in VBMPX", 2],
+    ["2015-01-05", "Investing 60% of cash in RGAGX", 2],
+    ["2015-01-06", "Paying the rent", 2],
+    ["2015-01-08", "", 2],
+    ["2015-01-09", "Eating out with work buddies", 2],
+    ["2015-01-09", "Paying off credit card", 2],
+    ["2015-01-12", "Eating out alone", 2],
+    ["2015-01-13", "Eating out alone", 2],
+    ["2015-01-15", "Eating out with Julie", 2],
+    ["2015-01-15", "Payroll", 18],
+    ["2015-01-16", "Employer match for contribution", 2],
+    ["2015-01-17", "Eating out with work buddies", 2],
+    ["2015-01-18", "Eating out with Joe", 2],
+    ["2015-01-18", "Buying groceries", 2],
+    ["2015-01-19", "Investing 40% of cash in VBMPX", 2],
+    ["2015-01-19", "Investing 60% of cash in RGAGX", 2],
+    ["2015-01-19", "Investing 40% of cash in VBMPX", 2],
+    ["2015-01-19", "Investing 60% of cash in RGAGX", 2],
+    ["2015-01-20", "", 2],
+    ["2015-01-20", "Eating out with Natasha", 2]
+  ],
+  "notes": "id values are implementation-defined (beanquery hashes the entry), so only their grouping behaviour is tested: all postings of a transaction share one id and different transactions differ."
+}

@@ -1,0 +1,17 @@
+{
+  "name": "sum_over_int_decimal_amount_position",
+  "query": "SELECT sum(day) AS days, sum(number) AS total, sum(weight) AS by_weight, sum(position) AS by_position WHERE account = 'Expenses:Financial:Fees'",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "days", "type": "int"},
+    {"name": "total", "type": "decimal"},
+    {"name": "by_weight", "type": "inventory"},
+    {"name": "by_position", "type": "inventory"}
+  ],
+  "rows": [
+    [132, "132.00", {"positions": [{"units": {"number": "132.00", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "132.00", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "sum(int) -> int, sum(decimal) -> decimal, sum(amount) and sum(position) -> inventory."
+}

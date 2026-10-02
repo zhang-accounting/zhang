@@ -1,0 +1,4581 @@
+[
+ {
+  "query": "SELECT year, month, root(account, 2), sum(position) WHERE account ~ \"^Expenses\" GROUP BY 1, 2, 3 ORDER BY 1, 2, 3",
+  "columns": [
+   {
+    "name": "year",
+    "type": "int"
+   },
+   {
+    "name": "month",
+    "type": "int"
+   },
+   {
+    "name": "root(account, 2)",
+    "type": "str"
+   },
+   {
+    "name": "sum(position)",
+    "type": "inventory"
+   }
+  ],
+  "rows": [
+   [
+    2015,
+    1,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    1,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "489.24",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    1,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "290.70",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    1,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2627.47",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    1,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "5976.60",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "3600.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    2,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    2,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "452.84",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    2,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    2,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2598.62",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    2,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    2,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    3,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    3,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "581.15",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    3,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    3,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2593.16",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    3,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    3,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    4,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    4,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "598.15",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    4,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    4,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2612.69",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    4,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    4,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    5,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    5,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "739.39",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    5,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    5,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2628.78",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    5,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    5,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "240.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    6,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    6,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "479.89",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    6,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    6,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2602.28",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    6,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    7,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    7,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "617.13",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    7,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "290.70",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    7,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2602.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    7,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "5976.60",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    7,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "240.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    8,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    8,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "586.89",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    8,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    8,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2612.35",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    8,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    8,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    9,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "39.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    9,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "614.01",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    9,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    9,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2597.14",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    9,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    9,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    9,
+    "Expenses:Vacation",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "72",
+        "currency": "VACHR"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    10,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    10,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "402.41",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    10,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    10,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2611.29",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    10,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    10,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    11,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "30.85",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    11,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "515.42",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    11,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    11,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2620.59",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    11,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    11,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    12,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "12.95",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    12,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "538.15",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    12,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "290.70",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    12,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2598.05",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    12,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "5375.06",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2015,
+    12,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    1,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    1,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "515.05",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    1,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    1,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2611.44",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    1,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    1,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    2,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    2,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "535.83",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    2,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    2,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2585.49",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    2,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    2,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    3,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    3,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "377.31",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    3,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    3,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2609.22",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    3,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4554.55",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    3,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    4,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "12.95",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    4,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "823.68",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    4,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    4,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2617.31",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    4,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    4,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    4,
+    "Expenses:Vacation",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "64",
+        "currency": "VACHR"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    5,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "39.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    5,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "580.50",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    5,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    5,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2590.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    5,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    5,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    6,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    6,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "516.63",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    6,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "290.70",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    6,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2618.81",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    6,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "5976.60",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "3600.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    6,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    7,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "12.95",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    7,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "508.34",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    7,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    7,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2597.03",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    7,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    7,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    8,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "21.90",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    8,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "490.03",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    8,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    8,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2597.16",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    8,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    8,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    9,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "30.85",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    9,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "547.18",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    9,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    9,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2607.55",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    9,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    9,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    10,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    10,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "500.35",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    10,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    10,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2606.61",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    10,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    10,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    11,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "12.95",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    11,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "944.21",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    11,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    11,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2623.17",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    11,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    11,
+    "Expenses:Vacation",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "104",
+        "currency": "VACHR"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    12,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    12,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "520.61",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    12,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "290.70",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    12,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2615.96",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    12,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "5656.60",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2016,
+    12,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    1,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    1,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "437.82",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    1,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    1,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2603.62",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    1,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    1,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    2,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "12.95",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    2,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "569.45",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    2,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    2,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2631.57",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    2,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    2,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    3,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "39.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    3,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "486.57",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    3,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    3,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2598.08",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    3,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4904.09",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    3,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    4,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    4,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "484.98",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    4,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    4,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2611.10",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    4,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    4,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    5,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    5,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "794.94",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    5,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    5,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2601.33",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    5,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    5,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    6,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    6,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "506.62",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    6,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "290.70",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    6,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2616.40",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    6,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "5976.60",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "3600.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    6,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    6,
+    "Expenses:Vacation",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "128",
+        "currency": "VACHR"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    7,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    7,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "595.71",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    7,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    7,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2597.53",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    7,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "2400.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    7,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    8,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "30.85",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    8,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "618.62",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    8,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    8,
+    "Expenses:Home",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2606.64",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    8,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3984.40",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "500.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    8,
+    "Expenses:Transport",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "120.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    9,
+    "Expenses:Financial",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    9,
+    "Expenses:Food",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "191.71",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    9,
+    "Expenses:Health",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "96.90",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    2017,
+    9,
+    "Expenses:Taxes",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "1992.20",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "query": "SELECT payee, sum(cost(position)) AS total WHERE account ~ \"^Expenses\" GROUP BY payee ORDER BY total DESC LIMIT 20",
+  "columns": [
+   {
+    "name": "payee",
+    "type": "str"
+   },
+   {
+    "name": "total",
+    "type": "inventory"
+   }
+  ],
+  "rows": [
+   [
+    "Hoogle",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "147404.56",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "54500.00",
+        "currency": "IRAUSD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "RiverBank Properties",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "76800.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Metro Transport Authority",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "3720.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Wine-Tarner Cable",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2559.51",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "EDISON POWER",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2080.00",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Farmer Fresh",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2028.45",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Verizon Wireless",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2011.73",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    null,
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "1740.44",
+        "currency": "USD"
+       },
+       "cost": null
+      },
+      {
+       "units": {
+        "number": "368",
+        "currency": "VACHR"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Good Moods Market",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "1649.42",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "China Garden",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "1559.85",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Chichipotle",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "1557.57",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Cafe Modagor",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "1535.16",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Rose Flower",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "1475.25",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Jewel of Morroco",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "1306.52",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Corner Deli",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "1296.67",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Kin Soy",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "1114.31",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Uncle Boons",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "968.36",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Onion Market",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "961.88",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Goba Goba",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "822.90",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Mr. Marcel",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "223.52",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "query": "SELECT date, payee, account, position WHERE 'trip-chicago-2016' IN tags",
+  "columns": [
+   {
+    "name": "date",
+    "type": "date"
+   },
+   {
+    "name": "payee",
+    "type": "str"
+   },
+   {
+    "name": "account",
+    "type": "str"
+   },
+   {
+    "name": "position",
+    "type": "position"
+   }
+  ],
+  "rows": [
+   [
+    "2016-11-18",
+    "Mercadito",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-39.66",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-18",
+    "Mercadito",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "39.66",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-18",
+    "25 Degrees Burger Bar",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-18.22",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-18",
+    "25 Degrees Burger Bar",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "18.22",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-18",
+    "Eataly Chicago",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-33.75",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-18",
+    "Eataly Chicago",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "33.75",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-18",
+    "Argo Tea",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-6.15",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-18",
+    "Argo Tea",
+    "Expenses:Food:Coffee",
+    {
+     "units": {
+      "number": "6.15",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-19",
+    "Star of Siam",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-21.64",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-19",
+    "Star of Siam",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "21.64",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-19",
+    "Mercadito",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-42.08",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-19",
+    "Mercadito",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "42.08",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-19",
+    "25 Degrees Burger Bar",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-22.55",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-19",
+    "25 Degrees Burger Bar",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "22.55",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-20",
+    "Mercadito",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-39.85",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-20",
+    "Mercadito",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "39.85",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-20",
+    "Eataly Chicago",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-36.22",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-20",
+    "Eataly Chicago",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "36.22",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-21",
+    "Argo Tea",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-5.73",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-21",
+    "Argo Tea",
+    "Expenses:Food:Coffee",
+    {
+     "units": {
+      "number": "5.73",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-22",
+    "Another Sports Pub",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-11.74",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-22",
+    "Another Sports Pub",
+    "Expenses:Food:Alcohol",
+    {
+     "units": {
+      "number": "11.74",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-22",
+    "Argo Tea",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-6.91",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-22",
+    "Argo Tea",
+    "Expenses:Food:Coffee",
+    {
+     "units": {
+      "number": "6.91",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-23",
+    "25 Degrees Burger Bar",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-23.44",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-23",
+    "25 Degrees Burger Bar",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "23.44",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-24",
+    "Eataly Chicago",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-44.41",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-24",
+    "Eataly Chicago",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "44.41",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-25",
+    "Mercadito",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-38.25",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-25",
+    "Mercadito",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "38.25",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-26",
+    "Star of Siam",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-28.12",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-26",
+    "Star of Siam",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "28.12",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-26",
+    "Another Sports Pub",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-8.77",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-26",
+    "Another Sports Pub",
+    "Expenses:Food:Alcohol",
+    {
+     "units": {
+      "number": "8.77",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-27",
+    "25 Degrees Burger Bar",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-25.71",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-27",
+    "25 Degrees Burger Bar",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "25.71",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-27",
+    "Eataly Chicago",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-40.06",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-27",
+    "Eataly Chicago",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "40.06",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-27",
+    "Another Sports Pub",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-8.18",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-27",
+    "Another Sports Pub",
+    "Expenses:Food:Alcohol",
+    {
+     "units": {
+      "number": "8.18",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-28",
+    "Mercadito",
+    "Liabilities:US:Chase:Slate",
+    {
+     "units": {
+      "number": "-39.89",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ],
+   [
+    "2016-11-28",
+    "Mercadito",
+    "Expenses:Food:Restaurant",
+    {
+     "units": {
+      "number": "39.89",
+      "currency": "USD"
+     },
+     "cost": null
+    }
+   ]
+  ]
+ },
+ {
+  "query": "SELECT account, units(sum(position)) AS qty, cost(sum(position)) AS book, convert(units(sum(position)), \"USD\") AS market WHERE account ~ \"^Assets\" GROUP BY account ORDER BY account",
+  "columns": [
+   {
+    "name": "account",
+    "type": "str"
+   },
+   {
+    "name": "qty",
+    "type": "inventory"
+   },
+   {
+    "name": "book",
+    "type": "inventory"
+   },
+   {
+    "name": "market",
+    "type": "inventory"
+   }
+  ],
+  "rows": [
+   [
+    "Assets:US:BofA:Checking",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2754.06",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2754.06",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "2754.06",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Assets:US:ETrade:Cash",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "855.83",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "855.83",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "855.83",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Assets:US:ETrade:GLD",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "17",
+        "currency": "GLD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4559.80",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "5217.47",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Assets:US:ETrade:ITOT",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "104",
+        "currency": "ITOT"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "6828.88",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "8312.72",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Assets:US:ETrade:VEA",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "36",
+        "currency": "VEA"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "4959.50",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "5179.32",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Assets:US:ETrade:VHT",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "64",
+        "currency": "VHT"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "7821.27",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "8382.08",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Assets:US:Federal:PreTax401k",
+    {
+     "positions": []
+    },
+    {
+     "positions": []
+    },
+    {
+     "positions": []
+    }
+   ],
+   [
+    "Assets:US:Hoogle:Vacation",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "-13",
+        "currency": "VACHR"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "-13",
+        "currency": "VACHR"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "-13",
+        "currency": "VACHR"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Assets:US:Vanguard:Cash",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "-0.02",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "-0.02",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "-0.02",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Assets:US:Vanguard:RGAGX",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "597.748",
+        "currency": "RGAGX"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "49049.66613",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "48471.38532",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ],
+   [
+    "Assets:US:Vanguard:VBMPX",
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "193.442",
+        "currency": "VBMPX"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "32700.35331",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    },
+    {
+     "positions": [
+      {
+       "units": {
+        "number": "41179.93296",
+        "currency": "USD"
+       },
+       "cost": null
+      }
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "query": "SELECT count(*), sum(number) WHERE account ~ \"Expenses:Food\"",
+  "columns": [
+   {
+    "name": "count(*)",
+    "type": "int"
+   },
+   {
+    "name": "sum(number)",
+    "type": "decimal"
+   }
+  ],
+  "rows": [
+   [
+    463,
+    "18160.81"
+   ]
+  ]
+ }
+]

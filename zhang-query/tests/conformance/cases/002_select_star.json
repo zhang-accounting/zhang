@@ -1,0 +1,30 @@
+{
+  "name": "select_star",
+  "query": "SELECT * WHERE account = 'Expenses:Financial:Fees' AND year = 2016 ORDER BY date",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "payee", "type": "str"},
+    {"name": "narration", "type": "str"},
+    {"name": "account", "type": "str"},
+    {"name": "position", "type": "position"}
+  ],
+  "rows": [
+    ["2016-01-04", "*", "BANK FEES", "Monthly bank fee", "Expenses:Financial:Fees", {"units": {"number": "4.00", "currency": "USD"}, "cost": null}],
+    ["2016-02-04", "*", "BANK FEES", "Monthly bank fee", "Expenses:Financial:Fees", {"units": {"number": "4.00", "currency": "USD"}, "cost": null}],
+    ["2016-03-04", "*", "BANK FEES", "Monthly bank fee", "Expenses:Financial:Fees", {"units": {"number": "4.00", "currency": "USD"}, "cost": null}],
+    ["2016-04-04", "*", "BANK FEES", "Monthly bank fee", "Expenses:Financial:Fees", {"units": {"number": "4.00", "currency": "USD"}, "cost": null}],
+    ["2016-05-04", "*", "BANK FEES", "Monthly bank fee", "Expenses:Financial:Fees", {"units": {"number": "4.00", "currency": "USD"}, "cost": null}],
+    ["2016-06-04", "*", "BANK FEES", "Monthly bank fee", "Expenses:Financial:Fees", {"units": {"number": "4.00", "currency": "USD"}, "cost": null}],
+    ["2016-07-04", "*", "BANK FEES", "Monthly bank fee", "Expenses:Financial:Fees", {"units": {"number": "4.00", "currency": "USD"}, "cost": null}],
+    ["2016-08-04", "*", "BANK FEES", "Monthly bank fee", "Expenses:Financial:Fees", {"units": {"number": "4.00", "currency": "USD"}, "cost": null}],
+    ["2016-09-04", "*", "BANK FEES", "Monthly bank fee", "Expenses:Financial:Fees", {"units": {"number": "4.00", "currency": "USD"}, "cost": null}],
+    ["2016-10-04", "*", "BANK FEES", "Monthly bank fee", "Expenses:Financial:Fees", {"units": {"number": "4.00", "currency": "USD"}, "cost": null}],
+    ["2016-11-04", "*", "BANK FEES", "Monthly bank fee", "Expenses:Financial:Fees", {"units": {"number": "4.00", "currency": "USD"}, "cost": null}],
+    ["2016-12-04", "*", "BANK FEES", "Monthly bank fee", "Expenses:Financial:Fees", {"units": {"number": "4.00", "currency": "USD"}, "cost": null}]
+  ],
+  "notes": "DELIBERATE DEVIATION FROM THE ORACLE: beanquery 0.2.0 expands * to date, flag, payee, narration, position (no account). The zhang Phase 1 spec expands * to date, flag, payee, narration, account, position, so the expected rows were generated from the explicit query: SELECT date, flag, payee, narration, account, position WHERE ... ORDER BY date."
+}

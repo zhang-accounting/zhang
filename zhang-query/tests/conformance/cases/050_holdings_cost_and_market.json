@@ -1,0 +1,20 @@
+{
+  "name": "holdings_cost_and_market",
+  "query": "SELECT account, units(sum(position)) AS qty, cost(sum(position)) AS book, convert(units(sum(position)), \"USD\") AS market WHERE account ~ \"^Assets:US:ETrade:\" AND account != 'Assets:US:ETrade:Cash' GROUP BY account ORDER BY account",
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "qty", "type": "inventory"},
+    {"name": "book", "type": "inventory"},
+    {"name": "market", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:ETrade:GLD", {"positions": [{"units": {"number": "17", "currency": "GLD"}, "cost": null}]}, {"positions": [{"units": {"number": "4559.80", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "5217.47", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:ITOT", {"positions": [{"units": {"number": "104", "currency": "ITOT"}, "cost": null}]}, {"positions": [{"units": {"number": "6828.88", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "8312.72", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:VEA", {"positions": [{"units": {"number": "36", "currency": "VEA"}, "cost": null}]}, {"positions": [{"units": {"number": "4959.50", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "5179.32", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:VHT", {"positions": [{"units": {"number": "64", "currency": "VHT"}, "cost": null}]}, {"positions": [{"units": {"number": "7821.27", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "8382.08", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "Representative query from #434. market uses the latest price in the price map."
+}

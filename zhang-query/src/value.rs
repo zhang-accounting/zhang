@@ -1,0 +1,595 @@
+//! The query type system: [`DataType`], the typed runtime [`Value`] and the accounting
+//! types [`Position`], [`Cost`] and [`Inventory`].
+//!
+//! Amounts reuse [`zhang_ast::amount::Amount`] (re-exported as [`crate::Amount`]) so values
+//! flow between the ledger and the engine without conversion.
+
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::ops::Neg;
+
+use bigdecimal::{BigDecimal, Zero};
+use chrono::NaiveDate;
+use zhang_ast::amount::Amount;
+
+use crate::decimal::to_plain_string;
+
+/// The static type of an expression or a result column.
+///
+/// The lower-case names returned by [`DataType::name`] are the type names used by the
+/// HTTP API and in function signatures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum DataType {
+    /// The type of the `NULL` literal; it is compatible with every other type.
+    Null,
+    Bool,
+    /// 64-bit signed integer.
+    Int,
+    /// Exact decimal number.
+    Decimal,
+    Str,
+    Date,
+    /// A set of strings, e.g. `tags` and `links`.
+    Set,
+    Amount,
+    Position,
+    Inventory,
+}
+
+impl DataType {
+    pub const ALL: [DataType; 10] = [
+        DataType::Null,
+        DataType::Bool,
+        DataType::Int,
+        DataType::Decimal,
+        DataType::Str,
+        DataType::Date,
+        DataType::Set,
+        DataType::Amount,
+        DataType::Position,
+        DataType::Inventory,
+    ];
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            DataType::Null => "null",
+            DataType::Bool => "bool",
+            DataType::Int => "int",
+            DataType::Decimal => "decimal",
+            DataType::Str => "str",
+            DataType::Date => "date",
+            DataType::Set => "set",
+            DataType::Amount => "amount",
+            DataType::Position => "position",
+            DataType::Inventory => "inventory",
+        }
+    }
+
+    pub fn is_numeric(&self) -> bool {
+        matches!(self, DataType::Int | DataType::Decimal)
+    }
+}
+
+impl fmt::Display for DataType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// The cost basis of a lot: per-unit cost number and currency, acquisition date and label.
+///
+/// Ordered by number, currency, date, label.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Cost {
+    /// per-unit cost
+    pub number: BigDecimal,
+    pub currency: String,
+    pub date: Option<NaiveDate>,
+    pub label: Option<String>,
+}
+
+impl fmt::Display for Cost {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{{} {}", to_plain_string(&self.number), self.currency)?;
+        if let Some(date) = self.date {
+            write!(f, ", {}", date)?;
+        }
+        if let Some(label) = &self.label {
+            write!(f, ", \"{}\"", label)?;
+        }
+        f.write_str("}")
+    }
+}
+
+/// Units of a commodity, optionally held at a [`Cost`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Position {
+    pub units: Amount,
+    pub cost: Option<Cost>,
+}
+
+impl Position {
+    pub fn new(units: Amount, cost: Option<Cost>) -> Self {
+        Position { units, cost }
+    }
+
+    /// The total cost of the position (`units × cost.number` in the cost currency), or the
+    /// units themselves when the position is not held at cost.
+    pub fn at_cost(&self) -> Amount {
+        match &self.cost {
+            Some(cost) => Amount::new(crate::decimal::mul(&self.units.number, &cost.number), cost.currency.clone()),
+            None => self.units.clone(),
+        }
+    }
+}
+
+impl Hash for Position {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        hash_amount(&self.units, state);
+        self.cost.hash(state);
+    }
+}
+
+impl Neg for Position {
+    type Output = Position;
+
+    fn neg(self) -> Self::Output {
+        Position {
+            units: self.units.neg(),
+            cost: self.cost,
+        }
+    }
+}
+
+impl fmt::Display for Position {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", to_plain_string(&self.units.number), self.units.commodity)?;
+        if let Some(cost) = &self.cost {
+            write!(f, " {}", cost)?;
+        }
+        Ok(())
+    }
+}
+
+/// A multiset of positions keyed by (units currency, cost): adding a position merges it
+/// into the lot with the same key, and lots that net to zero disappear.
+///
+/// Positions iterate (and serialise) sorted by units currency, then cost, with the
+/// no-cost lot first.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct Inventory {
+    lots: BTreeMap<(String, Option<Cost>), BigDecimal>,
+}
+
+impl Inventory {
+    pub fn new() -> Self {
+        Inventory::default()
+    }
+
+    pub fn add_position(&mut self, position: &Position) {
+        self.add(&position.units, position.cost.as_ref());
+    }
+
+    /// Add units without cost.
+    pub fn add_amount(&mut self, amount: &Amount) {
+        self.add(amount, None);
+    }
+
+    pub fn add_inventory(&mut self, other: &Inventory) {
+        for ((currency, cost), number) in &other.lots {
+            self.add_number(currency, cost.as_ref(), number);
+        }
+    }
+
+    fn add(&mut self, units: &Amount, cost: Option<&Cost>) {
+        self.add_number(&units.commodity, cost, &units.number);
+    }
+
+    fn add_number(&mut self, currency: &str, cost: Option<&Cost>, number: &BigDecimal) {
+        let key = (currency.to_owned(), cost.cloned());
+        let remove = match self.lots.get_mut(&key) {
+            Some(existing) => {
+                *existing += number;
+                existing.is_zero()
+            }
+            None => {
+                if !number.is_zero() {
+                    self.lots.insert(key.clone(), number.clone());
+                }
+                false
+            }
+        };
+        if remove {
+            self.lots.remove(&key);
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.lots.is_empty()
+    }
+
+    /// number of lots
+    pub fn len(&self) -> usize {
+        self.lots.len()
+    }
+
+    /// The positions, sorted by units currency then cost.
+    pub fn positions(&self) -> impl Iterator<Item = Position> + '_ {
+        self.lots.iter().map(|((currency, cost), number)| Position {
+            units: Amount::new(number.clone(), currency.clone()),
+            cost: cost.clone(),
+        })
+    }
+
+    /// Reduce every position to an amount with `f` and sum the results into a new
+    /// inventory without costs (beancount's `Inventory.reduce`).
+    pub fn reduce(&self, mut f: impl FnMut(&Position) -> Amount) -> Inventory {
+        let mut ret = Inventory::new();
+        for position in self.positions() {
+            ret.add_amount(&f(&position));
+        }
+        ret
+    }
+
+    /// Like [`Inventory::reduce`] but with a fallible reducer.
+    pub fn try_reduce<E>(&self, mut f: impl FnMut(&Position) -> Result<Amount, E>) -> Result<Inventory, E> {
+        let mut ret = Inventory::new();
+        for position in self.positions() {
+            ret.add_amount(&f(&position)?);
+        }
+        Ok(ret)
+    }
+
+    /// The units of every lot, merged per currency.
+    pub fn units(&self) -> Inventory {
+        self.reduce(|position| position.units.clone())
+    }
+
+    /// The cost of every lot, merged per currency.
+    pub fn at_cost(&self) -> Inventory {
+        self.reduce(Position::at_cost)
+    }
+}
+
+impl Neg for Inventory {
+    type Output = Inventory;
+
+    fn neg(self) -> Self::Output {
+        Inventory {
+            lots: self.lots.into_iter().map(|(key, number)| (key, -number)).collect(),
+        }
+    }
+}
+
+impl FromIterator<Position> for Inventory {
+    fn from_iter<T: IntoIterator<Item = Position>>(iter: T) -> Self {
+        let mut inventory = Inventory::new();
+        for position in iter {
+            inventory.add_position(&position);
+        }
+        inventory
+    }
+}
+
+impl fmt::Display for Inventory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (idx, position) in self.positions().enumerate() {
+            if idx > 0 {
+                f.write_str(", ")?;
+            }
+            write!(f, "{}", position)?;
+        }
+        Ok(())
+    }
+}
+
+/// A typed runtime value. Any value may be `Null`.
+#[derive(Debug, Clone)]
+pub enum Value {
+    Null,
+    Bool(bool),
+    Int(i64),
+    Decimal(BigDecimal),
+    Str(String),
+    Date(NaiveDate),
+    Set(BTreeSet<String>),
+    Amount(Amount),
+    Position(Position),
+    Inventory(Inventory),
+}
+
+impl Value {
+    pub fn data_type(&self) -> DataType {
+        match self {
+            Value::Null => DataType::Null,
+            Value::Bool(_) => DataType::Bool,
+            Value::Int(_) => DataType::Int,
+            Value::Decimal(_) => DataType::Decimal,
+            Value::Str(_) => DataType::Str,
+            Value::Date(_) => DataType::Date,
+            Value::Set(_) => DataType::Set,
+            Value::Amount(_) => DataType::Amount,
+            Value::Position(_) => DataType::Position,
+            Value::Inventory(_) => DataType::Inventory,
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        matches!(self, Value::Null)
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(it) => Some(*it),
+            _ => None,
+        }
+    }
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            Value::Int(it) => Some(*it),
+            _ => None,
+        }
+    }
+    /// The value as a decimal; integers are widened.
+    pub fn as_decimal(&self) -> Option<BigDecimal> {
+        match self {
+            Value::Int(it) => Some(BigDecimal::from(*it)),
+            Value::Decimal(it) => Some(it.clone()),
+            _ => None,
+        }
+    }
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Value::Str(it) => Some(it),
+            _ => None,
+        }
+    }
+    pub fn as_date(&self) -> Option<NaiveDate> {
+        match self {
+            Value::Date(it) => Some(*it),
+            _ => None,
+        }
+    }
+    pub fn as_set(&self) -> Option<&BTreeSet<String>> {
+        match self {
+            Value::Set(it) => Some(it),
+            _ => None,
+        }
+    }
+    pub fn as_amount(&self) -> Option<&Amount> {
+        match self {
+            Value::Amount(it) => Some(it),
+            _ => None,
+        }
+    }
+    pub fn as_position(&self) -> Option<&Position> {
+        match self {
+            Value::Position(it) => Some(it),
+            _ => None,
+        }
+    }
+    pub fn as_inventory(&self) -> Option<&Inventory> {
+        match self {
+            Value::Inventory(it) => Some(it),
+            _ => None,
+        }
+    }
+
+    /// The total order used by `ORDER BY`, `min()` and `max()`.
+    ///
+    /// `NULL` sorts before everything else; integers and decimals compare numerically;
+    /// amounts compare by (currency, number); positions and inventories follow
+    /// beancount's position sort key (common currencies first, then cost, then units).
+    pub fn sort_cmp(&self, other: &Value) -> Ordering {
+        match (self, other) {
+            (Value::Null, Value::Null) => Ordering::Equal,
+            (Value::Null, _) => Ordering::Less,
+            (_, Value::Null) => Ordering::Greater,
+            (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
+            (Value::Int(a), Value::Int(b)) => a.cmp(b),
+            (Value::Int(a), Value::Decimal(b)) => BigDecimal::from(*a).cmp(b),
+            (Value::Decimal(a), Value::Int(b)) => a.cmp(&BigDecimal::from(*b)),
+            (Value::Decimal(a), Value::Decimal(b)) => a.cmp(b),
+            (Value::Str(a), Value::Str(b)) => a.cmp(b),
+            (Value::Date(a), Value::Date(b)) => a.cmp(b),
+            (Value::Set(a), Value::Set(b)) => a.cmp(b),
+            (Value::Amount(a), Value::Amount(b)) => a.commodity.cmp(&b.commodity).then_with(|| a.number.cmp(&b.number)),
+            (Value::Position(a), Value::Position(b)) => position_sort_cmp(a, b),
+            (Value::Inventory(a), Value::Inventory(b)) => {
+                let mut left = a.positions().collect::<Vec<_>>();
+                let mut right = b.positions().collect::<Vec<_>>();
+                left.sort_by(position_sort_cmp);
+                right.sort_by(position_sort_cmp);
+                for (l, r) in left.iter().zip(right.iter()) {
+                    let ord = position_sort_cmp(l, r);
+                    if ord != Ordering::Equal {
+                        return ord;
+                    }
+                }
+                left.len().cmp(&right.len())
+            }
+            // mixed types never appear in a single typed column; order by type for totality
+            (a, b) => a.data_type().cmp(&b.data_type()),
+        }
+    }
+}
+
+/// Currencies beancount orders first when sorting positions.
+const COMMON_CURRENCIES: [&str; 8] = ["USD", "EUR", "JPY", "CAD", "GBP", "AUD", "NZD", "CHF"];
+
+fn currency_rank(currency: &str) -> usize {
+    COMMON_CURRENCIES
+        .iter()
+        .position(|it| *it == currency)
+        .unwrap_or(COMMON_CURRENCIES.len() + currency.len())
+}
+
+/// beancount's position sort key: (currency rank, cost number, cost currency, units number),
+/// with the currency name as a final tie-breaker so the order is total.
+pub(crate) fn position_sort_cmp(a: &Position, b: &Position) -> Ordering {
+    let zero = BigDecimal::zero();
+    let (a_cost_number, a_cost_currency) = a.cost.as_ref().map(|c| (&c.number, c.currency.as_str())).unwrap_or((&zero, ""));
+    let (b_cost_number, b_cost_currency) = b.cost.as_ref().map(|c| (&c.number, c.currency.as_str())).unwrap_or((&zero, ""));
+    currency_rank(&a.units.commodity)
+        .cmp(&currency_rank(&b.units.commodity))
+        .then_with(|| a_cost_number.cmp(b_cost_number))
+        .then_with(|| a_cost_currency.cmp(b_cost_currency))
+        .then_with(|| a.units.number.cmp(&b.units.number))
+        .then_with(|| a.units.commodity.cmp(&b.units.commodity))
+        .then_with(|| a.cost.cmp(&b.cost))
+}
+
+fn hash_amount<H: Hasher>(amount: &Amount, state: &mut H) {
+    amount.number.hash(state);
+    amount.commodity.hash(state);
+}
+
+/// Structural equality; integers and decimals compare numerically (`1 = 1.00`).
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Null, Value::Null) => true,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Int(a), Value::Decimal(b)) | (Value::Decimal(b), Value::Int(a)) => &BigDecimal::from(*a) == b,
+            (Value::Decimal(a), Value::Decimal(b)) => a == b,
+            (Value::Str(a), Value::Str(b)) => a == b,
+            (Value::Date(a), Value::Date(b)) => a == b,
+            (Value::Set(a), Value::Set(b)) => a == b,
+            (Value::Amount(a), Value::Amount(b)) => a == b,
+            (Value::Position(a), Value::Position(b)) => a == b,
+            (Value::Inventory(a), Value::Inventory(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Value {}
+
+impl Hash for Value {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Value::Null => 0u8.hash(state),
+            Value::Bool(it) => it.hash(state),
+            // integers hash like the equal decimal so that `1 = 1.0` keeps Hash consistent
+            Value::Int(it) => BigDecimal::from(*it).hash(state),
+            Value::Decimal(it) => it.hash(state),
+            Value::Str(it) => it.hash(state),
+            Value::Date(it) => it.hash(state),
+            Value::Set(it) => it.hash(state),
+            Value::Amount(it) => hash_amount(it, state),
+            Value::Position(it) => it.hash(state),
+            Value::Inventory(it) => it.hash(state),
+        }
+    }
+}
+
+/// Human-readable rendering, used by `str()`.
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Null => f.write_str("NULL"),
+            Value::Bool(it) => f.write_str(if *it { "TRUE" } else { "FALSE" }),
+            Value::Int(it) => write!(f, "{}", it),
+            Value::Decimal(it) => f.write_str(&to_plain_string(it)),
+            Value::Str(it) => f.write_str(it),
+            Value::Date(it) => write!(f, "{}", it.format("%Y-%m-%d")),
+            Value::Set(it) => f.write_str(&it.iter().map(String::as_str).collect::<Vec<_>>().join(", ")),
+            Value::Amount(it) => write!(f, "{} {}", to_plain_string(&it.number), it.commodity),
+            Value::Position(it) => write!(f, "{}", it),
+            Value::Inventory(it) => write!(f, "{}", it),
+        }
+    }
+}
+
+macro_rules! impl_from {
+    ($t:ty, $variant:ident) => {
+        impl From<$t> for Value {
+            fn from(value: $t) -> Self {
+                Value::$variant(value)
+            }
+        }
+    };
+}
+
+impl_from!(bool, Bool);
+impl_from!(i64, Int);
+impl_from!(BigDecimal, Decimal);
+impl_from!(String, Str);
+impl_from!(NaiveDate, Date);
+impl_from!(BTreeSet<String>, Set);
+impl_from!(Amount, Amount);
+impl_from!(Position, Position);
+impl_from!(Inventory, Inventory);
+
+impl From<i32> for Value {
+    fn from(value: i32) -> Self {
+        Value::Int(value as i64)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::Str(value.to_owned())
+    }
+}
+
+impl<T: Into<Value>> From<Option<T>> for Value {
+    fn from(value: Option<T>) -> Self {
+        value.map(Into::into).unwrap_or(Value::Null)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+
+    fn amount(n: &str, c: &str) -> Amount {
+        Amount::new(BigDecimal::from_str(n).unwrap(), c)
+    }
+
+    fn cost(n: &str, c: &str) -> Option<Cost> {
+        Some(Cost {
+            number: BigDecimal::from_str(n).unwrap(),
+            currency: c.to_owned(),
+            date: NaiveDate::from_ymd_opt(2024, 1, 1),
+            label: None,
+        })
+    }
+
+    #[test]
+    fn inventory_merges_lots_and_drops_zero_positions() {
+        let mut inventory = Inventory::new();
+        inventory.add_position(&Position::new(amount("10", "AAPL"), cost("100", "USD")));
+        inventory.add_position(&Position::new(amount("5", "AAPL"), cost("100.00", "USD")));
+        inventory.add_position(&Position::new(amount("1", "AAPL"), cost("120", "USD")));
+        inventory.add_amount(&amount("4.00", "USD"));
+        assert_eq!(inventory.len(), 3);
+        inventory.add_position(&Position::new(amount("-1", "AAPL"), cost("120", "USD")));
+        assert_eq!(inventory.len(), 2);
+        assert_eq!(inventory.to_string(), "15 AAPL {100 USD, 2024-01-01}, 4.00 USD");
+        assert_eq!(inventory.units().to_string(), "15 AAPL, 4.00 USD");
+        assert_eq!(inventory.at_cost().to_string(), "1504.00 USD");
+    }
+
+    #[test]
+    fn null_sorts_first_and_numbers_compare_across_types() {
+        assert_eq!(Value::Null.sort_cmp(&Value::Int(1)), Ordering::Less);
+        assert_eq!(Value::Int(2).sort_cmp(&Value::Decimal(BigDecimal::from_str("1.5").unwrap())), Ordering::Greater);
+        assert_eq!(Value::Int(1), Value::Decimal(BigDecimal::from_str("1.00").unwrap()));
+    }
+
+    #[test]
+    fn inventories_order_by_common_currency_first() {
+        let mut a = Inventory::new();
+        a.add_amount(&amount("10", "USD"));
+        a.add_amount(&amount("99999", "IRAUSD"));
+        let mut b = Inventory::new();
+        b.add_amount(&amount("20", "USD"));
+        assert_eq!(Value::Inventory(a).sort_cmp(&Value::Inventory(b)), Ordering::Less);
+    }
+}

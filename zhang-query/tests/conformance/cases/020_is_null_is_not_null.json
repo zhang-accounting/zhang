@@ -1,0 +1,17 @@
+{
+  "name": "is_null_is_not_null",
+  "query": "SELECT payee IS NULL AS no_payee, payee IS NOT NULL AS has_payee, count(*) AS n WHERE account = 'Assets:US:Vanguard:Cash' GROUP BY 1, 2 ORDER BY 1",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "no_payee", "type": "bool"},
+    {"name": "has_payee", "type": "bool"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    [false, true, 46],
+    [true, false, 230]
+  ],
+  "notes": ""
+}
