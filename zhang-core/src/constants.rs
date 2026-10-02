@@ -8,6 +8,8 @@ pub const KEY_TIMEZONE: &str = "timezone";
 pub const KEY_DIRECTIVE_OUTPUT_PATH: &str = "directive_output_path";
 pub const KEY_DEFAULT_BOOKING_METHOD: &str = "default_booking_method";
 pub const KEY_FEATURES_PLUGIN: &str = "features.plugin";
+/// alias of [KEY_FEATURES_PLUGIN]
+pub const KEY_FEATURES_PLUGINS: &str = "features.plugins";
 
 pub const DEFAULT_COMMODITY_PRECISION: i32 = 2;
 pub const DEFAULT_OPERATING_CURRENCY: &str = "CNY";
