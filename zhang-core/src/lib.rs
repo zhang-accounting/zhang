@@ -3,6 +3,7 @@ pub use error::ZhangError;
 #[macro_use]
 pub mod utils;
 
+pub(crate) mod booking;
 pub mod constants;
 pub mod data_source;
 pub mod data_type;
