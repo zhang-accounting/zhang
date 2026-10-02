@@ -1,0 +1,20 @@
+{
+  "name": "other_accounts_membership",
+  "query": "SELECT account, count(*) AS n WHERE 'Expenses:Financial:Commissions' IN other_accounts GROUP BY account ORDER BY account",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    ["Assets:US:ETrade:Cash", 28],
+    ["Assets:US:ETrade:GLD", 8],
+    ["Assets:US:ETrade:ITOT", 5],
+    ["Assets:US:ETrade:VEA", 6],
+    ["Assets:US:ETrade:VHT", 9],
+    ["Income:US:ETrade:Gains", 5]
+  ],
+  "notes": ""
+}

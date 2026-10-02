@@ -1,0 +1,10 @@
+{
+  "name": "error_aggregate_in_where",
+  "query": "SELECT count(*) WHERE sum(number) > 0",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

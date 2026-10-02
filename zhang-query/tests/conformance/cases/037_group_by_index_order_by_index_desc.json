@@ -1,0 +1,21 @@
+{
+  "name": "group_by_index_order_by_index_desc",
+  "query": "SELECT root(account, 2) AS category, count(*) AS n, sum(number) AS total WHERE account ~ '^Expenses' AND currency = 'USD' GROUP BY 1 ORDER BY 3 DESC",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "category", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "total", "type": "decimal"}
+  ],
+  "rows": [
+    ["Expenses:Taxes", 430, "142014.50"],
+    ["Expenses:Home", 128, "83451.24"],
+    ["Expenses:Food", 463, "18160.81"],
+    ["Expenses:Health", 284, "6879.90"],
+    ["Expenses:Transport", 31, "3720.00"],
+    ["Expenses:Financial", 61, "382.60"]
+  ],
+  "notes": ""
+}

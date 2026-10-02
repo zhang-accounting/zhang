@@ -1,0 +1,22 @@
+{
+  "name": "description_without_payee",
+  "query": "SELECT DISTINCT payee, narration, description WHERE account ~ '^Expenses:Home' OR (account = 'Assets:US:Vanguard:Cash' AND payee IS NULL)",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "payee", "type": "str"},
+    {"name": "narration", "type": "str"},
+    {"name": "description", "type": "str"}
+  ],
+  "rows": [
+    [null, "Employer match for contribution", "Employer match for contribution"],
+    [null, "Investing 40% of cash in VBMPX", "Investing 40% of cash in VBMPX"],
+    [null, "Investing 60% of cash in RGAGX", "Investing 60% of cash in RGAGX"],
+    ["RiverBank Properties", "Paying the rent", "RiverBank Properties | Paying the rent"],
+    ["EDISON POWER", "", "EDISON POWER"],
+    ["Verizon Wireless", "", "Verizon Wireless"],
+    ["Wine-Tarner Cable", "", "Wine-Tarner Cable"]
+  ],
+  "notes": "description = ' | '.join of the non-empty parts: payee only when narration is '', narration only when payee is NULL."
+}

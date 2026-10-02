@@ -1,0 +1,17 @@
+{
+  "name": "boolean_precedence",
+  "query": "SELECT DISTINCT account WHERE account ~ 'Food' AND NOT account ~ 'Rest' OR account = 'Equity:Opening-Balances' ORDER BY account",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"}
+  ],
+  "rows": [
+    ["Equity:Opening-Balances"],
+    ["Expenses:Food:Alcohol"],
+    ["Expenses:Food:Coffee"],
+    ["Expenses:Food:Groceries"]
+  ],
+  "notes": "NOT binds tighter than AND, AND tighter than OR."
+}

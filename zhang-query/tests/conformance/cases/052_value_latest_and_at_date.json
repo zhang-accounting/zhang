@@ -1,0 +1,17 @@
+{
+  "name": "value_latest_and_at_date",
+  "query": "SELECT account, value(sum(position)) AS latest, value(sum(position), 2016-12-31) AS at_2016_end WHERE account ~ '^Assets:US:Vanguard:' AND account != 'Assets:US:Vanguard:Cash' GROUP BY account ORDER BY account",
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "latest", "type": "inventory"},
+    {"name": "at_2016_end", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:Vanguard:RGAGX", {"positions": [{"units": {"number": "48471.38532", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "48973.49364", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:Vanguard:VBMPX", {"positions": [{"units": {"number": "41179.93296", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "34724.77342", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "value() converts each lot to its cost currency at the market price."
+}
