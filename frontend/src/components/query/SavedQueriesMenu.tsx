@@ -3,7 +3,7 @@ import { SavedQuery } from '@/api/types';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Bookmark, ChevronDown, LoaderCircle } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 interface Props {
@@ -16,15 +16,20 @@ type State = { status: 'loading' } | { status: 'failed' } | { status: 'loaded'; 
 export default function SavedQueriesMenu({ onSelect }: Props) {
   const { t } = useTranslation();
   const [state, setState] = useState<State>({ status: 'loading' });
+  const latestRequest = useRef(0);
 
   // fetched on every open, so queries added to the ledger since the page was loaded show up
   const load = async () => {
+    const request = ++latestRequest.current;
     setState((prev) => (prev.status === 'loaded' ? prev : { status: 'loading' }));
+    let next: State;
     try {
-      setState({ status: 'loaded', queries: (await retrieveSavedQueries({})).data.data });
+      next = { status: 'loaded', queries: (await retrieveSavedQueries({})).data.data };
     } catch {
-      setState({ status: 'failed' });
+      next = { status: 'failed' };
     }
+    // a slower, older response must not overwrite the one of a later open
+    if (request === latestRequest.current) setState(next);
   };
 
   return (

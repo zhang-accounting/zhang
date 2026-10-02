@@ -100,6 +100,7 @@
     "error_line": "第 {{line}} 行",
     "export_csv": "导出 CSV",
     "exporting_csv": "导出中...",
+    "export_error_title": "CSV 导出失败",
     "show_chart": "图表",
     "saved": "已保存",
     "saved_loading": "正在加载已保存的查询...",
