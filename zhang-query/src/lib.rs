@@ -117,6 +117,9 @@ impl Query {
     }
 
     /// Execute against a ledger. `today()` is the current date in the ledger's timezone.
+    ///
+    /// This reads the system clock; on targets without one (e.g. `wasm32-unknown-unknown`)
+    /// use [`Query::execute_at`].
     pub fn execute(&self, ledger: &Ledger, params: &Params) -> Result<QueryResult, QueryError> {
         let today = Utc::now().with_timezone(&ledger.options.timezone).date_naive();
         self.execute_at(ledger, params, today)

@@ -134,6 +134,13 @@ fn entry_columns() {
         query("SELECT date, year, month, day, flag, payee, narration, description, tags, links WHERE narration = 'lunch'")[0],
         vec!["2024-01-05", "2024", "1", "5", "*", "午餐", "lunch", "午餐 | lunch", "food", "receipt-1"]
     );
+    // a transaction without strings has an empty narration, like in beancount
+    let ledger = common::load_text("1970-01-01 open Assets:A\n1970-01-01 open Income:B\n2024-01-01 *\n  Assets:A 1 USD\n  Income:B\n");
+    let result = Query::compile("SELECT payee, narration, description")
+        .unwrap()
+        .execute_at(&ledger, &Params::new(), today())
+        .unwrap();
+    assert_eq!(result.rows[0], vec![Value::Null, Value::from(""), Value::from("")]);
     // a single string is the narration
     assert_eq!(
         query("SELECT payee, narration, description WHERE narration = 'Lunch'")[0],
@@ -426,6 +433,12 @@ fn error_positions_count_characters() {
     assert_eq!(err.column, Some(8));
     let err = error("SELECT root");
     assert!(err.message.contains("did you mean"), "{}", err);
+}
+
+#[test]
+fn compiled_queries_can_be_shared_between_threads() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Query>();
 }
 
 #[test]
