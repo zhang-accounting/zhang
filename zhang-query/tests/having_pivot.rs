@@ -436,6 +436,19 @@ fn pivot_respects_the_result_budget() {
     assert!(result.rows.iter().all(|row| row.len() == result.columns.len()));
 }
 
+/// Column names repeat target names that can be as long as the query: they are charged to
+/// the budget before they are built.
+#[test]
+fn pivot_column_names_count_towards_the_result_budget() {
+    let alias = |c: char| c.to_string().repeat(31_000);
+    let sql = format!("SELECT 'r' AS r, id, 1 AS {}, 2 AS {} GROUP BY r, id PIVOT BY r, id", alias('a'), alias('b'));
+    assert!(sql.len() < zhang_query::MAX_QUERY_LENGTH);
+    let ledger = common::fava_demo_ledger();
+    // a thousand ids, two 31 KB names each: about 1,000,000 values of names for 2,000 cells
+    let err = Query::compile(&sql).unwrap().execute_at(&ledger, &Params::default(), today()).unwrap_err();
+    assert_eq!(err.kind, QueryErrorKind::TooLarge, "{}", err);
+}
+
 #[test]
 fn explain_shows_having_and_pivot() {
     let query = Query::compile(

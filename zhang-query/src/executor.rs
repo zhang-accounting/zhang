@@ -592,12 +592,18 @@ impl Budget {
 /// bounds the memory, and the encoded size, of a result.
 pub(crate) fn weight(value: &Value) -> u64 {
     match value {
-        Value::Str(text) => 1 + text.len() as u64 / 64,
+        Value::Str(text) => text_weight(text.len()),
         Value::Set(set) => 1 + set.len() as u64,
         Value::Position(_) => 2,
         Value::Inventory(inventory) => inventory_weight(inventory),
         _ => 1,
     }
+}
+
+/// The size of a text of `len` bytes in [`Budget`] values (see [`weight`]); column names
+/// built from the data are charged like text cells.
+pub(crate) fn text_weight(len: usize) -> u64 {
+    1 + len as u64 / 64
 }
 
 fn inventory_weight(inventory: &Inventory) -> u64 {

@@ -254,6 +254,7 @@ PIVOT BY category, year
 - The rows are sorted by `a`, whatever the `ORDER BY`. The columns are sorted by the value of `b`.
 - The first column is named `a/b`, after the two targets. Each other column is named after a value of `b`, such as `2016`, and holds the remaining target for that value. When more than one target remains, there is one column per value and target, named `<value>/<target>`, for example `2016/total` and `2016/count`.
 - A value is written like this in a column name: `2016-01-31` for a date, `12.50` for a decimal, `True` and `False` for booleans, and `NULL` for `NULL`.
+- As in beanquery, column names are not always unique: a `NULL` value and the string `'NULL'` are both named `NULL`, and a value that contains `/` can make a `<value>/<target>` name equal to another one. Columns are identified by their position, so no data is lost, but a spreadsheet or a program that looks columns up by name sees duplicates.
 - A cell for a pair of `a` and `b` that has no row is `NULL`. If several rows have the same pair, which happens when the query groups by more than `a` and `b`, the last row in the result order fills the cells.
 - The columns keep the types of their targets, so [CSV export](#export-as-csv) splits pivoted amounts and inventories per currency, as in `2016 (USD)`.
 

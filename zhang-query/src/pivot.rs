@@ -13,13 +13,19 @@
 //!   pair (`b` is not the only other GROUP BY key), the last one in result order wins.
 //! - A value is named like Python's `str()`, as beanquery does: `2016`, `2016-01-31`,
 //!   `12.50`, `True`, `100 USD`. NULL, which beanquery cannot sort next to other values, is
-//!   `NULL`.
+//!   `NULL`. Names are therefore not always unique (NULL and the string `'NULL'`, or a value
+//!   containing `/` in `<value>/<target>`); columns are positional, so no cell is lost.
+//!
+//! The pivot's size depends on the data, so everything it builds is charged to the result
+//! [`Budget`] before it is allocated: rows × columns cells (most of them possibly NULL), and
+//! every column name like a text cell, since a name repeats a target name that can be as long
+//! as the query.
 
 use indexmap::IndexSet;
 
 use crate::compiler::{Pivot, Plan};
 use crate::error::LocatedError;
-use crate::executor::{row_weight, weight, Budget};
+use crate::executor::{row_weight, text_weight, weight, Budget};
 use crate::value::Value;
 use crate::ColumnInfo;
 
@@ -58,22 +64,26 @@ pub(crate) fn pivot(plan: &Plan, spec: Pivot, rows: Vec<Vec<Value>>, budget: &mu
     }
     budget.release(released);
 
+    // each name is charged before it is built
     let mut columns = Vec::with_capacity(width);
+    let (first, second) = (&targets[spec.rows].name, &targets[spec.columns].name);
+    budget.charge(text_weight(first.len() + 1 + second.len()))?;
     columns.push(ColumnInfo {
-        name: format!("{}/{}", targets[spec.rows].name, targets[spec.columns].name),
+        name: format!("{}/{}", first, second),
         ty: targets[spec.rows].ty,
     });
     for key in &column_keys {
         let label = label(key);
         for other in &others {
-            columns.push(ColumnInfo {
-                name: if others.len() == 1 {
-                    label.clone()
-                } else {
-                    format!("{}/{}", label, targets[*other].name)
-                },
-                ty: targets[*other].ty,
-            });
+            let target = &targets[*other].name;
+            let name = if others.len() == 1 {
+                budget.charge(text_weight(label.len()))?;
+                label.clone()
+            } else {
+                budget.charge(text_weight(label.len() + 1 + target.len()))?;
+                format!("{}/{}", label, target)
+            };
+            columns.push(ColumnInfo { name, ty: targets[*other].ty });
         }
     }
     Ok((columns, table))
@@ -167,6 +177,24 @@ mod tests {
         let (columns, rows) = run(SQL, vec![], None).unwrap();
         assert_eq!(columns.len(), 1);
         assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn column_names_are_charged_like_text() {
+        // 300 account values × 2 targets with 6,400-character names: 601 cells, but 600
+        // names of about 101 values each
+        let long = |c: char| c.to_string().repeat(6_400);
+        let sql = format!(
+            "SELECT year, account, count(*) AS {}, sum(number) AS {} GROUP BY 1, 2 PIVOT BY year, account",
+            long('n'),
+            long('t')
+        );
+        let rows = (0..300).map(|idx| vec![v(2016), v(format!("A{}", idx)), v(1), v(2)]).collect::<Vec<_>>();
+        let err = run(&sql, rows.clone(), Some(10_000)).err().unwrap();
+        assert_eq!(err.kind, crate::QueryErrorKind::TooLarge);
+        let (columns, pivoted) = run(&sql, rows, Some(100_000)).unwrap();
+        assert_eq!((columns.len(), pivoted.len()), (601, 1));
+        assert_eq!(columns[1].0.len(), "A0/".len() + 6_400);
     }
 
     #[test]
