@@ -1,0 +1,32 @@
+{
+  "name": "entry_columns",
+  "query": "SELECT date, year, month, day, flag, payee, narration, description WHERE account = 'Expenses:Home:Phone' AND year = 2016 ORDER BY date",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "year", "type": "int"},
+    {"name": "month", "type": "int"},
+    {"name": "day", "type": "int"},
+    {"name": "flag", "type": "str"},
+    {"name": "payee", "type": "str"},
+    {"name": "narration", "type": "str"},
+    {"name": "description", "type": "str"}
+  ],
+  "rows": [
+    ["2016-01-20", 2016, 1, 20, "*", "Verizon Wireless", "", "Verizon Wireless"],
+    ["2016-02-20", 2016, 2, 20, "*", "Verizon Wireless", "", "Verizon Wireless"],
+    ["2016-03-20", 2016, 3, 20, "*", "Verizon Wireless", "", "Verizon Wireless"],
+    ["2016-04-19", 2016, 4, 19, "*", "Verizon Wireless", "", "Verizon Wireless"],
+    ["2016-05-20", 2016, 5, 20, "*", "Verizon Wireless", "", "Verizon Wireless"],
+    ["2016-06-19", 2016, 6, 19, "*", "Verizon Wireless", "", "Verizon Wireless"],
+    ["2016-07-20", 2016, 7, 20, "*", "Verizon Wireless", "", "Verizon Wireless"],
+    ["2016-08-20", 2016, 8, 20, "*", "Verizon Wireless", "", "Verizon Wireless"],
+    ["2016-09-19", 2016, 9, 19, "*", "Verizon Wireless", "", "Verizon Wireless"],
+    ["2016-10-18", 2016, 10, 18, "*", "Verizon Wireless", "", "Verizon Wireless"],
+    ["2016-11-20", 2016, 11, 20, "*", "Verizon Wireless", "", "Verizon Wireless"],
+    ["2016-12-19", 2016, 12, 19, "*", "Verizon Wireless", "", "Verizon Wireless"]
+  ],
+  "notes": "Transaction-level columns joined onto each posting. Narration is '' (empty string) for these transactions; description is payee and narration joined by ' | ', skipping NULL/empty parts."
+}

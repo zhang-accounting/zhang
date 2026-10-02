@@ -1,0 +1,16 @@
+{
+  "name": "sum_position_with_lots",
+  "query": "SELECT account, sum(position) AS balance WHERE account ~ '^Assets:US:ETrade:(GLD|VEA)$' GROUP BY account ORDER BY account",
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "balance", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:ETrade:GLD", {"positions": [{"units": {"number": "2", "currency": "GLD"}, "cost": {"number": "205.78", "currency": "USD", "date": "2016-05-05", "label": null}}, {"units": {"number": "5", "currency": "GLD"}, "cost": {"number": "231.38", "currency": "USD", "date": "2016-09-23", "label": null}}, {"units": {"number": "2", "currency": "GLD"}, "cost": {"number": "278.99", "currency": "USD", "date": "2017-03-19", "label": null}}, {"units": {"number": "8", "currency": "GLD"}, "cost": {"number": "304.17", "currency": "USD", "date": "2017-08-27", "label": null}}]}],
+    ["Assets:US:ETrade:VEA", {"positions": [{"units": {"number": "8", "currency": "VEA"}, "cost": {"number": "132.93", "currency": "USD", "date": "2015-09-15", "label": null}}, {"units": {"number": "3", "currency": "VEA"}, "cost": {"number": "134.63", "currency": "USD", "date": "2016-05-05", "label": null}}, {"units": {"number": "8", "currency": "VEA"}, "cost": {"number": "136.96", "currency": "USD", "date": "2015-12-30", "label": null}}, {"units": {"number": "17", "currency": "VEA"}, "cost": {"number": "140.97", "currency": "USD", "date": "2016-08-13", "label": null}}]}]
+  ],
+  "notes": "Inventories keep one position per lot (cost number, currency and date). Depends on booking."
+}

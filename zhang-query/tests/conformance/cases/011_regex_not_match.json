@@ -1,0 +1,15 @@
+{
+  "name": "regex_not_match",
+  "query": "SELECT DISTINCT account WHERE account ~ '^Expenses:Home' AND account !~ 'RENT|phone' ORDER BY account",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"}
+  ],
+  "rows": [
+    ["Expenses:Home:Electricity"],
+    ["Expenses:Home:Internet"]
+  ],
+  "notes": "!~ is the negated case-insensitive regex search."
+}

@@ -1,0 +1,10 @@
+{
+  "name": "error_unknown_function",
+  "query": "SELECT nosuchfunction(account)",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

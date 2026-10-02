@@ -1,0 +1,21 @@
+{
+  "name": "account_functions",
+  "query": "SELECT DISTINCT account, root(account) AS r1, root(account, 2) AS r2, root(account, 9) AS r9, parent(account) AS p, leaf(account) AS l, parent(root(account)) AS p_of_root WHERE account ~ 'BofA|^Equity' ORDER BY account",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "r1", "type": "str"},
+    {"name": "r2", "type": "str"},
+    {"name": "r9", "type": "str"},
+    {"name": "p", "type": "str"},
+    {"name": "l", "type": "str"},
+    {"name": "p_of_root", "type": "str"}
+  ],
+  "rows": [
+    ["Assets:US:BofA:Checking", "Assets", "Assets:US", "Assets:US:BofA:Checking", "Assets:US:BofA", "Checking", ""],
+    ["Equity:Opening-Balances", "Equity", "Equity:Opening-Balances", "Equity:Opening-Balances", "Equity", "Opening-Balances", ""]
+  ],
+  "notes": "root(a) defaults to 1 component; root(a, n) with n beyond the depth returns a; parent of a top-level account is '' (empty string, not NULL)."
+}

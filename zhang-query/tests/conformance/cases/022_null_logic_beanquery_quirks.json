@@ -1,0 +1,15 @@
+{
+  "name": "null_logic_beanquery_quirks",
+  "query": "SELECT DISTINCT NOT NULL AS not_null, NULL AND FALSE AS null_and_false WHERE account = 'Expenses:Financial:Fees'",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "not_null", "type": "bool"},
+    {"name": "null_and_false", "type": "bool"}
+  ],
+  "rows": [
+    [true, null]
+  ],
+  "notes": "beanquery quirks that DIFFER from SQL: NOT NULL is TRUE (SQL: NULL), and AND short-circuits on the first NULL operand, so NULL AND FALSE is NULL (SQL: FALSE; FALSE AND NULL is FALSE)."
+}

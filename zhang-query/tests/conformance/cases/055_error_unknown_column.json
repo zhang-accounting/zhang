@@ -1,0 +1,10 @@
+{
+  "name": "error_unknown_column",
+  "query": "SELECT nosuchcolumn",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

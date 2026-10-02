@@ -1,0 +1,24 @@
+{
+  "name": "payee_totals_top_n",
+  "query": "SELECT payee, sum(cost(position)) AS total WHERE account ~ \"^Expenses\" AND currency = 'USD' GROUP BY payee ORDER BY total DESC LIMIT 10",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "payee", "type": "str"},
+    {"name": "total", "type": "inventory"}
+  ],
+  "rows": [
+    ["Hoogle", {"positions": [{"units": {"number": "147404.56", "currency": "USD"}, "cost": null}]}],
+    ["RiverBank Properties", {"positions": [{"units": {"number": "76800.00", "currency": "USD"}, "cost": null}]}],
+    ["Metro Transport Authority", {"positions": [{"units": {"number": "3720.00", "currency": "USD"}, "cost": null}]}],
+    ["Wine-Tarner Cable", {"positions": [{"units": {"number": "2559.51", "currency": "USD"}, "cost": null}]}],
+    ["EDISON POWER", {"positions": [{"units": {"number": "2080.00", "currency": "USD"}, "cost": null}]}],
+    ["Farmer Fresh", {"positions": [{"units": {"number": "2028.45", "currency": "USD"}, "cost": null}]}],
+    ["Verizon Wireless", {"positions": [{"units": {"number": "2011.73", "currency": "USD"}, "cost": null}]}],
+    [null, {"positions": [{"units": {"number": "1740.44", "currency": "USD"}, "cost": null}]}],
+    ["Good Moods Market", {"positions": [{"units": {"number": "1649.42", "currency": "USD"}, "cost": null}]}],
+    ["China Garden", {"positions": [{"units": {"number": "1559.85", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "Representative query from #434 (restricted to USD). ORDER BY an inventory: for single-currency inventories beanquery orders by the units number. Multi-currency inventory ordering follows beancount's position sort key and is not covered."
+}

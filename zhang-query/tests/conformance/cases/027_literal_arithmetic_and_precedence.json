@@ -1,0 +1,23 @@
+{
+  "name": "literal_arithmetic_and_precedence",
+  "query": "SELECT DISTINCT 1 + 2 * 3 AS a, (1 + 2) * 3 AS b, -(3) AS c, 7 - 10 AS d, 7 / 2 AS e, 10 / 0 AS f, 2.5 * 2 AS g, year - 2000 AS yy WHERE account = 'Expenses:Financial:Fees' ORDER BY yy",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "a", "type": "int"},
+    {"name": "b", "type": "int"},
+    {"name": "c", "type": "int"},
+    {"name": "d", "type": "int"},
+    {"name": "e", "type": "decimal"},
+    {"name": "f", "type": "decimal"},
+    {"name": "g", "type": "decimal"},
+    {"name": "yy", "type": "int"}
+  ],
+  "rows": [
+    [7, 9, -3, -3, "3.5", null, "5.0", 15],
+    [7, 9, -3, -3, "3.5", null, "5.0", 16],
+    [7, 9, -3, -3, "3.5", null, "5.0", 17]
+  ],
+  "notes": "int op int stays int except /, which always yields a decimal (7 / 2 = 3.5). Division by zero yields NULL instead of an error."
+}

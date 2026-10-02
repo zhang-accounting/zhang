@@ -1,0 +1,18 @@
+{
+  "name": "implicit_group_by",
+  "query": "SELECT account, count(*) AS n WHERE account ~ '^Expenses:Food'",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    ["Expenses:Food:Restaurant", 370],
+    ["Expenses:Food:Groceries", 73],
+    ["Expenses:Food:Coffee", 13],
+    ["Expenses:Food:Alcohol", 7]
+  ],
+  "notes": "beanquery accepts aggregates mixed with plain columns WITHOUT a GROUP BY and implicitly groups by all non-aggregate targets."
+}

@@ -1,0 +1,16 @@
+{
+  "name": "order_by_nulls_last_desc",
+  "query": "SELECT payee, count(*) AS n WHERE account ~ '^Assets:US:(Vanguard|Hoogle)' GROUP BY payee ORDER BY payee DESC",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "payee", "type": "str"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    ["Hoogle", 117],
+    [null, 418]
+  ],
+  "notes": "NULL sorts after every value in descending order (the ascending order reversed)."
+}
