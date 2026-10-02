@@ -38,3 +38,5 @@ include "more.zhang"
   Assets:Bank
 2024-04-01 budget-close fun
 2024-05-15 price USD 7.1 CNY
+; planned ahead, after the last transaction
+2024-06-01 budget-add food 100 CNY

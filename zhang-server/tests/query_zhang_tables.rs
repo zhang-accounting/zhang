@@ -67,6 +67,10 @@ fn amount(value: &Value) -> (BigDecimal, String) {
     (BigDecimal::from_str(value["number"].as_str().unwrap()).unwrap(), currency.to_owned())
 }
 
+fn budget_name_of(row: &serde_json::Map<String, Value>) -> &str {
+    row["name"].as_str().unwrap()
+}
+
 async fn check_budgets(name: &str) -> usize {
     let ledger = load(name).await;
     let rows = query(
@@ -79,7 +83,17 @@ async fn check_budgets(name: &str) -> usize {
         .iter()
         .map(|row| (row["year"].as_u64().unwrap() as u32, row["month"].as_u64().unwrap() as u32))
         .collect::<BTreeSet<_>>();
-    let last_month = *months.last().unwrap();
+    // the last month of each budget's series, and the ledger's last month with a transaction
+    let mut ends = std::collections::BTreeMap::new();
+    for row in &rows {
+        let month = (row["year"].as_u64().unwrap() as u32, row["month"].as_u64().unwrap() as u32);
+        let end = ends.entry(row["name"].as_str().unwrap().to_owned()).or_insert(month);
+        *end = (*end).max(month);
+    }
+    let last_transaction = query(&ledger, "SELECT max(date) AS last FROM #transactions").await[0]["last"]
+        .as_str()
+        .map(|date| (date[..4].parse::<u32>().unwrap(), date[5..7].parse::<u32>().unwrap()))
+        .unwrap();
     for (year, month) in months {
         let request = BudgetListRequest {
             year: Some(year),
@@ -93,10 +107,15 @@ async fn check_budgets(name: &str) -> usize {
             .iter()
             .filter(|row| row["year"] == json!(year) && row["month"] == json!(month))
             .collect::<Vec<_>>();
-        // a month of the table lists the budgets the budget page lists for it
+        // a month of the table lists the budgets the budget page lists for it, except for the
+        // budgets whose series ended before it, after the last transaction
         let listed_names = listed.iter().map(|it| it["name"].as_str().unwrap()).collect::<BTreeSet<_>>();
         let row_names = in_month.iter().map(|it| it["name"].as_str().unwrap()).collect::<BTreeSet<_>>();
-        assert_eq!(row_names, listed_names, "{name} {year}-{month}");
+        assert!(row_names.is_subset(&listed_names), "{name} {year}-{month}: {row_names:?} {listed_names:?}");
+        for ended in listed_names.difference(&row_names) {
+            assert!((year, month) > last_transaction, "{name} {ended} {year}-{month}");
+            assert!(ends[*ended] < (year, month), "{name} {ended} {year}-{month}");
+        }
         for row in in_month {
             let api = listed.iter().find(|it| it["name"] == row["name"]).unwrap();
             let at = format!("{name} {} {year}-{month}", row["name"]);
@@ -116,8 +135,8 @@ async fn check_budgets(name: &str) -> usize {
             related.sort_by_key(|it| it.as_str().unwrap().to_owned());
             assert_eq!(row["accounts"], Value::Array(related), "{at}");
             // the API's flag says whether the budget is closed now; the table's whether it was in
-            // that month, so the two agree on the last month
-            if (year, month) == last_month || row["closed"] == json!(true) {
+            // that month, so the two agree on the budget's last month
+            if (year, month) == ends[budget_name_of(row)] || row["closed"] == json!(true) {
                 assert_eq!(row["closed"], info["data"]["closed"], "{at}");
             }
         }

@@ -294,9 +294,9 @@ mod tests {
     use zhang_core::ledger::Ledger;
 
     use super::*;
-    use crate::executor::{execute, RegexCache};
+    use crate::executor::{execute, Budget, RegexCache};
     use crate::params::Params;
-    use crate::table::{column, Dataset, Record, COLUMNS};
+    use crate::table::{column, Dataset, Limits, Record, COLUMNS};
     use crate::Query;
 
     fn load(dir: PathBuf) -> Ledger {
@@ -439,7 +439,15 @@ option "operating_currency" "USD"
         let query = Query::compile(sql).unwrap_or_else(|err| panic!("{sql}: {err}"));
         let store = ledger.store.read().unwrap();
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let data = Dataset::build(ledger, &store, today, projection.unwrap_or(query.projection));
+        let mut budget = Budget::new(None);
+        let data = Dataset::build(
+            ledger,
+            &store,
+            today,
+            projection.unwrap_or(query.projection),
+            &mut Limits::new(None, &mut budget),
+        )
+        .unwrap();
         let rows = execute(&query.plan, &data, &Params::new(), None).unwrap_or_else(|err| panic!("{sql}: {}", err.message));
         format!("{rows:?}")
     }
@@ -471,7 +479,15 @@ option "operating_currency" "USD"
         let store = ledger.store.read().unwrap();
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
         let discrepancies = |sql: &str| {
-            let data = Dataset::build(&ledger, &store, today, Query::compile(sql).unwrap().projection);
+            let mut budget = Budget::new(None);
+            let data = Dataset::build(
+                &ledger,
+                &store,
+                today,
+                Query::compile(sql).unwrap().projection,
+                &mut Limits::new(None, &mut budget),
+            )
+            .unwrap();
             data.records
                 .iter()
                 .filter(|record| matches!(record, Record::Balance { discrepancy: Some(_), .. }))

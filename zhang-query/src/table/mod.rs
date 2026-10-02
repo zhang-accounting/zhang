@@ -7,7 +7,7 @@
 //! [`RowRef`], so every later stage (filters, grouping, ordering, LIMIT, the result budget
 //! and the deadline) works the same way for every table.
 //!
-//! There are two kinds of row sources:
+//! There are three kinds of row sources:
 //!
 //! - [`Rows::Postings`]: the `postings` table ([`postings`]), the default when a query names
 //!   no table. Its rows are booked postings ([`Row`]) built for the query's projection.
@@ -15,6 +15,10 @@
 //!   [`Record`] per row, which only borrows the ledger and the store; its columns are computed
 //!   when an expression reads them. A builder may skip work that only unprojected columns
 //!   need (see [`Projection::contains`]).
+//! - [`Rows::Generated`]: record tables whose rows are not read from the ledger but generated,
+//!   such as the months of `#budgets`, so that their number is not bounded by the size of the
+//!   ledger. Their builder charges every row to the result budget and checks the deadline
+//!   while it builds them ([`Limits`]), before any filter runs.
 //!
 //! A column named `base.attribute` is an attribute of the structured value `base`, read
 //! with attribute access (`open.date` in `#accounts`); `base` itself is a column too.
@@ -45,6 +49,8 @@ use zhang_core::store::Store;
 
 pub use self::postings::COLUMNS;
 pub(crate) use self::postings::{position, Entry, Row, BALANCE_COLUMN};
+use crate::error::LocatedError;
+use crate::executor::{Budget, Deadline};
 use crate::prices::PriceMap;
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
@@ -95,10 +101,39 @@ pub(crate) enum Rows {
     Postings,
     /// one [`Record`] per row, built for a projection
     Records(RecordSource),
+    /// one generated [`Record`] per row, built for a projection within [`Limits`]
+    Generated(GeneratedSource),
 }
 
 /// Builds the rows of a record table, in the table's row order.
 pub(crate) type RecordSource = for<'a> fn(&'a Ledger, &'a Store, Projection) -> Vec<Record<'a>>;
+
+/// Builds the generated rows of a record table, in the table's row order, calling
+/// [`Limits::row`] for every row before it builds it.
+pub(crate) type GeneratedSource = for<'a> fn(&'a Ledger, &'a Store, Projection, &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError>;
+
+/// The limits of one execution as a [`GeneratedSource`] sees them: every generated row costs
+/// one value of the result budget, and the deadline is checked as rows are generated, so a
+/// table that would generate too many rows stops with `TooLarge` or `Timeout` instead of
+/// holding them all.
+pub(crate) struct Limits<'e> {
+    deadline: Option<&'e Deadline>,
+    budget: &'e mut Budget,
+    rows: usize,
+}
+
+impl<'e> Limits<'e> {
+    pub(crate) fn new(deadline: Option<&'e Deadline>, budget: &'e mut Budget) -> Self {
+        Limits { deadline, budget, rows: 0 }
+    }
+
+    /// Account for one more generated row.
+    pub(crate) fn row(&mut self) -> Result<(), LocatedError> {
+        self.rows += 1;
+        Deadline::check(self.deadline, self.rows)?;
+        self.budget.charge(1)
+    }
+}
 
 /// The `postings` table.
 pub static POSTINGS: Table = Table {
@@ -333,29 +368,31 @@ pub(crate) struct Dataset<'a> {
 }
 
 impl<'a> Dataset<'a> {
-    /// The rows of the projection's table.
-    pub fn build(ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection) -> Self {
-        match projection.table().rows {
-            Rows::Postings => Dataset::new(ledger, store, today, projection),
-            Rows::Records(source) => Dataset {
-                table: projection.table(),
-                entries: vec![],
-                rows: vec![],
-                records: source(ledger, store, projection),
-                today,
-                projection,
-                store,
-                prices: OnceCell::new(),
-                store_meta: OnceCell::new(),
-            },
-        }
+    /// The rows of the projection's table; generated rows count against `limits`.
+    pub fn build(ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection, limits: &mut Limits<'_>) -> Result<Self, LocatedError> {
+        let records = match projection.table().rows {
+            Rows::Postings => return Ok(Dataset::new(ledger, store, today, projection)),
+            Rows::Records(source) => source(ledger, store, projection),
+            Rows::Generated(source) => source(ledger, store, projection, limits)?,
+        };
+        Ok(Dataset {
+            table: projection.table(),
+            entries: vec![],
+            rows: vec![],
+            records,
+            today,
+            projection,
+            store,
+            prices: OnceCell::new(),
+            store_meta: OnceCell::new(),
+        })
     }
 
     /// The number of rows.
     pub fn len(&self) -> usize {
         match self.table.rows {
             Rows::Postings => self.rows.len(),
-            Rows::Records(_) => self.records.len(),
+            Rows::Records(_) | Rows::Generated(_) => self.records.len(),
         }
     }
 
@@ -363,7 +400,7 @@ impl<'a> Dataset<'a> {
     pub fn row(&self, idx: usize) -> RowRef<'_, 'a> {
         match self.table.rows {
             Rows::Postings => RowRef::Posting(&self.rows[idx]),
-            Rows::Records(_) => RowRef::Record(&self.records[idx]),
+            Rows::Records(_) | Rows::Generated(_) => RowRef::Record(&self.records[idx]),
         }
     }
 
