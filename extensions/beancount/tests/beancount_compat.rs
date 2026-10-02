@@ -122,3 +122,25 @@ fn query_directive_keeps_its_time_and_quotes_its_name_for_beancount() {
     assert!(matches!(query.date, Date::Datetime(_)), "the time meta is folded back into the date");
     assert_eq!(query.meta.get_one("time"), None);
 }
+
+#[test]
+fn transaction_metadata_is_exported_before_the_postings() {
+    use beancount::Beancount;
+    use zhang_ast::ZhangString;
+
+    // beancount 3.2.3 attaches a metadata line that follows a posting to that posting,
+    // so transaction metadata has to come first: from this text it loads `memo` on the
+    // transaction and none on the postings
+    let expected = "2024-01-02 * \"Cafe\" \"coffee\"\n  memo: \"paid\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY";
+    let beancount = Beancount::default();
+    // the zhang and beancount parsers read the metadata from either place
+    let after = "2024-01-02 * \"Cafe\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n  memo: \"paid\"\n";
+    let directive = beancount.transform(after.to_string(), None).unwrap().pop().unwrap();
+    let Directive::Transaction(txn) = &directive.data else {
+        panic!("expected a transaction, got {:?}", directive.data);
+    };
+    assert_eq!(txn.meta.get_one("memo"), Some(&ZhangString::quote("paid")));
+
+    assert_eq!(beancount.export(directive.clone()), expected);
+    assert_eq!(ZhangDataType::default().export(directive), expected);
+}

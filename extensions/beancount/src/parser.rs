@@ -18,13 +18,13 @@ use itertools::Either;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1, take_while_m_n};
 use nom::character::complete::{char, line_ending, not_line_ending, one_of, satisfy, space0, space1};
-use nom::combinator::{map, map_res, opt, peek, recognize, value};
+use nom::combinator::{map, map_res, opt, peek, recognize, value, verify};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
-use snailquote::unescape;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
+use zhang_core::utils::string_::{invalid_escape_at, quoted_string};
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
 
@@ -86,24 +86,15 @@ fn unquote_string_raw(i: &str) -> IResult<&str, &str> {
     take_while1(|c: char| !matches!(c, '"' | ':' | '(' | ')' | ',' | ' ' | '\t' | '\n' | '\r'))(i)
 }
 
-fn string_char(i: &str) -> IResult<&str, &str> {
-    alt((
-        recognize(pair(
-            char('\\'),
-            alt((
-                recognize(one_of("\"\\/bfnrt")),
-                recognize(tuple((char('u'), char('{'), take_while_m_n(4, 4, |c: char| c.is_ascii_hexdigit()), char('}')))),
-                recognize(pair(char('u'), take_while_m_n(4, 4, |c: char| c.is_ascii_hexdigit()))),
-            )),
-        )),
-        recognize(satisfy(|c: char| c != '"' && c != '\\')),
-    ))(i)
-}
-
+/// `quote_string = "\"" inner "\""`, decoded by zhang-core's [`quoted_string`] so
+/// that both data types read strings the same way: only `\"` and `\\` must be
+/// escaped, unknown escapes such as `\d` are kept verbatim (Python beancount drops
+/// the backslash instead) and the escapes older zhang versions wrote (`\$`,
+/// `` \` ``, `\u{a0}`) are still read. A malformed `\u` escape is a
+/// [`nom::Err::Failure`] at its backslash. See [`zhang_core::utils::string_`] for
+/// the full rules.
 fn quote_string(i: &str) -> IResult<&str, ZhangString> {
-    let (rest, raw) = recognize(tuple((char('"'), many0(string_char), char('"'))))(i)?;
-    let unescaped = unescape(raw).expect("string contains invalid escape char");
-    Ok((rest, ZhangString::QuoteString(unescaped)))
+    map(quoted_string, ZhangString::QuoteString)(i)
 }
 
 fn string(i: &str) -> IResult<&str, ZhangString> {
@@ -371,13 +362,20 @@ fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
 // metadata
 // ---------------------------------------------------------------------------
 
+/// An unquoted metadata key: a bare word that does not start with a comment
+/// prefix, so an indented line such as `;path: "C:\x"` stays a comment.
+fn meta_key(i: &str) -> IResult<&str, &str> {
+    verify(unquote_string_raw, |key: &str| comment_prefix(key).is_err())(i)
+}
+
+/// `key_value_line = (meta_key | quote_string) space* ":" space* string`
 fn key_value_line(i: &str) -> IResult<&str, (String, ZhangString)> {
-    let (i, key) = string(i)?;
+    let (i, key) = alt((map(meta_key, str::to_owned), map(quote_string, |key| key.to_plain_string())))(i)?;
     let (i, _) = space0(i)?;
     let (i, _) = char(':')(i)?;
     let (i, _) = space0(i)?;
     let (i, value) = string(i)?;
-    Ok((i, (key.to_plain_string(), value)))
+    Ok((i, (key, value)))
 }
 
 fn meta_line(i: &str) -> IResult<&str, (String, ZhangString)> {
@@ -872,7 +870,10 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
         }
 
         let start = offset(original, rest);
-        let (next, directive) = content_item(rest).map_err(|_| error_at(original, rest, "unexpected input"))?;
+        let (next, directive) = content_item(rest).map_err(|err| match invalid_escape_at(&err) {
+            Some(escape) => error_at(original, escape, "invalid escape sequence"),
+            None => error_at(original, rest, "unexpected input"),
+        })?;
 
         if offset(original, next) == start {
             return Err(error_at(original, rest, "parser made no progress"));
@@ -1243,6 +1244,157 @@ mod test {
                 if let Directive::Open(inner) = directive {
                     assert_eq!(inner.meta.get_one("booking_method").unwrap().as_str(), "NONE");
                 }
+            }
+        }
+    }
+
+    /// String escaping (issue #442): the beancount data type reads strings with the
+    /// same rules as the zhang one, see `zhang_core::utils::string_`.
+    mod escaping {
+        use zhang_ast::Directive;
+
+        use crate::parser::parse;
+        use crate::parser::test::{get_left_directive, get_txn};
+
+        fn narration(quoted: &str) -> String {
+            let content = format!("2024-01-01 * {quoted}\n  Assets:Cash -5 CNY\n  Expenses:Food\n");
+            get_txn(&content).narration.unwrap().to_plain_string()
+        }
+
+        fn query_text(content: &str) -> String {
+            match get_left_directive(content) {
+                Directive::Query(query) => query.query_string.to_plain_string(),
+                other => panic!("expected a query directive, got {other:?}"),
+            }
+        }
+
+        fn parse_error(content: &str) -> String {
+            parse(content, None).expect_err(content).to_string()
+        }
+
+        #[test]
+        fn should_keep_an_unknown_escape_in_a_query_verbatim() {
+            let expected = r"SELECT narration WHERE narration ~ '\d+'";
+            assert_eq!(query_text(r#"2014-01-01 query "x" "SELECT narration WHERE narration ~ '\d+'""#), expected);
+            assert_eq!(query_text(r#"2014-01-01 query "x" "SELECT narration WHERE narration ~ '\\d+'""#), expected);
+        }
+
+        #[test]
+        fn should_read_strings_written_by_the_new_exporter() {
+            assert_eq!(narration(r#""coffee $5""#), "coffee $5");
+            assert_eq!(narration("\"SELECT\u{a0}account\u{2028}😀 你好\""), "SELECT\u{a0}account\u{2028}😀 你好");
+            assert_eq!(narration(r#""a \"quote\" and a \\ backslash""#), r#"a "quote" and a \ backslash"#);
+            assert_eq!(narration(r#""two\nlines\u0007""#), "two\nlines\u{07}");
+        }
+
+        #[test]
+        fn should_read_escapes_written_by_older_versions() {
+            assert_eq!(narration(r#""coffee \$5""#), "coffee $5");
+            assert_eq!(narration(r#""run \`ls\`""#), "run `ls`");
+            assert_eq!(narration(r#""a\u{a0}b""#), "a\u{a0}b");
+            assert_eq!(narration(r#""smile \u{1F600}""#), "smile 😀");
+            assert_eq!(query_text(r#"2014-01-01 query "q" "SELECT\u{a0}account""#), "SELECT\u{a0}account");
+        }
+
+        #[test]
+        fn should_report_a_malformed_escape_at_the_escape() {
+            for escape in [r"\u{110000}", r"\u{D800}", r"\uZZZZ", r"\u{}", r"\uD800"] {
+                let line = format!(r#"2024-01-01 note Assets:Cash "bad {escape} escape""#);
+                let column = line.find('\\').unwrap() + 1;
+                let error = parse_error(&format!("2024-01-01 open Assets:Cash\n{line}\n"));
+                assert_eq!(
+                    error,
+                    format!("failed to parse beancount file: invalid escape sequence at line 2, column {column}"),
+                    "{escape}"
+                );
+            }
+        }
+
+        #[test]
+        fn should_keep_indented_comment_like_lines_out_of_metadata() {
+            for prefix in [";", "#", "*", "//"] {
+                let line = format!("  {prefix}path: \"C:\\Users\\me\"");
+                let txn = get_txn(&format!("2024-01-01 * \"x\"\n  Assets:Cash -5 CNY\n{line}\n  Expenses:Food\n"));
+                assert!(txn.meta.get_one(&format!("{prefix}path")).is_none(), "{line}");
+                assert_eq!(txn.postings.len(), 2, "{line}");
+
+                let directives = parse(&format!("2024-01-01 open Assets:Cash\n{line}\n"), None).unwrap();
+                assert_eq!(directives.len(), 2, "{line}");
+                let itertools::Either::Left(Directive::Open(open)) = &directives[0].data else {
+                    panic!("expected an open directive, got {:?}", directives[0].data);
+                };
+                assert!(open.meta.get_one(&format!("{prefix}path")).is_none(), "{line}");
+                assert!(matches!(directives[1].data, itertools::Either::Left(Directive::Comment(_))), "{line}");
+            }
+        }
+
+        #[test]
+        fn should_still_read_plain_and_quoted_metadata_keys() {
+            let directives = parse("2024-01-01 open Assets:Cash\n  path: \"a\"\n  \";path\": \"b\"\n  a;b: \"c\"\n", None).unwrap();
+            assert_eq!(directives.len(), 1);
+            let itertools::Either::Left(Directive::Open(open)) = &directives[0].data else {
+                panic!("expected an open directive, got {:?}", directives[0].data);
+            };
+            assert_eq!(open.meta.get_one("path").map(|it| it.as_str()), Some("a"));
+            assert_eq!(open.meta.get_one(";path").map(|it| it.as_str()), Some("b"));
+            assert_eq!(open.meta.get_one("a;b").map(|it| it.as_str()), Some("c"));
+        }
+
+        #[test]
+        fn should_reject_an_unterminated_string_without_panicking() {
+            for content in [
+                "2024-01-01 note Assets:Cash \"abc\\",
+                "2024-01-01 note Assets:Cash \"abc\\\"\n",
+                "2024-01-01 open Assets:Cash\n2024-01-01 note Assets:Cash \"abc\\\"\n2024-01-02 open Assets:Bank\n",
+            ] {
+                assert!(
+                    parse_error(content).starts_with("failed to parse beancount file: unexpected input at line"),
+                    "{content:?}"
+                );
+            }
+        }
+    }
+
+    /// The server rejects names that would not read back using zhang-core's checks
+    /// (`zhang_core::data_type::text::parser::is_valid_*`); beancount must accept
+    /// exactly the same names, so those checks hold for beancount ledgers too.
+    mod names {
+        use zhang_core::data_type::text::parser::{
+            is_valid_account_name, is_valid_commodity_name, is_valid_meta_key, is_valid_tag_or_link, is_valid_transaction_flag,
+        };
+
+        use crate::parser::{account_name, commodity_name, meta_key, spaced_tag_or_link, transaction_flag};
+
+        fn reads_all<'a, O>(mut parser: impl FnMut(&'a str) -> nom::IResult<&'a str, O>, text: &'a str) -> bool {
+            matches!(parser(text), Ok(("", _)))
+        }
+
+        #[test]
+        fn beancount_accepts_the_same_unquoted_names_as_zhang() {
+            const PIECES: &[&str] = &[
+                "Assets", "Expenses", "Equity", "Bank", ":", ":", "a", "Z", "0", "9", ".", "_", "-", "'", " ", "\t", "\n", "\"", "(", ")", ",", ";", "#", "*",
+                "/", "//", "^", "!", "txn", "{", "\u{a0}", "中", "😀",
+            ];
+            let mut state = 0x5eed_0442_u64;
+            let mut next = move || {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state as usize
+            };
+            for _ in 0..20_000 {
+                let len = next() % 6;
+                let name: String = (0..len).map(|_| PIECES[next() % PIECES.len()]).collect();
+                let name = name.as_str();
+                assert_eq!(reads_all(account_name, name), is_valid_account_name(name), "account {name:?}");
+                assert_eq!(reads_all(commodity_name, name), is_valid_commodity_name(name), "commodity {name:?}");
+                assert_eq!(reads_all(meta_key, name), is_valid_meta_key(name), "metadata key {name:?}");
+                let tag = format!("#{name}");
+                let reads_tag = matches!(spaced_tag_or_link(&tag), Ok(("", (true, ref read))) if read == name);
+                assert_eq!(reads_tag, is_valid_tag_or_link(name), "tag {name:?}");
+                // `transaction_flag` reads the spaces before the flag too
+                let reads_flag = !name.starts_with([' ', '\t']) && reads_all(transaction_flag, &format!(" {name}"));
+                assert_eq!(reads_flag, is_valid_transaction_flag(name), "flag {name:?}");
             }
         }
     }

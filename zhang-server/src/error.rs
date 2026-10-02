@@ -26,6 +26,10 @@ pub enum ServerError {
     #[error("bad request")]
     BadRequest,
 
+    /// a request value the ledger could not read back; answered with HTTP 400
+    #[error("{0}")]
+    InvalidInput(String),
+
     /// a query failed to parse, compile or run; answered with HTTP 400 and its source position
     #[error("query error: {0}")]
     QueryError(#[from] zhang_query::QueryError),
@@ -54,7 +58,7 @@ impl IntoResponse for ServerError {
 
         let status = match self {
             ServerError::NotFound => StatusCode::NOT_FOUND,
-            ServerError::BadRequest => StatusCode::BAD_REQUEST,
+            ServerError::BadRequest | ServerError::InvalidInput(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
