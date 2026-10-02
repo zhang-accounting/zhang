@@ -110,6 +110,15 @@ const QUERIES: &[&str] = &[
     "SELECT account, last(balance), count(*) GROUP BY account HAVING count(*) > 5 AND last(balance) IS NOT NULL LIMIT 2",
     "SELECT year, account, sum(position) AS total GROUP BY 1, 2 HAVING count(*) > 1 PIVOT BY account, year LIMIT 10",
     "SELECT account, year, last(cost(balance)) AS b, count(*) AS n GROUP BY 1, 2 ORDER BY n DESC PIVOT BY account, year",
+    // the other tables: top-k, stopping the scan, first groups, DISTINCT, HAVING and PIVOT BY
+    "SELECT * FROM #entries ORDER BY date DESC, type LIMIT 7",
+    "SELECT type, count(*) FROM #entries GROUP BY type LIMIT 2",
+    "SELECT date, payee FROM #transactions LIMIT 5",
+    "SELECT DISTINCT currency FROM #prices LIMIT 3",
+    "SELECT currency, last(amount) FROM prices GROUP BY currency HAVING count(*) > 1 ORDER BY currency",
+    "SELECT account, open.date, close FROM #accounts ORDER BY open.date DESC, account LIMIT 5",
+    "SELECT account, year(date) AS y, count(*) AS n FROM #balances GROUP BY 1, 2 HAVING count(*) > 1 PIVOT BY account, y",
+    "SELECT name, date FROM #commodities ORDER BY name DESC LIMIT 2",
 ];
 
 /// Run every query both ways and compare the rows by their `Debug` form, which shows

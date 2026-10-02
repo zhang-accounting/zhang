@@ -1,0 +1,48 @@
+; An extra ledger for the #table oracle cases: directives the fava demo ledger has
+; none of (notes, documents, close, custom, query, a failing balance assertion, a
+; tolerance, links, '!' flags, metadata). Both beancount and zhang load it.
+option "operating_currency" "USD"
+
+2020-01-01 commodity USD
+  name: "US Dollar"
+2020-01-01 commodity AAPL
+
+2020-01-01 open Assets:Bank USD
+  alias: "Bank"
+2020-01-01 open Assets:Broker
+2020-01-01 open Expenses:Food USD,EUR
+2020-01-01 open Equity:Opening
+2020-01-01 open Income:Salary
+
+2020-01-02 * "Employer" "salary" #work ^payroll-1
+  source: "hr"
+  Assets:Bank       1000.00 USD
+  Income:Salary    -1000.00 USD
+
+2020-01-03 ! "Cafe" "lunch"
+  Expenses:Food       12.50 USD
+  Assets:Bank        -12.50 USD
+
+2020-01-03 * "Market"
+  Expenses:Food        7.50 USD
+  Assets:Bank         -7.50 USD
+
+2020-01-04 note Assets:Bank "called the bank"
+2020-01-05 document Assets:Bank "statements/2020-01.pdf"
+2020-01-06 event "location" "Berlin"
+2020-01-07 price AAPL 300.00 USD
+2020-01-07 price AAPL 301.00 EUR
+2020-01-08 balance Assets:Bank 980.00 USD
+2020-01-09 balance Assets:Bank 980.00 ~ 0.02 USD
+2020-01-10 balance Assets:Bank 990.00 USD
+2020-01-11 custom "budget" Expenses:Food "monthly"
+2020-01-12 query "cash" "SELECT account, sum(position) GROUP BY account"
+2020-01-12 event "location" "Paris"
+
+2020-02-01 * "Broker" "buy"
+  Assets:Broker   2 AAPL {300.00 USD}
+  Assets:Bank   -600.00 USD
+
+2020-02-02 note Expenses:Food "eat less"
+
+2020-03-01 close Expenses:Food

@@ -975,6 +975,7 @@ fn column_ref(table: &'static Table, name: &str, span: Span, mode: Mode, info: &
             }
             Ok((CExpr::Running(Running::Balance), def.ty))
         }
+        None if name.contains('.') => attribute_error(table, name, span, mode, info),
         None => {
             let hint = if crate::functions::SCALAR_FUNCTIONS.iter().any(|it| it.name == name) || is_aggregate(name) {
                 format!("; did you mean {}(...)?", name)
@@ -992,6 +993,31 @@ fn column_ref(table: &'static Table, name: &str, span: Span, mode: Mode, info: &
             }
         }
     }
+}
+
+/// The error of an attribute access `base.attribute` that names no column: an unknown
+/// attribute of a structured column, an attribute of a column that has none (both at the
+/// attribute), or an unknown `base` (at the base).
+fn attribute_error(table: &'static Table, name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+    let (base, attribute) = name.rsplit_once('.').expect("an attribute access");
+    let attribute_span = Span::new(span.end - attribute.len(), span.end);
+    let attributes = table.attributes(base);
+    if !attributes.is_empty() {
+        return err(
+            format!("unknown attribute '{}' of {}; its attributes are {}", attribute, base, attributes.join(", ")),
+            attribute_span,
+        );
+    }
+    if let Some(column) = table.column(base) {
+        return err(
+            format!(
+                "{} is a {} and has no attributes, so {}.{} does not exist",
+                column.name, column.ty, column.name, attribute
+            ),
+            attribute_span,
+        );
+    }
+    column_ref(table, base, Span::new(span.start, span.start + base.len()), mode, info)
 }
 
 fn scalar_call(name: &str, args: Vec<CExpr>, types: &[DataType], span: Span) -> Result<Typed, LocatedError> {

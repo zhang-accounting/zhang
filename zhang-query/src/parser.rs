@@ -25,7 +25,7 @@
 //! sum        := term (('+' | '-') term)*
 //! term       := unary (('*' | '/') unary)*
 //! unary      := '-' unary | '+' unary | primary
-//! primary    := '(' expr ')' | literal | $n | :name | name '(' ['*' | expr, ...] ')' | name
+//! primary    := '(' expr ')' | literal | $n | :name | name '(' ['*' | expr, ...] ')' | name ('.' name)*
 //! literal    := 'string' | "string" | 2024-01-31 | 12 | 12.50 | TRUE | FALSE | NULL
 //! ```
 //!
@@ -988,6 +988,14 @@ impl<'s> Parser<'s> {
         if RESERVED.contains(&lower.as_str()) {
             return error(i, format!("expected an expression, found keyword {}", name.to_uppercase()));
         }
+        // attribute access on a structured column: `open.date` is the column `open.date`
+        let (mut rest, mut lower) = (rest, lower);
+        while let Some(attribute) = rest.strip_prefix('.').filter(|it| it.starts_with(is_ident_start)) {
+            let (after, attribute) = take_while1::<_, _, PError>(is_ident_char)(attribute)?;
+            lower.push('.');
+            lower.push_str(&attribute.to_ascii_lowercase());
+            rest = after;
+        }
         self.leaf(rest, ExprKind::Column(lower), start)
     }
 
@@ -1221,6 +1229,20 @@ mod tests {
         let Targets::List(targets) = select.targets else { panic!() };
         let span = targets[1].expr.span;
         assert_eq!(&src[span.start..span.end], "sum(position)");
+    }
+
+    #[test]
+    fn attribute_access_is_a_dotted_column_name() {
+        let select = parse_ok("SELECT Open.Date, close.meta.x, account FROM #accounts WHERE open.date > 2020-01-01");
+        let Targets::List(targets) = &select.targets else { panic!() };
+        assert_eq!(targets[0].expr.kind, ExprKind::Column("open.date".into()));
+        assert_eq!(targets[0].expr.span, Span::new(7, 16));
+        assert_eq!(targets[1].expr.kind, ExprKind::Column("close.meta.x".into()));
+        assert_eq!(targets[2].expr.kind, ExprKind::Column("account".into()));
+        // a number after the dot, or a space, is not an attribute
+        assert!(parse("SELECT open.1").is_err());
+        assert!(parse("SELECT open .date").is_err());
+        assert!(parse("SELECT open.").is_err());
     }
 
     #[test]
