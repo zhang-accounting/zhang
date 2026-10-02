@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 
 #[cfg(feature = "plugin_runtime")]
 use extism::convert::Json as WasmJson;
@@ -24,29 +25,31 @@ pub struct PluginStore {
 }
 
 impl PluginStore {
-    pub fn insert_plugin(&mut self, _plugin: &Plugin) -> ZhangResult<()> {
+    /// register the plugin `_plugin` declares, as parsed into `declaration`
+    pub fn insert_plugin(&mut self, _plugin: &Plugin, declaration: PluginDeclaration) -> ZhangResult<()> {
         let plugin_name = _plugin.module.as_str().to_string();
-        let plugin_hash = digest(plugin_name);
+        let plugin_hash = digest(&plugin_name);
         let plugin_cache_file = PathBuf::from_str(".cache/plugins")
             .expect("Cannot create path")
             .join(format!("{}.wasm", plugin_hash));
         let module_bytes = std::fs::read(&plugin_cache_file)?;
 
         let wasm = Wasm::data(module_bytes.clone());
-        let manifest = Manifest::new([wasm]);
+        let timeout = declaration.capabilities.timeout;
+        let manifest = Manifest::new([wasm]).with_timeout(timeout);
 
         let mut plugin = WasmPlugin::new(manifest, [], true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
         let name = plugin
             .call::<(), WasmJson<String>>("name", ())
-            .map_err(|e| ZhangError::CustomError(format!("Failed to call 'name': {}", e)))?
+            .map_err(|e| call_error(&plugin_name, "name", timeout, e))?
             .0;
         let version = plugin
             .call::<(), WasmJson<String>>("version", ())
-            .map_err(|e| ZhangError::CustomError(format!("Failed to call 'version': {}", e)))?
+            .map_err(|e| call_error(&plugin_name, "version", timeout, e))?
             .0;
         let declared_types = plugin
             .call::<(), WasmJson<Vec<serde_json::Value>>>("supported_type", ())
-            .map_err(|e| ZhangError::CustomError(format!("Failed to call 'supported_type': {}", e)))?
+            .map_err(|e| call_error(&plugin_name, "supported_type", timeout, e))?
             .0;
         let plugin_types = known_plugin_types(&name, declared_types)?;
 
@@ -54,7 +57,7 @@ impl PluginStore {
             name,
             version,
             module_bytes,
-            declaration: PluginDeclaration::parse(_plugin),
+            declaration,
         };
         if plugin_types.contains(&PluginType::Processor) {
             self.processors.push(registered_plugin.clone())
@@ -102,6 +105,18 @@ fn known_plugin_types(plugin_name: &str, declared: Vec<serde_json::Value>) -> Zh
     Ok(known)
 }
 
+/// the error of a failed call into a plugin; a call the host stopped at the plugin's timeout says so
+fn call_error(plugin: &str, export: &str, timeout: Duration, error: extism::Error) -> ZhangError {
+    // extism reports a call it interrupted at the manifest's timeout as exactly "timeout"
+    if error.to_string() == "timeout" {
+        ZhangError::CustomError(format!(
+            "plugin {plugin} timed out: its `{export}` call ran longer than {timeout:?}. A `timeout` meta on its `plugin` directive raises the limit"
+        ))
+    } else {
+        ZhangError::CustomError(format!("plugin {plugin} failed in its `{export}` call: {error}"))
+    }
+}
+
 #[derive(Clone)]
 pub struct RegisteredPlugin {
     pub name: String,
@@ -121,6 +136,7 @@ impl RegisteredPlugin {
             .with_config(config.into_iter())
             // no declared host means the plugin gets no network access at all
             .with_allowed_hosts(self.declaration.capabilities.allowed_hosts.iter().cloned())
+            .with_timeout(self.declaration.capabilities.timeout)
     }
 
     pub fn load_as_plugin(&self, options: &[OptionDomain]) -> ZhangResult<WasmPlugin> {
@@ -135,7 +151,7 @@ impl RegisteredPlugin {
         let mut plugin = self.load_as_plugin(options)?;
         let ret = plugin
             .call::<WasmJson<Vec<Spanned<Directive>>>, WasmJson<Vec<Spanned<Directive>>>>("processor", WasmJson(directive))
-            .map_err(|e| ZhangError::CustomError(format!("plugin {} failed as processor: {}", self.name, e)))?
+            .map_err(|e| call_error(&self.name, "processor", self.declaration.capabilities.timeout, e))?
             .0;
         Ok(ret)
     }
@@ -147,7 +163,7 @@ impl RegisteredPlugin {
         for directive in directives {
             let mapped = plugin
                 .call::<WasmJson<Spanned<Directive>>, WasmJson<Vec<Spanned<Directive>>>>("mapper", WasmJson(directive))
-                .map_err(|e| ZhangError::CustomError(format!("plugin {} failed as mapper: {}", self.name, e)))?
+                .map_err(|e| call_error(&self.name, "mapper", self.declaration.capabilities.timeout, e))?
                 .0;
             ret.extend(mapped);
         }
@@ -158,14 +174,29 @@ impl RegisteredPlugin {
 #[cfg(test)]
 mod test {
     use std::collections::BTreeMap;
+    use std::time::Duration;
 
     use serde_json::json;
     use zhang_ast::{Meta, Plugin, ZhangString};
 
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::PluginDeclaration;
-    use crate::plugin::store::{known_plugin_types, RegisteredPlugin};
+    use crate::plugin::store::{call_error, known_plugin_types, RegisteredPlugin};
     use crate::plugin::PluginType;
+
+    fn registered_with_meta(meta: &[(&str, &str)]) -> RegisteredPlugin {
+        let directive = Plugin {
+            module: ZhangString::quote("slow.wasm"),
+            value: vec![],
+            meta: meta.iter().map(|(key, value)| (key.to_string(), ZhangString::quote(*value))).collect(),
+        };
+        RegisteredPlugin {
+            name: "slow".to_owned(),
+            version: "0.1.0".to_owned(),
+            module_bytes: vec![],
+            declaration: PluginDeclaration::parse(&directive),
+        }
+    }
 
     #[test]
     fn should_hand_the_plugin_options_and_meta_without_allowed_hosts() {
@@ -245,5 +276,31 @@ mod test {
     #[test]
     fn should_reject_a_plugin_type_that_is_not_a_name() {
         assert!(known_plugin_types("broken", vec![json!(42)]).is_err());
+    }
+
+    #[test]
+    fn should_give_every_call_a_default_timeout_of_a_minute() {
+        assert_eq!(registered_with_meta(&[]).manifest(&[]).timeout_ms, Some(60_000));
+    }
+
+    #[test]
+    fn should_let_the_timeout_meta_override_the_default() {
+        assert_eq!(registered_with_meta(&[("timeout", "2m")]).manifest(&[]).timeout_ms, Some(120_000));
+        assert_eq!(registered_with_meta(&[("timeout", "1")]).manifest(&[]).timeout_ms, Some(1_000));
+        assert_eq!(
+            registered_with_meta(&[("timeout", "soon")]).manifest(&[]).timeout_ms,
+            Some(60_000),
+            "an invalid timeout falls back to the default"
+        );
+    }
+
+    #[test]
+    fn should_say_that_a_plugin_timed_out() {
+        let timed_out = call_error("slow", "processor", Duration::from_secs(1), extism::Error::msg("timeout")).to_string();
+        assert!(timed_out.contains("plugin slow timed out"), "{timed_out}");
+        assert!(timed_out.contains("`processor` call ran longer than 1s"), "{timed_out}");
+
+        let failed = call_error("slow", "processor", Duration::from_secs(1), extism::Error::msg("boom")).to_string();
+        assert!(failed.contains("plugin slow failed in its `processor` call: boom"), "{failed}");
     }
 }

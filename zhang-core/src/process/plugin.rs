@@ -69,11 +69,18 @@ impl DirectiveProcess for Plugin {
     }
 
     // register plugin into ledger
-    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
+    #[cfg_attr(not(feature = "plugin_runtime"), allow(unused_variables))]
+    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         feature_enable!(ledger.options.features.plugins, {
             #[cfg(feature = "plugin_runtime")]
             {
-                ledger.plugins.insert_plugin(self)?;
+                let declaration = crate::plugin::capabilities::PluginDeclaration::parse(self);
+                // a meta value the host cannot use is reported on the directive, and the plugin runs with the default
+                let mut operations = ledger.operations();
+                for error in &declaration.errors {
+                    operations.new_error(error.kind.clone(), span, error.metas.clone())?;
+                }
+                ledger.plugins.insert_plugin(self, declaration)?;
                 // a rebuilt local module makes the ledger stale
                 if let Some(input) = crate::inputs::ExtraInput::plugin_module(&ledger.entry.0, self.module.as_str()) {
                     ledger.extra_inputs.insert(input);
