@@ -67,7 +67,7 @@ Queries saved in the ledger with the [`query` directive](/directives/5-query/) a
 - Choosing an entry puts its query in the editor and runs it.
 - A query that does not compile with the current version of the engine is still listed. It is marked **(invalid)** and shows the error. Saved queries are not checked when the ledger is loaded, so an invalid one never makes the ledger report an error.
 - The list is fetched again each time the menu opens, so queries added to the ledger after the page was opened appear without a page reload.
-- The query is a quoted string of the ledger file, so each backslash in it must be doubled: write `'\\d+'` to save the regular expression `\d+`. See [Escaping](/directives/5-query/#escaping).
+- The query is a quoted string of the ledger file. A backslash that does not start a known escape is kept, so `'\d+'` saves the regular expression `\d+`; the doubled form `'\\d+'` works too and also reads the same in Beancount. See [Escaping](/directives/5-query/#escaping).
 
 #### Exporting to CSV
 
