@@ -15,12 +15,11 @@ pub(crate) mod balance;
 mod balance_check;
 mod pad;
 
-pub use balance_check::BalanceCheckStage;
-pub use pad::PadStage;
-
 use std::collections::HashMap;
 
+pub use balance_check::BalanceCheckStage;
 use log::debug;
+pub use pad::PadStage;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, SpanInfo, Spanned};
 
