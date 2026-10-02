@@ -1,41 +1,102 @@
-use std::collections::HashMap;
-
 use axum::extract::State;
 use gotcha::api;
 use itertools::Itertools;
-use zhang_core::plugin::PluginType;
 
-use crate::response::{PluginEntity, ResponseWrapper};
+use crate::response::{PluginCapabilitiesEntity, PluginEntity, PluginTypeEntity, ResponseWrapper};
 use crate::state::SharedLedger;
 use crate::ApiResult;
 
+/// The loaded plugins in declaration order, which is the order they run in.
 #[api(group = "plugin")]
 pub async fn plugin_list(ledger: State<SharedLedger>) -> ApiResult<Vec<PluginEntity>> {
-    let store = ledger.read().await;
+    let ledger = ledger.read().await;
 
-    let mut grouped_plugins: HashMap<(String, String), Vec<PluginType>> = HashMap::default();
-
-    for (plugin, plugin_type) in store
+    let ret = ledger
         .plugins
-        .processors
+        .ordered
         .iter()
-        .map(|it| (it, PluginType::Processor))
-        .chain(store.plugins.mappers.iter().map(|it| (it, PluginType::Mapper)))
-        .chain(store.plugins.routers.iter().map(|it| (it, PluginType::Router)))
-    {
-        grouped_plugins
-            .entry((plugin.name.to_owned(), plugin.version.to_owned()))
-            .or_default()
-            .push(plugin_type);
-    }
-
-    let ret = grouped_plugins
-        .into_iter()
-        .map(|(meta, plugin_type)| PluginEntity {
-            name: meta.0,
-            version: meta.1,
-            plugin_type,
+        .map(|(plugin, plugin_types)| PluginEntity {
+            name: plugin.name.clone(),
+            version: plugin.version.clone(),
+            plugin_type: plugin_types.iter().filter_map(PluginTypeEntity::from_core).collect(),
+            capabilities: PluginCapabilitiesEntity {
+                allowed_hosts: plugin.capabilities().allowed_hosts.clone(),
+            },
         })
         .collect_vec();
     ResponseWrapper::json(ret)
+}
+
+#[cfg(test)]
+mod test {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use axum::extract::State;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    use serde_json::json;
+    use tokio::sync::RwLock;
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::ledger::Ledger;
+
+    use super::plugin_list;
+    use crate::state::SharedLedger;
+
+    /// the WAT fixtures of zhang-core's plugin tests, see `zhang-core/tests/wasm_plugins.rs`
+    const FIXTURES: [(&str, &str); 2] = [
+        ("echo.wat", include_str!("../../../zhang-core/tests/plugins/echo.wat")),
+        ("router.wat", include_str!("../../../zhang-core/tests/plugins/router.wat")),
+    ];
+
+    /// A scratch ledger directory under the system temp dir, removed on drop.
+    struct ScratchDir(PathBuf);
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+
+    #[tokio::test]
+    async fn plugins_are_listed_in_declaration_order_with_their_capabilities() {
+        let dir = ScratchDir(std::env::temp_dir().join(format!("zhang-plugin-list-{}", uuid::Uuid::new_v4())));
+        std::fs::create_dir_all(&dir.0).unwrap();
+        for (fixture, content) in FIXTURES {
+            std::fs::write(dir.0.join(fixture), content).unwrap();
+        }
+        // a local ledger resolves a module against the working directory, so declare them by absolute path
+        let module = |fixture: &str| dir.0.join(fixture).display().to_string();
+        let content = format!(
+            "option \"features.plugin\" \"true\"\n\
+             plugin \"{router}\"\n\
+             plugin \"{echo}\"\n  allowed_hosts: \"api.frankfurter.dev\"\n  allowed_hosts: \"api.example.com\"\n\
+             plugin \"{echo}\"\n\
+             1970-01-01 open Assets:Cash\n",
+            router = module("router.wat"),
+            echo = module("echo.wat"),
+        );
+        std::fs::write(dir.0.join("main.zhang"), content).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::async_load(dir.0.clone(), "main.zhang".to_owned(), source)
+            .await
+            .unwrap_or_else(|error| panic!("ledger should load: {error}"));
+
+        let response = plugin_list(State(SharedLedger(Arc::new(RwLock::new(ledger))))).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        // not sorted or grouped: the same plugin declared twice is listed twice, and the retired
+        // Router type is not listed
+        assert_eq!(
+            body,
+            json!({"data": [
+                {"name": "router", "version": "0.1.0", "plugin_type": [], "capabilities": {"allowed_hosts": []}},
+                {"name": "echo", "version": "0.1.0", "plugin_type": ["Processor"], "capabilities": {"allowed_hosts": ["api.frankfurter.dev", "api.example.com"]}},
+                {"name": "echo", "version": "0.1.0", "plugin_type": ["Processor"], "capabilities": {"allowed_hosts": []}},
+            ]})
+        );
+    }
 }

@@ -10,7 +10,7 @@ use sha256::digest;
 use zhang_ast::{Directive, Plugin, Spanned};
 
 use crate::domains::schemas::OptionDomain;
-use crate::plugin::capabilities::PluginDeclaration;
+use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration};
 use crate::plugin::PluginType;
 use crate::{ZhangError, ZhangResult};
 
@@ -18,7 +18,6 @@ use crate::{ZhangError, ZhangResult};
 pub struct PluginStore {
     pub processors: Vec<RegisteredPlugin>,
     pub mappers: Vec<RegisteredPlugin>,
-    pub routers: Vec<RegisteredPlugin>,
     /// registration order with the types each plugin supports — this is the execution order
     pub ordered: Vec<(RegisteredPlugin, Vec<PluginType>)>,
 }
@@ -62,9 +61,6 @@ impl PluginStore {
         if plugin_types.contains(&PluginType::Mapper) {
             self.mappers.push(registered_plugin.clone())
         }
-        if plugin_types.contains(&PluginType::Router) {
-            self.routers.push(registered_plugin.clone())
-        }
         self.ordered.push((registered_plugin, plugin_types));
 
         Ok(())
@@ -87,6 +83,10 @@ impl PluginStore {
     }
 }
 
+/// a plugin type older versions of zhang registered but never ran. It now falls back to
+/// [`PluginType::Unknown`] like any other type this host does not know.
+const RETIRED_ROUTER_TYPE: &str = "Router";
+
 /// the plugin types this host knows among the ones a plugin declares.
 /// An unknown type (from a newer zhang, say) is dropped with a warning, so the plugin still loads.
 fn known_plugin_types(plugin_name: &str, declared: Vec<serde_json::Value>) -> ZhangResult<Vec<PluginType>> {
@@ -95,6 +95,9 @@ fn known_plugin_types(plugin_name: &str, declared: Vec<serde_json::Value>) -> Zh
         let plugin_type = serde_json::from_value::<PluginType>(value.clone())
             .map_err(|e| ZhangError::CustomError(format!("plugin {plugin_name} declares an invalid plugin type {value}: {e}")))?;
         match plugin_type {
+            PluginType::Unknown if value == RETIRED_ROUTER_TYPE => {
+                warn!("plugin {plugin_name} declares the plugin type {value}, which zhang retired because it never ran; ignoring it")
+            }
             PluginType::Unknown => warn!("plugin {plugin_name} declares the plugin type {value}, which this version of zhang does not know; ignoring it"),
             plugin_type => known.push(plugin_type),
         }
@@ -113,6 +116,11 @@ pub struct RegisteredPlugin {
 }
 
 impl RegisteredPlugin {
+    /// what the plugin's directive grants it
+    pub fn capabilities(&self) -> &PluginCapabilities {
+        &self.declaration.capabilities
+    }
+
     fn manifest(&self, options: &[OptionDomain]) -> Manifest {
         // the host sets no reserved `zhang.*` config yet
         let config = self.declaration.config_with(options, []);
@@ -239,7 +247,8 @@ mod test {
 
         let known = known_plugin_types("future", declared).unwrap();
 
-        assert_eq!(known, vec![PluginType::Processor, PluginType::Router, PluginType::Mapper]);
+        // the retired Router type is unknown too
+        assert_eq!(known, vec![PluginType::Processor, PluginType::Mapper]);
     }
 
     #[test]

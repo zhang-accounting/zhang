@@ -4,7 +4,7 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle }
 
 interface Props {
   name: string;
-  plugin_type: ('Processor' | 'Mapper' | 'Router')[];
+  plugin_type: ('Processor' | 'Mapper')[];
   version: string;
 }
 

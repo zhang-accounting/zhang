@@ -87,7 +87,10 @@ export interface paths {
     get: operations['get_all_options'];
   };
   '/api/plugins': {
-    /** Plugin List */
+    /**
+     * Plugin List
+     * @description The loaded plugins in declaration order, which is the order they run in.
+     */
     get: operations['plugin_list'];
   };
   '/api/query': {
@@ -940,7 +943,10 @@ export interface operations {
       };
     };
   };
-  /** Plugin List */
+  /**
+   * Plugin List
+   * @description The loaded plugins in declaration order, which is the order they run in.
+   */
   plugin_list: {
     responses: {
       /** @description default return */
@@ -948,8 +954,13 @@ export interface operations {
         content: {
           'application/json': {
             data: {
+              capabilities: {
+                /** @description hosts the plugin may reach over HTTP; empty means no network access */
+                allowed_hosts: string[];
+              };
               name: string;
-              plugin_type: ('Processor' | 'Mapper' | 'Router')[];
+              /** @description the types the plugin runs as; a declared type this zhang does not run, like the retired `Router`, is left out */
+              plugin_type: ('Processor' | 'Mapper')[];
               version: string;
             }[];
           };

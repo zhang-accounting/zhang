@@ -99,6 +99,30 @@ fn plugin_declaring_an_unknown_type_still_loads() {
 }
 
 #[test]
+fn plugin_declaring_only_the_retired_router_type_loads_and_runs_as_nothing() {
+    let dir = ledger_dir(&["router.wat"]);
+    let ledger = load(&dir, &format!("option \"features.plugin\" \"true\"\n{}{LEDGER}", plugin(&dir, "router.wat")));
+
+    assert_eq!(registered(&ledger), vec![("router".to_owned(), vec![])]);
+    assert!(ledger.plugins.build_stages().is_empty());
+    let plain = load(&ledger_dir(&[]), LEDGER);
+    assert_eq!(store_summary(&ledger), store_summary(&plain));
+}
+
+#[test]
+fn plugin_declaring_router_and_processor_runs_as_a_processor() {
+    let dir = ledger_dir(&["router_processor.wat"]);
+    let ledger = load(
+        &dir,
+        &format!("option \"features.plugin\" \"true\"\n{}{LEDGER}", plugin(&dir, "router_processor.wat")),
+    );
+
+    // Router is ignored, the processor still runs: it drops the whole stream
+    assert_eq!(registered(&ledger), vec![("router-processor".to_owned(), vec![PluginType::Processor])]);
+    assert_eq!(store_summary(&ledger), (vec![], vec![], vec![]));
+}
+
+#[test]
 fn features_plugins_enables_plugins_too() {
     let dir = ledger_dir(&["echo.wat"]);
     let ledger = load(&dir, &format!("option \"features.plugins\" \"true\"\n{}{LEDGER}", plugin(&dir, "echo.wat")));

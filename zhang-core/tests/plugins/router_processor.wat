@@ -1,20 +1,16 @@
-;; A processor plugin that returns its input stream unchanged.
-;;
-;; Written by hand against the extism kernel ABI, so the tests need no wasm toolchain: extism
-;; compiles WAT text directly. Each export returns 0 for success and sets its output to a block of
-;; kernel memory. `processor` reuses the input block; the metadata exports copy a constant JSON
-;; value from this module's data segment into a new block.
+;; A plugin built for an older zhang: it declares the retired `Router` type next to `Processor`.
+;; The host must still load it, ignore `Router` and run the processor, which drops the whole stream
+;; so a test can tell that it ran. See echo.wat for the kernel ABI.
 (module
-  (import "extism:host/env" "input_offset" (func $input_offset (result i64)))
-  (import "extism:host/env" "input_length" (func $input_length (result i64)))
   (import "extism:host/env" "alloc" (func $alloc (param i64) (result i64)))
   (import "extism:host/env" "store_u8" (func $store_u8 (param i64 i32)))
   (import "extism:host/env" "output_set" (func $output_set (param i64 i64)))
 
   (memory 1)
-  (data (i32.const 0) "\"passthrough\"")    ;; 13 bytes
-  (data (i32.const 16) "\"0.1.0\"")         ;; 7 bytes
-  (data (i32.const 32) "[\"Processor\"]")   ;; 13 bytes
+  (data (i32.const 0) "\"router-processor\"")          ;; 18 bytes
+  (data (i32.const 32) "\"0.1.0\"")                    ;; 7 bytes
+  (data (i32.const 48) "[\"Router\",\"Processor\"]")   ;; 22 bytes
+  (data (i32.const 80) "[]")                           ;; 2 bytes
 
   ;; copy `len` bytes at `ptr` into a new kernel block and make it the output
   (func $output_bytes (param $ptr i32) (param $len i32)
@@ -32,15 +28,15 @@
     (call $output_set (local.get $block) (i64.extend_i32_u (local.get $len))))
 
   (func (export "name") (result i32)
-    (call $output_bytes (i32.const 0) (i32.const 13))
+    (call $output_bytes (i32.const 0) (i32.const 18))
     (i32.const 0))
   (func (export "version") (result i32)
-    (call $output_bytes (i32.const 16) (i32.const 7))
+    (call $output_bytes (i32.const 32) (i32.const 7))
     (i32.const 0))
   (func (export "supported_type") (result i32)
-    (call $output_bytes (i32.const 32) (i32.const 13))
+    (call $output_bytes (i32.const 48) (i32.const 22))
     (i32.const 0))
 
   (func (export "processor") (result i32)
-    (call $output_set (call $input_offset) (call $input_length))
+    (call $output_bytes (i32.const 80) (i32.const 2))
     (i32.const 0)))
