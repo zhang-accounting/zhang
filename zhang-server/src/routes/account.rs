@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use axum::extract::{Multipart, Path, State};
 use axum::{debug_handler, Json};
 use chrono::Utc;
@@ -7,14 +5,21 @@ use gotcha::api;
 use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
-use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Document, ZhangString};
+use zhang_ast::amount::Amount;
+use zhang_ast::{BalanceCheck, BalancePad, Date, Directive, Document, ZhangString};
 use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::utils::calculable::Calculable;
 
 use crate::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
 use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, Created, DocumentEntity, ResponseWrapper};
 use crate::state::{SharedLedger, SharedReloadSender};
-use crate::{ApiResult, ServerResult};
+use crate::{validate, ApiResult, ServerResult};
+
+/// `amount`, once its commodity is checked to read back unchanged.
+fn validated(amount: Amount) -> ServerResult<Amount> {
+    validate::amount(&amount)?;
+    Ok(amount)
+}
 
 #[api(group = "account")]
 pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<AccountEntity>> {
@@ -80,6 +85,7 @@ pub async fn upload_account_document(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, mut multipart: Multipart,
 ) -> ServerResult<Created> {
     let account_name = path.0 .0;
+    let account = validate::account(&account_name)?;
     let ledger_stage = ledger.read().await;
     let entry = &ledger_stage.entry.0;
     let mut documents = vec![];
@@ -104,7 +110,7 @@ pub async fn upload_account_document(
 
         documents.push(Directive::Document(Document {
             date: Date::now(&ledger_stage.options.timezone),
-            account: Account::from_str(&account_name)?,
+            account: account.clone(),
             filename: ZhangString::QuoteString(striped_path_string),
             tags: None,
             links: None,
@@ -185,17 +191,17 @@ pub async fn create_account_balance(
     let balance = match payload {
         AccountBalanceRequest::Check { amount } => Directive::BalanceCheck(BalanceCheck {
             date: Date::now(&ledger.options.timezone),
-            account: Account::from_str(&target_account)?,
-            amount,
+            account: validate::account(&target_account)?,
+            amount: validated(amount)?,
             tolerance: None,
             meta: Default::default(),
         }),
         AccountBalanceRequest::Pad { amount, pad } => Directive::BalancePad(BalancePad {
             date: Date::now(&ledger.options.timezone),
-            account: Account::from_str(&target_account)?,
-            amount,
+            account: validate::account(&target_account)?,
+            amount: validated(amount)?,
             meta: Default::default(),
-            pad: Account::from_str(&pad)?,
+            pad: validate::account(&pad)?,
         }),
     };
 
@@ -214,17 +220,17 @@ pub async fn create_batch_account_balances(
         let balance = match balance {
             BatchAccountBalanceRequest::Check { account_name, amount } => Directive::BalanceCheck(BalanceCheck {
                 date: Date::now(&ledger.options.timezone),
-                account: Account::from_str(&account_name)?,
-                amount,
+                account: validate::account(&account_name)?,
+                amount: validated(amount)?,
                 tolerance: None,
                 meta: Default::default(),
             }),
             BatchAccountBalanceRequest::Pad { account_name, amount, pad } => Directive::BalancePad(BalancePad {
                 date: Date::now(&ledger.options.timezone),
-                account: Account::from_str(&account_name)?,
-                amount,
+                account: validate::account(&account_name)?,
+                amount: validated(amount)?,
                 meta: Default::default(),
-                pad: Account::from_str(&pad)?,
+                pad: validate::account(&pad)?,
             }),
         };
         directives.push(balance);
@@ -233,4 +239,105 @@ pub async fn create_batch_account_balances(
     ledger.data_source.async_append(&ledger, directives).await?;
     reload_sender.reload();
     Ok(Created)
+}
+
+/// Balance requests are checked like transactions: a name the ledger would not read
+/// back is a 400, and nothing is written (issue #442).
+#[cfg(test)]
+mod name_validation_test {
+    use std::sync::Arc;
+
+    use axum::extract::{Path, State};
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    use axum::Json;
+    use bigdecimal::BigDecimal;
+    use tokio::sync::{mpsc, RwLock};
+    use zhang_ast::amount::Amount;
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::ledger::Ledger;
+
+    use super::{create_account_balance, create_batch_account_balances};
+    use crate::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
+    use crate::state::{SharedLedger, SharedReloadSender};
+    use crate::ReloadSender;
+
+    const MAIN: &str = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Equity:Opening\n";
+
+    async fn states(dir: &std::path::Path) -> (State<SharedLedger>, State<SharedReloadSender>) {
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::async_load(dir.to_path_buf(), "main.zhang".to_owned(), source).await.unwrap();
+        let (sender, _) = mpsc::channel(1);
+        (
+            State(SharedLedger(Arc::new(RwLock::new(ledger)))),
+            State(SharedReloadSender(Arc::new(ReloadSender(sender)))),
+        )
+    }
+
+    fn cny(commodity: &str) -> Amount {
+        Amount::new(BigDecimal::from(1), commodity)
+    }
+
+    async fn message(response: axum::response::Response) -> String {
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        body["message"].as_str().unwrap().to_owned()
+    }
+
+    #[tokio::test]
+    async fn balances_with_names_that_would_not_read_back_are_rejected() {
+        let dir = std::env::temp_dir().join(format!("zhang-balance-names-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("main.zhang"), MAIN).unwrap();
+
+        let cases = [
+            (
+                "Assets:My Bank",
+                AccountBalanceRequest::Check { amount: cny("CNY") },
+                "invalid account \"Assets:My Bank\"",
+            ),
+            (
+                "Assets:Cash",
+                AccountBalanceRequest::Check { amount: cny("cny 1") },
+                "invalid commodity \"cny 1\"",
+            ),
+            (
+                "Assets:Cash",
+                AccountBalanceRequest::Pad {
+                    amount: cny("CNY"),
+                    pad: "Equity:Opening Balances".to_owned(),
+                },
+                "invalid account \"Equity:Opening Balances\"",
+            ),
+        ];
+        for (account, request, expected) in cases {
+            let (ledger, reload) = states(&dir).await;
+            let response = create_account_balance(ledger, reload, Path((account.to_owned(),)), Json(request))
+                .await
+                .into_response();
+            let message = message(response).await;
+            assert!(message.starts_with(expected), "{message}");
+        }
+
+        let (ledger, reload) = states(&dir).await;
+        let batch = vec![
+            BatchAccountBalanceRequest::Check {
+                account_name: "Assets:Cash".to_owned(),
+                amount: cny("CNY"),
+            },
+            BatchAccountBalanceRequest::Check {
+                account_name: "Assets:a,b".to_owned(),
+                amount: cny("CNY"),
+            },
+        ];
+        let response = create_batch_account_balances(ledger, reload, Json(batch)).await.into_response();
+        assert!(message(response).await.starts_with("invalid account \"Assets:a,b\""));
+
+        // nothing was appended, not even the valid balance of the batch
+        let files = std::fs::read_dir(&dir).unwrap().count();
+        assert_eq!((files, std::fs::read_to_string(dir.join("main.zhang")).unwrap()), (1, MAIN.to_owned()));
+        std::fs::remove_dir_all(dir).ok();
+    }
 }

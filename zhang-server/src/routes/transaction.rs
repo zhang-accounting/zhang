@@ -2,13 +2,14 @@ use std::str::FromStr;
 
 use axum::extract::{Multipart, Path, State};
 use axum::Json;
+use chrono_tz::Tz;
 use gotcha::api;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
+use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
 use zhang_core::constants::TXN_ID;
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::store::TransactionDomain;
@@ -21,7 +22,7 @@ use crate::response::{
     ResponseWrapper,
 };
 use crate::state::{SharedLedger, SharedReloadSender};
-use crate::ApiResult;
+use crate::{validate, ApiResult, ServerResult};
 
 #[api(group = "transaction")]
 // todo rename api
@@ -125,17 +126,18 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
     ResponseWrapper::json(Pageable::new(total_count as u32, params.page(), params.limit(), ret))
 }
 
-#[api(group = "transaction")]
-pub async fn create_new_transaction(
-    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<CreateTransactionRequest>,
-) -> ApiResult<String> {
-    let ledger = ledger.read().await;
-
+/// Build the transaction a create or update request describes, rejecting with a
+/// 400 any account, commodity, tag, link, metadata key or flag that would be
+/// written unquoted and not read back.
+fn transaction_from_request(payload: CreateTransactionRequest, timezone: &Tz) -> ServerResult<Directive> {
     let mut postings = vec![];
-    for posting in payload.postings.into_iter() {
+    for posting in payload.postings {
+        if let Some(unit) = &posting.unit {
+            validate::amount(unit)?;
+        }
         postings.push(Posting {
             flag: None,
-            account: Account::from_str(&posting.account)?,
+            account: validate::account(&posting.account)?,
             units: posting.unit,
             cost: None,
             price: None,
@@ -145,19 +147,38 @@ pub async fn create_new_transaction(
 
     let mut metas = Meta::default();
     for meta in payload.metas {
+        validate::meta_key(&meta.key)?;
         metas.insert(meta.key, meta.value.to_quote());
     }
-    let time = payload.datetime.with_timezone(&ledger.options.timezone).naive_local();
-    let trx = Directive::Transaction(Transaction {
+    for tag in &payload.tags {
+        validate::tag(tag)?;
+    }
+    for link in &payload.links {
+        validate::link(link)?;
+    }
+    let flag = payload.flag.map(Flag::from).unwrap_or(Flag::Okay);
+    validate::flag(&flag.to_string())?;
+
+    let time = payload.datetime.with_timezone(timezone).naive_local();
+    Ok(Directive::Transaction(Transaction {
         date: Date::Datetime(time),
-        flag: payload.flag.map(|it| it.into()).or(Some(Flag::Okay)),
+        flag: Some(flag),
         payee: Some(payload.payee.to_quote()),
         narration: payload.narration.map(|it| it.to_quote()),
         tags: IndexSet::from_iter(payload.tags),
         links: IndexSet::from_iter(payload.links),
         postings,
         meta: metas,
-    });
+    }))
+}
+
+#[api(group = "transaction")]
+pub async fn create_new_transaction(
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<CreateTransactionRequest>,
+) -> ApiResult<String> {
+    let ledger = ledger.read().await;
+
+    let trx = transaction_from_request(payload, &ledger.options.timezone)?;
 
     ledger.data_source.async_append(&ledger, vec![trx]).await?;
     reload_sender.reload();
@@ -234,32 +255,7 @@ pub async fn update_single_transaction(
         return ResponseWrapper::bad_request();
     };
 
-    let mut postings = vec![];
-    for posting in payload.postings.into_iter() {
-        postings.push(Posting {
-            flag: None,
-            account: Account::from_str(&posting.account)?,
-            units: posting.unit,
-            cost: None,
-            price: None,
-            comment: None,
-        });
-    }
-    let mut metas = Meta::default();
-    for meta in payload.metas {
-        metas.insert(meta.key, meta.value.to_quote());
-    }
-    let time = payload.datetime.with_timezone(&ledger.options.timezone).naive_local();
-    let trx = Directive::Transaction(Transaction {
-        date: Date::Datetime(time),
-        flag: payload.flag.map(|it| it.into()).or(Some(Flag::Okay)),
-        payee: Some(payload.payee.to_quote()),
-        narration: payload.narration.map(|it| it.to_quote()),
-        tags: IndexSet::from_iter(payload.tags),
-        links: IndexSet::from_iter(payload.links),
-        postings,
-        meta: metas,
-    });
+    let trx = transaction_from_request(payload, &ledger.options.timezone)?;
     let txn_content = ledger.data_source.export(trx)?;
     let trx_content = String::from_utf8_lossy(&txn_content);
     let source_file_path = span_info.source_file.to_string_lossy().to_string();
@@ -297,7 +293,7 @@ mod string_round_trip_test {
     use zhang_core::store::TransactionDomain;
 
     use super::{create_new_transaction, update_single_transaction};
-    use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, MetaRequest};
+    use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, FlagRequest, MetaRequest};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::ReloadSender;
 
@@ -451,6 +447,91 @@ mod string_round_trip_test {
         let (created, _) = transaction(&load(&dir).await);
         assert_eq!(created.payee.as_deref(), Some(PAYEE));
         assert_eq!(created.narration.as_deref(), Some(""));
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn names_written_unquoted_read_back() {
+        let (dir, data_file) = ledger_dir();
+        let (ledger, reload) = states(load(&dir).await);
+        let mut request = request("coffee", "note");
+        request.flag = Some(FlagRequest::Warning);
+        request.tags = vec!["trip-2024".to_owned(), "旅行".to_owned(), "a#b".to_owned()];
+        request.links = vec!["inv-1".to_owned()];
+        request.metas.push(MetaRequest {
+            key: "receipt-no".to_owned(),
+            value: "1".to_owned(),
+        });
+        let response = create_new_transaction(ledger, reload, Json(request)).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        assert_written_text_round_trips(&data_file);
+        let reloaded = load(&dir).await;
+        let (created, _) = transaction(&reloaded);
+        assert_eq!(created.flag.to_string(), "!");
+        assert_eq!(created.tags, vec!["trip-2024", "旅行", "a#b"]);
+        assert_eq!(created.links, vec!["inv-1"]);
+        let receipt = reloaded.operations().metas(MetaType::TransactionMeta, created.id.to_string()).unwrap();
+        assert!(receipt.iter().any(|meta| meta.key == "receipt-no" && meta.value == "1"), "{receipt:?}");
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn names_that_would_not_read_back_are_rejected() {
+        let (dir, data_file) = ledger_dir();
+        let meta = |key: &str| MetaRequest {
+            key: key.to_owned(),
+            value: "1".to_owned(),
+        };
+        type Change = Box<dyn Fn(&mut CreateTransactionRequest)>;
+        let cases: Vec<(&str, Change)> = vec![
+            ("metadata key \"receipt no\"", Box::new(move |it| it.metas.push(meta("receipt no")))),
+            ("metadata key \";path\"", Box::new(move |it| it.metas.push(meta(";path")))),
+            ("metadata key \"\"", Box::new(move |it| it.metas.push(meta("")))),
+            ("tag \"two words\"", Box::new(|it| it.tags.push("two words".to_owned()))),
+            ("tag \"\"", Box::new(|it| it.tags.push(String::new()))),
+            ("link \"a:b\"", Box::new(|it| it.links.push("a:b".to_owned()))),
+            (
+                "account \"Assets:My Bank\"",
+                Box::new(|it| it.postings[0].account = "Assets:My Bank".to_owned()),
+            ),
+            ("account \"Assets\"", Box::new(|it| it.postings[0].account = "Assets".to_owned())),
+            (
+                "commodity \"US D\"",
+                Box::new(|it| it.postings[0].unit = Some(Amount::new(BigDecimal::from(1), "US D"))),
+            ),
+            ("flag \"a\"", Box::new(|it| it.flag = Some(FlagRequest::Custom('a')))),
+        ];
+        for (rejected, change) in cases {
+            let mut request = request("coffee", "note");
+            change(&mut request);
+            let (ledger, reload) = states(load(&dir).await);
+            let response = create_new_transaction(ledger, reload, Json(request)).await.into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{rejected}");
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            let message = body["message"].as_str().unwrap();
+            assert!(message.starts_with(&format!("invalid {rejected}: ")), "{message}");
+            assert_eq!(std::fs::read_to_string(&data_file).unwrap(), "", "nothing is written for {rejected}");
+        }
+
+        // updates are checked the same way
+        let (ledger, reload) = states(load(&dir).await);
+        let response = create_new_transaction(ledger, reload, Json(request("coffee", "note"))).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let written = std::fs::read_to_string(&data_file).unwrap();
+        let reloaded = load(&dir).await;
+        let (created, _) = transaction(&reloaded);
+        let mut bad = request("coffee", "note");
+        bad.tags.push("two words".to_owned());
+        let (ledger, reload) = states(reloaded);
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(bad))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(std::fs::read_to_string(&data_file).unwrap(), written);
 
         std::fs::remove_dir_all(dir).ok();
     }

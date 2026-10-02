@@ -44,6 +44,7 @@ pub mod routes;
 pub mod state;
 pub mod tasks;
 pub mod util;
+mod validate;
 
 pub type LedgerState = Arc<RwLock<Ledger>>;
 

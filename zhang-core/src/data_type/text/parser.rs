@@ -325,9 +325,8 @@ fn posting_unit(i: &str) -> IResult<&str, (Option<Amount>, Option<PostingMeta>)>
     Ok((i, (amount, Some(meta))))
 }
 
-/// `transaction_flag = space+ ("!" | "*" | "#" | ASCII_ALPHA_UPPER)`
-fn transaction_flag(i: &str) -> IResult<&str, Flag> {
-    let (i, _) = space1(i)?;
+/// `flag = "txn" | "!" | "*" | "#" | ASCII_ALPHA_UPPER`
+fn flag(i: &str) -> IResult<&str, Flag> {
     alt((
         // beancount's `txn` keyword is the explicit form of a completed transaction
         map(tag("txn"), |_| Flag::Okay),
@@ -335,6 +334,11 @@ fn transaction_flag(i: &str) -> IResult<&str, Flag> {
             Flag::from_str(&c.to_string()).expect("invalid flag")
         }),
     ))(i)
+}
+
+/// `transaction_flag = space+ flag`
+fn transaction_flag(i: &str) -> IResult<&str, Flag> {
+    preceded(space1, flag)(i)
 }
 
 /// `transaction_posting = transaction_flag? account_name (space+ posting_unit)?`
@@ -841,6 +845,48 @@ fn content_item(i: &str) -> IResult<&str, Option<Directive>> {
         map(metable_item, Some),
         map(transaction, Some),
     ))(i)
+}
+
+// ---------------------------------------------------------------------------
+// names written unquoted
+// ---------------------------------------------------------------------------
+//
+// The exporter writes account names, commodities, tags, links, metadata keys and
+// flags as they are, without quotes. These checks run the grammar above on such a
+// name, so a caller that builds directives from user input (the server) can reject
+// a name that would not read back. The beancount parser accepts exactly the same
+// names, which its tests check.
+
+/// Whether `parser` reads the whole of `text`.
+fn reads_all<'a, O>(mut parser: impl FnMut(&'a str) -> IResult<&'a str, O>, text: &'a str) -> bool {
+    matches!(parser(text), Ok(("", _)))
+}
+
+/// Whether `name` is an account name, such as `Assets:Bank:Checking`, that reads
+/// back unchanged.
+pub fn is_valid_account_name(name: &str) -> bool {
+    reads_all(account_name, name)
+}
+
+/// Whether `name` is a commodity name, such as `CNY` or `VBMPX`, that reads back
+/// unchanged.
+pub fn is_valid_commodity_name(name: &str) -> bool {
+    reads_all(commodity_name, name)
+}
+
+/// Whether `name` is a tag (`#name`) or link (`^name`) that reads back unchanged.
+pub fn is_valid_tag_or_link(name: &str) -> bool {
+    reads_all(unquote_string_raw, name)
+}
+
+/// Whether `key` is a metadata key that reads back unchanged when written unquoted.
+pub fn is_valid_meta_key(key: &str) -> bool {
+    reads_all(meta_key, key)
+}
+
+/// Whether `flag` is a transaction flag that reads back as a flag.
+pub fn is_valid_transaction_flag(flag: &str) -> bool {
+    reads_all(self::flag, flag)
 }
 
 fn error_at(original: &str, rest: &str, message: &str) -> ParseError {
@@ -1791,6 +1837,73 @@ mod test {
                 let content = format!("2024-01-01 * \"{body}\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n");
                 let _ = parse(&content, None);
                 let _ = parse(&format!("2024-01-01 query \"q\" \"{body}"), None);
+            }
+        }
+    }
+
+    /// The checks for names written unquoted run the grammar on the name.
+    mod names {
+        use crate::data_type::text::parser::{
+            is_valid_account_name, is_valid_commodity_name, is_valid_meta_key, is_valid_tag_or_link, is_valid_transaction_flag,
+        };
+
+        #[test]
+        fn account_names() {
+            for valid in ["Assets:Bank", "Expenses:Food:Lunch", "Income:中文", "Liabilities:Card-1", "Equity:a;b"] {
+                assert!(is_valid_account_name(valid), "{valid}");
+            }
+            for invalid in [
+                "",
+                "Assets",
+                "Assets:",
+                "Assets::x",
+                "Assets:My Bank",
+                "Assets:a\"b",
+                "Assets:a,b",
+                "Bank:X",
+                "assets:x",
+            ] {
+                assert!(!is_valid_account_name(invalid), "{invalid}");
+            }
+        }
+
+        #[test]
+        fn commodity_names() {
+            for valid in ["CNY", "VBMPX", "A.B_C-D'E", "usd"] {
+                assert!(is_valid_commodity_name(valid), "{valid}");
+            }
+            for invalid in ["", "1CNY", "US D", "人民币", "CNY!", "C:Y"] {
+                assert!(!is_valid_commodity_name(invalid), "{invalid}");
+            }
+        }
+
+        #[test]
+        fn tags_and_links() {
+            for valid in ["trip", "trip-2024", "旅行", "a#b", "^x", "a;b"] {
+                assert!(is_valid_tag_or_link(valid), "{valid}");
+            }
+            for invalid in ["", "two words", "a:b", "a,b", "(x)", "a\"b", "tab\t", "line\n"] {
+                assert!(!is_valid_tag_or_link(invalid), "{invalid:?}");
+            }
+        }
+
+        #[test]
+        fn meta_keys() {
+            for valid in ["receipt", "receipt-no", "a;b", "a#b", "/x"] {
+                assert!(is_valid_meta_key(valid), "{valid}");
+            }
+            for invalid in ["", "receipt no", "a:b", ";x", "#x", "*x", "//x", "\"x\"", "a,b"] {
+                assert!(!is_valid_meta_key(invalid), "{invalid:?}");
+            }
+        }
+
+        #[test]
+        fn transaction_flags() {
+            for valid in ["*", "!", "#", "P", "C", "A", "txn"] {
+                assert!(is_valid_transaction_flag(valid), "{valid}");
+            }
+            for invalid in ["", "a", " ", "\"", "**", "?", "*!"] {
+                assert!(!is_valid_transaction_flag(invalid), "{invalid:?}");
             }
         }
     }

@@ -1354,4 +1354,48 @@ mod test {
             }
         }
     }
+
+    /// The server rejects names that would not read back using zhang-core's checks
+    /// (`zhang_core::data_type::text::parser::is_valid_*`); beancount must accept
+    /// exactly the same names, so those checks hold for beancount ledgers too.
+    mod names {
+        use zhang_core::data_type::text::parser::{
+            is_valid_account_name, is_valid_commodity_name, is_valid_meta_key, is_valid_tag_or_link, is_valid_transaction_flag,
+        };
+
+        use crate::parser::{account_name, commodity_name, meta_key, spaced_tag_or_link, transaction_flag};
+
+        fn reads_all<'a, O>(mut parser: impl FnMut(&'a str) -> nom::IResult<&'a str, O>, text: &'a str) -> bool {
+            matches!(parser(text), Ok(("", _)))
+        }
+
+        #[test]
+        fn beancount_accepts_the_same_unquoted_names_as_zhang() {
+            const PIECES: &[&str] = &[
+                "Assets", "Expenses", "Equity", "Bank", ":", ":", "a", "Z", "0", "9", ".", "_", "-", "'", " ", "\t", "\n", "\"", "(", ")", ",", ";", "#", "*",
+                "/", "//", "^", "!", "txn", "{", "\u{a0}", "中", "😀",
+            ];
+            let mut state = 0x5eed_0442_u64;
+            let mut next = move || {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state as usize
+            };
+            for _ in 0..20_000 {
+                let len = next() % 6;
+                let name: String = (0..len).map(|_| PIECES[next() % PIECES.len()]).collect();
+                let name = name.as_str();
+                assert_eq!(reads_all(account_name, name), is_valid_account_name(name), "account {name:?}");
+                assert_eq!(reads_all(commodity_name, name), is_valid_commodity_name(name), "commodity {name:?}");
+                assert_eq!(reads_all(meta_key, name), is_valid_meta_key(name), "metadata key {name:?}");
+                let tag = format!("#{name}");
+                let reads_tag = matches!(spaced_tag_or_link(&tag), Ok(("", (true, ref read))) if read == name);
+                assert_eq!(reads_tag, is_valid_tag_or_link(name), "tag {name:?}");
+                // `transaction_flag` reads the spaces before the flag too
+                let reads_flag = !name.starts_with([' ', '\t']) && reads_all(transaction_flag, &format!(" {name}"));
+                assert_eq!(reads_flag, is_valid_transaction_flag(name), "flag {name:?}");
+            }
+        }
+    }
 }
