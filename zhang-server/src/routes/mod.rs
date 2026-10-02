@@ -12,8 +12,6 @@ pub mod plugin;
 #[cfg(feature = "frontend")]
 pub mod frontend;
 
-pub mod sql;
-
 use axum::async_trait;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;

@@ -94,10 +94,6 @@ export interface paths {
     /** Reload */
     post: operations['reload'];
   };
-  '/api/sql': {
-    /** Execute Sql */
-    post: operations['execute_sql'];
-  };
   '/api/statistic/graph': {
     /** Get Statistic Graph */
     get: operations['get_statistic_graph'];
@@ -929,35 +925,6 @@ export interface operations {
         content: {
           'application/json': {
             data: string;
-          };
-        };
-      };
-    };
-  };
-  /** Execute Sql */
-  execute_sql: {
-    requestBody: {
-      content: {
-        'application/json': {
-          sql: string;
-        };
-      };
-    };
-    responses: {
-      /** @description default return */
-      200: {
-        content: {
-          'application/json': {
-            data: {
-              columns: string[];
-              rows: {
-                columns: {
-                  name: string;
-                  /** Format: json */
-                  value: Record<string, never>;
-                }[];
-              }[];
-            };
           };
         };
       };

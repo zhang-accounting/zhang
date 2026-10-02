@@ -13,7 +13,6 @@ import Report from './pages/Report';
 import ToolList from './pages/tools/ToolList';
 import BatchBalance from './pages/tools/BatchBalance';
 import Settings from './pages/Settings';
-import Explore from './pages/explore';
 
 export function Router() {
   return (
@@ -32,7 +31,6 @@ export function Router() {
       <Route path="/tools" element={<ToolList />} />
       <Route path="/tools/batch-balance" element={<BatchBalance />} />
       <Route path="/settings" element={<Settings />} />
-      <Route path="/explore" element={<Explore />} />
     </Routes>
   );
 }

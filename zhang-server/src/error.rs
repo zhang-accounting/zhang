@@ -25,9 +25,6 @@ pub enum ServerError {
 
     #[error("bad request")]
     BadRequest,
-
-    #[error("sql error: {0}")]
-    SqlError(String),
 }
 
 impl From<InvalidAccountError> for ServerError {
