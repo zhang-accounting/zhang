@@ -10,7 +10,6 @@ use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
 use zhang_core::constants::TXN_ID;
-use zhang_core::data_type::is_beancount_endpoint;
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::TransactionDomain;
@@ -129,17 +128,17 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
 
 /// Build the transaction a create or update request describes, rejecting with a
 /// 400 any account, commodity, tag, link or flag that would be written unquoted and
-/// not read back, and in a beancount ledger any metadata key beancount cannot read.
+/// not read back, and in a beancount ledger any name beancount itself rejects.
 fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) -> ServerResult<Directive> {
-    let beancount = is_beancount_endpoint(&ledger.entry.1);
+    let format = validate::Format::of(ledger);
     let mut postings = vec![];
     for posting in payload.postings {
         if let Some(unit) = &posting.unit {
-            validate::amount(unit)?;
+            validate::amount(unit, format)?;
         }
         postings.push(Posting {
             flag: None,
-            account: validate::account(&posting.account)?,
+            account: validate::account(&posting.account, format)?,
             units: posting.unit,
             cost: None,
             price: None,
@@ -149,14 +148,14 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) 
 
     let mut metas = Meta::default();
     for meta in payload.metas {
-        validate::meta_key(&meta.key, beancount)?;
+        validate::meta_key(&meta.key, format)?;
         metas.insert(meta.key, meta.value.to_quote());
     }
     for tag in &payload.tags {
-        validate::tag(tag)?;
+        validate::tag(tag, format)?;
     }
     for link in &payload.links {
-        validate::link(link)?;
+        validate::link(link, format)?;
     }
     let flag = payload.flag.map(Flag::from).unwrap_or(Flag::Okay);
     validate::flag(&flag.to_string())?;
@@ -298,6 +297,9 @@ mod string_round_trip_test {
     use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, FlagRequest, MetaRequest};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::ReloadSender;
+
+    /// A change to a create request.
+    type Change = Box<dyn Fn(&mut CreateTransactionRequest)>;
 
     const PAYEE: &str = "Bob's \"café\" \\ `shop`";
 
@@ -489,7 +491,6 @@ mod string_round_trip_test {
     #[tokio::test]
     async fn names_that_would_not_read_back_are_rejected() {
         let (dir, data_file) = ledger_dir();
-        type Change = Box<dyn Fn(&mut CreateTransactionRequest)>;
         let cases: Vec<(&str, Change)> = vec![
             ("tag \"two words\"", Box::new(|it| it.tags.push("two words".to_owned()))),
             ("tag \"\"", Box::new(|it| it.tags.push(String::new()))),
@@ -537,10 +538,45 @@ mod string_round_trip_test {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// Names zhang's parsers read but beancount 3.2.3 rejects (checked against it),
+    /// each set on a create request, with the kind of name.
+    fn names_only_zhang_reads() -> Vec<(&'static str, &'static str, Change)> {
+        vec![
+            (
+                "metadata key",
+                "receipt no",
+                Box::new(|it| {
+                    it.metas.push(MetaRequest {
+                        key: "receipt no".to_owned(),
+                        value: "1".to_owned(),
+                    })
+                }),
+            ),
+            (
+                "metadata key",
+                "Receipt",
+                Box::new(|it| {
+                    it.metas.push(MetaRequest {
+                        key: "Receipt".to_owned(),
+                        value: "1".to_owned(),
+                    })
+                }),
+            ),
+            ("tag", "旅行", Box::new(|it| it.tags.push("旅行".to_owned()))),
+            ("link", "a+b", Box::new(|it| it.links.push("a+b".to_owned()))),
+            ("account", "Assets:银行", Box::new(|it| it.postings[0].account = "Assets:银行".to_owned())),
+            (
+                "commodity",
+                "usd",
+                Box::new(|it| it.postings[0].unit = Some(Amount::new(BigDecimal::from(1), "usd"))),
+            ),
+        ]
+    }
+
     #[tokio::test]
-    async fn a_beancount_ledger_rejects_metadata_keys_beancount_cannot_read() {
+    async fn a_beancount_ledger_rejects_names_beancount_cannot_read() {
         // the ledger format comes from the main file's extension
-        let dir = std::env::temp_dir().join(format!("zhang-beancount-meta-keys-{}", Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("zhang-beancount-names-{}", Uuid::new_v4()));
         std::fs::create_dir_all(dir.join("data/2024")).unwrap();
         let dir = dir.canonicalize().unwrap();
         let main = "include \"data/2024/1.bean\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n";
@@ -552,27 +588,47 @@ mod string_round_trip_test {
             Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
         };
 
-        for key in ["receipt no", ";path", ""] {
+        let mut cases = names_only_zhang_reads();
+        cases.push((
+            "metadata key",
+            ";path",
+            Box::new(|it| {
+                it.metas.push(MetaRequest {
+                    key: ";path".to_owned(),
+                    value: "1".to_owned(),
+                })
+            }),
+        ));
+        for (kind, name, change) in cases {
             let mut create = request("coffee", "note");
-            create.metas.push(MetaRequest {
-                key: key.to_owned(),
-                value: "1".to_owned(),
-            });
+            change(&mut create);
             let (ledger, reload) = states(load().await);
             let response = create_new_transaction(ledger, reload, Json(create)).await.into_response();
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{key:?}");
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{name:?}");
             let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
             let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
             let message = body["message"].as_str().unwrap();
-            assert!(
-                message.starts_with(&format!("invalid metadata key {key:?}: beancount does not support it")),
-                "{message}"
-            );
-            assert_eq!(std::fs::read_to_string(&data_file).unwrap(), "", "nothing is written for {key:?}");
+            assert!(message.starts_with(&format!("invalid {kind} {name:?}: beancount ")), "{message}");
+            assert_eq!(std::fs::read_to_string(&data_file).unwrap(), "", "nothing is written for {name:?}");
             assert_eq!(std::fs::read_to_string(dir.join("main.bean")).unwrap(), main);
         }
 
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_zhang_ledger_takes_names_beancount_cannot_read() {
+        for (_, name, change) in names_only_zhang_reads() {
+            let (dir, data_file) = ledger_dir();
+            let mut create = request("coffee", "note");
+            change(&mut create);
+            let (ledger, reload) = states(load(&dir).await);
+            let response = create_new_transaction(ledger, reload, Json(create)).await.into_response();
+            assert_eq!(response.status(), StatusCode::OK, "{name:?}");
+            let written = assert_written_text_round_trips(&data_file);
+            assert!(written.contains(name), "{name:?}: {written}");
+            std::fs::remove_dir_all(dir).ok();
+        }
     }
 
     #[tokio::test]

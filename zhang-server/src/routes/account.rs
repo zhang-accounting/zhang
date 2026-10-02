@@ -13,11 +13,12 @@ use zhang_core::utils::calculable::Calculable;
 use crate::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
 use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, Created, DocumentEntity, ResponseWrapper};
 use crate::state::{SharedLedger, SharedReloadSender};
+use crate::validate::Format;
 use crate::{validate, ApiResult, ServerResult};
 
 /// `amount`, once its commodity is checked to read back unchanged.
-fn validated(amount: Amount) -> ServerResult<Amount> {
-    validate::amount(&amount)?;
+fn validated(amount: Amount, format: Format) -> ServerResult<Amount> {
+    validate::amount(&amount, format)?;
     Ok(amount)
 }
 
@@ -85,8 +86,8 @@ pub async fn upload_account_document(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, mut multipart: Multipart,
 ) -> ServerResult<Created> {
     let account_name = path.0 .0;
-    let account = validate::account(&account_name)?;
     let ledger_stage = ledger.read().await;
+    let account = validate::account(&account_name, Format::of(&ledger_stage))?;
     let entry = &ledger_stage.entry.0;
     let mut documents = vec![];
 
@@ -187,21 +188,22 @@ pub async fn create_account_balance(
 ) -> ServerResult<Created> {
     let target_account = params.0 .0;
     let ledger = ledger.read().await;
+    let format = Format::of(&ledger);
 
     let balance = match payload {
         AccountBalanceRequest::Check { amount } => Directive::BalanceCheck(BalanceCheck {
             date: Date::now(&ledger.options.timezone),
-            account: validate::account(&target_account)?,
-            amount: validated(amount)?,
+            account: validate::account(&target_account, format)?,
+            amount: validated(amount, format)?,
             tolerance: None,
             meta: Default::default(),
         }),
         AccountBalanceRequest::Pad { amount, pad } => Directive::BalancePad(BalancePad {
             date: Date::now(&ledger.options.timezone),
-            account: validate::account(&target_account)?,
-            amount: validated(amount)?,
+            account: validate::account(&target_account, format)?,
+            amount: validated(amount, format)?,
             meta: Default::default(),
-            pad: validate::account(&pad)?,
+            pad: validate::account(&pad, format)?,
         }),
     };
 
@@ -215,22 +217,23 @@ pub async fn create_batch_account_balances(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<Vec<BatchAccountBalanceRequest>>,
 ) -> ServerResult<Created> {
     let ledger = ledger.read().await;
+    let format = Format::of(&ledger);
     let mut directives = vec![];
     for balance in payload {
         let balance = match balance {
             BatchAccountBalanceRequest::Check { account_name, amount } => Directive::BalanceCheck(BalanceCheck {
                 date: Date::now(&ledger.options.timezone),
-                account: validate::account(&account_name)?,
-                amount: validated(amount)?,
+                account: validate::account(&account_name, format)?,
+                amount: validated(amount, format)?,
                 tolerance: None,
                 meta: Default::default(),
             }),
             BatchAccountBalanceRequest::Pad { account_name, amount, pad } => Directive::BalancePad(BalancePad {
                 date: Date::now(&ledger.options.timezone),
-                account: validate::account(&account_name)?,
-                amount: validated(amount)?,
+                account: validate::account(&account_name, format)?,
+                amount: validated(amount, format)?,
                 meta: Default::default(),
-                pad: validate::account(&pad)?,
+                pad: validate::account(&pad, format)?,
             }),
         };
         directives.push(balance);
@@ -338,6 +341,47 @@ mod name_validation_test {
         // nothing was appended, not even the valid balance of the batch
         let files = std::fs::read_dir(&dir).unwrap().count();
         assert_eq!((files, std::fs::read_to_string(dir.join("main.zhang")).unwrap()), (1, MAIN.to_owned()));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_beancount_ledger_rejects_balances_with_names_beancount_cannot_read() {
+        // beancount 3.2.3 rejects `Assets:bank` (lowercase component) and the
+        // commodity `usd`, which zhang's parsers read
+        let dir = std::env::temp_dir().join(format!("zhang-beancount-balance-names-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("main.bean"), MAIN).unwrap();
+        let load = || async {
+            let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+            let ledger = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.unwrap();
+            let (sender, _) = mpsc::channel(1);
+            (
+                State(SharedLedger(Arc::new(RwLock::new(ledger)))),
+                State(SharedReloadSender(Arc::new(ReloadSender(sender)))),
+            )
+        };
+
+        let cases = [
+            (
+                "Assets:bank",
+                AccountBalanceRequest::Check { amount: cny("CNY") },
+                "invalid account \"Assets:bank\": beancount ",
+            ),
+            (
+                "Assets:Cash",
+                AccountBalanceRequest::Check { amount: cny("usd") },
+                "invalid commodity \"usd\": beancount ",
+            ),
+        ];
+        for (account, request, expected) in cases {
+            let (ledger, reload) = load().await;
+            let response = create_account_balance(ledger, reload, Path((account.to_owned(),)), Json(request))
+                .await
+                .into_response();
+            let message = message(response).await;
+            assert!(message.starts_with(expected), "{message}");
+        }
+        assert_eq!(std::fs::read_to_string(dir.join("main.bean")).unwrap(), MAIN);
         std::fs::remove_dir_all(dir).ok();
     }
 }
