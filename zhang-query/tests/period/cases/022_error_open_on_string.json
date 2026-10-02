@@ -1,0 +1,11 @@
+{
+  "name": "error_open_on_string",
+  "query": "SELECT count(*) FROM OPEN ON '2016-01-01'",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

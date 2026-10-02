@@ -1,0 +1,20 @@
+{
+  "name": "flags_counts_and_dates",
+  "query": "SELECT flag, count(*) AS n, min(date) AS first, max(date) AS last FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 CLEAR GROUP BY 1 ORDER BY 1",
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "flag", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "first", "type": "date"},
+    {"name": "last", "type": "date"}
+  ],
+  "rows": [
+    ["*", 1195, "2016-01-01", "2016-12-31"],
+    ["C", 1, "2016-12-31", "2016-12-31"],
+    ["S", 90, "2015-12-31", "2015-12-31"],
+    ["T", 64, "2016-12-31", "2016-12-31"]
+  ],
+  "notes": "S (summarization) rows are dated the day before OPEN, the C (conversion) entry the day before CLOSE, and the T (transfer) entries like the last entry of the period. Also sensitive to whether zhang's synthetic balance-check transactions (zero-amount postings) are part of the postings table."
+}

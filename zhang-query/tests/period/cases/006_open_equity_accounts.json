@@ -1,0 +1,17 @@
+{
+  "name": "open_equity_accounts",
+  "query": "SELECT account, sum(position) FROM OPEN ON 2016-01-01 WHERE account ~ '^Equity' GROUP BY 1 ORDER BY 1",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "sum(position)", "type": "inventory"}
+  ],
+  "rows": [
+    ["Equity:Conversions:Previous", {"positions": [{"units": {"number": "-0.01346", "currency": "USD"}, "cost": null}]}],
+    ["Equity:Earnings:Previous", {"positions": [{"units": {"number": "-39098.25", "currency": "USD"}, "cost": null}, {"units": {"number": "-63", "currency": "VACHR"}, "cost": null}]}],
+    ["Equity:Opening-Balances", {"positions": [{"units": {"number": "-3490.52000", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "Equity after OPEN: previous earnings, previous conversions and the opening balances."
+}

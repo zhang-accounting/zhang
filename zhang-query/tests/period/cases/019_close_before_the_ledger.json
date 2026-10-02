@@ -1,0 +1,12 @@
+{
+  "name": "close_before_the_ledger",
+  "query": "SELECT count(*) AS n FROM CLOSE ON 2010-01-01 CLEAR",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [],
+  "notes": ""
+}

@@ -3,9 +3,11 @@
 //! Grammar (keywords are case-insensitive):
 //!
 //! ```text
-//! query      := SELECT [DISTINCT] targets [FROM expr] [WHERE expr]
+//! query      := SELECT [DISTINCT] targets [FROM from] [WHERE expr]
 //!               [GROUP BY item, ...] [ORDER BY item [ASC|DESC], ...] [LIMIT int] [;]
 //! targets    := '*' | expr [AS name], ...
+//! from       := [expr] [OPEN ON date] [CLOSE [ON date]] [CLEAR]   (at least one part)
+//! date       := 2024-01-31 | $n | :name
 //! expr       := or
 //! or         := and (OR and)*
 //! and        := not (AND not)*
@@ -32,7 +34,7 @@ use nom::bytes::complete::{tag, tag_no_case, take_while, take_while1};
 use nom::error::{ErrorKind, ParseError};
 use nom::{Err as NomErr, IResult};
 
-use crate::ast::{ArithOp, BinaryOp, Expr, ExprKind, InTarget, Literal, LogicalOp, OrderItem, Select, Target, Targets, UnaryOp};
+use crate::ast::{ArithOp, BinaryOp, Expr, ExprKind, FromClause, InTarget, Literal, LogicalOp, OrderItem, Period, Select, Target, Targets, UnaryOp};
 use crate::error::{QueryError, QueryErrorKind, Span};
 use crate::params::ParamRef;
 
@@ -236,24 +238,12 @@ impl<'s> Parser<'s> {
         };
         let (i, targets) = cut(self.targets(i))?;
 
-        let (i, from) = match keyword("from")(i) {
+        let (i, from, period) = match keyword("from")(i) {
             Ok((rest, _)) => {
-                for unsupported in ["open", "close", "clear"] {
-                    if is_keyword(rest, unsupported) {
-                        return failure(skip_ws(rest), "FROM OPEN/CLOSE/CLEAR is not supported yet");
-                    }
-                }
-                let table = skip_ws(rest);
-                if table.starts_with('#') || (is_keyword(table, "postings") && !skip_ws(&table["postings".len()..]).starts_with(['=', '!', '<', '>', '~'])) {
-                    return failure(
-                        table,
-                        "selecting a table with FROM is not supported yet; the query always reads postings, and FROM <expression> filters them",
-                    );
-                }
-                let (rest, expr) = cut(self.expr(rest))?;
-                (rest, Some(expr))
+                let (rest, FromClause { expr, period }) = cut(self.parse_from_clause(rest))?;
+                (rest, expr, period)
             }
-            Err(_) => (i, None),
+            Err(_) => (i, None, None),
         };
         let (i, where_clause) = match keyword("where")(i) {
             Ok((rest, _)) => {
@@ -315,12 +305,80 @@ impl<'s> Parser<'s> {
                 distinct,
                 targets,
                 from,
+                period,
                 where_clause,
                 group_by,
                 order_by,
                 limit,
             },
         ))
+    }
+
+    /// The FROM clause after the FROM keyword: `[expr] [OPEN ON date] [CLOSE [ON date]] [CLEAR]`,
+    /// with at least one part. The modifiers come in this order, each at most once, as in
+    /// beanquery; `open`, `close` and `clear` are not columns, so they cannot start the expression.
+    pub(crate) fn parse_from_clause(&self, i: &'s str) -> PResult<'s, FromClause> {
+        const MODIFIERS: [&str; 3] = ["open", "close", "clear"];
+        let table = skip_ws(i);
+        if table.starts_with('#') || (is_keyword(table, "postings") && !skip_ws(&table["postings".len()..]).starts_with(['=', '!', '<', '>', '~'])) {
+            return failure(
+                table,
+                "selecting a table with FROM is not supported yet; the query always reads postings, and FROM <expression> filters them",
+            );
+        }
+        let (i, expr) = if MODIFIERS.iter().any(|modifier| is_keyword(i, modifier)) {
+            (i, None)
+        } else {
+            let (rest, expr) = cut(self.expr(i))?;
+            (rest, Some(expr))
+        };
+
+        let (i, open) = match keyword("open")(i) {
+            Ok((rest, _)) => {
+                let (rest, _) = keyword("on")(rest).or_else(|_| failure(skip_ws(rest), format!("expected ON after OPEN, found {}", found(rest))))?;
+                let (rest, date) = self.period_date(rest, "OPEN ON")?;
+                (rest, Some(date))
+            }
+            Err(_) => (i, None),
+        };
+        let (i, close) = match keyword("close")(i) {
+            Ok((rest, _)) => match keyword("on")(rest) {
+                Ok((rest, _)) => {
+                    let (rest, date) = self.period_date(rest, "CLOSE ON")?;
+                    (rest, Some(Some(date)))
+                }
+                Err(_) => (rest, Some(None)),
+            },
+            Err(_) => (i, None),
+        };
+        let (i, clear) = match keyword("clear")(i) {
+            Ok((rest, _)) => (rest, true),
+            Err(_) => (i, false),
+        };
+        if MODIFIERS.iter().any(|modifier| is_keyword(i, modifier)) {
+            return failure(
+                skip_ws(i),
+                format!("unexpected {}: OPEN ON, CLOSE [ON] and CLEAR may each appear once, in this order", found(i)),
+            );
+        }
+        let period = (open.is_some() || close.is_some() || clear).then_some(Period { open, close, clear });
+        Ok((i, FromClause { expr, period }))
+    }
+
+    /// The date of `OPEN ON` / `CLOSE ON`: a date literal or a parameter.
+    fn period_date(&self, i: &'s str, clause: &str) -> PResult<'s, Expr> {
+        let i = skip_ws(i);
+        let start = self.offset(i);
+        let expected = || format!("expected a date after {} (e.g. 2024-01-01, or a parameter), found {}", clause, found(i));
+        let (rest, date) = match i.chars().next() {
+            Some('$' | ':') => self.parameter(i, start)?,
+            Some(c) if c.is_ascii_digit() => self.number_or_date(i, start)?,
+            _ => return failure(i, expected()),
+        };
+        match date.kind {
+            ExprKind::Literal(Literal::Date(_)) | ExprKind::Param(_) => Ok((rest, date)),
+            _ => failure(i, expected()),
+        }
     }
 
     fn targets(&self, i: &'s str) -> PResult<'s, Targets> {
@@ -923,6 +981,44 @@ mod tests {
         assert_eq!(&src[span.start..span.end], "sum(position)");
     }
 
+    #[test]
+    fn from_clause_period_modifiers() {
+        let date = |y, m, d| ExprKind::Literal(Literal::Date(NaiveDate::from_ymd_opt(y, m, d).unwrap()));
+
+        let select = parse_ok("SELECT * FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 CLEAR WHERE TRUE");
+        assert!(select.from.is_none());
+        assert!(select.where_clause.is_some());
+        let period = select.period.unwrap();
+        assert_eq!(period.open.unwrap().kind, date(2016, 1, 1));
+        assert_eq!(period.close.unwrap().unwrap().kind, date(2017, 1, 1));
+        assert!(period.clear);
+
+        // with an expression, lower case, a bare CLOSE and parameters
+        let select = parse_ok("select * from year = 2016 open on :from close clear");
+        assert!(matches!(select.from.unwrap().kind, ExprKind::Binary(BinaryOp::Eq, ..)));
+        let period = select.period.unwrap();
+        assert_eq!(period.open.unwrap().kind, ExprKind::Param(ParamRef::Named("from".into())));
+        assert_eq!(period.close, Some(None));
+        assert!(period.clear);
+
+        let period = parse_ok("SELECT * FROM account ~ 'Assets' CLOSE ON $1").period.unwrap();
+        assert_eq!((period.open, period.clear), (None, false));
+        assert_eq!(period.close.unwrap().unwrap().kind, ExprKind::Param(ParamRef::Positional(1)));
+
+        let select = parse_ok("SELECT * FROM CLEAR");
+        assert_eq!(
+            select.period,
+            Some(Period {
+                open: None,
+                close: None,
+                clear: true
+            })
+        );
+
+        // no modifiers: no period
+        assert!(parse_ok("SELECT * FROM year = 2016").period.is_none());
+    }
+
     fn parse_err(src: &str) -> QueryError {
         parse(src).expect_err(src)
     }
@@ -947,8 +1043,18 @@ mod tests {
 
         let err = parse_err("BALANCES");
         assert!(err.message.contains("not supported"));
-        let err = parse_err("SELECT * FROM OPEN ON 2024-01-01");
-        assert!(err.message.contains("OPEN/CLOSE/CLEAR"));
+        let err = parse_err("SELECT * FROM CLEAR OPEN ON 2024-01-01");
+        assert_eq!(err.column, Some(21), "{}", err);
+        assert!(err.message.contains("in this order"), "{}", err.message);
+        let err = parse_err("SELECT * FROM OPEN 2024-01-01");
+        assert!(err.message.contains("expected ON after OPEN"), "{}", err.message);
+        let err = parse_err("SELECT * FROM OPEN ON '2024-01-01'");
+        assert_eq!(err.column, Some(23), "{}", err);
+        assert!(err.message.contains("expected a date after OPEN ON"), "{}", err.message);
+        let err = parse_err("SELECT * FROM CLOSE ON 2024");
+        assert!(err.message.contains("expected a date after CLOSE ON"), "{}", err.message);
+        let err = parse_err("SELECT * FROM postings OPEN ON 2024-01-01");
+        assert!(err.message.contains("selecting a table"), "{}", err.message);
         let err = parse_err("SELECT * WHERE date > 2024-13-01");
         assert!(err.message.contains("invalid date"));
         let err = parse_err("SELECT * LIMIT -1");

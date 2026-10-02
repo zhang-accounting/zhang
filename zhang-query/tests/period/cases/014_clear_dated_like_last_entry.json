@@ -1,0 +1,18 @@
+{
+  "name": "clear_dated_like_last_entry",
+  "query": "SELECT date, flag, account, position FROM OPEN ON 2016-01-01 CLOSE ON 2016-01-02 CLEAR WHERE flag IN ('C', 'T')",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "account", "type": "str"},
+    {"name": "position", "type": "position"}
+  ],
+  "rows": [
+    ["2016-01-01", "T", "Income:US:Federal:PreTax401k", {"units": {"number": "18000", "currency": "IRAUSD"}, "cost": null}],
+    ["2016-01-01", "T", "Equity:Earnings:Current", {"units": {"number": "-18000", "currency": "IRAUSD"}, "cost": null}]
+  ],
+  "notes": "Without a conversion entry the transfer entries take the date of the last entry before CLOSE."
+}

@@ -1,0 +1,15 @@
+{
+  "name": "from_expression_filters_after_the_period",
+  "query": "SELECT account, sum(position) FROM year = 2016 OPEN ON 2016-06-01 WHERE account ~ '^Assets:US:BofA' GROUP BY 1 ORDER BY 1",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "sum(position)", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:BofA:Checking", {"positions": [{"units": {"number": "6377.23", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "The FROM expression filters the transformed rows, like WHERE: the opening balance on 2016-05-31 still summarizes 2015."
+}

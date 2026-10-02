@@ -1,0 +1,20 @@
+{
+  "name": "open_holdings_units_and_cost",
+  "query": "SELECT account, currency, sum(number) AS units, sum(cost(position)) AS book_value FROM OPEN ON 2016-06-01 WHERE account ~ '^Assets:US:ETrade' AND currency != 'USD' GROUP BY 1, 2 ORDER BY 1, 2",
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "currency", "type": "str"},
+    {"name": "units", "type": "decimal"},
+    {"name": "book_value", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:ETrade:GLD", "GLD", "17", {"positions": [{"units": {"number": "4559.80", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:ITOT", "ITOT", "104", {"positions": [{"units": {"number": "6828.88", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:VEA", "VEA", "36", {"positions": [{"units": {"number": "4959.50", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:VHT", "VHT", "64", {"positions": [{"units": {"number": "7821.27", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": ""
+}

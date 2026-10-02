@@ -52,6 +52,7 @@ pub mod functions;
 mod optimizer;
 pub mod params;
 mod parser;
+mod period;
 pub mod prices;
 mod projector;
 pub mod table;
@@ -186,12 +187,27 @@ impl Query {
                 Some(_) => {}
             }
         }
+        let period = self
+            .plan
+            .period
+            .as_ref()
+            .map(|period| period.resolve(params))
+            .transpose()
+            .map_err(|err| err.resolve(&self.source))?;
         let today = options.today.unwrap_or_else(|| Utc::now().with_timezone(&ledger.options.timezone).date_naive());
         let store = ledger
             .store
             .read()
             .map_err(|_| QueryError::new(QueryErrorKind::Eval, "the ledger store is not readable"))?;
-        let data = table::Dataset::new(ledger, &store, today, self.projection);
+        let equity;
+        let data = match &period {
+            None => table::Dataset::new(ledger, &store, today, self.projection),
+            Some(period) => {
+                equity = period::EquityAccounts::from_options(&store.options);
+                let data = table::Dataset::new(ledger, &store, today, self.projection.with_cost());
+                period.apply(data, ledger, &equity)
+            }
+        };
         let rows = executor::execute(&self.plan, &data, params, deadline).map_err(|err| err.resolve(&self.source))?;
         Ok(QueryResult { columns: self.columns(), rows })
     }

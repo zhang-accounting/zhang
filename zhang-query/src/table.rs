@@ -33,8 +33,9 @@ use crate::value::{Cost, DataType, Position, Value};
 /// The transaction-level part of a row.
 pub(crate) struct Entry<'a> {
     /// the stored transaction; its id, flag, payee, narration, tags, links and posting
-    /// accounts are read from it when a column needs them
-    pub txn: &'a TransactionDomain,
+    /// accounts are read from it when a column needs them. It is owned only for the synthetic
+    /// entries of the period modifiers (see [`crate::period`]).
+    pub txn: Cow<'a, TransactionDomain>,
     pub date: NaiveDate,
     /// metadata from the parsed directive, when it could be matched
     pub meta: Option<&'a Meta>,
@@ -116,7 +117,7 @@ impl<'a> Dataset<'a> {
             let parsed = directives.get(&txn.span).filter(|parsed| parsed.postings.len() == txn.postings.len());
             let entry_idx = entries.len();
             entries.push(Entry {
-                txn,
+                txn: Cow::Borrowed(txn),
                 date,
                 meta: parsed.map(|it| &it.meta),
             });
@@ -584,7 +585,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         ty: DataType::Str,
         description: "Payee and narration joined with ' | ' (whichever are present).",
         get: |data, row| {
-            let txn = data.entry(row).txn;
+            let txn = &data.entry(row).txn;
             let parts = [txn.payee.as_deref(), txn.narration.as_deref()]
                 .into_iter()
                 .flatten()

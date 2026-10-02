@@ -10,11 +10,12 @@ use std::fmt;
 use regex::{Regex, RegexBuilder};
 
 pub(crate) use crate::ast::ArithOp;
-use crate::ast::{BinaryOp, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
+use crate::ast::{self, BinaryOp, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
 use crate::error::{LocatedError, Span};
 use crate::functions::aggregates::{is_aggregate, resolve_aggregate};
 use crate::functions::{resolve_scalar, AggregateFunction, ScalarFunction};
 use crate::params::{ParamRef, ParamTypes};
+use crate::period::{Period, PeriodDate};
 use crate::table::{column, ColumnDef, WILDCARD_COLUMNS};
 use crate::value::{DataType, Value};
 
@@ -127,6 +128,9 @@ pub(crate) struct Plan {
     /// visible targets first, then hidden ones added by GROUP BY / ORDER BY
     pub targets: Vec<PlannedTarget>,
     pub visible: usize,
+    /// `OPEN` / `CLOSE` / `CLEAR` of the FROM clause: transforms the postings before the
+    /// filters see them
+    pub period: Option<Period>,
     /// the row filters as compiled: the FROM expression, then WHERE
     pub filters: Vec<CExpr>,
     /// the single row filter the executor applies, set by the optimizer from `filters`
@@ -205,6 +209,10 @@ impl Compiler<'_> {
             target_asts.push(expr);
         }
         let visible = targets.len();
+
+        // the period modifiers transform the postings; the FROM expression then filters the
+        // transformed rows like WHERE (as in beanquery)
+        let period = select.period.as_ref().map(|period| self.period(period)).transpose()?;
 
         // FROM and WHERE are both row filters; the optimizer merges them
         let mut filters = vec![];
@@ -287,6 +295,7 @@ impl Compiler<'_> {
         Ok(Plan {
             targets,
             visible,
+            period,
             filters,
             filter: None,
             aggregates: std::mem::take(&mut self.aggregates),
@@ -296,6 +305,39 @@ impl Compiler<'_> {
             limit: select.limit,
             params: std::mem::take(&mut self.params),
         })
+    }
+
+    /// Compile `OPEN ON` / `CLOSE [ON]` / `CLEAR`.
+    fn period(&mut self, period: &ast::Period) -> Result<Period, LocatedError> {
+        let open = period.open.as_ref().map(|date| self.period_date(date, "OPEN ON")).transpose()?;
+        let close = match &period.close {
+            None => None,
+            Some(None) => Some(None),
+            Some(Some(date)) => Some(Some(self.period_date(date, "CLOSE ON")?)),
+        };
+        if let (Some(PeriodDate::Fixed(open)), Some(Some(PeriodDate::Fixed(close)))) = (&open, &close) {
+            if close < open {
+                let span = period.close.as_ref().and_then(Option::as_ref).map(|date| date.span).unwrap_or_default();
+                return err(format!("the CLOSE date {} is before the OPEN date {}", close, open), span);
+            }
+        }
+        Ok(Period {
+            open,
+            close,
+            clear: period.clear,
+        })
+    }
+
+    /// A date literal or a date parameter of the period modifiers.
+    fn period_date(&mut self, date: &Expr, clause: &str) -> Result<PeriodDate, LocatedError> {
+        match &date.kind {
+            ExprKind::Literal(Literal::Date(date)) => Ok(PeriodDate::Fixed(*date)),
+            ExprKind::Param(param) => match self.param(param, date.span)? {
+                (_, DataType::Date) => Ok(PeriodDate::Param(param.clone(), date.span)),
+                (_, ty) => err(format!("{} expects a date, but parameter {} is a {}", clause, param, ty), date.span),
+            },
+            _ => err(format!("{} expects a date literal or a date parameter", clause), date.span),
+        }
     }
 
     fn target(&mut self, expr: &Expr, alias: Option<String>) -> Result<(PlannedTarget, Option<(String, Span)>), LocatedError> {
@@ -934,6 +976,9 @@ impl fmt::Display for Plan {
                 Some(arg) => writeln!(f, "agg#{}: {}({})", idx, aggregate.function.name, arg)?,
                 None => writeln!(f, "agg#{}: {}(*)", idx, aggregate.function.name)?,
             }
+        }
+        if let Some(period) = &self.period {
+            writeln!(f, "period: {}", period)?;
         }
         match &self.filter {
             Some(filter) => writeln!(f, "filter: {}", filter)?,

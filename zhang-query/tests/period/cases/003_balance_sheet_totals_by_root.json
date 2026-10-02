@@ -1,0 +1,19 @@
+{
+  "name": "balance_sheet_totals_by_root",
+  "query": "SELECT root(account, 1) AS root, sum(cost(position)) AS total FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 CLEAR GROUP BY 1 ORDER BY 1",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "root", "type": "str"},
+    {"name": "total", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets", {"positions": [{"units": {"number": "80149.80683", "currency": "USD"}, "cost": null}, {"units": {"number": "25", "currency": "VACHR"}, "cost": null}]}],
+    ["Equity", {"positions": [{"units": {"number": "-78380.92683", "currency": "USD"}, "cost": null}, {"units": {"number": "-25", "currency": "VACHR"}, "cost": null}]}],
+    ["Expenses", {"positions": []}],
+    ["Income", {"positions": []}],
+    ["Liabilities", {"positions": [{"units": {"number": "-1768.88", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "Per root account at cost: income and expenses net to nothing after CLEAR, and the whole period balances at cost except for the zero-priced conversion entry."
+}

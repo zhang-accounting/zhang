@@ -1,0 +1,17 @@
+{
+  "name": "from_account_filter_with_clear",
+  "query": "SELECT flag, count(*) AS n, sum(position) AS total FROM account ~ 'Expenses:Food' OPEN ON 2016-01-01 CLEAR GROUP BY 1 ORDER BY 1",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "flag", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "total", "type": "inventory"}
+  ],
+  "rows": [
+    ["*", 296, {"positions": [{"units": {"number": "11546.14", "currency": "USD"}, "cost": null}]}],
+    ["T", 4, {"positions": [{"units": {"number": "-11546.14", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "After OPEN the food accounts start at zero; CLEAR then empties them again."
+}

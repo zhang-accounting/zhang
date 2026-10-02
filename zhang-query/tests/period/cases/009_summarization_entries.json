@@ -1,0 +1,28 @@
+{
+  "name": "summarization_entries",
+  "query": "SELECT first(narration) AS narration, count(*) AS postings FROM OPEN ON 2016-01-01 WHERE flag = 'S' GROUP BY id",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "narration", "type": "str"},
+    {"name": "postings", "type": "int"}
+  ],
+  "rows": [
+    ["Opening balance for 'Assets:US:BofA:Checking' (Summarization)", 2],
+    ["Opening balance for 'Assets:US:ETrade:Cash' (Summarization)", 2],
+    ["Opening balance for 'Assets:US:ETrade:GLD' (Summarization)", 2],
+    ["Opening balance for 'Assets:US:ETrade:ITOT' (Summarization)", 2],
+    ["Opening balance for 'Assets:US:ETrade:VEA' (Summarization)", 4],
+    ["Opening balance for 'Assets:US:ETrade:VHT' (Summarization)", 4],
+    ["Opening balance for 'Assets:US:Hoogle:Vacation' (Summarization)", 2],
+    ["Opening balance for 'Assets:US:Vanguard:Cash' (Summarization)", 2],
+    ["Opening balance for 'Assets:US:Vanguard:RGAGX' (Summarization)", 30],
+    ["Opening balance for 'Assets:US:Vanguard:VBMPX' (Summarization)", 30],
+    ["Opening balance for 'Equity:Conversions:Previous' (Summarization)", 2],
+    ["Opening balance for 'Equity:Earnings:Previous' (Summarization)", 4],
+    ["Opening balance for 'Equity:Opening-Balances' (Summarization)", 2],
+    ["Opening balance for 'Liabilities:US:Chase:Slate' (Summarization)", 2]
+  ],
+  "notes": "One summarization entry per account; all its postings share one id."
+}

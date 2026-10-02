@@ -1,0 +1,11 @@
+{
+  "name": "error_close_before_open",
+  "query": "SELECT count(*) FROM OPEN ON 2017-01-01 CLOSE ON 2016-01-01",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

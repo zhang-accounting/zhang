@@ -72,6 +72,13 @@ impl Projection {
         self.reads.cost
     }
 
+    /// The same columns, with booked rows that keep the cost of their lot (the period
+    /// modifiers sum balances at cost, whatever the query reads).
+    pub fn with_cost(mut self) -> Projection {
+        self.reads.cost = true;
+        self
+    }
+
     /// Whether rows keep the price annotation of their posting.
     pub fn keeps_price(&self) -> bool {
         self.reads.price
