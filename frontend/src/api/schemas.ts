@@ -672,7 +672,8 @@ export interface operations {
                   | 'MultipleOperatingCurrencyDetect'
                   | 'ParseInvalidMeta'
                   | 'UnsupportedBookingMethod'
-                  | 'AmbiguousLotMatch';
+                  | 'AmbiguousLotMatch'
+                  | 'PluginError';
                 id: string;
                 metas: {
                   [key: string]: string;

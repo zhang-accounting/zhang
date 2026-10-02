@@ -3,7 +3,8 @@
 //! A plugin declaring `Processor` transforms the whole stream in one call; one
 //! declaring `Mapper` is applied per directive. Both are ordinary
 //! [`ProcessStage`]s, so user plugins and native core stages compose in one
-//! pipeline, in declaration order.
+//! pipeline, in declaration order. The errors a plugin reports through the
+//! `zhang_emit_error` host function reach the pipeline like a native stage's.
 
 use zhang_ast::{Directive, Spanned};
 
@@ -21,7 +22,7 @@ impl ProcessStage for WasmProcessorStage {
     }
 
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
-        self.plugin.execute_as_processor(directives, ctx.options)
+        self.plugin.execute_as_processor(directives, ctx)
     }
 }
 
@@ -35,6 +36,6 @@ impl ProcessStage for WasmMapperStage {
     }
 
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
-        self.plugin.execute_as_mapper(directives, ctx.options)
+        self.plugin.execute_as_mapper(directives, ctx)
     }
 }

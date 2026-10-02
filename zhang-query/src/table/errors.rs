@@ -86,7 +86,32 @@ pub(crate) fn message(kind: &ErrorKind) -> &'static str {
         ErrorKind::ParseInvalidMeta => "Directive has an invalid meta value",
         ErrorKind::UnsupportedBookingMethod => "Booking method is not supported yet, the account uses the default booking method",
         ErrorKind::AmbiguousLotMatch => "Reduction matches several lots, which is ambiguous under the STRICT booking method",
+        ErrorKind::PluginError => "Plugin {{meta.plugin}}: {{meta.message}}",
     }
+}
+
+/// [`message`] with its `{{meta.<key>}}` placeholders filled from `metas`, the way the UI renders it.
+/// A missing meta renders as an empty string.
+pub(crate) fn render_message(kind: &ErrorKind, metas: &HashMap<String, String>) -> String {
+    let template = message(kind);
+    let mut rendered = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find("{{meta.") {
+        rendered.push_str(&rest[..start]);
+        let after = &rest[start + "{{meta.".len()..];
+        match after.find("}}") {
+            Some(end) => {
+                rendered.push_str(metas.get(&after[..end]).map(String::as_str).unwrap_or_default());
+                rest = &after[end + "}}".len()..];
+            }
+            None => {
+                rendered.push_str(&rest[start..]);
+                rest = "";
+            }
+        }
+    }
+    rendered.push_str(rest);
+    rendered
 }
 
 fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
@@ -155,7 +180,7 @@ static COLUMNS: &[ColumnDef] = &[
         |_, record| ledger_error(record).map_or(Value::Null, |it| Value::Str(it.error.error_type.to_string())),
     ),
     ColumnDef::record("message", DataType::Str, "What the errors page of the UI says about the error.", |_, record| {
-        ledger_error(record).map_or(Value::Null, |it| Value::Str(message(&it.error.error_type).to_owned()))
+        ledger_error(record).map_or(Value::Null, |it| Value::Str(render_message(&it.error.error_type, &it.error.metas)))
     }),
     ColumnDef::record(
         "file",
@@ -211,9 +236,11 @@ static COLUMNS: &[ColumnDef] = &[
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use zhang_ast::error::ErrorKind;
 
-    use super::message;
+    use super::{message, render_message};
 
     /// The `message` of every kind is the text the UI shows: `ERROR.<kind>` of the frontend's
     /// English translation, for every kind it translates.
@@ -236,6 +263,7 @@ mod tests {
             ErrorKind::ParseInvalidMeta,
             ErrorKind::UnsupportedBookingMethod,
             ErrorKind::AmbiguousLotMatch,
+            ErrorKind::PluginError,
         ];
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../frontend/public/locales/en/translation.json");
         let translation: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
@@ -248,5 +276,16 @@ mod tests {
                 .unwrap_or_else(|| panic!("the UI translates an unknown kind {}", name));
             assert_eq!(message(kind), text.as_str().unwrap().trim(), "{}", name);
         }
+    }
+
+    #[test]
+    fn plugin_error_messages_are_filled_from_the_metas() {
+        let metas = HashMap::from([
+            ("plugin".to_owned(), "validator".to_owned()),
+            ("message".to_owned(), "missing receipt".to_owned()),
+        ]);
+        assert_eq!(render_message(&ErrorKind::PluginError, &metas), "Plugin validator: missing receipt");
+        assert_eq!(render_message(&ErrorKind::PluginError, &Default::default()), "Plugin : ");
+        assert_eq!(render_message(&ErrorKind::AccountClosed, &metas), "Try to operate a closed account");
     }
 }

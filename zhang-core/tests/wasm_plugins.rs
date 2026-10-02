@@ -16,7 +16,7 @@ use itertools::Itertools;
 use serde_json::json;
 use tempfile::TempDir;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::Directive;
+use zhang_ast::{Directive, SpanInfo};
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
@@ -79,6 +79,27 @@ fn store_summary(ledger: &Ledger) -> (Vec<String>, Vec<String>, Vec<String>) {
         .collect();
     let errors = store.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
     (accounts, postings, errors)
+}
+
+/// the errors in the store with their spans and metas
+fn errors(ledger: &Ledger) -> Vec<(ErrorKind, SpanInfo, HashMap<String, String>)> {
+    let store = ledger.store.read().unwrap();
+    store
+        .errors
+        .iter()
+        .map(|it| (it.error_type.clone(), it.span.clone().expect("a stage error has a span"), it.metas.clone()))
+        .collect()
+}
+
+fn metas(entries: &[(&str, &str)]) -> HashMap<String, String> {
+    entries.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect()
+}
+
+/// assert `span` is the span of `directive` in `content`, the ledger's main file
+fn assert_directive_span(span: &SpanInfo, content: &str, directive: &str) {
+    assert_eq!(span.start, content.find(directive).expect("the directive is in the ledger"));
+    assert_eq!(span.content.trim_end(), directive.trim_end());
+    assert!(span.filename.as_ref().is_some_and(|it| it.ends_with("main.zhang")), "{:?}", span.filename);
 }
 
 #[test]
@@ -223,4 +244,75 @@ fn processor_reads_its_arguments_and_every_meta_value_from_the_zhang_plugin_conf
             },
         })
     );
+}
+
+#[test]
+fn plugin_reports_an_error_on_its_directive_and_the_load_continues() {
+    let dir = ledger_dir(&["emit_error.wat"]);
+    let directive = plugin(&dir, "emit_error.wat");
+    let content = format!("option \"features.plugin\" \"true\"\n{directive}{LEDGER}");
+    let ledger = load(&dir, &content);
+
+    let errors = errors(&ledger);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let (kind, span, error_metas) = &errors[0];
+    assert_eq!(kind, &ErrorKind::PluginError);
+    // the plugin's own meta is kept; `plugin` names the plugin that reported it, whatever the plugin sent
+    assert_eq!(
+        error_metas,
+        &metas(&[("plugin", "emit-error"), ("message", "payee is missing"), ("rule", "payee-required")])
+    );
+    assert_directive_span(span, &content, &directive);
+
+    // the processor returned the stream unchanged, and the rest of the load ran
+    let (accounts, postings, _) = store_summary(&ledger);
+    let (plain_accounts, plain_postings, _) = store_summary(&load(&ledger_dir(&[]), LEDGER));
+    assert_eq!((accounts, postings), (plain_accounts, plain_postings));
+}
+
+#[test]
+fn invalid_error_payload_is_reported_as_a_plugin_error() {
+    let dir = ledger_dir(&["invalid_error.wat"]);
+    let directive = plugin(&dir, "invalid_error.wat");
+    let content = format!("option \"features.plugin\" \"true\"\n{directive}{LEDGER}");
+    let ledger = load(&dir, &content);
+
+    let errors = errors(&ledger);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let (kind, span, error_metas) = &errors[0];
+    assert_eq!(kind, &ErrorKind::PluginError);
+    assert_eq!(error_metas.keys().sorted().collect_vec(), vec!["message", "plugin"]);
+    assert_eq!(error_metas["plugin"], "invalid-error");
+    assert!(
+        error_metas["message"].starts_with("the plugin called zhang_emit_error with an invalid payload: "),
+        "{}",
+        error_metas["message"]
+    );
+    assert_directive_span(span, &content, &directive);
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the lunch transaction still reaches the store");
+}
+
+#[test]
+fn plugin_without_the_error_import_is_unaffected() {
+    // echo imports no host function: it loads next to a plugin that does, and reports nothing
+    let dir = ledger_dir(&["echo.wat", "emit_error.wat"]);
+    let echo = plugin(&dir, "echo.wat");
+    let emit_error = plugin(&dir, "emit_error.wat");
+    let content = format!("option \"features.plugin\" \"true\"\n{echo}{emit_error}{LEDGER}");
+    let ledger = load(&dir, &content);
+
+    assert_eq!(
+        registered(&ledger),
+        vec![
+            ("echo".to_owned(), vec![PluginType::Processor]),
+            ("emit-error".to_owned(), vec![PluginType::Processor])
+        ]
+    );
+    let reported = errors(&ledger);
+    assert_eq!(reported.iter().map(|(_, _, metas)| metas["plugin"].as_str()).collect_vec(), vec!["emit-error"]);
+    assert_directive_span(&reported[0].1, &content, &emit_error);
+
+    let dir = ledger_dir(&["echo.wat"]);
+    let ledger = load(&dir, &format!("option \"features.plugin\" \"true\"\n{}{LEDGER}", plugin(&dir, "echo.wat")));
+    assert_eq!(errors(&ledger), vec![]);
 }

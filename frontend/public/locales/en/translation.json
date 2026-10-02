@@ -54,7 +54,8 @@
     "BudgetDoesNotExist": "Budget does not exist",
     "ParseInvalidMeta": "Directive has an invalid meta value",
     "UnsupportedBookingMethod": "Booking method is not supported yet, the account uses the default booking method",
-    "AmbiguousLotMatch": "Reduction matches several lots, which is ambiguous under the STRICT booking method"
+    "AmbiguousLotMatch": "Reduction matches several lots, which is ambiguous under the STRICT booking method",
+    "PluginError": "Plugin {{meta.plugin}}: {{meta.message}}"
   },
   "ACCOUNT_FILTER_PLACEHOLDER": "filter by keyword...",
   "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "clean account filter keyword",
