@@ -2,11 +2,10 @@
 //!
 //! Semantics follow beancount's `convert` module as used by beanquery:
 //! - `cost` multiplies the units by the per-unit cost; a position without cost is its units.
-//! - `convert` converts the units with the market rate from the units currency to the
-//!   target (the book cost is never used). Without a rate the units are returned as-is.
-//!   Deviation (Phase 1 decision): beancount's `convert_position` additionally tries an
-//!   implied two-hop rate units → cost currency → target for positions held at cost; zhang
-//!   leaves such positions unconverted.
+//! - `convert` first tries a direct market rate from the units currency to the target; for a
+//!   position held at cost it then tries the implied two-step market rate units → cost
+//!   currency → target (it never converts the book cost). Without a rate the units are
+//!   returned as-is.
 //! - `value` prices the units in the cost currency; positions without cost, or without a
 //!   price, are returned as their units.
 //!
@@ -67,13 +66,26 @@ fn position_value(position: &Position, prices: &PriceMap, date: Option<NaiveDate
     position.units.clone()
 }
 
-/// beancount `convert.convert_amount` (without the implied `via` rates): the amount at the
-/// market rate into `target`, or the amount unchanged when there is no rate.
-fn convert_units(units: &Amount, target: &str, prices: &PriceMap, date: Option<NaiveDate>) -> Amount {
-    match prices.rate(&units.commodity, target, date) {
-        Some(rate) => Amount::new(mul(&units.number, &rate), target),
-        None => units.clone(),
+/// beancount `convert.convert_amount`: a direct market rate, else the implied rate through
+/// `via` (skipped when `via` is the target), else the amount unchanged.
+fn convert_units(units: &Amount, target: &str, via: Option<&str>, prices: &PriceMap, date: Option<NaiveDate>) -> Amount {
+    if let Some(rate) = prices.rate(&units.commodity, target, date) {
+        return Amount::new(mul(&units.number, &rate), target);
     }
+    if let Some(via) = via.filter(|via| *via != target) {
+        if let (Some(rate1), Some(rate2)) = (prices.rate(&units.commodity, via, date), prices.rate(via, target, date)) {
+            // two roundings, like beancount's `number * rate1 * rate2`
+            return Amount::new(mul(&mul(&units.number, &rate1), &rate2), target);
+        }
+    }
+    units.clone()
+}
+
+/// beancount `convert.convert_position`: convert the units, stepping through the cost
+/// currency when there is no direct rate.
+fn convert_position(position: &Position, target: &str, prices: &PriceMap, date: Option<NaiveDate>) -> Amount {
+    let via = position.cost.as_ref().map(|cost| cost.currency.as_str());
+    convert_units(&position.units, target, via, prices, date)
 }
 
 pub(super) fn units(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
@@ -97,11 +109,9 @@ pub(super) fn convert(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value
     let date = date_arg(args, 2, "convert")?;
     let prices = ctx.prices();
     match &args[0] {
-        Value::Amount(amount) => Ok(Value::Amount(convert_units(amount, target, prices, date))),
-        Value::Position(position) => Ok(Value::Amount(convert_units(&position.units, target, prices, date))),
-        Value::Inventory(inventory) => Ok(Value::Inventory(
-            inventory.reduce(|position| convert_units(&position.units, target, prices, date)),
-        )),
+        Value::Amount(amount) => Ok(Value::Amount(convert_units(amount, target, None, prices, date))),
+        Value::Position(position) => Ok(Value::Amount(convert_position(position, target, prices, date))),
+        Value::Inventory(inventory) => Ok(Value::Inventory(inventory.reduce(|position| convert_position(position, target, prices, date)))),
         _ => Err("convert() expects an amount, a position or an inventory".to_owned()),
     }
 }
@@ -243,43 +253,68 @@ mod tests {
     }
 
     #[test]
-    fn convert_position_uses_the_market_rate_of_its_units() {
+    fn convert_position_steps_through_the_cost_currency() {
         let ctx = ctx();
-        // the market price, not the book cost
+        // a direct market price wins, and the book cost is never used
         assert_eq!(call_str_with(&ctx, "convert", vec![aapl_lot(), "USD".into()]), "1600 USD");
         assert_eq!(
             call_str_with(&ctx, "convert", vec![aapl_lot(), "USD".into(), Value::Date(date("2024-01-05"))]),
             "1500 USD"
         );
-        // AAPL→CNY is not quoted. beanquery would hop AAPL→USD→CNY (11200 CNY); Phase 1
-        // leaves the position unconverted.
-        assert_eq!(call_str_with(&ctx, "convert", vec![aapl_lot(), "CNY".into()]), "10 AAPL");
+        // the beanquery oracle example: AAPL→CNY is not quoted, so AAPL→USD (160) then USD→CNY (7)
+        assert_eq!(call_str_with(&ctx, "convert", vec![aapl_lot(), "CNY".into()]), "11200 CNY");
+        // both steps use prices on or before the date
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![aapl_lot(), "CNY".into(), Value::Date(date("2024-01-05"))]),
+            "10500 CNY"
+        );
+        // an inverted second step (USD→EUR = 1/1.1), rounded to 28 significant digits
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![aapl_lot(), "EUR".into()]),
+            "1454.545454545454545454545455 EUR"
+        );
         let xyz = || Value::Position(position("5", "XYZ", Some(("2", "EUR"))));
         assert_eq!(call_str_with(&ctx, "convert", vec![xyz(), "EUR".into()]), "20 EUR");
-        assert_eq!(call_str_with(&ctx, "convert", vec![xyz(), "CNY".into()]), "5 XYZ");
-        // no market price at all: unconverted
-        let ghost = Value::Position(position("5", "GHOST", Some(("2", "EUR"))));
-        assert_eq!(call_str_with(&ctx, "convert", vec![ghost, "EUR".into()]), "5 GHOST");
-        // positions without cost convert like amounts
+        assert_eq!(call_str_with(&ctx, "convert", vec![xyz(), "CNY".into()]), "160 CNY");
+        // no path: no second step (no USD→GBP price) leaves the units unconverted
+        assert_eq!(call_str_with(&ctx, "convert", vec![aapl_lot(), "GBP".into()]), "10 AAPL");
+        // no path: no first step (no GHOST price at all), even though EUR→CNY exists
+        let ghost = || Value::Position(position("5", "GHOST", Some(("2", "EUR"))));
+        assert_eq!(call_str_with(&ctx, "convert", vec![ghost(), "CNY".into()]), "5 GHOST");
+        assert_eq!(call_str_with(&ctx, "convert", vec![ghost(), "EUR".into()]), "5 GHOST");
+        // no path before the first price
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![aapl_lot(), "CNY".into(), Value::Date(date("2023-12-31"))]),
+            "10 AAPL"
+        );
+        // positions without cost convert like amounts (no intermediate currency)
         assert_eq!(
             call_str_with(&ctx, "convert", vec![Value::Position(position("2", "EUR", None)), "CNY".into()]),
             "16 CNY"
+        );
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![Value::Position(position("10", "AAPL", None)), "CNY".into()]),
+            "10 AAPL"
         );
     }
 
     #[test]
     fn convert_inventory_reduces_every_lot() {
         let ctx = ctx();
-        assert_eq!(call_str_with(&ctx, "convert", vec![mixed_inventory(), "USD".into()]), "(589.00 USD, 5 XYZ)");
+        // -1011.00 + 1600 (direct) + 22 (XYZ→EUR→USD); values cross-checked with beanquery
+        assert_eq!(call_str_with(&ctx, "convert", vec![mixed_inventory(), "USD".into()]), "(611.00 USD)");
         assert_eq!(
             call_str_with(&ctx, "convert", vec![mixed_inventory(), "USD".into(), Value::Date(date("2024-01-05"))]),
-            "(489.00 USD, 5 XYZ)"
+            "(505.50 USD)"
         );
+        // -7077.00 (direct) + 11200 (via USD) + 160 (via EUR)
+        assert_eq!(call_str_with(&ctx, "convert", vec![mixed_inventory(), "CNY".into()]), "(4283.00 CNY)");
+        // -7077.00 + 10500 + 120 with the prices of 2024-01-05
         assert_eq!(
-            call_str_with(&ctx, "convert", vec![mixed_inventory(), "CNY".into()]),
-            "(-7077.00 CNY, 5 XYZ, 10 AAPL)"
+            call_str_with(&ctx, "convert", vec![mixed_inventory(), "CNY".into(), Value::Date(date("2024-01-05"))]),
+            "(3543.00 CNY)"
         );
-        let mut partial = inventory(vec![position("5", "GHOST", None)]);
+        let mut partial = inventory(vec![position("5", "GHOST", Some(("2", "EUR")))]);
         partial.add_amount(&amount("1.00", "USD"));
         assert_eq!(
             call_str_with(&ctx, "convert", vec![Value::Inventory(partial), "CNY".into()]),
