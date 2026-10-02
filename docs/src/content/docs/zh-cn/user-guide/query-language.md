@@ -531,11 +531,11 @@ curl -X POST http://localhost:8000/api/query \
 
 ### 错误
 
-无法解析、类型检查或执行的查询返回 HTTP 状态码 400。与成功响应不同，响应体没有包在 `data` 中。例如 `SELECT acount, position` 会返回：
+无法解析、类型检查或执行的查询返回 HTTP 状态码 400。与成功响应不同，响应体没有包在 `data` 中。例如 `SELECT nosuchcolumn, position` 会返回：
 
 ```json
 {
-  "message": "unknown column 'acount'",
+  "message": "unknown column 'nosuchcolumn'",
   "line": 1,
   "column": 8
 }

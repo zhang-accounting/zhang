@@ -531,11 +531,11 @@ A successful response has HTTP status 200:
 
 ### Errors
 
-A query that cannot be parsed, type-checked or run returns HTTP status 400. Unlike a successful response, the body is not wrapped in `data`. For example, `SELECT acount, position` gives:
+A query that cannot be parsed, type-checked or run returns HTTP status 400. Unlike a successful response, the body is not wrapped in `data`. For example, `SELECT nosuchcolumn, position` gives:
 
 ```json
 {
-  "message": "unknown column 'acount'",
+  "message": "unknown column 'nosuchcolumn'",
   "line": 1,
   "column": 8
 }
