@@ -7,17 +7,18 @@ members = [
     "zhang-cli",
     "extensions/*",
     "bindings/python",
-    "bindings/wasm", "zhang-sql",
+    "bindings/wasm",
 ]
 default-members = [
     "zhang-core",
     "zhang-ast",
     "zhang-server",
     "zhang-cli",
-    "zhang-sql",
     "extensions/*",
     "bindings/python",
 ]
+# zhang-sql (DuckDB-backed SQL explore) is paused: kept in the repo but not built.
+exclude = ["zhang-sql"]
 
 [workspace.dependencies]
 base64 = "0.22"

@@ -151,8 +151,3 @@ pub struct BudgetIntervalDetailRequest {
     pub year: u32,
     pub month: u32,
 }
-
-#[derive(Schematic, Deserialize)]
-pub struct SqlExecutionRequest {
-    pub sql: String,
-}
