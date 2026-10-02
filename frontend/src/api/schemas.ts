@@ -90,6 +90,16 @@ export interface paths {
     /** Plugin List */
     get: operations['plugin_list'];
   };
+  // TEMPORARY(query-explore): hand-written until the native query API lands; regenerate this file with `pnpm run api`.
+  '/api/query': {
+    /** Execute Query */
+    post: operations['execute_query'];
+  };
+  // TEMPORARY(query-explore): hand-written until the native query API lands; regenerate this file with `pnpm run api`.
+  '/api/query/schema': {
+    /** Get Query Schema */
+    get: operations['get_query_schema'];
+  };
   '/api/reload': {
     /** Reload */
     post: operations['reload'];
@@ -912,6 +922,73 @@ export interface operations {
               plugin_type: ('Processor' | 'Mapper' | 'Router')[];
               version: string;
             }[];
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Execute Query
+   * TEMPORARY(query-explore): hand-written until the native query API lands; regenerate this file with `pnpm run api`.
+   */
+  execute_query: {
+    requestBody: {
+      content: {
+        'application/json': {
+          query: string;
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              columns: {
+                name: string;
+                /** @enum {string} */
+                type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory';
+              }[];
+              rows: unknown[][];
+            };
+          };
+        };
+      };
+      /** @description query error */
+      400: {
+        content: {
+          'application/json': {
+            message: string;
+            line: number | null;
+            column: number | null;
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Get Query Schema
+   * TEMPORARY(query-explore): hand-written until the native query API lands; regenerate this file with `pnpm run api`.
+   */
+  get_query_schema: {
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              columns: {
+                name: string;
+                type: string;
+                description: string;
+              }[];
+              functions: {
+                name: string;
+                signature: string;
+                description: string;
+              }[];
+            };
           };
         };
       };
