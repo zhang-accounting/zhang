@@ -72,7 +72,7 @@ use zhang_core::ledger::Ledger;
 
 pub use crate::error::{QueryError, QueryErrorKind};
 pub use crate::params::{ParamRef, ParamTypes, Params};
-pub use crate::parser::{MAX_DEPTH, MAX_QUERY_LENGTH};
+pub use crate::parser::{MAX_DEPTH, MAX_NAME_PARTS, MAX_QUERY_LENGTH};
 pub use crate::prices::PriceMap;
 pub use crate::value::{Cost, DataType, Inventory, Position, Value};
 

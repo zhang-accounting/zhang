@@ -995,29 +995,37 @@ fn column_ref(table: &'static Table, name: &str, span: Span, mode: Mode, info: &
     }
 }
 
-/// The error of an attribute access `base.attribute` that names no column: an unknown
-/// attribute of a structured column, an attribute of a column that has none (both at the
-/// attribute), or an unknown `base` (at the base).
+/// The error of a dotted name `base.attribute...` that names no column, for the longest prefix
+/// that is a column: an unknown attribute of a structured column, or an attribute of a column
+/// that has none, both reported at the attribute after that prefix. When no prefix is a
+/// column, the first part is an unknown column. Iterative, so that no number of dots can
+/// exhaust the stack (the parser also caps it, at [`crate::parser::MAX_NAME_PARTS`]).
 fn attribute_error(table: &'static Table, name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
-    let (base, attribute) = name.rsplit_once('.').expect("an attribute access");
-    let attribute_span = Span::new(span.end - attribute.len(), span.end);
-    let attributes = table.attributes(base);
-    if !attributes.is_empty() {
-        return err(
-            format!("unknown attribute '{}' of {}; its attributes are {}", attribute, base, attributes.join(", ")),
-            attribute_span,
-        );
+    let dots = name.match_indices('.').map(|(idx, _)| idx).collect::<Vec<_>>();
+    for (k, &dot) in dots.iter().enumerate().rev() {
+        let base = &name[..dot];
+        let end = dots.get(k + 1).copied().unwrap_or(name.len());
+        let attribute = &name[dot + 1..end];
+        let attribute_span = Span::new(span.start + dot + 1, span.start + end);
+        let attributes = table.attributes(base);
+        if !attributes.is_empty() {
+            return err(
+                format!("unknown attribute '{}' of {}; its attributes are {}", attribute, base, attributes.join(", ")),
+                attribute_span,
+            );
+        }
+        if let Some(column) = table.column(base) {
+            return err(
+                format!(
+                    "{} is a {} and has no attributes, so {}.{} does not exist",
+                    column.name, column.ty, column.name, attribute
+                ),
+                attribute_span,
+            );
+        }
     }
-    if let Some(column) = table.column(base) {
-        return err(
-            format!(
-                "{} is a {} and has no attributes, so {}.{} does not exist",
-                column.name, column.ty, column.name, attribute
-            ),
-            attribute_span,
-        );
-    }
-    column_ref(table, base, Span::new(span.start, span.start + base.len()), mode, info)
+    let first = &name[..dots.first().copied().unwrap_or(name.len())];
+    column_ref(table, first, Span::new(span.start, span.start + first.len()), mode, info)
 }
 
 fn scalar_call(name: &str, args: Vec<CExpr>, types: &[DataType], span: Span) -> Result<Typed, LocatedError> {
@@ -1402,5 +1410,42 @@ impl fmt::Display for Plan {
             writeln!(f, "balance: {}", how.join(", "))?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::params::ParamTypes;
+
+    /// Compile `SELECT <name> FROM #accounts` with a dotted name the parser would reject, on a
+    /// thread with a 2 MiB stack.
+    fn compile_dotted(parts: usize) -> LocatedError {
+        std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || {
+                let src = "SELECT a FROM #accounts";
+                let mut select = crate::parser::parse(src).unwrap();
+                let name = vec!["a"; parts].join(".");
+                let Targets::List(targets) = &mut select.targets else { panic!() };
+                targets[0].expr = Expr::new(ExprKind::Column(name.clone()), Span::new(7, 7 + name.len()));
+                compile(src, &select, &ParamTypes::default()).err().expect("an unknown column")
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    #[test]
+    fn dotted_names_resolve_without_recursion() {
+        for parts in [2, 10_000, 32_000] {
+            let error = compile_dotted(parts);
+            assert_eq!(
+                error.message.lines().next().unwrap().split(" in #").next(),
+                Some("unknown column 'a'"),
+                "{parts}"
+            );
+            assert_eq!(error.span, Some(Span::new(7, 8)), "{parts}");
+        }
     }
 }
