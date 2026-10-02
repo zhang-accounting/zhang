@@ -508,8 +508,11 @@ pub static COLUMNS: &[ColumnDef] = &[
     ColumnDef {
         name: "cost_label",
         ty: DataType::Str,
-        description: "Label of the posting's lot.",
-        get: |_, row| opt_str(row.cost.as_ref().and_then(|cost| cost.label.as_deref())),
+        description: "Label of the posting's lot; '' when the posting has no cost (as in beanquery).",
+        get: |_, row| match &row.cost {
+            None => Value::Str(String::new()),
+            Some(cost) => opt_str(cost.label.as_deref()),
+        },
     },
     ColumnDef {
         name: "price",
