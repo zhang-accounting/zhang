@@ -23,6 +23,7 @@
 //! `--` starts a comment that runs to the end of the line.
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
@@ -156,13 +157,40 @@ fn raw_identifier(i: &str) -> PResult<'_, &str> {
     take_while1(is_ident_char)(i)
 }
 
+/// The longest accepted query text, in bytes.
+pub const MAX_QUERY_LENGTH: usize = 64 * 1024;
+
+/// The deepest accepted nesting: both how deeply the parser may recurse (parentheses,
+/// function arguments, `NOT`, unary minus) and the height of the resulting syntax tree, so
+/// that parsing, compiling and evaluating stay well within a 2 MiB thread stack even in
+/// debug builds. Chains of `AND`, `OR`, `+` and `*` are built as balanced trees, so long
+/// lists such as `account = 'a' OR account = 'b' OR ...` stay shallow; a chain mixing `-`
+/// or `/` counts one level per operator.
+pub const MAX_DEPTH: usize = 64;
+
+#[cold]
+fn too_deep(i: &str) -> NomErr<PError<'_>> {
+    NomErr::Failure(PError {
+        input: skip_ws(i),
+        message: Cow::Owned(format!("the query is nested too deeply (at most {} levels)", MAX_DEPTH)),
+    })
+}
+
 pub(crate) struct Parser<'s> {
     src: &'s str,
+    /// current recursion depth
+    depth: Cell<usize>,
 }
 
 /// Parse a complete query.
 pub(crate) fn parse(src: &str) -> Result<Select, QueryError> {
-    let parser = Parser { src };
+    if src.len() > MAX_QUERY_LENGTH {
+        return Err(QueryError::new(
+            QueryErrorKind::Parse,
+            format!("the query is too long ({} bytes; at most {} are accepted)", src.len(), MAX_QUERY_LENGTH),
+        ));
+    }
+    let parser = Parser { src, depth: Cell::new(0) };
     match parser.select(src) {
         Ok((_, select)) => Ok(select),
         Err(NomErr::Error(err)) | Err(NomErr::Failure(err)) => {
@@ -345,56 +373,114 @@ impl<'s> Parser<'s> {
     }
 
     pub(crate) fn expr(&self, i: &'s str) -> PResult<'s, Expr> {
-        self.or_expr(i)
+        self.enter(i)?;
+        let result = self.or_expr(i);
+        self.leave();
+        result
     }
 
-    fn binary(op: BinaryOp, left: Expr, right: Expr) -> Expr {
-        let span = Span::new(left.span.start, right.span.end);
-        Expr {
-            kind: ExprKind::Binary(op, Box::new(left), Box::new(right)),
-            span,
+    /// Go one recursion level deeper, failing past [`MAX_DEPTH`]; pair with [`Parser::leave`].
+    fn enter(&self, i: &'s str) -> Result<(), NomErr<PError<'s>>> {
+        let depth = self.depth.get() + 1;
+        if depth > MAX_DEPTH {
+            return Err(too_deep(i));
         }
+        self.depth.set(depth);
+        Ok(())
+    }
+
+    fn leave(&self) {
+        self.depth.set(self.depth.get() - 1);
+    }
+
+    /// Build a node, failing when the tree would grow higher than [`MAX_DEPTH`].
+    fn node(&self, kind: ExprKind, span: Span) -> Result<Expr, NomErr<PError<'s>>> {
+        let expr = Expr::new(kind, span);
+        if expr.height > MAX_DEPTH {
+            return Err(too_deep(&self.src[span.start.min(self.src.len())..]));
+        }
+        Ok(expr)
+    }
+
+    fn binary(&self, op: BinaryOp, left: Expr, right: Expr) -> Result<Expr, NomErr<PError<'s>>> {
+        let span = Span::new(left.span.start, right.span.end);
+        self.node(ExprKind::Binary(op, Box::new(left), Box::new(right)), span)
+    }
+
+    /// Combine the operands of an associative operator into a balanced tree, keeping their
+    /// left-to-right order (so evaluation order and short-circuiting are unchanged).
+    fn balanced(&self, op: BinaryOp, mut operands: Vec<Expr>) -> Result<Expr, NomErr<PError<'s>>> {
+        while operands.len() > 1 {
+            let mut next = Vec::with_capacity(operands.len() / 2 + 1);
+            let mut iter = operands.into_iter();
+            while let Some(left) = iter.next() {
+                match iter.next() {
+                    Some(right) => next.push(self.binary(op, left, right)?),
+                    None => next.push(left),
+                }
+            }
+            operands = next;
+        }
+        Ok(operands.pop().expect("a chain has at least one operand"))
+    }
+
+    /// A chain of binary operators of the same precedence: balanced when every operator is
+    /// the associative `balance_op`, left-deep otherwise.
+    fn chain(&self, first: Expr, rest: Vec<(BinaryOp, Expr)>, balance_op: BinaryOp) -> Result<Expr, NomErr<PError<'s>>> {
+        if rest.iter().all(|(op, _)| *op == balance_op) {
+            let operands = std::iter::once(first).chain(rest.into_iter().map(|(_, expr)| expr)).collect();
+            return self.balanced(balance_op, operands);
+        }
+        let mut left = first;
+        for (op, right) in rest {
+            left = self.binary(op, left, right)?;
+        }
+        Ok(left)
     }
 
     fn or_expr(&self, i: &'s str) -> PResult<'s, Expr> {
-        let (mut i, mut left) = self.and_expr(i)?;
-        while let Ok((rest, _)) = keyword("or")(i) {
-            let (rest, right) = cut(self.and_expr(rest))?;
-            left = Self::binary(BinaryOp::Or, left, right);
-            i = rest;
+        let (mut i, first) = self.and_expr(i)?;
+        let mut rest = vec![];
+        while let Ok((after, _)) = keyword("or")(i) {
+            let (after, right) = cut(self.and_expr(after))?;
+            rest.push((BinaryOp::Or, right));
+            i = after;
         }
-        Ok((i, left))
+        Ok((i, self.chain(first, rest, BinaryOp::Or)?))
     }
 
     fn and_expr(&self, i: &'s str) -> PResult<'s, Expr> {
-        let (mut i, mut left) = self.not_expr(i)?;
-        while let Ok((rest, _)) = keyword("and")(i) {
-            let (rest, right) = cut(self.not_expr(rest))?;
-            left = Self::binary(BinaryOp::And, left, right);
-            i = rest;
+        let (mut i, first) = self.not_expr(i)?;
+        let mut rest = vec![];
+        while let Ok((after, _)) = keyword("and")(i) {
+            let (after, right) = cut(self.not_expr(after))?;
+            rest.push((BinaryOp::And, right));
+            i = after;
         }
-        Ok((i, left))
+        Ok((i, self.chain(first, rest, BinaryOp::And)?))
     }
 
     fn not_expr(&self, i: &'s str) -> PResult<'s, Expr> {
         let start = self.offset(skip_ws(i));
         if let Ok((rest, _)) = keyword("not")(i) {
-            let (rest, inner) = cut(self.not_expr(rest))?;
+            self.enter(rest)?;
+            let inner = cut(self.not_expr(rest));
+            self.leave();
+            let (rest, inner) = inner?;
             let span = Span::new(start, inner.span.end);
-            return Ok((
-                rest,
-                Expr {
-                    kind: ExprKind::Unary(UnaryOp::Not, Box::new(inner)),
-                    span,
-                },
-            ));
+            return Ok((rest, self.node(ExprKind::Unary(UnaryOp::Not, Box::new(inner)), span)?));
         }
         self.comparison(i)
     }
 
     fn comparison(&self, i: &'s str) -> PResult<'s, Expr> {
         let (i, left) = self.sum(i)?;
+        self.comparison_operator(i, left)
+    }
 
+    /// What may follow the left operand of a comparison (kept out of [`Parser::comparison`]
+    /// so the frame on the recursion path stays small).
+    fn comparison_operator(&self, i: &'s str, left: Expr) -> PResult<'s, Expr> {
         // IS [NOT] NULL
         if let Ok((rest, _)) = keyword("is")(i) {
             let (rest, negated) = match keyword("not")(rest) {
@@ -408,13 +494,7 @@ impl<'s> Parser<'s> {
                 })
             })?;
             let span = Span::new(left.span.start, self.offset(rest));
-            return Ok((
-                rest,
-                Expr {
-                    kind: ExprKind::IsNull { expr: Box::new(left), negated },
-                    span,
-                },
-            ));
+            return Ok((rest, self.node(ExprKind::IsNull { expr: Box::new(left), negated }, span)?));
         }
 
         // [NOT] IN
@@ -431,17 +511,12 @@ impl<'s> Parser<'s> {
         if let Some(rest) = in_rest {
             let (rest, haystack) = cut(self.in_target(rest))?;
             let span = Span::new(left.span.start, self.offset(rest));
-            return Ok((
-                rest,
-                Expr {
-                    kind: ExprKind::In {
-                        needle: Box::new(left),
-                        haystack,
-                        negated,
-                    },
-                    span,
-                },
-            ));
+            let kind = ExprKind::In {
+                needle: Box::new(left),
+                haystack,
+                negated,
+            };
+            return Ok((rest, self.node(kind, span)?));
         }
 
         // binary comparison operators; longer symbols first
@@ -462,7 +537,7 @@ impl<'s> Parser<'s> {
         for (sym, op) in OPERATORS {
             if let Some(rest) = trimmed.strip_prefix(sym) {
                 let (rest, right) = cut(self.sum(rest))?;
-                return Ok((rest, Self::binary(*op, left, right)));
+                return Ok((rest, self.binary(*op, left, right)?));
             }
         }
         Ok((i, left))
@@ -479,7 +554,8 @@ impl<'s> Parser<'s> {
     }
 
     fn sum(&self, i: &'s str) -> PResult<'s, Expr> {
-        let (mut i, mut left) = self.term(i)?;
+        let (mut i, first) = self.term(i)?;
+        let mut rest = vec![];
         loop {
             let trimmed = skip_ws(i);
             let op = if trimmed.starts_with('+') {
@@ -487,16 +563,17 @@ impl<'s> Parser<'s> {
             } else if trimmed.starts_with('-') && !trimmed.starts_with("--") {
                 BinaryOp::Sub
             } else {
-                return Ok((i, left));
+                return Ok((i, self.chain(first, rest, BinaryOp::Add)?));
             };
-            let (rest, right) = cut(self.term(&trimmed[1..]))?;
-            left = Self::binary(op, left, right);
-            i = rest;
+            let (after, right) = cut(self.term(&trimmed[1..]))?;
+            rest.push((op, right));
+            i = after;
         }
     }
 
     fn term(&self, i: &'s str) -> PResult<'s, Expr> {
-        let (mut i, mut left) = self.unary(i)?;
+        let (mut i, first) = self.unary(i)?;
+        let mut rest = vec![];
         loop {
             let trimmed = skip_ws(i);
             let op = if trimmed.starts_with('*') {
@@ -504,11 +581,11 @@ impl<'s> Parser<'s> {
             } else if trimmed.starts_with('/') {
                 BinaryOp::Div
             } else {
-                return Ok((i, left));
+                return Ok((i, self.chain(first, rest, BinaryOp::Mul)?));
             };
-            let (rest, right) = cut(self.unary(&trimmed[1..]))?;
-            left = Self::binary(op, left, right);
-            i = rest;
+            let (after, right) = cut(self.unary(&trimmed[1..]))?;
+            rest.push((op, right));
+            i = after;
         }
     }
 
@@ -516,116 +593,133 @@ impl<'s> Parser<'s> {
         let trimmed = skip_ws(i);
         let start = self.offset(trimmed);
         if trimmed.starts_with('-') && !trimmed.starts_with("--") {
-            let (rest, inner) = cut(self.unary(&trimmed[1..]))?;
+            let operand = &trimmed[1..];
+            self.enter(operand)?;
+            let inner = cut(self.unary(operand));
+            self.leave();
+            let (rest, inner) = inner?;
             let span = Span::new(start, inner.span.end);
             let kind = match inner.kind {
                 ExprKind::Literal(Literal::Int(value)) if value != i64::MIN => ExprKind::Literal(Literal::Int(-value)),
                 ExprKind::Literal(Literal::Decimal(value)) => ExprKind::Literal(Literal::Decimal(-value)),
-                other => ExprKind::Unary(UnaryOp::Neg, Box::new(Expr { kind: other, span: inner.span })),
+                kind => ExprKind::Unary(
+                    UnaryOp::Neg,
+                    Box::new(Expr {
+                        kind,
+                        span: inner.span,
+                        height: inner.height,
+                    }),
+                ),
             };
-            return Ok((rest, Expr { kind, span }));
+            return Ok((rest, self.node(kind, span)?));
         }
         if let Some(rest) = trimmed.strip_prefix('+') {
-            return cut(self.unary(rest));
+            self.enter(rest)?;
+            let result = cut(self.unary(rest));
+            self.leave();
+            return result;
         }
         self.primary(trimmed)
     }
 
+    /// A primary expression. Parentheses recurse through here, so this only dispatches and
+    /// keeps its stack frame small; each form is parsed by its own function.
     fn primary(&self, i: &'s str) -> PResult<'s, Expr> {
         let i = skip_ws(i);
         let start = self.offset(i);
-        let make = |rest: &'s str, kind: ExprKind| -> PResult<'s, Expr> {
-            Ok((
-                rest,
-                Expr {
-                    kind,
-                    span: Span::new(start, self.offset(rest)),
-                },
-            ))
-        };
-        let Some(first) = i.chars().next() else {
-            return error(i, "expected an expression, found end of query");
-        };
-        match first {
-            '(' => {
-                let (rest, inner) = cut(self.expr(&i[1..]))?;
-                let (rest, _) = cut(symbol(")")(rest))?;
-                Ok((
-                    rest,
-                    Expr {
-                        kind: inner.kind,
-                        span: Span::new(start, self.offset(rest)),
-                    },
-                ))
-            }
-            '\'' | '"' => {
-                let body = &i[1..];
-                match body.find(first) {
-                    Some(end) => make(&body[end + 1..], ExprKind::Literal(Literal::Str(body[..end].to_owned()))),
-                    None => failure(i, "unterminated string literal"),
-                }
-            }
-            '$' => {
-                let (rest, digits) = take_while::<_, _, PError>(|c: char| c.is_ascii_digit())(&i[1..])?;
-                match digits.parse::<usize>() {
-                    Ok(idx) if idx >= 1 => make(rest, ExprKind::Param(ParamRef::Positional(idx))),
-                    _ => failure(i, "expected a parameter number after '$', e.g. $1"),
-                }
-            }
-            ':' => {
-                let body = &i[1..];
-                if !body.starts_with(is_ident_start) {
-                    return failure(i, "expected a parameter name after ':', e.g. :from");
-                }
-                let (rest, name) = take_while1::<_, _, PError>(is_ident_char)(body)?;
-                make(rest, ExprKind::Param(ParamRef::Named(name.to_owned())))
-            }
-            c if c.is_ascii_digit() || (c == '.' && i[1..].starts_with(|c: char| c.is_ascii_digit())) => self.number_or_date(i, start),
-            c if is_ident_start(c) => {
-                let (rest, name) = raw_identifier(i)?;
-                let lower = name.to_ascii_lowercase();
-                match lower.as_str() {
-                    "true" => return make(rest, ExprKind::Literal(Literal::Bool(true))),
-                    "false" => return make(rest, ExprKind::Literal(Literal::Bool(false))),
-                    "null" => return make(rest, ExprKind::Literal(Literal::Null)),
-                    _ => {}
-                }
-                if let Some(call_rest) = skip_ws(rest).strip_prefix('(') {
-                    if let Ok((after_star, _)) = symbol("*")(call_rest) {
-                        if let Ok((after, _)) = symbol(")")(after_star) {
-                            return make(
-                                after,
-                                ExprKind::Call {
-                                    name: lower,
-                                    args: vec![],
-                                    star: true,
-                                },
-                            );
-                        }
-                    }
-                    let (after, args) = if let Ok((after, _)) = symbol(")")(call_rest) {
-                        (after, vec![])
-                    } else {
-                        let (after, args) = cut(self.expr_list(call_rest))?;
-                        let (after, _) = cut(symbol(")")(after))?;
-                        (after, args)
-                    };
-                    return make(
-                        after,
-                        ExprKind::Call {
-                            name: lower,
-                            args,
-                            star: false,
-                        },
-                    );
-                }
-                if RESERVED.contains(&lower.as_str()) {
-                    return error(i, format!("expected an expression, found keyword {}", name.to_uppercase()));
-                }
-                make(rest, ExprKind::Column(lower))
-            }
-            _ => error(i, format!("expected an expression, found {}", found(i))),
+        match i.chars().next() {
+            None => error(i, "expected an expression, found end of query"),
+            Some('(') => self.parenthesized(i, start),
+            Some(quote @ ('\'' | '"')) => self.string_literal(i, quote, start),
+            Some('$' | ':') => self.parameter(i, start),
+            Some(c) if c.is_ascii_digit() || (c == '.' && i[1..].starts_with(|c: char| c.is_ascii_digit())) => self.number_or_date(i, start),
+            Some(c) if is_ident_start(c) => self.identifier(i, start),
+            Some(_) => error(i, format!("expected an expression, found {}", found(i))),
         }
+    }
+
+    fn leaf(&self, rest: &'s str, kind: ExprKind, start: usize) -> PResult<'s, Expr> {
+        Ok((rest, self.node(kind, Span::new(start, self.offset(rest)))?))
+    }
+
+    fn parenthesized(&self, i: &'s str, start: usize) -> PResult<'s, Expr> {
+        let (rest, inner) = cut(self.expr(&i[1..]))?;
+        let (rest, _) = cut(symbol(")")(rest))?;
+        Ok((
+            rest,
+            Expr {
+                span: Span::new(start, self.offset(rest)),
+                ..inner
+            },
+        ))
+    }
+
+    fn string_literal(&self, i: &'s str, quote: char, start: usize) -> PResult<'s, Expr> {
+        let body = &i[1..];
+        match body.find(quote) {
+            Some(end) => self.leaf(&body[end + 1..], ExprKind::Literal(Literal::Str(body[..end].to_owned())), start),
+            None => failure(i, "unterminated string literal"),
+        }
+    }
+
+    fn parameter(&self, i: &'s str, start: usize) -> PResult<'s, Expr> {
+        let body = &i[1..];
+        if i.starts_with('$') {
+            let (rest, digits) = take_while::<_, _, PError>(|c: char| c.is_ascii_digit())(body)?;
+            return match digits.parse::<usize>() {
+                Ok(idx) if idx >= 1 => self.leaf(rest, ExprKind::Param(ParamRef::Positional(idx)), start),
+                _ => failure(i, "expected a parameter number after '$', e.g. $1"),
+            };
+        }
+        if !body.starts_with(is_ident_start) {
+            return failure(i, "expected a parameter name after ':', e.g. :from");
+        }
+        let (rest, name) = take_while1::<_, _, PError>(is_ident_char)(body)?;
+        self.leaf(rest, ExprKind::Param(ParamRef::Named(name.to_owned())), start)
+    }
+
+    /// A literal keyword, a column or a function call.
+    fn identifier(&self, i: &'s str, start: usize) -> PResult<'s, Expr> {
+        let (rest, name) = raw_identifier(i)?;
+        let lower = name.to_ascii_lowercase();
+        match lower.as_str() {
+            "true" => return self.leaf(rest, ExprKind::Literal(Literal::Bool(true)), start),
+            "false" => return self.leaf(rest, ExprKind::Literal(Literal::Bool(false)), start),
+            "null" => return self.leaf(rest, ExprKind::Literal(Literal::Null), start),
+            _ => {}
+        }
+        if let Some(call_rest) = skip_ws(rest).strip_prefix('(') {
+            return self.call(call_rest, lower, start);
+        }
+        if RESERVED.contains(&lower.as_str()) {
+            return error(i, format!("expected an expression, found keyword {}", name.to_uppercase()));
+        }
+        self.leaf(rest, ExprKind::Column(lower), start)
+    }
+
+    /// The arguments of a call, after the opening parenthesis.
+    fn call(&self, i: &'s str, name: String, start: usize) -> PResult<'s, Expr> {
+        if let Ok((after_star, _)) = symbol("*")(i) {
+            if let Ok((after, _)) = symbol(")")(after_star) {
+                return self.leaf(
+                    after,
+                    ExprKind::Call {
+                        name,
+                        args: vec![],
+                        star: true,
+                    },
+                    start,
+                );
+            }
+        }
+        let (after, args) = if let Ok((after, _)) = symbol(")")(i) {
+            (after, vec![])
+        } else {
+            let (after, args) = cut(self.expr_list(i))?;
+            let (after, _) = cut(symbol(")")(after))?;
+            (after, args)
+        };
+        self.leaf(after, ExprKind::Call { name, args, star: false }, start)
     }
 
     fn number_or_date(&self, i: &'s str, start: usize) -> PResult<'s, Expr> {
@@ -640,13 +734,7 @@ impl<'s> Parser<'s> {
                 && candidate[8..10].chars().all(|c| c.is_ascii_digit());
             if shape_ok && !tail.starts_with(is_ident_char) {
                 return match NaiveDate::parse_from_str(candidate, "%Y-%m-%d") {
-                    Ok(date) => Ok((
-                        tail,
-                        Expr {
-                            kind: ExprKind::Literal(Literal::Date(date)),
-                            span: Span::new(start, start + 10),
-                        },
-                    )),
+                    Ok(date) => Ok((tail, Expr::new(ExprKind::Literal(Literal::Date(date)), Span::new(start, start + 10)))),
                     Err(_) => failure(i, format!("invalid date literal {}", candidate)),
                 };
             }
@@ -683,13 +771,7 @@ impl<'s> Parser<'s> {
                 })?)
             }
         };
-        Ok((
-            rest,
-            Expr {
-                kind: ExprKind::Literal(literal),
-                span,
-            },
-        ))
+        Ok((rest, Expr::new(ExprKind::Literal(literal), span)))
     }
 }
 

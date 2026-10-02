@@ -11,7 +11,7 @@ use std::str::FromStr;
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use serde_json::{json, Value as Json};
-use zhang_query::{DataType, Inventory, ParamTypes, Params, Position, Query, QueryErrorKind, Value};
+use zhang_query::{DataType, Inventory, ParamTypes, Params, Position, Query, Value};
 
 fn decimal_json(value: &BigDecimal) -> Json {
     Json::String(zhang_query::decimal::to_plain_string(value))
@@ -122,15 +122,7 @@ fn run_case(index: usize) {
     let query = case["query"].as_str().unwrap();
     let ledger = common::fava_demo_ledger();
 
-    let compiled = match Query::compile(query) {
-        Ok(compiled) => compiled,
-        // the scalar function library lands separately; skip until the functions exist
-        Err(err) if err.kind == QueryErrorKind::Compile && err.message.starts_with("unknown function") => {
-            eprintln!("skipping golden case {}: {}", index, err);
-            return;
-        }
-        Err(err) => panic!("{}: {}", query, err),
-    };
+    let compiled = Query::compile(query).unwrap_or_else(|err| panic!("golden case {}: {}: {}", index, query, err));
     let result = compiled.execute(&ledger, &Params::new()).unwrap_or_else(|err| panic!("{}: {}", query, err));
 
     let columns = result

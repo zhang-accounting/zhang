@@ -38,7 +38,8 @@ pub(crate) enum BinaryOp {
     Match,
     /// `!~`
     NotMatch,
-    /// `?~`: case-sensitive regular-expression search
+    /// `?~`: case-sensitive regular-expression search with the pattern on the LEFT
+    /// (`'^Assets' ?~ account`), as in beanquery
     MatchCase,
     And,
     Or,
@@ -103,9 +104,35 @@ pub(crate) enum ExprKind {
 pub(crate) struct Expr {
     pub kind: ExprKind,
     pub span: Span,
+    /// height of this subtree (a leaf is 1); bounded by the parser so that the recursive
+    /// passes over the tree (compile, evaluate, drop) cannot overflow the stack
+    pub height: usize,
+}
+
+impl ExprKind {
+    /// The largest height among the direct children.
+    fn children_height(&self) -> usize {
+        let max = |exprs: &[Expr]| exprs.iter().map(|it| it.height).max().unwrap_or(0);
+        match self {
+            ExprKind::Literal(_) | ExprKind::Param(_) | ExprKind::Column(_) => 0,
+            ExprKind::Call { args, .. } => max(args),
+            ExprKind::Unary(_, inner) => inner.height,
+            ExprKind::Binary(_, left, right) => left.height.max(right.height),
+            ExprKind::In { needle, haystack, .. } => needle.height.max(match haystack {
+                InTarget::List(items) => max(items),
+                InTarget::Expr(expr) => expr.height,
+            }),
+            ExprKind::IsNull { expr, .. } => expr.height,
+        }
+    }
 }
 
 impl Expr {
+    pub fn new(kind: ExprKind, span: Span) -> Expr {
+        let height = kind.children_height() + 1;
+        Expr { kind, span, height }
+    }
+
     /// Structural equality ignoring source positions, used to match `GROUP BY` / `ORDER BY`
     /// expressions against the targets.
     pub fn same_as(&self, other: &Expr) -> bool {

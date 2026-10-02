@@ -9,38 +9,17 @@
 //! - `value` prices the units in the cost currency; positions without cost, or without a
 //!   price, are returned as their units.
 //!
-//! Products are rounded like Python's default decimal context (28 significant digits,
-//! half-even), so results match beanquery even with inverted (28-digit) rates.
+//! `cost` is exact (`Position::at_cost`); products with market rates are rounded like
+//! Python's default decimal context (28 significant digits, half-even), so results match
+//! beanquery even with inverted (28-digit) rates. See `crate::decimal` for the policy.
 
-use std::num::NonZeroU64;
-
-use bigdecimal::{BigDecimal, RoundingMode};
 use chrono::NaiveDate;
 
-use crate::decimal::DIVISION_PRECISION;
+use crate::decimal::mul_in_context as mul;
 use crate::functions::FunctionContext;
 use crate::prices::PriceMap;
 use crate::value::{Position, Value};
 use crate::Amount;
-
-/// Multiply in Python's default decimal context: exact when the product fits in 28
-/// significant digits, otherwise rounded half-even to 28 digits.
-///
-/// The product keeps the scale `lhs.scale + rhs.scale` (`-1000.00 × 1` is `-1000.00`);
-/// bigdecimal's `*` normalises when either side is 1, so it is computed on the
-/// coefficients instead.
-pub(super) fn mul(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
-    let (lhs_digits, lhs_scale) = lhs.as_bigint_and_exponent();
-    let (rhs_digits, rhs_scale) = rhs.as_bigint_and_exponent();
-    let product = BigDecimal::new(lhs_digits * rhs_digits, lhs_scale + rhs_scale);
-    let precision = NonZeroU64::new(DIVISION_PRECISION).expect("non zero precision");
-    let mut rounded = product;
-    // a carry (9.99… → 10.00…) adds a digit; the second pass drops the extra trailing zero
-    while rounded.digits() > DIVISION_PRECISION {
-        rounded = rounded.with_precision_round(precision, RoundingMode::HalfEven);
-    }
-    rounded
-}
 
 fn date_arg(args: &[Value], idx: usize, function: &str) -> Result<Option<NaiveDate>, String> {
     args.get(idx)
@@ -49,11 +28,9 @@ fn date_arg(args: &[Value], idx: usize, function: &str) -> Result<Option<NaiveDa
 }
 
 /// beancount `convert.get_cost`: units × per-unit cost in the cost currency, or the units.
+/// Exact, and the same as `Inventory::at_cost` per position.
 fn position_cost(position: &Position) -> Amount {
-    match &position.cost {
-        Some(cost) => Amount::new(mul(&position.units.number, &cost.number), cost.currency.clone()),
-        None => position.units.clone(),
-    }
+    position.at_cost()
 }
 
 /// beancount `convert.get_value`: the units priced in the cost currency, or the units.
@@ -135,6 +112,8 @@ pub(super) fn getprice(args: &[Value], ctx: &dyn FunctionContext) -> Result<Valu
 
 #[cfg(test)]
 mod tests {
+    use bigdecimal::BigDecimal;
+
     use super::super::testing::*;
     use super::*;
     use crate::functions::TestContext;

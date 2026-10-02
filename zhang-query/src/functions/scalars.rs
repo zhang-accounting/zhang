@@ -1,12 +1,11 @@
 //! Scalar (row-level) functions. See the [`crate::functions`] module docs for how to add one.
 
 use chrono::Datelike;
+use DataType::*;
+use ParamType::Exact;
 
 use super::{FunctionContext, ParamType, ReturnType, ScalarFunction};
 use crate::value::{DataType, Value};
-
-use DataType::*;
-use ParamType::Exact;
 
 // the function library; its entries are registered in `SCALAR_FUNCTIONS` below
 mod accounts;

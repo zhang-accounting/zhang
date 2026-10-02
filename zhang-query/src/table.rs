@@ -428,8 +428,8 @@ pub static COLUMNS: &[ColumnDef] = &[
     ColumnDef {
         name: "narration",
         ty: DataType::Str,
-        description: "Narration of the transaction.",
-        get: |data, row| opt_str(data.entry(row).narration),
+        description: "Narration of the transaction; '' when absent (as in beancount).",
+        get: |data, row| Value::Str(data.entry(row).narration.unwrap_or_default().to_owned()),
     },
     ColumnDef {
         name: "description",
