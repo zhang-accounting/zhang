@@ -1,122 +1,187 @@
-import { retrieveOptions, retrievePlugins } from '@/api/requests.ts';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.tsx';
-import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
-import { SETTINGS_LINK } from '@/layout/Sidebar.tsx';
-import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
-import { useAtomValue, useSetAtom } from 'jotai/index';
+import { useAtomValue, useSetAtom } from 'jotai';
+import { ArrowUpRight, ExternalLink, Puzzle, RotateCw } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
-import { Setting } from '../components/basic/Setting';
-import PluginBox from '../components/PluginBox';
-import Section from '../components/Section';
-import { breadcrumbAtom, titleAtom, versionAtom } from '../states/basic';
-import PwaInstallBanner from '../components/PwaInstallBanner';
-import { Button } from '@/components/ui/button';
-import { ExternalLink } from 'lucide-react';
+import { serverBaseUrl } from '@/api/fetcher';
+import { retrieveOptions, retrievePlugins } from '@/api/requests';
+import { SettingRow, SettingsSection } from '@/components/basic/Setting';
+import { EmptyState, PageHeader, PageShell } from '@/components/layout';
+import PluginBox from '@/components/PluginBox';
+import PwaInstallBanner from '@/components/PwaInstallBanner';
+import { Badge } from '@/components/ui/badge';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useDocumentTitle } from '@/hooks/use-document-title';
+import { useLanguage } from '@/hooks/use-language';
+import { SETTINGS_LINK, UPGRADE_GUIDE_URL } from '@/layout/nav-links';
+import { THEMES } from '@/layout/themes';
+import { useReloadLedger } from '@/layout/use-reload-ledger';
+import { LANGUAGES } from '@/lib/languages';
+import { cn } from '@/lib/utils';
+import { basicInfoAtom, breadcrumbAtom, titleAtom, updatableVersionAtom, versionAtom } from '@/states/basic';
+
+const API_DOCS = [
+  { label: 'OpenAPI JSON', path: '/openapi.json' },
+  { label: 'Swagger UI', path: '/swagger' },
+  { label: 'Scalar', path: '/scalar' },
+];
 
 export default function Settings() {
+  const { t } = useTranslation();
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  const { i18n, t } = useTranslation();
-  const [lang, setLang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
+  const [lang, setLang] = useLanguage();
+  const { theme, setTheme } = useTheme();
+  const reloadLedger = useReloadLedger();
 
-  const { value: options } = useAsync(async () => {
+  const { value: options, loading: optionsLoading } = useAsync(async () => {
     const res = await retrieveOptions({});
     return res.data.data;
   }, []);
-  const { value: plugins } = useAsync(async () => {
+  const { value: plugins, loading: pluginsLoading } = useAsync(async () => {
     const res = await retrievePlugins({});
     return res.data.data;
   }, []);
 
   const ledgerTitle = useAtomValue(titleAtom);
   const ledgerVersion = useAtomValue(versionAtom);
+  const basicInfo = useAtomValue(basicInfoAtom);
+  const updatableVersion = useAtomValue(updatableVersionAtom);
+  const buildDate = basicInfo.state === 'hasData' ? basicInfo.data.build_date : undefined;
+  const operatingCurrency = options?.find((option) => option.key === 'operating_currency')?.value;
 
-  useDocumentTitle(`Settings - ${ledgerTitle}`);
+  useDocumentTitle(`${t('settings.title')} - ${ledgerTitle}`);
   useEffect(() => {
     setBreadcrumb([SETTINGS_LINK]);
-  }, []);
-
-  const onLanguageChange = (lang: string) => {
-    setLang(lang);
-  };
-
-  useEffect(() => {
-    i18n.changeLanguage(lang);
-  }, [lang, i18n]);
+  }, [setBreadcrumb]);
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold mb-6">{t('settings.title')}</h1>
+    <PageShell width="narrow">
+      <PageHeader title={t('settings.title')} description={t('settings.description')} />
 
-      <div className="space-y-6">
-        {/* PWA 安装横幅 */}
-        <PwaInstallBanner />
+      <PwaInstallBanner />
 
-        <Section title="Basic Setting">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Setting title="title" uppercase value={ledgerTitle ?? ''} />
-            <Setting title="version" uppercase value={ledgerVersion ?? ''} />
-            <div>
-              <Setting title="language" uppercase />
-              <div className="mt-2">
-                <Select value={lang} onValueChange={onLanguageChange}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Select a fruit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="zh">中文</SelectItem>
-                    <SelectItem value="en">English</SelectItem>
-                  </SelectContent>
-                </Select>
+      <SettingsSection title={t('settings.general')}>
+        <SettingRow label={t('SHELL_LANGUAGE')} description={t('settings.language_description')} htmlFor="settings-language">
+          <Select items={LANGUAGES} value={lang} onValueChange={(value) => value && setLang(value)}>
+            <SelectTrigger id="settings-language" className="h-10 w-full sm:w-44 md:h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LANGUAGES.map((language) => (
+                <SelectItem key={language.value} value={language.value}>
+                  {language.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </SettingRow>
+        <SettingRow label={t('SHELL_THEME')} description={t('settings.theme_description')}>
+          <div role="radiogroup" aria-label={t('SHELL_THEME')} className="flex w-full gap-1 rounded-lg bg-muted p-1 sm:w-auto">
+            {THEMES.map((item) => {
+              const active = (theme ?? 'system') === item.value;
+              return (
+                <Button
+                  key={item.value}
+                  role="radio"
+                  aria-checked={active}
+                  variant="ghost"
+                  className={cn('h-10 flex-1 px-3 md:h-7', active && 'bg-background shadow-xs hover:bg-background dark:bg-input/40')}
+                  onClick={() => setTheme(item.value)}
+                >
+                  <item.icon />
+                  {t(item.label)}
+                </Button>
+              );
+            })}
+          </div>
+        </SettingRow>
+      </SettingsSection>
+
+      <SettingsSection
+        title={t('settings.ledger')}
+        action={
+          <Button variant="outline" className="h-10 md:h-8" onClick={reloadLedger}>
+            <RotateCw />
+            {t('SHELL_RELOAD_LEDGER')}
+          </Button>
+        }
+      >
+        <SettingRow inline label={t('settings.ledger_title')} description={t('settings.ledger_title_description')}>
+          <span className="max-w-48 truncate text-sm font-medium sm:max-w-72">{ledgerTitle}</span>
+        </SettingRow>
+        <SettingRow inline label={t('settings.operating_currency')} description={t('settings.operating_currency_description')}>
+          {optionsLoading ? (
+            <Skeleton className="h-5 w-12" />
+          ) : (
+            <Badge variant="secondary" className="font-mono">
+              {operatingCurrency ?? '—'}
+            </Badge>
+          )}
+        </SettingRow>
+        <SettingRow inline label={t('settings.version')} description={buildDate ? t('settings.build_date', { date: buildDate }) : undefined}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-sm tabular-nums">{ledgerVersion ?? '—'}</span>
+            {updatableVersion && (
+              <a href={UPGRADE_GUIDE_URL} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'h-10 md:h-7')}>
+                {t('SHELL_UPDATE_AVAILABLE', { version: updatableVersion })}
+                <ArrowUpRight />
+              </a>
+            )}
+          </div>
+        </SettingRow>
+      </SettingsSection>
+
+      <SettingsSection title={t('settings.options')} description={t('settings.options_description')}>
+        {optionsLoading ? (
+          <div className="flex flex-col gap-2 p-4">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
+        ) : (
+          <dl className="divide-y">
+            {(options ?? []).map((option) => (
+              <div key={option.key} className="grid gap-1 px-4 py-2.5 sm:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] sm:gap-4">
+                <dt className="truncate font-mono text-xs leading-5 text-muted-foreground">{option.key}</dt>
+                <dd className="text-sm break-all">{option.value}</dd>
               </div>
-            </div>
-          </div>
-        </Section>
+            ))}
+          </dl>
+        )}
+      </SettingsSection>
 
-        <Section title="OpenAPI Documentation">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Button variant="outline" className="flex items-center gap-2" onClick={() => window.open('/openapi.json', '_blank')}>
-              OpenAPI JSON
-              <ExternalLink className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" className="flex items-center gap-2" onClick={() => window.open('/swagger', '_blank')}>
-              Swagger UI
-              <ExternalLink className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" className="flex items-center gap-2" onClick={() => window.open('/scalar', '_blank')}>
-              Scalar
-              <ExternalLink className="h-4 w-4" />
-            </Button>
-          </div>
-        </Section>
-
-        <Section title="Plugins">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <SettingsSection title={t('settings.plugins')} description={t('settings.plugins_description')} bare>
+        {pluginsLoading ? (
+          <Skeleton className="h-16 w-full rounded-xl" />
+        ) : (plugins ?? []).length === 0 ? (
+          <EmptyState icon={Puzzle} title={t('settings.no_plugins_title')} description={t('settings.no_plugins_description')} className="py-8" />
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
             {(plugins ?? []).map((plugin) => (
-              <PluginBox key={plugin.name} name={plugin.name} version={plugin.version} plugin_type={plugin.plugin_type}></PluginBox>
+              <PluginBox key={plugin.name} name={plugin.name} version={plugin.version} plugin_type={plugin.plugin_type} />
             ))}
           </div>
-        </Section>
-        <Section title="Options">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Key</TableHead>
-                <TableHead>Value</TableHead>
-              </TableRow>
-            </TableHeader>
-            <tbody>
-              {(options ?? []).map((option) => (
-                <TableRow key={option.key}>
-                  <TableCell className="m-1">{option.key}</TableCell>
-                  <TableCell className="m-1">{option.value}</TableCell>
-                </TableRow>
-              ))}
-            </tbody>
-          </Table>
-        </Section>
-      </div>
-    </div>
+        )}
+      </SettingsSection>
+
+      <SettingsSection title={t('settings.api_docs')} description={t('settings.api_docs_description')} bare>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {API_DOCS.map((doc) => (
+            <a
+              key={doc.path}
+              href={`${serverBaseUrl}${doc.path}`}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(buttonVariants({ variant: 'outline' }), 'h-10 justify-between md:h-8')}
+            >
+              {doc.label}
+              <ExternalLink />
+            </a>
+          ))}
+        </div>
+      </SettingsSection>
+    </PageShell>
   );
 }

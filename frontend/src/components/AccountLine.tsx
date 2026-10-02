@@ -1,98 +1,98 @@
+import { ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
+import { useLocalStorage } from '@/hooks/use-local-storage';
 import { cn } from '@/lib/utils';
-import { useLocalStorage } from '@mantine/hooks';
-import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
-import { useNavigate } from 'react-router';
 import AccountTrie from '../utils/AccountTrie';
+import { accountCollapseKey } from './layout/account-tree';
 import Amount from './Amount';
 import { Badge } from './ui/badge';
-import { TableCell, TableRow } from './ui/table';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 
 interface Props {
   data: AccountTrie;
+  /** Depth in the tree (0 = first level below the account type). */
   spacing: number;
+  /** Show every descendant regardless of the stored collapse state (used while searching). */
+  forceExpand?: boolean;
 }
 
-export default function AccountLine({ data, spacing }: Props) {
-  let navigate = useNavigate();
-  const [isShow, setCollapse] = useLocalStorage({
-    key: `account-collapse-${data.path}`,
-    defaultValue: false,
-  });
+const FOCUS_RING = 'outline-none focus-visible:ring-3 focus-visible:ring-ring/50';
+const TOGGLE_CLASS = cn('flex size-10 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted md:size-6', FOCUS_RING);
+const LINK_CLASS = cn('flex min-h-10 min-w-0 flex-1 items-center rounded-md hover:underline hover:underline-offset-4 md:min-h-8', FOCUS_RING);
 
-  const haveMultipleCommodity = Object.keys(data.amount.data).length > 1;
-  const onNavigate = () => {
-    if (data?.val?.name) {
-      navigate(data?.val?.name);
-    } else {
-      setCollapse(!isShow);
-    }
-  };
+/** One row of the account tree (div based, so it works as a card row on mobile and a dense list on desktop). */
+export default function AccountLine({ data, spacing, forceExpand = false }: Props) {
+  const { t } = useTranslation();
+  const [isShow, setCollapse] = useLocalStorage({ key: accountCollapseKey(data.path), defaultValue: false });
   const hasChildren = Object.keys(data.children).length > 0;
+  const expanded = hasChildren && (forceExpand || isShow);
+  const commodities = Object.entries(data.amount.data).filter(([, value]) => !value.isZero());
+  const haveMultipleCommodity = commodities.length > 1;
+  const account = data.val;
+  const isClosed = account?.status === 'Close';
+  const label = account?.alias ?? data.word;
+
+  const name = (
+    <span className="flex min-w-0 flex-col">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className={cn('truncate text-sm', hasChildren && 'font-medium', isClosed && 'text-muted-foreground')}>{label}</span>
+        {isClosed && (
+          <Badge variant="outline" className="font-normal text-muted-foreground">
+            {t('ledger.accounts.closed')}
+          </Badge>
+        )}
+      </span>
+      {account?.alias && <span className="truncate text-xs text-muted-foreground">{account.name}</span>}
+    </span>
+  );
 
   return (
     <>
-      <TableRow>
-        <TableCell>
-          <div className="flex items-center gap-2">
-            <div style={{ width: `${spacing * 20}px` }}></div>
-            {hasChildren ? (
-              isShow ? (
-                <ChevronDownIcon onClick={() => setCollapse(!isShow)} className="h-4 w-4 cursor-pointer" />
-              ) : (
-                <ChevronRightIcon onClick={() => setCollapse(!isShow)} className="h-4 w-4 cursor-pointer" />
-              )
-            ) : (
-              <div style={{ width: `20px` }}></div>
-            )}
-            <div onClick={onNavigate} className="cursor-pointer">
-              <div className="flex items-center gap-2">
-                <span>{data.val?.alias ?? data.word}</span>
-                {data.val?.status === 'Close' && <Badge variant="outline">{data.val?.status}</Badge>}
-              </div>
-
-              {data.val && <span className="text-xs text-gray-500">{data.val?.name}</span>}
-            </div>
-          </div>
-        </TableCell>
-        <TableCell>
-          <div className="flex justify-end gap-2">
-            {haveMultipleCommodity ? (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <div className={cn(data.isLeaf ? 'cursor-pointer' : 'text-gray-500', 'flex gap-2')}>
-                      <span>≈</span> <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <div className="flex flex-col gap-2">
-                      {Object.entries(data.amount.data).map(([key, value]) => (
-                        <div className="flex justify-between">
-                          <span>+</span>
-                          <Amount amount={value} currency={key}></Amount>
-                        </div>
-                      ))}
-                      <div className="flex justify-between">
-                        <span>=</span>
-                        <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
-                      </div>
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            ) : (
-              <div className={cn(data.isLeaf ? ' ' : 'text-gray-500', 'flex gap-2')}>
-                <Amount amount={data.amount.total} currency={data.amount.commodity}></Amount>
-              </div>
-            )}
-          </div>
-        </TableCell>
-      </TableRow>
-      {isShow &&
+      <div
+        className="flex min-h-12 items-center gap-1 border-t pr-4 transition-colors hover:bg-muted/40 md:min-h-10"
+        style={{ paddingLeft: `${8 + spacing * 16}px` }}
+      >
+        {hasChildren ? (
+          <button
+            type="button"
+            className={TOGGLE_CLASS}
+            aria-label={expanded ? t('ledger.accounts.collapse') : t('ledger.accounts.expand')}
+            aria-expanded={expanded}
+            disabled={forceExpand}
+            onClick={() => setCollapse(!isShow)}
+          >
+            <ChevronRight className={cn('size-4 transition-transform', expanded && 'rotate-90')} />
+          </button>
+        ) : (
+          <span className="size-10 shrink-0 md:size-6" />
+        )}
+        {account ? (
+          <Link to={`/accounts/${account.name}`} className={LINK_CLASS}>
+            {name}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            className="flex min-h-10 min-w-0 flex-1 items-center text-left md:min-h-8"
+            disabled={forceExpand}
+            onClick={() => setCollapse(!isShow)}
+          >
+            {name}
+          </button>
+        )}
+        <div className={cn('flex shrink-0 flex-col items-end text-sm', !data.isLeaf && 'text-muted-foreground', isClosed && 'text-muted-foreground')}>
+          <span className="flex items-baseline gap-1">
+            {haveMultipleCommodity && <span aria-hidden>≈</span>}
+            <Amount amount={data.amount.total} currency={data.amount.commodity} />
+          </span>
+          {haveMultipleCommodity &&
+            commodities.map(([commodity, value]) => <Amount key={commodity} className="text-xs text-muted-foreground" amount={value} currency={commodity} />)}
+        </div>
+      </div>
+      {expanded &&
         Object.keys(data.children)
           .sort()
-          .map((child) => <AccountLine key={data.children[child].path} data={data.children[child]} spacing={spacing + 1} />)}
+          .map((child) => <AccountLine key={data.children[child].path} data={data.children[child]} spacing={spacing + 1} forceExpand={forceExpand} />)}
     </>
   );
 }

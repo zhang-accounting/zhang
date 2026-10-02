@@ -1,4 +1,11 @@
+import BigNumber from 'bignumber.js';
+import { eachDayOfInterval, eachMonthOfInterval, eachYearOfInterval, format } from 'date-fns';
+import { ReactNode, useId, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, TooltipContentProps, Treemap, XAxis, YAxis } from 'recharts';
+import type { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent';
 import { QueryResult } from '@/api/types';
+import { useIsMobile } from '@/components/layout';
 import {
   BarDatum,
   buildBars,
@@ -16,24 +23,20 @@ import {
 import { formatDecimal } from '@/components/query/values';
 import { ChartConfig, ChartContainer, ChartStyle, ChartTooltip } from '@/components/ui/chart';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useMediaQuery } from '@mantine/hooks';
-import BigNumber from 'bignumber.js';
-import { eachDayOfInterval, eachMonthOfInterval, eachYearOfInterval, format } from 'date-fns';
-import { ReactNode, useId, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, TooltipProps, Treemap, XAxis, YAxis } from 'recharts';
 
-// Categorical slots 1 (blue) and 2 (orange), stepped separately for the light and dark surfaces. Blue plots values,
-// orange marks negative values in treemaps and bar charts, where the area/length is the absolute value or the sign
-// would otherwise be easy to miss.
+// chart-1 plots values; `negative` marks negative values in treemaps and bar charts, where the area/length is the
+// absolute value or the sign would otherwise be easy to miss. Treemap labels use `--background` (white-ish on the light
+// cells, near-black on the dark-theme cells), the most readable choice on both fills.
 const chartConfig = {
-  value: { theme: { light: '#2a78d6', dark: '#3987e5' } },
-  negative: { theme: { light: '#eb6834', dark: '#d95926' } },
+  value: { color: 'var(--chart-1)' },
+  negative: { color: 'var(--negative)' },
 } satisfies ChartConfig;
+
+type ChartTooltipProps = TooltipContentProps<ValueType, NameType>;
 
 const MAX_BARS = 50;
 const BAR_HEIGHT = 28;
-/** Average glyph width of the 12px chart labels, used to fit labels into the space they get. */
+/** Average glyph width of the 12px chart labels, used when they cannot be measured. */
 const CHAR_WIDTH = 6.5;
 
 const compactNumber = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
@@ -44,18 +47,38 @@ function formatExact(signed: string, currency: string): string {
   return currency === NO_CURRENCY ? number : `${number} ${currency}`;
 }
 
-function truncate(text: string, maxChars: number): string {
-  if (maxChars < 2) return '';
-  return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
+let measureContext: CanvasRenderingContext2D | null | undefined;
+let measureFontFamily = 'sans-serif';
+
+/**
+ * Rendered width of a 12px chart label in the app font. Measured on a canvas, so wide glyphs (CJK, capitals) are not
+ * underestimated; falls back to the average glyph width when no canvas is available.
+ */
+function textWidth(text: string, fontWeight = 400): number {
+  if (measureContext === undefined) {
+    measureContext = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
+    if (measureContext) measureFontFamily = getComputedStyle(document.body).fontFamily;
+  }
+  if (!measureContext) return text.length * CHAR_WIDTH;
+  measureContext.font = `${fontWeight} 12px ${measureFontFamily}`;
+  return measureContext.measureText(text).width;
+}
+
+/** `text`, shortened with an ellipsis to fit into `maxWidth` pixels (empty when not even one character fits). */
+function truncate(text: string, maxWidth: number, fontWeight = 400): string {
+  if (textWidth(text, fontWeight) <= maxWidth) return text;
+  let end = text.length - 1;
+  while (end > 0 && textWidth(`${text.slice(0, end)}…`, fontWeight) > maxWidth) end -= 1;
+  return end > 0 ? `${text.slice(0, end).trimEnd()}…` : '';
 }
 
 function TooltipBox({ title, value, negative }: { title: string; value: string; negative?: boolean }) {
   return (
-    <div className="grid max-w-xs gap-1 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
-      <div className="break-all font-medium">{title}</div>
+    <div className="grid max-w-xs gap-1 rounded-lg bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-xl ring-1 ring-foreground/10">
+      <div className="font-medium break-all">{title}</div>
       <div className="flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: negative ? 'var(--color-negative)' : 'var(--color-value)' }} />
-        <span className="font-mono tabular-nums text-foreground">{value}</span>
+        <span className="size-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: negative ? 'var(--color-negative)' : 'var(--color-value)' }} />
+        <span className="font-mono text-foreground tabular-nums">{value}</span>
       </div>
     </div>
   );
@@ -64,7 +87,7 @@ function TooltipBox({ title, value, negative }: { title: string; value: string; 
 function LegendItem({ color, label }: { color: string; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
-      <span className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: color }} />
+      <span className="size-2.5 rounded-[2px]" style={{ backgroundColor: color }} />
       {label}
     </span>
   );
@@ -101,20 +124,20 @@ function TreemapCell({ x = 0, y = 0, width = 0, height = 0, depth = 0, name = ''
   const cellHeight = bottom - top;
   if (cellWidth <= 0 || cellHeight <= 0) return <g />;
 
-  const maxChars = Math.floor((cellWidth - 8) / CHAR_WIDTH);
+  const maxWidth = cellWidth - 8;
   const showName = cellWidth > 36 && cellHeight > 18;
   const showValue = showName && cellHeight > 34 && signed !== undefined;
   return (
     <g>
       <rect x={left} y={top} width={cellWidth} height={cellHeight} rx={2} fill={negative ? 'var(--color-negative)' : 'var(--color-value)'} />
       {showName && (
-        <text x={left + 4} y={top + 14} fill="#fff" fontSize={12} fontWeight={500} className="pointer-events-none">
-          {truncate(name, maxChars)}
+        <text x={left + 4} y={top + 14} fill="var(--background)" fontSize={12} fontWeight={500} className="pointer-events-none">
+          {truncate(name, maxWidth, 500)}
         </text>
       )}
       {showValue && (
-        <text x={left + 4} y={top + 30} fill="#fff" fillOpacity={0.85} fontSize={11} className="pointer-events-none tabular-nums">
-          {truncate(compactNumber.format(new BigNumber(signed).toNumber()), maxChars)}
+        <text x={left + 4} y={top + 30} fill="var(--background)" fillOpacity={0.85} fontSize={11} className="pointer-events-none tabular-nums">
+          {truncate(compactNumber.format(new BigNumber(signed).toNumber()), maxWidth)}
         </text>
       )}
     </g>
@@ -123,11 +146,11 @@ function TreemapCell({ x = 0, y = 0, width = 0, height = 0, depth = 0, name = ''
 
 function QueryTreemap({ points, currency }: { points: ChartPoint[]; currency: string }) {
   const { t } = useTranslation();
-  const isMobile = useMediaQuery('(max-width: 640px)');
+  const isMobile = useIsMobile();
   const { nodes, hasPositive, hasNegative } = useMemo(() => buildTreemap(points, currency), [points, currency]);
   if (nodes.length === 0) return <NothingToPlot />;
 
-  const tooltip = ({ active, payload }: TooltipProps<number, string>) => {
+  const tooltip = ({ active, payload }: ChartTooltipProps) => {
     const datum = payload?.[0]?.payload as TreemapDatum | undefined;
     if (!active || !datum || datum.signed === undefined) return null;
     return <TooltipBox title={datum.account} value={formatExact(datum.signed, currency)} negative={datum.negative} />;
@@ -155,7 +178,7 @@ function QueryTreemap({ points, currency }: { points: ChartPoint[]; currency: st
 
 function QueryBarChart({ points, currency }: { points: ChartPoint[]; currency: string }) {
   const { t } = useTranslation();
-  const isMobile = useMediaQuery('(max-width: 640px)');
+  const isMobile = useIsMobile();
   const bars = useMemo(() => buildBars(points, currency), [points, currency]);
   if (bars.length === 0) return <NothingToPlot />;
 
@@ -165,11 +188,12 @@ function QueryBarChart({ points, currency }: { points: ChartPoint[]; currency: s
   // Bars grow from zero, so the value axis always includes it: all-positive [0, max], all-negative [min, 0], mixed
   // [min, max]. The data side stays 'auto' so recharts rounds it to nice ticks.
   const valueDomain: [number | 'auto', number | 'auto'] = [hasNegative ? 'auto' : 0, hasPositive ? 'auto' : 0];
-  const longestLabel = Math.max(...shown.map((bar) => (bar.label || '—').length));
-  const labelWidth = Math.min(isMobile ? 104 : 200, Math.max(40, Math.ceil(longestLabel * CHAR_WIDTH) + 8));
-  const labelChars = Math.floor((labelWidth - 8) / CHAR_WIDTH);
+  // the axis draws the tick text 8px (tick size + margin) left of the bars: the rest of the width is for the label
+  const longestLabel = Math.max(...shown.map((bar) => textWidth(bar.label || '—')));
+  const labelWidth = Math.min(isMobile ? 112 : 200, Math.max(40, Math.ceil(longestLabel) + 12));
+  const labelSpace = labelWidth - 12;
 
-  const tooltip = ({ active, payload }: TooltipProps<number, string>) => {
+  const tooltip = ({ active, payload }: ChartTooltipProps) => {
     const datum = payload?.[0]?.payload as BarDatum | undefined;
     if (!active || !datum) return null;
     return <TooltipBox title={datum.label || '—'} value={formatExact(datum.signed, currency)} negative={datum.value < 0} />;
@@ -195,10 +219,11 @@ function QueryBarChart({ points, currency }: { points: ChartPoint[]; currency: s
             interval={0}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(label: string) => truncate(label || '—', labelChars)}
+            // non-breaking spaces: recharts would wrap the (already fitted) label onto two lines
+            tickFormatter={(label: string) => truncate(label || '—', labelSpace).replace(/ /g, '\u00a0')}
           />
-          <ChartTooltip cursor={{ fill: 'hsl(var(--muted))' }} content={tooltip} isAnimationActive={false} />
-          {hasNegative && hasPositive && <ReferenceLine x={0} stroke="hsl(var(--border))" />}
+          <ChartTooltip cursor={{ fill: 'var(--muted)', opacity: 0.6 }} content={tooltip} isAnimationActive={false} />
+          {hasNegative && hasPositive && <ReferenceLine x={0} stroke="var(--border)" />}
           <Bar dataKey="value" radius={2} maxBarSize={20} isAnimationActive={false}>
             {shown.map((bar, index) => (
               <Cell key={index} fill={bar.value < 0 ? 'var(--color-negative)' : 'var(--color-value)'} />
@@ -244,7 +269,7 @@ function timeTicks(first: number, last: number, maxTicks: number): { ticks: numb
 }
 
 function QueryLineChart({ points, currency }: { points: ChartPoint[]; currency: string }) {
-  const isMobile = useMediaQuery('(max-width: 640px)');
+  const isMobile = useIsMobile();
   const data = useMemo(() => buildLine(points, currency), [points, currency]);
   if (data.length === 0) return <NothingToPlot />;
 
@@ -256,7 +281,7 @@ function QueryLineChart({ points, currency }: { points: ChartPoint[]; currency: 
   const values = data.map((datum) => datum.value);
   const crossesZero = Math.min(...values) < 0 && Math.max(...values) > 0;
 
-  const tooltip = ({ active, payload }: TooltipProps<number, string>) => {
+  const tooltip = ({ active, payload }: ChartTooltipProps) => {
     const datum = payload?.[0]?.payload as LineDatum | undefined;
     if (!active || !datum) return null;
     return <TooltipBox title={datum.date} value={formatExact(datum.signed, currency)} />;
@@ -287,15 +312,15 @@ function QueryLineChart({ points, currency }: { points: ChartPoint[]; currency: 
           axisLine={false}
           tickMargin={4}
         />
-        <ChartTooltip cursor={{ stroke: 'hsl(var(--border))' }} content={tooltip} isAnimationActive={false} />
-        {crossesZero && <ReferenceLine y={0} stroke="hsl(var(--border))" />}
+        <ChartTooltip cursor={{ stroke: 'var(--border)' }} content={tooltip} isAnimationActive={false} />
+        {crossesZero && <ReferenceLine y={0} stroke="var(--border)" />}
         <Line
           dataKey="value"
           type="linear"
           stroke="var(--color-value)"
           strokeWidth={2}
           dot={data.length <= 40 ? { r: 3, fill: 'var(--color-value)', strokeWidth: 0 } : false}
-          activeDot={{ r: 4, strokeWidth: 2, stroke: 'hsl(var(--background))' }}
+          activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--background)' }}
           isAnimationActive={false}
         />
       </LineChart>
@@ -315,16 +340,18 @@ interface Props {
   kind: QueryChartKind;
   /** the ledger's operating currency, plotted by default when the result has it */
   operatingCurrency?: string;
+  /** The currency the user picked; owned by the parent, so it survives new runs and table/chart switches. */
+  pickedCurrency?: string;
+  onPickCurrency: (currency: string) => void;
 }
 
-export default function QueryResultChart({ result, kind, operatingCurrency }: Props) {
+export default function QueryResultChart({ result, kind, operatingCurrency, pickedCurrency: picked, onPickCurrency: setPicked }: Props) {
   const { t } = useTranslation();
   // the colour variables are also defined on the panel, for the legends rendered outside the chart containers
   const panelId = `query-chart-${useId().replace(/:/g, '')}`;
   const points = useMemo(() => collectPoints(result), [result]);
   const currencies = useMemo(() => currenciesOf(points), [points]);
   // the picked currency is kept across runs and used again whenever the new result has it
-  const [picked, setPicked] = useState<string | undefined>(undefined);
   const currency = picked !== undefined && currencies.includes(picked) ? picked : defaultCurrency(currencies, operatingCurrency);
 
   let chart: ReactNode;
@@ -334,13 +361,17 @@ export default function QueryResultChart({ result, kind, operatingCurrency }: Pr
   else chart = <QueryLineChart points={points} currency={currency} />;
 
   return (
-    <div data-chart={panelId} className="flex flex-col gap-3 rounded-md border p-3">
+    <div data-chart={panelId} className="flex min-w-0 flex-col gap-3 p-4">
       <ChartStyle id={panelId} config={chartConfig} />
       <div className="flex min-h-8 flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-medium">{t(`query.chart.${kind}`)}</span>
         {currencies.length > 1 && currency !== undefined && (
-          <Select value={currency} onValueChange={setPicked}>
-            <SelectTrigger className="h-8 w-auto min-w-[7rem] gap-2" aria-label={t('query.chart.currency')}>
+          <Select
+            items={currencies.map((item) => ({ value: item, label: item }))}
+            value={currency}
+            onValueChange={(value) => value !== null && setPicked(value)}
+          >
+            <SelectTrigger className="h-10 min-w-28 gap-2 md:h-8" aria-label={t('query.chart.currency')}>
               <span className="text-muted-foreground">{t('query.chart.currency')}</span>
               <SelectValue />
             </SelectTrigger>

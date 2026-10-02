@@ -1,29 +1,31 @@
+import { EditorView } from '@uiw/react-codemirror';
+import { useAtomValue, useSetAtom } from 'jotai';
+import { CircleAlert, Crosshair, DatabaseZap, Download, Play } from 'lucide-react';
+import { ApiError } from 'openapi-typescript-fetch';
+import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useAsync } from 'react-use';
 import { executeQuery, exportQueryCsv, retrieveOptions } from '@/api/requests';
 import { QueryError, QueryResult } from '@/api/types';
-import { detectChartKind } from '@/components/query/chartData';
+import { EmptyState, PageHeader, PageShell } from '@/components/layout';
 import QueryEditor from '@/components/query/QueryEditor';
 import { errorRangeOf } from '@/components/query/errorRange';
 import QueryReference from '@/components/query/QueryReference';
-import QueryResultChart from '@/components/query/QueryResultChart';
-import QueryResultTable from '@/components/query/QueryResultTable';
+import QueryResults from '@/components/query/QueryResults';
 import SavedQueriesMenu from '@/components/query/SavedQueriesMenu';
 import { DEFAULT_QUERY, QUERY_EXAMPLES } from '@/components/query/examples';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { QUERY_LINK } from '@/layout/Sidebar';
-import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
-import { EditorView } from '@uiw/react-codemirror';
-import { useAtomValue, useSetAtom } from 'jotai';
-import { ChevronDown, CircleAlert, Download, LoaderCircle, Play } from 'lucide-react';
-import { ApiError } from 'openapi-typescript-fetch';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useAsync } from 'react-use';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
+import { Card } from '@/components/ui/card';
+import { Kbd } from '@/components/ui/kbd';
+import { Spinner } from '@/components/ui/spinner';
+import { useDocumentTitle } from '@/hooks/use-document-title';
+import { useLocalStorage } from '@/hooks/use-local-storage';
+import { QUERY_LINK } from '@/layout/nav-links';
+import { cn } from '@/lib/utils';
+import { breadcrumbAtom, titleAtom } from '@/states/basic';
 
-const RUN_SHORTCUT = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent) ? '⌘ Enter' : 'Ctrl Enter';
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const RUN_SHORTCUT = IS_MAC ? '⌘ ↵' : 'Ctrl ↵';
 
 interface QueryOutcome {
   id: number;
@@ -55,20 +57,30 @@ function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function QueryErrorBox({ title, error, onJump }: { title: string; error: QueryError; onJump: (error: QueryError) => void }) {
+/** A query (or CSV export) error from the server; the position button moves the editor cursor to it. */
+function QueryErrorAlert({ title, error, onJump }: { title: string; error: QueryError; onJump: (error: QueryError) => void }) {
   const { t } = useTranslation();
   return (
-    <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm">
-      <div className="flex flex-wrap items-center gap-2 font-medium text-destructive">
-        <CircleAlert className="h-4 w-4" />
-        {title}
-        {error.line !== null && (
-          <button type="button" className="text-xs font-normal underline underline-offset-2" onClick={() => onJump(error)}>
-            {error.column !== null ? t('query.error_position', { line: error.line, column: error.column }) : t('query.error_line', { line: error.line })}
-          </button>
-        )}
+    <div role="alert" className="flex gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive md:p-4">
+      <CircleAlert className="mt-0.5 size-4 shrink-0" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-x-3">
+          <span className="font-medium">{title}</span>
+          {error.line !== null && (
+            <Button
+              variant="link"
+              size="sm"
+              className="h-10 px-0 text-destructive underline md:h-6"
+              onClick={() => onJump(error)}
+              title={t('query.error_jump')}
+            >
+              <Crosshair />
+              {error.column !== null ? t('query.error_position', { line: error.line, column: error.column }) : t('query.error_line', { line: error.line })}
+            </Button>
+          )}
+        </div>
+        <pre className="font-mono text-xs break-words whitespace-pre-wrap">{error.message}</pre>
       </div>
-      <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-xs text-destructive">{error.message}</pre>
     </div>
   );
 }
@@ -78,27 +90,20 @@ export default function Explore() {
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const ledgerTitle = useAtomValue(titleAtom);
 
-  useDocumentTitle(`Query - ${ledgerTitle}`);
+  useDocumentTitle(`${t('NAV_QUERY')} - ${ledgerTitle}`);
   useEffect(() => {
     setBreadcrumb([QUERY_LINK]);
-  }, []);
+  }, [setBreadcrumb]);
 
-  const [query, setQuery] = useLocalStorage({ key: 'query-explore-query', defaultValue: DEFAULT_QUERY, getInitialValueInEffect: false });
+  const [query, setQuery] = useLocalStorage({ key: 'query-explore-query', defaultValue: DEFAULT_QUERY });
   const [running, setRunning] = useState(false);
   const [outcome, setOutcome] = useState<QueryOutcome | null>(null);
   const [error, setError] = useState<QueryError | null>(null);
   const [exporting, setExporting] = useState(false);
   // kept apart from `error`, so a failed export leaves the result on screen
   const [exportError, setExportError] = useState<QueryError | null>(null);
-  const [showChart, setShowChart] = useLocalStorage({ key: 'query-explore-show-chart', defaultValue: true, getInitialValueInEffect: false });
   const viewRef = useRef<EditorView | null>(null);
   const runningRef = useRef(false);
-
-  const { value: operatingCurrency } = useAsync(async () => {
-    const res = await retrieveOptions({});
-    return res.data.data.find((option) => option.key === 'operating_currency')?.value.trim() || undefined;
-  }, []);
-  const chartKind = useMemo(() => (outcome ? detectChartKind(outcome.result) : null), [outcome]);
 
   const runQuery = async (text: string) => {
     if (runningRef.current || text.trim() === '') return;
@@ -121,6 +126,11 @@ export default function Explore() {
     }
   };
 
+  const { value: operatingCurrency } = useAsync(async () => {
+    const res = await retrieveOptions({});
+    return res.data.data.find((option) => option.key === 'operating_currency')?.value.trim() || undefined;
+  }, []);
+
   const currentQuery = () => viewRef.current?.state.doc.toString() ?? query;
 
   const runCurrent = () => runQuery(currentQuery());
@@ -140,6 +150,7 @@ export default function Explore() {
     }
   };
 
+  /** Examples and saved queries: load into the editor and run. */
   const loadAndRun = (text: string) => {
     setQuery(text);
     runQuery(text);
@@ -162,85 +173,82 @@ export default function Explore() {
     view.focus();
   };
 
-  return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold tracking-tight">{t('NAV_QUERY')}</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                {t('query.examples')}
-                <ChevronDown className="ml-2 h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[min(28rem,calc(100vw-2rem))]">
-              {QUERY_EXAMPLES.map((example) => (
-                <DropdownMenuItem key={example.title} className="flex flex-col items-start gap-1" onSelect={() => loadAndRun(example.query)}>
-                  <span className="font-medium">{t(example.title)}</span>
-                  <code className="line-clamp-2 text-xs text-muted-foreground">{example.query}</code>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <SavedQueriesMenu onSelect={loadAndRun} />
-          <QueryReference onInsert={insertText} />
-        </div>
-      </div>
+  const emptyQuery = query.trim() === '';
 
-      <div className="overflow-hidden rounded-md border">
+  return (
+    <PageShell>
+      <PageHeader
+        title={t('NAV_QUERY')}
+        description={t('query.description')}
+        actions={
+          <>
+            <SavedQueriesMenu onSelect={loadAndRun} />
+            <QueryReference onInsert={insertText} />
+          </>
+        }
+      />
+
+      <Card size="sm" className="gap-0 py-0 has-[.cm-focused]:ring-2 has-[.cm-focused]:ring-ring">
         <QueryEditor
           value={query}
           onChange={setQuery}
           onRun={runCurrent}
           error={error ?? exportError}
           placeholder={t('query.placeholder')}
+          label={t('query.editor_label')}
+          className="text-base md:text-sm"
           onCreateEditor={(view) => {
             viewRef.current = view;
           }}
         />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex items-center gap-2">
-          <Button onClick={runCurrent} disabled={running}>
-            {running ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-            {running ? t('query.running') : t('query.run')}
-          </Button>
-          <Button variant="outline" onClick={exportCsv} disabled={exporting}>
-            {exporting ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-            {exporting ? t('query.exporting_csv') : t('query.export_csv')}
-          </Button>
-        </div>
-        <span className="hidden text-xs text-muted-foreground sm:inline">
-          {t('query.run_hint')} <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">{RUN_SHORTCUT}</kbd>
-        </span>
-        {outcome && (
-          <div className="ml-auto flex items-center gap-4">
-            {chartKind && (
-              <div className="flex items-center gap-2">
-                <Switch id="query-show-chart" checked={showChart} onCheckedChange={setShowChart} />
-                <Label htmlFor="query-show-chart" className="cursor-pointer">
-                  {t('query.show_chart')}
-                </Label>
-              </div>
+        <div className="flex flex-col gap-2 border-t bg-muted/40 px-3 py-2 md:flex-row md:items-center">
+          <div
+            role="group"
+            aria-label={t('query.examples')}
+            // one swipeable row on phones (no scrollbar), wrapping chips from md up
+            className={cn(
+              'flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+              'md:flex-wrap md:overflow-visible',
             )}
-            <span className="text-sm text-muted-foreground">
-              {t('query.rows', { count: outcome.result.rows.length })} · {t('query.elapsed', { ms: outcome.elapsedMs })}
-            </span>
+          >
+            <span className="shrink-0 pr-1 text-xs text-muted-foreground">{t('query.examples')}</span>
+            {QUERY_EXAMPLES.map((example) => (
+              <Button
+                key={example.title}
+                variant="ghost"
+                size="sm"
+                className="h-10 shrink-0 text-xs md:h-7"
+                title={example.query}
+                disabled={running}
+                onClick={() => loadAndRun(example.query)}
+              >
+                {t(example.title)}
+              </Button>
+            ))}
           </div>
-        )}
-      </div>
+          <div className="grid grid-cols-2 gap-2 md:flex md:shrink-0 md:self-start">
+            <Button variant="outline" className="h-10 md:h-8" onClick={exportCsv} disabled={exporting || emptyQuery}>
+              {exporting ? <Spinner aria-hidden /> : <Download />}
+              {exporting ? t('query.exporting_csv') : t('query.export_csv')}
+            </Button>
+            <Button className="h-10 md:h-8" onClick={runCurrent} disabled={running || emptyQuery} aria-keyshortcuts="Meta+Enter Control+Enter">
+              {running ? <Spinner aria-hidden /> : <Play />}
+              {running ? t('query.running') : t('query.run')}
+              <Kbd className="hidden bg-primary-foreground/15 text-primary-foreground md:inline-flex">{RUN_SHORTCUT}</Kbd>
+            </Button>
+          </div>
+        </div>
+      </Card>
 
-      {exportError && <QueryErrorBox title={t('query.export_error_title')} error={exportError} onJump={jumpToError} />}
+      {exportError && <QueryErrorAlert title={t('query.export_error_title')} error={exportError} onJump={jumpToError} />}
 
-      {error && <QueryErrorBox title={t('query.error_title')} error={error} onJump={jumpToError} />}
+      {error && <QueryErrorAlert title={t('query.error_title')} error={error} onJump={jumpToError} />}
 
-      {outcome && chartKind && showChart && <QueryResultChart result={outcome.result} kind={chartKind} operatingCurrency={operatingCurrency} />}
+      {outcome && (
+        <QueryResults runId={outcome.id} result={outcome.result} elapsedMs={outcome.elapsedMs} stale={running} operatingCurrency={operatingCurrency} />
+      )}
 
-      {outcome && <QueryResultTable key={outcome.id} result={outcome.result} />}
-
-      {!outcome && !error && <p className="text-sm text-muted-foreground">{t('query.empty_hint')}</p>}
-    </div>
+      {!outcome && !error && <EmptyState icon={DatabaseZap} title={t('query.empty_title')} description={t('query.empty_hint')} />}
+    </PageShell>
   );
 }
