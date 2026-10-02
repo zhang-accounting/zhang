@@ -122,7 +122,7 @@ impl GotchaApp for ServerApp {
             .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */));
 
         let router = if let Some((username, password)) = basic_credential {
-            info!("web basic auth is enabled with username {}", &username);
+            info!("web basic auth is enabled with username {}", username);
             router.layer(ValidateRequestHeaderLayer::basic(&username, password.as_deref().unwrap_or_default()))
         } else {
             router
@@ -251,7 +251,7 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
             let guard1 = cloned_ledger.read().await;
             guard1.entry.0.clone()
         };
-        info!("watching {}", &entry_path.to_str().unwrap_or(""));
+        info!("watching {}", entry_path.to_str().unwrap_or(""));
         watcher.watch(entry_path.as_path(), RecursiveMode::Recursive).expect("cannot watch entry path");
         'looper: loop {
             let mut all = vec![];

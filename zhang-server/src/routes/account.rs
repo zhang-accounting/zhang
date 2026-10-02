@@ -92,7 +92,7 @@ pub async fn upload_account_document(
         let v4 = Uuid::new_v4();
         let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
         let striped_buf = buf.strip_prefix(entry).unwrap();
-        info!("uploading document `{}`(id={}) to account {}", file_name, &v4.to_string(), &account_name);
+        info!("uploading document `{}`(id={}) to account {}", file_name, v4, account_name);
 
         let content_buf = field.bytes().await.unwrap();
 

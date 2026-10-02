@@ -773,7 +773,7 @@ impl Operations {
 impl Operations {
     pub fn new_error(&mut self, error_kind: ErrorKind, span: &SpanInfo, metas: HashMap<String, String>) -> ZhangResult<()> {
         let mut store = self.write();
-        debug!("insert a new error [{}] [span: {:?}] [meta:{:?}]", &error_kind, &span, &metas);
+        debug!("insert a new error [{}] [span: {:?}] [meta:{:?}]", error_kind, span, metas);
         store.errors.push(ErrorDomain {
             id: Uuid::from_span(span).to_string(),
             error_type: error_kind,

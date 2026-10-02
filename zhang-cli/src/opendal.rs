@@ -8,7 +8,8 @@ use chrono::Datelike;
 use log::{debug, info, warn};
 use minijinja::{context, Environment};
 use opendal::services::{Fs, Github, Webdav, S3};
-use opendal::{ErrorKind, Operator};
+use opendal::{ErrorKind, HttpTransporter, Operator};
+use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 use zhang_core::data_source::{DataSource, LoadResult};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
@@ -42,9 +43,25 @@ impl DataSource for OpendalDataSource {
     }
 
     fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
-        self.operator
-            .blocking()
-            .read(path.as_str())
+        // opendal has no native blocking IO anymore. Drive the async read on a dedicated thread with its own
+        // runtime and its own http client, isolated from the caller's runtime (if any): this can't panic with
+        // "Cannot start a runtime from within a runtime", and never waits on a pooled http connection owned by
+        // a caller runtime that is blocked on this very call (which deadlocks a current-thread runtime).
+        let result = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let http_transport = HttpTransporter::new(ReqwestTransport::new(reqwest::Client::new()));
+                    let operator = self
+                        .operator
+                        .clone()
+                        .with_context(self.operator.base_context().with_http_transport(http_transport));
+                    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
+                    runtime.block_on(operator.read(&path)).map_err(|e| e.to_string())
+                })
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+        });
+        result
             .map(|data| data.to_vec())
             .map_err(|e| ZhangError::CustomError(format!("fail to get file content [{}] : {}", path, e)))
     }
@@ -100,6 +117,10 @@ impl DataSource for OpendalDataSource {
 
                     for entry in files {
                         let entry_name = entry.path();
+                        // `list` also returns the listed directory itself, which is not a child to match
+                        if entry_name == current_path_str {
+                            continue;
+                        }
 
                         if entry.metadata().is_dir() {
                             let striped_entry_name = entry.path().strip_prefix(&current_path_str).unwrap().strip_suffix("/").unwrap();
@@ -258,56 +279,53 @@ impl OpendalDataSource {
     pub async fn from_env(source: FileSystem, server_opts: &mut ServerOpts) -> OpendalDataSource {
         let operator = match source {
             FileSystem::Fs => {
-                let mut builder = Fs::default();
-                builder.root(server_opts.path.to_string_lossy().to_string().as_str());
-                // Operator::new(builder).unwrap().finish()
-                Operator::new(builder).unwrap().finish()
+                let builder = Fs::default().root(server_opts.path.to_string_lossy().to_string().as_str());
+                Operator::new(builder).unwrap()
             }
             FileSystem::WebDav => {
-                let mut webdav_builder = Webdav::default();
-                webdav_builder.endpoint(&std::env::var("ZHANG_WEBDAV_ENDPOINT").expect("ZHANG_WEBDAV_ENDPOINT must be set"));
+                let webdav_builder = Webdav::default().endpoint(&std::env::var("ZHANG_WEBDAV_ENDPOINT").expect("ZHANG_WEBDAV_ENDPOINT must be set"));
                 let webdav_root = std::env::var("ZHANG_WEBDAV_ROOT").expect("ZHANG_WEBDAV_ROOT must be set");
-                webdav_builder.root(&webdav_root);
-                webdav_builder.username(std::env::var("ZHANG_WEBDAV_USERNAME").ok().as_deref().unwrap_or_default());
-                webdav_builder.password(std::env::var("ZHANG_WEBDAV_PASSWORD").ok().as_deref().unwrap_or_default());
+                let webdav_builder = webdav_builder
+                    .root(&webdav_root)
+                    .username(std::env::var("ZHANG_WEBDAV_USERNAME").ok().as_deref().unwrap_or_default())
+                    .password(std::env::var("ZHANG_WEBDAV_PASSWORD").ok().as_deref().unwrap_or_default());
                 server_opts.path = PathBuf::from(&webdav_root);
-                Operator::new(webdav_builder).unwrap().finish()
+                Operator::new(webdav_builder).unwrap()
             }
             FileSystem::Github => {
-                let mut builder = Github::default();
-                builder.root("/");
-                builder.token(&std::env::var("ZHANG_GITHUB_TOKEN").expect("ZHANG_GITHUB_TOKEN must be set"));
-                builder.owner(&std::env::var("ZHANG_GITHUB_USER").expect("ZHANG_GITHUB_USER must be set"));
-                builder.repo(&std::env::var("ZHANG_GITHUB_REPO").expect("ZHANG_GITHUB_REPO must be set"));
+                let builder = Github::default()
+                    .root("/")
+                    .token(&std::env::var("ZHANG_GITHUB_TOKEN").expect("ZHANG_GITHUB_TOKEN must be set"))
+                    .owner(&std::env::var("ZHANG_GITHUB_USER").expect("ZHANG_GITHUB_USER must be set"))
+                    .repo(&std::env::var("ZHANG_GITHUB_REPO").expect("ZHANG_GITHUB_REPO must be set"));
 
-                Operator::new(builder).unwrap().finish()
+                Operator::new(builder).unwrap()
             }
             FileSystem::S3 => {
-                let mut builder = S3::default();
-                builder.bucket(&std::env::var("ZHANG_S3_BUCKET").expect("ZHANG_S3_BUCKET must be set"));
+                let mut builder = S3::default().bucket(&std::env::var("ZHANG_S3_BUCKET").expect("ZHANG_S3_BUCKET must be set"));
                 let s3_root = std::env::var("ZHANG_S3_ROOT").unwrap_or_else(|_| "/".to_string());
-                builder.root(&s3_root);
+                builder = builder.root(&s3_root);
                 // optional settings, fallback to opendal defaults and the standard AWS env/profile config
                 if let Ok(endpoint) = std::env::var("ZHANG_S3_ENDPOINT") {
-                    builder.endpoint(&endpoint);
+                    builder = builder.endpoint(&endpoint);
                 }
                 if let Ok(region) = std::env::var("ZHANG_S3_REGION") {
-                    builder.region(&region);
+                    builder = builder.region(&region);
                 }
                 if let Ok(access_key_id) = std::env::var("ZHANG_S3_ACCESS_KEY_ID") {
-                    builder.access_key_id(&access_key_id);
+                    builder = builder.access_key_id(&access_key_id);
                 }
                 if let Ok(secret_access_key) = std::env::var("ZHANG_S3_SECRET_ACCESS_KEY") {
-                    builder.secret_access_key(&secret_access_key);
+                    builder = builder.secret_access_key(&secret_access_key);
                 }
                 if let Ok(session_token) = std::env::var("ZHANG_S3_SESSION_TOKEN") {
-                    builder.security_token(&session_token);
+                    builder = builder.session_token(&session_token);
                 }
                 if matches!(std::env::var("ZHANG_S3_VIRTUAL_HOST_STYLE").as_deref(), Ok("true") | Ok("1")) {
-                    builder.enable_virtual_host_style();
+                    builder = builder.enable_virtual_host_style();
                 }
                 server_opts.path = PathBuf::from(&s3_root);
-                Operator::new(builder).expect("cannot build s3 operator, check your s3 configuration").finish()
+                Operator::new(builder).expect("cannot build s3 operator, check your s3 configuration")
             }
         };
         let is_beancount = match PathBuf::from(&server_opts.endpoint)

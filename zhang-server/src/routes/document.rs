@@ -23,7 +23,7 @@ pub async fn download_document(ledger: State<SharedLedger>, path: Path<(String,)
     let striped_path = full_path.strip_prefix(entry).unwrap();
     let file_name = striped_path.file_name().unwrap().to_string_lossy().to_string();
     let content = cacheable_data(&encoded_file_path, async {
-        info!("loading file [{:?}] data from remote...", &striped_path);
+        info!("loading file [{:?}] data from remote...", striped_path);
         ledger.data_source.async_get(striped_path.to_string_lossy().to_string()).await
     })
     .await
