@@ -3,15 +3,11 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { useTheme } from 'next-themes';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { basicInfoFetcher, onlineAtom, updatableVersionAtom } from './states/basic';
 import { Router } from './router';
-import { useSetAtom } from 'jotai';
-import { errorsFetcher } from './states/errors';
-import { accountFetcher } from './states/account';
-import { commoditiesFetcher } from './states/commodity';
-import { journalFetcher } from './states/journals';
-import { toast } from 'sonner';
+import { Toaster } from './components/ui/sonner';
 import { AppShell } from './layout/AppShell';
+import { AuthGate } from './layout/AuthGate';
+import { useServerEvents } from './layout/use-server-events';
 
 /** `--background` in light / dark (see global.css); used for `<meta name="theme-color">` (browser chrome, PWA title bar). */
 const THEME_COLOR = { light: '#f9fafa', dark: '#111312' };
@@ -23,15 +19,6 @@ export default function App() {
   const { i18n } = useTranslation();
   const { resolvedTheme } = useTheme();
   const [lang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
-
-  const setLedgerOnline = useSetAtom(onlineAtom);
-  const setUpdatableVersion = useSetAtom(updatableVersionAtom);
-
-  const refreshErrors = useSetAtom(errorsFetcher);
-  const refreshAccounts = useSetAtom(accountFetcher);
-  const refreshBasicInfo = useSetAtom(basicInfoFetcher);
-  const refreshCommodities = useSetAtom(commoditiesFetcher);
-  const refreshJournal = useSetAtom(journalFetcher);
 
   useEffect(() => {
     if (i18n.language !== lang) {
@@ -55,55 +42,25 @@ export default function App() {
     return () => i18n.off('languageChanged', apply);
   }, [i18n]);
 
-  useEffect(() => {
-    // `i18n.t` (not a captured `t`) so toasts follow later language switches.
-    const events = new EventSource('/api/sse');
-    // "Connected" arrives on every page load; only worth a toast when it ends an offline period.
-    let wasOffline = false;
-    events.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      switch (data?.type) {
-        case 'Reload':
-          toast.success(i18n.t('SHELL_RELOAD_DONE'), {
-            id: 'leger-reload',
-            description: i18n.t('SHELL_RELOAD_DONE_DESCRIPTION'),
-          });
-
-          refreshErrors();
-          refreshAccounts();
-          refreshBasicInfo();
-          refreshCommodities();
-          refreshJournal();
-          break;
-        case 'Connected':
-          if (wasOffline) toast.success(i18n.t('SHELL_SERVER_CONNECTED'), { id: 'offline' });
-          wasOffline = false;
-          setLedgerOnline(true);
-          refreshBasicInfo();
-          break;
-        case 'NewVersionFound':
-          toast.info(i18n.t('SHELL_UPDATE_AVAILABLE', { version: data.version }));
-          setUpdatableVersion(data.version);
-          break;
-        default:
-          break;
-      }
-    };
-    events.onerror = () => {
-      wasOffline = true;
-      setLedgerOnline(false);
-      toast.error(i18n.t('SHELL_SERVER_OFFLINE'), {
-        id: 'offline',
-        description: i18n.t('SHELL_SERVER_OFFLINE_DESCRIPTION'),
-      });
-    };
-    return () => events.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   return (
-    <AppShell>
-      <Router />
-    </AppShell>
+    <AuthGate>
+      <LedgerApp />
+    </AuthGate>
+  );
+}
+
+/**
+ * The signed-in app: shell, routes, the SSE stream and the toasts (mounted by `AuthGate` only while access is granted, so the
+ * error toasts of requests cut off by an expired session do not cover the login page; it dismisses them on sign-in).
+ */
+function LedgerApp() {
+  useServerEvents();
+  return (
+    <>
+      <AppShell>
+        <Router />
+      </AppShell>
+      <Toaster mobileOffset={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
+    </>
   );
 }

@@ -42,9 +42,9 @@ react-day-picker 10 (`ui/calendar`) · react-i18next · jotai. `cn` comes from `
   button) · full-width "New transaction" card button (`variant="sidebar"`, plus in `link`) · primary nav
   (`SIDEBAR_PRIMARY_LINKS`: Overview, Journals, Report, Balance sheet, Budget) + collapsible "More" (`SIDEBAR_MORE_LINKS`,
   state in localStorage `sidebar-more-open`, auto-open on its routes) · `SidebarAccounts` · update notice · footer (border-top:
-  Tools, Settings, then theme / language / collapse icon buttons). Nav items are 34px: `foreground-2` label, muted icon,
-  neutral hover; active = `sidebar-accent` tint + `sidebar-accent-foreground` + medium + `link` icon. Icon mode keeps the otter,
-  a 32px "+" and icon-only items with tooltips; the accounts list is hidden.
+  Tools, Settings, then theme / language / sign-out (auth on) / collapse icon buttons). Nav items are 34px: `foreground-2`
+  label, muted icon, neutral hover; active = `sidebar-accent` tint + `sidebar-accent-foreground` + medium + `link` icon. Icon
+  mode keeps the otter, a 32px "+" and icon-only items with tooltips; the accounts list is hidden.
 - `SidebarAccounts` (Actual Budget style): "Accounts" label + search toggle (inline filter), "All accounts" net total, Assets /
   Liabilities subtotals (semibold, with symbol), then every open account (name without the top-level type, `title` = full
   name, balance never truncated, without symbol, negatives `text-negative`). Rows are 28px / 13px links to
@@ -53,6 +53,32 @@ react-day-picker 10 (`ui/calendar`) · react-i18next · jotai. `cn` comes from `
   `shortLabel` is the tab-bar label (`报表` vs the sidebar's `统计报表`); `/accounts` is "Balance sheet" in the sidebar and
   "Accounts" in the tab bar.
 - Controls: `OnlineStatus` (browser + SSE `onlineAtom`), `ThemeToggle` / `LanguageSwitch` (`className`, `side`), `useReloadLedger()`.
+
+## Auth gate and login page (`layout/AuthGate`, `pages/Login`)
+- `App` = `AuthGate` → `LedgerApp` (`AppShell` + routes + `useServerEvents`). The gate loads `GET /api/auth/status` into
+  `authStateAtom` (`states/auth`; splash while loading, retry screen if the server cannot be reached, a 404 = old server = no
+  auth). With `enabled && !authenticated` it renders the login page at `/login?next=<path>` instead of the shell (open-redirect
+  safe `returnPath`), so the SSE stream and the ledger atoms only exist while signed in; `resetLedgerStateAtom` drops the cached
+  ledger data once the shell has unmounted. Explicit sign-out goes to `/login` without `next`.
+- Session expiry: the server answers `401 { message }` (no `WWW-Authenticate`, no browser popup). The fetcher middleware and
+  `responseError` (plain `fetch`) report 401s outside the sign-in calls (`isSignInUrl`) → `signedOutAtom('expired')` → login
+  page with a "session expired" note; a quiet status refresh never leaves the login page (only a sign-in does). A permanently
+  closed SSE stream re-checks the status. All `/api` calls are same-origin (`apiBaseUrl`, the dev server proxies `/api`) so the
+  HttpOnly cookie is sent; auth calls live in `api/auth.ts` (`credentials: 'same-origin'`).
+  `<Toaster>` is mounted inside `LedgerApp` (no toasts over the login page); sign-in dismisses the previous session's toasts.
+- Login page (`AuthScreen`: full screen, no shell, theme + language buttons at the bottom): otter 48px, "Sign in to <title>"
+  (status `title`, fallback "Zhang") + muted subtitle, then one card (`max-w-sm`): passkey registered → 44px primary "Sign in
+  with passkey" (also on Enter outside a control); passkey on but none registered → "Set up a passkey" form (`ZHANG_PASSKEY`
+  secret + optional name, default "<browser> on <OS>"); password on → username / password form under an "or" divider, its
+  button primary only when it is the only method (outline next to the passkey button). Each action has a muted hint line
+  under it that turns into the red error (same slot: no layout shift). No WebAuthn (insecure context, old browser, IP-address
+  host — never a valid RP ID) → a note, and the password form becomes primary.
+- WebAuthn: `lib/webauthn` converts the webauthn-rs JSON (`{ publicKey }`, base64url) both ways (unit-tested);
+  `lib/passkey` runs start → `navigator.credentials` → finish and throws `PasskeyError` kinds that
+  `usePasskeyErrorMessage` turns into one sentence (`NotAllowedError` → "The passkey prompt was dismissed.").
+- Signed in with auth on (`canSignOutAtom`): "Sign out" icon button in the sidebar footer row and a button in the mobile More
+  sheet (`useSignOut`). Passkey mode: Settings → Passkeys (`components/auth/PasskeySettings`) lists, adds (no secret) and
+  removes passkeys; the server's 409 (last passkey without password sign-in) is shown in the confirm dialog.
 
 ## Journal rows (`components/journalLines/JournalRow.tsx`)
 - Used by Journals and the overview's recent activity. Journals are grouped by day: heading `Sep 16` (semibold; the year is

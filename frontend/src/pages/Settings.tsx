@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
 import { serverBaseUrl } from '@/api/fetcher';
 import { retrieveOptions, retrievePlugins } from '@/api/requests';
+import { PasskeySettings } from '@/components/auth/PasskeySettings';
 import { SettingRow, SettingsSection } from '@/components/basic/Setting';
 import { EmptyState, PageHeader, PageShell } from '@/components/layout';
 import PluginBox from '@/components/PluginBox';
@@ -99,6 +100,8 @@ export default function Settings() {
           </div>
         </SettingRow>
       </SettingsSection>
+
+      <PasskeySettings />
 
       <SettingsSection
         title={t('settings.ledger')}

@@ -1,4 +1,5 @@
 import { ApiError } from 'openapi-typescript-fetch';
+import { reportUnauthorized } from '@/api/fetcher';
 
 /** Server error bodies are `{ message }` (zhang-server `error.rs`); long HTML / text bodies are cut for toasts. */
 const MAX_LENGTH = 300;
@@ -34,8 +35,12 @@ async function readBody(response: Response): Promise<unknown> {
   }
 }
 
-/** Error carrying the server message of a failed plain `fetch` (multipart uploads bypass the generated client). */
+/**
+ * Error carrying the server message of a failed plain `fetch` (multipart uploads bypass the generated client). A 401 outside
+ * `/api/auth/*` also ends the session (login page), like the generated client's middleware.
+ */
 export async function responseError(response: Response): Promise<Error> {
+  reportUnauthorized(response.url, response.status);
   return new Error(messageFromBody(await readBody(response)) ?? statusLine(response.status, response.statusText));
 }
 

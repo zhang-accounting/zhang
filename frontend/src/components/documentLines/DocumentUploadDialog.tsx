@@ -4,7 +4,7 @@ import { useId, useState } from 'react';
 import { FileWithPath, useDropzone } from 'react-dropzone';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { serverBaseUrl } from '@/api/fetcher';
+import { apiBaseUrl } from '@/api/fetcher';
 import { GroupCombobox } from '@/components/basic/GroupCombobox';
 import { AutoDrawer, AutoDrawerTrigger } from '@/components/ui/auto-drawer';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,7 @@ interface Props {
 async function uploadDocuments(account: string, files: File[]) {
   const formData = new FormData();
   files.forEach((file) => formData.append('file', file));
-  const response = await fetch(`${serverBaseUrl}/api/accounts/${encodeURIComponent(account)}/documents`, { method: 'POST', body: formData });
+  const response = await fetch(`${apiBaseUrl}/api/accounts/${encodeURIComponent(account)}/documents`, { method: 'POST', body: formData });
   if (!response.ok) throw await responseError(response);
 }
 
