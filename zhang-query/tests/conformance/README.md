@@ -99,14 +99,22 @@ Before writing anything, the generator checks every case:
   - `engine`: pure query semantics over postings that both tools agree on.
     These cases must pass.
   - `ledger-dependent`: the result also depends on booking (lot matching, cost
-    dates), the price map, or data the Store does not keep (`@` price). A
-    failure here must be triaged first: it may be a ledger-processing
-    difference rather than an engine bug.
+    dates), the price map, or data the Store does not keep (`@` price). These
+    cases must pass too. A failure is triaged first, because it may be a
+    ledger-processing difference rather than an engine bug. It is tolerated
+    only through an explicit allow-list entry with a reason (see "Running the
+    harness").
 - `ordered`: `true` only when the query's `ORDER BY` fully determines the row
   order.
 - `expect`: `"rows"` or `"error"`. Error fixtures have `"columns": []` and
-  `"rows": []`. Any query error passes; messages and positions are not
-  compared.
+  `"rows": []`, plus an `error_class` taken from the type of beanquery's
+  exception:
+  - `"syntax"` for a `ParseError`.
+  - `"compile"` for a `CompilationError`: unknown column or function, type
+    mismatches and grouping errors.
+
+  The generator refuses any other exception, because beanquery crashing is
+  not an expectation. Messages and positions are not compared.
 - Every fixture contains `notes`. It is `""` when there is nothing to note.
 - Files are UTF-8 JSON with one row per line. `query` is exactly what zhang
   should run.
@@ -160,8 +168,10 @@ This is the same as the HTTP API.
 5. **Sets** are compared as sets (fixtures are already sorted).
 6. **NULL** matches only NULL. `""` is not NULL. beanquery returns `''` in some
    places, see the quirks below.
-7. **Errors:** for `expect: "error"`, the engine must reject the query, either
-   at parse/compile time or at execution.
+7. **Errors:** for `expect: "error"`, the engine must reject the query with an
+   error of the fixture's `error_class`. The harness maps zhang's
+   `QueryErrorKind` as follows: `Parse` to `syntax`, `Compile` to `compile`,
+   and `Eval` to `runtime`. No fixture expects `runtime`.
 
 ## Running the harness
 
@@ -176,13 +186,22 @@ It prints a table to stderr with one status per case:
 
 - `PASS`: the engine matches the oracle.
 - `ACCEPTED`: the engine differs from the oracle exactly as documented in
-  `ACCEPTED_DEVIATIONS` in that file.
-- `PENDING-FUNCTION`: the case uses a Phase 1 function that the engine does
-  not register yet.
-- `LEDGER-DEP`: a `ledger-dependent` case differs.
-- `FAIL`: any other difference.
+  `ACCEPTED_DEVIATIONS` in that file. Most entries give the exact rows the
+  engine must return instead.
+- `LEDGER-DEP`: a `ledger-dependent` case differs and is listed, with a
+  reason, in `LEDGER_DEPENDENT_ALLOWED`. The list is empty today.
+- `FAIL`: any other difference. This includes unlisted ledger-dependent
+  cases, an error of the wrong class, and functions the engine lacks.
 
-Only `FAIL` makes the test fail.
+Only `FAIL` makes the test fail. An allow-list entry for a case that passes is
+reported as a stale entry.
+
+To check that the gate catches regressions, run it over a mutated copy of the
+fixtures:
+
+```sh
+ZHANG_QUERY_CONFORMANCE_CASES=/tmp/mutated-cases cargo test -p zhang-query --test conformance
+```
 
 ## beanquery semantics captured by the fixtures
 

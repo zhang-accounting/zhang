@@ -1,0 +1,749 @@
+---
+title: Query Language
+description: Reference for Zhang's BQL-compatible query language, covering syntax, the postings table, types, functions, the HTTP API and the differences from Beancount's query language.
+---
+
+Zhang can answer ad-hoc questions about your ledger with a small query language. It understands a subset of the [Beancount Query Language (BQL)](https://beancount.github.io/docs/beancount_query_language/), so most `SELECT` queries written for Beancount or Fava work without changes. When BQL v2 and its successor [beanquery](https://github.com/beancount/beanquery) disagree, Zhang does what beanquery does, except for the few deliberate differences listed at the end of this page.
+
+Queries run directly against the ledger that Zhang has already loaded into memory. They are read-only, and all arithmetic uses exact decimals, so amounts never pass through floating point.
+
+:::caution[Early version]
+This page covers the first version of the query language (Phase 1 of [#434](https://github.com/zhang-accounting/zhang/issues/434)): `SELECT` queries over a single `postings` table. [Differences from BQL and beanquery](#differences-from-bql-and-beanquery) lists what is not available yet.
+:::
+
+## Running a query
+
+### In the web UI
+
+Open the **Query** page (**查询** in the Chinese interface) at `/explore`.
+
+- Type a query in the editor. It runs only when you click the run button or press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> (<kbd>Cmd</kbd>+<kbd>Enter</kbd> on macOS), never while you are typing.
+- Results are shown as a table, and each cell is rendered according to its [type](#types). An inventory cell shows one position per line.
+- If the query has an error, the editor highlights the line and column where it was found.
+- The examples menu inserts ready-made queries, and the reference panel lists every column and function.
+
+### Over HTTP
+
+Send the query to `POST /api/query`. See [HTTP API](#http-api) for the request and response format.
+
+## A first query
+
+```sql
+SELECT date, payee, account, position
+WHERE account ~ '^Expenses:Food'
+ORDER BY date DESC
+LIMIT 10
+```
+
+This returns the ten most recent postings to `Expenses:Food` and its sub-accounts.
+
+- Each row is one posting. `date` and `payee` come from the transaction, while `account` and `position` come from the posting itself.
+- `~` matches a regular expression anywhere in the text and ignores case. The `^` anchors the pattern to the start of the account name. Note that `'^Expenses:Food'` also matches `Expenses:Foodstuff`. Use `'^Expenses:Food(:|$)'` to match only the account and its children.
+- `ORDER BY date DESC` puts the newest postings first, and `LIMIT 10` keeps the first ten rows.
+
+## Query syntax
+
+```text
+SELECT [DISTINCT] target [, target ...] | *
+  [FROM expression]
+  [WHERE expression]
+  [GROUP BY group_key [, group_key ...]]
+  [ORDER BY order_key [ASC | DESC] [, order_key [ASC | DESC] ...]]
+  [LIMIT count]
+  [;]
+
+target    = expression [AS name]
+group_key = expression | target name | target number
+order_key = expression | target name | target number
+```
+
+- The clauses must appear in the order shown. All of them except `SELECT` are optional, and a single trailing `;` is allowed.
+- Keywords, column names and function names are all case-insensitive: `SELECT account`, `select ACCOUNT` and `Select Account` are the same query.
+- Names consist of ASCII letters, digits and underscores, and cannot start with a digit. The words `SELECT`, `DISTINCT`, `FROM`, `WHERE`, `GROUP`, `BY`, `ORDER`, `ASC`, `DESC`, `LIMIT`, `AS`, `AND`, `OR`, `NOT`, `IN`, `IS`, `NULL`, `TRUE`, `FALSE`, `HAVING` and `PIVOT` are reserved and cannot be used as column names.
+- Spaces and line breaks between tokens are not significant, so a query can span several lines.
+- `--` starts a comment that runs to the end of the line.
+
+### How a query is evaluated
+
+1. `FROM` and `WHERE` choose which postings take part.
+2. If the query uses an [aggregate function](#aggregate-functions) or has a `GROUP BY` clause, the chosen postings are grouped and each group produces one row. Otherwise each posting produces one row.
+3. `ORDER BY` sorts the rows.
+4. `DISTINCT` removes duplicate rows, keeping the first of each.
+5. `LIMIT` keeps the first rows and drops the rest.
+
+Before any posting is read, Zhang checks the query and simplifies it. Parts that involve only constants, such as `'^Expenses:' + 'Food'`, are computed once at that point. Functions that depend on the ledger or on the current date (`today`, `convert`, `value`, `getprice` and the metadata functions) are not. As a result, an invalid regular expression in a constant pattern is reported immediately, with its position, even if no posting would ever be matched against it.
+
+### SELECT
+
+The targets are the expressions to compute for each row, separated by commas.
+
+- `SELECT *` is short for `SELECT date, flag, payee, narration, account, position`.
+- `AS name` gives a target a name. The name can be used in `GROUP BY` and `ORDER BY`, but not in `WHERE`.
+- Each result column is named after its alias if it has one. Otherwise it is named after the target's text exactly as you wrote it, without surrounding spaces: `account`, `ACCOUNT`, `sum(position)` or `sum( position )`. The columns of `SELECT *` use the lowercase names listed above.
+- `SELECT DISTINCT` removes rows that are identical to an earlier row. Only the selected values are compared.
+
+### FROM
+
+In Phase 1, `FROM` is followed by an expression, not a table name. It filters postings exactly like `WHERE`, and when a query has both, a posting must satisfy both:
+
+```sql
+SELECT account, sum(position)
+FROM year = 2024
+WHERE account ~ '^Expenses'
+GROUP BY account
+```
+
+is the same as `... WHERE (year = 2024) AND (account ~ '^Expenses') ...`. This matches beanquery, and it means BQL queries that filter in `FROM` keep working.
+
+The query always reads the `postings` table. Naming a table, as in `FROM postings` or `FROM #postings`, is an error, and so are the period clauses `OPEN ON`, `CLOSE ON` and `CLEAR`; see [Workarounds](#workarounds).
+
+### WHERE
+
+`WHERE` keeps the postings for which the condition is `TRUE`. A condition that evaluates to `NULL` counts as not true, so the posting is dropped (see [NULL and three-valued logic](#null-and-three-valued-logic)). The condition of `WHERE` or `FROM` must be a boolean expression, and aggregate functions are not allowed in either clause.
+
+### GROUP BY
+
+A query is an aggregate query when one of its targets uses an [aggregate function](#aggregate-functions), or when it has a `GROUP BY` clause. Postings are then grouped and each group produces one row.
+
+- A group key can be an expression, a target name (an alias, or the text of a target such as `account`), or a target's position in the `SELECT` list, counting from 1. `GROUP BY 1, 2` groups by the first two targets. Names are matched without regard to case.
+- A group key does not have to be selected. `SELECT sum(position) GROUP BY account` returns one unlabeled total per account.
+- **Without `GROUP BY`**, an aggregate query is grouped by all of its targets that are not aggregates. `SELECT account, sum(position)` is the same as `SELECT account, sum(position) GROUP BY account`. If every target is an aggregate, all matching postings form a single group.
+- **With `GROUP BY`**, every target that reads a column, or calls one of the [metadata functions](#metadata-functions), outside of an aggregate function must be a group key. `SELECT account, payee, count(*) GROUP BY account` is an error because `payee` is not grouped. Targets that use neither, such as constants, need not be grouped.
+- In an aggregate query, an `ORDER BY` expression that is not an aggregate must also be a group key.
+- Values of type `set` (such as `tags`) and `inventory` cannot be group keys.
+- A group key cannot contain an aggregate function, and aggregate functions cannot be nested (`sum(count(*))` is an error).
+- A single target cannot mix an aggregate with a column used outside of it, even a grouped one. `number - sum(number)` and `possign(sum(position), account)` are errors; write the second one as `sum(possign(position, account))`. Expressions built only from aggregates and constants, such as `sum(number) / 12` or `units(sum(position))`, are aggregates themselves and are fine.
+- An aggregate query that matches no postings returns no rows at all. Even `SELECT count(*) WHERE FALSE` returns an empty result, not a row containing `0`.
+
+```sql
+SELECT root(account, 2) AS category, sum(position) AS total
+WHERE account ~ '^Expenses'
+GROUP BY category
+```
+
+### ORDER BY
+
+- An order key can be an expression, a target name or a target number, just like a group key. An expression that is not selected is still used for sorting, but it does not appear in the result.
+- Each key has its own direction: `ASC` (ascending, the default) or `DESC` (descending). In `ORDER BY 1 DESC, 2`, the first key is descending and the second ascending.
+- Rows are compared by the first key. The second key only breaks ties, and so on. Rows that are equal on every key keep their original order.
+- `NULL` sorts lower than any other value. It comes first in ascending order and last in descending order.
+- See [Ordering and comparison](#ordering-and-comparison) for how values of each type are ordered.
+- Without `ORDER BY`, a plain query returns postings in ledger order: by date and time, then in the order they appear in your files. An aggregate query returns its groups in the order in which their first posting appears in the ledger.
+
+### LIMIT
+
+`LIMIT n` keeps the first `n` rows, after sorting and `DISTINCT`. `n` must be a non-negative integer literal. `LIMIT 0` returns no rows.
+
+## Literals
+
+| Literal | Examples | Type |
+|---------|----------|------|
+| String | `'Food'`, `"USD"` | `str` |
+| Integer | `0`, `42` | `int` |
+| Decimal | `3.14`, `0.5`, `.5` | `decimal` |
+| Date | `2024-01-31` | `date` |
+| Boolean | `TRUE`, `FALSE` | `bool` |
+| Null | `NULL` | `null` |
+
+- Strings can use single or double quotes. Unlike standard SQL, `"USD"` is a string, not a column name.
+- A string ends at the next quote of the same kind, and there are no escape sequences. To put a quote character inside a string, wrap the string in the other kind of quote: `"Joe's Diner"` or `'say "hi"'`.
+- Dates are written **without** quotes, in `YYYY-MM-DD` form. An invalid date such as `2024-13-01` is an error.
+- A quoted string compared with a date is read as a date, so `date >= '2024-01-01'` also works. A string that is not a valid `YYYY-MM-DD` date is then an error.
+- Integers are 64-bit. A larger integer literal becomes a `decimal`. Exponent notation such as `1e3` is not supported.
+- `TRUE`, `FALSE` and `NULL` are keywords and are case-insensitive.
+
+## Operators
+
+From highest to lowest precedence:
+
+| Precedence | Operators | Meaning |
+|------------|-----------|---------|
+| 1 | `-x` `+x` | unary minus and plus |
+| 2 | `*` `/` | multiplication, division |
+| 3 | `+` `-` | addition, subtraction |
+| 4 | `=` `==` `!=` `<>` `<` `<=` `>` `>=` | comparison |
+| 4 | `~` `!~` `?~` | regular-expression match |
+| 4 | `IN` `NOT IN` | membership |
+| 4 | `IS NULL` `IS NOT NULL` | null test |
+| 5 | `NOT` | logical negation |
+| 6 | `AND` | logical and |
+| 7 | `OR` | logical or |
+
+- Use parentheses to group explicitly: `(a OR b) AND c`.
+- Because `NOT` binds more loosely than comparisons, `NOT account ~ '^Assets'` means `NOT (account ~ '^Assets')`.
+- The operators of level 4 cannot be chained: `a = b = c` is an error.
+
+### Arithmetic
+
+| Expression | Result | Notes |
+|------------|--------|-------|
+| `int` `+ - *` `int` | `int` | An overflow is an error. |
+| `int` `/` `int` | `decimal` | `7 / 2` is `3.5`. |
+| `int` or `decimal` `+ - * /` `int` or `decimal` | `decimal` | |
+| `date` `+` `int`, `int` `+` `date`, `date` `-` `int` | `date` | Adds or subtracts days: `2024-01-31 + 1` is `2024-02-01`. |
+| `date` `-` `date` | `int` | Number of days between the dates. |
+| `str` `+` `str` | `str` | Concatenation. |
+| `amount` `*` number, number `*` `amount` | `amount` | `units(position) * 2`. |
+| `amount` `/` number | `amount` | |
+| `amount` `+ -` `amount` | `amount` | Both amounts must have the same currency, otherwise the query fails. |
+
+- Addition, subtraction and multiplication are exact. A product keeps all the decimal places of its operands: `1000.00 * 1` is `1000.00`.
+- Division is exact when the result fits in 28 significant digits. Otherwise it is rounded to 28 significant digits, half to even, like Beancount: `1 / 3` is `0.3333333333333333333333333333`.
+- Dividing by zero produces `NULL` instead of an error.
+- Unary minus works on `int`, `decimal`, `amount`, `position` and `inventory`.
+- `%` (remainder) is not supported.
+
+### Comparison
+
+- `=` (or `==`) and `!=` (or `<>`) compare two values of the same type. `int` and `decimal` can be compared with each other, numerically: `1 = 1.00` is `TRUE`.
+- `<`, `<=`, `>` and `>=` work only on `bool`, `int`, `decimal`, `str` and `date`. To compare amounts, compare their numbers with [`number`](#amounts-and-numbers).
+- String comparison is case-sensitive and compares character codes, so `'B' < 'a'`. Only `~` and `!~` ignore case.
+
+### Regular-expression match
+
+| Operator | Meaning |
+|----------|---------|
+| `text ~ pattern` | `TRUE` when `pattern` matches **any part** of `text`, ignoring case. |
+| `text !~ pattern` | The opposite of `~`. |
+| `pattern ?~ text` | Case-sensitive match. Note that the pattern comes **first**, as in beanquery. |
+
+| Expression | Result |
+|------------|--------|
+| `'Expenses:Food:Dining' ~ 'food'` | `TRUE`, a partial match that ignores case |
+| `'Expenses:Food:Dining' ~ '^Food'` | `FALSE`, because `^` anchors to the start |
+| `'Expenses:Food:Dining' ~ 'Dining$'` | `TRUE` |
+| `'Expenses:Food:Dining' !~ '^Income'` | `TRUE` |
+| `'Food' ?~ 'Expenses:Food:Dining'` | `TRUE` |
+| `'food' ?~ 'Expenses:Food:Dining'` | `FALSE`, because `?~` is case-sensitive |
+
+- Anchor the pattern with `^` and `$` when you need a full match.
+- Patterns use the syntax of the Rust [`regex`](https://docs.rs/regex/latest/regex/#syntax) crate. It is close to Python's, but has no look-around (`(?=...)`, `(?!...)`) and no back-references.
+- An invalid pattern is an error that points at the pattern. So is a pattern that would compile to more than 1 MiB, such as `'a{1000}{1000}'`.
+- Both sides must be strings. If either side is `NULL`, the result is `NULL`, for all three operators.
+
+### Membership
+
+`IN` tests whether a value belongs to a set or a list:
+
+```sql
+WHERE 'trip-new-york' IN tags
+WHERE 'Assets:Cash' NOT IN other_accounts
+WHERE account IN ('Assets:Cash', 'Assets:Bank:Checking')
+WHERE year IN (2023, 2024)
+WHERE payee IN ('Amazon')
+```
+
+- The right-hand side is either a `set` value, such as the `tags`, `links` or `other_accounts` columns, or a list of expressions in parentheses. A list may have a single element.
+- With a set, the left-hand side must be a string. `'x' IN (tags)`, with the set in parentheses, also tests membership in the set.
+- With a list, each element must be comparable with the left-hand side, as for `=`.
+- `NOT IN` is the opposite of `IN`.
+- If the left-hand side is `NULL`, the result is `NULL`. If the value is not found in a list that contains a `NULL`, the result is `NULL` too, as in standard SQL.
+
+### NULL and three-valued logic
+
+A value is `NULL` when it is missing, for example the payee of a transaction that has none, or the cost of a posting that is not held at cost.
+
+- Arithmetic, comparisons, `~`, `!~`, `?~`, `IN`, `NOT IN` and function calls with a `NULL` operand produce `NULL`. The exceptions are `IS NULL`, `IS NOT NULL`, `AND`, `OR` and the aggregate functions.
+- `AND`, `OR` and `NOT` follow standard SQL three-valued logic:
+
+| Expression | Result |
+|------------|--------|
+| `TRUE AND NULL` | `NULL` |
+| `FALSE AND NULL`, `NULL AND FALSE` | `FALSE` |
+| `TRUE OR NULL`, `NULL OR TRUE` | `TRUE` |
+| `FALSE OR NULL` | `NULL` |
+| `NOT NULL` | `NULL` |
+
+- `WHERE` and `FROM` treat `NULL` as not true, so the posting is dropped.
+- Test for missing values with `IS NULL` and `IS NOT NULL`. `payee = NULL` is always `NULL`, never `TRUE`.
+- Both `payee != 'Shop'` and `NOT (payee = 'Shop')` drop postings whose payee is `NULL`. Write `payee IS NULL OR payee != 'Shop'` to keep them.
+
+## The postings table
+
+Phase 1 has a single table, `postings`. It has one row for every posting of every transaction, with the transaction's fields repeated on each of its postings.
+
+- **Included:** all transactions whatever their flag, and the padding transactions that Zhang creates for `balance ... with pad ...` directives. These have the flag `P`, the payee `Balance Pad` and a narration such as `pad Assets:Bank to Equity:Opening`.
+- **Not included:** balance assertions, and directives that are not transactions, such as `open`, `close`, `price`, `note`, `document` and budget directives.
+- A posting written without an amount has the amount that Zhang inferred for it when it balanced the transaction.
+- Postings held at cost are booked against lots, as described in [Lot booking](#lot-booking). A posting that reduces several lots produces one row per lot.
+- Rows come in ledger order: by date and time, then in the order the transactions appear in your files.
+
+### Lot booking
+
+The `position`, `cost_*` and `weight` columns of a posting held at cost depend on the lot it is booked against. The query engine books lots per account and currency, in ledger order, the way Beancount does:
+
+- **Reductions.** A posting at cost whose sign is opposite to an open lot (selling what you bought, for example) reduces lots. The fields written in its cost, that is the cost number and currency, the date and the label, must match the lot. Fields that are left out match any lot. `-4 AAPL {100 USD}` reduces lots bought at 100 USD on any date, `-4 AAPL {100 USD, 2024-01-02}` reduces only the one bought on 2024-01-02, `-4 AAPL {100 USD, "a"}` only the one labeled `a`, and `-4 AAPL {}` reduces any lot.
+- **Choosing among matching lots.** Matching lots are used oldest first (FIFO), or newest first (LIFO) if the account's `booking_method` is `LIFO`. A reduction that spans several lots is split into one row per lot, each with the units taken from that lot and the lot's cost.
+- **Augmentations.** Any other posting at cost opens a lot, or adds to an identical one. A cost without a date, such as `10 AAPL {100 USD}`, is dated by its transaction, so `cost_date` is never `NULL` for a posting held at cost.
+- **Leftovers.** If no open lot covers all of a reduction, the remainder is booked as an augmentation. A cost without a number, such as `{}`, cannot open a lot, so that remainder has no cost.
+
+:::note
+Two booking cases are still handled differently by Zhang's ledger processing than by the query engine. Zhang currently matches a reduction that gives a cost but no date only against lots dated on the day of the reduction, and records an error otherwise ([#436](https://github.com/zhang-accounting/zhang/issues/436)). The `STRICT`, `AVERAGE`, `AVERAGE_ONLY` and `NONE` booking methods are not implemented yet ([#437](https://github.com/zhang-accounting/zhang/issues/437)), and the query engine books accounts that use them as FIFO for now.
+:::
+
+### Columns
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `date` | `date` | Date of the transaction. The time of day, if any, is dropped. |
+| `year` | `int` | Year of `date`. |
+| `month` | `int` | Month of `date`, from 1 to 12. |
+| `day` | `int` | Day of the month of `date`, from 1 to 31. |
+| `flag` | `str` | Flag of the transaction: `*` (also used when no flag is written), `!`, `P` for padding, or a custom flag. |
+| `payee` | `str` | Payee of the transaction, or `NULL` if it has none. When the header has a single string, that string is the narration and the payee is `NULL`. |
+| `narration` | `str` | Narration of the transaction, or `''` (an empty string) if it has none, as in Beancount. |
+| `description` | `str` | Payee and narration joined with `" \| "`. Missing or empty parts are left out, so it is `''` when both are missing. |
+| `tags` | `set` | Tags of the transaction, without the leading `#`. |
+| `links` | `set` | Links of the transaction, without the leading `^`. |
+| `id` | `str` | Zhang's identifier of the transaction, a UUID. All postings of a transaction share it. |
+| `account` | `str` | Account of the posting. |
+| `number` | `decimal` | Number of units of the posting. |
+| `currency` | `str` | Currency (commodity) of the units. |
+| `position` | `position` | Units of the posting together with its cost lot, if any. |
+| `cost_number` | `decimal` | Cost per unit, or `NULL` if the posting is not held at cost. A total cost written with `{{...}}` is divided by the number of units. |
+| `cost_currency` | `str` | Currency of the cost, or `NULL`. |
+| `cost_date` | `date` | Date of the cost lot, or `NULL` if the posting is not held at cost. A lot without an explicit date is dated by the transaction that opened it. |
+| `cost_label` | `str` | Label of the cost lot. It is `''` (an empty string) if the posting is not held at cost, and `NULL` if the lot has no label. |
+| `price` | `amount` | Price per unit written with `@`, or `NULL` if there is none. A total price written with `@@` is divided by the number of units. |
+| `weight` | `amount` | Amount that the posting contributes to balancing its transaction: units times the per-unit cost if the posting is held at cost, otherwise units times the price if it has one, otherwise the units. |
+| `other_accounts` | `set` | Accounts of the other postings in the same transaction. |
+
+## Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `null` | The type of the `NULL` literal. Every other type can also hold `NULL`. | `NULL` |
+| `bool` | `TRUE` or `FALSE`. | `TRUE` |
+| `int` | A 64-bit whole number. | `2024` |
+| `decimal` | An exact decimal number of any precision. | `12.50` |
+| `str` | Text. | `'Expenses:Food'` |
+| `date` | A calendar date. | `2024-01-31` |
+| `set` | An unordered set of strings, used by `tags`, `links` and `other_accounts`. | `{'trip', 'food'}` |
+| `amount` | A decimal number with a currency. | `12.50 USD` |
+| `position` | Units (an amount) plus an optional cost lot. The lot has a per-unit cost number and currency, and optionally a date and a label. | `10 VTI {120.00 USD, 2024-01-02, "lot-a"}` |
+| `inventory` | A collection of positions in any number of currencies and lots. | `-30.00 USD, 10 VTI {120.00 USD}` |
+
+How positions combine into an inventory:
+
+- `sum(position)` adds every position into one inventory.
+- Positions with the same currency and the same cost lot (number, currency, date and label) are merged by adding their numbers. Positions with different lots stay separate, so holdings bought at different prices remain distinct.
+- A position whose number becomes zero is removed, so an account that nets to zero gives an empty inventory.
+
+An `int` is converted to `decimal` when it is combined with a `decimal` or passed to a function that expects one. No other conversions happen implicitly, apart from the string-to-date rule under [Literals](#literals). Use the [valuation functions](#valuation-functions) to move between `position`, `amount` and `inventory`.
+
+### Ordering and comparison
+
+`ORDER BY`, `min` and `max` order values of the same type as follows. The comparison operators `<`, `<=`, `>` and `>=` use the same order, but accept only the first four types in this list and `bool`.
+
+- `int` and `decimal`: by numeric value.
+- `str`: by character code, so case matters.
+- `date`: chronologically.
+- `bool`: `FALSE` before `TRUE`.
+- `set`: element by element, in sorted order.
+- `amount`: by currency first, then by number.
+- `position`: Beancount's position order. Positions in `USD`, `EUR`, `JPY`, `CAD`, `GBP`, `AUD`, `NZD` and `CHF` come first, in that order, and other currencies follow, shorter currency names first. Ties are broken by cost number, cost currency and then units.
+- `inventory`: by its positions, sorted in position order and compared one by one. An inventory that holds a single currency therefore sorts by its number, which is what `ORDER BY total DESC` relies on in the [spending by payee](#spending-by-payee) example.
+
+## Functions
+
+Each table lists one signature per overload, exactly as `GET /api/query/schema` reports it. `any` means an argument of any type. An `int` argument is accepted where `decimal` is expected. Function names are case-insensitive.
+
+Scalar functions return `NULL` when any argument is `NULL`, without evaluating the function. Aggregate functions skip `NULL` values instead.
+
+### Aggregate functions
+
+An aggregate function turns the values of all postings in a group into a single value. See [GROUP BY](#group-by).
+
+| Signature | Description |
+|-----------|-------------|
+| `count(*) -> int` | Number of postings in the group. |
+| `count(any) -> int` | Number of postings in the group for which the argument is not `NULL`. |
+| `sum(int) -> int` | Sum of the integers. |
+| `sum(decimal) -> decimal` | Sum of the numbers. |
+| `sum(amount) -> inventory` | Sum of the amounts, kept separate per currency. |
+| `sum(position) -> inventory` | Sum of the positions, with lots merged as described in [Types](#types). |
+| `sum(inventory) -> inventory` | Sum of the inventories. |
+| `first(any) -> any` | The first non-`NULL` value of the group, in ledger order. It has the type of its argument. |
+| `last(any) -> any` | The last non-`NULL` value of the group, in ledger order. It has the type of its argument. |
+| `min(any) -> any` | The smallest non-`NULL` value, in the order described under [Ordering and comparison](#ordering-and-comparison). |
+| `max(any) -> any` | The largest non-`NULL` value. |
+
+- `first` and `last` follow ledger order. `ORDER BY` does not change which posting is first.
+- A `sum` over a group whose values are all `NULL` is `0` (or an empty inventory), and `first`, `last`, `min` and `max` are `NULL`.
+
+### Valuation functions
+
+| Signature | Description |
+|-----------|-------------|
+| `units(position) -> amount` | The units of the position, without the cost. |
+| `units(inventory) -> inventory` | The units of every position, without costs. Lots of the same currency merge into one position. |
+| `cost(position) -> amount` | Total cost of the position (units times per-unit cost), in the cost currency. A position not held at cost returns its units. |
+| `cost(inventory) -> inventory` | `cost` applied to every position, then summed per currency. |
+| `convert(amount, str) -> amount` | The amount converted into the currency given as the second argument, at the latest price. |
+| `convert(amount, str, date) -> amount` | Like the above, at the latest price on or before the date. |
+| `convert(position, str) -> amount` | The units of the position converted into the currency. The cost is not used as a price, but its currency can serve as an intermediate step (see below). |
+| `convert(position, str, date) -> amount` | Like the above, at the latest prices on or before the date. |
+| `convert(inventory, str) -> inventory` | Every position converted into the currency, then summed. |
+| `convert(inventory, str, date) -> inventory` | Like the above, at the latest prices on or before the date. |
+| `value(position) -> amount` | Market value of the position in its cost currency, at the latest price. A position not held at cost, or without a price, returns its units. |
+| `value(position, date) -> amount` | Like the above, at the latest price on or before the date. |
+| `value(inventory) -> inventory` | `value` applied to every position, then summed. |
+| `value(inventory, date) -> inventory` | Like the above, at the latest prices on or before the date. |
+| `getprice(str, str) -> decimal` | The latest price of one unit of the first currency in the second, such as `getprice('VTI', 'USD')`, or `NULL` if there is none. Currency names are converted to upper case. |
+| `getprice(str, str, date) -> decimal` | Like the above, at the latest price on or before the date. |
+
+How prices are found:
+
+- Prices come from the `price` directives in your ledger.
+- With a `date` argument, a function uses the latest price dated on or before that date. Without one, it uses the latest price in the ledger, even if it is dated in the future.
+- When several prices for the same pair share a date, the last one in the ledger wins.
+- A price can be used in either direction. `price VTI 120 USD` converts VTI into USD at 120, and USD into VTI at 1/120. If a pair is quoted in both directions, the direction with fewer price points is inverted and merged into the other one.
+- `convert` first looks for a price from the units' currency to the target currency. If there is none and the position is held at cost, it converts in two steps through the cost currency: units to cost currency, then cost currency to target. For example, `10 VTI {100 EUR}` converts to USD with a `VTI`/`EUR` price and an `EUR`/`USD` price.
+- If no price is found, the value is left unchanged. It keeps its original currency and is not dropped or set to zero, so an inventory can still contain several currencies after `convert` or `value`.
+- Converting a value into its own currency returns it unchanged.
+- A product with a price is rounded to 28 significant digits when it needs more, like Beancount.
+
+### Amounts and numbers
+
+| Signature | Description |
+|-----------|-------------|
+| `number(amount) -> decimal` | The number of an amount. |
+| `currency(amount) -> str` | The currency of an amount. |
+| `commodity(amount) -> str` | The same as `currency`. |
+| `only(str, inventory) -> amount` | The total units of one currency in an inventory, such as `only('USD', sum(position))`. It is `0` in that currency if the inventory has none. |
+| `filter_currency(position, str) -> position` | The position if its units are in the currency, otherwise `NULL`. |
+| `filter_currency(inventory, str) -> inventory` | The positions of the inventory whose units are in the currency. |
+| `abs(int) -> int` | Absolute value. |
+| `abs(decimal) -> decimal` | Absolute value. |
+| `abs(amount) -> amount` | The amount with a non-negative number. |
+| `abs(position) -> position` | The position with non-negative units. The cost is kept. |
+| `abs(inventory) -> inventory` | `abs` applied to every position. |
+| `neg(int) -> int` | The negated value, the same as unary minus. |
+| `neg(decimal) -> decimal` | The negated value. |
+| `neg(amount) -> amount` | The negated amount. |
+| `neg(position) -> position` | The position with negated units. The cost is kept. |
+| `neg(inventory) -> inventory` | Every position negated. |
+| `possign(decimal, str) -> decimal` | The first argument, with its sign flipped unless the account given as the second argument is under `Assets` or `Expenses`. This makes income, liability and equity amounts read as positive numbers. |
+| `possign(amount, str) -> amount` | The same for an amount. |
+| `possign(position, str) -> position` | The same for a position. |
+| `possign(inventory, str) -> inventory` | The same for an inventory. |
+
+### Account functions
+
+| Signature | Description | Example |
+|-----------|-------------|---------|
+| `root(str) -> str` | The first component of the account name. | `root('Expenses:Food:Dining')` is `'Expenses'` |
+| `root(str, int) -> str` | The first `n` components of the account name. If the account has `n` components or fewer, it is returned whole. | `root('Expenses:Food:Dining', 2)` is `'Expenses:Food'` |
+| `parent(str) -> str` | The account name without its last component. It is `''` for a top-level account. | `parent('Expenses:Food:Dining')` is `'Expenses:Food'` |
+| `leaf(str) -> str` | The last component of the account name. | `leaf('Expenses:Food:Dining')` is `'Dining'` |
+
+### Date functions
+
+| Signature | Description | Example |
+|-----------|-------------|---------|
+| `year(date) -> int` | Year. | `year(2024-05-17)` is `2024` |
+| `month(date) -> int` | Month, from 1 to 12. | `month(2024-05-17)` is `5` |
+| `day(date) -> int` | Day of the month. | `day(2024-05-17)` is `17` |
+| `quarter(date) -> str` | Year and quarter, as text. | `quarter(2024-05-17)` is `'2024-Q2'` |
+| `weekday(date) -> str` | Three-letter English name of the day of the week. | `weekday(2024-01-05)` is `'Fri'` |
+| `yearmonth(date) -> date` | First day of the date's month. | `yearmonth(2024-05-17)` is `2024-05-01` |
+| `today() -> date` | The current date in the ledger's timezone (the `timezone` option). | |
+
+The `year`, `month` and `day` columns are shortcuts: `year` is the same as `year(date)`.
+
+### Metadata functions
+
+| Signature | Description |
+|-----------|-------------|
+| `meta(str) -> str` | Value of a metadata key on the posting, or `NULL` if it is not set. |
+| `entry_meta(str) -> str` | Value of a metadata key on the transaction, or `NULL` if it is not set. |
+| `any_meta(str) -> str` | Value of a metadata key on the posting, falling back to the transaction, or `NULL` if neither has it. |
+
+Metadata values are always returned as text.
+
+:::note
+Zhang does not keep metadata per posting yet: every metadata line inside a transaction, including lines indented under a posting, is stored on the transaction. Until that changes ([#434](https://github.com/zhang-accounting/zhang/issues/434)), `meta` always returns `NULL`. Use `entry_meta` or `any_meta` to read metadata.
+:::
+
+### String functions
+
+| Signature | Description | Example |
+|-----------|-------------|---------|
+| `str(any) -> str` | Text form of any value. Booleans become `TRUE` and `FALSE`, sets are joined with `, `, and an inventory is written in parentheses. | `str(2024-01-31)` is `'2024-01-31'` |
+| `length(str) -> int` | Number of characters in the string. | `length('Food')` is `4` |
+| `length(set) -> int` | Number of elements in the set. | `length(tags)` |
+
+## HTTP API
+
+The Explore page uses the same HTTP endpoints, and you can call them from scripts. If [basic authentication](/installation/3-basic_auth/) is enabled, send the same credentials as for the rest of the API.
+
+### Run a query
+
+`POST /api/query` with a JSON body:
+
+```shell
+curl -X POST http://localhost:8000/api/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query": "SELECT account, sum(position) WHERE account ~ \"^Assets:Bank\" GROUP BY account"}'
+```
+
+A successful response has HTTP status 200:
+
+```json
+{
+  "data": {
+    "columns": [
+      { "name": "account", "type": "str" },
+      { "name": "sum(position)", "type": "inventory" }
+    ],
+    "rows": [
+      [
+        "Assets:Bank:Checking",
+        { "positions": [ { "units": { "number": "1520.35", "currency": "USD" }, "cost": null } ] }
+      ]
+    ]
+  }
+}
+```
+
+- `columns` lists the result columns in order. Each has a `name` and a `type`, which is one of `null`, `bool`, `int`, `decimal`, `str`, `date`, `set`, `amount`, `position` and `inventory`.
+- `rows` is a list of rows. Each row is a list with one cell per column, in the same order.
+
+### Cell encoding
+
+| Type | JSON | Example |
+|------|------|---------|
+| any `NULL` | `null` | `null` |
+| `bool` | boolean | `true` |
+| `int` | number | `2024` |
+| `decimal` | string | `"1520.35"` |
+| `str` | string | `"Expenses:Food"` |
+| `date` | string, `YYYY-MM-DD` | `"2024-01-31"` |
+| `set` | array of strings, sorted | `["food", "trip"]` |
+| `amount` | object | `{"number": "12.50", "currency": "USD"}` |
+| `position` | object | `{"units": {"number": "10", "currency": "VTI"}, "cost": {"number": "120.00", "currency": "USD", "date": "2024-01-02", "label": null}}` |
+| `inventory` | object | `{"positions": [ ...positions... ]}` |
+
+- Decimal numbers, including the `number` fields of amounts and costs, are sent as strings so that no precision is lost. They never use exponent notation and keep their decimal places (`"12.50"`). Parse them with a decimal library rather than as floating point.
+- Integers are 64-bit and sent as JSON numbers. JavaScript reads JSON numbers as doubles, so an `int` cell beyond ±2^53 (9,007,199,254,740,992) loses precision in a JavaScript client. Counts and date parts never come close to that.
+- In a position, `cost` is `null` when the position is not held at cost. Otherwise it holds the per-unit cost `number` and `currency`, and the lot's `date` and `label`. Either of the last two can be `null`.
+- The positions of an inventory are sorted by units currency, then by cost, with the position that has no cost first. An empty inventory is `{"positions": []}`.
+
+### Errors
+
+A query that cannot be parsed, type-checked or run returns HTTP status 400. Unlike a successful response, the body is not wrapped in `data`. For example, `SELECT acount, position` gives:
+
+```json
+{
+  "message": "unknown column 'acount'",
+  "line": 1,
+  "column": 8
+}
+```
+
+- `line` and `column` give the position of the problem in the query text. Both start at 1.
+- `column` counts Unicode characters, not bytes, so a Chinese character or an accented letter counts as one column.
+- Errors include syntax errors, unknown columns or functions, arguments of the wrong type, invalid `GROUP BY` usage, invalid regular expressions, unsupported statements or clauses, and the [limits](#limits) below.
+- Some errors have no position, and `line` and `column` are then `null`: a query that is too long, a query that runs out of time, and a few errors found while rows are evaluated, such as an integer overflow inside `sum`.
+
+### Limits
+
+These limits protect the server from queries that would take too much memory or time. Exceeding one returns the HTTP 400 error described above.
+
+| Limit | Value | Error |
+|-------|-------|-------|
+| Query length | 64 KiB (65,536 bytes of UTF-8 text) | `the query is too long (...)`, without a position. |
+| Nesting depth | 64 levels | `the query is nested too deeply (at most 64 levels)`, at the position where the limit is reached. |
+| Compiled size of one regular expression | 1 MiB | `invalid regular expression: Compiled regex exceeds size limit ...`, at the pattern. |
+| Execution time | 10 seconds | `the query was stopped because it ran longer than the 10s time limit`, without a position. |
+
+- Nesting counts parentheses, function calls, `IN` lists, `NOT` and unary minus that are placed inside each other. A long chain of `AND`, `OR`, `+` or `*`, such as `account = 'A' OR account = 'B' OR ...`, is not nested and can be as long as the length limit allows.
+- The execution time includes building the rows of the `postings` table. While a query runs, it holds a read lock on the ledger, and the time limit bounds how long that lock is held.
+
+### Schema
+
+`GET /api/query/schema` describes the `postings` table and every function overload. The reference panel on the Explore page is built from it.
+
+```json
+{
+  "data": {
+    "columns": [
+      { "name": "date", "type": "date", "description": "Date of the transaction." }
+    ],
+    "functions": [
+      { "name": "count", "signature": "count(*) -> int", "description": "Number of rows.", "aggregate": true }
+    ]
+  }
+}
+```
+
+- `columns` has one entry per column, in the order of the [column table](#columns).
+- `functions` has one entry per overload: first the aggregate functions, then the scalar functions. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
+
+## Examples
+
+### Monthly expenses by category
+
+```sql
+SELECT year, month, root(account, 2), sum(position) WHERE account ~ "^Expenses" GROUP BY 1, 2, 3 ORDER BY 1, 2, 3
+```
+
+One row per month and second-level expense account (such as `Expenses:Food`), with the total spent. `GROUP BY 1, 2, 3` and `ORDER BY 1, 2, 3` refer to the first three targets by number.
+
+### Spending by payee
+
+```sql
+SELECT payee, sum(cost(position)) AS total WHERE account ~ "^Expenses" GROUP BY payee ORDER BY total DESC LIMIT 20
+```
+
+The 20 payees you spent the most with. `cost(position)` values purchases made at cost by what you paid for them, and `ORDER BY total DESC` sorts by the alias.
+
+### Postings with a tag
+
+```sql
+SELECT date, payee, account, position WHERE 'trip-new-york' IN tags
+```
+
+Every posting of every transaction tagged `#trip-new-york`.
+
+### Holdings at cost and market value
+
+```sql
+SELECT account, units(sum(position)) AS qty, cost(sum(position)) AS book, convert(units(sum(position)), "USD") AS market WHERE account ~ "^Assets:Trading" GROUP BY account
+```
+
+For each trading account: the quantity held, its book value (what it cost), and its market value in USD at the latest prices. Holdings without a USD price stay in their own currency in the `market` column.
+
+### Recent postings
+
+```sql
+SELECT date, payee, account, position ORDER BY date DESC LIMIT 20
+```
+
+The 20 most recent postings across all accounts.
+
+### Expenses in a date range, excluding taxes
+
+```sql
+SELECT account, sum(position) AS total
+WHERE account ~ '^Expenses' AND account !~ ':Taxes(:|$)'
+  AND date >= 2024-01-01 AND date < 2024-04-01
+GROUP BY account
+ORDER BY account
+```
+
+Uses `!~` to exclude accounts and bare date literals for the range.
+
+### Quarterly totals with a count
+
+```sql
+SELECT quarter(date) AS q, count(*) AS postings, sum(number) AS total, sum(number) / count(*) AS average
+WHERE account ~ '^Expenses:Food' AND currency = 'USD'
+GROUP BY q
+ORDER BY q
+```
+
+Postings, total and average amount per quarter. Filtering on `currency` first makes `sum(number)` meaningful, because `number` ignores the currency.
+
+### Transactions paid by credit card
+
+```sql
+SELECT DISTINCT date, description
+WHERE 'Liabilities:CreditCard' IN other_accounts AND account ~ '^Expenses'
+ORDER BY date DESC
+```
+
+`other_accounts` holds the accounts of the other postings in each transaction, so this finds expenses paid from the card. `DISTINCT` lists each transaction once even if it has several expense postings.
+
+### Postings without a payee
+
+```sql
+SELECT date, narration, account, position
+WHERE payee IS NULL AND account IN ('Expenses:Misc', 'Expenses:Uncategorized')
+ORDER BY date DESC
+```
+
+Uses `IS NULL` and a list after `IN`.
+
+### Invoices recorded in metadata
+
+```sql
+SELECT date, payee, entry_meta('invoice') AS invoice, position
+WHERE entry_meta('invoice') IS NOT NULL AND leaf(account) = 'Consulting'
+ORDER BY date
+```
+
+Lists postings to accounts named `...:Consulting` whose transaction has an `invoice` metadata entry.
+
+### Portfolio value at the end of a year
+
+```sql
+SELECT account, value(sum(position), 2024-12-31) AS market_value
+WHERE account ~ '^Assets:Investments' AND date <= 2024-12-31
+GROUP BY account
+ORDER BY account
+```
+
+Holdings as of 31 December 2024, valued at the prices in effect on that date, in each holding's cost currency.
+
+### Income and expenses as positive numbers
+
+```sql
+SELECT root(account, 1) AS type, sum(possign(position, account)) AS total
+WHERE account ~ '^(Income|Expenses)' AND year = 2024
+GROUP BY type
+```
+
+Income is negative in the ledger. `possign` flips the sign of each income posting before the sum, so both totals read as positive numbers.
+
+## Differences from BQL and beanquery
+
+### Not available yet
+
+- **Statements other than `SELECT`:** `BALANCES`, `JOURNAL` and `PRINT` are rejected with an error.
+- **Period clauses in `FROM`:** `OPEN ON`, `CLOSE ON` and `CLEAR` are not supported, and neither are table names or subqueries after `FROM`.
+- **`HAVING` and `PIVOT BY`.**
+- **Other tables:** only `postings` exists. There are no entries, prices, accounts, commodities, documents or balances tables.
+- **The running `balance` column**, and the beanquery columns `posting_flag`, `filename`, `lineno`, `location`, `meta`, `entry`, `accounts` and `type`.
+- **The `query` directive:** queries saved in the ledger (`2024-01-01 query "name" "SELECT ..."`) are not listed or run yet.
+- **Operators `BETWEEN` and `%`**, and beanquery's quoted identifiers.
+- **Functions not listed on this page**, such as `round`, `safediv`, `account_sortkey`, `has_account`, `open_date`, `close_date`, `open_meta`, `currency_meta`, `grep`, `subst`, `upper`, `lower`, `joinstr`, `findfirst`, the conversion functions `int`, `decimal` and `date`, and the `date_*` functions. Calling one is an error.
+
+The roadmap in [#434](https://github.com/zhang-accounting/zhang/issues/434) schedules `BALANCES`, `JOURNAL`, `OPEN`/`CLOSE`/`CLEAR`, the `query` directive and CSV export for the next phase, and `HAVING`, `PIVOT BY` and more tables after that.
+
+### Behaving differently
+
+- **`SELECT *` includes `account`.** beanquery expands `*` to `date, flag, payee, narration, position`. Zhang adds `account` before `position`, because a posting is hard to read without its account.
+- **Standard three-valued logic.** In beanquery, `NOT NULL` is `TRUE`, so `NOT (payee = 'x')` keeps postings without a payee, and `NULL AND FALSE` is `NULL`. In Zhang, `NOT NULL` is `NULL` and `NULL AND FALSE` is `FALSE`, as in SQL.
+- **One-element lists work.** `payee IN ('Amazon')` works in Zhang. beanquery reads `('Amazon')` as a parenthesized string and needs `('Amazon',)`.
+- **`meta()` is always `NULL` for now**, because Zhang does not keep posting metadata yet. See [Metadata functions](#metadata-functions).
+- **Comments** start with `--`. beanquery's `;` line comments and `/* */` block comments are not supported. A single `;` is only allowed at the end of the query.
+- **Regular expressions** use Rust syntax, which has no look-around or back-references.
+- **Booking methods.** Accounts that use `STRICT`, `AVERAGE`, `AVERAGE_ONLY` or `NONE` are booked FIFO for now, and an ambiguous `STRICT` match is not an error. See [Lot booking](#lot-booking).
+- **Limits.** Queries are limited in length, nesting depth, regular-expression size and execution time. See [Limits](#limits).
+- **Errors carry a position.** Every query error reports the line and column where it was found, whenever it can be located.
+- **Exact decimals throughout.** Numbers are arbitrary-precision decimals, and amounts are never stored with a fixed number of decimal places.
+
+### Workarounds
+
+Until `OPEN ON` and `CLOSE ON` arrive, filter on `date` instead.
+
+An income statement for 2024:
+
+```sql
+SELECT account, sum(position)
+WHERE account ~ '^(Income|Expenses)' AND date >= 2024-01-01 AND date < 2025-01-01
+GROUP BY 1
+ORDER BY 1
+```
+
+Balances of assets and liabilities at the start of 1 April 2025:
+
+```sql
+SELECT account, sum(position)
+WHERE account ~ '^(Assets|Liabilities)' AND date < 2025-04-01
+GROUP BY account
+ORDER BY account
+```
+
+Unlike `CLOSE ON ... CLEAR`, these queries do not move income and expenses into equity, so they are only equivalent for the accounts they select.

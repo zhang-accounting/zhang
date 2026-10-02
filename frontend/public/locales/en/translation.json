@@ -20,6 +20,7 @@
   "NAV_TOOLS": "Tools",
   "NAV_SETTING": "Setting",
   "NAV_BUDGETS": "Budget",
+  "NAV_QUERY": "Query",
   "TXN_EDIT_PREVIEW": "Preview",
   "NEW_TRANSACTION_BUTTON": "New Transaction",
   "NEW_TRANSACTION_DIALOG_TITLE": "Create new transaction",
@@ -65,5 +66,38 @@
   },
   "settings": {
     "title": "Settings"
+  },
+  "query": {
+    "run": "Run",
+    "running": "Running...",
+    "run_hint": "or press",
+    "placeholder": "Write a query, e.g. SELECT date, payee, account, position LIMIT 10",
+    "empty_hint": "Write a query or pick one from the examples, then run it.",
+    "examples": "Examples",
+    "example": {
+      "monthly_expenses": "Monthly expenses by category",
+      "spending_by_payee": "Spending by payee",
+      "postings_with_tag": "Postings with a tag",
+      "holdings": "Holdings at cost and market",
+      "recent_postings": "Recent postings"
+    },
+    "reference": "Reference",
+    "reference_description": "Columns and functions available in queries. Click one to insert it into the editor.",
+    "reference_docs": "Query language documentation",
+    "reference_filter": "Filter columns and functions...",
+    "reference_loading": "Loading...",
+    "reference_load_failed": "Failed to load the query reference.",
+    "columns": "Columns",
+    "aggregates": "Aggregates",
+    "functions": "Functions",
+    "rows_one": "{{count}} row",
+    "rows_other": "{{count}} rows",
+    "elapsed": "{{ms}} ms",
+    "no_rows": "The query returned no rows.",
+    "truncated": "Showing the first {{shown}} of {{total}} rows.",
+    "show_all": "Show all",
+    "error_title": "Query error",
+    "error_position": "Line {{line}}, column {{column}}",
+    "error_line": "Line {{line}}"
   }
 }

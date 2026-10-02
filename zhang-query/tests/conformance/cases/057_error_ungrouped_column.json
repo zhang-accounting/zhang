@@ -4,6 +4,7 @@
   "kind": "engine",
   "ordered": false,
   "expect": "error",
+  "error_class": "compile",
   "columns": [],
   "rows": [],
   "notes": "With an explicit GROUP BY, every non-aggregate target must be grouped."

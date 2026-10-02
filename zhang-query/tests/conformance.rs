@@ -9,20 +9,23 @@
 //! - decimals (also inside amounts, positions and inventories) are compared numerically;
 //! - rows are compared as a sequence when the fixture is `ordered`, otherwise as a multiset;
 //! - inventories are compared as multisets of positions;
-//! - an `expect: "error"` case passes when the engine returns any error.
+//! - an `expect: "error"` case passes only when the engine returns an error of the fixture's
+//!   `error_class` (see [`error_class`]).
 //!
 //! Every case gets one status:
 //!
-//! | status            | meaning                                                                | fatal |
-//! |-------------------|------------------------------------------------------------------------|-------|
-//! | `PASS`            | matches the oracle                                                     | no    |
-//! | `ACCEPTED`        | differs from the oracle exactly as documented in [`ACCEPTED_DEVIATIONS`] | no  |
-//! | `PENDING-FUNCTION`| uses a Phase 1 function that the engine does not register yet          | no    |
-//! | `LEDGER-DEP`      | a `ledger-dependent` case that differs (booking, prices, Store gaps)    | no    |
-//! | `FAIL`            | anything else: an engine bug, or an accepted deviation that changed    | yes   |
+//! | status       | meaning                                                                         | fatal |
+//! |--------------|---------------------------------------------------------------------------------|-------|
+//! | `PASS`       | matches the oracle                                                              | no    |
+//! | `ACCEPTED`   | differs from the oracle exactly as documented in [`ACCEPTED_DEVIATIONS`]        | no    |
+//! | `LEDGER-DEP` | a `ledger-dependent` case listed in [`LEDGER_DEPENDENT_ALLOWED`] that differs   | no    |
+//! | `FAIL`       | anything else, including unlisted `ledger-dependent` cases and missing functions | yes   |
 //!
 //! The test prints the summary table to stderr (always visible, even without `--nocapture`)
-//! and fails only when at least one case is `FAIL`, so it can serve as a regression gate.
+//! and fails when at least one case is `FAIL`, so it serves as a regression gate.
+//!
+//! Set `ZHANG_QUERY_CONFORMANCE_CASES=<dir>` to run the harness over another fixture
+//! directory (e.g. a mutated copy when checking that the gate catches regressions).
 
 mod common;
 
@@ -35,7 +38,7 @@ use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use serde_json::{json, Value as Json};
 use zhang_query::decimal::to_plain_string;
-use zhang_query::{Amount, Params, Position, Query, QueryResult, Value};
+use zhang_query::{Amount, Params, Position, Query, QueryErrorKind, QueryResult, Value};
 
 /// How a documented deviation from beanquery is checked.
 enum Accepted {
@@ -83,32 +86,29 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
     },
 ];
 
-/// Every function of the Phase 1 language. A case that uses one of these while the engine
-/// does not register it yet is reported as `PENDING-FUNCTION` instead of `FAIL`.
-const PHASE1_FUNCTIONS: &[&str] = &[
-    "sum",
-    "count",
-    "first",
-    "last",
-    "min",
-    "max",
-    "units",
-    "cost",
-    "convert",
-    "value",
-    "root",
-    "parent",
-    "leaf",
-    "year",
-    "month",
-    "quarter",
-    "day",
-    "today",
-    "meta",
-    "entry_meta",
-    "str",
-    "length",
-];
+/// A `ledger-dependent` case that may differ from beanquery because zhang processes the ledger
+/// differently (booking, the price map, or data the Store does not keep, such as `@` prices,
+/// cost dates, cost labels and posting metadata).
+struct LedgerGap {
+    case: &'static str,
+    reason: &'static str,
+}
+
+/// The only cases allowed to differ for ledger-processing reasons, each with its reason.
+/// A mismatch in any other case, `ledger-dependent` or not, is a `FAIL`. Empty today: every
+/// ledger-dependent case matches the oracle.
+const LEDGER_DEPENDENT_ALLOWED: &[LedgerGap] = &[];
+
+/// The fixture `error_class` of an engine error: beanquery's `ParseError` is `syntax` and its
+/// `CompilationError` (unknown column or function, type and grouping errors) is `compile`.
+fn error_class(kind: QueryErrorKind) -> &'static str {
+    match kind {
+        QueryErrorKind::Parse => "syntax",
+        QueryErrorKind::Compile => "compile",
+        QueryErrorKind::Eval => "runtime",
+        QueryErrorKind::Timeout => "timeout",
+    }
+}
 
 /// Fixed `today()` for reproducible runs (no fixture uses `today()`).
 fn today() -> NaiveDate {
@@ -119,7 +119,6 @@ fn today() -> NaiveDate {
 enum Status {
     Pass,
     Accepted,
-    PendingFunction,
     LedgerDep,
     Fail,
 }
@@ -129,7 +128,6 @@ impl Status {
         match self {
             Status::Pass => "PASS",
             Status::Accepted => "ACCEPTED",
-            Status::PendingFunction => "PENDING-FUNCTION",
             Status::LedgerDep => "LEDGER-DEP",
             Status::Fail => "FAIL",
         }
@@ -142,7 +140,8 @@ struct Fixture {
     query: String,
     kind: String,
     ordered: bool,
-    expect_error: bool,
+    /// `Some(class)` for an `expect: "error"` case
+    expect_error: Option<String>,
     column_types: Vec<String>,
     rows: Vec<Vec<Json>>,
 }
@@ -155,12 +154,15 @@ struct Report {
 }
 
 fn cases_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/conformance/cases")
+    match std::env::var_os("ZHANG_QUERY_CONFORMANCE_CASES") {
+        Some(dir) => PathBuf::from(dir),
+        None => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/conformance/cases"),
+    }
 }
 
 fn load_fixtures() -> Vec<Fixture> {
     let mut files = std::fs::read_dir(cases_dir())
-        .expect("cannot read tests/conformance/cases")
+        .unwrap_or_else(|err| panic!("cannot read {}: {}", cases_dir().display(), err))
         .map(|entry| entry.expect("dir entry").path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
         .collect::<Vec<_>>();
@@ -180,8 +182,11 @@ fn load_fixtures() -> Vec<Fixture> {
                 kind: string("kind"),
                 ordered: field("ordered").as_bool().expect("`ordered` is a bool"),
                 expect_error: match string("expect").as_str() {
-                    "rows" => false,
-                    "error" => true,
+                    "rows" => None,
+                    "error" => match string("error_class").as_str() {
+                        class @ ("syntax" | "compile" | "runtime") => Some(class.to_owned()),
+                        other => panic!("{}: unknown error_class `{}`", file, other),
+                    },
                     other => panic!("{}: unknown expect `{}`", file, other),
                 },
                 column_types: array("columns")
@@ -384,55 +389,26 @@ fn compare_rows(expected: &[String], actual: &[String], ordered: bool) -> Option
     ))
 }
 
-/// Phase 1 functions called by `query` that the engine does not register yet.
-fn missing_functions(query: &str, available: &BTreeSet<String>) -> BTreeSet<String> {
-    let mut called = BTreeSet::new();
-    let chars = query.chars().collect::<Vec<_>>();
-    let mut index = 0;
-    while index < chars.len() {
-        let ch = chars[index];
-        if ch == '\'' || ch == '"' {
-            // skip string literals (regexes may contain parentheses)
-            index += 1;
-            while index < chars.len() && chars[index] != ch {
-                index += 1;
-            }
-            index += 1;
-        } else if ch.is_ascii_alphabetic() || ch == '_' {
-            let start = index;
-            while index < chars.len() && (chars[index].is_ascii_alphanumeric() || chars[index] == '_') {
-                index += 1;
-            }
-            let ident = chars[start..index].iter().collect::<String>().to_ascii_lowercase();
-            let mut next = index;
-            while next < chars.len() && chars[next].is_whitespace() {
-                next += 1;
-            }
-            if chars.get(next) == Some(&'(') && PHASE1_FUNCTIONS.contains(&ident.as_str()) {
-                called.insert(ident);
-            }
-        } else {
-            index += 1;
-        }
-    }
-    called.difference(available).cloned().collect()
-}
-
-fn run_case(ledger: &zhang_core::ledger::Ledger, fixture: &Fixture, available: &BTreeSet<String>) -> Report {
+fn run_case(ledger: &zhang_core::ledger::Ledger, fixture: &Fixture) -> Report {
     let outcome = Query::compile(&fixture.query).and_then(|query| query.execute_at(ledger, &Params::default(), today()));
     let deviation = ACCEPTED_DEVIATIONS.iter().find(|it| it.case == Some(fixture.name.as_str()));
 
-    let mismatch = match (&outcome, fixture.expect_error) {
-        (Err(_), true) => None,
-        (Ok(result), true) => Some(format!("expected an error, the engine returned {} rows", result.rows.len())),
-        (Err(err), false) => Some(format!("engine error: {}", err)),
-        (Ok(result), false) => compare_columns(fixture, result).or_else(|| {
+    let mismatch = match (&outcome, &fixture.expect_error) {
+        (Err(err), Some(class)) if error_class(err.kind) == class => None,
+        (Err(err), Some(class)) => Some(format!("expected a {} error, got a {} error: {}", class, error_class(err.kind), err)),
+        (Ok(result), Some(class)) => Some(format!("expected a {} error, the engine returned {} rows", class, result.rows.len())),
+        (Err(err), None) => Some(format!("engine error: {}", err)),
+        (Ok(result), None) => compare_columns(fixture, result).or_else(|| {
             let expected = canonical_fixture_rows(fixture, &fixture.rows);
             compare_rows(&expected, &canonical_engine_rows(result), fixture.ordered)
         }),
     };
 
     let (status, detail) = match mismatch {
+        None if LEDGER_DEPENDENT_ALLOWED.iter().any(|it| it.case == fixture.name) => (
+            Status::Pass,
+            "matches beanquery although LEDGER_DEPENDENT_ALLOWED lists it; remove the entry".to_owned(),
+        ),
         None => match deviation {
             Some(Deviation {
                 accepted: Accepted::Rows(_), ..
@@ -448,7 +424,7 @@ fn run_case(ledger: &zhang_core::ledger::Ledger, fixture: &Fixture, available: &
             _ => (Status::Pass, String::new()),
         },
         Some(diff) => {
-            let missing = missing_functions(&fixture.query, available);
+            let ledger_gap = LEDGER_DEPENDENT_ALLOWED.iter().find(|it| it.case == fixture.name);
             match (deviation, &outcome) {
                 (
                     Some(Deviation {
@@ -465,12 +441,10 @@ fn run_case(ledger: &zhang_core::ledger::Ledger, fixture: &Fixture, available: &
                         Some(diff) => (Status::Fail, format!("differs from the accepted deviation: {}", diff)),
                     }
                 }
-                _ if !missing.is_empty() => (
-                    Status::PendingFunction,
-                    format!("needs {}", missing.iter().map(|it| format!("{}()", it)).collect::<Vec<_>>().join(", ")),
-                ),
-                _ if fixture.kind == "ledger-dependent" => (Status::LedgerDep, diff),
-                _ => (Status::Fail, diff),
+                _ => match ledger_gap {
+                    Some(gap) => (Status::LedgerDep, format!("{} ({})", diff, gap.reason)),
+                    None => (Status::Fail, diff),
+                },
             }
         }
     };
@@ -496,14 +470,16 @@ fn beanquery_conformance() {
             );
         }
     }
+    for gap in LEDGER_DEPENDENT_ALLOWED {
+        assert!(
+            fixtures.iter().any(|fixture| fixture.name == gap.case && fixture.kind == "ledger-dependent"),
+            "LEDGER_DEPENDENT_ALLOWED refers to `{}`, which is not a ledger-dependent case",
+            gap.case
+        );
+    }
 
-    let available = zhang_query::schema()
-        .functions
-        .iter()
-        .map(|function| function.name.to_ascii_lowercase())
-        .collect::<BTreeSet<_>>();
     let ledger = common::fava_demo_ledger();
-    let reports = fixtures.iter().map(|fixture| run_case(&ledger, fixture, &available)).collect::<Vec<_>>();
+    let reports = fixtures.iter().map(|fixture| run_case(&ledger, fixture)).collect::<Vec<_>>();
 
     let mut out = String::from("\nbeanquery conformance (zhang-query/tests/conformance)\n\n");
     for report in &reports {
@@ -516,7 +492,7 @@ fn beanquery_conformance() {
         ));
     }
     out.push('\n');
-    for status in [Status::Pass, Status::Accepted, Status::PendingFunction, Status::LedgerDep, Status::Fail] {
+    for status in [Status::Pass, Status::Accepted, Status::LedgerDep, Status::Fail] {
         let count = reports.iter().filter(|report| report.status == status).count();
         out.push_str(&format!("{:<16} {}\n", status.label(), count));
     }
