@@ -327,18 +327,24 @@ impl Operations {
             .collect_vec())
     }
 
+    /// the price of one `from` in `to` as of `date`: the latest `price` directive for the pair
+    /// dated on or before `date`, like beancount.
+    ///
+    /// Prices with the same datetime replace each other: the last one in stream order wins
+    /// (the stream is sorted stably, so that is source order). Only the direct pair is looked
+    /// up: no inverse rate, and no identity rate for `from == to`.
     pub fn get_price(&mut self, date: NaiveDateTime, from: impl AsRef<str>, to: impl AsRef<str>) -> ZhangResult<Option<PriceDomain>> {
         let store = self.read();
-        let x = store
+        let price = store
             .prices
             .iter()
             .filter(|price| price.commodity.eq(from.as_ref()))
             .filter(|price| price.target_commodity.eq(to.as_ref()))
             .filter(|price| price.datetime.le(&date))
-            .sorted_by(|a, b| a.datetime.cmp(&b.datetime))
-            .next()
+            // `max_by_key` returns the last of several equal maxima, so the last same-day price wins
+            .max_by_key(|price| price.datetime)
             .cloned();
-        Ok(x)
+        Ok(price)
     }
 
     pub fn metas(&self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
