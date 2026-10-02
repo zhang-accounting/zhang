@@ -67,7 +67,7 @@ pub enum Exporter {
 #[derive(Debug, Clone, PartialEq, clap::ValueEnum)]
 pub enum FileSystem {
     Fs,
-    // S3,
+    S3,
     WebDav,
     Github,
 }
@@ -78,6 +78,7 @@ impl FileSystem {
             Ok("fs") => Some(FileSystem::Fs),
             Ok("web-dav") => Some(FileSystem::WebDav),
             Ok("github") => Some(FileSystem::Github),
+            Ok("s3") => Some(FileSystem::S3),
             _ => None,
         }
     }

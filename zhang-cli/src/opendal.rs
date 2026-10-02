@@ -7,7 +7,7 @@ use beancount::Beancount;
 use chrono::Datelike;
 use log::{debug, info, warn};
 use minijinja::{context, Environment};
-use opendal::services::{Fs, Github, Webdav};
+use opendal::services::{Fs, Github, Webdav, S3};
 use opendal::{ErrorKind, Operator};
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 use zhang_core::data_source::{DataSource, LoadResult};
@@ -281,6 +281,33 @@ impl OpendalDataSource {
                 builder.repo(&std::env::var("ZHANG_GITHUB_REPO").expect("ZHANG_GITHUB_REPO must be set"));
 
                 Operator::new(builder).unwrap().finish()
+            }
+            FileSystem::S3 => {
+                let mut builder = S3::default();
+                builder.bucket(&std::env::var("ZHANG_S3_BUCKET").expect("ZHANG_S3_BUCKET must be set"));
+                let s3_root = std::env::var("ZHANG_S3_ROOT").unwrap_or_else(|_| "/".to_string());
+                builder.root(&s3_root);
+                // optional settings, fallback to opendal defaults and the standard AWS env/profile config
+                if let Ok(endpoint) = std::env::var("ZHANG_S3_ENDPOINT") {
+                    builder.endpoint(&endpoint);
+                }
+                if let Ok(region) = std::env::var("ZHANG_S3_REGION") {
+                    builder.region(&region);
+                }
+                if let Ok(access_key_id) = std::env::var("ZHANG_S3_ACCESS_KEY_ID") {
+                    builder.access_key_id(&access_key_id);
+                }
+                if let Ok(secret_access_key) = std::env::var("ZHANG_S3_SECRET_ACCESS_KEY") {
+                    builder.secret_access_key(&secret_access_key);
+                }
+                if let Ok(session_token) = std::env::var("ZHANG_S3_SESSION_TOKEN") {
+                    builder.security_token(&session_token);
+                }
+                if matches!(std::env::var("ZHANG_S3_VIRTUAL_HOST_STYLE").as_deref(), Ok("true") | Ok("1")) {
+                    builder.enable_virtual_host_style();
+                }
+                server_opts.path = PathBuf::from(&s3_root);
+                Operator::new(builder).expect("cannot build s3 operator, check your s3 configuration").finish()
             }
         };
         let is_beancount = match PathBuf::from(&server_opts.endpoint)
