@@ -17,8 +17,9 @@ use crate::decimal;
 /// with fewer price points is inverted and merged into the other one.
 #[derive(Debug, Default, Clone)]
 pub struct PriceMap {
-    /// (base, quote) -> sorted (date, rate), one entry per date
-    rates: HashMap<(String, String), Vec<(NaiveDate, BigDecimal)>>,
+    /// base -> quote -> sorted (date, rate), one entry per date; only one direction of a
+    /// pair is stored and the other one is inverted on lookup
+    rates: HashMap<String, HashMap<String, Vec<(NaiveDate, BigDecimal)>>>,
 }
 
 impl PriceMap {
@@ -65,7 +66,7 @@ impl PriceMap {
             }
         }
 
-        let mut rates = HashMap::new();
+        let mut rates: HashMap<String, HashMap<String, Vec<(NaiveDate, BigDecimal)>>> = HashMap::new();
         for ((base, quote), mut points) in merged {
             // stable sort keeps ledger order within a date, so the last price of a day wins
             points.sort_by_key(|(date, _)| *date);
@@ -76,12 +77,7 @@ impl PriceMap {
                     _ => deduped.push((date, rate)),
                 }
             }
-            let inverted = deduped
-                .iter()
-                .filter_map(|(date, rate)| invert(rate).map(|rate| (*date, rate)))
-                .collect::<Vec<_>>();
-            rates.insert((quote.clone(), base.clone()), inverted);
-            rates.insert((base, quote), deduped);
+            rates.entry(base).or_default().insert(quote, deduped);
         }
         PriceMap { rates }
     }
@@ -92,20 +88,26 @@ impl PriceMap {
         if base == quote {
             return Some(BigDecimal::one());
         }
-        let points = self.rates.get(&(base.to_owned(), quote.to_owned()))?;
-        let point = match date {
-            None => points.last(),
-            Some(date) => {
-                let idx = points.partition_point(|(point_date, _)| *point_date <= date);
-                idx.checked_sub(1).and_then(|idx| points.get(idx))
-            }
-        };
-        point.map(|(_, rate)| rate.clone())
+        if let Some(points) = self.rates.get(base).and_then(|quotes| quotes.get(quote)) {
+            return latest(points, date, false).cloned();
+        }
+        let points = self.rates.get(quote).and_then(|quotes| quotes.get(base))?;
+        // zero prices have no inverse: they are skipped like in beancount's inverted lists
+        latest(points, date, true).and_then(invert)
     }
 
     pub fn is_empty(&self) -> bool {
         self.rates.is_empty()
     }
+}
+
+/// The latest point on or before `date` (or the last one), optionally skipping zero rates.
+fn latest(points: &[(NaiveDate, BigDecimal)], date: Option<NaiveDate>, skip_zero: bool) -> Option<&BigDecimal> {
+    let end = match date {
+        None => points.len(),
+        Some(date) => points.partition_point(|(point_date, _)| *point_date <= date),
+    };
+    points[..end].iter().rev().find(|(_, rate)| !skip_zero || !rate.is_zero()).map(|(_, rate)| rate)
 }
 
 fn invert(rate: &BigDecimal) -> Option<BigDecimal> {
