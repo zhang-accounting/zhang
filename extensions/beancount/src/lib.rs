@@ -370,6 +370,18 @@ mod test {
     }
 
     #[test]
+    fn notes_and_documents_round_trip_their_tags_and_links() {
+        let beancount_exporter = Beancount {};
+        for line in [
+            r#"2020-01-10 note Assets:Bank "x" #t1 ^ln"#,
+            r#"2020-01-10 document Assets:Bank "a.pdf" #a #b ^l1"#,
+        ] {
+            let directive = test_parse_zhang! {line};
+            assert_eq!(beancount_exporter.export(Spanned::new(directive, SpanInfo::default())), line);
+        }
+    }
+
+    #[test]
     fn should_convert_to_pad_and_balance_directive_given_balance_pad_directive() {
         let directive = test_parse_bc! {"1970-01-02 balance Assets:BankAccount 2 CNY"};
         let directive = match directive {

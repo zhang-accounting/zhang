@@ -521,6 +521,24 @@ fn deeply_nested_queries_are_rejected_without_crashing() {
 }
 
 #[test]
+fn long_dotted_names_are_rejected_without_crashing() {
+    let max = zhang_query::MAX_NAME_PARTS;
+    for dots in [max, 10_000, 32_000] {
+        let sql = format!("SELECT a{} FROM #accounts", ".a".repeat(dots));
+        assert!(sql.len() <= zhang_query::MAX_QUERY_LENGTH);
+        let err = run_on_small_stack(sql, Params::new()).unwrap_err();
+        assert_eq!(err.kind, QueryErrorKind::Parse, "{}", err);
+        // at the dot that starts the part after the last accepted one
+        assert_eq!((err.line, err.column), (Some(1), Some(8 + 2 * max - 1)), "{}", err);
+        assert!(err.message.contains("at most 8 parts"), "{}", err);
+    }
+    // the most parts a name may have is an unknown column, not a crash
+    let sql = format!("SELECT a{} FROM #accounts", ".a".repeat(max - 1));
+    let err = run_on_small_stack(sql, Params::new()).unwrap_err();
+    assert_eq!((err.kind, err.column), (QueryErrorKind::Compile, Some(8)), "{}", err);
+}
+
+#[test]
 fn nesting_up_to_the_limit_still_runs_on_a_small_stack() {
     let max = zhang_query::MAX_DEPTH;
     let depth = max - 8;

@@ -173,6 +173,10 @@ fn raw_identifier(i: &str) -> PResult<'_, &str> {
     take_while1(is_ident_char)(i)
 }
 
+/// The most parts a dotted name may have (`open.date` has two). Attribute access only needs
+/// two today; the cap keeps names short whatever the query length.
+pub const MAX_NAME_PARTS: usize = 8;
+
 /// The longest accepted query text, in bytes.
 pub const MAX_QUERY_LENGTH: usize = 64 * 1024;
 
@@ -989,12 +993,16 @@ impl<'s> Parser<'s> {
             return error(i, format!("expected an expression, found keyword {}", name.to_uppercase()));
         }
         // attribute access on a structured column: `open.date` is the column `open.date`
-        let (mut rest, mut lower) = (rest, lower);
+        let (mut rest, mut lower, mut parts) = (rest, lower, 1);
         while let Some(attribute) = rest.strip_prefix('.').filter(|it| it.starts_with(is_ident_start)) {
+            if parts == MAX_NAME_PARTS {
+                return failure(rest, format!("a name has at most {} parts separated by '.', such as open.date", MAX_NAME_PARTS));
+            }
             let (after, attribute) = take_while1::<_, _, PError>(is_ident_char)(attribute)?;
             lower.push('.');
             lower.push_str(&attribute.to_ascii_lowercase());
             rest = after;
+            parts += 1;
         }
         self.leaf(rest, ExprKind::Column(lower), start)
     }
@@ -1243,6 +1251,12 @@ mod tests {
         assert!(parse("SELECT open.1").is_err());
         assert!(parse("SELECT open .date").is_err());
         assert!(parse("SELECT open.").is_err());
+        // at most MAX_NAME_PARTS parts, the error at the dot of the first extra one
+        let name = ["a"; MAX_NAME_PARTS].join(".");
+        assert!(matches!(parse_ok(&format!("SELECT {name}")).targets, Targets::List(_)));
+        let err = parse_err(&format!("SELECT {name}.b"));
+        assert_eq!((err.kind, err.column), (QueryErrorKind::Parse, Some(8 + name.len())), "{}", err);
+        assert!(err.message.contains("at most 8 parts"), "{}", err.message);
     }
 
     #[test]

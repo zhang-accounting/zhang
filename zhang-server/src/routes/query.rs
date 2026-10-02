@@ -366,6 +366,30 @@ mod result_limit_test {
         Arc::new(RwLock::new(ledger))
     }
 
+    /// A name with thousands of dots is a positioned 400, on a runtime whose threads have a
+    /// 2 MiB stack.
+    #[test]
+    fn long_dotted_names_are_a_query_400() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_stack_size(2 << 20)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let ledger = ledger().await;
+            for dots in [10_000, 32_000] {
+                let query = format!("SELECT a{} FROM #accounts", ".a".repeat(dots));
+                let response = run(ledger.clone(), query, 100).await.into_response();
+                assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(body["line"], 1);
+                assert_eq!(body["column"], 8 + 2 * zhang_query::MAX_NAME_PARTS - 1);
+            }
+        });
+    }
+
     #[tokio::test]
     async fn results_over_the_limit_are_a_query_400() {
         let ledger = ledger().await;

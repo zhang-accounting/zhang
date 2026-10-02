@@ -9,6 +9,7 @@
 //! as [`Either::Right`]; everything else maps onto zhang's [`Directive`] as
 //! [`Either::Left`].
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -358,6 +359,16 @@ fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
     Ok((rest, (tags, links)))
 }
 
+/// The tags and links after the string of a note or document, as the AST keeps
+/// them: `None` when there are none.
+type TagAndLinkSets = (Option<HashSet<String>>, Option<HashSet<String>>);
+
+fn tag_and_link_sets(i: &str) -> IResult<&str, TagAndLinkSets> {
+    let (i, (tags, links)) = tags_or_links(i)?;
+    let set = |items: Vec<String>| (!items.is_empty()).then(|| items.into_iter().collect::<HashSet<_>>());
+    Ok((i, (set(tags), set(links))))
+}
+
 // ---------------------------------------------------------------------------
 // metadata
 // ---------------------------------------------------------------------------
@@ -450,14 +461,15 @@ fn note_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
     let (i, account) = account_name(i)?;
     let (i, _) = space1(i)?;
     let (i, comment) = string(i)?;
+    let (i, (tags, links)) = tag_and_link_sets(i)?;
     Ok((
         i,
         Either::Left(Directive::Note(Note {
             date,
             account,
             comment,
-            tags: None,
-            links: None,
+            tags,
+            links,
             meta: Meta::default(),
         })),
     ))
@@ -504,14 +516,15 @@ fn document_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
     let (i, account) = account_name(i)?;
     let (i, _) = space1(i)?;
     let (i, filename) = string(i)?;
+    let (i, (tags, links)) = tag_and_link_sets(i)?;
     Ok((
         i,
         Either::Left(Directive::Document(Document {
             date,
             account,
             filename,
-            tags: None,
-            links: None,
+            tags,
+            links,
             meta: Meta::default(),
         })),
     ))
@@ -932,6 +945,33 @@ mod test {
     }
     fn get_right_directive(content: &str) -> BeancountOnlyDirective {
         parse(content, None).unwrap().pop().unwrap().data.right().unwrap()
+    }
+    mod note_and_document_tags {
+        use std::collections::HashSet;
+
+        use zhang_ast::Directive;
+
+        use crate::parser::test::get_left_directive;
+
+        fn set(items: &[&str]) -> Option<HashSet<String>> {
+            Some(items.iter().map(|it| (*it).to_owned()).collect())
+        }
+
+        #[test]
+        fn notes_and_documents_keep_their_tags_and_links() {
+            let Directive::Note(note) = get_left_directive("2020-01-10 note Assets:Bank \"x\" #t1 ^ln\n") else {
+                panic!()
+            };
+            assert_eq!((note.tags, note.links), (set(&["t1"]), set(&["ln"])));
+            let Directive::Document(document) = get_left_directive("2020-01-10 document Assets:Bank \"a.pdf\" #t1 #t2\n") else {
+                panic!()
+            };
+            assert_eq!((document.tags, document.links), (set(&["t1", "t2"]), None));
+            let Directive::Note(note) = get_left_directive("2020-01-10 note Assets:Bank \"x\"\n") else {
+                panic!()
+            };
+            assert_eq!((note.tags, note.links), (None, None));
+        }
     }
     mod tag {
         use std::str::FromStr;
