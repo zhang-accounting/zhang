@@ -27,8 +27,11 @@
 //!    instead of O(open lots). `value()` and `convert()` price by date and are not linear.
 //! 7. [`limit_mode`]: how LIMIT cuts the work short. Without ORDER BY a scan stops once it has
 //!    LIMIT rows (telling DISTINCT rows apart while scanning) and an aggregate query only
-//!    aggregates its first LIMIT groups; with ORDER BY (and no DISTINCT) the scan keeps the
-//!    top LIMIT rows instead of sorting them all.
+//!    aggregates its first LIMIT groups (unless HAVING may drop some of them); with ORDER BY
+//!    (and no DISTINCT) the scan keeps the top LIMIT rows instead of sorting them all.
+//!
+//! The expression rules rewrite the HAVING condition like any other expression; one that
+//! folds to TRUE is dropped, like a filter.
 
 use crate::compiler::{build_regex, CExpr, LimitMode, Plan, RegexPattern, Running};
 use crate::error::LocatedError;
@@ -99,7 +102,8 @@ pub(crate) fn limit_mode(plan: &Plan) -> LimitMode {
     match (&plan.group_keys, plan.order.is_empty(), plan.distinct, plan.limit.is_some()) {
         (None, true, _, _) => LimitMode::StopScan,
         (None, false, false, true) => LimitMode::TopK,
-        (Some(_), true, false, true) => LimitMode::FirstGroups,
+        // HAVING may drop any group once it is finished, so every group is built
+        (Some(_), true, false, true) if plan.having.is_none() => LimitMode::FirstGroups,
         _ => LimitMode::AfterSort,
     }
 }
@@ -109,6 +113,11 @@ fn optimize_expressions(mut plan: Plan) -> Result<Plan, LocatedError> {
     if matches!(plan.filter, Some(CExpr::Const(Value::Bool(true)))) {
         // a filter that always holds is no filter
         plan.filter = None;
+    }
+    plan.having = plan.having.take().map(optimize_expr).transpose()?;
+    if matches!(plan.having, Some(CExpr::Const(Value::Bool(true)))) {
+        // nor is a HAVING that holds for every group
+        plan.having = None;
     }
     for target in &mut plan.targets {
         let expr = std::mem::replace(&mut target.expr, CExpr::Const(Value::Null));
@@ -227,7 +236,7 @@ pub(crate) fn simplify_logic(expr: CExpr) -> CExpr {
 /// Evaluate a node whose operands are all constants once, at compile time.
 pub(crate) fn fold_constants(expr: CExpr) -> CExpr {
     let foldable = match &expr {
-        CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_) => false,
+        CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_) | CExpr::Target(_) => false,
         CExpr::Scalar { function, .. } if NOT_FOLDABLE.contains(&function.name) => false,
         node => node.children().iter().all(|child| matches!(child, CExpr::Const(_))),
     };

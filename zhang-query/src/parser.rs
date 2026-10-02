@@ -5,7 +5,9 @@
 //! ```text
 //! query      := (select | balances | journal) [;]
 //! select     := SELECT [DISTINCT] targets [from] [where]
-//!               [GROUP BY item, ...] [ORDER BY item [ASC|DESC], ...] [LIMIT int]
+//!               [GROUP BY item, ... [HAVING expr]] [ORDER BY item [ASC|DESC], ...]
+//!               [PIVOT BY column, column] [LIMIT int]
+//! column     := name | int                       (a target name or a 1-based target index)
 //! balances   := BALANCES [AT name] [from] [where]
 //! journal    := JOURNAL ['regex' | $n | :name] [AT name] [from]
 //! from       := FROM table | FROM [expr] [OPEN ON date] [CLOSE [ON date]] [CLEAR]   (at least one part)
@@ -276,9 +278,20 @@ impl<'s> Parser<'s> {
             }
             Err(_) => (i, None),
         };
-        if is_keyword(i, "having") {
-            return failure(skip_ws(i), "HAVING is not supported yet");
-        }
+        // as in beanquery, HAVING is part of the GROUP BY clause
+        let (i, having) = match keyword("having")(i) {
+            Ok(_) if group_by.is_none() => {
+                return failure(skip_ws(i), "HAVING requires a GROUP BY clause; filter rows with WHERE");
+            }
+            Ok((rest, _)) => {
+                let (rest, expr) = cut(self.expr(rest))?;
+                if is_keyword(rest, "having") {
+                    return failure(skip_ws(rest), "HAVING may appear only once; combine the conditions with AND");
+                }
+                (rest, Some(expr))
+            }
+            Err(_) => (i, None),
+        };
         let (i, order_by) = match keyword("order")(i) {
             Ok((rest, _)) => {
                 let (rest, _) = cut(keyword("by")(rest))?;
@@ -287,9 +300,17 @@ impl<'s> Parser<'s> {
             }
             Err(_) => (i, None),
         };
-        if is_keyword(i, "pivot") {
-            return failure(skip_ws(i), "PIVOT BY is not supported yet");
+        if is_keyword(i, "having") {
+            return failure(skip_ws(i), "HAVING must follow GROUP BY, before ORDER BY");
         }
+        let (i, pivot_by) = match keyword("pivot")(i) {
+            Ok((rest, _)) => {
+                let (rest, _) = keyword("by")(rest).or_else(|_| failure(skip_ws(rest), format!("expected BY after PIVOT, found {}", found(rest))))?;
+                let (rest, columns) = self.pivot_columns(rest)?;
+                (rest, Some(columns))
+            }
+            Err(_) => (i, None),
+        };
         let (i, limit) = match keyword("limit")(i) {
             Ok((rest, _)) => {
                 let rest = skip_ws(rest);
@@ -307,6 +328,9 @@ impl<'s> Parser<'s> {
             }
             Err(_) => (i, None),
         };
+        if is_keyword(i, "pivot") {
+            return failure(skip_ws(i), "PIVOT BY must come before LIMIT");
+        }
         Ok((
             i,
             Select {
@@ -317,10 +341,54 @@ impl<'s> Parser<'s> {
                 period,
                 where_clause,
                 group_by,
+                having,
                 order_by,
+                pivot_by,
                 limit,
             },
         ))
+    }
+
+    /// The two columns of `PIVOT BY`, after the keywords: each a target name or a 1-based
+    /// target index, as in beanquery (expressions are not accepted).
+    fn pivot_columns(&self, i: &'s str) -> PResult<'s, [Expr; 2]> {
+        let (i, first) = self.pivot_column(i)?;
+        let i = match symbol(",")(i) {
+            Ok((rest, _)) => rest,
+            Err(_) => return failure(skip_ws(i), format!("PIVOT BY takes two columns separated by a comma, found {}", found(i))),
+        };
+        let (i, second) = self.pivot_column(i)?;
+        if symbol(",")(i).is_ok() {
+            return failure(skip_ws(i), "PIVOT BY takes exactly two columns");
+        }
+        Ok((i, [first, second]))
+    }
+
+    fn pivot_column(&self, i: &'s str) -> PResult<'s, Expr> {
+        let i = skip_ws(i);
+        let start = self.offset(i);
+        let expected = || failure(i, format!("expected a target name or number after PIVOT BY, found {}", found(i)));
+        if i.starts_with(|c: char| c.is_ascii_digit()) {
+            let (rest, digits) = take_while::<_, _, PError>(|c: char| c.is_ascii_digit())(i)?;
+            if rest.starts_with(is_ident_char) || rest.starts_with('.') {
+                return expected();
+            }
+            let index = digits.parse::<i64>().map_err(|_| {
+                NomErr::Failure(PError {
+                    input: i,
+                    message: Cow::Borrowed("the PIVOT BY index is too large"),
+                })
+            })?;
+            return Ok((rest, Expr::new(ExprKind::Literal(Literal::Int(index)), Span::new(start, self.offset(rest)))));
+        }
+        let Ok((rest, name)) = raw_identifier(i) else {
+            return expected();
+        };
+        let name = name.to_ascii_lowercase();
+        if RESERVED.contains(&name.as_str()) || skip_ws(rest).starts_with('(') {
+            return expected();
+        }
+        Ok((rest, Expr::new(ExprKind::Column(name), Span::new(start, self.offset(rest)))))
     }
 
     /// `[FROM #name | FROM [expr] [OPEN ON date] [CLOSE [ON date]] [CLEAR]]`, shared by
@@ -1359,6 +1427,46 @@ mod tests {
         assert_eq!(pattern.kind, ExprKind::Param(ParamRef::Named("account".into())));
         // no account: no filter
         assert!(parse_ok("JOURNAL FROM year = 2016").where_clause.is_none());
+    }
+
+    #[test]
+    fn parses_having_and_pivot_by_in_grammar_order() {
+        let select = parse_ok(
+            "select year, account, sum(number) as total group by 1, 2 having sum(number) > 10 and count(*) > 1 \
+             order by 3 desc pivot by Account, 1 limit 5",
+        );
+        assert!(matches!(select.having.as_ref().unwrap().kind, ExprKind::Logical(LogicalOp::And, _)));
+        let [first, second] = select.pivot_by.as_ref().unwrap();
+        // names are lower-cased like columns; indexes are integer literals
+        assert_eq!(first.as_identifier(), Some("account"));
+        assert_eq!(second.as_index(), Some(1));
+        assert_eq!(select.limit, Some(5));
+        assert!(parse_ok("SELECT a GROUP BY a").having.is_none() && parse_ok("SELECT a").pivot_by.is_none());
+    }
+
+    #[test]
+    fn having_and_pivot_by_syntax_errors() {
+        for (src, column, message) in [
+            ("SELECT count(*) HAVING count(*) > 1", 17, "HAVING requires a GROUP BY clause"),
+            ("SELECT a GROUP BY a ORDER BY a HAVING count(*) > 1", 32, "HAVING must follow GROUP BY"),
+            ("SELECT a GROUP BY a HAVING count(*) > 1 HAVING count(*) < 9", 41, "HAVING may appear only once"),
+            ("SELECT a GROUP BY a HAVING", 27, "end of query"),
+            ("SELECT a, b GROUP BY a, b PIVOT a, b", 33, "expected BY after PIVOT, found 'a'"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY a", 37, "two columns separated by a comma"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY a, b, c", 40, "exactly two columns"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY a + 1, b", 38, "separated by a comma, found '+'"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY root(a, 2), b", 36, "expected a target name or number"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY 'a', b", 36, "expected a target name or number"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY a, -1", 39, "expected a target name or number"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY 1.5, 2", 36, "expected a target name or number"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY a, limit", 39, "expected a target name or number"),
+            ("SELECT a, b GROUP BY a, b LIMIT 1 PIVOT BY a, b", 35, "PIVOT BY must come before LIMIT"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY a, b ORDER BY a", 41, "unexpected 'ORDER'"),
+        ] {
+            let err = parse_err(src);
+            assert_eq!((err.line, err.column), (Some(1), Some(column)), "{}: {}", src, err);
+            assert!(err.message.contains(message), "{}: {}", src, err.message);
+        }
     }
 
     #[test]

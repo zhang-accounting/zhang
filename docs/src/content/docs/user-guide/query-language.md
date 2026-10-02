@@ -98,8 +98,9 @@ This returns the ten most recent postings to `Expenses:Food` and its sub-account
 SELECT [DISTINCT] target [, target ...] | *
   [FROM from_clause]
   [WHERE expression]
-  [GROUP BY group_key [, group_key ...]]
+  [GROUP BY group_key [, group_key ...] [HAVING expression]]
   [ORDER BY order_key [ASC | DESC] [, order_key [ASC | DESC] ...]]
+  [PIVOT BY pivot_key, pivot_key]
   [LIMIT count]
   [;]
 
@@ -110,6 +111,7 @@ JOURNAL ['pattern'] [AT function] [FROM from_clause] [;]
 target      = expression [AS name]
 group_key   = expression | target name | target number
 order_key   = expression | target name | target number
+pivot_key   = target name | target number
 from_clause = [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
 ```
 
@@ -126,9 +128,11 @@ from_clause = [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
 2. The expression of `FROM` and the `WHERE` clause choose which postings take part.
 3. If the query reads the [running balance](#the-running-balance), it is added up over the chosen postings, in ledger order.
 4. If the query uses an [aggregate function](#aggregate-functions) or has a `GROUP BY` clause, the chosen postings are grouped and each group produces one row. Otherwise each posting produces one row.
-5. `ORDER BY` sorts the rows.
-6. `DISTINCT` removes duplicate rows, keeping the first of each.
-7. `LIMIT` keeps the first rows and drops the rest.
+5. `HAVING` drops the groups that do not satisfy its condition.
+6. `ORDER BY` sorts the rows.
+7. `DISTINCT` removes duplicate rows, keeping the first of each.
+8. `LIMIT` keeps the first rows and drops the rest.
+9. `PIVOT BY` turns the remaining rows into a table with one column per value of a target.
 
 Before any posting is read, Zhang checks the query and simplifies it. Parts that involve only constants, such as `'^Expenses:' + 'Food'`, are computed once at that point. Functions that depend on the ledger or on the current date (`today`, `convert`, `value`, `getprice` and the metadata functions) are not. As a result, an invalid regular expression in a constant pattern is reported immediately, with its position, even if no posting would ever be matched against it.
 
@@ -189,6 +193,23 @@ WHERE account ~ '^Expenses'
 GROUP BY category
 ```
 
+### HAVING
+
+`HAVING` filters the groups of an aggregate query, the way `WHERE` filters postings. It comes right after `GROUP BY` and keeps the groups for which its condition is `TRUE`. A condition that is `FALSE` or `NULL` drops the group.
+
+```sql
+SELECT root(account, 2) AS category, sum(position) AS total
+WHERE account ~ '^Expenses'
+GROUP BY category
+HAVING sum(number) > 1000
+```
+
+- `HAVING` needs a `GROUP BY` clause. Without one it is a syntax error, even when the query is grouped [implicitly](#group-by).
+- The condition must be a boolean expression that uses an [aggregate function](#aggregate-functions). The aggregates do not have to be selected: `HAVING count(*) > 10` works even if `count(*)` is not a target.
+- Names in `HAVING` are columns of the `postings` table, as in `WHERE`, never target aliases. `HAVING total > 1000` is an error; repeat the expression, as in `HAVING sum(number) > 1000`.
+- Outside an aggregate function, a column may only be read through a group key: an expression equal to a group key is that group's value. In `GROUP BY account HAVING account ~ 'Food' AND count(*) > 10`, `account` is the account of each group. Any other column must be inside an aggregate function.
+- `LIMIT` counts the groups that `HAVING` keeps.
+
 ### ORDER BY
 
 - An order key can be an expression, a target name or a target number, just like a group key. An expression that is not selected is still used for sorting, but it does not appear in the result.
@@ -201,6 +222,31 @@ GROUP BY category
 ### LIMIT
 
 `LIMIT n` keeps the first `n` rows, after sorting and `DISTINCT`. `n` must be a non-negative integer literal. `LIMIT 0` returns no rows.
+
+### PIVOT BY
+
+`PIVOT BY a, b` turns the result of an aggregate query into a table: one row for each value of the target `a`, and one column for each value of the target `b`.
+
+```sql
+SELECT root(account, 2) AS category, year, sum(position) AS total
+WHERE account ~ '^Expenses:(Food|Home)'
+GROUP BY category, year
+PIVOT BY category, year
+```
+
+| category/year | 2015 | 2016 | 2017 |
+|---|---|---|---|
+| Expenses:Food | 6614.67 USD | 6859.72 USD | 4686.42 USD |
+| Expenses:Home | 31304.42 USD | 31280.55 USD | 20866.27 USD |
+
+- `PIVOT BY` comes after `ORDER BY` and before `LIMIT`, and takes exactly two targets, each given by its name or by its number in the `SELECT` list. Expressions are not allowed.
+- The query must be an aggregate query, and the second target must be a group key. The two targets must be different.
+- It applies last, to the rows that `HAVING`, `ORDER BY`, `DISTINCT` and `LIMIT` leave. Only those rows create columns.
+- The rows are sorted by `a`, whatever the `ORDER BY`. The columns are sorted by the value of `b`.
+- The first column is named `a/b`, after the two targets. Each other column is named after a value of `b`, such as `2016`, and holds the remaining target for that value. When more than one target remains, there is one column per value and target, named `<value>/<target>`, for example `2016/total` and `2016/count`.
+- A value is written like this in a column name: `2016-01-31` for a date, `12.50` for a decimal, `True` and `False` for booleans, and `NULL` for `NULL`.
+- A cell for a pair of `a` and `b` that has no row is `NULL`. If several rows have the same pair, which happens when the query groups by more than `a` and `b`, the last row in the result order fills the cells.
+- The columns keep the types of their targets, so [CSV export](#export-as-csv) splits pivoted amounts and inventories per currency, as in `2016 (USD)`.
 
 ### Parameters
 
@@ -821,7 +867,7 @@ These limits protect the server from queries that would take too much memory or 
 
 - Nesting counts parentheses, function calls, `IN` lists, `NOT` and unary minus that are placed inside each other. A long chain of `AND`, `OR`, `+` or `*`, such as `account = 'A' OR account = 'B' OR ...`, is not nested and can be as long as the length limit allows.
 - The execution time includes building the rows of the `postings` table and applying the period clauses. While a query runs, it holds a read lock on the ledger, and the time limit bounds how long that lock is held.
-- The result size counts each cell as one value, plus one for each position of an inventory, each element of a set and each 64 bytes of text. The rows that a query collects before `ORDER BY`, `DISTINCT` and `LIMIT` count too, and so do the groups of an aggregate query while they are built. A query that goes over the limit fails with an error that suggests narrowing it with `FROM` or `WHERE`, or adding a `LIMIT`.
+- The result size counts each cell as one value, plus one for each position of an inventory, each element of a set and each 64 bytes of text. The rows that a query collects before `ORDER BY`, `DISTINCT` and `LIMIT` count too, and so do the groups of an aggregate query while they are built. A `PIVOT BY` table counts all of its cells, including the empty ones, and is checked before it is built. A query that goes over the limit fails with an error that suggests narrowing it with `FROM` or `WHERE`, or adding a `LIMIT`.
 - Server operators can raise or lower the result size limit with the environment variable `ZHANG_QUERY_MAX_RESULT_VALUES`.
 - `LIMIT` keeps a result small, and so does the way the [running balance](#the-running-balance) is computed. `balance` is only built for the rows that end up in the result, unless the query sorts, groups or de-duplicates by it. `units(balance)` and `cost(balance)`, and so `JOURNAL ... AT units` and `AT cost`, are added up per currency without keeping the lots.
 - The same limits apply to [CSV export](#export-as-csv).
@@ -900,6 +946,29 @@ SELECT year, month, root(account, 2), sum(position) WHERE account ~ "^Expenses" 
 ```
 
 One row per month and second-level expense account (such as `Expenses:Food`), with the total spent. `GROUP BY 1, 2, 3` and `ORDER BY 1, 2, 3` refer to the first three targets by number.
+
+### Categories above a threshold
+
+```sql
+SELECT root(account, 2) AS category, sum(position) AS total
+WHERE account ~ '^Expenses' AND currency = 'USD'
+GROUP BY category
+HAVING sum(number) > 1000
+ORDER BY category
+```
+
+The expense categories on which you spent more than 1000 USD. `HAVING` filters the groups after they are added up; `WHERE` could not, because it sees one posting at a time.
+
+### Monthly expenses with one column per year
+
+```sql
+SELECT month, year, sum(position) AS total
+WHERE account ~ '^Expenses:Food'
+GROUP BY month, year
+PIVOT BY month, year
+```
+
+One row per month and one column per year, so the same month of different years sits side by side. A month without postings in a year is empty.
 
 ### Spending by payee
 
@@ -1060,13 +1129,12 @@ One row per day with postings, with the account's balance at the end of the day.
 ### Not available yet
 
 - **`PRINT`**, which is rejected with an error.
-- **`HAVING` and `PIVOT BY`.**
 - **Other tables:** only `postings` exists. There are no entries, prices, accounts, commodities, documents or balances tables, and no table names or subqueries after `FROM`.
 - **The beanquery columns** `posting_flag`, `filename`, `lineno`, `location`, `meta`, `entry`, `accounts` and `type`.
 - **Operators `BETWEEN` and `%`**, and beanquery's quoted identifiers.
 - **Functions not listed on this page**, such as `round`, `safediv`, `has_account`, `open_date`, `close_date`, `open_meta`, `currency_meta`, `grep`, `subst`, `upper`, `lower`, `joinstr`, `findfirst`, the conversion functions `int`, `decimal` and `date`, and the `date_*` functions. Calling one is an error.
 
-The roadmap in [#434](https://github.com/zhang-accounting/zhang/issues/434) schedules `HAVING`, `PIVOT BY` and more tables for a later phase.
+The roadmap in [#434](https://github.com/zhang-accounting/zhang/issues/434) schedules more tables for a later phase.
 
 ### Behaving differently
 
@@ -1087,4 +1155,9 @@ The roadmap in [#434](https://github.com/zhang-accounting/zhang/issues/434) sche
 - **The `FROM` expression filters after the period clauses.** This is what beanquery does. In BQL v2, the expression chose the transactions before `OPEN`, `CLOSE` and `CLEAR` were applied.
 - **Equity accounts.** An `account_previous_*` or `account_current_*` option whose value is not a valid account name is ignored, and the default account is used.
 - **The last entry of a period**, which dates the `T` transactions of `CLEAR` and the `C` transaction of a bare `CLOSE`, ignores Zhang's budget directives, which Beancount does not have.
+- **Columns in `HAVING`.** beanquery reads a column used outside an aggregate function in `HAVING` from an arbitrary posting. Zhang reads a group key as the value of each group and rejects any other column.
+- **`HAVING` must be a boolean expression.** beanquery also accepts other values and keeps the groups for which they are not zero or empty, as in `HAVING sum(number)`. Zhang rejects them, as it does in `WHERE`; write `HAVING sum(number) != 0`.
+- **`PIVOT BY` with `NULL` values.** beanquery fails when the values of a pivot target mix `NULL` with others. Zhang sorts `NULL` first and names its column `NULL`.
+- **`PIVOT BY` without grouping** is an error in Zhang. beanquery fails while it runs such a query.
+- **CSV export of a pivot with missing cells.** beanquery fails to numberify the empty cells of a pivoted amount or inventory column. Zhang leaves them empty.
 - **CSV export keeps exact numbers.** `bean-query` pads numbers for alignment (`" 600.00"`), rounds numberified numbers to each currency's display precision (`360.03` instead of `360.03016`), and writes some numbers with an exponent (`1E+3`). Zhang does none of this.

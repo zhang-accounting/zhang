@@ -1,0 +1,11 @@
+{
+  "name": "error_having_without_aggregate",
+  "query": "SELECT account, count(*) AS n GROUP BY account HAVING account ~ 'Food'",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "HAVING must use an aggregate function."
+}

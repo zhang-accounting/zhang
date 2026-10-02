@@ -1,0 +1,19 @@
+{
+  "name": "pivot_after_having_order_and_limit",
+  "query": "SELECT year, root(account, 2) AS category, sum(number) AS total WHERE account ~ '^Expenses' GROUP BY 1, 2 HAVING sum(number) > 1000 ORDER BY 3 DESC PIVOT BY category, year LIMIT 8",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "category/year", "type": "str"},
+    {"name": "2015", "type": "decimal"},
+    {"name": "2016", "type": "decimal"},
+    {"name": "2017", "type": "decimal"}
+  ],
+  "rows": [
+    ["Expenses:Food", "6614.67", "6859.72", null],
+    ["Expenses:Home", "31304.42", "31280.55", "20866.27"],
+    ["Expenses:Taxes", "71187.86", "70047.35", "55279.29"]
+  ],
+  "notes": "PIVOT BY reshapes the rows LIMIT leaves; it sorts them itself, so ORDER BY only decides which rows remain."
+}

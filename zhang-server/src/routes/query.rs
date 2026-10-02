@@ -269,6 +269,48 @@ mod csv_test {
     }
 
     #[tokio::test]
+    async fn query_csv_of_a_pivot_splits_the_pivoted_columns_per_currency() {
+        let response = post_csv("SELECT account, currency, sum(position) AS total GROUP BY 1, 2 PIVOT BY account, currency").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        // a pivoted inventory column is split like any other; missing cells stay empty
+        assert_eq!(
+            text(response).await,
+            "account/currency,AAPL (AAPL),CNY (CNY),USD (USD)\r\n\
+             Assets:Broker,2,,\r\n\
+             Assets:Cash,,-12.50,\r\n\
+             Equity:Opening,,,-300.00\r\n\
+             Expenses:Food,,12.50,\r\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn query_results_of_a_pivot_have_typed_columns() {
+        let ledger = ledger().await;
+        let response = super::run(
+            ledger.0.clone(),
+            "SELECT account, currency, count(*) AS n GROUP BY 1, 2 HAVING count(*) > 0 PIVOT BY currency, account".to_owned(),
+            zhang_query::DEFAULT_MAX_RESULT_VALUES,
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
+        assert_eq!(
+            body,
+            json!({"data": {
+                "columns": [
+                    {"name": "currency/account", "type": "str"},
+                    {"name": "Assets:Broker", "type": "int"},
+                    {"name": "Assets:Cash", "type": "int"},
+                    {"name": "Equity:Opening", "type": "int"},
+                    {"name": "Expenses:Food", "type": "int"}
+                ],
+                "rows": [["AAPL", 1, null, null, null], ["CNY", null, 1, null, 1], ["USD", null, null, 1, null]]
+            }})
+        );
+    }
+
+    #[tokio::test]
     async fn query_csv_errors_are_the_query_api_400() {
         let response = post_csv("SELECT account WHERE").await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);

@@ -1,0 +1,16 @@
+{
+  "name": "csv_pivot_inventory_columns",
+  "query": "SELECT account, year, sum(position) AS total WHERE account ~ '^Assets:US:(BofA:Checking|Vanguard:Cash|Hoogle:Vacation)' GROUP BY 1, 2 PIVOT BY account, year",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "csv",
+  "columns": [],
+  "rows": [],
+  "csv": [
+    "account/year,2015 (USD),2015 (VACHR),2016 (USD),2016 (VACHR),2017 (USD),2017 (VACHR)",
+    "Assets:US:BofA:Checking,8029.87,,-1652.64,,-3623.17,",
+    "Assets:US:Hoogle:Vacation,,63,,-38,,-38",
+    "Assets:US:Vanguard:Cash,  -0.03,,    0.09,,   -0.08,"
+  ],
+  "notes": "numberify splits each pivoted inventory column per currency: '2015 (USD)', '2015 (VACHR)'."
+}

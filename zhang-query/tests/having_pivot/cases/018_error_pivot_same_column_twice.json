@@ -1,0 +1,11 @@
+{
+  "name": "error_pivot_same_column_twice",
+  "query": "SELECT account, year, sum(number) AS total GROUP BY 1, 2 PIVOT BY account, 1",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

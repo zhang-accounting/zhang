@@ -1,0 +1,20 @@
+{
+  "name": "having_three_valued_logic",
+  "query": "SELECT account, count(*) AS n, max(number) AS largest WHERE account ~ '^Expenses:(Food|Home)' GROUP BY account HAVING NOT (sum(number) > 5000) OR max(number) / 0 > 1 ORDER BY account",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "largest", "type": "decimal"}
+  ],
+  "rows": [
+    ["Expenses:Food:Alcohol", 7, "11.74"],
+    ["Expenses:Food:Coffee", 13, "7.25"],
+    ["Expenses:Home:Electricity", 32, "65.00"],
+    ["Expenses:Home:Internet", 32, "80.20"],
+    ["Expenses:Home:Phone", 32, "86.40"]
+  ],
+  "notes": "A group whose condition is NULL (here the division by zero) is dropped, like FALSE."
+}

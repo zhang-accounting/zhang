@@ -15,13 +15,15 @@ import CodeMirror, {
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 // Lightweight BQL highlighting built on the view package only, since no CodeMirror language package is installed.
+// Groups: string, date, number, `#table`, keyword, function name.
 const TOKEN_REGEXP =
-  /("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|\b(\d{4}-\d{2}-\d{2})\b|\b(\d+(?:\.\d+)?)\b|\b(select|distinct|from|where|group|by|order|asc|desc|limit|as|and|or|not|in|is|null|true|false|open|close|on|clear|balances|journal|at|pivot|having)\b|\b([a-z_][a-z0-9_]*)(?=\s*\()/gi;
+  /("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|\b(\d{4}-\d{2}-\d{2})\b|\b(\d+(?:\.\d+)?)\b|(?<![\w#])(#[a-z_][a-z0-9_]*)|\b(select|distinct|from|where|group|by|order|asc|desc|limit|as|and|or|not|in|is|null|true|false|open|close|on|clear|balances|journal|at|pivot|having)\b|\b([a-z_][a-z0-9_]*)(?=\s*\()/gi;
 
 const tokenMarks = {
   string: Decoration.mark({ class: 'cm-bql-string' }),
   date: Decoration.mark({ class: 'cm-bql-date' }),
   number: Decoration.mark({ class: 'cm-bql-number' }),
+  table: Decoration.mark({ class: 'cm-bql-table' }),
   keyword: Decoration.mark({ class: 'cm-bql-keyword' }),
   function: Decoration.mark({ class: 'cm-bql-function' }),
 };
@@ -32,7 +34,8 @@ const tokenMatcher = new MatchDecorator({
     if (match[1] !== undefined) return tokenMarks.string;
     if (match[2] !== undefined) return tokenMarks.date;
     if (match[3] !== undefined) return tokenMarks.number;
-    if (match[4] !== undefined) return tokenMarks.keyword;
+    if (match[4] !== undefined) return tokenMarks.table;
+    if (match[5] !== undefined) return tokenMarks.keyword;
     return tokenMarks.function;
   },
 });
@@ -83,6 +86,7 @@ const queryEditorTheme = EditorView.baseTheme({
   '&.cm-focused': { outline: 'none' },
   '.cm-bql-keyword': { color: '#7c3aed', fontWeight: '600' },
   '.cm-bql-function': { color: '#0369a1' },
+  '.cm-bql-table': { color: '#0f766e', fontWeight: '600' },
   '.cm-bql-string': { color: '#047857' },
   '.cm-bql-number': { color: '#1d4ed8' },
   '.cm-bql-date': { color: '#b45309' },
