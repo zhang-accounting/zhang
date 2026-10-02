@@ -1,14 +1,14 @@
 ---
 title: Query Language
-description: Reference for Zhang's BQL-compatible query language, covering syntax, the postings table, types, functions, the HTTP API and the differences from Beancount's query language.
+description: Reference for Zhang's BQL-compatible query language, covering syntax, the BALANCES and JOURNAL statements, accounting periods, the postings table, types, functions, charts, saved queries, CSV export, the HTTP API and the differences from Beancount's query language.
 ---
 
-Zhang can answer ad-hoc questions about your ledger with a small query language. It understands a subset of the [Beancount Query Language (BQL)](https://beancount.github.io/docs/beancount_query_language/), so most `SELECT` queries written for Beancount or Fava work without changes. When BQL v2 and its successor [beanquery](https://github.com/beancount/beanquery) disagree, Zhang does what beanquery does, except for the few deliberate differences listed at the end of this page.
+Zhang can answer ad-hoc questions about your ledger with a small query language. It understands a subset of the [Beancount Query Language (BQL)](https://beancount.github.io/docs/beancount_query_language/), so most queries written for Beancount or Fava work without changes. When BQL v2 and its successor [beanquery](https://github.com/beancount/beanquery) disagree, Zhang does what beanquery does, except for the few deliberate differences listed at the end of this page.
 
 Queries run directly against the ledger that Zhang has already loaded into memory. They are read-only, and all arithmetic uses exact decimals, so amounts never pass through floating point.
 
 :::caution[Early version]
-This page covers the first version of the query language (Phase 1 of [#434](https://github.com/zhang-accounting/zhang/issues/434)): `SELECT` queries over a single `postings` table. [Differences from BQL and beanquery](#differences-from-bql-and-beanquery) lists what is not available yet.
+This page covers the query language as of Phase 2 of [#434](https://github.com/zhang-accounting/zhang/issues/434): `SELECT`, `BALANCES` and `JOURNAL` over a single `postings` table, the accounting-period clauses `OPEN ON`, `CLOSE` and `CLEAR`, saved queries and CSV export. [Differences from BQL and beanquery](#differences-from-bql-and-beanquery) lists what is not available yet.
 :::
 
 ## Running a query
@@ -19,12 +19,62 @@ Open the **Query** page (**查询** in the Chinese interface) at `/explore`.
 
 - Type a query in the editor. It runs only when you click the run button or press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> (<kbd>Cmd</kbd>+<kbd>Enter</kbd> on macOS), never while you are typing.
 - Results are shown as a table, and each cell is rendered according to its [type](#types). An inventory cell shows one position per line.
+- A result with two columns, a label and a number or amount, is also drawn as a chart above the table. See [Charts](#charts).
 - If the query has an error, the editor highlights the line and column where it was found.
-- The examples menu inserts ready-made queries, and the reference panel lists every column and function.
+- The **Examples** menu puts a ready-made query in the editor and runs it. Among them are an income statement, the balances at the end of a year and the journal of an account.
+- The **Saved** menu lists the queries saved in your ledger. See [Saved queries](#saved-queries).
+- The **Reference** panel lists every column and function.
+- **Export CSV** downloads the result as a CSV file. See [Exporting to CSV](#exporting-to-csv).
+
+#### Charts
+
+When a result has exactly two columns and at least one row, and its second column holds numbers or amounts (`int`, `decimal`, `amount`, `position` or `inventory`), the Explore page draws it as a chart. The first column decides the kind of chart:
+
+| First column | Chart |
+|--------------|-------|
+| `date` | A line chart, with one point per date in ascending order. |
+| `str`, where every label looks like an account name | A treemap of the account hierarchy. |
+| any other `str` | A bar chart, with one bar per label in result order. At most 50 bars are drawn. |
+
+- A label looks like an account name when it is made of `:`-separated parts without spaces. At least one label must contain a `:`, and empty or `NULL` labels are ignored.
+- Positions and inventories are plotted by their units, without their costs. A chart shows one currency at a time. When the result holds several currencies, a **Currency** picker chooses the one to plot. It starts with the ledger's operating currency (the `operating_currency` option) if the result has it, and otherwise with the currency that appears in the most rows.
+- Rows with the same label are added together, and rows whose value is `NULL` are skipped. In a line chart, a date with no value in the chosen currency is plotted as zero.
+- In a treemap, accounts are nested by their parts, and a top level shared by every account, such as `Expenses`, is skipped. The area of a cell is the absolute value, and its colour shows whether the value is positive or negative.
+- Values are added exactly, and are only converted to floating point to be drawn.
+- The **Chart** switch hides or shows the chart. The browser remembers the setting.
+
+This query draws a treemap of a year's expenses:
+
+```sql
+SELECT account, sum(position) WHERE account ~ '^Expenses' AND year = 2024 GROUP BY account
+```
+
+And this one draws monthly spending as a line chart:
+
+```sql
+SELECT yearmonth(date) AS month, sum(position) WHERE account ~ '^Expenses' GROUP BY month ORDER BY month
+```
+
+#### Saved queries
+
+Queries saved in the ledger with the [`query` directive](/directives/5-query/) appear in the **Saved** menu:
+
+```zhang
+2024-01-01 query "food by payee" "SELECT payee, sum(position) WHERE account ~ '^Expenses:Food' GROUP BY payee"
+```
+
+- Each entry shows the query's name, its date and the start of its text. Queries are listed in ledger order, and queries that share a name are all listed, so use the date to tell them apart.
+- Choosing an entry puts its query in the editor and runs it.
+- A query that does not compile with the current version of the engine is still listed. It is marked **(invalid)** and shows the error. Saved queries are not checked when the ledger is loaded, so an invalid one never makes the ledger report an error.
+- The list is fetched again each time the menu opens, so queries added to the ledger after the page was opened appear without a page reload.
+
+#### Exporting to CSV
+
+**Export CSV** sends the query in the editor to [`POST /api/query/csv`](#export-as-csv) and downloads the result as `query.csv`. The query does not need to be run first. Amounts, positions and inventories are split into one numeric column per currency, so the file opens cleanly in a spreadsheet. If the query has an error, the error is shown just as for a failed run.
 
 ### Over HTTP
 
-Send the query to `POST /api/query`. See [HTTP API](#http-api) for the request and response format.
+Send the query to `POST /api/query`, or to `POST /api/query/csv` to get the result as CSV. `GET /api/query/saved` lists the saved queries. See [HTTP API](#http-api) for the request and response formats.
 
 ## A first query
 
@@ -45,19 +95,25 @@ This returns the ten most recent postings to `Expenses:Food` and its sub-account
 
 ```text
 SELECT [DISTINCT] target [, target ...] | *
-  [FROM expression]
+  [FROM from_clause]
   [WHERE expression]
   [GROUP BY group_key [, group_key ...]]
   [ORDER BY order_key [ASC | DESC] [, order_key [ASC | DESC] ...]]
   [LIMIT count]
   [;]
 
-target    = expression [AS name]
-group_key = expression | target name | target number
-order_key = expression | target name | target number
+BALANCES [AT function] [FROM from_clause] [WHERE expression] [;]
+
+JOURNAL ['pattern'] [AT function] [FROM from_clause] [;]
+
+target      = expression [AS name]
+group_key   = expression | target name | target number
+order_key   = expression | target name | target number
+from_clause = [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
 ```
 
-- The clauses must appear in the order shown. All of them except `SELECT` are optional, and a single trailing `;` is allowed.
+- A query is a single statement: a `SELECT`, or one of the shorthands [`BALANCES` and `JOURNAL`](#balances-and-journal). `PRINT` is not supported.
+- The clauses must appear in the order shown. All of them except the first keyword are optional, and a single trailing `;` is allowed.
 - Keywords, column names and function names are all case-insensitive: `SELECT account`, `select ACCOUNT` and `Select Account` are the same query.
 - Names consist of ASCII letters, digits and underscores, and cannot start with a digit. The words `SELECT`, `DISTINCT`, `FROM`, `WHERE`, `GROUP`, `BY`, `ORDER`, `ASC`, `DESC`, `LIMIT`, `AS`, `AND`, `OR`, `NOT`, `IN`, `IS`, `NULL`, `TRUE`, `FALSE`, `HAVING` and `PIVOT` are reserved and cannot be used as column names.
 - Spaces and line breaks between tokens are not significant, so a query can span several lines.
@@ -65,11 +121,13 @@ order_key = expression | target name | target number
 
 ### How a query is evaluated
 
-1. `FROM` and `WHERE` choose which postings take part.
-2. If the query uses an [aggregate function](#aggregate-functions) or has a `GROUP BY` clause, the chosen postings are grouped and each group produces one row. Otherwise each posting produces one row.
-3. `ORDER BY` sorts the rows.
-4. `DISTINCT` removes duplicate rows, keeping the first of each.
-5. `LIMIT` keeps the first rows and drops the rest.
+1. The [period clauses](#accounting-periods) of `FROM` (`OPEN ON`, `CLOSE` and `CLEAR`), if there are any, rewrite the postings of the whole ledger.
+2. The expression of `FROM` and the `WHERE` clause choose which postings take part.
+3. If the query reads the [running balance](#the-running-balance), it is added up over the chosen postings, in ledger order.
+4. If the query uses an [aggregate function](#aggregate-functions) or has a `GROUP BY` clause, the chosen postings are grouped and each group produces one row. Otherwise each posting produces one row.
+5. `ORDER BY` sorts the rows.
+6. `DISTINCT` removes duplicate rows, keeping the first of each.
+7. `LIMIT` keeps the first rows and drops the rest.
 
 Before any posting is read, Zhang checks the query and simplifies it. Parts that involve only constants, such as `'^Expenses:' + 'Food'`, are computed once at that point. Functions that depend on the ledger or on the current date (`today`, `convert`, `value`, `getprice` and the metadata functions) are not. As a result, an invalid regular expression in a constant pattern is reported immediately, with its position, even if no posting would ever be matched against it.
 
@@ -84,7 +142,7 @@ The targets are the expressions to compute for each row, separated by commas.
 
 ### FROM
 
-In Phase 1, `FROM` is followed by an expression, not a table name. It filters postings exactly like `WHERE`, and when a query has both, a posting must satisfy both:
+`FROM` is followed by an expression, by [period clauses](#accounting-periods), or by both, but not by a table name. The expression filters postings exactly like `WHERE`, and when a query has both, a posting must satisfy both:
 
 ```sql
 SELECT account, sum(position)
@@ -95,7 +153,16 @@ GROUP BY account
 
 is the same as `... WHERE (year = 2024) AND (account ~ '^Expenses') ...`. This matches beanquery, and it means BQL queries that filter in `FROM` keep working.
 
-The query always reads the `postings` table. Naming a table, as in `FROM postings` or `FROM #postings`, is an error, and so are the period clauses `OPEN ON`, `CLOSE ON` and `CLEAR`; see [Workarounds](#workarounds).
+The period clauses come after the expression. They rewrite the postings first, and the expression then filters the rewritten postings:
+
+```sql
+SELECT account, sum(position)
+FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01
+WHERE account ~ '^(Income|Expenses)'
+GROUP BY account
+```
+
+The query always reads the `postings` table. Naming a table, as in `FROM postings` or `FROM #postings`, is an error.
 
 ### WHERE
 
@@ -133,6 +200,169 @@ GROUP BY category
 ### LIMIT
 
 `LIMIT n` keeps the first `n` rows, after sorting and `DISTINCT`. `n` must be a non-negative integer literal. `LIMIT 0` returns no rows.
+
+### Parameters
+
+When Zhang runs a query from its own code, through the Rust API of the `zhang-query` crate, the query can contain parameters, `$1`, `$2`, ... or `:name`, wherever it would contain a value, and the values are bound separately. The pattern of `JOURNAL` and the dates of `OPEN ON` and `CLOSE ON` can be parameters too. The HTTP API does not bind parameters, so a query sent over HTTP that contains one fails with `parameter $1 is not bound`.
+
+## BALANCES and JOURNAL
+
+`BALANCES` and `JOURNAL` are shorthands for two common queries, as in beanquery. Zhang turns each of them into the `SELECT` shown below before it runs it, so everything this page says about `SELECT` applies to them too.
+
+### BALANCES
+
+```text
+BALANCES [AT function] [FROM from_clause] [WHERE expression]
+```
+
+is the same as
+
+```text
+SELECT account, sum(function(position))
+FROM from_clause
+WHERE expression
+GROUP BY account, account_sortkey(account)
+ORDER BY account_sortkey(account)
+```
+
+- It returns one row per account that has postings, with the sum of its positions. An account whose postings add up to nothing is still listed, with an empty inventory.
+- Accounts are sorted by type, in the order `Assets`, `Liabilities`, `Equity`, `Income` and `Expenses`, and then by name. See [`account_sortkey`](#account-functions).
+- `FROM` and `WHERE` choose the postings that are added up. `BALANCES FROM year = 2024` gives how much each account changed during 2024, not its balance at the end of the year. For that, use [`CLOSE ON`](#accounting-periods).
+- `BALANCES` has no `GROUP BY`, `ORDER BY` or `LIMIT` clause.
+
+```sql
+BALANCES WHERE account ~ '^Assets'
+```
+
+### JOURNAL
+
+```text
+JOURNAL ['pattern'] [AT function] [FROM from_clause]
+```
+
+is the same as
+
+```text
+SELECT date, flag, maxwidth(payee, 48), maxwidth(narration, 80), account,
+       function(position), function(balance)
+FROM from_clause
+WHERE account ~ 'pattern'
+```
+
+- It returns one row per posting to an account that matches the pattern, in ledger order, with the [running balance](#the-running-balance) in the last column. Without a pattern, every posting is listed.
+- The pattern is a regular expression in quotes, matched with [`~`](#regular-expression-match), so it ignores case and matches any part of the account name. `JOURNAL 'checking'` lists every account whose name contains `Checking`.
+- The running balance adds up every row of the journal, whatever its account. If the pattern matches several accounts, the balance is their combined balance.
+- Payees are shortened to 48 characters and narrations to 80, with [`maxwidth`](#string-functions).
+- `JOURNAL` has no `WHERE`, `GROUP BY`, `ORDER BY` or `LIMIT` clause. Filter its postings with `FROM`.
+
+```sql
+JOURNAL 'Assets:Bank:Checking' FROM year = 2024
+```
+
+### AT
+
+`AT function` applies a function to every position, and in `JOURNAL` to the running balance as well:
+
+| Statement | Result columns |
+|-----------|----------------|
+| `BALANCES` | `account`, `sum(position)` |
+| `BALANCES AT cost` | `account`, `sum(cost(position))` |
+| `JOURNAL 'Cash'` | `date`, `flag`, `maxwidth(payee, 48)`, `maxwidth(narration, 80)`, `account`, `position`, `balance` |
+| `JOURNAL 'Cash' AT units` | `date`, `flag`, `maxwidth(payee, 48)`, `maxwidth(narration, 80)`, `account`, `units(position)`, `units(balance)` |
+
+- The function is named without parentheses. It must accept a single `position`, and for `JOURNAL` also a single `inventory`. The [valuation functions](#valuation-functions) `units`, `cost` and `value` are the usual choices, and `abs` and `neg` work too.
+- `AT units` drops costs, so the lots of a currency merge into one position. `AT cost` gives book values, and `AT value` market values at the latest prices.
+- An unknown function, or one without a suitable overload, is an error that points at its name.
+- As the table shows, the result columns are named like the equivalent `SELECT`.
+
+## Accounting periods
+
+`OPEN ON`, `CLOSE` and `CLEAR` in the `FROM` clause turn the ledger into the books of one accounting period, the way Beancount's reports do. With them, an income statement and a balance sheet are each a single query.
+
+An income statement for 2024:
+
+```sql
+SELECT account, sum(position) AS total
+FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01
+WHERE account ~ '^(Income|Expenses)'
+GROUP BY account
+ORDER BY account
+```
+
+A balance sheet at the start of 2025:
+
+```sql
+BALANCES FROM CLOSE ON 2025-01-01 CLEAR
+WHERE account ~ '^(Assets|Liabilities|Equity)'
+```
+
+### Period syntax
+
+```text
+FROM [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
+```
+
+- The clauses must come in this order, and each one at most once. `FROM CLEAR OPEN ON 2024-01-01` is an error.
+- `FROM` needs an expression, at least one clause, or both.
+- A date is a date literal such as `2024-01-01`, without quotes, or a [parameter](#parameters).
+- When both dates are given, the `CLOSE` date cannot be before the `OPEN` date. The two dates can be equal.
+- The clauses work with `SELECT`, `BALANCES` and `JOURNAL`.
+
+### What the clauses do
+
+The clauses rewrite every posting of the ledger, first `OPEN`, then `CLOSE`, then `CLEAR`. Only after that do the `FROM` expression and `WHERE` choose postings, so a filter never changes what the clauses compute. For example, `FROM year = 2023 OPEN ON 2024-01-01` keeps only the opening balances, which are dated 2023-12-31.
+
+**`OPEN ON d`** starts the period on `d` and replaces everything before `d` with opening balances:
+
+1. The conversions before `d` are moved to `Equity:Conversions:Previous`. The conversions are the amount by which all postings, valued at cost, fail to add up to zero. Transactions that exchange one currency for another at a price (`@`) leave such a remainder, and so does rounding in lot purchases.
+2. The balances of the income and expense accounts before `d` are moved to `Equity:Earnings:Previous`, so those accounts start the period at zero.
+3. Each account that still has a balance gets one summarization transaction, with the flag `S` and dated `d − 1`. It has one posting per lot of the balance, so holdings keep their cost, cost date and label, and each posting has a counterpart on `Equity:Opening-Balances` for the lot's cost.
+
+Postings on or after `d` are kept as they are.
+
+**`CLOSE ON d`** ends the period before `d`. Postings dated `d` or later are dropped, so `d` itself is not part of the period. If the remaining postings have conversions, a conversion transaction with the flag `C`, dated `d − 1`, books them to `Equity:Conversions:Current`. Its postings have a price of zero in the conversion currency (`NOTHING` by default).
+
+**`CLOSE`** without a date drops nothing. It only adds that conversion transaction, dated like the last entry of the period.
+
+**`CLEAR`** moves the balance of each income and expense account to `Equity:Earnings:Current`, with one transfer transaction per account, with the flag `T` and dated like the last entry of the period. Afterwards the income and expense accounts add up to zero, so the balance sheet balances.
+
+The last entry of the period is the latest of its postings and of the ledger's other dated directives, such as prices and balance assertions, from the `OPEN` date up to the day before the `CLOSE` date. Budget directives do not count.
+
+### Synthetic transactions
+
+The transactions added by the clauses are rows of the postings table like any other:
+
+| Flag | Added by | Date | Narration | Accounts |
+|------|----------|------|-----------|----------|
+| `S` | `OPEN ON d` | `d − 1` | `Opening balance for '<account>' (Summarization)` | the account, and `Equity:Opening-Balances` |
+| `C` | `CLOSE` | `d − 1` for `CLOSE ON d`, otherwise the date of the last entry of the period | `Conversion for (<inventory>)` | `Equity:Conversions:Current` |
+| `T` | `CLEAR` | the date of the last entry of the period | `Transfer balance for '<account>' (Transfer balance)` | the account, and `Equity:Earnings:Current` |
+
+- Their `payee` is `NULL`, and they have no tags, links or metadata. All the postings of one transaction share an `id`.
+- A counterpart posting has the narration of the transaction it belongs to, so it names the account it balances.
+- The previous earnings and conversions of `OPEN` appear as `S` transactions of the accounts `Equity:Earnings:Previous` and `Equity:Conversions:Previous`.
+- They count in the [running balance](#the-running-balance). After `OPEN ON`, the first row of each account is its opening balance.
+- Filter them by `flag`. For example, `WHERE flag != 'S'` hides the opening balances.
+
+```sql
+SELECT flag, count(*) FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01 CLEAR WHERE flag IN ('S', 'C', 'T') GROUP BY flag
+```
+
+### Equity accounts
+
+The accounts that the clauses post to do not need to be opened in your ledger. The Beancount options in the last column change them:
+
+| Account | Used by | Option |
+|---------|---------|--------|
+| `Equity:Opening-Balances` | `OPEN ON` | `account_previous_balances` |
+| `Equity:Earnings:Previous` | `OPEN ON` | `account_previous_earnings` |
+| `Equity:Conversions:Previous` | `OPEN ON` | `account_previous_conversions` |
+| `Equity:Earnings:Current` | `CLEAR` | `account_current_earnings` |
+| `Equity:Conversions:Current` | `CLOSE` | `account_current_conversions` |
+
+- An option gives the part of the name after `Equity:`. With `option "account_previous_balances" "Opening"`, `OPEN ON` uses `Equity:Opening`.
+- A value that is not a valid account name, such as one that is empty or contains a space, is ignored, and the default is used.
+- `option "conversion_currency" "..."` sets the currency of the zero price of the conversion postings. It is `NOTHING` by default.
 
 ## Literals
 
@@ -260,9 +490,9 @@ A value is `NULL` when it is missing, for example the payee of a transaction tha
 
 ## The postings table
 
-Phase 1 has a single table, `postings`. It has one row for every posting of every transaction, with the transaction's fields repeated on each of its postings.
+There is a single table, `postings`. It has one row for every posting of every transaction, with the transaction's fields repeated on each of its postings.
 
-- **Included:** all transactions whatever their flag, and the padding transactions that Zhang creates for `balance ... with pad ...` directives. These have the flag `P`, the payee `Balance Pad` and a narration such as `pad Assets:Bank to Equity:Opening`.
+- **Included:** all transactions whatever their flag, and the padding transactions that Zhang creates for `balance ... with pad ...` directives. These have the flag `P`, the payee `Balance Pad` and a narration such as `pad Assets:Bank to Equity:Opening`. A query with [period clauses](#accounting-periods) also sees the [synthetic transactions](#synthetic-transactions) they add.
 - **Not included:** balance assertions, and directives that are not transactions, such as `open`, `close`, `price`, `note`, `document` and budget directives.
 - A posting written without an amount has the amount that Zhang inferred for it when it balanced the transaction.
 - Postings held at cost are booked against lots, as described in [Lot booking](#lot-booking). A posting that reduces several lots produces one row per lot.
@@ -289,7 +519,7 @@ Two booking cases are still handled differently by Zhang's ledger processing tha
 | `year` | `int` | Year of `date`. |
 | `month` | `int` | Month of `date`, from 1 to 12. |
 | `day` | `int` | Day of the month of `date`, from 1 to 31. |
-| `flag` | `str` | Flag of the transaction: `*` (also used when no flag is written), `!`, `P` for padding, or a custom flag. |
+| `flag` | `str` | Flag of the transaction: `*` (also used when no flag is written), `!`, `P` for padding, `S`, `C` or `T` for the [synthetic transactions](#synthetic-transactions) of the period clauses, or a custom flag. |
 | `payee` | `str` | Payee of the transaction, or `NULL` if it has none. When the header has a single string, that string is the narration and the payee is `NULL`. |
 | `narration` | `str` | Narration of the transaction, or `''` (an empty string) if it has none, as in Beancount. |
 | `description` | `str` | Payee and narration joined with `" \| "`. Missing or empty parts are left out, so it is `''` when both are missing. |
@@ -307,6 +537,27 @@ Two booking cases are still handled differently by Zhang's ledger processing tha
 | `price` | `amount` | Price per unit written with `@`, or `NULL` if there is none. A total price written with `@@` is divided by the number of units. |
 | `weight` | `amount` | Amount that the posting contributes to balancing its transaction: units times the per-unit cost if the posting is held at cost, otherwise units times the price if it has one, otherwise the units. |
 | `other_accounts` | `set` | Accounts of the other postings in the same transaction. |
+| `balance` | `inventory` | The [running balance](#the-running-balance): the sum of the positions of the rows up to and including this one. It cannot be used in `FROM` or `WHERE`. |
+
+### The running balance
+
+The `balance` column is the running total of `position`, as an inventory.
+
+- It adds up the rows that pass `FROM` and `WHERE`, in ledger order, starting from an empty inventory. Postings that the filters drop are not counted. With `WHERE account = 'Assets:Bank:Checking' AND year = 2024`, the balance starts from zero at the first posting of 2024. To start from the account's real balance, limit the dates with [`OPEN ON` and `CLOSE ON`](#accounting-periods) instead: `FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01 WHERE account = 'Assets:Bank:Checking'`.
+- It is a single total over all the rows, not one per account. To follow one account, select only that account's postings.
+- It is computed before grouping, `ORDER BY`, `DISTINCT` and `LIMIT`, so sorting the rows does not change their balances. With `ORDER BY date DESC`, the first row carries the final balance.
+- It keeps lots, so a holding bought at different costs shows up as several positions. `units(balance)` merges them, and `cost(balance)` gives the book value.
+- In an aggregate query it can be used inside an aggregate function. `last(balance)` is the balance after the last posting of each group.
+- It cannot be used in `FROM` or `WHERE`, because those clauses decide which rows it adds up. Doing so is an error.
+
+```sql
+SELECT date, payee, position, balance
+WHERE account = 'Assets:Bank:Checking'
+ORDER BY date DESC
+LIMIT 10
+```
+
+This returns the ten most recent postings to the account, each with the balance after it. The first row shows the current balance.
 
 ## Types
 
@@ -436,6 +687,7 @@ How prices are found:
 | `root(str, int) -> str` | The first `n` components of the account name. If the account has `n` components or fewer, it is returned whole. | `root('Expenses:Food:Dining', 2)` is `'Expenses:Food'` |
 | `parent(str) -> str` | The account name without its last component. It is `''` for a top-level account. | `parent('Expenses:Food:Dining')` is `'Expenses:Food'` |
 | `leaf(str) -> str` | The last component of the account name. | `leaf('Expenses:Food:Dining')` is `'Dining'` |
+| `account_sortkey(str) -> str` | A key that sorts accounts by type, in the order `Assets`, `Liabilities`, `Equity`, `Income` and `Expenses`, and then by name. It is the type's position, from `0` to `4`, then `-` and the account name. A name whose first component is not exactly one of these types gets `5`, so it sorts after them. [`BALANCES`](#balances) sorts by this key. | `account_sortkey('Expenses:Food')` is `'4-Expenses:Food'` |
 
 ### Date functions
 
@@ -472,6 +724,14 @@ Zhang does not keep metadata per posting yet: every metadata line inside a trans
 | `str(any) -> str` | Text form of any value. Booleans become `TRUE` and `FALSE`, sets are joined with `, `, and an inventory is written in parentheses. | `str(2024-01-31)` is `'2024-01-31'` |
 | `length(str) -> int` | Number of characters in the string. | `length('Food')` is `4` |
 | `length(set) -> int` | Number of elements in the set. | `length(tags)` |
+| `maxwidth(str, int) -> str` | The text shortened to fit in `n` characters, like Python's `textwrap.shorten`. See below. | `maxwidth('Paying the  rent', 12)` is `'Paying [...]'` |
+
+`maxwidth(text, n)` works in two steps:
+
+1. Every run of whitespace becomes a single space, and spaces at both ends are removed. A text that now has at most `n` characters is returned as it is: `maxwidth('  Eating out ', 48)` is `'Eating out'`.
+2. A longer text keeps as many whole words as fit in `n` characters together with the placeholder ` [...]`, which is added at the end. If not even the first word fits, the result is `'[...]'`. As in Python, a word can also be broken after a hyphen between letters: `maxwidth('abc-def-ghi jkl', 12)` is `'abc- [...]'`.
+
+`n` must be at least 5, the length of `[...]`. A smaller width is an error. [`JOURNAL`](#journal) uses `maxwidth` to shorten payees and narrations.
 
 ## HTTP API
 
@@ -558,7 +818,49 @@ These limits protect the server from queries that would take too much memory or 
 | Execution time | 10 seconds | `the query was stopped because it ran longer than the 10s time limit`, without a position. |
 
 - Nesting counts parentheses, function calls, `IN` lists, `NOT` and unary minus that are placed inside each other. A long chain of `AND`, `OR`, `+` or `*`, such as `account = 'A' OR account = 'B' OR ...`, is not nested and can be as long as the length limit allows.
-- The execution time includes building the rows of the `postings` table. While a query runs, it holds a read lock on the ledger, and the time limit bounds how long that lock is held.
+- The execution time includes building the rows of the `postings` table and applying the period clauses. While a query runs, it holds a read lock on the ledger, and the time limit bounds how long that lock is held.
+- The same limits apply to [CSV export](#export-as-csv).
+
+### Export as CSV
+
+`POST /api/query/csv` takes the same JSON body as `POST /api/query` and returns the result as a CSV file:
+
+```shell
+curl -X POST http://localhost:8000/api/query/csv \
+  -H 'Content-Type: application/json' \
+  -d '{"query": "SELECT account, sum(position) AS total WHERE account ~ \"^Assets:Broker\" GROUP BY account"}'
+```
+
+- The response has the content type `text/csv; charset=utf-8` and the header `Content-Disposition: attachment; filename="query.csv"`.
+- A query that fails returns the same HTTP 400 error, with the same JSON body, as `POST /api/query`. See [Errors](#errors).
+
+To make the file easy to use in a spreadsheet, amounts are turned into plain numbers, the way beanquery's *numberify* option (`bean-query -m`) does:
+
+- An `amount`, `position` or `inventory` column named `name` becomes one `decimal` column per currency, named `name (CUR)`. A column in which no currency occurs is left out.
+- The columns made from one column are ordered by the number of rows in which their currency occurs, most first. Ties are broken by currency name in descending order, so `USD` comes before `EUR`.
+- An `amount` gives its number in the column of its currency. A zero amount counts as missing: its cell is empty, and it does not count towards the column's currencies.
+- A `position` gives the number of its units, without the cost. Zero units are written as `0`.
+- An `inventory` gives the total units of each currency, adding up all of its lots and ignoring their costs. A total of zero is an empty cell.
+- Every other column is kept as it is.
+
+For example, with a cash account and a gold holding, the query above gives:
+
+```text
+account,total (USD),total (GLD)
+Assets:Broker:Cash,855.83,
+Assets:Broker:GLD,,17
+```
+
+The file follows RFC 4180:
+
+- The first record holds the column names. Every record ends with CRLF, the last one included.
+- `NULL` is an empty field. Booleans are written `TRUE` and `FALSE`, dates `YYYY-MM-DD`, and sets as their elements, sorted and joined with `,`.
+- Numbers are exact. They keep all their digits and decimal places, and are never padded, rounded or written with an exponent.
+- A field that contains `,`, `"`, a carriage return or a line feed is put in double quotes, with each `"` doubled. A row with a single empty field is written as `""`, so that it is not a blank line.
+
+### List saved queries
+
+`GET /api/query/saved` lists the queries saved in the ledger with the [`query` directive](/directives/5-query/), in ledger order. Each has a `name`, the `query` text, the directive's `date`, and `valid` and `error`, which tell whether the query compiles with the current engine and why not. See the [`query` directive](/directives/5-query/#http-api) for an example response. To run a saved query, send its `query` text to `POST /api/query`.
 
 ### Schema
 
@@ -577,8 +879,8 @@ These limits protect the server from queries that would take too much memory or 
 }
 ```
 
-- `columns` has one entry per column, in the order of the [column table](#columns).
-- `functions` has one entry per overload: first the aggregate functions, then the scalar functions. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
+- `columns` has one entry per column, 23 in all, in the order of the [column table](#columns). The last one is the running `balance`.
+- `functions` has one entry per overload, 66 in all: first the aggregate functions, then the scalar functions, including `account_sortkey` and `maxwidth`. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
 
 ## Examples
 
@@ -696,19 +998,66 @@ GROUP BY type
 
 Income is negative in the ledger. `possign` flips the sign of each income posting before the sum, so both totals read as positive numbers.
 
+### Income statement for a year
+
+```sql
+SELECT account, sum(position) AS total
+FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01
+WHERE account ~ '^(Income|Expenses)'
+GROUP BY account
+ORDER BY account
+```
+
+`OPEN ON` moves the income and expenses of earlier years into equity, and `CLOSE ON` drops everything from 2025 on, so the totals cover 2024 only.
+
+### Balance sheet
+
+```sql
+BALANCES FROM CLOSE ON 2025-01-01 CLEAR
+WHERE account ~ '^(Assets|Liabilities|Equity)'
+```
+
+The balances of the assets, liabilities and equity accounts at the start of 2025, sorted by account type. `CLEAR` moves all income and expenses into `Equity:Earnings:Current`, so the equity accounts include the earnings.
+
+### Holdings at cost
+
+```sql
+BALANCES AT cost WHERE account ~ '^Assets'
+```
+
+The book value of every asset account, in the cost currency of its holdings.
+
+### Journal of an account
+
+```sql
+JOURNAL 'Assets:Bank:Checking' FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01
+```
+
+Every posting to the account in 2024, with the running balance. The first row is the opening balance on 31 December 2023, so the balance column shows the real balance of the account.
+
+### Balance at the end of each day
+
+```sql
+SELECT date, last(balance) AS closing
+WHERE account = 'Assets:Bank:Checking'
+GROUP BY date
+ORDER BY date
+```
+
+One row per day with postings, with the account's balance at the end of the day. The result has a date and an inventory column, so the Explore page draws it as a line chart.
+
 ## Differences from BQL and beanquery
 
 ### Not available yet
 
-- **Statements other than `SELECT`:** `BALANCES`, `JOURNAL` and `PRINT` are rejected with an error.
-- **Period clauses in `FROM`:** `OPEN ON`, `CLOSE ON` and `CLEAR` are not supported, and neither are table names or subqueries after `FROM`.
+- **`PRINT`**, which is rejected with an error.
 - **`HAVING` and `PIVOT BY`.**
-- **Other tables:** only `postings` exists. There are no entries, prices, accounts, commodities, documents or balances tables.
-- **The running `balance` column**, and the beanquery columns `posting_flag`, `filename`, `lineno`, `location`, `meta`, `entry`, `accounts` and `type`.
+- **Other tables:** only `postings` exists. There are no entries, prices, accounts, commodities, documents or balances tables, and no table names or subqueries after `FROM`.
+- **The beanquery columns** `posting_flag`, `filename`, `lineno`, `location`, `meta`, `entry`, `accounts` and `type`.
 - **Operators `BETWEEN` and `%`**, and beanquery's quoted identifiers.
-- **Functions not listed on this page**, such as `round`, `safediv`, `account_sortkey`, `has_account`, `open_date`, `close_date`, `open_meta`, `currency_meta`, `grep`, `subst`, `upper`, `lower`, `joinstr`, `findfirst`, the conversion functions `int`, `decimal` and `date`, and the `date_*` functions. Calling one is an error.
+- **Functions not listed on this page**, such as `round`, `safediv`, `has_account`, `open_date`, `close_date`, `open_meta`, `currency_meta`, `grep`, `subst`, `upper`, `lower`, `joinstr`, `findfirst`, the conversion functions `int`, `decimal` and `date`, and the `date_*` functions. Calling one is an error.
 
-The roadmap in [#434](https://github.com/zhang-accounting/zhang/issues/434) schedules `BALANCES`, `JOURNAL`, `OPEN`/`CLOSE`/`CLEAR`, the `query` directive and CSV export for the next phase, and `HAVING`, `PIVOT BY` and more tables after that.
+The roadmap in [#434](https://github.com/zhang-accounting/zhang/issues/434) schedules `HAVING`, `PIVOT BY` and more tables for a later phase.
 
 ### Behaving differently
 
@@ -722,27 +1071,13 @@ The roadmap in [#434](https://github.com/zhang-accounting/zhang/issues/434) sche
 - **Limits.** Queries are limited in length, nesting depth, regular-expression size and execution time. See [Limits](#limits).
 - **Errors carry a position.** Every query error reports the line and column where it was found, whenever it can be located.
 - **Exact decimals throughout.** Numbers are arbitrary-precision decimals, and amounts are never stored with a fixed number of decimal places.
-
-### Workarounds
-
-Until `OPEN ON` and `CLOSE ON` arrive, filter on `date` instead.
-
-An income statement for 2024:
-
-```sql
-SELECT account, sum(position)
-WHERE account ~ '^(Income|Expenses)' AND date >= 2024-01-01 AND date < 2025-01-01
-GROUP BY 1
-ORDER BY 1
-```
-
-Balances of assets and liabilities at the start of 1 April 2025:
-
-```sql
-SELECT account, sum(position)
-WHERE account ~ '^(Assets|Liabilities)' AND date < 2025-04-01
-GROUP BY account
-ORDER BY account
-```
-
-Unlike `CLOSE ON ... CLEAR`, these queries do not move income and expenses into equity, so they are only equivalent for the accounts they select.
+- **Column names of `BALANCES` and `JOURNAL`** are those of the equivalent `SELECT`: `sum(position)`, `sum(cost(position))` and `maxwidth(payee, 48)`. beanquery names them `SUM((position))`, `SUM(cost(position))` and `MAXWIDTH(payee, 48)`.
+- **The running balance.** `balance` cannot be used in `FROM` or `WHERE`, and it adds up exactly the rows that pass them. beanquery updates its balance each time it evaluates the column, so in a `WHERE` clause it would count the rows it tests rather than the rows it keeps.
+- **`account_sortkey`** of a name whose first component is not an account type returns a key that sorts after all the types. beanquery raises an error.
+- **`maxwidth`** treats only the ASCII digits `0` to `9` as digits when it decides whether a word can be broken after a hyphen. Python treats every Unicode digit as one, so the two can shorten text that mixes hyphens with other digits differently.
+- **Parameters.** The `JOURNAL` pattern and the `OPEN ON` and `CLOSE ON` dates can be [parameters](#parameters). beanquery only accepts literals there.
+- **The `FROM` expression filters after the period clauses.** This is what beanquery does. In BQL v2, the expression chose the transactions before `OPEN`, `CLOSE` and `CLEAR` were applied.
+- **Equity accounts.** An `account_previous_*` or `account_current_*` option whose value is not a valid account name is ignored, and the default account is used.
+- **The last entry of a period**, which dates the `T` transactions of `CLEAR` and the `C` transaction of a bare `CLOSE`, ignores Zhang's budget directives, which Beancount does not have.
+- **The narration of a conversion transaction** lists the inventory in Zhang's format, which differs from Beancount's in the details.
+- **CSV export keeps exact numbers.** `bean-query` pads numbers for alignment (`" 600.00"`), rounds numberified numbers to each currency's display precision (`360.03` instead of `360.03016`), and writes some numbers with an exponent (`1E+3`). Zhang does none of this.
