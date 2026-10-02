@@ -29,6 +29,10 @@ pub enum ServerError {
     /// a query failed to parse, compile or run; answered with HTTP 400 and its source position
     #[error("query error: {0}")]
     QueryError(#[from] zhang_query::QueryError),
+
+    /// a blocking task panicked or was cancelled
+    #[error("background task failed: {0}")]
+    TaskFailed(#[from] tokio::task::JoinError),
 }
 
 impl From<InvalidAccountError> for ServerError {
