@@ -83,9 +83,9 @@ describe('credentials', () => {
       id: 'abc',
       type: 'public-key',
       rawId: bytes(1).buffer,
-      response: { authenticatorData: bytes(2).buffer, clientDataJSON: bytes(3).buffer, signature: bytes(4).buffer, userHandle: bytes(5).buffer },
+      response: { authenticatorData: bytes(2).buffer, clientDataJSON: bytes(3).buffer, signature: bytes(6).buffer, userHandle: bytes(5).buffer },
     };
-    assert.deepEqual(assertionToJSON(credential).response, { authenticatorData: 'Ag', clientDataJSON: 'Aw', signature: 'BA', userHandle: 'BQ' });
+    assert.deepEqual(assertionToJSON(credential).response, { authenticatorData: 'Ag', clientDataJSON: 'Aw', signature: 'Bg', userHandle: 'BQ' });
     assert.equal(assertionToJSON({ ...credential, response: { ...credential.response, userHandle: null } }).response.userHandle, null);
   });
 });
