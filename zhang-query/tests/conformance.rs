@@ -106,6 +106,7 @@ fn error_class(kind: QueryErrorKind) -> &'static str {
         QueryErrorKind::Parse => "syntax",
         QueryErrorKind::Compile => "compile",
         QueryErrorKind::Eval => "runtime",
+        QueryErrorKind::Timeout => "timeout",
     }
 }
 
