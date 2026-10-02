@@ -1,52 +1,49 @@
+import { useTranslation } from 'react-i18next';
 import { JournalBalancePadItem } from '@/api/types';
-import { format } from 'date-fns';
+import { useDateFormat } from '@/components/layout/use-date-format';
 import Amount from '../Amount';
-import DashLine from '../DashedLine';
-import Section from '../Section';
+import { JournalTypeBadge } from '../journalLines/JournalBits';
+import { PostingRow, PreviewHeader, PreviewList, PreviewRow, PreviewSection } from './PreviewParts';
 
 interface Props {
   data: JournalBalancePadItem;
 }
 
-export default function BalancePadPreview(props: Props) {
-  return (
-    <div>
-      <Section title="Check Info">
-        <DashLine>
-          <p className="line-clamp-1">Datetime</p>
-          <p className="line-clamp-1">{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</p>
-        </DashLine>
+export default function BalancePadPreview({ data }: Props) {
+  const { t } = useTranslation();
+  const fmt = useDateFormat();
+  const balance = data.postings[0];
 
-        <DashLine>
-          <p className="line-clamp-1">Type</p>
-          <p className="line-clamp-1">Balance Pad</p>
-        </DashLine>
-        <DashLine>
-          <p className="line-clamp-1">Balance Account</p>
-          <p className="line-clamp-1">{props.data.postings[0].account}</p>
-        </DashLine>
-        <DashLine>
-          <p className="line-clamp-1">Pad Account</p>
-          <p className="line-clamp-1">{props.data.postings[1].account}</p>
-        </DashLine>
-      </Section>
-      <div className="mx-1 my-4">
-        <Section title="Postings">
-          <>
-            {props.data.postings.map((posting, idx) => (
-              <DashLine key={idx}>
-                <p className="line-clamp-1">{posting.account}</p>
-                <div className="flex flex-col items-end">
-                  <Amount amount={posting.inferred_unit.number} currency={posting.inferred_unit.commodity} />
-                  <div className="text-sm text-gray-500">
-                    Balance: <Amount amount={posting.account_after.number} currency={posting.account_after.commodity} />
-                  </div>
-                </div>
-              </DashLine>
-            ))}
-          </>
-        </Section>
-      </div>
+  return (
+    <div className="flex flex-col gap-5 pt-4 pb-2 md:pt-0">
+      <PreviewHeader
+        badges={<JournalTypeBadge type="BalancePad" />}
+        amount={<Amount amount={balance.account_after.number} currency={balance.account_after.commodity} />}
+        title={data.narration}
+        meta={fmt.format(new Date(data.datetime), 'PP HH:mm:ss')}
+      />
+      <PreviewSection title={t('ledger.preview.pad_info')}>
+        <PreviewList>
+          <PreviewRow label={t('ledger.preview.balance_account')}>{data.postings[0]?.account}</PreviewRow>
+          <PreviewRow label={t('ledger.preview.pad_account')}>{data.postings[1]?.account}</PreviewRow>
+        </PreviewList>
+      </PreviewSection>
+      <PreviewSection title={t('ledger.preview.postings')}>
+        <PreviewList>
+          {data.postings.map((posting, idx) => (
+            <PostingRow
+              key={idx}
+              account={posting.account}
+              amount={<Amount amount={posting.inferred_unit.number} currency={posting.inferred_unit.commodity} />}
+              balance={
+                <>
+                  {t('ledger.preview.balance_after')} <Amount amount={posting.account_after.number} currency={posting.account_after.commodity} />
+                </>
+              }
+            />
+          ))}
+        </PreviewList>
+      </PreviewSection>
     </div>
   );
 }

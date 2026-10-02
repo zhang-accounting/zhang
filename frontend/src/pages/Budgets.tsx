@@ -1,103 +1,167 @@
-import { retrieveBudgets } from '@/api/requests.ts';
-import { Button } from '@/components/ui/button.tsx';
-import { Label } from '@/components/ui/label.tsx';
-import { Switch } from '@/components/ui/switch.tsx';
-import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
-import { BUDGETS_LINK } from '@/layout/Sidebar.tsx';
-import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
-import { format } from 'date-fns';
-import { useAtomValue, useSetAtom } from 'jotai/index';
+import { useAtomValue, useSetAtom } from 'jotai';
 import { groupBy, sortBy } from 'lodash-es';
-import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { PiggyBank, RotateCw, TriangleAlert } from 'lucide-react';
+import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAsync } from 'react-use';
-import BudgetCategory from '../components/budget/BudgetCategory';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
+import { useSearchParams } from 'react-router-dom';
+import { useAsyncRetry } from 'react-use';
+import { retrieveBudgets } from '@/api/requests';
+import Amount from '@/components/Amount';
+import BudgetCategory from '@/components/budget/BudgetCategory';
+import { budgetUsage, monthFromSearchParams, monthSearchParams, sumByCommodity, usageProgressClass } from '@/components/budget/budget-utils';
+import { MonthSwitcher } from '@/components/budget/MonthSwitcher';
+import { EmptyState, PageHeader, PageShell } from '@/components/layout';
+import { KeyFigure, KeyFigures } from '@/components/layout/KeyFigures';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { useDocumentTitle } from '@/hooks/use-document-title';
+import { useLocalStorage } from '@/hooks/use-local-storage';
+import { BUDGETS_LINK } from '@/layout/nav-links';
+import { cn } from '@/lib/utils';
+import { breadcrumbAtom, titleAtom } from '@/states/basic';
+
+const UNCATEGORIZED = '__ZHANG_UNCATEGORIZED__';
+
+function AmountList({ amounts }: { amounts: ReturnType<typeof sumByCommodity> }) {
+  if (amounts.length === 0) return <span>—</span>;
+  return (
+    <span className="flex flex-col">
+      {amounts.map((amount) => (
+        <Amount key={amount.commodity} amount={amount.number} currency={amount.commodity} />
+      ))}
+    </span>
+  );
+}
+
+function BudgetsSkeleton() {
+  return (
+    <div className="flex flex-col gap-3">
+      <Skeleton className="h-6 w-40" />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 6 }, (_, index) => (
+          <Skeleton key={index} className="h-32 rounded-xl" />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function Budgets() {
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { t } = useTranslation();
-  const [hideZeroAssignBudget, setHideZeroAssignBudget] = useLocalStorage({
-    key: 'hideZeroAssignBudget',
-    defaultValue: false,
-  });
-  const [date, setDate] = useState<Date>(new Date());
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const date = useMemo(() => monthFromSearchParams(searchParams), [searchParams]);
+  const setDate = (next: Date) => setSearchParams(monthSearchParams(next), { replace: true });
+  const [hideZeroAssignBudget, setHideZeroAssignBudget] = useLocalStorage({ key: 'hideZeroAssignBudget', defaultValue: false });
   const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`Budgets - ${ledgerTitle}`);
+  useDocumentTitle(`${t('NAV_BUDGETS')} - ${ledgerTitle}`);
 
   useEffect(() => {
-    setBreadcrumb([
-      BUDGETS_LINK,
-      {
-        label: `Budget ${format(date, 'MMM, yyyy')}`,
-        uri: `/budgets?year=${date.getFullYear()}&month=${date.getMonth() + 1}`,
-        noTranslate: true,
-      },
-    ]);
-  }, [date]);
+    // The month lives in the page's own switcher; a "Budget > Oct 2026" crumb would make the mobile back button point at this page.
+    setBreadcrumb([BUDGETS_LINK]);
+  }, [setBreadcrumb]);
 
   const {
     loading,
     error,
     value: budgets,
-  } = useAsync(async () => {
+    retry,
+  } = useAsyncRetry(async () => {
     const res = await retrieveBudgets({ year: date.getFullYear(), month: date.getMonth() + 1 });
     return res.data.data;
-  }, [date]);
+  }, [date.getFullYear(), date.getMonth()]);
 
-  if (error) return <div>failed to load</div>;
-  if (loading || !budgets) return <div>loading...</div>;
+  const visibleBudgets = useMemo(
+    () => (budgets ?? []).filter((budget) => !hideZeroAssignBudget || Number(budget.assigned_amount.number) !== 0),
+    [budgets, hideZeroAssignBudget],
+  );
+  const categories = useMemo(
+    () => sortBy(Object.entries(groupBy(visibleBudgets, (budget) => budget.category ?? UNCATEGORIZED)), ([name]) => (name === UNCATEGORIZED ? '￿' : name)),
+    [visibleBudgets],
+  );
 
-  const goToMonth = (gap: number) => {
-    let newDate = new Date(date);
-    newDate.setMonth(newDate.getMonth() + gap);
-    setDate(newDate);
-  };
+  const assigned = sumByCommodity(visibleBudgets.map((budget) => budget.assigned_amount));
+  const activity = sumByCommodity(visibleBudgets.map((budget) => budget.activity_amount));
+  const available = sumByCommodity(visibleBudgets.map((budget) => budget.available_amount));
+  const usage = budgetUsage(activity[0]?.number ?? '0', assigned[0]?.number ?? '0');
+  const firstLoad = loading && budgets === undefined;
 
   return (
-    <div>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" onClick={() => goToMonth(-1)}>
-            <ChevronLeftIcon className="h-4 w-4" />
-          </Button>
-          <h1 className="inline-block shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{`${format(date, 'MMM, yyyy')}`}</h1>
-          <Button
-            variant="ghost"
-            onClick={() => goToMonth(1)}
-            disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}
-          >
-            <ChevronRightIcon className="h-4 w-4" />
-          </Button>
-        </div>
-        <Button variant="outline" color="gray">
-          {t('REFRESH')}
-        </Button>
-      </div>
-      <div className="flex items-center gap-2 mt-2">
-        <Switch checked={hideZeroAssignBudget} onCheckedChange={(checked) => setHideZeroAssignBudget(checked)} />
-        <Label>Hide Zero Amount Assigned Budget</Label>
-      </div>
+    <PageShell>
+      <PageHeader
+        title={t('NAV_BUDGETS')}
+        description={t('budgets.description')}
+        actions={
+          <>
+            <MonthSwitcher date={date} onChange={setDate} />
+            <Button variant="outline" size="icon" className="size-10 md:size-8" aria-label={t('REFRESH')} onClick={retry} disabled={loading}>
+              <RotateCw className={cn(loading && 'animate-spin')} />
+            </Button>
+          </>
+        }
+      >
+        <Label className="flex min-h-10 w-fit cursor-pointer items-center gap-3 text-sm font-normal text-muted-foreground md:min-h-0">
+          <Switch checked={hideZeroAssignBudget} onCheckedChange={(checked) => setHideZeroAssignBudget(checked)} />
+          {t('budgets.hide_zero_assigned')}
+        </Label>
+      </PageHeader>
 
-      <div className="rounded-md border mt-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Category</TableHead>
-              <TableHead className="text-right">Percentage</TableHead>
-              <TableHead className="text-right">Assigned</TableHead>
-              <TableHead className="text-right">Activity</TableHead>
-              <TableHead className="text-right">Available</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sortBy(Object.entries(groupBy(budgets, (budget) => budget.category)), (entry) => entry[0]).map((entry) => (
-              <BudgetCategory key={`${entry[0]}-${date.getFullYear()}-${date.getMonth()}`} name={entry[0]} items={entry[1]}></BudgetCategory>
+      {error ? (
+        <EmptyState
+          icon={TriangleAlert}
+          title={t('page_state.load_failed')}
+          description={error.message}
+          action={
+            <Button variant="outline" className="h-10 md:h-8" onClick={retry}>
+              {t('page_state.retry')}
+            </Button>
+          }
+        />
+      ) : firstLoad ? (
+        <BudgetsSkeleton />
+      ) : visibleBudgets.length === 0 ? (
+        <EmptyState
+          icon={PiggyBank}
+          title={(budgets ?? []).length === 0 ? t('budgets.empty_title') : t('budgets.all_hidden_title')}
+          description={(budgets ?? []).length === 0 ? t('budgets.empty_description') : t('budgets.all_hidden_description')}
+          action={
+            (budgets ?? []).length > 0 && (
+              <Button variant="outline" className="h-10 md:h-8" onClick={() => setHideZeroAssignBudget(false)}>
+                {t('budgets.show_all')}
+              </Button>
+            )
+          }
+        />
+      ) : (
+        <>
+          <KeyFigures>
+            <KeyFigure label={t('budgets.assigned')} value={<AmountList amounts={assigned} />} />
+            <KeyFigure label={t('budgets.activity')} value={<AmountList amounts={activity} />} />
+            <KeyFigure label={t('budgets.available')} value={<AmountList amounts={available} />} />
+            <KeyFigure
+              label={t('budgets.used')}
+              value={<span className={cn(usage.over && 'text-destructive')}>{usage.label}</span>}
+              hint={t('budgets.budget_count', { count: visibleBudgets.length })}
+            >
+              <Progress value={usage.percent} aria-label={t('budgets.used')} className={cn('mt-1', usageProgressClass(usage.over))} />
+            </KeyFigure>
+          </KeyFigures>
+          <div className={cn('flex flex-col gap-6 transition-opacity', loading && 'opacity-60')}>
+            {categories.map(([name, items]) => (
+              <BudgetCategory
+                key={`${name}-${date.getFullYear()}-${date.getMonth()}`}
+                name={name}
+                label={name === UNCATEGORIZED ? t('budgets.uncategorized') : name}
+                items={items}
+                search={`?year=${date.getFullYear()}&month=${date.getMonth() + 1}`}
+              />
             ))}
-          </TableBody>
-        </Table>
-      </div>
-    </div>
+          </div>
+        </>
+      )}
+    </PageShell>
   );
 }

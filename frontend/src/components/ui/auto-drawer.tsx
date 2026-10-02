@@ -1,5 +1,6 @@
+// Custom (not from the shadcn registry): renders a Dialog on >= md and a bottom Drawer on mobile.
 import * as React from 'react';
-import { useMediaQuery } from '@mantine/hooks';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription, DialogTrigger } from './dialog';
 import { Drawer, DrawerContent, DrawerHeader, DrawerFooter, DrawerTitle, DrawerDescription, DrawerTrigger } from './drawer';
 import { cn } from '@/lib/utils';
@@ -15,7 +16,7 @@ interface AutoDrawerProps {
 }
 
 export function AutoDrawer({ open, onOpenChange, children, title, description, footer, className }: AutoDrawerProps) {
-  const isMobile = useMediaQuery('(max-width: 640px)');
+  const isMobile = useIsMobile();
   const childrenArray = React.Children.toArray(children);
   const triggerIndex = childrenArray.findIndex((child) => React.isValidElement(child) && child.type === AutoDrawerTrigger);
   const trigger = triggerIndex !== -1 ? childrenArray[triggerIndex] : null;
@@ -23,26 +24,24 @@ export function AutoDrawer({ open, onOpenChange, children, title, description, f
 
   if (isMobile) {
     return (
-      <>
-        <Drawer open={open} onOpenChange={onOpenChange}>
-          {trigger}
-          <DrawerContent className={cn('px-4', className)}>
-            {(title || description) && (
-              <DrawerHeader>
-                {title && <DrawerTitle>{title}</DrawerTitle>}
-                {description && <DrawerDescription>{description}</DrawerDescription>}
-              </DrawerHeader>
-            )}
-            <div className="max-h-[70vh] overflow-y-auto">{otherChildren}</div>
-            {footer && <DrawerFooter>{footer}</DrawerFooter>}
-          </DrawerContent>
-        </Drawer>
-      </>
+      <Drawer open={open} onOpenChange={(next) => onOpenChange?.(next)}>
+        {trigger}
+        <DrawerContent className={cn('px-4', className)}>
+          {(title || description) && (
+            <DrawerHeader>
+              {title && <DrawerTitle>{title}</DrawerTitle>}
+              {description && <DrawerDescription>{description}</DrawerDescription>}
+            </DrawerHeader>
+          )}
+          <div className="max-h-[70vh] overflow-y-auto overscroll-contain">{otherChildren}</div>
+          {footer && <DrawerFooter>{footer}</DrawerFooter>}
+        </DrawerContent>
+      </Drawer>
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(next) => onOpenChange?.(next)}>
       {trigger}
       <DialogContent className={cn('sm:max-w-[425px]', className)}>
         {(title || description) && (
@@ -58,12 +57,8 @@ export function AutoDrawer({ open, onOpenChange, children, title, description, f
   );
 }
 
-interface AutoDrawerTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  asChild?: boolean;
+/** Trigger for AutoDrawer. Use Base UI composition: `<AutoDrawerTrigger render={<Button />}>Label</AutoDrawerTrigger>`. */
+export function AutoDrawerTrigger(props: React.ComponentProps<typeof DialogTrigger>) {
+  const isMobile = useIsMobile();
+  return isMobile ? <DrawerTrigger {...(props as React.ComponentProps<typeof DrawerTrigger>)} /> : <DialogTrigger {...props} />;
 }
-
-export const AutoDrawerTrigger = React.forwardRef<HTMLButtonElement, AutoDrawerTriggerProps>(({ asChild, ...props }, ref) => {
-  const isMobile = useMediaQuery('(max-width: 640px)');
-  const Component = isMobile ? DrawerTrigger : DialogTrigger;
-  return <Component ref={ref} asChild={asChild} {...props} />;
-});

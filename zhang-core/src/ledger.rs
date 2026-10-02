@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, RwLock};
 
+use indexmap::IndexSet;
 use itertools::Itertools;
 use log::{error, info};
 use zhang_ast::{Directive, Flag, Options, Plugin, SpanInfo, Spanned};
@@ -12,6 +13,7 @@ use crate::booking::Booker;
 use crate::data_source::DataSource;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
+use crate::inputs::ExtraInput;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::pipeline::{builtin_stages, run_pipeline, ProcessStage, StageContext};
 use crate::process::{DirectivePreProcess, DirectiveProcess};
@@ -23,7 +25,12 @@ pub struct Ledger {
 
     pub data_source: Arc<dyn DataSource>,
 
+    /// the ledger's own files; the file editor lists them
     pub visited_files: Vec<PathBuf>,
+
+    /// what the load read besides [`Ledger::visited_files`] (plugin modules, files plugins read, the date), each once
+    /// in the order first recorded. A change to any of them makes the ledger stale
+    pub extra_inputs: IndexSet<ExtraInput>,
 
     pub options: InMemoryOptions,
 
@@ -139,6 +146,7 @@ impl Ledger {
             options: InMemoryOptions::default(),
             entry: context.entry,
             visited_files: context.visited_files,
+            extra_inputs: IndexSet::new(),
             directives: vec![],
             metas: vec![],
             data_source: context.data_source,
@@ -352,7 +360,8 @@ impl Ledger {
     }
 
     /// run the pipeline over the full directive stream; stage-reported errors are
-    /// materialized into the store before the fold
+    /// materialized into the store before the fold, and the inputs stages recorded
+    /// join [`Ledger::extra_inputs`]
     fn run_stages(&mut self, directives: Vec<Spanned<Directive>>) -> ZhangResult<Vec<Spanned<Directive>>> {
         let directives = Ledger::sort_directives_datetime(directives);
         let stages = self.build_stages();
@@ -361,6 +370,7 @@ impl Ledger {
         let mut ctx = StageContext::new(&options).with_commodities(commodities);
         let directives = run_pipeline(&stages, directives, &mut ctx)?;
 
+        self.extra_inputs.extend(ctx.inputs().iter().cloned());
         let mut operations = self.operations();
         for error in ctx.into_errors() {
             operations.new_error(error.kind, &error.span, error.metas)?;
@@ -1280,8 +1290,11 @@ mod test {
         use bigdecimal::BigDecimal;
         use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
         use indoc::indoc;
+        use zhang_ast::amount::Amount;
 
         use crate::ledger::test::load_from_temp_str;
+        use crate::ledger::Ledger;
+        use crate::utils::calculable::Calculable;
 
         #[test]
         fn should_get_price() {
@@ -1302,6 +1315,69 @@ mod test {
                 .unwrap()
                 .unwrap();
             assert_eq!(BigDecimal::from(7), option.amount)
+        }
+
+        fn day(year: i32, month: u32, day: u32) -> NaiveDateTime {
+            NaiveDateTime::new(NaiveDate::from_ymd_opt(year, month, day).unwrap(), NaiveTime::from_hms_opt(0, 0, 0).unwrap())
+        }
+
+        fn price_at(ledger: &Ledger, date: NaiveDateTime) -> Option<BigDecimal> {
+            ledger.operations().get_price(date, "USD", "CNY").unwrap().map(|price| price.amount)
+        }
+
+        #[test]
+        fn should_get_the_latest_price_on_or_before_the_date() {
+            let ledger = load_from_temp_str(indoc! {r#"
+                    1970-01-01 commodity CNY
+                    1970-01-01 commodity USD
+                    1970-02-01 price USD 7 CNY
+                    1970-03-01 price USD 8 CNY
+                    1970-04-01 price USD 10 CNY
+                    1970-04-01 price USD 9 CNY
+                "#});
+
+            // before both prices: none
+            assert_eq!(None, price_at(&ledger, day(1970, 1, 15)));
+            // on and between the two dates: the first price
+            assert_eq!(Some(BigDecimal::from(7)), price_at(&ledger, day(1970, 2, 1)));
+            assert_eq!(Some(BigDecimal::from(7)), price_at(&ledger, day(1970, 2, 15)));
+            // after both: the latest one, not the oldest one
+            assert_eq!(Some(BigDecimal::from(8)), price_at(&ledger, day(1970, 3, 1)));
+            assert_eq!(Some(BigDecimal::from(8)), price_at(&ledger, day(1970, 3, 15)));
+            // two prices on one day: the last one in the stream wins, whatever its value
+            assert_eq!(Some(BigDecimal::from(9)), price_at(&ledger, day(1970, 4, 1)));
+            assert_eq!(Some(BigDecimal::from(9)), price_at(&ledger, day(1970, 5, 1)));
+            // only the direct pair is looked up: no inverse rate
+            assert!(ledger.operations().get_price(day(1970, 5, 1), "CNY", "USD").unwrap().is_none());
+        }
+
+        #[test]
+        fn should_order_prices_by_date_not_by_source_order() {
+            let ledger = load_from_temp_str(indoc! {r#"
+                    1970-01-01 commodity CNY
+                    1970-01-01 commodity USD
+                    1970-03-01 price USD 8 CNY
+                    1970-02-01 price USD 7 CNY
+                "#});
+
+            assert_eq!(Some(BigDecimal::from(7)), price_at(&ledger, day(1970, 2, 15)));
+            assert_eq!(Some(BigDecimal::from(8)), price_at(&ledger, day(1970, 3, 15)));
+        }
+
+        #[test]
+        fn should_value_operating_currency_at_the_latest_price() {
+            let ledger = load_from_temp_str(indoc! {r#"
+                    option "operating_currency" "CNY"
+                    1970-01-01 commodity CNY
+                    1970-01-01 commodity USD
+                    1970-02-01 price USD 7 CNY
+                    1970-03-01 price USD 8 CNY
+                "#});
+            let date = day(1970, 3, 15).and_local_timezone(ledger.options.timezone).unwrap();
+
+            let amounts = vec![Amount::new(BigDecimal::from(2), "USD"), Amount::new(BigDecimal::from(1), "CNY")];
+            let calculated = amounts.calculate(date, &mut ledger.operations()).unwrap();
+            assert_eq!(Amount::new(BigDecimal::from(17), "CNY"), calculated.calculated);
         }
     }
 
@@ -1372,6 +1448,102 @@ mod test {
             let names = ledger.operations().queries().unwrap().into_iter().map(|it| it.name).collect_vec();
             assert_eq!(names, vec!["main", "included"]);
             assert_eq!(ledger.visited_files.len(), 2);
+        }
+    }
+
+    mod extra_inputs {
+        use indoc::indoc;
+
+        use crate::ledger::test::load_from_temp_str;
+
+        #[test]
+        fn should_not_record_the_module_of_a_plugin_that_is_not_loaded() {
+            let ledger = load_from_temp_str(indoc! {r#"
+                plugin "plugins/passthrough.wasm"
+                1970-01-01 open Assets:Cash
+            "#});
+
+            // plugins are off, so the module is never read
+            assert!(ledger.extra_inputs.is_empty());
+            assert_eq!(ledger.visited_files.len(), 1);
+        }
+
+        #[cfg(feature = "plugin_runtime")]
+        mod plugin_module {
+            use std::path::PathBuf;
+            use std::sync::Arc;
+
+            use indoc::indoc;
+            use itertools::Itertools;
+            use tempfile::tempdir;
+
+            use crate::data_source::LocalFileSystemDataSource;
+            use crate::data_type::text::ZhangDataType;
+            use crate::inputs::ExtraInput;
+            use crate::ledger::Ledger;
+
+            const PASSTHROUGH: &str = include_str!("../tests/plugins/passthrough.wat");
+
+            /// load `main.zhang` from a fresh ledger root holding the passthrough plugin at
+            /// `plugins/passthrough.wat`; `{module}` in `content` is the module's absolute path
+            fn load_with_plugin(content: &str) -> (PathBuf, Ledger) {
+                // canonical, like the root `load_with_data_source` resolves
+                let root = tempdir().unwrap().into_path().canonicalize().unwrap();
+                std::fs::create_dir(root.join("plugins")).unwrap();
+                let module = root.join("plugins/passthrough.wat");
+                std::fs::write(&module, PASSTHROUGH).unwrap();
+                let content = content.replace("{module}", &module.to_string_lossy());
+                std::fs::write(root.join("main.zhang"), content).unwrap();
+                let source = LocalFileSystemDataSource::new(ZhangDataType {});
+                let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_string(), Arc::new(source)).unwrap();
+                (root, ledger)
+            }
+
+            const LEDGER: &str = indoc! {r#"
+                option "features.plugin" "true"
+                plugin "{module}"
+                1970-01-01 open Assets:Cash
+                1970-01-01 open Equity:Open
+                2024-01-01 * "lunch"
+                  Assets:Cash -10 CNY
+                  Equity:Open
+            "#};
+
+            #[test]
+            fn should_record_a_local_plugin_module_relative_to_the_root() {
+                let (root, ledger) = load_with_plugin(LEDGER);
+
+                // the plugin ran: its echo of the stream reached the store
+                assert_eq!(ledger.plugins.ordered.len(), 1);
+                assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
+                assert_eq!(
+                    ledger.extra_inputs.iter().cloned().collect_vec(),
+                    vec![ExtraInput::File(PathBuf::from("plugins/passthrough.wat"))]
+                );
+                // the module stays out of the file editor's list
+                assert_eq!(ledger.visited_files, vec![root.join("main.zhang")]);
+            }
+
+            #[test]
+            fn should_record_a_module_declared_twice_once() {
+                let (_, ledger) = load_with_plugin(&LEDGER.replace("plugin \"{module}\"", "plugin \"{module}\"\nplugin \"{module}\""));
+
+                assert_eq!(ledger.plugins.ordered.len(), 2);
+                assert_eq!(ledger.extra_inputs.len(), 1);
+            }
+
+            #[test]
+            fn should_record_extra_inputs_again_on_reload() {
+                let (root, mut ledger) = load_with_plugin(LEDGER);
+
+                ledger.reload().unwrap();
+
+                assert_eq!(
+                    ledger.extra_inputs.iter().cloned().collect_vec(),
+                    vec![ExtraInput::File(PathBuf::from("plugins/passthrough.wat"))]
+                );
+                assert_eq!(ledger.visited_files, vec![root.join("main.zhang")]);
+            }
         }
     }
 

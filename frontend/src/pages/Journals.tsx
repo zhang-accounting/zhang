@@ -1,215 +1,238 @@
-import { useEffect, useMemo, useState } from 'react';
-import TableViewJournalLine from '../components/journalLines/tableView/TableViewJournalLine';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { CircleAlert, NotebookText, RefreshCw, Search, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDebouncedValue, useDocumentTitle, useMediaQuery } from '@mantine/hooks';
-import { JournalListSkeleton } from '../components/skeletons/journalListSkeleton';
-import { useAtomValue } from 'jotai/index';
+import { parseISO } from 'date-fns';
+import { JournalRow } from '@/components/journalLines/JournalRow';
+import { EmptyState, PageHeader, PageShell } from '@/components/layout';
+import { PagePagination } from '@/components/layout/PagePagination';
+import { useDateFormat } from '@/components/layout/use-date-format';
+import { TransactionEditModal } from '@/components/modals/TransactionEditModal';
+import { TransactionPreviewModal } from '@/components/modals/TransactionPreviewModal';
+import { JournalDaysSkeleton } from '@/components/skeletons/journalListSkeleton';
+import { Button } from '@/components/ui/button';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
+import { useDebouncedValue } from '@/hooks/use-debounced';
+import { cn } from '@/lib/utils';
+import { useDocumentTitle } from '@/hooks/use-document-title';
+import { JOURNALS_LINK } from '@/layout/nav-links';
 import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { groupedJournalsAtom, journalAtom, journalFetcher, journalKeywordAtom, journalLinksAtom, journalPageAtom, journalTagsAtom } from '../states/journals';
-import { useAtom, useSetAtom } from 'jotai';
-import { loadable_unwrap } from '../states';
-import { selectAtom } from 'jotai/utils';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
-import { X } from 'lucide-react';
-import { JOURNALS_LINK } from '@/layout/Sidebar';
-import { TransactionPreviewModal } from '@/components/modals/TransactionPreviewModal';
-import { TransactionEditModal } from '@/components/modals/TransactionEditModal';
-import MobileViewJournalLine from '@/components/journalLines/mobileView/MobileViewJournalLine';
 
 function Journals() {
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { t } = useTranslation();
-  const [filter, setFilter] = useState('');
-  const [debouncedFilter] = useDebouncedValue(filter, 200);
-
+  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`Journals - ${ledgerTitle}`);
+  useDocumentTitle(`${t('NAV_JOURNALS')} - ${ledgerTitle}`);
 
+  const [keyword, setKeyword] = useAtom(journalKeywordAtom);
+  const [filter, setFilter] = useState(keyword);
+  const [debouncedFilter] = useDebouncedValue(filter, 200);
   const [journalPage, setJournalPage] = useAtom(journalPageAtom);
-  const setKeyword = useSetAtom(journalKeywordAtom);
-  const refreshJournals = useSetAtom(journalFetcher);
-  const journalItems = useAtomValue(journalAtom);
-  const total_count = useAtomValue(useMemo(() => selectAtom(journalAtom, (val) => loadable_unwrap(val, 0, (val) => val.total_count)), []));
-  const total_page = useAtomValue(useMemo(() => selectAtom(journalAtom, (val) => loadable_unwrap(val, 0, (val) => val.total_page)), []));
-
   const [journalTags, setJournalTags] = useAtom(journalTagsAtom);
   const [journalLinks, setJournalLinks] = useAtom(journalLinksAtom);
-  const isMobile = useMediaQuery('(max-width: 640px)');
+  const refreshJournals = useSetAtom(journalFetcher);
+  const journalItems = useAtomValue(journalAtom);
 
-  const removeTag = (tagToRemove: string) => {
-    let newTags = journalTags.filter((tag) => tag !== tagToRemove);
-    setJournalTags(newTags);
-  };
+  const data = journalItems.state === 'hasData' ? journalItems.data : undefined;
+  const hasFilters = filter.trim() !== '' || journalTags.length > 0 || journalLinks.length > 0;
 
-  const removeLink = (linkToRemove: string) => {
-    let newLinks = journalLinks.filter((tag) => tag !== linkToRemove);
-    setJournalLinks(newLinks);
-  };
-
-  useEffect(() => {
-    setKeyword(debouncedFilter);
-  }, [setKeyword, debouncedFilter]);
   useEffect(() => {
     setBreadcrumb([JOURNALS_LINK]);
-  }, []);
+  }, [setBreadcrumb]);
+
+  useEffect(() => {
+    if (debouncedFilter === keyword) return;
+    setKeyword(debouncedFilter);
+    setJournalPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedFilter]);
 
   const onPage = (page: number) => {
     setJournalPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const clearFilters = () => {
+    setFilter('');
+    setKeyword('');
+    setJournalTags([]);
+    setJournalLinks([]);
+    setJournalPage(1);
+  };
+
+  let content;
+  if (journalItems.state === 'hasError') {
+    content = (
+      <EmptyState
+        icon={CircleAlert}
+        title={t('ledger.common.load_failed')}
+        description={String(journalItems.error)}
+        action={
+          <Button variant="outline" className="h-10 md:h-8" onClick={() => refreshJournals()}>
+            {t('ledger.common.retry')}
+          </Button>
+        }
+      />
+    );
+  } else if (journalItems.state === 'loading') {
+    content = <JournalDaysSkeleton />;
+  } else if ((data?.records.length ?? 0) === 0) {
+    content = (
+      <EmptyState
+        icon={NotebookText}
+        title={hasFilters ? t('ledger.journals.no_match_title') : t('ledger.journals.empty_title')}
+        description={hasFilters ? t('ledger.journals.no_match_description') : t('ledger.journals.empty_description')}
+        action={
+          hasFilters && (
+            <Button variant="outline" className="h-10 md:h-8" onClick={clearFilters}>
+              {t('ledger.common.clear_filters')}
+            </Button>
+          )
+        }
+      />
+    );
+  } else {
+    content = <JournalDays />;
+  }
+
   return (
-    <div className="flex flex-col gap-4">
+    <PageShell>
       <TransactionPreviewModal />
       <TransactionEditModal />
-      <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">
-        {total_count} {t('JOURNALS_TITLE')}
-      </h1>
-      <div className="flex flex-1 items-center justify-between space-x-2">
-        <div className="flex flex-1 space-x-2 items-end">
-          <Input
-            className="w-[33%]"
-            placeholder={t('ACCOUNT_FILTER_PLACEHOLDER')}
-            value={filter}
-            onChange={(event: any) => setFilter(event.currentTarget.value)}
-          />
-          {journalTags.map((tag) => (
-            <Button className="pr-1" variant="secondary" size="sm" onClick={() => removeTag(tag)}>
-              #{tag}
-              <X className="ml-1 h-3 w-3" />
-            </Button>
-          ))}
-          {journalLinks.map((link) => (
-            <Button key={link} onClick={() => removeLink(link)} variant="secondary" size="sm" className="pr-1">
-              ^{link}
-              <X className="ml-1 h-3 w-3" />
-            </Button>
-          ))}
-        </div>
-        <Button variant="outline" onClick={() => refreshJournals()}>
-          {t('REFRESH')}
-        </Button>
-      </div>
-      {isMobile ? <JournalTableMobile /> : <JournalTable />}
+      <PageHeader
+        title={t('NAV_JOURNALS')}
+        description={data ? t('ledger.journals.description', { count: data.total_count }) : t('ledger.journals.description_loading')}
+      />
 
-      <div className="flex items-center gap-4 my-4">
-        <div className={'inline-block'}>
-          {journalItems.state === 'hasData' ? journalItems.data?.total_page : 0} {t('PAGE')}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <InputGroup className="h-10 flex-1 md:h-8 md:max-w-sm">
+            <InputGroupAddon>
+              <Search />
+            </InputGroupAddon>
+            <InputGroupInput
+              type="text"
+              enterKeyHint="search"
+              placeholder={t('ledger.journals.search_placeholder')}
+              aria-label={t('ledger.journals.search_placeholder')}
+              value={filter}
+              onChange={(event) => setFilter(event.currentTarget.value)}
+            />
+            {filter && (
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton size="icon-xs" aria-label={t('ledger.common.clear')} onClick={() => setFilter('')}>
+                  <X />
+                </InputGroupButton>
+              </InputGroupAddon>
+            )}
+          </InputGroup>
+          <Button variant="outline" className="h-10 md:ml-auto md:h-8" aria-label={t('REFRESH')} onClick={() => refreshJournals()}>
+            <RefreshCw data-icon="inline-start" className={journalItems.state === 'loading' ? 'animate-spin' : undefined} />
+            <span className="hidden sm:inline">{t('REFRESH')}</span>
+          </Button>
         </div>
-        <Pagination>
-          <PaginationContent>
-            {journalPage > 1 && (
-              <PaginationItem>
-                <PaginationPrevious className="cursor-pointer" onClick={() => onPage(journalPage - 1)} />
-              </PaginationItem>
-            )}
-            {journalPage > 2 && (
-              <PaginationItem>
-                <PaginationLink className="cursor-pointer" onClick={() => onPage(journalPage - 2)}>
-                  {journalPage - 2}
-                </PaginationLink>
-              </PaginationItem>
-            )}
-            {journalPage > 1 && (
-              <PaginationItem>
-                <PaginationLink className="cursor-pointer" onClick={() => onPage(journalPage - 1)}>
-                  {journalPage - 1}
-                </PaginationLink>
-              </PaginationItem>
-            )}
-            <PaginationItem>
-              <PaginationLink isActive>{journalPage}</PaginationLink>
-            </PaginationItem>
-            {journalPage < total_page && (
-              <PaginationItem>
-                <PaginationLink className="cursor-pointer" onClick={() => onPage(journalPage + 1)}>
-                  {journalPage + 1}
-                </PaginationLink>
-              </PaginationItem>
-            )}
-            {journalPage + 1 < total_page && (
-              <PaginationItem>
-                <PaginationLink className="cursor-pointer" onClick={() => onPage(journalPage + 2)}>
-                  {journalPage + 2}
-                </PaginationLink>
-              </PaginationItem>
-            )}
-            {journalPage < total_page && (
-              <PaginationItem>
-                <PaginationNext className="cursor-pointer" onClick={() => onPage(journalPage + 1)} />
-              </PaginationItem>
-            )}
-          </PaginationContent>
-        </Pagination>
-        <div></div>
+        {(journalTags.length > 0 || journalLinks.length > 0) && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">{t('ledger.journals.filtered_by')}</span>
+            {journalTags.map((tag) => (
+              <FilterChip
+                key={`tag-${tag}`}
+                label={`#${tag}`}
+                onRemove={() => {
+                  setJournalTags(journalTags.filter((it) => it !== tag));
+                  setJournalPage(1);
+                }}
+              />
+            ))}
+            {journalLinks.map((link) => (
+              <FilterChip
+                key={`link-${link}`}
+                label={`^${link}`}
+                onRemove={() => {
+                  setJournalLinks(journalLinks.filter((it) => it !== link));
+                  setJournalPage(1);
+                }}
+              />
+            ))}
+            <Button variant="link" size="sm" className="h-10 px-1 text-link md:h-8" onClick={clearFilters}>
+              {t('ledger.common.clear_filters')}
+            </Button>
+          </div>
+        )}
       </div>
-    </div>
+
+      {content}
+
+      {data && <PagePagination page={journalPage} totalPages={data.total_page} onPageChange={onPage} />}
+    </PageShell>
   );
 }
 
 export default Journals;
 
-function JournalTable() {
-  const journalItems = useAtomValue(journalAtom);
-  const groupedRecords = useAtomValue(groupedJournalsAtom);
+const REMOVE_ICON_CLASS = cn(
+  'flex size-5 items-center justify-center rounded-full',
+  'group-hover/remove:bg-foreground/10 group-focus-visible/remove:ring-2 group-focus-visible/remove:ring-ring',
+);
+
+/** Active filter chip; the remove button has a 40px hit area on mobile while the pill itself stays compact. */
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  const { t } = useTranslation();
   return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[100px] ">Date</TableHead>
-            <TableHead className=""></TableHead>
-            <TableHead className="">Payee · Narration</TableHead>
-            <TableHead className="text-right ">Amount</TableHead>
-            <TableHead className="text-right ">Operation</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {(journalItems.state === 'loading' || journalItems.state === 'hasError') && <JournalListSkeleton />}
-          {journalItems.state === 'hasData' &&
-            Object.keys(groupedRecords).map((date) => {
-              return (
-                <>
-                  <TableRow key={date}>
-                    <TableCell colSpan={6}>
-                      <span className="text-sm text-gray-500">{date}</span>
-                    </TableCell>
-                  </TableRow>
-                  {groupedRecords[date].map((journal) => (
-                    <TableViewJournalLine key={journal.id} data={journal} />
-                  ))}
-                </>
-              );
-            })}
-        </TableBody>
-      </Table>
-    </div>
+    <span className="inline-flex h-8 items-center rounded-md bg-secondary pl-2.5 text-sm text-secondary-foreground md:h-6 md:text-xs">
+      {label}
+      <button
+        type="button"
+        className="group/remove -my-1 flex size-10 items-center justify-center rounded-full outline-none md:my-0 md:size-6"
+        aria-label={t('ledger.common.remove_filter', { value: label })}
+        onClick={onRemove}
+      >
+        <span className={REMOVE_ICON_CLASS}>
+          <X className="size-3" />
+        </span>
+      </button>
+    </span>
   );
 }
 
-function JournalTableMobile() {
-  const journalItems = useAtomValue(journalAtom);
+/** Day heading parts: `Sep 16` + `Sat` (`9月16日` + `周六`); the year is added for dates outside the current year. */
+function useDayHeading() {
+  const fmt = useDateFormat();
+  const thisYear = new Date().getFullYear();
+  return (date: string) => {
+    const day = parseISO(date);
+    return { day: day.getFullYear() === thisYear ? fmt.day(day) : fmt.date(day), weekday: fmt.format(day, 'EEE') };
+  };
+}
+
+const DAY_HEADING = cn(
+  'sticky top-14 z-10 -mx-4 flex items-baseline gap-1.5 px-4 py-1 text-sm font-semibold md:static md:mx-0 md:px-0 md:py-0',
+  'bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80 md:bg-transparent md:backdrop-blur-none',
+);
+
+/** Journals grouped by day (多少记账 style): a heading per day, then one bordered card of `JournalRow`s. */
+function JournalDays() {
   const groupedRecords = useAtomValue(groupedJournalsAtom);
-
-  if (journalItems.state === 'loading' || journalItems.state === 'hasError') {
-    return <JournalListSkeleton />;
-  }
-
+  const heading = useDayHeading();
   return (
-    <div className="flex flex-col gap-4">
-      {journalItems.state === 'hasData' &&
-        Object.keys(groupedRecords).map((date) => {
-          return (
-            <div className="flex flex-col gap-2">
-              <span className="text-sm text-gray-500">{date}</span>
+    <div className="flex flex-col gap-5">
+      {Object.keys(groupedRecords).map((date) => {
+        const { day, weekday } = heading(date);
+        return (
+          <section key={date} className="flex flex-col gap-2">
+            <h2 className={DAY_HEADING}>
+              {day}
+              <span className="text-xs font-normal text-muted-foreground">{weekday}</span>
+            </h2>
+            <div className="divide-y overflow-hidden rounded-lg border bg-card">
               {groupedRecords[date].map((journal) => (
-                <MobileViewJournalLine key={journal.id} data={journal} />
+                <JournalRow key={journal.id} data={journal} />
               ))}
             </div>
-          );
-        })}
+          </section>
+        );
+      })}
     </div>
   );
 }

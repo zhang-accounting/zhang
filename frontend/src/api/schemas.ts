@@ -949,7 +949,7 @@ export interface operations {
           'application/json': {
             data: {
               name: string;
-              plugin_type: ('Processor' | 'Mapper' | 'Router')[];
+              plugin_type: ('Processor' | 'Mapper' | 'Router' | 'Unknown')[];
               version: string;
             }[];
           };

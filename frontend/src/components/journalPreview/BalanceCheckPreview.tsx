@@ -1,57 +1,57 @@
-import BigNumber from 'bignumber.js';
-import { format } from 'date-fns';
-import Amount from '../Amount';
-import DashLine from '../DashedLine';
-import Section from '../Section';
-import { Badge } from '../ui/badge';
+import { useTranslation } from 'react-i18next';
 import { JournalBalanceCheckItem } from '@/api/types';
+import { useDateFormat } from '@/components/layout/use-date-format';
+import { Badge } from '@/components/ui/badge';
+import Amount from '../Amount';
+import { JournalTypeBadge } from '../journalLines/JournalBits';
+import { isBalanceCheckPassed } from '../journalLines/journal-utils';
+import { PreviewHeader, PreviewList, PreviewRow, PreviewSection } from './PreviewParts';
+
 interface Props {
   data: JournalBalanceCheckItem;
 }
 
-export default function BalanceCheckPreview(props: Props) {
-  const isBalanced = new BigNumber(props.data.postings[0].account_after.number).eq(new BigNumber(props.data.postings[0].account_before.number));
-  const checkInfo = props.data.postings[0];
+export default function BalanceCheckPreview({ data }: Props) {
+  const { t } = useTranslation();
+  const fmt = useDateFormat();
+  const isBalanced = isBalanceCheckPassed(data);
+  const checkInfo = data.postings[0];
+
   return (
-    <div>
-      <Section title="Check Info">
-        <DashLine>
-          <p className="line-clamp-1">Datetime</p>
-          <p className="line-clamp-1">{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</p>
-        </DashLine>
-        <DashLine>
-          <p className="line-clamp-1">Account</p>
-          <p className="line-clamp-1">{checkInfo.account}</p>
-        </DashLine>
-        <DashLine>
-          <p className="line-clamp-1">Check Status</p>
-          <p className="line-clamp-1">{isBalanced ? <Badge color={'green'}>Pass</Badge> : <Badge color={'red'}>UNBALANCED</Badge>}</p>
-        </DashLine>
-        <DashLine>
-          <p className="line-clamp-1">Balance Amount</p>
-          <p className="line-clamp-1">
-            <Amount amount={checkInfo.account_after.number} currency={checkInfo.account_after.commodity} />
-          </p>
-        </DashLine>
-
-        {!isBalanced && (
+    <div className="flex flex-col gap-5 pt-4 pb-2 md:pt-0">
+      <PreviewHeader
+        badges={
           <>
-            <DashLine>
-              <p className="line-clamp-1">Accumulated Amount</p>
-              <p className="line-clamp-1">
-                <Amount amount={checkInfo.account_before.number} currency={checkInfo.account_before.commodity} />
-              </p>
-            </DashLine>
-
-            <DashLine>
-              <p className="line-clamp-1">Distance</p>
-              <p className="line-clamp-1">
-                <Amount amount={checkInfo.inferred_unit.number} currency={checkInfo.inferred_unit.commodity} />
-              </p>
-            </DashLine>
+            <JournalTypeBadge type="BalanceCheck" />
+            {isBalanced ? (
+              <Badge className="bg-positive/10 text-positive">{t('ledger.preview.check_pass')}</Badge>
+            ) : (
+              <Badge variant="destructive">{t('ledger.journal.check_failed')}</Badge>
+            )}
           </>
-        )}
-      </Section>
+        }
+        amount={<Amount amount={checkInfo.account_after.number} currency={checkInfo.account_after.commodity} />}
+        title={checkInfo.account}
+        meta={fmt.format(new Date(data.datetime), 'PP HH:mm:ss')}
+      />
+      <PreviewSection title={t('ledger.preview.check_info')}>
+        <PreviewList>
+          <PreviewRow label={t('ledger.preview.account')}>{checkInfo.account}</PreviewRow>
+          <PreviewRow label={t('ledger.preview.balance_amount')}>
+            <Amount amount={checkInfo.account_after.number} currency={checkInfo.account_after.commodity} />
+          </PreviewRow>
+          {!isBalanced && (
+            <>
+              <PreviewRow label={t('ledger.preview.accumulated_amount')}>
+                <Amount amount={checkInfo.account_before.number} currency={checkInfo.account_before.commodity} />
+              </PreviewRow>
+              <PreviewRow label={t('ledger.preview.distance')}>
+                <Amount className="text-destructive" amount={checkInfo.inferred_unit.number} currency={checkInfo.inferred_unit.commodity} />
+              </PreviewRow>
+            </>
+          )}
+        </PreviewList>
+      </PreviewSection>
     </div>
   );
 }

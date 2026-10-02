@@ -1,94 +1,105 @@
-import { groupBy, max, min, sortBy } from 'lodash-es';
 import BigNumber from 'bignumber.js';
-import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from './ui/chart';
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
+import { parseISO } from 'date-fns';
+import { sortBy } from 'lodash-es';
+import { LineChartIcon } from 'lucide-react';
 import { OpReturnType } from 'openapi-typescript-fetch';
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
 import { operations } from '@/api/schemas';
-const COLOR_SET = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
+import { EmptyState } from '@/components/layout';
+import { spansYears, useDateFormat } from '@/components/layout/use-date-format';
+import { cn } from '@/lib/utils';
+import Amount from './Amount';
+import { useAxisFormatter } from '@/components/layout/chart-utils';
+import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from './ui/chart';
+import { Toggle } from './ui/toggle';
 
 type AccountBalanceHistory = OpReturnType<operations['get_account_balance_data']>['data']['balance'];
 
-function buildChartConfig(series: { name: string; color: string }[]): ChartConfig {
-  return series.reduce(
-    (acc, current, idx) => ({
-      ...acc,
-      [current.name]: {
-        label: current.name,
-        color: COLOR_SET[idx % COLOR_SET.length],
-      },
-    }),
-    {},
-  ) satisfies ChartConfig;
-}
-
 interface Props {
   data?: AccountBalanceHistory;
+  /** Height utilities, e.g. `h-56 md:h-80`. */
+  className?: string;
 }
 
-export function AccountBalanceHistoryGraph(props: Props) {
-  if (!props.data) {
-    return <div></div>;
+/**
+ * Balance of one commodity over (real) time. The balance only changes on posting days, so the line is drawn as a step.
+ * Accounts holding several commodities get a commodity switch instead of mixing units on one axis.
+ */
+export function AccountBalanceHistoryGraph({ data, className }: Props) {
+  const { t } = useTranslation();
+  const fmt = useDateFormat();
+  const commodities = useMemo(() => Object.keys(data ?? {}).sort(), [data]);
+  const [selected, setSelected] = useState<string | undefined>(undefined);
+  const commodity = selected && commodities.includes(selected) ? selected : commodities[0];
+
+  const points = useMemo(() => {
+    if (!data || !commodity) return [];
+    return sortBy(
+      (data[commodity] ?? []).map((it) => ({ ts: parseISO(it.date).getTime(), balance: new BigNumber(it.balance.number).toNumber() })),
+      (it) => it.ts,
+    );
+  }, [data, commodity]);
+
+  const values = useMemo(() => points.map((it) => it.balance), [points]);
+  // `Sep 13` is ambiguous once the history covers several years: show `Sep 13, 2023` then.
+  const multiYear = useMemo(() => spansYears(points.map((it) => it.ts)), [points]);
+  const axis = useAxisFormatter(values);
+
+  if (points.length === 0) {
+    return <EmptyState icon={LineChartIcon} title={t('ledger.account.no_history')} description={t('ledger.account.no_history_description')} />;
   }
 
-  const minAmount =
-    min(
-      Object.values(props.data)
-        .flat()
-        .map((it) => it.balance.number)
-        .map((it) => new BigNumber(it).toNumber()),
-    ) ?? 0;
-  const maxAmount =
-    max(
-      Object.values(props.data)
-        .flat()
-        .map((it) => it.balance.number)
-        .map((it) => new BigNumber(it).toNumber()),
-    ) ?? 0;
+  const config = { balance: { label: commodity, color: 'var(--chart-1)' } } satisfies ChartConfig;
 
-  const dataByDate = groupBy(
-    Object.values(props.data).flatMap((it) => it),
-    (it) => it.date,
-  );
-
-  const data = sortBy(
-    Object.values(dataByDate).map((it) => {
-      return it.reduce(
-        (acc, each) => {
-          acc.date = each.date;
-          acc[each.balance.commodity] = new BigNumber(each.balance.number).toNumber();
-          return acc;
-        },
-        {} as Record<string, string | number>,
-      );
-    }),
-    (it) => new Date(it.date),
-  );
-  const series = Object.keys(props.data)
-    .sort()
-    .map((it, idx) => ({
-      name: it,
-      color: COLOR_SET[idx % COLOR_SET.length],
-    }));
-
-  console.log('account graph', data, series);
   return (
-    <ChartContainer config={buildChartConfig(series)} className={`h-[300px] w-full`}>
-      <LineChart
-        accessibilityLayer
-        data={data}
-        margin={{
-          left: 12,
-          right: 12,
-        }}
-      >
-        <CartesianGrid vertical={false} />
-        <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} />
-        <YAxis hide type="number" domain={[minAmount, maxAmount]} yAxisId="default" scale="log" padding={{ top: 20, bottom: 20 }} />
-        <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-        {series.map((it) => (
-          <Line dataKey={it.name} type="monotone" stroke={it.color} strokeWidth={2} dot={false} activeDot yAxisId="default" />
-        ))}
-      </LineChart>
-    </ChartContainer>
+    <div className="flex flex-col gap-3">
+      {commodities.length > 1 && (
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('ledger.account.commodity')}>
+          {commodities.map((it) => (
+            <Toggle key={it} variant="outline" size="sm" className="h-10 min-w-12 md:h-7" pressed={it === commodity} onPressedChange={() => setSelected(it)}>
+              {it}
+            </Toggle>
+          ))}
+        </div>
+      )}
+      <ChartContainer config={config} className={cn('aspect-auto h-56 w-full md:h-80', className)}>
+        <LineChart accessibilityLayer data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <CartesianGrid vertical={false} />
+          <XAxis
+            dataKey="ts"
+            type="number"
+            scale="time"
+            domain={['dataMin', 'dataMax']}
+            tickLine={false}
+            axisLine={false}
+            tickMargin={8}
+            minTickGap={32}
+            tickFormatter={(value: number) => (multiYear ? fmt.date(value) : fmt.day(value))}
+          />
+          <YAxis width={axis.width} tickLine={false} axisLine={false} ticks={axis.ticks} domain={axis.domain} tickFormatter={axis.format} />
+          <ChartTooltip
+            cursor={{ strokeDasharray: '3 3' }}
+            content={
+              <ChartTooltipContent
+                labelFormatter={(_, payload) => {
+                  const ts = payload?.[0]?.payload?.ts;
+                  return ts ? fmt.weekdayDate(ts) : '';
+                }}
+                formatter={(value) => (
+                  <div className="flex w-full items-center gap-2">
+                    <span className="size-2.5 shrink-0 rounded-[2px] bg-(--color-balance)" />
+                    <span className="flex-1 text-muted-foreground">{t('ledger.account.balance')}</span>
+                    <Amount className="font-medium text-foreground" amount={Number(value)} currency={commodity} />
+                  </div>
+                )}
+              />
+            }
+          />
+          <Line dataKey="balance" type="stepAfter" stroke="var(--color-balance)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+        </LineChart>
+      </ChartContainer>
+    </div>
   );
 }

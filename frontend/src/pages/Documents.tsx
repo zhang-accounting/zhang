@@ -1,129 +1,228 @@
-import { retrieveDocuments } from '@/api/requests.ts';
-import { Badge } from '@/components/ui/badge.tsx';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
-import { DOCUMENTS_LINK } from '@/layout/Sidebar.tsx';
-import { useDocumentTitle, useLocalStorage } from '@mantine/hooks';
 import { format } from 'date-fns';
-import { useAtomValue, useSetAtom } from 'jotai/index';
-import { groupBy, reverse, sortBy } from 'lodash-es';
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
-import { useAsync } from 'react-use';
-import 'yet-another-react-lightbox/styles.css';
-import AccountDocumentLine from '../components/documentLines/AccountDocumentLine';
-import { ImageLightBox } from '../components/ImageLightBox';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
-import { isDocumentAnImage } from '../utils/documents';
+import { useAtomValue, useSetAtom } from 'jotai';
+import { groupBy, sortBy } from 'lodash-es';
+import { ExternalLink, FileStack, FileText, ImageIcon, LayoutGrid, List, TriangleAlert } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
+import { useAsyncRetry } from 'react-use';
+import { retrieveDocuments } from '@/api/requests';
+import { Document } from '@/api/types';
+import AccountDocumentLine from '@/components/documentLines/AccountDocumentLine';
+import { documentExtension, documentUrl } from '@/components/documentLines/document-utils';
+import { DocumentUploadDialog } from '@/components/documentLines/DocumentUploadDialog';
+import { ImageLightBox } from '@/components/ImageLightBox';
+import { EmptyState, PageHeader, PageShell, ResponsiveList, type ResponsiveColumn } from '@/components/layout';
+import { useDateFormat } from '@/components/layout/use-date-format';
+import { Badge } from '@/components/ui/badge';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useDocumentTitle } from '@/hooks/use-document-title';
+import { useLocalStorage } from '@/hooks/use-local-storage';
+import { DOCUMENTS_LINK } from '@/layout/nav-links';
+import { cn } from '@/lib/utils';
+import { breadcrumbAtom, titleAtom } from '@/states/basic';
+import { isDocumentAnImage } from '@/utils/documents';
+
+const GRID_CLASS = 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6';
+
+function LayoutToggle({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const { t } = useTranslation();
+  const options = [
+    { value: 'Grid', label: t('documents.layout_grid'), icon: LayoutGrid },
+    { value: 'Table', label: t('documents.layout_list'), icon: List },
+  ];
+  return (
+    <div role="group" aria-label={t('documents.layout')} className="flex rounded-lg bg-muted p-0.5">
+      {options.map((option) => (
+        <Button
+          key={option.value}
+          variant="ghost"
+          aria-pressed={value === option.value}
+          aria-label={option.label}
+          title={option.label}
+          className={cn('h-10 px-2.5 md:h-7', value === option.value && 'bg-background shadow-xs hover:bg-background dark:bg-input/40')}
+          onClick={() => onChange(option.value)}
+        >
+          <option.icon />
+          <span className="hidden sm:inline">{option.label}</span>
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function LinkedTo({ document }: { document: Document }) {
+  return (
+    <div className="flex min-w-0 flex-wrap gap-1" onClick={(event) => event.stopPropagation()}>
+      {document.account && (
+        <Badge variant="outline" className="max-w-full" render={<Link to={`/accounts/${document.account}`} />}>
+          <span className="truncate">{document.account}</span>
+        </Badge>
+      )}
+      {document.trx_id && (
+        <Badge variant="secondary" className="font-mono" title={document.trx_id}>
+          {document.trx_id.slice(0, 8)}
+        </Badge>
+      )}
+    </div>
+  );
+}
 
 export default function Documents() {
+  const { t } = useTranslation();
+  const fmt = useDateFormat();
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  let navigate = useNavigate();
-  const [layout, setLayout] = useLocalStorage({
-    key: `document-list-layout`,
-    defaultValue: 'Grid',
-  });
+  const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
+  const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
+  const ledgerTitle = useAtomValue(titleAtom);
+  useDocumentTitle(`${t('NAV_DOCUMENTS')} - ${ledgerTitle}`);
+  useEffect(() => {
+    setBreadcrumb([DOCUMENTS_LINK]);
+  }, [setBreadcrumb]);
+
   const {
     loading,
     error,
     value: documents,
-  } = useAsync(async () => {
+    retry,
+  } = useAsyncRetry(async () => {
     const res = await retrieveDocuments({});
     return res.data.data;
   }, []);
 
-  const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
-
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`Documents - ${ledgerTitle}`);
-  useEffect(() => {
-    setBreadcrumb([DOCUMENTS_LINK]);
-  }, []);
-  if (error) return <div>failed to load</div>;
-  if (loading || !documents) return <div>loading...</div>;
-
-  const groupedDocuments = reverse(
-    sortBy(
-      groupBy(documents, (document) => format(new Date(document.datetime), 'yyyy-MM')),
-      (it) => it[0].datetime,
-    ),
+  const sortedDocuments = useMemo(() => sortBy(documents ?? [], (document) => -new Date(document.datetime).getTime()), [documents]);
+  const groupedDocuments = useMemo(
+    () => Object.entries(groupBy(sortedDocuments, (document) => format(new Date(document.datetime), 'yyyy-MM'))),
+    [sortedDocuments],
   );
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-4 pb-6">
-        <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">Documents</h1>
-        <div className="inline-flex gap-2 rounded-md shadow-sm  bg-gray-100 px-2 py-1 sm:w-auto" role="group">
-          <button
-            className={`px-2 py-1 text-sm   rounded-md  ${
-              layout === 'Grid' ? 'bg-white text-gray-700 shadow-sm font-semibold' : 'bg-transparent text-gray-700 hover:bg-gray-100'
-            }`}
-            onClick={() => setLayout('Grid')}
-          >
-            Grid
-          </button>
-          <button
-            className={`px-2 py-1 text-sm  rounded-md  ${
-              layout === 'Table' ? 'bg-white text-gray-700 shadow-sm font-semibold' : 'bg-transparent text-gray-700 hover:bg-gray-100'
-            }`}
-            onClick={() => setLayout('Table')}
-          >
-            Table
-          </button>
+
+  const open = (document: Document) => {
+    if (isDocumentAnImage(document.path)) setLightboxSrc(document.path);
+    else window.open(documentUrl(document.path), '_blank', 'noopener');
+  };
+
+  const columns: ResponsiveColumn<Document>[] = [
+    {
+      key: 'file',
+      header: t('documents.file'),
+      cell: (document) => (
+        <div className="flex min-w-0 items-center gap-2">
+          {isDocumentAnImage(document.path) ? (
+            <ImageIcon className="size-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <FileText className="size-4 shrink-0 text-muted-foreground" />
+          )}
+          <span className="truncate font-medium">{document.filename}</span>
         </div>
-      </div>
+      ),
+    },
+    { key: 'linked', header: t('documents.linked_to'), cell: (document) => <LinkedTo document={document} /> },
+    { key: 'type', header: t('documents.type'), className: 'w-20 text-muted-foreground', cell: (document) => documentExtension(document) || '—' },
+    {
+      key: 'date',
+      header: t('documents.date'),
+      className: 'w-44 text-muted-foreground tabular-nums',
+      cell: (document) => format(new Date(document.datetime), 'yyyy-MM-dd HH:mm'),
+    },
+    {
+      key: 'open',
+      header: <span className="sr-only">{t('documents.open')}</span>,
+      className: 'w-12 text-right',
+      cell: (document) => (
+        <a
+          href={documentUrl(document.path)}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(event) => event.stopPropagation()}
+          aria-label={t('documents.open')}
+          className={cn(buttonVariants({ variant: 'ghost', size: 'icon' }))}
+        >
+          <ExternalLink />
+        </a>
+      ),
+    },
+  ];
+
+  const firstLoad = loading && documents === undefined;
+  const empty = <EmptyState icon={FileStack} title={t('documents.empty_title')} description={t('documents.empty_description')} />;
+
+  return (
+    <PageShell>
+      <PageHeader
+        title={t('NAV_DOCUMENTS')}
+        description={documents && documents.length > 0 ? t('documents.description_count', { count: documents.length }) : t('documents.description')}
+        actions={
+          <>
+            <LayoutToggle value={layout} onChange={setLayout} />
+            <DocumentUploadDialog onUploaded={retry} />
+          </>
+        }
+      />
       <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
 
-      {layout === 'Grid' ? (
-        <>
-          {groupedDocuments.map((targetMonthDocuments, idx) => (
-            <>
-              <h3 key={`title=${idx}`} className="text-lg font-medium tracking-tight mt-4 mb-4">
-                {format(new Date(targetMonthDocuments[0].datetime), 'MMM yyyy')}
-              </h3>
-              <div key={`grid=${idx}`} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mt-2">
-                {targetMonthDocuments.map((document, idx) => (
-                  <AccountDocumentLine onClick={setLightboxSrc} key={idx} {...document} />
+      {error ? (
+        <EmptyState
+          icon={TriangleAlert}
+          title={t('page_state.load_failed')}
+          description={error.message}
+          action={
+            <Button variant="outline" className="h-10 md:h-8" onClick={retry}>
+              {t('page_state.retry')}
+            </Button>
+          }
+        />
+      ) : firstLoad && layout === 'Grid' ? (
+        <div className={GRID_CLASS}>
+          {Array.from({ length: 8 }, (_, index) => (
+            <div key={index} className="flex flex-col gap-2">
+              <Skeleton className="aspect-[4/3] w-full rounded-xl" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          ))}
+        </div>
+      ) : sortedDocuments.length === 0 && !firstLoad ? (
+        empty
+      ) : layout === 'Grid' ? (
+        <div className="flex flex-col gap-6">
+          {groupedDocuments.map(([month, monthDocuments]) => (
+            <section key={month} className="flex flex-col gap-3">
+              <h2 className="flex items-baseline gap-2 text-sm font-semibold">
+                {fmt.month(new Date(monthDocuments[0].datetime))}
+                <span className="text-xs font-normal text-muted-foreground tabular-nums">{monthDocuments.length}</span>
+              </h2>
+              <div className={GRID_CLASS}>
+                {monthDocuments.map((document) => (
+                  <AccountDocumentLine key={document.path} onClick={setLightboxSrc} {...document} />
                 ))}
               </div>
-            </>
+            </section>
           ))}
-        </>
-      ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Filename</TableHead>
-                <TableHead>Linked Directive</TableHead>
-                <TableHead>Created Date</TableHead>
-                <TableHead>Operation</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {documents.map((document, idx) => (
-                <TableRow>
-                  <TableCell onClick={isDocumentAnImage(document.path) ? () => setLightboxSrc(document.path) : undefined}>
-                    <div>{document.filename}</div>
-                  </TableCell>
-                  <TableCell>
-                    {document.account && (
-                      <Badge variant="outline" onClick={() => navigate(`/accounts/${document.account}`)}>
-                        {document.account}
-                      </Badge>
-                    )}
-                    {document.trx_id && (
-                      <Badge variant="outline" key={idx}>
-                        {document.trx_id}
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>{format(new Date(document.datetime), 'yyyy-MM-dd HH:mm:ss')}</TableCell>
-                  <TableCell></TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
         </div>
+      ) : (
+        <ResponsiveList
+          items={sortedDocuments}
+          loading={firstLoad}
+          getKey={(document) => document.path}
+          columns={columns}
+          onItemClick={open}
+          renderCard={(document) => (
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                {isDocumentAnImage(document.path) ? <ImageIcon className="size-4" /> : <FileText className="size-4" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium">{document.filename}</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {format(new Date(document.datetime), 'yyyy-MM-dd')}
+                  {document.account && ` · ${document.account}`}
+                </div>
+              </div>
+            </div>
+          )}
+          empty={empty}
+        />
       )}
-    </div>
+    </PageShell>
   );
 }

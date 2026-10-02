@@ -7,21 +7,15 @@ interface Props {
   data?: JournalItem;
 }
 
-export default function JournalPreview(props: Props) {
-  let line = null;
-  if (!props.data) {
-    return <div>preview click</div>;
-  }
-  switch (props.data.type) {
+export default function JournalPreview({ data }: Props) {
+  if (!data) return null;
+  switch (data.type) {
     case 'BalanceCheck':
-      line = <BalanceCheckPreview data={props.data} />;
-      break;
+      return <BalanceCheckPreview data={data} />;
     case 'BalancePad':
-      line = <BalancePadPreview data={props.data} />;
-      break;
+      return <BalancePadPreview data={data} />;
     case 'Transaction':
-      line = <TransactionPreview data={props.data} />;
-      break;
+      return <TransactionPreview data={data} />;
   }
-  return line;
+  return null;
 }
