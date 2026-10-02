@@ -484,24 +484,94 @@ impl<T: Serialize + Schematic> IntoResponse for QueryApiResult<T> {
 impl<T: Serialize + Schematic> Responsible for QueryApiResult<T> {
     fn response() -> Responses {
         let mut responses = <ResponseWrapper<T> as Responsible>::response();
-        responses.data.insert(
-            "400".to_string(),
-            Referenceable::Data(gotcha::oas::Response {
-                description: "the query cannot be parsed, compiled or run".to_string(),
-                headers: None,
-                content: Some(BTreeMap::from([(
-                    "application/json".to_string(),
-                    gotcha::oas::MediaType {
-                        schema: Some(Referenceable::Data(QueryErrorEntity::generate_schema().schema)),
-                        example: None,
-                        examples: None,
-                        encoding: None,
-                    },
-                )])),
-                links: None,
-            }),
-        );
+        responses.data.insert("400".to_string(), query_error_response());
         responses
+    }
+}
+
+/// The OpenAPI description of the HTTP 400 [`QueryErrorEntity`] of the query endpoints.
+fn query_error_response() -> Referenceable<gotcha::oas::Response> {
+    Referenceable::Data(gotcha::oas::Response {
+        description: "the query cannot be parsed, compiled or run".to_string(),
+        headers: None,
+        content: Some(BTreeMap::from([(
+            "application/json".to_string(),
+            gotcha::oas::MediaType {
+                schema: Some(Referenceable::Data(QueryErrorEntity::generate_schema().schema)),
+                example: None,
+                examples: None,
+                encoding: None,
+            },
+        )])),
+        links: None,
+    })
+}
+
+/// The media type of `POST /api/query/csv`.
+pub const QUERY_CSV_CONTENT_TYPE: &str = "text/csv; charset=utf-8";
+/// The `Content-Disposition` of `POST /api/query/csv`: download as `query.csv`.
+pub const QUERY_CSV_CONTENT_DISPOSITION: &str = "attachment; filename=\"query.csv\"";
+
+/// The result of `POST /api/query/csv`: the numberified CSV text, or the HTTP 400
+/// [`QueryErrorEntity`] of a failed query.
+pub struct QueryCsvResult(pub ServerResult<String>);
+
+impl IntoResponse for QueryCsvResult {
+    fn into_response(self) -> Response {
+        match self.0 {
+            Ok(csv) => (
+                [
+                    (axum::http::header::CONTENT_TYPE, QUERY_CSV_CONTENT_TYPE),
+                    (axum::http::header::CONTENT_DISPOSITION, QUERY_CSV_CONTENT_DISPOSITION),
+                ],
+                csv,
+            )
+                .into_response(),
+            Err(error) => error.into_response(),
+        }
+    }
+}
+
+impl Responsible for QueryCsvResult {
+    fn response() -> Responses {
+        let header = |description: &str, example: &str| {
+            Referenceable::Data(gotcha::oas::Header {
+                description: Some(description.to_string()),
+                required: Some(true),
+                deprecated: None,
+                allow_empty_value: None,
+                style: None,
+                explode: None,
+                allow_reserved: None,
+                schema: Some(Referenceable::Data(String::generate_schema().schema)),
+                example: Some(serde_json::Value::String(example.to_string())),
+                examples: None,
+                content: None,
+            })
+        };
+        let ok = gotcha::oas::Response {
+            description: "the result as RFC 4180 CSV with a header row; amount, position and inventory columns are split into one \
+                          numeric column per currency, named like `balance (USD)`"
+                .to_string(),
+            headers: Some(BTreeMap::from([(
+                "Content-Disposition".to_string(),
+                header("download as query.csv", QUERY_CSV_CONTENT_DISPOSITION),
+            )])),
+            content: Some(BTreeMap::from([(
+                QUERY_CSV_CONTENT_TYPE.to_string(),
+                gotcha::oas::MediaType {
+                    schema: Some(Referenceable::Data(String::generate_schema().schema)),
+                    example: None,
+                    examples: None,
+                    encoding: None,
+                },
+            )])),
+            links: None,
+        };
+        Responses {
+            default: None,
+            data: BTreeMap::from([("200".to_string(), Referenceable::Data(ok)), ("400".to_string(), query_error_response())]),
+        }
     }
 }
 
