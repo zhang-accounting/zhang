@@ -51,7 +51,7 @@ export function AccountBalanceHistoryGraph({ data, className }: Props) {
     return <EmptyState icon={LineChartIcon} title={t('ledger.account.no_history')} description={t('ledger.account.no_history_description')} />;
   }
 
-  const config = { balance: { label: commodity, color: 'var(--primary)' } } satisfies ChartConfig;
+  const config = { balance: { label: commodity, color: 'var(--chart-1)' } } satisfies ChartConfig;
 
   return (
     <div className="flex flex-col gap-3">

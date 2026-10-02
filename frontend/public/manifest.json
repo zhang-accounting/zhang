@@ -4,8 +4,8 @@
   "description": "A modern accounting application",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#fcfaf0",
-  "theme_color": "#fcfaf0",
+  "background_color": "#fbfdfc",
+  "theme_color": "#fbfdfc",
   "icons": [
     {
       "src": "/otter-192.png",

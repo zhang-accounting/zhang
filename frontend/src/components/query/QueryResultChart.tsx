@@ -24,10 +24,11 @@ import { formatDecimal } from '@/components/query/values';
 import { ChartConfig, ChartContainer, ChartStyle, ChartTooltip } from '@/components/ui/chart';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-// The brand primary plots values; `negative` marks negative values in treemaps and bar charts, where the area/length is
-// the absolute value or the sign would otherwise be easy to miss.
+// chart-1 plots values; `negative` marks negative values in treemaps and bar charts, where the area/length is the
+// absolute value or the sign would otherwise be easy to miss. Treemap labels use `--background` (white-ish on the light
+// cells, near-black on the dark-theme cells), the most readable choice on both fills.
 const chartConfig = {
-  value: { color: 'var(--primary)' },
+  value: { color: 'var(--chart-1)' },
   negative: { color: 'var(--negative)' },
 } satisfies ChartConfig;
 
@@ -130,12 +131,12 @@ function TreemapCell({ x = 0, y = 0, width = 0, height = 0, depth = 0, name = ''
     <g>
       <rect x={left} y={top} width={cellWidth} height={cellHeight} rx={2} fill={negative ? 'var(--color-negative)' : 'var(--color-value)'} />
       {showName && (
-        <text x={left + 4} y={top + 14} fill="var(--primary-foreground)" fontSize={12} fontWeight={500} className="pointer-events-none">
+        <text x={left + 4} y={top + 14} fill="var(--background)" fontSize={12} fontWeight={500} className="pointer-events-none">
           {truncate(name, maxWidth, 500)}
         </text>
       )}
       {showValue && (
-        <text x={left + 4} y={top + 30} fill="var(--primary-foreground)" fillOpacity={0.85} fontSize={11} className="pointer-events-none tabular-nums">
+        <text x={left + 4} y={top + 30} fill="var(--background)" fillOpacity={0.85} fontSize={11} className="pointer-events-none tabular-nums">
           {truncate(compactNumber.format(new BigNumber(signed).toNumber()), maxWidth)}
         </text>
       )}

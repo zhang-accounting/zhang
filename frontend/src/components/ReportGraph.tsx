@@ -7,10 +7,11 @@ import { cn } from '@/lib/utils';
 import Amount from './Amount';
 import { ChartConfig, ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from './ui/chart';
 
-// Income = chart-1 (teal), expenses = chart-2 (caramel) everywhere; single-series trends use the brand primary.
+// Income = chart-1 (teal), expenses = chart-2 (caramel) everywhere; single-series trends use chart-1 (the turquoise
+// primary is a fill colour, too light for a 2px line on light surfaces).
 const INCOME_COLOR = 'var(--chart-1)';
 const EXPENSE_COLOR = 'var(--chart-2)';
-const TREND_COLOR = 'var(--primary)';
+const TREND_COLOR = 'var(--chart-1)';
 
 function TooltipRow({ color, label, value, commodity }: { color: string; label: React.ReactNode; value: number; commodity: string }) {
   return (

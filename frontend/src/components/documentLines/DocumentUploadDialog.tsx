@@ -100,7 +100,7 @@ export function DocumentUploadDialog({ onUploaded }: Props) {
               'flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-4 text-center',
               'transition-colors outline-none',
               'hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50',
-              isDragActive && 'border-primary bg-primary/5',
+              isDragActive && 'border-link bg-primary/5',
             )}
           >
             <input {...getInputProps()} />

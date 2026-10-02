@@ -46,12 +46,7 @@ export default function ToolList() {
                 'hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 active:bg-muted',
               )}
             >
-              <span
-                className={cn(
-                  'flex size-10 shrink-0 items-center justify-center rounded-lg',
-                  'bg-primary/10 text-link dark:bg-primary/20 dark:text-primary-foreground',
-                )}
-              >
+              <span className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', 'bg-primary/10 text-link dark:bg-primary/20')}>
                 <item.icon className="size-5" />
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-1">

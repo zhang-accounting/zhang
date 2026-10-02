@@ -158,7 +158,7 @@ function Journals() {
                 }}
               />
             ))}
-            <Button variant="link" size="sm" className="h-10 px-1 md:h-8" onClick={clearFilters}>
+            <Button variant="link" size="sm" className="h-10 px-1 text-link md:h-8" onClick={clearFilters}>
               {t('ledger.common.clear_filters')}
             </Button>
           </div>

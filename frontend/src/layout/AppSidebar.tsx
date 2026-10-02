@@ -33,7 +33,13 @@ function NavItem({ link, badge }: { link: NavLink; badge?: number }) {
   const label = t(link.label);
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton render={<Link to={link.uri} />} isActive={isLinkActive(pathname, link.uri)} tooltip={label}>
+      <SidebarMenuButton
+        render={<Link to={link.uri} />}
+        isActive={isLinkActive(pathname, link.uri)}
+        tooltip={label}
+        // Active item: neutral `sidebar-accent` background, icon in `link` (the turquoise primary is a fill colour only).
+        className="data-active:[&_svg]:text-link"
+      >
         <link.icon />
         <span>{label}</span>
       </SidebarMenuButton>

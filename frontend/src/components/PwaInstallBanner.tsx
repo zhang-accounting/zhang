@@ -64,7 +64,7 @@ const PwaInstallBanner: React.FC<{ className?: string }> = ({ className }) => {
 
   return (
     <Item variant="outline" className={className}>
-      <ItemMedia variant="icon" className="size-9 rounded-lg bg-primary/10 text-link dark:bg-primary/20 dark:text-primary-foreground">
+      <ItemMedia variant="icon" className="size-9 rounded-lg bg-primary/10 text-link dark:bg-primary/20">
         <Smartphone />
       </ItemMedia>
       <ItemContent className="min-w-0 basis-56">

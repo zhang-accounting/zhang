@@ -56,86 +56,87 @@
 }
 
 /*
- * "Otter" brand palette, derived from the logo (public/otter-512.png): cream paper, otter-brown primary, mint-belly accent.
- * Light = cream surfaces + brown primary; dark = espresso surfaces + mint primary. Money and charts use their own tokens:
- * `positive` / `negative` for signed amounts, `chart-1` (teal, income) and `chart-2` (caramel, expenses) first, then
- * `chart-3..5` (blue, amber, plum) for further categories. `warning` is the amber status colour (flagged, unsaved).
+ * Turquoise otter palette: Radix Sage neutrals + the logo turquoise (public/otter-512.png).
+ * `primary` (#04ccb1) is a FILL colour only (primary buttons, sidebar-primary, checked switches, progress): it is ~2:1 on the
+ * light surfaces, so text, icons and thin lines that should look "brand" use `link` instead. Money and charts have their own
+ * tokens: `positive` / `negative` for signed amounts, `chart-1` (teal: income and single series) and `chart-2` (caramel:
+ * expenses) first, then `chart-3..5` (blue, amber, plum). `warning` is the amber status colour (flagged, unsaved).
  */
 :root {
-  --background: oklch(0.985 0.014 98);
-  --foreground: oklch(0.27 0.03 45);
-  --card: oklch(0.997 0.006 95);
+  --background: #fbfdfc;
+  --foreground: #1a211e;
+  --card: #ffffff;
   --card-foreground: var(--foreground);
-  --popover: oklch(0.997 0.006 95);
+  --popover: #ffffff;
   --popover-foreground: var(--foreground);
-  --primary: oklch(0.47 0.05 45);
-  --primary-foreground: oklch(0.98 0.03 102);
-  --link: oklch(0.5 0.09 172);
-  --secondary: oklch(0.955 0.015 95);
+  --primary: #04ccb1;
+  --primary-foreground: #0d3d38;
+  --link: #008573;
+  --secondary: #eef1f0;
   --secondary-foreground: var(--foreground);
-  --muted: oklch(0.955 0.012 95);
-  --muted-foreground: oklch(0.5 0.025 55);
-  --accent: oklch(0.94 0.03 170);
-  --accent-foreground: oklch(0.3 0.04 170);
-  --positive: oklch(0.52 0.11 160);
-  --negative: oklch(0.53 0.17 28);
-  --warning: oklch(0.51 0.11 62);
+  --muted: #eef1f0;
+  --muted-foreground: #5f6563;
+  --accent: #eef1f0;
+  --accent-foreground: #1a211e;
+  --positive: #218358;
+  --negative: #ce2c31;
+  --warning: #ab6400;
   --destructive: var(--negative);
-  --border: oklch(0.905 0.02 88);
-  --input: oklch(0.905 0.02 88);
-  --ring: oklch(0.5 0.09 172);
-  --chart-1: oklch(0.55 0.11 172);
-  --chart-2: oklch(0.58 0.135 48);
-  --chart-3: oklch(0.52 0.14 255);
-  --chart-4: oklch(0.72 0.145 78);
-  --chart-5: oklch(0.54 0.15 352);
+  --border: #dfe2e0;
+  --input: #d7dad9;
+  --ring: #53b9ab;
+  --chart-1: #009782;
+  --chart-2: #b1632f;
+  --chart-3: #2769b7;
+  --chart-4: #d69718;
+  --chart-5: #ac4278;
   /* Data-dense UI: crisp corners (sm 2.4px, md 3.2px, lg 4px, xl 5.6px, 2xl 7.2px). */
   --radius: 0.25rem;
-  --sidebar: oklch(0.972 0.04 104);
-  --sidebar-foreground: var(--foreground);
-  --sidebar-primary: var(--primary);
-  --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: oklch(0.93 0.04 170);
-  --sidebar-accent-foreground: oklch(0.3 0.04 170);
-  --sidebar-border: oklch(0.91 0.03 100);
-  --sidebar-ring: var(--ring);
+  --sidebar: #fbfdfc;
+  --sidebar-foreground: #1a211e;
+  --sidebar-primary: #04ccb1;
+  --sidebar-primary-foreground: #0d3d38;
+  --sidebar-accent: #e6e9e8;
+  --sidebar-accent-foreground: #1a211e;
+  --sidebar-border: #dfe2e0;
+  --sidebar-ring: #53b9ab;
 }
 
 .dark {
-  --background: oklch(0.19 0.013 50);
-  --foreground: oklch(0.95 0.03 100);
-  --card: oklch(0.23 0.014 50);
+  --background: #101211;
+  --foreground: #eceeed;
+  --card: #171918;
   --card-foreground: var(--foreground);
-  --popover: oklch(0.23 0.014 50);
+  --popover: #171918;
   --popover-foreground: var(--foreground);
-  --primary: oklch(0.84 0.045 170);
-  --primary-foreground: oklch(0.24 0.03 45);
-  --link: oklch(0.8 0.08 172);
-  --secondary: oklch(0.29 0.015 50);
+  --primary: #04ccb1;
+  --primary-foreground: #0d3d38;
+  --link: #0bd8b6;
+  --secondary: #202221;
   --secondary-foreground: var(--foreground);
-  --muted: oklch(0.28 0.014 50);
-  --muted-foreground: oklch(0.72 0.02 75);
-  --accent: oklch(0.3 0.03 170);
-  --accent-foreground: oklch(0.9 0.04 170);
-  --positive: oklch(0.78 0.11 162);
-  --negative: oklch(0.72 0.14 30);
-  --warning: oklch(0.8 0.12 80);
+  --muted: #202221;
+  --muted-foreground: #adb5b2;
+  --accent: #202221;
+  --accent-foreground: #eceeed;
+  --positive: #3dd68c;
+  --negative: #ff9592;
+  --warning: #ffca16;
   --destructive: var(--negative);
-  --border: oklch(0.33 0.015 50);
-  --input: oklch(0.33 0.015 50);
-  --ring: oklch(0.8 0.08 172);
-  --chart-1: oklch(0.66 0.11 172);
-  --chart-2: oklch(0.64 0.13 48);
-  --chart-3: oklch(0.6 0.13 255);
-  --chart-4: oklch(0.66 0.13 80);
-  --chart-5: oklch(0.6 0.14 352);
-  --sidebar: oklch(0.21 0.014 50);
+  --border: #2e3130;
+  --input: #373b39;
+  --ring: #207e73;
+  --chart-1: #04aa94;
+  --chart-2: #c57542;
+  --chart-3: #4682cc;
+  --chart-4: #bb881a;
+  --chart-5: #bd5889;
+  --sidebar: #101211;
   --sidebar-foreground: var(--foreground);
-  --sidebar-primary: var(--primary);
-  --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: oklch(0.3 0.03 170);
-  --sidebar-accent-foreground: oklch(0.9 0.04 170);
-  --sidebar-border: oklch(0.3 0.015 50);
+  --sidebar-primary: #04ccb1;
+  --sidebar-primary-foreground: #0d3d38;
+  --sidebar-accent: #272a29;
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: #2e3130;
   --sidebar-ring: var(--ring);
 }
 

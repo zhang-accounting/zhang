@@ -51,7 +51,7 @@ export default function AccountDocumentUpload({ type, id, onUploaded, className 
       className={cn(
         'flex aspect-square cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-3 text-center',
         'bg-muted/30 text-xs text-muted-foreground transition-colors outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50',
-        isDragActive && 'border-primary bg-primary/5 text-foreground',
+        isDragActive && 'border-link bg-primary/5 text-foreground',
         className,
       )}
     >

@@ -59,7 +59,7 @@ function MoreSheet() {
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger render={<button type="button" className={cn(TAB_CLASS, moreActive && 'text-sidebar-primary')} />}>
+      <SheetTrigger render={<button type="button" className={cn(TAB_CLASS, moreActive && 'text-link')} />}>
         <Ellipsis className="size-5" />
         <span>{t('NAV_MORE')}</span>
       </SheetTrigger>
@@ -88,7 +88,7 @@ function MoreSheet() {
                 to={link.uri}
                 onClick={() => setOpen(false)}
                 aria-current={active ? 'page' : undefined}
-                className={cn(TILE_CLASS, active && 'border-sidebar-primary/40 bg-sidebar-primary/5 text-sidebar-primary')}
+                className={cn(TILE_CLASS, active && 'border-link/40 bg-link/5 text-link')}
               >
                 <link.icon className="size-5" />
                 <span className="line-clamp-2">{t(link.label)}</span>
@@ -149,7 +149,7 @@ export function MobileTabBar() {
           const active = isLinkActive(pathname, link.uri);
           return (
             <li key={link.uri}>
-              <Link to={link.uri} aria-current={active ? 'page' : undefined} className={cn(TAB_CLASS, active && 'text-sidebar-primary')}>
+              <Link to={link.uri} aria-current={active ? 'page' : undefined} className={cn(TAB_CLASS, active && 'text-link')}>
                 <span className="relative">
                   <link.icon className="size-5" />
                   {link === DASHBOARD_LINK && errorsCount > 0 && <span className={BADGE_CLASS}>{errorsCount}</span>}
