@@ -11,6 +11,16 @@ This guide provides comprehensive explanations and solutions for common error co
 
 This error indicates that a transaction is unbalanced, meaning the sum of each posting does not equal zero. This is often due to discrepancies in the amounts or currencies used in the postings.
 
+Like Beancount, each commodity must balance on its own. A posting contributes its *weight*:
+
+- its units, for a plain posting;
+- its units converted at the price, for `10 USD @ 7 CNY` (70 CNY) or `10 USD @@ 70 CNY`;
+- its units at cost, for a cost posting. For `{}`, the cost of the lots the posting reduces, so
+  `-15 USD {}` against lots `10 USD {10 CNY}` and `10 USD {11 CNY}` (FIFO) weighs `-155 CNY`.
+
+The sum of each commodity is rounded at the commodity's `precision` and `rounding` before it is compared with zero.
+If a weight commodity is not defined, `CommodityDoesNotDefine` is reported instead.
+
 **Example of Unbalanced Transaction:**
 ```zhang {2-3}
 1970-01-01 "" ""
@@ -38,6 +48,16 @@ Occurs when Zhang Accounting cannot infer the trade amount for a transaction. Th
     Expenses:Goods  100 USD
 ```
 
+If the other postings already balance in a single commodity, the implicit posting gets zero of it (a sale at cost
+with an implicit gain books `0 CNY`), so the journal still shows the posting you wrote; Beancount drops such a posting
+instead. This error remains when there is nothing to infer from, or when the other postings balance in several
+commodities.
+
+The inferred amount is exact: amounts, costs, prices and their products are never rounded. Only a cost that zhang has
+to divide, such as a total cost `{{1000 USD}}` spread over 3 units (333.333… USD each), leaves more than 20 decimals;
+such an amount is rounded, with the commodity's `rounding`, at the larger of the commodity's `precision` and the most
+decimals written in the transaction in that commodity. Selling all 3 units then gives back exactly `1000 USD`.
+
 **Solution:** Make sure to specify amounts for all postings in a transaction or ensure the transaction's context allows for an amount to be inferred.
 
 ## TransactionHasMultipleImplicitPosting
@@ -57,6 +77,10 @@ Zhang Accounting, similar to Beancount, allows only one implicit posting per tra
 ## TransactionExplicitPostingHaveMultipleCommodity
 
 This error is triggered when a transaction has postings with multiple non-zero commodity amounts, making it impossible to infer amounts for implicit postings.
+
+The implicit posting is inferred from the weights of the other postings (see `UnbalancedTransaction`), after their lots
+are matched. A `{}` sale that reduces more units than its lots hold leaves a part without cost, which weighs its units:
+that is a second commodity, so the transaction also gets this error, after `NoEnoughCommodityLot`.
 
 **Example of Error:**
 ```zhang {2-3}

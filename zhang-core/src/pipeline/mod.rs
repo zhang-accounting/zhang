@@ -23,7 +23,7 @@ pub use pad::PadStage;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, SpanInfo, Spanned};
 
-use crate::domains::schemas::OptionDomain;
+use crate::domains::schemas::{CommodityDomain, OptionDomain};
 use crate::ledger::Ledger;
 use crate::ZhangResult;
 
@@ -39,12 +39,25 @@ pub struct StageError {
 pub struct StageContext<'a> {
     /// the ledger's resolved options
     pub options: &'a [OptionDomain],
+    /// the commodities the options defined before the pipeline ran (the operating currency);
+    /// `commodity` directives are in the stream
+    pub commodities: Vec<CommodityDomain>,
     errors: Vec<StageError>,
 }
 
 impl<'a> StageContext<'a> {
     pub fn new(options: &'a [OptionDomain]) -> Self {
-        Self { options, errors: vec![] }
+        Self {
+            options,
+            commodities: vec![],
+            errors: vec![],
+        }
+    }
+
+    /// the context with the commodities the options defined
+    pub fn with_commodities(mut self, commodities: Vec<CommodityDomain>) -> Self {
+        self.commodities = commodities;
+        self
     }
 
     /// report a problem without aborting the pipeline
