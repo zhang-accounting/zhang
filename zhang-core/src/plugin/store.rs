@@ -129,8 +129,7 @@ pub struct RegisteredPlugin {
 
 impl RegisteredPlugin {
     fn manifest(&self, options: &[OptionDomain]) -> Manifest {
-        // the host sets no reserved `zhang.*` config yet
-        let config = self.declaration.config_with(options, []);
+        let config = self.declaration.config_with(options, self.declaration.host_config());
         let wasm = Wasm::data(self.module_bytes.clone());
         Manifest::new([wasm])
             .with_config(config.into_iter())
@@ -230,12 +229,19 @@ mod test {
 
         let manifest = plugin.manifest(&options);
 
+        // the flat keys are unchanged: a repeated key keeps its last value, and the positional
+        // value and `allowed_hosts` only reach the plugin through `zhang.plugin`
         let expected: BTreeMap<String, String> = [
             ("base_currency", "USD"),
             ("operating_currency", "EUR"),
             ("tag", "second"),
             ("timezone", "UTC"),
+            ("zhang.abi", "1"),
             ("zhang.mine", "kept"),
+            (
+                "zhang.plugin",
+                r#"{"module":"fx-rate.wasm","args":["positional"],"meta":{"allowed_hosts":["api.frankfurter.dev","api.example.com"],"base_currency":["USD"],"operating_currency":["EUR"],"tag":["first","second"],"zhang.mine":["kept"]}}"#,
+            ),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value.to_owned()))

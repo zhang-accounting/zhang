@@ -11,10 +11,12 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 use itertools::Itertools;
+use serde_json::json;
 use tempfile::TempDir;
 use zhang_ast::error::ErrorKind;
+use zhang_ast::Directive;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
@@ -180,4 +182,45 @@ fn failed_reload_keeps_the_previous_ledger() {
     assert!(error.to_string().contains("plugin loop timed out"), "{error}");
     assert_eq!(registered(&ledger), vec![("echo".to_owned(), vec![PluginType::Processor])]);
     assert_eq!(store_summary(&ledger), before);
+}
+
+#[test]
+fn processor_reads_its_arguments_and_every_meta_value_from_the_zhang_plugin_config() {
+    let dir = ledger_dir(&["config_echo.wat"]);
+    let module = dir.path().join("config_echo.wat").display().to_string();
+    let ledger = load(
+        &dir,
+        &formatdoc! {r#"
+            option "features.plugin" "true"
+            plugin "{module}" "USD" "strict"
+              tag: "first"
+              allowed_hosts: "api.example.com"
+              tag: "second"
+              zhang.plugin: "from meta"
+            {LEDGER}"#},
+    );
+
+    // the plugin replaces the stream with one comment holding its `zhang.plugin` config
+    let comments = ledger
+        .metas
+        .iter()
+        .filter_map(|it| match &it.data {
+            Directive::Comment(comment) => Some(comment.content.clone()),
+            _ => None,
+        })
+        .collect_vec();
+    assert_eq!(comments.len(), 1, "the plugin emits one comment: {comments:?}");
+    let config: serde_json::Value = serde_json::from_str(&comments[0]).unwrap_or_else(|e| panic!("zhang.plugin should be JSON: {e}: {}", comments[0]));
+    assert_eq!(
+        config,
+        json!({
+            "module": module,
+            "args": ["USD", "strict"],
+            "meta": {
+                "allowed_hosts": ["api.example.com"],
+                "tag": ["first", "second"],
+                "zhang.plugin": ["from meta"],
+            },
+        })
+    );
 }
