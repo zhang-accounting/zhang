@@ -5,7 +5,7 @@ description: 使用 query 指令在账本中保存命名查询。
 
 # 查询指令
 
-`query` 指令在账本中保存一个命名查询，用法与 Beancount 和 Fava 相同。Zhang 会列出保存的查询，方便再次执行而无需重新输入。查询本身使用 Zhang 的[查询语言](/zh-cn/user-guide/query-language/)编写。
+`query` 指令在账本中保存一个命名查询，用法与 Beancount 和 Fava 相同。Zhang 会在查询页面的 **已保存** 菜单中列出保存的查询，方便再次执行而无需重新输入（见[保存的查询](/zh-cn/user-guide/query-language/#保存的查询)）。查询本身使用 Zhang 的[查询语言](/zh-cn/user-guide/query-language/)编写。
 
 ## 基本语法
 

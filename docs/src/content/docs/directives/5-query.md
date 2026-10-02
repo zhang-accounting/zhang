@@ -5,7 +5,7 @@ description: Save named queries in your ledger with the query directive.
 
 # Query Directives
 
-The `query` directive saves a named query in your ledger, the same way Beancount and Fava do. Zhang lists saved queries so you can run them again without retyping them. The query itself is written in Zhang's [query language](/user-guide/query-language/).
+The `query` directive saves a named query in your ledger, the same way Beancount and Fava do. Zhang lists saved queries in the **Saved** menu of the Query page, so you can run them again without retyping them (see [Saved queries](/user-guide/query-language/#saved-queries)). The query itself is written in Zhang's [query language](/user-guide/query-language/).
 
 ## Basic Syntax
 
