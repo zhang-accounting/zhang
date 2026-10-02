@@ -8,15 +8,18 @@
 //! has to maintain ordering itself.
 //!
 //! Built-in stages ([`builtin_stages`]) run after the user's plugin stages:
-//! [`PadStage`] then [`BalanceCheckStage`], two independent folds over the stream
-//! that share only the pure helpers in the `balance` module.
+//! [`ActiveAccountsStage`], which only reports references to inactive accounts,
+//! then [`PadStage`] then [`BalanceCheckStage`], two independent folds over the
+//! stream that share only the pure helpers in the `balance` module.
 
+mod active_accounts;
 pub(crate) mod balance;
 mod balance_check;
 mod pad;
 
 use std::collections::HashMap;
 
+pub use active_accounts::ActiveAccountsStage;
 pub use balance_check::BalanceCheckStage;
 use log::debug;
 pub use pad::PadStage;
@@ -78,9 +81,11 @@ pub trait ProcessStage {
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>>;
 }
 
-/// the native core stages, in execution order; they run after all plugin stages
+/// the native core stages, in execution order; they run after all plugin stages.
+/// [`ActiveAccountsStage`] checks the stream before the pad/check stages add their
+/// `P`/`C` transactions, whose accounts those stages report themselves
 pub fn builtin_stages() -> Vec<Box<dyn ProcessStage>> {
-    vec![Box::new(PadStage), Box::new(BalanceCheckStage)]
+    vec![Box::new(ActiveAccountsStage), Box::new(PadStage), Box::new(BalanceCheckStage)]
 }
 
 /// run stages in order; the stream is re-sorted after every stage
