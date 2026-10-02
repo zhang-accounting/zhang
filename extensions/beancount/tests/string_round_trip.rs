@@ -148,16 +148,24 @@ fn directives_with_strings(mut next: impl FnMut() -> String) -> Vec<Directive> {
     ]
 }
 
-/// Every escape in `exported` is one Python beancount decodes; it has no unicode escape.
+/// Every escape in the quoted strings of `exported` is one Python beancount decodes;
+/// it has no unicode escape. A backslash outside quotes, in a bare metadata key say,
+/// is not an escape.
 fn assert_beancount_escapes_only(exported: &str) {
+    let mut in_string = false;
     let mut chars = exported.chars();
     while let Some(c) = chars.next() {
-        if c == '\\' {
-            let escaped = chars.next();
-            assert!(
-                matches!(escaped, Some('"' | '\\' | 'n' | 't' | 'r' | 'b' | 'f')),
-                "{exported:?} has the escape \\{escaped:?}"
-            );
+        match (in_string, c) {
+            (false, '"') => in_string = true,
+            (true, '"') => in_string = false,
+            (true, '\\') => {
+                let escaped = chars.next();
+                assert!(
+                    matches!(escaped, Some('"' | '\\' | 'n' | 't' | 'r' | 'b' | 'f')),
+                    "{exported:?} has the escape \\{escaped:?}"
+                );
+            }
+            _ => {}
         }
     }
 }
@@ -216,4 +224,29 @@ fn a_saved_query_with_an_unknown_escape_loads() {
         panic!("expected a query directive, got {:?}", directives[0].data);
     };
     assert_eq!(query.query_string.as_str(), r"SELECT narration WHERE narration ~ '\d+'");
+}
+
+#[test]
+fn metadata_keys_that_are_not_bare_words_round_trip_quoted() {
+    // beancount itself has no quoted keys (3.2.3 reports a syntax error), so these are
+    // quoted for zhang's beancount parser, which reads them back exactly
+    let mut rng = XorShift(0x6b65_7973_beef);
+    let keys = ["my key", ";path", "", "a:b", "#tag", "say \"hi\"", "tab\tkey"].map(str::to_owned);
+    for key in keys.into_iter().chain((0..300).map(|_| rng.string())) {
+        let mut meta = Meta::default();
+        meta.insert(key.clone(), quote("v".to_owned()));
+        let open = Directive::Open(Open {
+            date: Date::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 2).unwrap()),
+            account: Account::from_str("Assets:Cash").unwrap(),
+            commodities: vec![],
+            meta: meta.clone(),
+        });
+        let mut directives = directives_with_strings(|| "x".to_owned());
+        let Directive::Transaction(transaction) = &mut directives[0] else {
+            panic!("expected a transaction");
+        };
+        transaction.meta = meta;
+        assert_round_trips(open);
+        assert_round_trips(directives.remove(0));
+    }
 }

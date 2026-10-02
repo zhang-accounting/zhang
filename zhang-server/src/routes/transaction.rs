@@ -127,8 +127,8 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
 }
 
 /// Build the transaction a create or update request describes, rejecting with a
-/// 400 any account, commodity, tag, link, metadata key or flag that would be
-/// written unquoted and not read back.
+/// 400 any account, commodity, tag, link or flag that would be written unquoted and
+/// not read back.
 fn transaction_from_request(payload: CreateTransactionRequest, timezone: &Tz) -> ServerResult<Directive> {
     let mut postings = vec![];
     for posting in payload.postings {
@@ -145,9 +145,9 @@ fn transaction_from_request(payload: CreateTransactionRequest, timezone: &Tz) ->
         });
     }
 
+    // any metadata key reads back: the exporter quotes one that is not a bare word
     let mut metas = Meta::default();
     for meta in payload.metas {
-        validate::meta_key(&meta.key)?;
         metas.insert(meta.key, meta.value.to_quote());
     }
     for tag in &payload.tags {
@@ -481,15 +481,8 @@ mod string_round_trip_test {
     #[tokio::test]
     async fn names_that_would_not_read_back_are_rejected() {
         let (dir, data_file) = ledger_dir();
-        let meta = |key: &str| MetaRequest {
-            key: key.to_owned(),
-            value: "1".to_owned(),
-        };
         type Change = Box<dyn Fn(&mut CreateTransactionRequest)>;
         let cases: Vec<(&str, Change)> = vec![
-            ("metadata key \"receipt no\"", Box::new(move |it| it.metas.push(meta("receipt no")))),
-            ("metadata key \";path\"", Box::new(move |it| it.metas.push(meta(";path")))),
-            ("metadata key \"\"", Box::new(move |it| it.metas.push(meta("")))),
             ("tag \"two words\"", Box::new(|it| it.tags.push("two words".to_owned()))),
             ("tag \"\"", Box::new(|it| it.tags.push(String::new()))),
             ("link \"a:b\"", Box::new(|it| it.links.push("a:b".to_owned()))),
@@ -532,6 +525,59 @@ mod string_round_trip_test {
             .into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(std::fs::read_to_string(&data_file).unwrap(), written);
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn quoted_metadata_keys_survive_an_update() {
+        let (dir, data_file) = ledger_dir();
+        std::fs::write(
+            &data_file,
+            "2024-01-15 * \"Bob\" \"coffee\"\n  note: \"n\"\n  \"my key\": \"v\"\n  \";path\": \"b\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n",
+        )
+        .unwrap();
+        let reloaded = load(&dir).await;
+        let (created, _) = transaction(&reloaded);
+        let keys = |ledger: &Ledger, id: String| {
+            let mut metas = ledger
+                .operations()
+                .metas(MetaType::TransactionMeta, id)
+                .unwrap()
+                .into_iter()
+                .map(|meta| (meta.key, meta.value))
+                .collect::<Vec<_>>();
+            metas.sort();
+            metas
+        };
+        let pairs = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>();
+        assert_eq!(
+            keys(&reloaded, created.id.to_string()),
+            pairs(&[(";path", "b"), ("my key", "v"), ("note", "n")])
+        );
+
+        // the client sends the metadata back as it got it, with one more key
+        let mut update = request("coffee", "n");
+        for (key, value) in [("my key", "v"), (";path", "b"), ("receipt no", "1")] {
+            update.metas.push(MetaRequest {
+                key: key.to_owned(),
+                value: value.to_owned(),
+            });
+        }
+        let (ledger, reload) = states(reloaded);
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(update))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let written = assert_written_text_round_trips(&data_file);
+        assert!(written.contains("  \";path\": \"b\"\n  \"my key\": \"v\"\n"), "{written}");
+        let reloaded = load(&dir).await;
+        let (updated, _) = transaction(&reloaded);
+        assert_eq!(
+            keys(&reloaded, updated.id.to_string()),
+            pairs(&[(";path", "b"), ("my key", "v"), ("note", "n"), ("receipt no", "1")])
+        );
 
         std::fs::remove_dir_all(dir).ok();
     }

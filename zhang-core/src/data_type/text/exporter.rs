@@ -2,6 +2,7 @@ use itertools::Itertools;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 
+use crate::data_type::text::parser::is_valid_meta_key;
 use crate::ledger::Ledger;
 use crate::utils::string_::{quote_as, QuoteStyle};
 
@@ -66,8 +67,24 @@ impl ZhangDataTypeExportable for Meta {
         self.get_flatten()
             .into_iter()
             .sorted_by(|entry_a, entry_b| entry_a.0.cmp(&entry_b.0))
-            .map(|(k, v)| format!("{}: {}", k, v.export_as(style)))
+            .map(|(k, v)| format!("{}: {}", meta_key(k, style), v.export_as(style)))
             .collect_vec()
+    }
+}
+
+/// A metadata key as written: bare when it reads back that way, quoted otherwise,
+/// such as a key read from `"my key": "v"` or `";path": "v"`.
+///
+/// Python beancount has no quoted keys (beancount 3.2.3 reports a syntax error and
+/// drops the directive), so no form of such a key is valid beancount. The beancount
+/// style quotes it anyway: zhang's beancount parser reads it back exactly, and
+/// beancount reports the line instead of silently reading a different key or a
+/// comment.
+fn meta_key(key: String, style: QuoteStyle) -> String {
+    if is_valid_meta_key(&key) {
+        key
+    } else {
+        quote_as(&key, style)
     }
 }
 
@@ -646,6 +663,63 @@ mod test {
             panic!("expected a transaction");
         };
         assert_eq!((reparsed.payee, reparsed.narration), (Some(ZhangString::quote("Cafe")), None));
+    }
+
+    #[test]
+    fn metadata_keys_that_are_not_bare_words_are_quoted() {
+        use zhang_ast::{Directive, Meta, SpanInfo, Spanned, ZhangString};
+
+        use crate::utils::string_::test::{random_string, XorShift};
+
+        let data_type = ZhangDataType {};
+        let round_trip = |key: &str| {
+            let mut meta = Meta::default();
+            meta.insert(key.to_owned(), ZhangString::quote("v"));
+            let mut directives = data_type
+                .transform("2024-01-02 open Assets:Cash\n2024-01-02 * \"p\" \"n\"\n  Assets:Cash\n".to_owned(), None)
+                .unwrap();
+            for directive in &mut directives {
+                *directive.data.meta_mut().unwrap() = meta.clone();
+            }
+            for directive in directives {
+                let exported = data_type.export(Spanned::new(directive.data.clone(), SpanInfo::default()));
+                let reparsed = data_type
+                    .transform(exported.clone(), None)
+                    .unwrap_or_else(|err| panic!("key {key:?}: cannot parse {exported:?}: {err}"));
+                assert_eq!(reparsed.len(), 1, "key {key:?}: {exported:?}");
+                assert_eq!(reparsed[0].data, directive.data, "key {key:?}: {exported:?}");
+            }
+            let open = Directive::Open(zhang_ast::Open {
+                date: zhang_ast::Date::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 2).unwrap()),
+                account: std::str::FromStr::from_str("Assets:Cash").unwrap(),
+                commodities: vec![],
+                meta,
+            });
+            data_type.export(Spanned::new(open, SpanInfo::default()))
+        };
+
+        assert_eq!(round_trip("receipt-no"), "2024-01-02 open Assets:Cash\n  receipt-no: \"v\"");
+        assert_eq!(round_trip("my key"), "2024-01-02 open Assets:Cash\n  \"my key\": \"v\"");
+        assert_eq!(round_trip(";path"), "2024-01-02 open Assets:Cash\n  \";path\": \"v\"");
+        for key in [
+            "",
+            "a:b",
+            "#tag",
+            "*x",
+            "//x",
+            "say \"hi\"",
+            "back\\slash",
+            "tab\tkey",
+            "line\nkey",
+            "新 键",
+            "\u{2028}",
+        ] {
+            round_trip(key);
+        }
+        let mut rng = XorShift::new(0x6b65_7973);
+        for _ in 0..500 {
+            round_trip(&random_string(&mut rng));
+        }
     }
 
     #[test]
