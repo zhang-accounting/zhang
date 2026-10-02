@@ -186,8 +186,12 @@ fn regex_operators() {
         column("SELECT DISTINCT account WHERE account ~ 'expenses' ORDER BY account"),
         vec!["Expenses:Food", "Expenses:Travel"]
     );
-    assert!(column("SELECT account WHERE account ?~ 'expenses'").is_empty());
-    assert_eq!(column("SELECT DISTINCT account WHERE account ?~ 'Expenses:F'"), vec!["Expenses:Food"]);
+    // `?~` is case-sensitive and takes the pattern on the left, like beanquery
+    assert!(column("SELECT account WHERE 'expenses' ?~ account").is_empty());
+    assert_eq!(column("SELECT DISTINCT account WHERE 'Expenses:F' ?~ account"), vec!["Expenses:Food"]);
+    assert!(column("SELECT account WHERE account ?~ 'Expenses'").is_empty());
+    let err = error("SELECT * WHERE '(' ?~ account");
+    assert_eq!((err.kind, err.column), (QueryErrorKind::Compile, Some(16)));
     // NULL payee: neither ~ nor !~ match
     assert_eq!(one("SELECT count(*) WHERE payee ~ 'x' OR payee !~ 'x'"), "16");
     let err = error("SELECT * WHERE account ~ '('");

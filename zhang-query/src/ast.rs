@@ -38,7 +38,8 @@ pub(crate) enum BinaryOp {
     Match,
     /// `!~`
     NotMatch,
-    /// `?~`: case-sensitive regular-expression search
+    /// `?~`: case-sensitive regular-expression search with the pattern on the LEFT
+    /// (`'^Assets' ?~ account`), as in beanquery
     MatchCase,
     And,
     Or,

@@ -569,9 +569,16 @@ impl Compiler<'_> {
                     }
                 }
                 let case_insensitive = op != BinaryOp::MatchCase;
-                let pattern = match right_c {
+                // `x ~ pattern` and `x !~ pattern`, but beanquery's case-sensitive `pattern ?~ x`
+                // takes the pattern on the left
+                let (subject_c, pattern_c, pattern_span) = if op == BinaryOp::MatchCase {
+                    (right_c, left_c, left.span)
+                } else {
+                    (left_c, right_c, right.span)
+                };
+                let pattern = match pattern_c {
                     CExpr::Const(Value::Str(pattern)) => {
-                        RegexPattern::Static(build_regex(&pattern, case_insensitive).map_err(|message| LocatedError::compile(message, right.span))?)
+                        RegexPattern::Static(build_regex(&pattern, case_insensitive).map_err(|message| LocatedError::compile(message, pattern_span))?)
                     }
                     other => RegexPattern::Dynamic {
                         expr: Box::new(other),
@@ -580,7 +587,7 @@ impl Compiler<'_> {
                 };
                 Ok((
                     CExpr::Regex {
-                        subject: Box::new(left_c),
+                        subject: Box::new(subject_c),
                         pattern,
                         negated: op == BinaryOp::NotMatch,
                         span,

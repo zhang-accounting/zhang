@@ -9,7 +9,7 @@ use std::num::NonZeroU64;
 
 use bigdecimal::{BigDecimal, RoundingMode, Zero};
 
-/// Number of significant digits kept by [`div`].
+/// Number of significant digits kept by [`div`] and [`mul`] (Python's default context).
 pub const DIVISION_PRECISION: u64 = 28;
 
 /// Divide `lhs` by `rhs`, returning `None` on division by zero.
@@ -37,13 +37,21 @@ pub fn div(lhs: &BigDecimal, rhs: &BigDecimal) -> Option<BigDecimal> {
     }
 }
 
-/// Multiply exactly; the scale of the product is the sum of the scales (as in Python's
-/// `decimal`), so `-1000.00 × 1 = -1000.00`. `BigDecimal`'s `*` normalises when an operand
-/// is one, which would drop those trailing zeros.
+/// Multiply in Python's default decimal context: exact when the product fits in
+/// [`DIVISION_PRECISION`] significant digits, otherwise rounded half-even to that many.
+///
+/// The product keeps the scale `lhs.scale + rhs.scale` (`-1000.00 × 1 = -1000.00`);
+/// `BigDecimal`'s `*` normalises when an operand is one, which would drop those zeros.
 pub fn mul(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
     let (lhs_int, lhs_scale) = lhs.as_bigint_and_exponent();
     let (rhs_int, rhs_scale) = rhs.as_bigint_and_exponent();
-    BigDecimal::new(lhs_int * rhs_int, lhs_scale + rhs_scale)
+    let mut product = BigDecimal::new(lhs_int * rhs_int, lhs_scale + rhs_scale);
+    let precision = NonZeroU64::new(DIVISION_PRECISION).expect("non zero precision");
+    // a carry (9.99… → 10.00…) adds a digit; the second pass drops the extra trailing zero
+    while product.digits() > DIVISION_PRECISION {
+        product = product.with_precision_round(precision, RoundingMode::HalfEven);
+    }
+    product
 }
 
 /// Render a decimal without exponent notation, preserving its scale (`-12.50` stays `-12.50`).

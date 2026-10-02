@@ -12,35 +12,13 @@
 //! Products are rounded like Python's default decimal context (28 significant digits,
 //! half-even), so results match beanquery even with inverted (28-digit) rates.
 
-use std::num::NonZeroU64;
-
-use bigdecimal::{BigDecimal, RoundingMode};
 use chrono::NaiveDate;
 
-use crate::decimal::DIVISION_PRECISION;
+pub(super) use crate::decimal::mul;
 use crate::functions::FunctionContext;
 use crate::prices::PriceMap;
 use crate::value::{Position, Value};
 use crate::Amount;
-
-/// Multiply in Python's default decimal context: exact when the product fits in 28
-/// significant digits, otherwise rounded half-even to 28 digits.
-///
-/// The product keeps the scale `lhs.scale + rhs.scale` (`-1000.00 × 1` is `-1000.00`);
-/// bigdecimal's `*` normalises when either side is 1, so it is computed on the
-/// coefficients instead.
-pub(super) fn mul(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
-    let (lhs_digits, lhs_scale) = lhs.as_bigint_and_exponent();
-    let (rhs_digits, rhs_scale) = rhs.as_bigint_and_exponent();
-    let product = BigDecimal::new(lhs_digits * rhs_digits, lhs_scale + rhs_scale);
-    let precision = NonZeroU64::new(DIVISION_PRECISION).expect("non zero precision");
-    let mut rounded = product;
-    // a carry (9.99… → 10.00…) adds a digit; the second pass drops the extra trailing zero
-    while rounded.digits() > DIVISION_PRECISION {
-        rounded = rounded.with_precision_round(precision, RoundingMode::HalfEven);
-    }
-    rounded
-}
 
 fn date_arg(args: &[Value], idx: usize, function: &str) -> Result<Option<NaiveDate>, String> {
     args.get(idx)
@@ -135,6 +113,8 @@ pub(super) fn getprice(args: &[Value], ctx: &dyn FunctionContext) -> Result<Valu
 
 #[cfg(test)]
 mod tests {
+    use bigdecimal::BigDecimal;
+
     use super::super::testing::*;
     use super::*;
     use crate::functions::TestContext;
