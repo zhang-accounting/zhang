@@ -465,7 +465,7 @@ pub(crate) enum Borrow {
 }
 
 /// The `balance` column. The executor evaluates it as a running sum (see
-/// [`crate::compiler::CExpr::RunningBalance`]); its [`ColumnDef::get`] is the row's own
+/// [`crate::compiler::CExpr::Running`]); its [`ColumnDef::get`] is the row's own
 /// contribution.
 pub(crate) const BALANCE_COLUMN: &str = "balance";
 

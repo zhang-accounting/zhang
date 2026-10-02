@@ -1,5 +1,9 @@
 //! `str`, `length` and `maxwidth`.
 
+use std::sync::OnceLock;
+
+use regex::Regex;
+
 use crate::functions::FunctionContext;
 use crate::value::{position_sort_cmp, Inventory, Value};
 
@@ -86,16 +90,29 @@ fn shorten(text: &str, width: usize) -> String {
     shortened
 }
 
+/// Whether `c` is a decimal digit (Unicode category Decimal_Number), like Python's `\d`:
+/// `٣` is one, `²` is not.
+fn decimal_digit(c: char) -> bool {
+    static DECIMAL_DIGIT: OnceLock<Regex> = OnceLock::new();
+    if c.is_ascii() {
+        return c.is_ascii_digit();
+    }
+    c.is_numeric()
+        && DECIMAL_DIGIT
+            .get_or_init(|| Regex::new(r"\A\p{Decimal_Number}\z").expect("a valid pattern"))
+            .is_match(c.encode_utf8(&mut [0; 4]))
+}
+
 /// The `(start, end)` character ranges `textwrap` breaks a collapsed text into: single
 /// spaces, and words, where a word also breaks after a hyphen between letters
 /// (`well-known` → `well-`, `known`; but not `e-mail`) and around an em-dash written as
 /// `--` between words.
 fn wrap_chunks(chars: &[char]) -> Vec<(usize, usize)> {
     let at = |idx: usize| chars.get(idx).copied().unwrap_or(' ');
-    // `\w`, and textwrap's letters (`[^\d\W]`; only ASCII digits are taken for `\d`) and
-    // word punctuation
+    // `\w`, and textwrap's letters (`[^\d\W]`, where `\d` is any decimal digit) and word
+    // punctuation
     let word = |c: char| c == '_' || c.is_alphanumeric();
-    let letter = |c: char| word(c) && !c.is_ascii_digit();
+    let letter = |c: char| word(c) && !decimal_digit(c);
     let word_punct = |c: char| word(c) || "!\"'&.,?".contains(c);
     // a run of two or more hyphens at `idx` followed by a word character (an em-dash)
     let em_dash = |idx: usize| {
@@ -206,6 +223,10 @@ mod tests {
             ("abc-def-ghi jkl", 12, "abc- [...]"),
             ("e-mail address here", 12, "e-mail [...]"),
             ("word1 word2-more", 14, "word1 [...]"),
+            // a hyphen breaks between letters only: `٣` is a (decimal) digit, `²` a letter
+            ("ab-٣c zzzzzzzzz", 10, "[...]"),
+            ("ab-²c zzzzzzzzz", 10, "ab- [...]"),
+            ("x٣-yz zzzzzzzz", 10, "[...]"),
             // an em-dash written `--` is a chunk of its own
             ("x--y zz", 7, "x--y zz"),
             ("x--y zz", 6, "[...]"),

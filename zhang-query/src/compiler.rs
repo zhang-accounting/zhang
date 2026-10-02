@@ -61,9 +61,10 @@ pub(crate) struct ArithStep {
 pub(crate) enum CExpr {
     Const(Value),
     Column(&'static ColumnDef),
-    /// the `balance` column: the running inventory of the rows produced so far, including
-    /// the current one. It is stateful, so it is never folded, and the executor provides it.
-    RunningBalance,
+    /// the `balance` column (the running inventory of the rows produced so far, including
+    /// the current one), or a linear function of it the optimizer turned into its own running
+    /// sum. It is stateful, so it is never folded, and the executor provides it.
+    Running(Running),
     Param(ParamRef),
     Scalar {
         function: &'static ScalarFunction,
@@ -112,6 +113,108 @@ pub(crate) enum CExpr {
     },
 }
 
+/// What a [`CExpr::Running`] total adds up, row by row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Running {
+    /// the positions: the `balance` column
+    Balance,
+    /// `units(position)`, which sums to `units(balance)`
+    Units,
+    /// `cost(position)`, which sums to `cost(balance)`
+    Cost,
+}
+
+impl Running {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Running::Balance => BALANCE_COLUMN,
+            Running::Units => "units",
+            Running::Cost => "cost",
+        }
+    }
+
+    /// The expression the total stands for.
+    pub fn expression(&self) -> &'static str {
+        match self {
+            Running::Balance => BALANCE_COLUMN,
+            Running::Units => "units(balance)",
+            Running::Cost => "cost(balance)",
+        }
+    }
+}
+
+/// How the executor applies LIMIT.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum LimitMode {
+    /// on the finished rows, after ORDER BY and DISTINCT
+    #[default]
+    AfterSort,
+    /// stop scanning once LIMIT rows are produced (no ORDER BY); DISTINCT rows are told
+    /// apart while scanning
+    StopScan,
+    /// keep only the first LIMIT rows of the ORDER BY while scanning (no DISTINCT)
+    TopK,
+    /// aggregate only the first LIMIT groups (no ORDER BY, no DISTINCT)
+    FirstGroups,
+}
+
+/// How the running `balance` is materialized.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct RunningPlan {
+    /// the main pass keeps the running state, because an expression it evaluates reads it
+    pub eager: bool,
+    /// visible targets of a non-aggregate query that the main pass leaves empty: once ORDER
+    /// BY and LIMIT have chosen the rows, one replay over the filtered rows in ledger order
+    /// evaluates them for the chosen rows only
+    pub deferred_targets: Vec<usize>,
+    /// `first()` / `last()` aggregates that only remember which row they pick; the replay
+    /// evaluates their argument at that row
+    pub deferred_aggregates: Vec<usize>,
+    /// the running totals the state keeps
+    pub totals: Vec<Running>,
+}
+
+impl RunningPlan {
+    /// Whether the plan reads a running total at all.
+    pub fn used(&self) -> bool {
+        !self.totals.is_empty()
+    }
+
+    pub fn replays(&self) -> bool {
+        !self.deferred_targets.is_empty() || !self.deferred_aggregates.is_empty()
+    }
+}
+
+/// The execution strategy chosen for a plan. [`Execution::naive`] evaluates every expression
+/// for every row and applies LIMIT to the sorted rows (stopping early only without ORDER BY
+/// and DISTINCT), which is what the optimizer and projector decisions must agree with.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Execution {
+    pub running: RunningPlan,
+    pub limit: LimitMode,
+    /// the linear functions of `balance` the optimizer turned into running sums
+    pub rewrites: Vec<Running>,
+}
+
+impl Execution {
+    pub fn naive(plan: &Plan) -> Execution {
+        let running_balance = plan.referenced_columns().contains(BALANCE_COLUMN);
+        Execution {
+            running: RunningPlan {
+                eager: running_balance,
+                totals: if running_balance { vec![Running::Balance] } else { vec![] },
+                ..RunningPlan::default()
+            },
+            limit: if plan.group_keys.is_none() && plan.order.is_empty() && !plan.distinct {
+                LimitMode::StopScan
+            } else {
+                LimitMode::AfterSort
+            },
+            rewrites: vec![],
+        }
+    }
+}
+
 /// An aggregate call extracted from a target.
 pub(crate) struct AggregateCall {
     pub function: &'static AggregateFunction,
@@ -147,9 +250,8 @@ pub(crate) struct Plan {
     pub limit: Option<u64>,
     /// every parameter reference with its declared type, for checking bound values
     pub params: Vec<(ParamRef, DataType, Span)>,
-    /// whether the plan reads the running `balance`, which the executor then accumulates
-    /// over the rows that pass the filter
-    pub running_balance: bool,
+    /// how the executor runs the plan, decided by the optimizer and the projector
+    pub execution: Execution,
 }
 
 /// Where an expression is compiled.
@@ -319,9 +421,9 @@ impl Compiler<'_> {
             distinct: select.distinct,
             limit: select.limit,
             params: std::mem::take(&mut self.params),
-            running_balance: false,
+            execution: Execution::default(),
         };
-        plan.running_balance = plan.referenced_columns().contains(BALANCE_COLUMN);
+        plan.execution = Execution::naive(&plan);
         Ok(plan)
     }
 
@@ -692,7 +794,7 @@ fn column_ref(name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result
                     span,
                 );
             }
-            Ok((CExpr::RunningBalance, def.ty))
+            Ok((CExpr::Running(Running::Balance), def.ty))
         }
         None => {
             let hint = if crate::functions::SCALAR_FUNCTIONS.iter().any(|it| it.name == name) || is_aggregate(name) {
@@ -809,7 +911,7 @@ impl CExpr {
     pub(crate) fn map_children<E>(self, f: &mut impl FnMut(CExpr) -> Result<CExpr, E>) -> Result<CExpr, E> {
         let boxed = |expr: Box<CExpr>, f: &mut dyn FnMut(CExpr) -> Result<CExpr, E>| f(*expr).map(Box::new);
         Ok(match self {
-            leaf @ (CExpr::Const(_) | CExpr::Column(_) | CExpr::RunningBalance | CExpr::Param(_) | CExpr::Aggregate(_)) => leaf,
+            leaf @ (CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_)) => leaf,
             CExpr::Scalar { function, args, span } => CExpr::Scalar {
                 function,
                 args: args.into_iter().map(&mut *f).collect::<Result<_, _>>()?,
@@ -875,7 +977,7 @@ impl CExpr {
     /// The direct children of this node.
     pub(crate) fn children(&self) -> Vec<&CExpr> {
         match self {
-            CExpr::Const(_) | CExpr::Column(_) | CExpr::RunningBalance | CExpr::Param(_) | CExpr::Aggregate(_) => vec![],
+            CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_) => vec![],
             CExpr::Scalar { args, .. } => args.iter().collect(),
             CExpr::WidenInt(inner) | CExpr::Neg(inner, _) | CExpr::Not(inner) => vec![inner],
             CExpr::And(operands) | CExpr::Or(operands) => operands.iter().collect(),
@@ -897,7 +999,7 @@ impl CExpr {
             CExpr::Column(def) => {
                 columns.insert(def.name);
             }
-            CExpr::RunningBalance => {
+            CExpr::Running(_) => {
                 columns.insert(BALANCE_COLUMN);
             }
             _ => {}
@@ -945,7 +1047,7 @@ impl fmt::Display for CExpr {
             CExpr::Const(Value::Date(it)) => write!(f, "{}", it),
             CExpr::Const(value) => write!(f, "{}", value),
             CExpr::Column(def) => f.write_str(def.name),
-            CExpr::RunningBalance => f.write_str(BALANCE_COLUMN),
+            CExpr::Running(running) => f.write_str(running.expression()),
             CExpr::Param(param) => write!(f, "{}", param),
             CExpr::Scalar { function, args, .. } => {
                 write!(f, "{}(", function.name)?;
@@ -1037,7 +1139,30 @@ impl fmt::Display for Plan {
             writeln!(f, "distinct")?;
         }
         if let Some(limit) = self.limit {
-            writeln!(f, "limit: {}", limit)?;
+            let how = match self.execution.limit {
+                LimitMode::AfterSort => "",
+                LimitMode::StopScan => " (stops the scan)",
+                LimitMode::TopK => " (top-k while scanning)",
+                LimitMode::FirstGroups => " (first groups only)",
+            };
+            writeln!(f, "limit: {}{}", limit, how)?;
+        }
+        for rewrite in &self.execution.rewrites {
+            writeln!(f, "rewrite: {} -> running {}", rewrite.expression(), rewrite.name())?;
+        }
+        let running = &self.execution.running;
+        if running.used() {
+            let mut how = vec![];
+            if running.eager {
+                how.push("running while scanning".to_owned());
+            }
+            if !running.deferred_targets.is_empty() {
+                how.push(format!("deferred targets {:?}", running.deferred_targets));
+            }
+            for idx in &running.deferred_aggregates {
+                how.push(format!("deferred agg#{}", idx));
+            }
+            writeln!(f, "balance: {}", how.join(", "))?;
         }
         Ok(())
     }

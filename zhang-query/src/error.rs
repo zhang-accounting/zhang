@@ -26,6 +26,9 @@ pub enum QueryErrorKind {
     Eval,
     /// the execution ran longer than its time limit
     Timeout,
+    /// the result would be larger than the execution allows
+    /// ([`crate::ExecuteOptions::max_result_values`])
+    TooLarge,
 }
 
 /// An error produced while parsing, compiling or executing a query.
