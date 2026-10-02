@@ -24,6 +24,7 @@ impl DirectiveProcess for Open {
         )?;
 
         operations.insert_meta(MetaType::AccountMeta, self.account.name(), self.meta.clone())?;
+        ledger.booker_mut().apply_open(self);
 
         Ok(())
     }

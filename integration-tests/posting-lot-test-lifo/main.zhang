@@ -1,0 +1,21 @@
+1970-01-01 commodity USD
+1970-01-01 commodity CNY
+1970-01-01 open Assets:L
+  booking_method: "LIFO"
+1970-01-01 open Income:I
+
+2024-05-16 * "buy"
+  Assets:L 10 USD { 10 CNY }
+  Income:I -100 CNY
+
+2024-05-17 * "buy"
+  Assets:L 10 USD { 11 CNY }
+  Income:I -110 CNY
+
+2024-05-18 * "buy, total cost"
+  Assets:L 10 USD {{ 120 CNY }}
+  Income:I -120 CNY
+
+2024-05-19 * "LIFO reduction across two lots, empty total cost"
+  Assets:L -15 USD {{}}
+  Income:I 175 CNY

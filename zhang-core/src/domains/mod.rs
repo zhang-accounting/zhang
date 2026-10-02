@@ -18,10 +18,8 @@ use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType,
     OptionDomain, PriceDomain, QueryDomain, TransactionInfoDomain,
 };
-use crate::inventory::{BookingMethod, TransactionInference};
-use crate::store::{
-    BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, CommodityLotRecord, DocumentDomain, DocumentType, PostingDomain, Store, TransactionDomain,
-};
+use crate::inventory::TransactionInference;
+use crate::store::{BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, DocumentDomain, DocumentType, PostingDomain, Store, TransactionDomain};
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
@@ -248,122 +246,6 @@ impl Operations {
             number: it.after_amount.number.clone(),
             commodity: currency.to_owned(),
         }))
-    }
-
-    pub(crate) fn default_account_lot(&mut self, account_name: &str, currency: &str) -> ZhangResult<CommodityLotRecord> {
-        let mut store = self.write();
-        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
-
-        let option = entry
-            .iter()
-            // match commodity
-            .filter(|lot| lot.commodity.eq(currency))
-            // default lots have none cost
-            .filter(|it| it.cost.is_none())
-            // default lots have none acquisition date
-            .find(|it| it.acquisition_date.is_none())
-            .cloned();
-
-        if let Some(record) = option {
-            Ok(record)
-        } else {
-            // if target lot record does not exist, insert a new one and return it
-            let new_lot_record = CommodityLotRecord {
-                commodity: currency.to_owned(),
-                amount: BigDecimal::zero(),
-                acquisition_date: None,
-                cost: None,
-            };
-            entry.push(new_lot_record.clone());
-            Ok(new_lot_record)
-        }
-    }
-
-    pub(crate) fn account_lot_by_meta(
-        &mut self, account_name: &str, currency: &str, lot_meta: &PostingCost, txn_date: NaiveDate, booking_method: BookingMethod,
-    ) -> ZhangResult<CommodityLotRecord> {
-        let mut store = self.write();
-        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
-
-        let mut option = entry
-            .iter()
-            // match commodity
-            .filter(|lot| lot.commodity.eq(currency))
-            // match cost, works with empty cost
-            .filter(|it| {
-                if lot_meta.base.is_some() {
-                    it.cost.eq(&lot_meta.base)
-                } else {
-                    it.cost.is_some()
-                }
-            })
-            // match cost date
-            .filter(|it| {
-                if lot_meta.base.is_some() {
-                    // if cost date in lot meta is defined, use txn date
-                    it.acquisition_date.eq(&lot_meta.date.as_ref().map(|it| it.naive_date()).or(Some(txn_date)))
-                } else {
-                    // if cost  in meta is null, return all lots
-                    true
-                }
-            });
-
-        let lot_record = match booking_method {
-            BookingMethod::Fifo => option.next().cloned(),
-            BookingMethod::Lifo => option.next_back().cloned(),
-            BookingMethod::Average => {
-                unimplemented!()
-            }
-            BookingMethod::AverageOnly => {
-                unimplemented!()
-            }
-            BookingMethod::Strict => {
-                unimplemented!()
-            }
-            BookingMethod::None => {
-                unimplemented!()
-            }
-        };
-        if let Some(record) = lot_record {
-            Ok(record)
-        } else {
-            // if target lot record does not exist, insert a new one and return it
-            let new_lot_record = CommodityLotRecord {
-                commodity: currency.to_owned(),
-                amount: BigDecimal::zero(),
-
-                // get cost date as acquisition date if persists,
-                // if cost is defined, use txn date as acquisition date
-                acquisition_date: lot_meta
-                    .date
-                    .as_ref()
-                    .map(|it| it.naive_date())
-                    .or_else(|| lot_meta.base.as_ref().map(|_| txn_date)),
-                cost: lot_meta.base.clone(),
-            };
-            entry.push(new_lot_record.clone());
-            Ok(new_lot_record)
-        }
-    }
-
-    pub(crate) fn update_account_lot(&mut self, account_name: &str, lot_record: &CommodityLotRecord, amount: &BigDecimal) -> ZhangResult<()> {
-        let mut store = self.write();
-        let entry = store.commodity_lots.entry(account_name.to_owned()).or_default();
-
-        if amount.is_zero() {
-            // if amount is zero, remove the lot's record
-            let pos = entry.iter().find_position(|it| it.eq(&lot_record));
-            if let Some((idx, _)) = pos {
-                entry.remove(idx);
-            }
-        } else {
-            let option = entry.iter_mut().find(|lot| lot.eq(&lot_record));
-            if let Some(lot) = option {
-                lot.amount = amount.clone();
-            }
-        }
-
-        Ok(())
     }
 
     pub fn get_latest_price(&self, from: impl AsRef<str>, to: impl AsRef<str>) -> ZhangResult<Option<PriceDomain>> {

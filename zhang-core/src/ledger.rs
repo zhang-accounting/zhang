@@ -8,6 +8,7 @@ use itertools::Itertools;
 use log::{error, info};
 use zhang_ast::{Directive, Flag, Options, Plugin, SpanInfo, Spanned};
 
+use crate::booking::Booker;
 use crate::data_source::DataSource;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
@@ -32,6 +33,9 @@ pub struct Ledger {
     pub store: Arc<RwLock<Store>>,
 
     pub(crate) trx_counter: AtomicI32,
+
+    /// booking state of the store fold; only present while the fold runs
+    pub(crate) booker: Option<Booker>,
 
     #[cfg(feature = "plugin_runtime")]
     pub plugins: crate::plugin::store::PluginStore,
@@ -137,6 +141,7 @@ impl Ledger {
             data_source: context.data_source,
             store: Default::default(),
             trx_counter: AtomicI32::new(1),
+            booker: None,
             #[cfg(feature = "plugin_runtime")]
             plugins: crate::plugin::store::PluginStore::default(),
         };
@@ -278,6 +283,9 @@ impl Ledger {
 
     /// fold the pipeline's output into the store
     fn handle_other_directives(&mut self, directives: &mut [Spanned<Directive>]) -> Result<(), ZhangError> {
+        // `open`s and transactions feed the booker as they are folded; the lots it ends with become
+        // the store's lots. Nothing in the fold reads the store's lots
+        self.booker = Some(Booker::new(self.options.default_booking_method));
         for directive in directives.iter_mut() {
             match &mut directive.data {
                 // only dated directives reach the fold: options/plugins were handled
@@ -305,7 +313,14 @@ impl Ledger {
                 Directive::BudgetClose(budget_close) => budget_close.handler(self, &directive.span)?,
             }
         }
+        let booker = self.booker.take().expect("the booker is set at the start of the fold");
+        self.operations().write().commodity_lots = booker.into_lots();
         Ok(())
+    }
+
+    /// the booker of the running store fold
+    pub(crate) fn booker_mut(&mut self) -> &mut Booker {
+        self.booker.as_mut().expect("the booker only exists while the store fold runs")
     }
 
     /// split a stage-processed stream back into (`metas`, `directives`) by datedness.
