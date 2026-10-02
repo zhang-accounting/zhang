@@ -192,6 +192,8 @@ impl DataSource for OpendalDataSource {
 }
 
 impl OpendalDataSource {
+    // `async_recursion` adds a `#[must_use]` to the boxed future it returns
+    #[allow(clippy::double_must_use)]
     #[async_recursion]
     async fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, check_file_visit: bool) -> ZhangResult<()> {
         let (entry, main_file_endpoint) = &ledger.entry;
