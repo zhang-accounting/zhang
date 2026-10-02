@@ -174,6 +174,7 @@ fn explain_shows_the_desugared_statements() {
          target 5: units(position) = units(position) : amount\n\
          target 6: units(balance) = units(balance) : inventory\n\
          filter: ((year = 2016) AND (account ~ /Checking/i))\n\
+         rewrite: units(balance) -> running units\n\
          balance: deferred targets [6]\n\
          project: [account, balance, date, flag, narration, payee, position, year] (8 of 23 columns)\n"
     );

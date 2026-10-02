@@ -1,5 +1,5 @@
 //! The execution decisions of the optimizer and the projector (deferred running balances,
-//! LIMIT pushdown) change how much work
+//! running sums for `units(balance)` / `cost(balance)`, LIMIT pushdown) change how much work
 //! an execution does, never its result: every query here returns byte-identical rows
 //! (decimal scales included) with [`Query::compile`] and with [`Query::compile_naive`].
 
@@ -65,7 +65,7 @@ fn random_lots_ledger(seed: u64, transactions: usize) -> String {
 }
 
 /// Queries over every kind of decision: deferred targets and aggregates, eager running totals
-/// (ORDER BY, DISTINCT and GROUP BY over balances, min/max/sum), top-k,
+/// (ORDER BY, DISTINCT and GROUP BY over balances, min/max/sum), the linear rewrites, top-k,
 /// stopping the scan, the first groups, LIMIT 0, and plans without a balance.
 const QUERIES: &[&str] = &[
     "JOURNAL",
@@ -177,10 +177,28 @@ fn decisions_keep_results_with_mixed_lots_scales_and_zero_costs() {
     }
 }
 
+/// The running sums give exactly what `units()` and `cost()` of the running balance give,
+/// row by row, however the lots of a currency mix signs, scales and zero costs.
+#[test]
+fn running_sums_equal_the_functions_of_the_balance() {
+    for seed in 1..=40 {
+        let ledger = load_text(&random_lots_ledger(seed, 60));
+        assert_equivalent(
+            &ledger,
+            &[
+                "SELECT units(balance), cost(balance)",
+                "SELECT units(balance), cost(balance) WHERE account ~ 'Broker'",
+                "SELECT units(balance), cost(balance) WHERE account ~ 'Short|Cash'",
+            ],
+        );
+    }
+}
+
 #[test]
 fn explain_shows_the_decisions() {
     let explain = |sql: &str| Query::compile(sql).unwrap().explain();
     let journal = explain("JOURNAL 'Broker' AT cost");
+    assert!(journal.contains("rewrite: cost(balance) -> running cost\n"), "{journal}");
     assert!(journal.contains("balance: deferred targets [6]\n"), "{journal}");
     let top = explain("SELECT date, balance ORDER BY date DESC LIMIT 10");
     assert!(top.contains("limit: 10 (top-k while scanning)\nbalance: deferred targets [1]\n"), "{top}");
@@ -192,6 +210,9 @@ fn explain_shows_the_decisions() {
     assert!(explain("SELECT DISTINCT account LIMIT 3").contains("limit: 3 (stops the scan)\n"));
     assert!(explain("SELECT DISTINCT account ORDER BY account LIMIT 3").contains("limit: 3\n"));
     assert!(explain("SELECT date, balance ORDER BY balance").contains("balance: running while scanning\n"));
+    // value() prices by date: it is not rewritten
+    let value = explain("JOURNAL AT value");
+    assert!(!value.contains("rewrite:") && value.contains("balance: deferred targets [6]\n"), "{value}");
 }
 
 /// A plan that does not read `balance` keeps no running total at all.

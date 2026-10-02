@@ -61,8 +61,9 @@ pub(crate) struct ArithStep {
 pub(crate) enum CExpr {
     Const(Value),
     Column(&'static ColumnDef),
-    /// the `balance` column: the running inventory of the rows produced so far, including
-    /// the current one. It is stateful, so it is never folded, and the executor provides it.
+    /// the `balance` column (the running inventory of the rows produced so far, including
+    /// the current one), or a linear function of it the optimizer turned into its own running
+    /// sum. It is stateful, so it is never folded, and the executor provides it.
     Running(Running),
     Param(ParamRef),
     Scalar {
@@ -117,13 +118,27 @@ pub(crate) enum CExpr {
 pub(crate) enum Running {
     /// the positions: the `balance` column
     Balance,
+    /// `units(position)`, which sums to `units(balance)`
+    Units,
+    /// `cost(position)`, which sums to `cost(balance)`
+    Cost,
 }
 
 impl Running {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Running::Balance => BALANCE_COLUMN,
+            Running::Units => "units",
+            Running::Cost => "cost",
+        }
+    }
+
     /// The expression the total stands for.
     pub fn expression(&self) -> &'static str {
         match self {
             Running::Balance => BALANCE_COLUMN,
+            Running::Units => "units(balance)",
+            Running::Cost => "cost(balance)",
         }
     }
 }
@@ -177,6 +192,8 @@ impl RunningPlan {
 pub(crate) struct Execution {
     pub running: RunningPlan,
     pub limit: LimitMode,
+    /// the linear functions of `balance` the optimizer turned into running sums
+    pub rewrites: Vec<Running>,
 }
 
 impl Execution {
@@ -193,6 +210,7 @@ impl Execution {
             } else {
                 LimitMode::AfterSort
             },
+            rewrites: vec![],
         }
     }
 }
@@ -1128,6 +1146,9 @@ impl fmt::Display for Plan {
                 LimitMode::FirstGroups => " (first groups only)",
             };
             writeln!(f, "limit: {}{}", limit, how)?;
+        }
+        for rewrite in &self.execution.rewrites {
+            writeln!(f, "rewrite: {} -> running {}", rewrite.expression(), rewrite.name())?;
         }
         let running = &self.execution.running;
         if running.used() {

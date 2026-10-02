@@ -238,6 +238,11 @@ impl Inventory {
         }
     }
 
+    /// The number of the lot with this (units currency, cost) key, if it is open.
+    pub(crate) fn lot(&self, key: &(String, Option<Cost>)) -> Option<&BigDecimal> {
+        self.lots.get(key)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.lots.is_empty()
     }
