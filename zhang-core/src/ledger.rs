@@ -37,6 +37,9 @@ pub struct Ledger {
     /// booking state of the store fold; only present while the fold runs
     pub(crate) booker: Option<Booker>,
 
+    /// the (account, budget) pairs whose undefined budget the store fold already reported
+    pub(crate) reported_undefined_budgets: HashSet<(String, String)>,
+
     #[cfg(feature = "plugin_runtime")]
     pub plugins: crate::plugin::store::PluginStore,
 }
@@ -142,6 +145,7 @@ impl Ledger {
             store: Default::default(),
             trx_counter: AtomicI32::new(1),
             booker: None,
+            reported_undefined_budgets: HashSet::new(),
             #[cfg(feature = "plugin_runtime")]
             plugins: crate::plugin::store::PluginStore::default(),
         };
@@ -1234,6 +1238,145 @@ mod test {
             assert!(operations.exist_account("Assets:Bank")?);
             assert!(!operations.exist_account("Assets:Bank2")?);
             Ok(())
+        }
+    }
+
+    mod budget {
+        use std::collections::BTreeMap;
+
+        use bigdecimal::BigDecimal;
+        use indoc::indoc;
+        use itertools::Itertools;
+        use zhang_ast::error::ErrorKind;
+
+        use crate::ledger::test::load_from_temp_str;
+        use crate::ledger::Ledger;
+
+        const ACCOUNTS: &str = indoc! {r#"
+            option "operating_currency" "CNY"
+            1970-01-01 commodity CNY
+            2023-01-01 open Assets:Cash CNY
+            2023-01-01 open Expenses:Food CNY
+              budget: "Food"
+        "#};
+
+        fn load(body: &str) -> Ledger {
+            load_from_temp_str(&format!("{ACCOUNTS}{body}"))
+        }
+
+        /// reported errors in store order, with the first line of their span and their metas
+        fn errors(ledger: &Ledger) -> Vec<(ErrorKind, String, BTreeMap<String, String>)> {
+            let store = ledger.store.read().unwrap();
+            store
+                .errors
+                .iter()
+                .map(|it| {
+                    let span = it.span.as_ref().and_then(|span| span.content.lines().next()).unwrap_or_default();
+                    (it.error_type.clone(), span.to_owned(), it.metas.clone().into_iter().collect())
+                })
+                .collect_vec()
+        }
+
+        fn undefined_budget(span: &str, account: &str, budget: &str) -> (ErrorKind, String, BTreeMap<String, String>) {
+            let metas = BTreeMap::from([("account_name".to_owned(), account.to_owned()), ("budget_name".to_owned(), budget.to_owned())]);
+            (ErrorKind::BudgetDoesNotExist, span.to_owned(), metas)
+        }
+
+        /// balance of `account` after the ledger, in CNY
+        fn balance(ledger: &Ledger, account: &str) -> BigDecimal {
+            let store = ledger.store.read().unwrap();
+            store
+                .transactions
+                .values()
+                .flat_map(|txn| txn.postings.iter())
+                .filter(|posting| posting.account.name() == account)
+                .map(|posting| posting.inferred_amount.number.clone())
+                .sum()
+        }
+
+        /// activity of budget `name` in `interval`, if the budget has a detail for it
+        fn activity(ledger: &Ledger, name: &str, interval: u32) -> Option<BigDecimal> {
+            let detail = ledger.operations().budget_month_detail(name, interval).unwrap();
+            detail.map(|detail| detail.activity_amount.number)
+        }
+
+        #[test]
+        fn should_report_an_undefined_budget_and_book_the_transaction() {
+            // this used to panic with `budget does not exist` (#446)
+            let ledger = load(indoc! {r#"
+                2023-02-01 "Shop" "lunch"
+                  Assets:Cash -10 CNY
+                  Expenses:Food 10 CNY
+            "#});
+
+            assert_eq!(errors(&ledger), vec![undefined_budget(r#"2023-02-01 "Shop" "lunch""#, "Expenses:Food", "Food")]);
+            assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
+            assert_eq!(balance(&ledger, "Assets:Cash"), BigDecimal::from(-10));
+            assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(10));
+            assert!(!ledger.operations().contains_budget("Food"));
+        }
+
+        #[test]
+        fn should_report_an_undefined_budget_once_per_account() {
+            let ledger = load(indoc! {r#"
+                2023-01-01 open Expenses:Snack CNY
+                  budget: "Food"
+                2023-02-01 "Shop" "lunch"
+                  Assets:Cash -10 CNY
+                  Expenses:Food 10 CNY
+                2023-02-02 "Shop" "dinner"
+                  Assets:Cash -20 CNY
+                  Expenses:Food 20 CNY
+                2023-03-01 "Shop" "snack"
+                  Assets:Cash -5 CNY
+                  Expenses:Snack 5 CNY
+            "#});
+
+            assert_eq!(
+                errors(&ledger),
+                vec![
+                    undefined_budget(r#"2023-02-01 "Shop" "lunch""#, "Expenses:Food", "Food"),
+                    undefined_budget(r#"2023-03-01 "Shop" "snack""#, "Expenses:Snack", "Food"),
+                ]
+            );
+            assert_eq!(ledger.store.read().unwrap().transactions.len(), 3);
+            assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(30));
+            assert_eq!(balance(&ledger, "Assets:Cash"), BigDecimal::from(-35));
+        }
+
+        #[test]
+        fn should_add_activity_to_a_defined_budget() {
+            let ledger = load(indoc! {r#"
+                2023-01-01 budget Food CNY
+                2023-02-01 "Shop" "lunch"
+                  Assets:Cash -10 CNY
+                  Expenses:Food 10 CNY
+                2023-02-02 "Shop" "dinner"
+                  Assets:Cash -20 CNY
+                  Expenses:Food 20 CNY
+            "#});
+
+            assert_eq!(errors(&ledger), vec![]);
+            assert_eq!(activity(&ledger, "Food", 202302), Some(BigDecimal::from(30)));
+        }
+
+        #[test]
+        fn should_skip_activity_before_the_budget_is_defined() {
+            // like `budget-add`, a budget only exists from its definition on in the stream
+            let ledger = load(indoc! {r#"
+                2023-02-01 "Shop" "lunch"
+                  Assets:Cash -10 CNY
+                  Expenses:Food 10 CNY
+                2023-03-01 budget Food CNY
+                2023-03-02 "Shop" "dinner"
+                  Assets:Cash -20 CNY
+                  Expenses:Food 20 CNY
+            "#});
+
+            assert_eq!(errors(&ledger), vec![undefined_budget(r#"2023-02-01 "Shop" "lunch""#, "Expenses:Food", "Food")]);
+            assert_eq!(activity(&ledger, "Food", 202302), None);
+            assert_eq!(activity(&ledger, "Food", 202303), Some(BigDecimal::from(20)));
+            assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(30));
         }
     }
 }

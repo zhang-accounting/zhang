@@ -776,7 +776,7 @@ impl Operations {
         Ok(())
     }
 
-    /// get target month's detail
+    /// get target month's detail. The budget must exist (check with [Self::contains_budget])
     pub fn budget_month_detail(&self, name: impl Into<String>, interval: u32) -> ZhangResult<Option<BudgetIntervalDetail>> {
         let store = self.read();
         let name = name.into();
@@ -802,7 +802,7 @@ impl Operations {
             }))
     }
 
-    /// add amount to target month's budget
+    /// add amount to target month's budget. The budget must exist (check with [Self::contains_budget])
     pub fn budget_add_assigned_amount(&mut self, name: impl Into<String>, date: DateTime<Tz>, event_type: BudgetEventType, amount: Amount) -> ZhangResult<()> {
         let name = name.into();
         let interval = (date.year() as u32) * 100 + date.month();
@@ -849,7 +849,7 @@ impl Operations {
         Ok(())
     }
 
-    /// close budget
+    /// add activity to target month's budget. The budget must exist (check with [Self::contains_budget])
     pub fn budget_add_activity(&mut self, name: impl Into<String>, date: DateTime<Tz>, amount: Amount) -> ZhangResult<()> {
         let name = name.into();
         let interval = (date.year() as u32) * 100 + date.month();
