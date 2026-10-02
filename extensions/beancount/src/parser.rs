@@ -22,9 +22,9 @@ use nom::combinator::{map, map_res, opt, peek, recognize, value};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
-use snailquote::unescape;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
+use zhang_core::utils::string_::{invalid_escape_at, quoted_string};
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
 
@@ -86,24 +86,15 @@ fn unquote_string_raw(i: &str) -> IResult<&str, &str> {
     take_while1(|c: char| !matches!(c, '"' | ':' | '(' | ')' | ',' | ' ' | '\t' | '\n' | '\r'))(i)
 }
 
-fn string_char(i: &str) -> IResult<&str, &str> {
-    alt((
-        recognize(pair(
-            char('\\'),
-            alt((
-                recognize(one_of("\"\\/bfnrt")),
-                recognize(tuple((char('u'), char('{'), take_while_m_n(4, 4, |c: char| c.is_ascii_hexdigit()), char('}')))),
-                recognize(pair(char('u'), take_while_m_n(4, 4, |c: char| c.is_ascii_hexdigit()))),
-            )),
-        )),
-        recognize(satisfy(|c: char| c != '"' && c != '\\')),
-    ))(i)
-}
-
+/// `quote_string = "\"" inner "\""`, decoded by zhang-core's [`quoted_string`] so
+/// that both data types read strings the same way: only `\"` and `\\` must be
+/// escaped, unknown escapes such as `\d` are kept verbatim (Python beancount drops
+/// the backslash instead) and the escapes older zhang versions wrote (`\$`,
+/// `` \` ``, `\u{a0}`) are still read. A malformed `\u` escape is a
+/// [`nom::Err::Failure`] at its backslash. See [`zhang_core::utils::string_`] for
+/// the full rules.
 fn quote_string(i: &str) -> IResult<&str, ZhangString> {
-    let (rest, raw) = recognize(tuple((char('"'), many0(string_char), char('"'))))(i)?;
-    let unescaped = unescape(raw).expect("string contains invalid escape char");
-    Ok((rest, ZhangString::QuoteString(unescaped)))
+    map(quoted_string, ZhangString::QuoteString)(i)
 }
 
 fn string(i: &str) -> IResult<&str, ZhangString> {
@@ -872,7 +863,10 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
         }
 
         let start = offset(original, rest);
-        let (next, directive) = content_item(rest).map_err(|_| error_at(original, rest, "unexpected input"))?;
+        let (next, directive) = content_item(rest).map_err(|err| match invalid_escape_at(&err) {
+            Some(escape) => error_at(original, escape, "invalid escape sequence"),
+            None => error_at(original, rest, "unexpected input"),
+        })?;
 
         if offset(original, next) == start {
             return Err(error_at(original, rest, "parser made no progress"));
@@ -1243,6 +1237,83 @@ mod test {
                 if let Directive::Open(inner) = directive {
                     assert_eq!(inner.meta.get_one("booking_method").unwrap().as_str(), "NONE");
                 }
+            }
+        }
+    }
+
+    /// String escaping (issue #442): the beancount data type reads strings with the
+    /// same rules as the zhang one, see `zhang_core::utils::string_`.
+    mod escaping {
+        use zhang_ast::Directive;
+
+        use crate::parser::parse;
+        use crate::parser::test::{get_left_directive, get_txn};
+
+        fn narration(quoted: &str) -> String {
+            let content = format!("2024-01-01 * {quoted}\n  Assets:Cash -5 CNY\n  Expenses:Food\n");
+            get_txn(&content).narration.unwrap().to_plain_string()
+        }
+
+        fn query_text(content: &str) -> String {
+            match get_left_directive(content) {
+                Directive::Query(query) => query.query_string.to_plain_string(),
+                other => panic!("expected a query directive, got {other:?}"),
+            }
+        }
+
+        fn parse_error(content: &str) -> String {
+            parse(content, None).expect_err(content).to_string()
+        }
+
+        #[test]
+        fn should_keep_an_unknown_escape_in_a_query_verbatim() {
+            let expected = r"SELECT narration WHERE narration ~ '\d+'";
+            assert_eq!(query_text(r#"2014-01-01 query "x" "SELECT narration WHERE narration ~ '\d+'""#), expected);
+            assert_eq!(query_text(r#"2014-01-01 query "x" "SELECT narration WHERE narration ~ '\\d+'""#), expected);
+        }
+
+        #[test]
+        fn should_read_strings_written_by_the_new_exporter() {
+            assert_eq!(narration(r#""coffee $5""#), "coffee $5");
+            assert_eq!(narration("\"SELECT\u{a0}account\u{2028}😀 你好\""), "SELECT\u{a0}account\u{2028}😀 你好");
+            assert_eq!(narration(r#""a \"quote\" and a \\ backslash""#), r#"a "quote" and a \ backslash"#);
+            assert_eq!(narration(r#""two\nlines\u0007""#), "two\nlines\u{07}");
+        }
+
+        #[test]
+        fn should_read_escapes_written_by_older_versions() {
+            assert_eq!(narration(r#""coffee \$5""#), "coffee $5");
+            assert_eq!(narration(r#""run \`ls\`""#), "run `ls`");
+            assert_eq!(narration(r#""a\u{a0}b""#), "a\u{a0}b");
+            assert_eq!(narration(r#""smile \u{1F600}""#), "smile 😀");
+            assert_eq!(query_text(r#"2014-01-01 query "q" "SELECT\u{a0}account""#), "SELECT\u{a0}account");
+        }
+
+        #[test]
+        fn should_report_a_malformed_escape_at_the_escape() {
+            for escape in [r"\u{110000}", r"\u{D800}", r"\uZZZZ", r"\u{}", r"\uD800"] {
+                let line = format!(r#"2024-01-01 note Assets:Cash "bad {escape} escape""#);
+                let column = line.find('\\').unwrap() + 1;
+                let error = parse_error(&format!("2024-01-01 open Assets:Cash\n{line}\n"));
+                assert_eq!(
+                    error,
+                    format!("failed to parse beancount file: invalid escape sequence at line 2, column {column}"),
+                    "{escape}"
+                );
+            }
+        }
+
+        #[test]
+        fn should_reject_an_unterminated_string_without_panicking() {
+            for content in [
+                "2024-01-01 note Assets:Cash \"abc\\",
+                "2024-01-01 note Assets:Cash \"abc\\\"\n",
+                "2024-01-01 open Assets:Cash\n2024-01-01 note Assets:Cash \"abc\\\"\n2024-01-02 open Assets:Bank\n",
+            ] {
+                assert!(
+                    parse_error(content).starts_with("failed to parse beancount file: unexpected input at line"),
+                    "{content:?}"
+                );
             }
         }
     }

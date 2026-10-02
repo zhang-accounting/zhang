@@ -12,7 +12,7 @@ use zhang_ast::{Account, Date, Directive, Flag, Meta, Posting, SpanInfo, Transac
 use zhang_core::constants::TXN_ID;
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::store::TransactionDomain;
-use zhang_core::utils::string_::{escape_with_quote, StringExt};
+use zhang_core::utils::string_::{quote_as, QuoteStyle, StringExt};
 
 use super::Query;
 use crate::request::{CreateTransactionRequest, JournalRequest};
@@ -203,9 +203,11 @@ pub async fn upload_transaction_document(
         documents.push(ZhangString::QuoteString(path.to_string()));
     }
 
+    // the source file may be zhang or beancount text: the beancount quote style is
+    // read back exactly by both parsers, and by Python beancount too
     let metas_content = documents
         .into_iter()
-        .map(|document| format!("  document: {}", escape_with_quote(document.as_str())))
+        .map(|document| format!("  document: {}", quote_as(document.as_str(), QuoteStyle::Beancount)))
         .join("\n");
 
     let source_file_path = span_info.source_file.to_string_lossy().to_string();
@@ -268,4 +270,162 @@ pub async fn update_single_transaction(
     ledger.data_source.async_save(&ledger, source_file_path, content.as_bytes()).await?;
     reload_sender.reload();
     ResponseWrapper::json(())
+}
+
+/// Transactions written through the API read back exactly (issue #442).
+#[cfg(test)]
+mod string_round_trip_test {
+    use std::path::Path as FsPath;
+    use std::str::FromStr;
+    use std::sync::Arc;
+
+    use axum::extract::{Path, State};
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    use axum::Json;
+    use bigdecimal::BigDecimal;
+    use chrono::{TimeZone, Utc};
+    use tokio::sync::{mpsc, RwLock};
+    use uuid::Uuid;
+    use zhang_ast::amount::Amount;
+    use zhang_ast::{Directive, SpanInfo, Spanned, Transaction};
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::data_type::DataType;
+    use zhang_core::domains::schemas::MetaType;
+    use zhang_core::ledger::Ledger;
+    use zhang_core::store::TransactionDomain;
+
+    use super::{create_new_transaction, update_single_transaction};
+    use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, MetaRequest};
+    use crate::state::{SharedLedger, SharedReloadSender};
+    use crate::ReloadSender;
+
+    const PAYEE: &str = "Bob's \"café\" \\ `shop`";
+
+    fn request(narration: &str, note: &str) -> CreateTransactionRequest {
+        CreateTransactionRequest {
+            datetime: Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap(),
+            payee: PAYEE.to_owned(),
+            flag: None,
+            narration: Some(narration.to_owned()),
+            postings: vec![
+                CreateTransactionPostingRequest {
+                    account: "Assets:Cash".to_owned(),
+                    unit: Some(Amount::new(BigDecimal::from_str("-5").unwrap(), "CNY")),
+                },
+                CreateTransactionPostingRequest {
+                    account: "Expenses:Food".to_owned(),
+                    unit: Some(Amount::new(BigDecimal::from_str("5").unwrap(), "CNY")),
+                },
+            ],
+            metas: vec![MetaRequest {
+                key: "note".to_owned(),
+                value: note.to_owned(),
+            }],
+            tags: vec![],
+            links: vec![],
+        }
+    }
+
+    async fn load(dir: &FsPath) -> Ledger {
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        Ledger::async_load(dir.to_path_buf(), "main.zhang".to_owned(), source)
+            .await
+            .expect("load ledger")
+    }
+
+    fn states(ledger: Ledger) -> (State<SharedLedger>, State<SharedReloadSender>) {
+        let (sender, _) = mpsc::channel(1);
+        (
+            State(SharedLedger(Arc::new(RwLock::new(ledger)))),
+            State(SharedReloadSender(Arc::new(ReloadSender(sender)))),
+        )
+    }
+
+    /// The only transaction of the ledger, with its `note` metadata.
+    fn transaction(ledger: &Ledger) -> (TransactionDomain, String) {
+        let operations = ledger.operations();
+        assert!(operations.read().errors.is_empty(), "ledger errors: {:?}", operations.read().errors);
+        let transactions = operations.read().transactions.values().cloned().collect::<Vec<_>>();
+        assert_eq!(transactions.len(), 1);
+        let transaction = transactions.into_iter().next().unwrap();
+        let note = operations
+            .metas(MetaType::TransactionMeta, transaction.id.to_string())
+            .unwrap()
+            .into_iter()
+            .find(|meta| meta.key == "note")
+            .expect("note meta")
+            .value;
+        (transaction, note)
+    }
+
+    /// The written transaction parses back and exports to exactly the written text.
+    fn assert_written_text_round_trips(file: &FsPath) -> String {
+        let written = std::fs::read_to_string(file).unwrap();
+        let data_type = ZhangDataType {};
+        let directives = data_type.transform(written.clone(), None).expect("written file parses");
+        let transactions: Vec<Transaction> = directives
+            .into_iter()
+            .filter_map(|it| match it.data {
+                Directive::Transaction(transaction) => Some(transaction),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(transactions.len(), 1, "{written}");
+        let exported = data_type.export(Spanned::new(Directive::Transaction(transactions[0].clone()), SpanInfo::default()));
+        assert!(
+            written.contains(&exported),
+            "re-export differs from the written text:\n{written}\n---\n{exported}"
+        );
+        written
+    }
+
+    #[tokio::test]
+    async fn created_and_updated_transactions_read_back_exactly() {
+        let dir = std::env::temp_dir().join(format!("zhang-transaction-strings-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("data/2024")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(
+            dir.join("main.zhang"),
+            "option \"operating_currency\" \"CNY\"\ninclude \"data/2024/1.zhang\"\n\
+             1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n",
+        )
+        .unwrap();
+        // the local file system data source appends to existing files only
+        let data_file = dir.join("data/2024/1.zhang");
+        std::fs::write(&data_file, "").unwrap();
+
+        // create
+        let (ledger, reload) = states(load(&dir).await);
+        let note = "a\u{a0}b\u{2028}c 😀 你好";
+        let response = create_new_transaction(ledger, reload, Json(request("coffee $5", note))).await.into_response();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+
+        let written = assert_written_text_round_trips(&data_file);
+        assert!(written.contains("\"coffee $5\""), "`$` is written raw:\n{written}");
+        let reloaded = load(&dir).await;
+        let (created, created_note) = transaction(&reloaded);
+        assert_eq!(created.payee.as_deref(), Some(PAYEE));
+        assert_eq!(created.narration.as_deref(), Some("coffee $5"));
+        assert_eq!(created_note, note);
+
+        // update in place
+        let narration = "tea $3 ~ '\\d+' \"x\"\nsecond line";
+        let (ledger, reload) = states(reloaded);
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(request(narration, "`$`")))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        assert_written_text_round_trips(&data_file);
+        let (updated, updated_note) = transaction(&load(&dir).await);
+        assert_eq!(updated.payee.as_deref(), Some(PAYEE));
+        assert_eq!(updated.narration.as_deref(), Some(narration));
+        assert_eq!(updated_note, "`$`");
+
+        std::fs::remove_dir_all(dir).ok();
+    }
 }

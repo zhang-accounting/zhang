@@ -5,9 +5,9 @@ use chrono::NaiveDate;
 use itertools::{Either, Itertools};
 use latestmap::LatestMap;
 use zhang_ast::*;
-use zhang_core::data_type::text::exporter::{append_meta, ZhangDataTypeExportable};
-use zhang_core::data_type::text::ZhangDataType;
+use zhang_core::data_type::text::exporter::{append_meta_as, ZhangDataTypeExportable};
 use zhang_core::data_type::DataType;
+use zhang_core::utils::string_::QuoteStyle;
 use zhang_core::{ZhangError, ZhangResult};
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
@@ -125,10 +125,10 @@ impl DataType for Beancount {
     }
 
     fn export(&self, directive: Spanned<Directive>) -> Self::Carrier {
-        let zhang_data_type = ZhangDataType {};
-        let directive = convert_datetime_to_date(directive);
-
-        let Spanned { data, span } = directive;
+        // the shared zhang exporter writes these directives in beancount syntax; quoted
+        // strings use only the escapes beancount decodes, see `QuoteStyle::Beancount`
+        const STYLE: QuoteStyle = QuoteStyle::Beancount;
+        let Spanned { data, .. } = convert_datetime_to_date(directive);
         match data {
             Directive::BalanceCheck(check) => BalanceDirective {
                 date: check.date,
@@ -158,63 +158,53 @@ impl DataType for Beancount {
                 };
                 [pad_directive.bc_to_string(), balance_directive.bc_to_string()].join("\n")
             }
-            Directive::Budget(budget) => zhang_data_type.export(Spanned::new(
-                Directive::Custom(Custom {
-                    date: budget.date,
-                    custom_type: ZhangString::unquote("budget"),
-                    values: vec![
-                        StringOrAccount::String(ZhangString::unquote(budget.name)),
-                        StringOrAccount::String(ZhangString::unquote(budget.commodity)),
-                    ],
-                    meta: budget.meta,
-                }),
-                span,
-            )),
-            Directive::BudgetAdd(budget) => zhang_data_type.export(Spanned::new(
-                Directive::Custom(Custom {
-                    date: budget.date,
-                    custom_type: ZhangString::unquote("budget-add"),
-                    values: vec![
-                        StringOrAccount::String(ZhangString::unquote(budget.name)),
-                        StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
-                        StringOrAccount::String(ZhangString::unquote(budget.amount.commodity)),
-                    ],
-                    meta: budget.meta,
-                }),
-                span,
-            )),
-            Directive::BudgetTransfer(budget) => zhang_data_type.export(Spanned::new(
-                Directive::Custom(Custom {
-                    date: budget.date,
-                    custom_type: ZhangString::unquote("budget-transfer"),
-                    values: vec![
-                        StringOrAccount::String(ZhangString::unquote(budget.from)),
-                        StringOrAccount::String(ZhangString::unquote(budget.to)),
-                        StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
-                        StringOrAccount::String(ZhangString::unquote(budget.amount.commodity)),
-                    ],
-                    meta: budget.meta,
-                }),
-                span,
-            )),
-            Directive::BudgetClose(budget) => zhang_data_type.export(Spanned::new(
-                Directive::Custom(Custom {
-                    date: budget.date,
-                    custom_type: ZhangString::unquote("budget-close"),
-                    values: vec![StringOrAccount::String(ZhangString::unquote(budget.name))],
-                    meta: budget.meta,
-                }),
-                span,
-            )),
+            Directive::Budget(budget) => Directive::Custom(Custom {
+                date: budget.date,
+                custom_type: ZhangString::unquote("budget"),
+                values: vec![
+                    StringOrAccount::String(ZhangString::unquote(budget.name)),
+                    StringOrAccount::String(ZhangString::unquote(budget.commodity)),
+                ],
+                meta: budget.meta,
+            })
+            .export_as(STYLE),
+            Directive::BudgetAdd(budget) => Directive::Custom(Custom {
+                date: budget.date,
+                custom_type: ZhangString::unquote("budget-add"),
+                values: vec![
+                    StringOrAccount::String(ZhangString::unquote(budget.name)),
+                    StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
+                    StringOrAccount::String(ZhangString::unquote(budget.amount.commodity)),
+                ],
+                meta: budget.meta,
+            })
+            .export_as(STYLE),
+            Directive::BudgetTransfer(budget) => Directive::Custom(Custom {
+                date: budget.date,
+                custom_type: ZhangString::unquote("budget-transfer"),
+                values: vec![
+                    StringOrAccount::String(ZhangString::unquote(budget.from)),
+                    StringOrAccount::String(ZhangString::unquote(budget.to)),
+                    StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
+                    StringOrAccount::String(ZhangString::unquote(budget.amount.commodity)),
+                ],
+                meta: budget.meta,
+            })
+            .export_as(STYLE),
+            Directive::BudgetClose(budget) => Directive::Custom(Custom {
+                date: budget.date,
+                custom_type: ZhangString::unquote("budget-close"),
+                values: vec![StringOrAccount::String(ZhangString::unquote(budget.name))],
+                meta: budget.meta,
+            })
+            .export_as(STYLE),
             // beancount only accepts a quoted query name
-            Directive::Query(query) => zhang_data_type.export(Spanned::new(
-                Directive::Query(Query {
-                    name: ZhangString::quote(query.name.to_plain_string()),
-                    ..query
-                }),
-                span,
-            )),
-            _ => zhang_data_type.export(Spanned::new(data, span)),
+            Directive::Query(query) => Directive::Query(Query {
+                name: ZhangString::quote(query.name.to_plain_string()),
+                ..query
+            })
+            .export_as(STYLE),
+            _ => data.export_as(STYLE),
         }
     }
 }
@@ -244,7 +234,7 @@ impl BeancountOnlyExportable for BalanceDirective {
             amount_str,
         ]
         .join(" ");
-        append_meta(meta, line)
+        append_meta_as(meta, line, QuoteStyle::Beancount)
     }
 }
 
@@ -257,7 +247,7 @@ impl BeancountOnlyExportable for PadDirective {
             ZhangDataTypeExportable::export(self.pad),
         ]
         .join(" ");
-        append_meta(self.meta, line)
+        append_meta_as(self.meta, line, QuoteStyle::Beancount)
     }
 }
 

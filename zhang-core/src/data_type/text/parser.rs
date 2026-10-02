@@ -17,9 +17,10 @@ use nom::combinator::{map, map_res, opt, recognize, value};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
-use snailquote::unescape;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
+
+use crate::utils::string_::{invalid_escape_at, quoted_string};
 
 /// Error returned when the input cannot be parsed as zhang's text format.
 #[derive(Debug, Clone)]
@@ -90,26 +91,13 @@ fn unquote_string_raw(i: &str) -> IResult<&str, &str> {
     take_while1(|c: char| !matches!(c, '"' | ':' | '(' | ')' | ',' | ' ' | '\t' | '\n' | '\r'))(i)
 }
 
-/// A single literal character or escape sequence inside a quoted string.
-fn string_char(i: &str) -> IResult<&str, &str> {
-    alt((
-        recognize(pair(
-            char('\\'),
-            alt((
-                recognize(one_of("\"\\/bfnrt")),
-                recognize(tuple((char('u'), char('{'), take_while_m_n(4, 4, |c: char| c.is_ascii_hexdigit()), char('}')))),
-                recognize(pair(char('u'), take_while_m_n(4, 4, |c: char| c.is_ascii_hexdigit()))),
-            )),
-        )),
-        recognize(satisfy(|c: char| c != '"' && c != '\\')),
-    ))(i)
-}
-
-/// `quote_string = "\"" inner "\""`, unescaped via `snailquote`.
+/// `quote_string = "\"" inner "\""`, decoded by [`quoted_string`]: only `\"` and
+/// `\\` must be escaped, unknown escapes such as `\d` are kept verbatim and the
+/// escapes older zhang versions wrote (`\$`, `` \` ``, `\u{a0}`) are still read. A
+/// malformed `\u` escape is a [`nom::Err::Failure`] at its backslash. See
+/// [`crate::utils::string_`] for the full rules.
 fn quote_string(i: &str) -> IResult<&str, ZhangString> {
-    let (rest, raw) = recognize(tuple((char('"'), many0(string_char), char('"'))))(i)?;
-    let unescaped = unescape(raw).expect("string contains invalid escape char");
-    Ok((rest, ZhangString::QuoteString(unescaped)))
+    map(quoted_string, ZhangString::QuoteString)(i)
 }
 
 /// `string = unquote_string | quote_string`
@@ -875,7 +863,10 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
         }
 
         let start = offset(original, rest);
-        let (next, directive) = content_item(rest).map_err(|_| error_at(original, rest, "unexpected input"))?;
+        let (next, directive) = content_item(rest).map_err(|err| match invalid_escape_at(&err) {
+            Some(escape) => error_at(original, escape, "invalid escape sequence"),
+            None => error_at(original, rest, "unexpected input"),
+        })?;
 
         // Defensive: every successful item must make progress.
         if offset(original, next) == start {
@@ -1642,6 +1633,128 @@ mod test {
             assert!(matches!(directive, Directive::BudgetClose(..)));
             if let Directive::BudgetClose(inner) = directive {
                 assert_eq!(inner.name, "Diet");
+            }
+        }
+    }
+
+    /// String escaping (issue #442); the rules live in `crate::utils::string_`.
+    mod escaping {
+        use zhang_ast::Directive;
+
+        use crate::data_type::text::parser::parse;
+        use crate::data_type::text::parser::test::get_txn;
+        use crate::utils::string_::test::{random_string, XorShift};
+
+        fn narration(quoted: &str) -> String {
+            let content = format!("2024-01-01 * {quoted}\n  Assets:Cash -5 CNY\n  Expenses:Food\n");
+            get_txn(&content).narration.unwrap().to_plain_string()
+        }
+
+        fn query_text(content: &str) -> String {
+            match parse(content, None).unwrap().pop().unwrap().data {
+                Directive::Query(query) => query.query_string.to_plain_string(),
+                other => panic!("expected a query directive, got {other:?}"),
+            }
+        }
+
+        fn parse_error(content: &str) -> String {
+            parse(content, None).expect_err(content).to_string()
+        }
+
+        #[test]
+        fn should_keep_an_unknown_escape_in_a_query_verbatim() {
+            let expected = r"SELECT narration WHERE narration ~ '\d+'";
+            assert_eq!(query_text(r#"2014-01-01 query "x" "SELECT narration WHERE narration ~ '\d+'""#), expected);
+            // the doubled backslash the docs used to require still reads the same
+            assert_eq!(query_text(r#"2014-01-01 query "x" "SELECT narration WHERE narration ~ '\\d+'""#), expected);
+        }
+
+        #[test]
+        fn should_read_strings_written_by_the_new_exporter() {
+            assert_eq!(narration(r#""coffee $5""#), "coffee $5");
+            assert_eq!(narration("\"SELECT\u{a0}account\u{2028}😀 你好\""), "SELECT\u{a0}account\u{2028}😀 你好");
+            assert_eq!(narration(r#""a \"quote\" and a \\ backslash""#), r#"a "quote" and a \ backslash"#);
+            assert_eq!(narration(r#""tab\there\u0007""#), "tab\there\u{07}");
+        }
+
+        #[test]
+        fn should_read_escapes_written_by_older_versions() {
+            assert_eq!(narration(r#""coffee \$5""#), "coffee $5");
+            assert_eq!(narration(r#""run \`ls\`""#), "run `ls`");
+            assert_eq!(narration(r#""a\u{a0}b""#), "a\u{a0}b");
+            assert_eq!(narration(r#""smile \u{1F600}""#), "smile 😀");
+            assert_eq!(narration(r#""line\u{2028}separator""#), "line\u{2028}separator");
+            assert_eq!(narration(r#""\a\v\e\b\f""#), "\u{07}\u{0b}\u{1b}\u{08}\u{0c}");
+            assert_eq!(
+                query_text(r#"2014-01-01 query "q" "SELECT\u{a0}account""#),
+                "SELECT\u{a0}account",
+                "the separator escape from issue #442"
+            );
+        }
+
+        #[test]
+        fn should_report_a_malformed_escape_at_the_escape() {
+            for escape in [r"\u{110000}", r"\u{D800}", r"\uZZZZ", r"\u{}", r"\uD800"] {
+                let line = format!(r#"2024-01-01 note Assets:Cash "bad {escape} escape""#);
+                let column = line.find('\\').unwrap() + 1;
+                let error = parse_error(&format!("2024-01-01 open Assets:Cash\n{line}\n"));
+                assert_eq!(
+                    error,
+                    format!("failed to parse zhang file: invalid escape sequence at line 2, column {column}"),
+                    "{escape}"
+                );
+            }
+        }
+
+        #[test]
+        fn should_reject_an_unterminated_string_without_panicking() {
+            // a lone backslash before the closing quote escapes the quote, so the string never ends
+            for content in [
+                "2024-01-01 note Assets:Cash \"abc\\",
+                "2024-01-01 note Assets:Cash \"abc\\\"\n",
+                "2024-01-01 open Assets:Cash\n2024-01-01 note Assets:Cash \"abc\\\"\n2024-01-02 open Assets:Bank\n",
+            ] {
+                assert!(
+                    parse_error(content).starts_with("failed to parse zhang file: unexpected input at line"),
+                    "{content:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn a_ledger_with_an_unknown_escape_in_a_saved_query_loads() {
+            use std::sync::Arc;
+
+            use crate::data_source::LocalFileSystemDataSource;
+            use crate::data_type::text::ZhangDataType;
+            use crate::ledger::Ledger;
+
+            let temp_dir = tempfile::tempdir().unwrap();
+            std::fs::write(
+                temp_dir.path().join("main.zhang"),
+                "2014-01-01 query \"x\" \"SELECT narration WHERE narration ~ '\\d+'\"\n",
+            )
+            .unwrap();
+            let source = LocalFileSystemDataSource::new(ZhangDataType {});
+            let ledger = Ledger::load_with_data_source(temp_dir.path().to_path_buf(), "main.zhang".to_string(), Arc::new(source)).unwrap();
+            let queries = ledger.operations().queries().unwrap();
+            assert_eq!(queries.len(), 1);
+            assert_eq!(queries[0].query, r"SELECT narration WHERE narration ~ '\d+'");
+        }
+
+        #[test]
+        fn should_never_panic_on_random_string_bodies() {
+            let mut rng = XorShift::new(0x0bad_5eed);
+            for _ in 0..5000 {
+                // random raw bodies, including stray quotes, backslashes and broken escapes
+                let mut body = random_string(&mut rng);
+                if rng.below(3) == 0 {
+                    let escapes = [r"\u{", r"\u{D800}", r"\u{110000}", r"\u12", r"\uDBFF\u", r"\", r"\d", r"\u{1F600}"];
+                    body.push_str(escapes[rng.below(escapes.len())]);
+                }
+                let content = format!("2024-01-01 * \"{body}\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n");
+                let _ = parse(&content, None);
+                let _ = parse(&format!("2024-01-01 query \"q\" \"{body}"), None);
             }
         }
     }
