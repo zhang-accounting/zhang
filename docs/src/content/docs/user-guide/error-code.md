@@ -127,6 +127,7 @@ Triggered when operations are performed on an account that has not been defined 
 **Correct Case:**
 ```zhang
 1970-01-01 open Assets:DefinedAccount
+1970-01-01 open Expenses:Misc
 1970-01-01 * "Payee" "Transaction for defined account"
     Assets:DefinedAccount  -100 USD
     Expenses:Misc  100 USD
@@ -134,12 +135,16 @@ Triggered when operations are performed on an account that has not been defined 
 
 **Solution:** Define the account using the `open` directive before referencing it in transactions or other operations.
 
+Every posting of a transaction is checked: a posting to an account that was never opened, or that is only opened later than the transaction, reports this error once per account and transaction, with the account in its `account_name` meta. A `note` on such an account reports it too. The transaction is still booked, so fix the account name or add the missing `open`.
+
 ## AccountClosed
 
 Occurs when attempting to perform operations on a closed account. Ensure the account is open or reopen it before performing transactions.
 
 **Example of Error:**
 ```zhang
+1970-01-01 open Assets:ClosedAccount
+1970-01-01 open Expenses:Misc
 1970-01-01 close Assets:ClosedAccount
 1970-01-02 * "Payee" "Transaction for closed account"
     Assets:ClosedAccount  -100 USD
@@ -149,12 +154,15 @@ Occurs when attempting to perform operations on a closed account. Ensure the acc
 **Correct Case:**
 ```zhang
 1970-01-01 open Assets:ReopenedAccount
+1970-01-01 open Expenses:Misc
 1970-01-02 * "Payee" "Transaction for reopened account"
     Assets:ReopenedAccount  -100 USD
     Expenses:Misc  100 USD
 ```
 
 **Solution:** Reopen the account using the `open` directive if necessary before conducting transactions.
+
+Every posting of a transaction is checked, once per account and transaction. As in beancount, an account stays usable through the whole day of its `close`: only a transaction dated after that day reports this error. The transaction is still booked. A `note` may follow the `close` without an error.
 
 ## CommodityDoesNotDefine
 
