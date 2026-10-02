@@ -589,6 +589,12 @@ fn generated_budget_months_are_bounded_by_the_result_budget_and_the_deadline() {
     // 100 budgets of 9000 years of months would be 10.8 million rows
     let err = compiled.execute_at(&ledger, &Params::new(), today()).unwrap_err();
     assert_eq!(err.kind, QueryErrorKind::TooLarge, "{}", err.message);
+    // the error names the cause instead of suggesting a filter, which cannot help
+    assert_eq!(
+        err.message,
+        "the #budgets table would generate too many rows (10800000 months in all, more than the result size limit): \
+         budget 'b0' runs from 1000-01 until 9999-12 because of a transaction dated 9999-12-31 (main.zhang); check that date"
+    );
     let options = |timeout, max_result_values| ExecuteOptions {
         today: Some(today()),
         timeout,
@@ -607,4 +613,57 @@ fn generated_budget_months_are_bounded_by_the_result_budget_and_the_deadline() {
     text.push_str("9999-12-31 * \"a typo\"\n  Expenses:Food 1 CNY\n  Assets:Bank\n1000-01-01 budget b CNY\n");
     let ledger = common::load_text(&text);
     assert_eq!(run(&ledger, "SELECT count(*) FROM #budgets WHERE year = 2024"), rows(&[&["12"]]));
+}
+
+/// A typo such as 2204 for 2024 on one transaction or budget directive makes the months of
+/// `#budgets` too many for the result budget; the error says which budget, which directive and
+/// which file, so the user can fix the date.
+#[test]
+fn too_many_budget_months_name_the_directive_that_sets_the_end() {
+    let options = ExecuteOptions {
+        today: Some(today()),
+        timeout: None,
+        max_result_values: Some(1_000),
+    };
+    let message = |text: &str| {
+        let ledger = common::load_text(text);
+        let err = Query::compile("SELECT name, available FROM #budgets WHERE date = 2024-06-01")
+            .unwrap()
+            .execute_with_options(&ledger, &Params::new(), &options)
+            .unwrap_err();
+        assert_eq!(err.kind, QueryErrorKind::TooLarge, "{}", err.message);
+        err.message
+    };
+    let header = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Bank\n1970-01-01 open Expenses:Food\n  budget: food\n\
+                  2024-01-01 budget food CNY\n2024-01-01 budget fun CNY\n2024-01-01 budget-add food 100 CNY\n\
+                  2024-02-01 * \"Market\"\n  Expenses:Food 10 CNY\n  Assets:Bank\n";
+
+    let typo = format!("{}2204-05-01 * \"Market\"\n  Expenses:Food 10 CNY\n  Assets:Bank\n", header);
+    assert_eq!(
+        message(&typo),
+        "the #budgets table would generate too many rows (4330 months in all, more than the result size limit): \
+         budget 'food' runs from 2024-01 until 2204-05 because of a transaction dated 2204-05-01 (main.zhang); check that date"
+    );
+
+    let typo = format!("{}2204-05-01 budget-close fun\n", header);
+    assert_eq!(
+        message(&typo),
+        "the #budgets table would generate too many rows (2167 months in all, more than the result size limit): \
+         budget 'fun' runs from 2024-01 until 2204-05 because of a budget-close dated 2204-05-01 (main.zhang); check that date"
+    );
+
+    let typo = format!("{}2204-05-01 budget-add food 10 CNY\n", header);
+    assert!(
+        message(&typo).ends_with("budget 'food' runs from 2024-01 until 2204-05 because of a budget-add dated 2204-05-01 (main.zhang); check that date"),
+        "{}",
+        message(&typo)
+    );
+
+    // without the typo, the same query is small
+    let ledger = common::load_text(header);
+    let result = Query::compile("SELECT name, available FROM #budgets WHERE date = 2024-02-01")
+        .unwrap()
+        .execute_with_options(&ledger, &Params::new(), &options)
+        .unwrap();
+    assert_eq!(result.rows.len(), 2);
 }

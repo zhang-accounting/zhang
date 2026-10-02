@@ -34,7 +34,9 @@
 //!   a transaction or a budget directive could still ask for a very long series: every
 //!   generated row is charged to the result budget and the deadline is checked while they are
 //!   built (see [`Limits`]), so such a query stops with a "too large" or "time limit" error
-//!   instead of exhausting memory.
+//!   instead of exhausting memory. Filters run after the rows are generated, so advice to
+//!   narrow the query would not help: the "too large" error names the budget with the longest
+//!   series and the directive whose date ends it, which is where the typo usually is.
 //! - **Months are dates.** `date` is the first day of the month, so the date literals,
 //!   comparisons and functions of the other tables work (`WHERE date >= 2024-01-01`), and
 //!   `year` and `month` are there for grouping, as in the `postings` table.
@@ -55,13 +57,13 @@ use std::rc::Rc;
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Months, NaiveDate};
 use zhang_ast::amount::Amount;
-use zhang_ast::{Directive, Meta};
+use zhang_ast::{Directive, Meta, Spanned};
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{BudgetDomain, BudgetIntervalDetail, Store};
 
-use super::{ColumnDef, Limits, Record, Rows, Table};
-use crate::error::LocatedError;
+use super::{ledger_file, ColumnDef, Limits, Record, Rows, Table};
+use crate::error::{LocatedError, QueryErrorKind};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
@@ -144,28 +146,67 @@ fn first_of_month(date: NaiveDate) -> NaiveDate {
     date.with_day(1).expect("every month has a first day")
 }
 
+/// The month series of one budget.
+struct Series<'a> {
+    budget: &'a BudgetDomain,
+    /// the months zhang recorded a detail for, in order
+    details: Vec<(NaiveDate, &'a BudgetIntervalDetail)>,
+    end: NaiveDate,
+    /// the directive whose date sets `end`
+    end_by: Option<&'a Spanned<Directive>>,
+    /// the first month the budget is closed in; `Some(None)` for a close without a date
+    closed_from: Option<Option<NaiveDate>>,
+}
+
+impl Series<'_> {
+    fn first(&self) -> NaiveDate {
+        self.details[0].0
+    }
+
+    fn months(&self) -> u64 {
+        let index = |month: NaiveDate| i64::from(month.year()) * 12 + i64::from(month.month0());
+        u64::try_from(index(self.end) - index(self.first()) + 1).unwrap_or(0)
+    }
+}
+
 fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection, limits: &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError> {
-    // the ledger's last month with a transaction, and the `budget` and `budget-close`
-    // directives of each budget
-    let mut last_transaction: Option<NaiveDate> = None;
+    // the ledger's last transaction, and the directives of each budget: the metadata of its
+    // `budget` directive, the date of its close and its latest directive
+    let mut last_transaction: Option<(NaiveDate, &Spanned<Directive>)> = None;
     let mut metas: HashMap<&str, &Meta> = HashMap::new();
     let mut close_dates: HashMap<&str, NaiveDate> = HashMap::new();
+    let mut latest: HashMap<&str, (NaiveDate, &Spanned<Directive>)> = HashMap::new();
+    let mut seen = |name: &'a str, date: NaiveDate, directive: &'a Spanned<Directive>| {
+        if latest.get(name).is_none_or(|(it, _)| *it <= date) {
+            latest.insert(name, (date, directive));
+        }
+    };
     for directive in &ledger.directives {
         match &directive.data {
             Directive::Transaction(transaction) => {
-                last_transaction = last_transaction.max(Some(transaction.date.naive_date()));
+                let date = transaction.date.naive_date();
+                if last_transaction.is_none_or(|(it, _)| it <= date) {
+                    last_transaction = Some((date, directive));
+                }
             }
             Directive::Budget(budget) => {
                 metas.entry(budget.name.as_str()).or_insert(&budget.meta);
+                seen(&budget.name, budget.date.naive_date(), directive);
+            }
+            Directive::BudgetAdd(add) => seen(&add.name, add.date.naive_date(), directive),
+            Directive::BudgetTransfer(transfer) => {
+                seen(&transfer.from, transfer.date.naive_date(), directive);
+                seen(&transfer.to, transfer.date.naive_date(), directive);
             }
             Directive::BudgetClose(close) => {
                 let date = close.date.naive_date();
                 close_dates.entry(close.name.as_str()).and_modify(|it| *it = (*it).min(date)).or_insert(date);
+                seen(&close.name, date, directive);
             }
             _ => {}
         }
     }
-    let last_transaction_month = last_transaction.map(first_of_month);
+    let last_transaction_month = last_transaction.map(|(date, _)| first_of_month(date));
 
     let mut accounts: HashMap<&str, BTreeSet<String>> = HashMap::new();
     if projects(projection, "accounts") {
@@ -178,42 +219,52 @@ fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection, limits
 
     let mut budgets = store.budgets.values().collect::<Vec<_>>();
     budgets.sort_by(|a, b| a.name.cmp(&b.name));
+    let all = budgets
+        .into_iter()
+        .filter_map(|budget| {
+            let details = budget
+                .detail
+                .values()
+                .filter_map(|detail| Some((month_of(detail.date)?, detail)))
+                .collect::<Vec<_>>();
+            let last = details.last()?.0;
+            // zhang records a close, but not when; the `budget-close` directive has the date
+            let closed_from = budget.closed.then(|| close_dates.get(budget.name.as_str()).map(|date| first_of_month(*date)));
+            // the budget's own last month (its details cover the months of its `budget`,
+            // `budget-add` and `budget-transfer` directives and of its spending), its close,
+            // and the last month with a transaction
+            let end = [Some(last), closed_from.flatten(), last_transaction_month].into_iter().flatten().max()?;
+            let end_by = if last_transaction_month == Some(end) {
+                last_transaction.map(|(_, directive)| directive)
+            } else {
+                latest.get(budget.name.as_str()).map(|(_, directive)| *directive)
+            };
+            Some(Series {
+                budget,
+                details,
+                end,
+                end_by,
+                closed_from,
+            })
+        })
+        .collect::<Vec<_>>();
 
     let mut records = vec![];
-    for budget in budgets {
-        let details = budget
-            .detail
-            .values()
-            .filter_map(|detail| Some((month_of(detail.date)?, detail)))
-            .collect::<Vec<_>>();
-        let (Some((first, _)), Some((last, _))) = (details.first(), details.last()) else {
-            continue;
-        };
-        // zhang records a close, but not when; the `budget-close` directive has the date
-        let close_month = budget.closed.then(|| close_dates.get(budget.name.as_str()).map(|date| first_of_month(*date)));
-        // the budget's own last month (its details cover the months of its `budget`,
-        // `budget-add` and `budget-transfer` directives and of its spending), its close, and
-        // the last month with a transaction
-        let end = [Some(*last), close_month.flatten(), last_transaction_month]
-            .into_iter()
-            .flatten()
-            .max()
-            .unwrap_or(*last);
-        let budget_accounts = Rc::new(accounts.remove(budget.name.as_str()).unwrap_or_default());
-        let meta = metas.get(budget.name.as_str()).copied();
-
+    for one in &all {
+        let budget_accounts = Rc::new(accounts.remove(one.budget.name.as_str()).unwrap_or_default());
+        let meta = metas.get(one.budget.name.as_str()).copied();
         let mut next = 0;
-        let mut month = *first;
-        while month <= end {
-            limits.row()?;
-            while next < details.len() && details[next].0 <= month {
+        let mut month = one.first();
+        while month <= one.end {
+            limits.row().map_err(|err| too_many_months(err, ledger, &all))?;
+            while next < one.details.len() && one.details[next].0 <= month {
                 next += 1;
             }
             records.push(Record::Budget(BudgetMonth {
-                budget,
+                budget: one.budget,
                 month,
-                detail: details[next - 1].1,
-                closed: close_month.is_some_and(|from| from.is_none_or(|from| from <= month)),
+                detail: one.details[next - 1].1,
+                closed: one.closed_from.is_some_and(|from| from.is_none_or(|from| from <= month)),
                 accounts: Rc::clone(&budget_accounts),
                 meta,
             }));
@@ -224,6 +275,54 @@ fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection, limits
         }
     }
     Ok(records)
+}
+
+/// The error of a series too long for the result budget. Its rows are generated before any
+/// filter runs, so the generic advice to narrow the query cannot help: name the budget with
+/// the longest series and the directive whose date sets its end, which is usually a typo.
+fn too_many_months(err: LocatedError, ledger: &Ledger, all: &[Series<'_>]) -> LocatedError {
+    if err.kind != QueryErrorKind::TooLarge {
+        return err;
+    }
+    let total = all.iter().map(Series::months).sum::<u64>();
+    let Some(longest) = all.iter().rev().max_by_key(|series| series.months()) else {
+        return err;
+    };
+    let month = |date: NaiveDate| date.format("%Y-%m").to_string();
+    let cause = longest
+        .end_by
+        .and_then(|directive| {
+            let kind = match &directive.data {
+                Directive::Transaction(_) => "a transaction",
+                Directive::Budget(_) => "its budget directive",
+                Directive::BudgetAdd(_) => "a budget-add",
+                Directive::BudgetTransfer(_) => "a budget-transfer",
+                Directive::BudgetClose(_) => "a budget-close",
+                _ => return None,
+            };
+            let date = directive.datetime()?.date();
+            let file = directive
+                .span
+                .filename
+                .as_deref()
+                .map(|path| format!(" ({})", ledger_file(ledger, path).display()))
+                .unwrap_or_default();
+            Some(format!(" because of {} dated {}{}; check that date", kind, date, file))
+        })
+        .unwrap_or_default();
+    LocatedError {
+        kind: QueryErrorKind::TooLarge,
+        message: format!(
+            "the #budgets table would generate too many rows ({} months in all, more than the result size limit): \
+             budget '{}' runs from {} until {}{}",
+            total,
+            longest.budget.name,
+            month(longest.first()),
+            month(longest.end),
+            cause
+        ),
+        span: None,
+    }
 }
 
 /// Whether the column `name` of this table is projected.

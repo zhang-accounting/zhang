@@ -40,6 +40,7 @@ mod prices;
 use std::cell::OnceCell;
 use std::collections::HashMap;
 use std::fmt;
+use std::path::Path;
 
 use chrono::NaiveDate;
 use zhang_ast::amount::Amount;
@@ -314,6 +315,18 @@ pub(crate) fn render_meta(meta: Option<&Meta>) -> Value {
         .collect::<Vec<_>>()
         .join(", ");
     Value::Str(text)
+}
+
+/// The file `path` of the ledger, relative to the ledger's directory as the UI's file list
+/// names it (also trying the directory of the entry file, for a ledger whose directory was
+/// not given in canonical form), or the full path if it is outside.
+pub(crate) fn ledger_file<'a>(ledger: &'a Ledger, path: &'a Path) -> &'a Path {
+    [Some(ledger.entry.0.as_path()), ledger.visited_files.first().and_then(|it| it.parent())]
+        .into_iter()
+        .flatten()
+        .find_map(|root| path.strip_prefix(root).ok())
+        .filter(|it| !it.as_os_str().is_empty())
+        .unwrap_or(path)
 }
 
 /// The metadata of a directive.

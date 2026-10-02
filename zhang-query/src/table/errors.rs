@@ -35,7 +35,7 @@ use zhang_core::domains::schemas::ErrorDomain;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
-use super::{ColumnDef, Record, Rows, Table};
+use super::{ledger_file, ColumnDef, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
@@ -90,24 +90,16 @@ pub(crate) fn message(kind: &ErrorKind) -> &'static str {
 }
 
 fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
-    // the directory the UI's file list names files relative to, and the directory of the
-    // entry file, for a ledger whose directory was not given in canonical form
-    let roots = [Some(ledger.entry.0.as_path()), ledger.visited_files.first().and_then(|it| it.parent())];
-    let relative = |path: &'a Path| -> &'a Path {
-        roots
-            .iter()
-            .flatten()
-            .find_map(|root| path.strip_prefix(root).ok())
-            .filter(|it| !it.as_os_str().is_empty())
-            .unwrap_or(path)
-    };
-
     let mut errors = store
         .errors
         .iter()
         .map(|error| LedgerError {
             error,
-            file: error.span.as_ref().and_then(|span| span.filename.as_deref()).map(relative),
+            file: error
+                .span
+                .as_ref()
+                .and_then(|span| span.filename.as_deref())
+                .map(|path| ledger_file(ledger, path)),
             date: None,
         })
         .collect::<Vec<_>>();
