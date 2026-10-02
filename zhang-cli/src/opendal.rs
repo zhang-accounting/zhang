@@ -204,7 +204,7 @@ impl DataSource for OpendalDataSource {
     }
 
     async fn async_save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
-        info!("[opendal] save content path={}", &path);
+        info!("[opendal] save content path={}", path);
         let vec = content.to_vec();
 
         self.operator.write(&path, vec).await.expect("cannot write");
