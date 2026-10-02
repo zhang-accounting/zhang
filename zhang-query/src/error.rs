@@ -24,6 +24,8 @@ pub enum QueryErrorKind {
     Compile,
     /// a runtime failure while evaluating rows (e.g. integer overflow)
     Eval,
+    /// the execution ran longer than its time limit
+    Timeout,
 }
 
 /// An error produced while parsing, compiling or executing a query.

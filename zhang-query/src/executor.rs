@@ -1,128 +1,168 @@
 //! Evaluation of a [`Plan`] over a [`Dataset`].
 
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::collections::HashSet;
+use std::sync::OnceLock;
+use std::time::{Duration as StdDuration, Instant};
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Duration, NaiveDate};
 use indexmap::IndexMap;
+use regex::Regex;
 use zhang_ast::amount::Amount;
 
 use crate::compiler::{build_regex, AggregateCall, ArithOp, CExpr, CmpOp, Plan, RegexPattern};
 use crate::decimal;
-use crate::error::LocatedError;
-use crate::functions::{AggregateKind, FunctionContext};
+use crate::error::{LocatedError, QueryErrorKind, Span};
+use crate::functions::{AggregateKind, FunctionContext, ScalarFunction};
 use crate::params::Params;
 use crate::prices::PriceMap;
 use crate::table::{Dataset, Row};
 use crate::value::{Inventory, Value};
 
+/// How many rows are scanned between two deadline checks.
+const DEADLINE_CHECK_INTERVAL: usize = 256;
+
+/// How many dynamic (per-row) regular expressions are kept compiled.
+const REGEX_CACHE_SIZE: usize = 32;
+
+/// Compiled regular expressions for patterns only known per row (e.g. `x ~ :pattern` or
+/// `x ~ narration`), most recently used first.
+#[derive(Default)]
+pub(crate) struct RegexCache {
+    entries: RefCell<Vec<(String, bool, Regex)>>,
+}
+
+impl RegexCache {
+    fn get(&self, pattern: &str, case_insensitive: bool) -> Result<Regex, String> {
+        let mut entries = self.entries.borrow_mut();
+        if let Some(idx) = entries.iter().position(|(p, ci, _)| p == pattern && *ci == case_insensitive) {
+            let entry = entries.remove(idx);
+            let regex = entry.2.clone();
+            entries.insert(0, entry);
+            return Ok(regex);
+        }
+        let regex = build_regex(pattern, case_insensitive)?;
+        entries.insert(0, (pattern.to_owned(), case_insensitive, regex.clone()));
+        entries.truncate(REGEX_CACHE_SIZE);
+        Ok(regex)
+    }
+}
+
 /// The evaluation environment of one expression evaluation.
 #[derive(Clone, Copy)]
 pub(crate) struct Env<'e, 'a> {
-    pub data: &'e Dataset<'a>,
+    /// the rows and lookups of this execution; `None` while folding constants at compile time
+    pub data: Option<&'e Dataset<'a>>,
     /// the current row; `None` when evaluating finished aggregates
     pub row: Option<&'e Row<'a>>,
     /// finished aggregate values of the current group
     pub aggregates: &'e [Value],
     pub params: &'e Params,
+    pub regexes: &'e RegexCache,
+    /// set when an expression reads the execution context; folding then gives up
+    pub impure: &'e Cell<bool>,
+}
+
+fn empty_prices() -> &'static PriceMap {
+    static EMPTY: OnceLock<PriceMap> = OnceLock::new();
+    EMPTY.get_or_init(PriceMap::default)
 }
 
 impl FunctionContext for Env<'_, '_> {
     fn today(&self) -> NaiveDate {
-        self.data.today
+        match self.data {
+            Some(data) => data.today,
+            None => {
+                self.impure.set(true);
+                NaiveDate::default()
+            }
+        }
     }
 
     fn prices(&self) -> &PriceMap {
-        self.data.prices()
+        match self.data {
+            Some(data) => data.prices(),
+            None => {
+                self.impure.set(true);
+                empty_prices()
+            }
+        }
     }
 
     fn entry_meta(&self, key: &str) -> Option<String> {
-        self.row.and_then(|row| self.data.entry_meta(row, key))
+        self.impure.set(self.impure.get() || self.data.is_none());
+        self.data.zip(self.row).and_then(|(data, row)| data.entry_meta(row, key))
     }
 
     fn posting_meta(&self, key: &str) -> Option<String> {
-        self.row.and_then(|row| self.data.posting_meta(row, key))
+        self.impure.set(self.impure.get() || self.data.is_none());
+        self.data.zip(self.row).and_then(|(data, row)| data.posting_meta(row, key))
+    }
+}
+
+/// Evaluate a constant expression at compile time; `None` when it reads the execution
+/// context (today, prices, metadata) or fails (the error is then raised when it runs).
+pub(crate) fn eval_constant(expr: &CExpr) -> Option<Value> {
+    let params = Params::new();
+    let regexes = RegexCache::default();
+    let impure = Cell::new(false);
+    let env = Env {
+        data: None,
+        row: None,
+        aggregates: &[],
+        params: &params,
+        regexes: &regexes,
+        impure: &impure,
+    };
+    let value = expr.eval(&env).ok()?;
+    if impure.get() {
+        None
+    } else {
+        Some(value)
     }
 }
 
 impl CExpr {
+    /// Evaluate. This recurses once per tree level, so it only dispatches and keeps its stack
+    /// frame small; the work of each node kind lives in separate functions.
     pub(crate) fn eval(&self, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
-        Ok(match self {
-            CExpr::Const(value) => value.clone(),
-            CExpr::Column(def) => match env.row {
-                Some(row) => (def.get)(env.data, row),
-                None => return Err(LocatedError::eval(format!("column '{}' is not available here", def.name), None)),
+        match self {
+            CExpr::Const(value) => Ok(value.clone()),
+            CExpr::Column(def) => match (env.data, env.row) {
+                (Some(data), Some(row)) => Ok((def.get)(data, row)),
+                _ => Err(LocatedError::eval(format!("column '{}' is not available here", def.name), None)),
             },
-            CExpr::Param(param) => env.params.get(param).cloned().unwrap_or(Value::Null),
-            CExpr::Scalar { function, args, span } => {
-                let mut values = Vec::with_capacity(args.len());
-                for arg in args {
-                    let value = arg.eval(env)?;
-                    if value.is_null() {
-                        return Ok(Value::Null);
-                    }
-                    values.push(value);
-                }
-                (function.eval)(&values, env).map_err(|message| LocatedError::eval(format!("{}(): {}", function.name, message), Some(*span)))?
-            }
-            CExpr::Aggregate(idx) => env.aggregates.get(*idx).cloned().unwrap_or(Value::Null),
-            CExpr::WidenInt(inner) => match inner.eval(env)? {
-                Value::Int(it) => Value::Decimal(BigDecimal::from(it)),
-                other => other,
-            },
-            CExpr::Neg(inner, span) => match inner.eval(env)? {
-                Value::Null => Value::Null,
-                Value::Int(it) => Value::Int(it.checked_neg().ok_or_else(|| LocatedError::eval("integer overflow", Some(*span)))?),
-                Value::Decimal(it) => Value::Decimal(-it),
-                Value::Amount(it) => Value::Amount(-it),
-                Value::Position(it) => Value::Position(-it),
-                Value::Inventory(it) => Value::Inventory(-it),
-                other => return Err(LocatedError::eval(format!("cannot negate {}", other.data_type()), Some(*span))),
-            },
-            // three-valued logic: NOT NULL is NULL
-            CExpr::Not(inner) => match inner.eval(env)? {
-                Value::Bool(it) => Value::Bool(!it),
-                _ => Value::Null,
-            },
+            CExpr::Param(param) => Ok(env.params.get(param).cloned().unwrap_or(Value::Null)),
+            CExpr::Scalar { function, args, span } => eval_scalar(function, args, *span, env),
+            CExpr::Aggregate(idx) => Ok(env.aggregates.get(*idx).cloned().unwrap_or(Value::Null)),
+            CExpr::WidenInt(inner) => Ok(widen_int(inner.eval(env)?)),
+            CExpr::Neg(inner, span) => negate(inner.eval(env)?, *span),
+            CExpr::Not(inner) => Ok(not(inner.eval(env)?)),
             CExpr::And(left, right) => {
                 let left = left.eval(env)?;
                 if matches!(left, Value::Bool(false)) {
                     return Ok(Value::Bool(false));
                 }
-                match (left, right.eval(env)?) {
-                    (_, Value::Bool(false)) => Value::Bool(false),
-                    (Value::Bool(true), Value::Bool(true)) => Value::Bool(true),
-                    _ => Value::Null,
-                }
+                Ok(and(left, right.eval(env)?))
             }
             CExpr::Or(left, right) => {
                 let left = left.eval(env)?;
                 if matches!(left, Value::Bool(true)) {
                     return Ok(Value::Bool(true));
                 }
-                match (left, right.eval(env)?) {
-                    (_, Value::Bool(true)) => Value::Bool(true),
-                    (Value::Bool(false), Value::Bool(false)) => Value::Bool(false),
-                    _ => Value::Null,
-                }
+                Ok(or(left, right.eval(env)?))
             }
             CExpr::Arith { op, left, right, span } => {
-                arithmetic(*op, left.eval(env)?, right.eval(env)?).map_err(|message| LocatedError::eval(message, Some(*span)))?
+                let left = left.eval(env)?;
+                let right = right.eval(env)?;
+                arithmetic(*op, left, right).map_err(|message| LocatedError::eval(message, Some(*span)))
             }
             CExpr::Compare { op, left, right } => {
-                let (left, right) = (left.eval(env)?, right.eval(env)?);
-                if left.is_null() || right.is_null() {
-                    return Ok(Value::Null);
-                }
-                Value::Bool(match op {
-                    CmpOp::Eq => left == right,
-                    CmpOp::Ne => left != right,
-                    CmpOp::Lt => left.sort_cmp(&right) == Ordering::Less,
-                    CmpOp::Le => left.sort_cmp(&right) != Ordering::Greater,
-                    CmpOp::Gt => left.sort_cmp(&right) == Ordering::Greater,
-                    CmpOp::Ge => left.sort_cmp(&right) != Ordering::Less,
-                })
+                let left = left.eval(env)?;
+                let right = right.eval(env)?;
+                Ok(compare(*op, &left, &right))
             }
             CExpr::Regex {
                 subject,
@@ -131,56 +171,131 @@ impl CExpr {
                 span,
             } => {
                 let subject = subject.eval(env)?;
-                let Value::Str(subject) = subject else {
-                    return Ok(Value::Null);
-                };
-                let matched = match pattern {
-                    RegexPattern::Static(regex) => regex.is_match(&subject),
-                    RegexPattern::Dynamic { expr, case_insensitive } => {
-                        let Value::Str(pattern) = expr.eval(env)? else {
-                            return Ok(Value::Null);
-                        };
-                        build_regex(&pattern, *case_insensitive)
-                            .map_err(|message| LocatedError::eval(message, Some(*span)))?
-                            .is_match(&subject)
-                    }
-                };
-                Value::Bool(matched != *negated)
+                eval_regex(subject, pattern, *negated, *span, env)
             }
             CExpr::InSet { needle, set, negated } => {
-                let (needle, set) = (needle.eval(env)?, set.eval(env)?);
-                match (needle, set) {
-                    (Value::Str(needle), Value::Set(set)) => Value::Bool(set.contains(&needle) != *negated),
-                    _ => Value::Null,
-                }
+                let needle = needle.eval(env)?;
+                let set = set.eval(env)?;
+                Ok(in_set(needle, set, *negated))
             }
             CExpr::InList { needle, items, negated } => {
                 let needle = needle.eval(env)?;
-                if needle.is_null() {
-                    return Ok(Value::Null);
-                }
-                let mut saw_null = false;
-                let mut found = false;
-                for item in items {
-                    let item = item.eval(env)?;
-                    if item.is_null() {
-                        saw_null = true;
-                    } else if item == needle {
-                        found = true;
-                        break;
-                    }
-                }
-                if found {
-                    Value::Bool(!*negated)
-                } else if saw_null {
-                    Value::Null
-                } else {
-                    Value::Bool(*negated)
-                }
+                eval_in_list(needle, items, *negated, env)
             }
-            CExpr::IsNull { expr, negated } => Value::Bool(expr.eval(env)?.is_null() != *negated),
-        })
+            CExpr::IsNull { expr, negated } => Ok(Value::Bool(expr.eval(env)?.is_null() != *negated)),
+        }
     }
+}
+
+fn eval_scalar(function: &ScalarFunction, args: &[CExpr], span: Span, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
+    let mut values = Vec::with_capacity(args.len());
+    for arg in args {
+        let value = arg.eval(env)?;
+        if value.is_null() {
+            return Ok(Value::Null);
+        }
+        values.push(value);
+    }
+    (function.eval)(&values, env).map_err(|message| LocatedError::eval(format!("{}(): {}", function.name, message), Some(span)))
+}
+
+fn widen_int(value: Value) -> Value {
+    match value {
+        Value::Int(it) => Value::Decimal(BigDecimal::from(it)),
+        other => other,
+    }
+}
+
+fn negate(value: Value, span: Span) -> Result<Value, LocatedError> {
+    Ok(match value {
+        Value::Null => Value::Null,
+        Value::Int(it) => Value::Int(it.checked_neg().ok_or_else(|| LocatedError::eval("integer overflow", Some(span)))?),
+        Value::Decimal(it) => Value::Decimal(-it),
+        Value::Amount(it) => Value::Amount(-it),
+        Value::Position(it) => Value::Position(-it),
+        Value::Inventory(it) => Value::Inventory(-it),
+        other => return Err(LocatedError::eval(format!("cannot negate {}", other.data_type()), Some(span))),
+    })
+}
+
+/// three-valued logic: NOT NULL is NULL
+fn not(value: Value) -> Value {
+    match value {
+        Value::Bool(it) => Value::Bool(!it),
+        _ => Value::Null,
+    }
+}
+
+fn and(left: Value, right: Value) -> Value {
+    match (left, right) {
+        (_, Value::Bool(false)) | (Value::Bool(false), _) => Value::Bool(false),
+        (Value::Bool(true), Value::Bool(true)) => Value::Bool(true),
+        _ => Value::Null,
+    }
+}
+
+fn or(left: Value, right: Value) -> Value {
+    match (left, right) {
+        (_, Value::Bool(true)) | (Value::Bool(true), _) => Value::Bool(true),
+        (Value::Bool(false), Value::Bool(false)) => Value::Bool(false),
+        _ => Value::Null,
+    }
+}
+
+fn compare(op: CmpOp, left: &Value, right: &Value) -> Value {
+    if left.is_null() || right.is_null() {
+        return Value::Null;
+    }
+    Value::Bool(match op {
+        CmpOp::Eq => left == right,
+        CmpOp::Ne => left != right,
+        CmpOp::Lt => left.sort_cmp(right) == Ordering::Less,
+        CmpOp::Le => left.sort_cmp(right) != Ordering::Greater,
+        CmpOp::Gt => left.sort_cmp(right) == Ordering::Greater,
+        CmpOp::Ge => left.sort_cmp(right) != Ordering::Less,
+    })
+}
+
+fn eval_regex(subject: Value, pattern: &RegexPattern, negated: bool, span: Span, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
+    let Value::Str(subject) = subject else {
+        return Ok(Value::Null);
+    };
+    let matched = match pattern {
+        RegexPattern::Static(regex) => regex.is_match(&subject),
+        RegexPattern::Dynamic { expr, case_insensitive } => {
+            let Value::Str(pattern) = expr.eval(env)? else {
+                return Ok(Value::Null);
+            };
+            env.regexes
+                .get(&pattern, *case_insensitive)
+                .map_err(|message| LocatedError::eval(message, Some(span)))?
+                .is_match(&subject)
+        }
+    };
+    Ok(Value::Bool(matched != negated))
+}
+
+fn in_set(needle: Value, set: Value, negated: bool) -> Value {
+    match (needle, set) {
+        (Value::Str(needle), Value::Set(set)) => Value::Bool(set.contains(&needle) != negated),
+        _ => Value::Null,
+    }
+}
+
+fn eval_in_list(needle: Value, items: &[CExpr], negated: bool, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
+    if needle.is_null() {
+        return Ok(Value::Null);
+    }
+    let mut saw_null = false;
+    for item in items {
+        let item = item.eval(env)?;
+        if item.is_null() {
+            saw_null = true;
+        } else if item == needle {
+            return Ok(Value::Bool(!negated));
+        }
+    }
+    Ok(if saw_null { Value::Null } else { Value::Bool(negated) })
 }
 
 fn arithmetic(op: ArithOp, left: Value, right: Value) -> Result<Value, String> {
@@ -318,21 +433,54 @@ fn passes(filter: &Option<CExpr>, env: &Env<'_, '_>) -> Result<bool, LocatedErro
     }
 }
 
+/// A wall-clock limit for one execution, checked every [`DEADLINE_CHECK_INTERVAL`] rows.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Deadline {
+    at: Instant,
+    limit: StdDuration,
+}
+
+impl Deadline {
+    pub fn after(limit: StdDuration) -> Self {
+        Deadline {
+            at: Instant::now() + limit,
+            limit,
+        }
+    }
+
+    fn check(deadline: Option<&Deadline>, counter: usize) -> Result<(), LocatedError> {
+        match deadline {
+            Some(deadline) if counter.is_multiple_of(DEADLINE_CHECK_INTERVAL) && Instant::now() >= deadline.at => Err(LocatedError {
+                kind: QueryErrorKind::Timeout,
+                message: format!("the query was stopped because it ran longer than the {:?} time limit", deadline.limit),
+                span: None,
+            }),
+            _ => Ok(()),
+        }
+    }
+}
+
 /// Run the plan and return the visible columns of the result rows.
-pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params) -> Result<Vec<Vec<Value>>, LocatedError> {
+pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline: Option<Deadline>) -> Result<Vec<Vec<Value>>, LocatedError> {
+    let regexes = RegexCache::default();
+    let impure = Cell::new(false);
     let base = Env {
-        data,
+        data: Some(data),
         row: None,
         aggregates: &[],
         params,
+        regexes: &regexes,
+        impure: &impure,
     };
+    let deadline = deadline.as_ref();
     let mut rows: Vec<Vec<Value>> = vec![];
 
     match &plan.group_keys {
         None => {
             // without sorting or de-duplication LIMIT can stop the scan early
             let early_limit = if plan.order.is_empty() && !plan.distinct { plan.limit } else { None };
-            for row in &data.rows {
+            for (counter, row) in data.rows.iter().enumerate() {
+                Deadline::check(deadline, counter)?;
                 if early_limit.is_some_and(|limit| rows.len() as u64 >= limit) {
                     break;
                 }
@@ -345,7 +493,8 @@ pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params) -> Resul
         }
         Some(keys) => {
             let mut groups: IndexMap<Vec<Value>, Vec<Accumulator>> = IndexMap::new();
-            for row in &data.rows {
+            for (counter, row) in data.rows.iter().enumerate() {
+                Deadline::check(deadline, counter)?;
                 let env = Env { row: Some(row), ..base };
                 if !passes(&plan.filter, &env)? {
                     continue;
@@ -356,7 +505,8 @@ pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params) -> Resul
                     accumulator.update(call, &env)?;
                 }
             }
-            for (key, accumulators) in groups {
+            for (counter, (key, accumulators)) in groups.into_iter().enumerate() {
+                Deadline::check(deadline, counter)?;
                 let finished = accumulators.into_iter().map(Accumulator::finish).collect::<Vec<_>>();
                 let env = Env { aggregates: &finished, ..base };
                 let mut out = Vec::with_capacity(plan.targets.len());
@@ -370,6 +520,7 @@ pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params) -> Resul
             }
         }
     }
+    Deadline::check(deadline, 0)?;
 
     if !plan.order.is_empty() {
         rows.sort_by(|a, b| {

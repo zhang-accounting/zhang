@@ -454,3 +454,123 @@ fn schema_lists_columns_and_functions() {
     assert!(schema.functions.iter().any(|it| it.signature == "first(any) -> any"));
     assert!(schema.functions.iter().all(|it| !it.description.is_empty()));
 }
+
+/// Run `f` on a thread with the default 2 MiB stack, as tokio's blocking pool does.
+fn on_small_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(f)
+        .unwrap()
+        .join()
+        .expect("the query thread crashed")
+}
+
+fn run_on_small_stack(sql: String, params: Params) -> Result<Vec<Vec<Value>>, QueryError> {
+    on_small_stack(move || {
+        let compiled = Query::compile_with_params(&sql, &params.types())?;
+        Ok(compiled.execute_at(ledger(), &params, today())?.rows)
+    })
+}
+
+#[test]
+fn deeply_nested_queries_are_rejected_without_crashing() {
+    let max = zhang_query::MAX_DEPTH;
+    for sql in [
+        format!("SELECT {}1{}", "(".repeat(10_000), ")".repeat(10_000)),
+        format!("SELECT count(*) WHERE {}TRUE", "NOT ".repeat(5_000)),
+        format!("SELECT {}1", "- ".repeat(10_000)),
+        format!("SELECT 1{}", " - 1".repeat(10_000)),
+        format!("SELECT {}1{}", "root(".repeat(5_000), ")".repeat(5_000)),
+        format!("SELECT 1 IN {}1{}", "(".repeat(5_000), ")".repeat(5_000)),
+        format!("SELECT {}1{}", "(".repeat(max + 1), ")".repeat(max + 1)),
+    ] {
+        let err = run_on_small_stack(sql.clone(), Params::new()).expect_err(&sql[..40]);
+        assert_eq!(err.kind, QueryErrorKind::Parse, "{}", err);
+        assert!(err.message.contains("nested too deeply"), "{}", err);
+        assert!(err.line.is_some() && err.column.is_some());
+    }
+}
+
+#[test]
+fn nesting_up_to_the_limit_still_runs_on_a_small_stack() {
+    let max = zhang_query::MAX_DEPTH;
+    let depth = max - 8;
+    let rows = run_on_small_stack(format!("SELECT {}1{} LIMIT 1", "(".repeat(depth), ")".repeat(depth)), Params::new()).unwrap();
+    assert_eq!(rows, vec![vec![Value::Int(1)]]);
+    let rows = run_on_small_stack(format!("SELECT count(*) WHERE {}TRUE", "NOT NOT ".repeat(depth / 2)), Params::new()).unwrap();
+    assert_eq!(rows, vec![vec![Value::Int(18)]]);
+    let rows = run_on_small_stack(format!("SELECT 0{} LIMIT 1", " - 1".repeat(depth)), Params::new()).unwrap();
+    assert_eq!(rows, vec![vec![Value::Int(-(depth as i64))]]);
+    let rows = run_on_small_stack(
+        format!("SELECT {}account{} LIMIT 1", "root(".repeat(depth), ", 9)".repeat(depth)),
+        Params::new(),
+    )
+    .unwrap();
+    assert_eq!(rows, vec![vec![Value::from("Assets:Bank")]]);
+}
+
+#[test]
+fn long_or_and_plus_chains_are_balanced() {
+    // 10,000 chained ORs: a balanced tree, evaluated on a small stack
+    let sql = format!("SELECT count(*) WHERE {}account = 'Assets:Bank'", ":n OR ".repeat(9_999));
+    assert!(sql.len() < zhang_query::MAX_QUERY_LENGTH);
+    let rows = run_on_small_stack(sql, Params::new().bind("n", false)).unwrap();
+    assert_eq!(rows, vec![vec![Value::Int(8)]]);
+
+    // a realistic list of accounts
+    let accounts = (0..2_000).map(|idx| format!("account = 'Expenses:X{}'", idx)).collect::<Vec<_>>().join(" OR ");
+    let rows = run_on_small_stack(format!("SELECT count(*) WHERE {} OR account = 'Expenses:Food'", accounts), Params::new()).unwrap();
+    assert_eq!(rows, vec![vec![Value::Int(2)]]);
+
+    let rows = run_on_small_stack(format!("SELECT 0{} LIMIT 1", " + 1".repeat(10_000)), Params::new()).unwrap();
+    assert_eq!(rows, vec![vec![Value::Int(10_000)]]);
+    let rows = run_on_small_stack(format!("SELECT count(*) WHERE TRUE{}", " AND TRUE".repeat(5_000)), Params::new()).unwrap();
+    assert_eq!(rows, vec![vec![Value::Int(18)]]);
+}
+
+#[test]
+fn overlong_queries_are_rejected() {
+    let sql = format!("SELECT count(*) WHERE {}TRUE", "TRUE OR ".repeat(9_000));
+    let err = run_on_small_stack(sql, Params::new()).unwrap_err();
+    assert_eq!(err.kind, QueryErrorKind::Parse);
+    assert!(err.message.contains("too long"), "{}", err);
+}
+
+#[test]
+fn constant_patterns_and_parameters_compile_their_regex_once() {
+    // folded at compile time: a static regex
+    assert_eq!(one("SELECT count(*) WHERE account ~ ('^Expenses' + ':Food')"), "2");
+    // invalid constant patterns are reported at compile time, at the pattern
+    let err = error("SELECT * WHERE account ~ ('(' + '')");
+    assert_eq!(err.kind, QueryErrorKind::Compile);
+    // a bound parameter is compiled once per execution
+    let rows = run_on_small_stack("SELECT count(*) WHERE account ~ :p".to_owned(), Params::new().bind("p", "^Expenses")).unwrap();
+    assert_eq!(rows, vec![vec![Value::Int(3)]]);
+    // per-row patterns work and are cached
+    assert_eq!(one("SELECT count(*) WHERE account ~ (root(account, 1) + ':')"), "18");
+    // oversized patterns are rejected instead of compiled
+    let err = try_query("SELECT count(*) WHERE account ~ (narration + 'x{1000}{1000}')").unwrap_err();
+    assert_eq!(err.kind, QueryErrorKind::Eval);
+    assert!(err.message.contains("regular expression"), "{}", err);
+    let err = error("SELECT count(*) WHERE account ~ 'x{1000}{1000}'");
+    assert!(err.message.contains("size limit"), "{}", err);
+}
+
+#[test]
+fn executions_stop_at_their_deadline() {
+    let compiled = Query::compile("SELECT account, count(*) GROUP BY account").unwrap();
+    let options = zhang_query::ExecuteOptions {
+        today: Some(today()),
+        timeout: Some(std::time::Duration::ZERO),
+    };
+    let err = compiled.execute_with_options(ledger(), &Params::new(), &options).unwrap_err();
+    assert_eq!(err.kind, QueryErrorKind::Timeout);
+    assert!(err.message.contains("time limit"), "{}", err);
+    assert_eq!((err.line, err.column), (None, None));
+
+    let options = zhang_query::ExecuteOptions {
+        today: Some(today()),
+        timeout: Some(std::time::Duration::from_secs(60)),
+    };
+    assert_eq!(compiled.execute_with_options(ledger(), &Params::new(), &options).unwrap().rows.len(), 7);
+}

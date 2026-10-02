@@ -55,12 +55,15 @@ pub mod prices;
 pub mod table;
 pub mod value;
 
+use std::time::Duration;
+
 use chrono::{NaiveDate, Utc};
 pub use zhang_ast::amount::Amount;
 use zhang_core::ledger::Ledger;
 
 pub use crate::error::{QueryError, QueryErrorKind};
 pub use crate::params::{ParamRef, ParamTypes, Params};
+pub use crate::parser::{MAX_DEPTH, MAX_QUERY_LENGTH};
 pub use crate::prices::PriceMap;
 pub use crate::value::{Cost, DataType, Inventory, Position, Value};
 
@@ -116,17 +119,39 @@ impl Query {
             .collect()
     }
 
-    /// Execute against a ledger. `today()` is the current date in the ledger's timezone.
+    /// Execute against a ledger, with `today()` read from the system clock in the ledger's
+    /// timezone and the [`DEFAULT_TIMEOUT`].
     ///
     /// This reads the system clock; on targets without one (e.g. `wasm32-unknown-unknown`)
     /// use [`Query::execute_at`].
     pub fn execute(&self, ledger: &Ledger, params: &Params) -> Result<QueryResult, QueryError> {
-        let today = Utc::now().with_timezone(&ledger.options.timezone).date_naive();
-        self.execute_at(ledger, params, today)
+        self.execute_with_options(
+            ledger,
+            params,
+            &ExecuteOptions {
+                today: None,
+                timeout: Some(DEFAULT_TIMEOUT),
+            },
+        )
     }
 
-    /// Execute against a ledger with a fixed date for `today()`.
+    /// Execute against a ledger with a fixed date for `today()` and no time limit. It never
+    /// reads the clock.
     pub fn execute_at(&self, ledger: &Ledger, params: &Params, today: NaiveDate) -> Result<QueryResult, QueryError> {
+        self.execute_with_options(
+            ledger,
+            params,
+            &ExecuteOptions {
+                today: Some(today),
+                timeout: None,
+            },
+        )
+    }
+
+    /// Execute against a ledger with explicit [`ExecuteOptions`].
+    pub fn execute_with_options(&self, ledger: &Ledger, params: &Params, options: &ExecuteOptions) -> Result<QueryResult, QueryError> {
+        // start the clock before building the rows, which is part of the work
+        let deadline = options.timeout.map(executor::Deadline::after);
         for (param, declared, span) in &self.plan.params {
             let located = |message: String| error::LocatedError::compile(message, *span).resolve(&self.source);
             match params.get(param) {
@@ -142,14 +167,29 @@ impl Query {
                 Some(_) => {}
             }
         }
+        let today = options.today.unwrap_or_else(|| Utc::now().with_timezone(&ledger.options.timezone).date_naive());
         let store = ledger
             .store
             .read()
             .map_err(|_| QueryError::new(QueryErrorKind::Eval, "the ledger store is not readable"))?;
         let data = table::Dataset::new(ledger, &store, today);
-        let rows = executor::execute(&self.plan, &data, params).map_err(|err| err.resolve(&self.source))?;
+        let rows = executor::execute(&self.plan, &data, params, deadline).map_err(|err| err.resolve(&self.source))?;
         Ok(QueryResult { columns: self.columns(), rows })
     }
+}
+
+/// The time limit [`Query::execute`] applies.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Options of one execution.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExecuteOptions {
+    /// the date returned by `today()`; `None` reads the system clock in the ledger's timezone
+    pub today: Option<NaiveDate>,
+    /// stop with a [`QueryErrorKind::Timeout`] error once the execution has run this long
+    /// (checked every few hundred rows); `None` for no limit. A limit reads the monotonic
+    /// clock, so leave it `None` on targets without one.
+    pub timeout: Option<Duration>,
 }
 
 /// Compile and execute a query without parameters.

@@ -165,15 +165,7 @@ impl Compiler<'_> {
         let target_exprs: Vec<(Expr, Option<String>)> = match &select.targets {
             Targets::Wildcard => WILDCARD_COLUMNS
                 .iter()
-                .map(|name| {
-                    (
-                        Expr {
-                            kind: ExprKind::Column((*name).to_owned()),
-                            span: Span::default(),
-                        },
-                        Some((*name).to_owned()),
-                    )
-                })
+                .map(|name| (Expr::new(ExprKind::Column((*name).to_owned()), Span::default()), Some((*name).to_owned())))
                 .collect(),
             Targets::List(targets) => targets.iter().map(|it| (it.expr.clone(), it.alias.clone())).collect(),
         };
@@ -336,135 +328,108 @@ impl Compiler<'_> {
         Ok(targets.len() - 1)
     }
 
+    /// Compile an expression. This function recurses once per tree level, so it only
+    /// dispatches: the work of each node kind lives in separate functions to keep its stack
+    /// frame small (the parser bounds the tree height by [`crate::MAX_DEPTH`]).
     fn expr(&mut self, expr: &Expr, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
         let span = expr.span;
-        match &expr.kind {
-            ExprKind::Literal(literal) => Ok(match literal {
-                Literal::Null => (CExpr::Const(Value::Null), DataType::Null),
-                Literal::Bool(it) => (CExpr::Const(Value::Bool(*it)), DataType::Bool),
-                Literal::Int(it) => (CExpr::Const(Value::Int(*it)), DataType::Int),
-                Literal::Decimal(it) => (CExpr::Const(Value::Decimal(it.clone())), DataType::Decimal),
-                Literal::Str(it) => (CExpr::Const(Value::Str(it.clone())), DataType::Str),
-                Literal::Date(it) => (CExpr::Const(Value::Date(*it)), DataType::Date),
-            }),
-            ExprKind::Param(param) => match self.param_types.get(param) {
-                Some(ty) => {
-                    self.params.push((param.clone(), ty, span));
-                    Ok((CExpr::Param(param.clone()), ty))
-                }
-                None => err(format!("parameter {} is not bound", param), span),
-            },
-            ExprKind::Column(name) => match column(name) {
-                Some(def) => {
-                    if info.bare_column.is_none() {
-                        info.bare_column = Some((def.name.to_owned(), span));
-                    }
-                    Ok((CExpr::Column(def), def.ty))
-                }
-                None => {
-                    let hint = if crate::functions::SCALAR_FUNCTIONS.iter().any(|it| it.name == name) || is_aggregate(name) {
-                        format!("; did you mean {}(...)?", name)
-                    } else {
-                        String::new()
-                    };
-                    err(format!("unknown column '{}'{}", name, hint), span)
-                }
-            },
-            ExprKind::Call { name, args, star } => {
-                if is_aggregate(name) {
-                    return self.aggregate(name, args, *star, span, mode, info);
-                }
-                if *star {
-                    return err(format!("{}(*) is not supported; only count(*) is", name), span);
-                }
-                let mut compiled = vec![];
-                let mut types = vec![];
-                for arg in args {
-                    let (c, ty) = self.expr(arg, mode, info)?;
-                    compiled.push(c);
-                    types.push(ty);
-                }
-                let resolved = resolve_scalar(name, &types).map_err(|message| LocatedError::compile(message, span))?;
-                let args = widen(compiled, &resolved.widen);
-                let ty = resolved.function.returns.resolve(&types);
-                Ok((
-                    CExpr::Scalar {
-                        function: resolved.function,
-                        args,
-                        span,
-                    },
-                    ty,
-                ))
+        let typed = match &expr.kind {
+            ExprKind::Literal(literal) => return Ok(literal_value(literal)),
+            ExprKind::Param(param) => return self.param(param, span),
+            ExprKind::Column(name) => return column_ref(name, span, info),
+            ExprKind::Call { name, args, star } => self.call(name, args, *star, span, mode, info)?,
+            ExprKind::Unary(op, inner) => {
+                let operand = self.expr(inner, mode, info)?;
+                unary(*op, operand, inner.span, span)?
             }
-            ExprKind::Unary(UnaryOp::Neg, inner) => {
-                let (compiled, ty) = self.expr(inner, mode, info)?;
-                match ty {
-                    DataType::Null | DataType::Int | DataType::Decimal | DataType::Amount | DataType::Position | DataType::Inventory => {
-                        Ok((CExpr::Neg(Box::new(compiled), span), ty))
-                    }
-                    _ => err(format!("cannot negate a value of type {}", ty), span),
-                }
+            ExprKind::Binary(op, left, right) => {
+                let left_typed = self.expr(left, mode, info)?;
+                let right_typed = self.expr(right, mode, info)?;
+                self.binary(*op, left_typed, left, right_typed, right, span)?
             }
-            ExprKind::Unary(UnaryOp::Not, inner) => {
-                let (compiled, ty) = self.expr(inner, mode, info)?;
-                expect_bool("NOT", ty, inner.span)?;
-                Ok((CExpr::Not(Box::new(compiled)), DataType::Bool))
-            }
-            ExprKind::Binary(op, left, right) => self.binary(*op, left, right, span, mode, info),
-            ExprKind::In { needle, haystack, negated } => {
-                let (needle_c, needle_ty) = self.expr(needle, mode, info)?;
-                let negated = *negated;
-                let as_set = |set: CExpr, needle_c: CExpr| -> Result<Typed, LocatedError> {
-                    if !matches!(needle_ty, DataType::Str | DataType::Null) {
-                        return err(format!("IN over a set expects a string on the left, got {}", needle_ty), needle.span);
-                    }
-                    Ok((
-                        CExpr::InSet {
-                            needle: Box::new(needle_c),
-                            set: Box::new(set),
-                            negated,
-                        },
-                        DataType::Bool,
-                    ))
-                };
-                match haystack {
-                    InTarget::Expr(set) => {
-                        let (set_c, set_ty) = self.expr(set, mode, info)?;
-                        if !matches!(set_ty, DataType::Set | DataType::Null) {
-                            return err(format!("IN expects a set (such as tags) or a parenthesized list, got {}", set_ty), set.span);
-                        }
-                        as_set(set_c, needle_c)
-                    }
-                    InTarget::List(items) => {
-                        let mut compiled = vec![];
-                        for item in items {
-                            let (item_c, item_ty) = self.expr(item, mode, info)?;
-                            if items.len() == 1 && item_ty == DataType::Set {
-                                return as_set(item_c, needle_c);
-                            }
-                            let (needle_ok, item_c) = coerce_comparable(needle_ty, item_c, item_ty, item.span)?;
-                            if !needle_ok {
-                                return err(format!("cannot compare {} with {} in IN list", needle_ty, item_ty), item.span);
-                            }
-                            compiled.push(item_c);
-                        }
-                        Ok((
-                            CExpr::InList {
-                                needle: Box::new(needle_c),
-                                items: compiled,
-                                negated,
-                            },
-                            DataType::Bool,
-                        ))
-                    }
-                }
-            }
+            ExprKind::In { needle, haystack, negated } => self.in_expr(needle, haystack, *negated, mode, info)?,
             ExprKind::IsNull { expr: inner, negated } => {
                 let (compiled, _) = self.expr(inner, mode, info)?;
-                Ok((
+                (
                     CExpr::IsNull {
                         expr: Box::new(compiled),
                         negated: *negated,
+                    },
+                    DataType::Bool,
+                )
+            }
+        };
+        Ok(fold_constants(typed))
+    }
+
+    fn param(&mut self, param: &ParamRef, span: Span) -> Result<Typed, LocatedError> {
+        match self.param_types.get(param) {
+            Some(ty) => {
+                self.params.push((param.clone(), ty, span));
+                Ok((CExpr::Param(param.clone()), ty))
+            }
+            None => err(format!("parameter {} is not bound", param), span),
+        }
+    }
+
+    fn call(&mut self, name: &str, args: &[Expr], star: bool, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+        if is_aggregate(name) {
+            return self.aggregate(name, args, star, span, mode, info);
+        }
+        if star {
+            return err(format!("{}(*) is not supported; only count(*) is", name), span);
+        }
+        let mut compiled = Vec::with_capacity(args.len());
+        let mut types = Vec::with_capacity(args.len());
+        for arg in args {
+            let (c, ty) = self.expr(arg, mode, info)?;
+            compiled.push(c);
+            types.push(ty);
+        }
+        scalar_call(name, compiled, &types, span)
+    }
+
+    fn in_expr(&mut self, needle: &Expr, haystack: &InTarget, negated: bool, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+        let (needle_c, needle_ty) = self.expr(needle, mode, info)?;
+        let as_set = |set: CExpr, needle_c: CExpr| -> Result<Typed, LocatedError> {
+            if !matches!(needle_ty, DataType::Str | DataType::Null) {
+                return err(format!("IN over a set expects a string on the left, got {}", needle_ty), needle.span);
+            }
+            Ok((
+                CExpr::InSet {
+                    needle: Box::new(needle_c),
+                    set: Box::new(set),
+                    negated,
+                },
+                DataType::Bool,
+            ))
+        };
+        match haystack {
+            InTarget::Expr(set) => {
+                let (set_c, set_ty) = self.expr(set, mode, info)?;
+                if !matches!(set_ty, DataType::Set | DataType::Null) {
+                    return err(format!("IN expects a set (such as tags) or a parenthesized list, got {}", set_ty), set.span);
+                }
+                as_set(set_c, needle_c)
+            }
+            InTarget::List(items) => {
+                let mut compiled = vec![];
+                for item in items {
+                    let (item_c, item_ty) = self.expr(item, mode, info)?;
+                    if items.len() == 1 && item_ty == DataType::Set {
+                        return as_set(item_c, needle_c);
+                    }
+                    let (needle_ok, item_c) = coerce_comparable(needle_ty, item_c, item_ty, item.span)?;
+                    if !needle_ok {
+                        return err(format!("cannot compare {} with {} in IN list", needle_ty, item_ty), item.span);
+                    }
+                    compiled.push(item_c);
+                }
+                Ok((
+                    CExpr::InList {
+                        needle: Box::new(needle_c),
+                        items: compiled,
+                        negated,
                     },
                     DataType::Bool,
                 ))
@@ -495,9 +460,11 @@ impl Compiler<'_> {
         Ok((CExpr::Aggregate(self.aggregates.len() - 1), ty))
     }
 
-    fn binary(&mut self, op: BinaryOp, left: &Expr, right: &Expr, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
-        let (left_c, left_ty) = self.expr(left, mode, info)?;
-        let (right_c, right_ty) = self.expr(right, mode, info)?;
+    /// Type-check a binary operator over already compiled operands; `left` and `right` are
+    /// only used for error positions.
+    fn binary(
+        &mut self, op: BinaryOp, (left_c, left_ty): Typed, left: &Expr, (right_c, right_ty): Typed, right: &Expr, span: Span,
+    ) -> Result<Typed, LocatedError> {
         match op {
             BinaryOp::And | BinaryOp::Or => {
                 expect_bool(op.symbol(), left_ty, left.span)?;
@@ -599,9 +566,110 @@ impl Compiler<'_> {
     }
 }
 
+fn literal_value(literal: &Literal) -> Typed {
+    match literal {
+        Literal::Null => (CExpr::Const(Value::Null), DataType::Null),
+        Literal::Bool(it) => (CExpr::Const(Value::Bool(*it)), DataType::Bool),
+        Literal::Int(it) => (CExpr::Const(Value::Int(*it)), DataType::Int),
+        Literal::Decimal(it) => (CExpr::Const(Value::Decimal(it.clone())), DataType::Decimal),
+        Literal::Str(it) => (CExpr::Const(Value::Str(it.clone())), DataType::Str),
+        Literal::Date(it) => (CExpr::Const(Value::Date(*it)), DataType::Date),
+    }
+}
+
+fn column_ref(name: &str, span: Span, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+    match column(name) {
+        Some(def) => {
+            if info.bare_column.is_none() {
+                info.bare_column = Some((def.name.to_owned(), span));
+            }
+            Ok((CExpr::Column(def), def.ty))
+        }
+        None => {
+            let hint = if crate::functions::SCALAR_FUNCTIONS.iter().any(|it| it.name == name) || is_aggregate(name) {
+                format!("; did you mean {}(...)?", name)
+            } else {
+                String::new()
+            };
+            err(format!("unknown column '{}'{}", name, hint), span)
+        }
+    }
+}
+
+fn scalar_call(name: &str, args: Vec<CExpr>, types: &[DataType], span: Span) -> Result<Typed, LocatedError> {
+    let resolved = resolve_scalar(name, types).map_err(|message| LocatedError::compile(message, span))?;
+    let ty = resolved.function.returns.resolve(types);
+    Ok((
+        CExpr::Scalar {
+            function: resolved.function,
+            args: widen(args, &resolved.widen),
+            span,
+        },
+        ty,
+    ))
+}
+
+fn unary(op: UnaryOp, (compiled, ty): Typed, operand_span: Span, span: Span) -> Result<Typed, LocatedError> {
+    match op {
+        UnaryOp::Neg => match ty {
+            DataType::Null | DataType::Int | DataType::Decimal | DataType::Amount | DataType::Position | DataType::Inventory => {
+                Ok((CExpr::Neg(Box::new(compiled), span), ty))
+            }
+            _ => err(format!("cannot negate a value of type {}", ty), span),
+        },
+        UnaryOp::Not => {
+            expect_bool("NOT", ty, operand_span)?;
+            Ok((CExpr::Not(Box::new(compiled)), DataType::Bool))
+        }
+    }
+}
+
+/// Evaluate a node whose operands are all constants once, at compile time, unless it reads
+/// anything from the execution (today, prices, the row): `account ~ ('^Ex' + 'penses')`
+/// then compiles its regular expression only once.
+fn fold_constants((expr, ty): Typed) -> Typed {
+    if !expr.is_foldable() {
+        return (expr, ty);
+    }
+    match crate::executor::eval_constant(&expr) {
+        Some(value) => (CExpr::Const(value), ty),
+        None => (expr, ty),
+    }
+}
+
+impl CExpr {
+    /// Whether this node computes something from constant operands only.
+    fn is_foldable(&self) -> bool {
+        let constant = |expr: &CExpr| matches!(expr, CExpr::Const(_));
+        match self {
+            CExpr::Const(_) | CExpr::Column(_) | CExpr::Param(_) | CExpr::Aggregate(_) => false,
+            CExpr::Scalar { args, .. } => args.iter().all(constant),
+            CExpr::WidenInt(inner) | CExpr::Neg(inner, _) | CExpr::Not(inner) => constant(inner),
+            CExpr::And(left, right) | CExpr::Or(left, right) => constant(left) && constant(right),
+            CExpr::Arith { left, right, .. } | CExpr::Compare { left, right, .. } => constant(left) && constant(right),
+            CExpr::Regex { subject, pattern, .. } => {
+                constant(subject)
+                    && match pattern {
+                        RegexPattern::Static(_) => true,
+                        RegexPattern::Dynamic { expr, .. } => constant(expr),
+                    }
+            }
+            CExpr::InSet { needle, set, .. } => constant(needle) && constant(set),
+            CExpr::InList { needle, items, .. } => constant(needle) && items.iter().all(constant),
+            CExpr::IsNull { expr, .. } => constant(expr),
+        }
+    }
+}
+
+/// Upper bound for the compiled size of one regular expression (the `regex` default is
+/// 10 MiB), so a single pattern cannot take much memory or compile time.
+const REGEX_SIZE_LIMIT: usize = 1 << 20;
+
 pub(crate) fn build_regex(pattern: &str, case_insensitive: bool) -> Result<Regex, String> {
     RegexBuilder::new(pattern)
         .case_insensitive(case_insensitive)
+        .size_limit(REGEX_SIZE_LIMIT)
+        .dfa_size_limit(REGEX_SIZE_LIMIT)
         .build()
         .map_err(|e| format!("invalid regular expression: {}", e))
 }
