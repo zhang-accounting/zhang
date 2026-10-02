@@ -7,7 +7,7 @@ use strum::{Display, EnumString};
 
 use crate::account::Account;
 use crate::amount::Amount;
-use crate::data::{Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Plugin, Price, Transaction};
+use crate::data::{Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Plugin, Price, Query, Transaction};
 use crate::error::ErrorKind;
 use crate::{BalanceCheck, BalancePad, Budget, BudgetAdd, BudgetClose, BudgetTransfer, Meta};
 
@@ -24,6 +24,7 @@ pub enum DirectiveType {
     Price,
     Event,
     Custom,
+    Query,
     Option,
     Plugin,
     Include,
@@ -48,6 +49,7 @@ pub enum Directive {
     Price(Price),
     Event(Event),
     Custom(Custom),
+    Query(Query),
     Option(Options),
     Plugin(Plugin),
     Include(Include),
@@ -73,6 +75,7 @@ impl Directive {
             Directive::Price(price) => Some(price.date.naive_datetime()),
             Directive::Event(event) => Some(event.date.naive_datetime()),
             Directive::Custom(custom) => Some(custom.date.naive_datetime()),
+            Directive::Query(query) => Some(query.date.naive_datetime()),
             Directive::Option(_) => None,
             Directive::Plugin(_) => None,
             Directive::Include(_) => None,
@@ -95,6 +98,7 @@ impl Directive {
             Directive::Price(_) => DirectiveType::Price,
             Directive::Event(_) => DirectiveType::Event,
             Directive::Custom(_) => DirectiveType::Custom,
+            Directive::Query(_) => DirectiveType::Query,
             Directive::Option(_) => DirectiveType::Option,
             Directive::Plugin(_) => DirectiveType::Plugin,
             Directive::Include(_) => DirectiveType::Include,
@@ -121,6 +125,7 @@ impl Directive {
             Directive::Price(ref mut directive) => directive.meta = meta,
             Directive::Event(ref mut directive) => directive.meta = meta,
             Directive::Custom(ref mut directive) => directive.meta = meta,
+            Directive::Query(ref mut directive) => directive.meta = meta,
             Directive::Budget(ref mut directive) => directive.meta = meta,
             Directive::BudgetAdd(ref mut directive) => directive.meta = meta,
             Directive::BudgetTransfer(ref mut directive) => directive.meta = meta,
@@ -147,6 +152,7 @@ impl Directive {
             Directive::Price(directive) => Some(&mut directive.meta),
             Directive::Event(directive) => Some(&mut directive.meta),
             Directive::Custom(directive) => Some(&mut directive.meta),
+            Directive::Query(directive) => Some(&mut directive.meta),
             Directive::Budget(directive) => Some(&mut directive.meta),
             Directive::BudgetAdd(directive) => Some(&mut directive.meta),
             Directive::BudgetTransfer(directive) => Some(&mut directive.meta),

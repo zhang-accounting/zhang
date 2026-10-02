@@ -1,0 +1,23 @@
+option "operating_currency" "CNY"
+option "title" "Saved queries"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Cash CNY
+1970-01-01 open Expenses:Food CNY
+
+include "queries.bean"
+
+2024-01-05 * "Bakery" "Bread"
+  Assets:Cash -10 CNY
+  Expenses:Food
+
+; a query that does not compile is stored anyway: saved queries are not validated at load time
+2024-01-01 query "draft" "SELECT account WHERE no_such_column = 1"
+
+2024-01-01 query "food" "SELECT date, payee, position WHERE account ~ '^Expenses:Food'"
+  owner: "alice"
+
+2024-02-01 query "food" "
+  SELECT payee, sum(position)
+  WHERE account ~ '^Expenses:Food'
+  GROUP BY payee"

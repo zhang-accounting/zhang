@@ -11,7 +11,7 @@ use uuid::Uuid;
 use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{AccountType, Currency, SpanInfo};
-use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, ErrorDomain, MetaDomain};
+use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, ErrorDomain, MetaDomain, QueryDomain};
 use zhang_core::plugin::PluginType;
 use zhang_core::store::{BudgetEvent, BudgetEventType, PostingDomain};
 
@@ -704,6 +704,34 @@ impl From<zhang_query::Schema> for QuerySchemaEntity {
                     aggregate: function.aggregate,
                 })
                 .collect(),
+        }
+    }
+}
+
+/// A named query saved in the ledger by a `query` directive (`GET /api/query/saved`).
+#[derive(Serialize, Schematic)]
+pub struct SavedQueryEntity {
+    pub name: String,
+    /// the query text, verbatim
+    pub query: String,
+    /// the directive's date, `YYYY-MM-DD`
+    pub date: NaiveDate,
+    /// whether the query compiles with the current engine; saved queries are never
+    /// validated at load time, so one written for a future feature is simply `false`
+    pub valid: bool,
+    /// why the query does not compile (with its position when known), `null` when valid
+    pub error: Nullable<String>,
+}
+
+impl From<QueryDomain> for SavedQueryEntity {
+    fn from(value: QueryDomain) -> Self {
+        let error = zhang_query::Query::compile(&value.query).err().map(|error| error.to_string());
+        SavedQueryEntity {
+            name: value.name,
+            query: value.query,
+            date: value.date,
+            valid: error.is_none(),
+            error: Nullable(error),
         }
     }
 }

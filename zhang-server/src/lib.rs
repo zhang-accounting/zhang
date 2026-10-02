@@ -118,6 +118,7 @@ impl GotchaApp for ServerApp {
             .get("/api/plugins", routes::plugin::plugin_list)
             .post("/api/query", routes::query::run_query)
             .get("/api/query/schema", routes::query::get_query_schema)
+            .get("/api/query/saved", routes::query::get_saved_queries)
             .layer(CorsLayer::permissive())
             .layer(DefaultBodyLimit::disable())
             .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */));

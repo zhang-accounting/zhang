@@ -253,6 +253,14 @@ impl ZhangDataTypeExportable for Event {
     }
 }
 
+impl ZhangDataTypeExportable for Query {
+    type Output = String;
+    fn export(self) -> String {
+        let line = [self.date.export(), "query".to_string(), self.name.export(), self.query_string.export()];
+        append_meta(self.meta, line.join(" "))
+    }
+}
+
 impl ZhangDataTypeExportable for Custom {
     type Output = String;
     fn export(self) -> String {
@@ -345,6 +353,7 @@ impl ZhangDataTypeExportable for Directive {
             Directive::Price(price) => price.export(),
             Directive::Event(event) => event.export(),
             Directive::Custom(custom) => custom.export(),
+            Directive::Query(query) => query.export(),
             Directive::Option(options) => options.export(),
             Directive::Plugin(plugin) => plugin.export(),
             Directive::Include(include) => include.export(),
@@ -602,6 +611,40 @@ mod test {
             1970-01-01 event "location" "China"
         "#}
         );
+    }
+
+    #[test]
+    fn query() {
+        assert_parse!(
+            "query directive",
+            indoc! {r#"
+            2024-01-01 query "france-balances" "SELECT account, sum(position) WHERE 'trip-france' IN tags"
+        "#}
+        );
+        assert_parse!(
+            "query directive with an unquoted name and metadata",
+            indoc! {r#"
+            2024-01-01 query monthly "SELECT year, month, sum(position) GROUP BY year, month"
+              category: "reports"
+              owner: "alice"
+        "#}
+        );
+        assert_parse!(
+            "query directive with escaped quotes",
+            indoc! {r#"
+            2024-01-01 query "by payee" "SELECT payee WHERE narration ~ \"coffee\""
+        "#}
+        );
+    }
+
+    #[test]
+    fn query_with_multi_line_text_round_trips() {
+        let data_type = ZhangDataType {};
+        let source = "2024-01-01 query \"q\" \"SELECT account,\n  sum(position)\n GROUP BY 1\"\n  owner: \"alice\"\n";
+        let directive = data_type.transform(source.to_owned(), None).unwrap().into_iter().next().unwrap();
+        let exported = data_type.export(directive.clone());
+        let reparsed = data_type.transform(exported, None).unwrap().into_iter().next().unwrap();
+        assert_eq!(directive.data, reparsed.data);
     }
 
     #[test]

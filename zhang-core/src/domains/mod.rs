@@ -16,7 +16,7 @@ use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, PostingCost, R
 
 use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType,
-    OptionDomain, PriceDomain, TransactionInfoDomain,
+    OptionDomain, PriceDomain, QueryDomain, TransactionInfoDomain,
 };
 use crate::inventory::{BookingMethod, TransactionInference};
 use crate::store::{
@@ -215,6 +215,19 @@ impl Operations {
             target_commodity: target_commodity.to_owned(),
         });
         Ok(())
+    }
+
+    /// insert a saved query; queries with the same name are all kept
+    pub(crate) fn insert_query(&mut self, date: NaiveDate, name: String, query: String) -> ZhangResult<()> {
+        let mut store = self.write();
+        store.queries.push(QueryDomain { date, name, query });
+        Ok(())
+    }
+
+    /// all saved queries, in ledger order (by date, then source order)
+    pub fn queries(&self) -> ZhangResult<Vec<QueryDomain>> {
+        let store = self.read();
+        Ok(store.queries.clone())
     }
 
     pub(crate) fn account_target_day_balance(&mut self, account_name: &str, datetime: DateTime<Tz>, currency: &str) -> ZhangResult<Option<Amount>> {
