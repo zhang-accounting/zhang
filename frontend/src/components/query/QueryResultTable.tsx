@@ -2,24 +2,13 @@ import { QueryAmount, QueryCost, QueryPosition, QueryResult } from '@/api/types'
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { isAmount, isInventory, isPosition } from '@/components/query/values';
+import { formatDecimal, isAmount, isInventory, isPosition } from '@/components/query/values';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 const MAX_RENDERED_ROWS = 1000;
 const NUMERIC_TYPES = new Set(['int', 'decimal', 'amount', 'position', 'inventory']);
-
-/**
- * Adds thousands separators to an exact decimal string without converting it to a float.
- * Values that are not plain decimals (e.g. scientific notation) are returned as-is.
- */
-function formatDecimal(value: string): string {
-  const match = /^([+-]?)(\d+)(\.\d+)?$/.exec(value);
-  if (!match) return value;
-  const [, sign, integer, fraction = ''] = match;
-  return `${sign === '-' ? '-' : ''}${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction}`;
-}
 
 function formatAmount(amount: QueryAmount): string {
   return `${formatDecimal(String(amount.number))} ${amount.currency}`;

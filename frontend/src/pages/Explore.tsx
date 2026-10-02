@@ -55,6 +55,24 @@ function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function QueryErrorBox({ title, error, onJump }: { title: string; error: QueryError; onJump: (error: QueryError) => void }) {
+  const { t } = useTranslation();
+  return (
+    <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2 font-medium text-destructive">
+        <CircleAlert className="h-4 w-4" />
+        {title}
+        {error.line !== null && (
+          <button type="button" className="text-xs font-normal underline underline-offset-2" onClick={() => onJump(error)}>
+            {error.column !== null ? t('query.error_position', { line: error.line, column: error.column }) : t('query.error_line', { line: error.line })}
+          </button>
+        )}
+      </div>
+      <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-xs text-destructive">{error.message}</pre>
+    </div>
+  );
+}
+
 export default function Explore() {
   const { t } = useTranslation();
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
@@ -70,6 +88,8 @@ export default function Explore() {
   const [outcome, setOutcome] = useState<QueryOutcome | null>(null);
   const [error, setError] = useState<QueryError | null>(null);
   const [exporting, setExporting] = useState(false);
+  // kept apart from `error`, so a failed export leaves the result on screen
+  const [exportError, setExportError] = useState<QueryError | null>(null);
   const [showChart, setShowChart] = useLocalStorage({ key: 'query-explore-show-chart', defaultValue: true, getInitialValueInEffect: false });
   const viewRef = useRef<EditorView | null>(null);
   const runningRef = useRef(false);
@@ -84,6 +104,7 @@ export default function Explore() {
     if (runningRef.current || text.trim() === '') return;
     runningRef.current = true;
     setRunning(true);
+    setExportError(null);
     const startedAt = performance.now();
     try {
       // the query is sent verbatim so that error positions match the editor content
@@ -108,14 +129,12 @@ export default function Explore() {
     const text = currentQuery();
     if (exporting || text.trim() === '') return;
     setExporting(true);
+    setExportError(null);
     try {
       const { blob, filename } = await exportQueryCsv(text);
       downloadBlob(blob, filename);
-      setError(null);
     } catch (e) {
-      // shown like a failed run, so the error position matches the editor content
-      setOutcome(null);
-      setError(toQueryError(e));
+      setExportError(toQueryError(e));
     } finally {
       setExporting(false);
     }
@@ -134,10 +153,10 @@ export default function Explore() {
     view.focus();
   };
 
-  const jumpToError = () => {
+  const jumpToError = (target: QueryError) => {
     const view = viewRef.current;
-    if (!view || !error) return;
-    const range = errorRangeOf(view.state.doc, error.line, error.column);
+    if (!view) return;
+    const range = errorRangeOf(view.state.doc, target.line, target.column);
     if (!range) return;
     view.dispatch({ selection: { anchor: range.from }, scrollIntoView: true });
     view.focus();
@@ -174,7 +193,7 @@ export default function Explore() {
           value={query}
           onChange={setQuery}
           onRun={runCurrent}
-          error={error}
+          error={error ?? exportError}
           placeholder={t('query.placeholder')}
           onCreateEditor={(view) => {
             viewRef.current = view;
@@ -213,20 +232,9 @@ export default function Explore() {
         )}
       </div>
 
-      {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm">
-          <div className="flex flex-wrap items-center gap-2 font-medium text-destructive">
-            <CircleAlert className="h-4 w-4" />
-            {t('query.error_title')}
-            {error.line !== null && (
-              <button type="button" className="text-xs font-normal underline underline-offset-2" onClick={jumpToError}>
-                {error.column !== null ? t('query.error_position', { line: error.line, column: error.column }) : t('query.error_line', { line: error.line })}
-              </button>
-            )}
-          </div>
-          <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-xs text-destructive">{error.message}</pre>
-        </div>
-      )}
+      {exportError && <QueryErrorBox title={t('query.export_error_title')} error={exportError} onJump={jumpToError} />}
+
+      {error && <QueryErrorBox title={t('query.error_title')} error={error} onJump={jumpToError} />}
 
       {outcome && chartKind && showChart && <QueryResultChart result={outcome.result} kind={chartKind} operatingCurrency={operatingCurrency} />}
 

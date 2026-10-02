@@ -1,6 +1,7 @@
-import { QueryResult } from '@/api/types';
-import { isAmount, isInventory, isPosition } from '@/components/query/values';
+// Relative imports with extensions and type-only imports keep this module runnable by `node --test` (chartData.test.ts).
+import type { QueryResult } from '@/api/types';
 import BigNumber from 'bignumber.js';
+import { isAmount, isInventory, isPosition } from './values.ts';
 
 /**
  * Automatic charts for query results, in the spirit of beanquery/Fava. Only two-column results are charted:
@@ -10,21 +11,46 @@ import BigNumber from 'bignumber.js';
  * - `(date, value)`: a line chart over time
  *
  * where `value` is an inventory, position, amount, decimal or int. Positions and inventories are plotted by their
- * units, one currency at a time. Values are summed exactly (BigNumber) and only converted to floats for plotting.
+ * units, one currency at a time. Values are kept exact (BigNumber plus the decimal scale of the source strings) and only
+ * converted to floats for plotting.
  */
 export type QueryChartKind = 'treemap' | 'bar' | 'line';
 
 const VALUE_TYPES = new Set(['int', 'decimal', 'amount', 'position', 'inventory']);
-/** `:`-separated components without whitespace, e.g. `Assets:Bank:Checking` or a root such as `Assets`. */
-const ACCOUNT_PATTERN = /^[^\s:]+(?::[^\s:]+)*$/;
+/**
+ * An account name, or a root such as `Assets`: `:`-separated components without whitespace or `/`, the root starting
+ * with an uppercase letter and the others with an uppercase letter, a digit or a non-Latin letter (e.g. `Assets:银行`).
+ * This rejects times such as `10:30` and URLs.
+ */
+const ACCOUNT_PATTERN = /^\p{Lu}[^\s:/]*(?::[\p{Lu}\p{Lo}\p{N}][^\s:/]*)*$/u;
+/**
+ * A running balance column: JOURNAL's `balance`, or a function of it such as `cost(balance)` (JOURNAL ... AT cost).
+ * Its rows are cumulative, so several rows on the same label keep the last one instead of being summed.
+ */
+const RUNNING_BALANCE_PATTERN = /^balance$|\(balance\)$/i;
 
 /** The currency key of plain numbers (`int` and `decimal` columns). */
 export const NO_CURRENCY = '';
 
-const ZERO = new BigNumber(0);
+/** An exact signed value with the number of decimal places of its source strings, so `1.10` stays `1.10`. */
+export interface ExactValue {
+  value: BigNumber;
+  scale: number;
+}
+
+const ZERO: ExactValue = { value: new BigNumber(0), scale: 0 };
+
+function plus(a: ExactValue, b: ExactValue): ExactValue {
+  return { value: a.value.plus(b.value), scale: Math.max(a.scale, b.scale) };
+}
+
+/** The exact decimal string, e.g. `-1234.50`. */
+export function exactString({ value, scale }: ExactValue): string {
+  return value.toFixed(scale);
+}
 
 /** Signed values of one result row (or label), keyed by currency. */
-export type CurrencyValues = Map<string, BigNumber>;
+export type CurrencyValues = Map<string, ExactValue>;
 
 export interface ChartPoint {
   label: string;
@@ -46,7 +72,9 @@ function add(values: CurrencyValues, currency: string, number: unknown) {
   if (typeof number !== 'string' && typeof number !== 'number') return;
   const value = new BigNumber(number);
   if (value.isNaN()) return;
-  values.set(currency, (values.get(currency) ?? ZERO).plus(value));
+  const fraction = /^[+-]?\d*\.(\d+)$/.exec(String(number));
+  const scale = fraction ? fraction[1].length : (value.decimalPlaces() ?? 0);
+  values.set(currency, plus(values.get(currency) ?? ZERO, { value, scale }));
 }
 
 /** Signed values of a cell keyed by currency, or `null` for a NULL cell. An empty inventory has no values. */
@@ -75,9 +103,18 @@ function cellValues(type: string, cell: unknown): CurrencyValues | null {
   return values;
 }
 
-/** One point per distinct label, in result order. Rows sharing a label are summed; rows with a NULL value are skipped. */
+export function isRunningBalance(columnName: string): boolean {
+  return RUNNING_BALANCE_PATTERN.test(columnName.trim());
+}
+
+/**
+ * One point per distinct label, in the order labels first appear. Rows with a NULL value are skipped. Rows sharing a
+ * label are summed (flows, e.g. `SELECT date, position`), except for a running balance column, where the last row of
+ * the label wins (e.g. JOURNAL's `balance`: two postings on one day with balances 100 then 150 plot as 150).
+ */
 export function collectPoints(result: QueryResult): ChartPoint[] {
   const [labelColumn, valueColumn] = result.columns;
+  const keepLast = isRunningBalance(valueColumn.name);
   const points = new Map<string, CurrencyValues>();
   for (const row of result.rows) {
     const label = row[0];
@@ -85,9 +122,12 @@ export function collectPoints(result: QueryResult): ChartPoint[] {
     const values = cellValues(valueColumn.type, row[1]);
     if (values === null) continue;
     const key = label === null || label === undefined ? '' : String(label);
-    const merged = points.get(key) ?? new Map<string, BigNumber>();
-    values.forEach((value, currency) => merged.set(currency, (merged.get(currency) ?? ZERO).plus(value)));
-    points.set(key, merged);
+    const previous = points.get(key);
+    if (keepLast || !previous) {
+      points.set(key, values);
+    } else {
+      values.forEach((value, currency) => previous.set(currency, plus(previous.get(currency) ?? ZERO, value)));
+    }
   }
   return Array.from(points, ([label, values]) => ({ label, values }));
 }
@@ -97,7 +137,7 @@ export function currenciesOf(points: ChartPoint[]): string[] {
   const counts = new Map<string, number>();
   points.forEach((point) =>
     point.values.forEach((value, currency) => {
-      if (!value.isZero()) counts.set(currency, (counts.get(currency) ?? 0) + 1);
+      if (!value.value.isZero()) counts.set(currency, (counts.get(currency) ?? 0) + 1);
     }),
   );
   return Array.from(counts)
@@ -129,7 +169,7 @@ export interface TreemapDatum {
 interface AccountTrie {
   name: string;
   account: string;
-  own: BigNumber | null;
+  own: ExactValue | null;
   children: Map<string, AccountTrie>;
 }
 
@@ -142,8 +182,14 @@ function toTreemap(trie: AccountTrie): TreemapDatum | null {
     .map(toTreemap)
     .filter((child): child is TreemapDatum => child !== null);
   const own: TreemapDatum | null =
-    trie.own && !trie.own.isZero()
-      ? { name: trie.name, account: trie.account, size: trie.own.abs().toNumber(), signed: trie.own.toFixed(), negative: trie.own.isNegative() }
+    trie.own && !trie.own.value.isZero()
+      ? {
+          name: trie.name,
+          account: trie.account,
+          size: trie.own.value.abs().toNumber(),
+          signed: exactString(trie.own),
+          negative: trie.own.value.isNegative(),
+        }
       : null;
   if (children.length === 0) return own;
   // an account with both its own postings and sub-accounts shows its own value as a cell next to the sub-accounts
@@ -169,8 +215,8 @@ export function buildTreemap(points: ChartPoint[], currency: string): TreemapDat
   let hasNegative = false;
   for (const point of points) {
     const value = point.values.get(currency);
-    if (!value || value.isZero() || point.label === '') continue;
-    if (value.isNegative()) hasNegative = true;
+    if (!value || value.value.isZero() || point.label === '') continue;
+    if (value.value.isNegative()) hasNegative = true;
     else hasPositive = true;
     let node = root;
     for (const component of point.label.split(':')) {
@@ -182,7 +228,7 @@ export function buildTreemap(points: ChartPoint[], currency: string): TreemapDat
       }
       node = child;
     }
-    node.own = (node.own ?? ZERO).plus(value);
+    node.own = plus(node.own ?? ZERO, value);
   }
   let nodes = toTreemap(root)?.children ?? [];
   while (nodes.length === 1 && nodes[0].children) nodes = nodes[0].children;
@@ -201,7 +247,7 @@ export interface BarDatum {
 export function buildBars(points: ChartPoint[], currency: string): BarDatum[] {
   return points.flatMap((point) => {
     const value = point.values.get(currency);
-    return value ? [{ label: point.label, value: value.toNumber(), signed: value.toFixed() }] : [];
+    return value ? [{ label: point.label, value: value.value.toNumber(), signed: exactString(value) }] : [];
   });
 }
 
@@ -215,9 +261,13 @@ export interface LineDatum {
   signed: string;
 }
 
-function localTime(date: string): number | null {
+/** Local midnight of a `YYYY-MM-DD` date. `setFullYear` avoids `new Date(y, m, d)` mapping years 0-99 to 1900-1999. */
+export function localTime(date: string): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime() : null;
+  if (!match) return null;
+  const time = new Date(2000, 0, 1);
+  time.setFullYear(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return time.getTime();
 }
 
 /** One point per date in ascending order. A date without a value in `currency` is plotted as zero. */
@@ -227,7 +277,7 @@ export function buildLine(points: ChartPoint[], currency: string): LineDatum[] {
       const time = localTime(point.label);
       if (time === null) return [];
       const value = point.values.get(currency) ?? ZERO;
-      return [{ time, date: point.label, value: value.toNumber(), signed: value.toFixed() }];
+      return [{ time, date: point.label, value: value.value.toNumber(), signed: exactString(value) }];
     })
     .sort((a, b) => a.time - b.time);
 }

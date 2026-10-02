@@ -13,6 +13,7 @@ import {
   QueryChartKind,
   TreemapDatum,
 } from '@/components/query/chartData';
+import { formatDecimal } from '@/components/query/values';
 import { ChartConfig, ChartContainer, ChartStyle, ChartTooltip } from '@/components/ui/chart';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useMediaQuery } from '@mantine/hooks';
@@ -37,8 +38,9 @@ const CHAR_WIDTH = 6.5;
 
 const compactNumber = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
 
+/** The exact signed value as the table shows it, trailing zeros included. */
 function formatExact(signed: string, currency: string): string {
-  const number = new BigNumber(signed).toFormat();
+  const number = formatDecimal(signed);
   return currency === NO_CURRENCY ? number : `${number} ${currency}`;
 }
 
@@ -160,6 +162,9 @@ function QueryBarChart({ points, currency }: { points: ChartPoint[]; currency: s
   const shown = bars.slice(0, MAX_BARS);
   const hasNegative = shown.some((bar) => bar.value < 0);
   const hasPositive = shown.some((bar) => bar.value > 0);
+  // Bars grow from zero, so the value axis always includes it: all-positive [0, max], all-negative [min, 0], mixed
+  // [min, max]. The data side stays 'auto' so recharts rounds it to nice ticks.
+  const valueDomain: [number | 'auto', number | 'auto'] = [hasNegative ? 'auto' : 0, hasPositive ? 'auto' : 0];
   const longestLabel = Math.max(...shown.map((bar) => (bar.label || '—').length));
   const labelWidth = Math.min(isMobile ? 104 : 200, Math.max(40, Math.ceil(longestLabel * CHAR_WIDTH) + 8));
   const labelChars = Math.floor((labelWidth - 8) / CHAR_WIDTH);
@@ -175,7 +180,14 @@ function QueryBarChart({ points, currency }: { points: ChartPoint[]; currency: s
       <ChartContainer config={chartConfig} className="aspect-auto w-full" style={{ height: shown.length * BAR_HEIGHT + 40 }}>
         <BarChart data={shown} layout="vertical" margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
           <CartesianGrid horizontal={false} />
-          <XAxis type="number" tickFormatter={(value: number) => compactNumber.format(value)} tickLine={false} axisLine={false} tickMargin={4} />
+          <XAxis
+            type="number"
+            domain={valueDomain}
+            tickFormatter={(value: number) => compactNumber.format(value)}
+            tickLine={false}
+            axisLine={false}
+            tickMargin={4}
+          />
           <YAxis
             type="category"
             dataKey="label"
@@ -266,6 +278,7 @@ function QueryLineChart({ points, currency }: { points: ChartPoint[]; currency: 
           tickMargin={8}
           minTickGap={16}
         />
+        {/* a line needs no zero baseline: 'auto' fits the data range, negative or not, with rounded ticks */}
         <YAxis
           domain={['auto', 'auto']}
           tickFormatter={(value: number) => compactNumber.format(value)}

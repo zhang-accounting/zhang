@@ -104,6 +104,7 @@
     "error_line": "Line {{line}}",
     "export_csv": "Export CSV",
     "exporting_csv": "Exporting...",
+    "export_error_title": "CSV export failed",
     "show_chart": "Chart",
     "saved": "Saved",
     "saved_loading": "Loading saved queries...",
