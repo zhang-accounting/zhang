@@ -163,6 +163,27 @@ This is the same as the HTTP API.
 7. **Errors:** for `expect: "error"`, the engine must reject the query, either
    at parse/compile time or at execution.
 
+## Running the harness
+
+`zhang-query/tests/conformance.rs` runs every fixture against the engine on the
+shared ledger and applies the rules above:
+
+```sh
+cargo test -p zhang-query --test conformance
+```
+
+It prints a table to stderr with one status per case:
+
+- `PASS`: the engine matches the oracle.
+- `ACCEPTED`: the engine differs from the oracle exactly as documented in
+  `ACCEPTED_DEVIATIONS` in that file.
+- `PENDING-FUNCTION`: the case uses a Phase 1 function that the engine does
+  not register yet.
+- `LEDGER-DEP`: a `ledger-dependent` case differs.
+- `FAIL`: any other difference.
+
+Only `FAIL` makes the test fail.
+
 ## beanquery semantics captured by the fixtures
 
 These come straight from the oracle. Some of them differ from SQL or from the
