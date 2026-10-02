@@ -106,7 +106,7 @@ pub struct RegisteredPlugin {
 
 impl RegisteredPlugin {
     pub fn load_as_plugin(&self, options: &[OptionDomain]) -> ZhangResult<WasmPlugin> {
-        info!("loading plugin {} {}", &self.name, &self.version);
+        info!("loading plugin {} {}", self.name, self.version);
         // the ledger's options, then the plugin's own config (the latter wins on conflict)
         let config = options
             .iter()

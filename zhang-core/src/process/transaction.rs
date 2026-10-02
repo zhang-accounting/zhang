@@ -67,7 +67,7 @@ impl DirectiveProcess for Transaction {
         )?;
 
         let mut balance_checker = BigDecimal::zero();
-        trace!("new balance checker starting with {}", &balance_checker);
+        trace!("new balance checker starting with {}", balance_checker);
 
         for (posting_idx, txn_posting) in self.txn_postings().into_iter().enumerate() {
             let inferred_amount = txn_posting.units().unwrap_or(
@@ -129,7 +129,7 @@ impl DirectiveProcess for Transaction {
                         operations.update_account_lot(&txn_posting.account_name(), &target_lot_record, &calculated)?;
 
                         balance_checker.add_assign(accr_amount.mul(target_lot_record.cost.map(|it| it.number).unwrap_or(BigDecimal::one())));
-                        trace!("balance checker current value is {}", &balance_checker);
+                        trace!("balance checker current value is {}", balance_checker);
                         break;
                     } else if target_lot_record.amount.is_zero() {
                         // insert error no enough lot record
@@ -146,7 +146,7 @@ impl DirectiveProcess for Transaction {
                         // persist the calculated result even if there is an error
                         operations.update_account_lot(&txn_posting.account_name(), &target_lot_record, &calculated)?;
                         balance_checker.add_assign(accr_amount.mul(target_lot_record.cost.map(|it| it.number).unwrap_or(BigDecimal::one())));
-                        trace!("balance checker current value is {}", &balance_checker);
+                        trace!("balance checker current value is {}", balance_checker);
                         break;
                     } else {
                         // if calculated amount is negative, means the matched lots record has no enough amount to do reduction
@@ -158,7 +158,7 @@ impl DirectiveProcess for Transaction {
                                 .mul(target_lot_record.cost.map(|it| it.number).unwrap_or(BigDecimal::one()))
                                 .neg(),
                         );
-                        trace!("balance checker current value is {}", &balance_checker);
+                        trace!("balance checker current value is {}", balance_checker);
                         // subtract the accr amount
                         accr_amount.add_assign(&target_lot_record.amount);
                     }
@@ -174,10 +174,10 @@ impl DirectiveProcess for Transaction {
                 )?;
 
                 balance_checker.add_assign(&amount.number);
-                trace!("balance checker current value is {}", &balance_checker);
+                trace!("balance checker current value is {}", balance_checker);
             }
         }
-        trace!("final balance checker current value is {}, txn_error is {:?}", &balance_checker, &txn_error);
+        trace!("final balance checker current value is {}, txn_error is {:?}", balance_checker, txn_error);
         if txn_error == Some(ErrorKind::UnbalancedTransaction) && !balance_checker.is_zero() {
             operations.new_error(ErrorKind::UnbalancedTransaction, span, HashMap::of(TXN_ID, id.to_string()))?;
         }
