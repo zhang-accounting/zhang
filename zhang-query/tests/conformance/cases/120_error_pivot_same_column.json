@@ -1,0 +1,12 @@
+{
+  "name": "error_pivot_same_column",
+  "query": "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 PIVOT BY year, 2",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "Both PIVOT BY columns resolve to the target year (by name and by index): a compile error."
+}

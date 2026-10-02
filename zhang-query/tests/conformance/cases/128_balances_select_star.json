@@ -1,0 +1,25 @@
+{
+  "name": "balances_select_star",
+  "query": "SELECT * FROM #balances WHERE year(date) = 2017 ORDER BY date, account LIMIT 6",
+  "phase": 3,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "strict_names": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "account", "type": "str"},
+    {"name": "amount", "type": "amount"},
+    {"name": "tolerance", "type": "decimal"},
+    {"name": "discrepancy", "type": "amount"}
+  ],
+  "rows": [
+    ["2017-01-01", "Assets:US:Federal:PreTax401k", {"number": "0", "currency": "IRAUSD"}, null, null],
+    ["2017-01-15", "Liabilities:US:Chase:Slate", {"number": "-1395.60", "currency": "USD"}, null, null],
+    ["2017-01-29", "Assets:US:BofA:Checking", {"number": "5884.67", "currency": "USD"}, null, null],
+    ["2017-02-10", "Liabilities:US:Chase:Slate", {"number": "-1893.28", "currency": "USD"}, null, null],
+    ["2017-02-19", "Assets:US:BofA:Checking", {"number": "4168.23", "currency": "USD"}, null, null],
+    ["2017-03-04", "Liabilities:US:Chase:Slate", {"number": "-1916.17", "currency": "USD"}, null, null]
+  ],
+  "notes": "#balances has one row per balance directive. SELECT * expands to date, account, amount, tolerance, discrepancy. tolerance is the explicit tolerance of the directive (none in this ledger) and discrepancy the difference found by the balance check, NULL when the assertion holds (every assertion here), so the result depends on the ledger's balance checking."
+}

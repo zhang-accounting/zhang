@@ -1,0 +1,21 @@
+{
+  "name": "pivot_implicit_group_by_bool_keys",
+  "query": "SELECT account, number > 50 AS big, count(*) AS n WHERE account ~ '^Expenses:Food' PIVOT BY account, big",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "strict_names": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account/big", "type": "str"},
+    {"name": "False", "type": "int"},
+    {"name": "True", "type": "int"}
+  ],
+  "rows": [
+    ["Expenses:Food:Alcohol", 7, null],
+    ["Expenses:Food:Coffee", 13, null],
+    ["Expenses:Food:Groceries", 2, 71],
+    ["Expenses:Food:Restaurant", 343, 27]
+  ],
+  "notes": "PIVOT BY works with the implicit GROUP BY (no GROUP BY clause). The value columns are named with Python's str() of the key, so boolean keys give 'False' and 'True' (not 'FALSE'/'TRUE' like str(TRUE)), sorted False first."
+}

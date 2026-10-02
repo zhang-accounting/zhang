@@ -1,0 +1,26 @@
+{
+  "name": "transactions_select_star",
+  "query": "SELECT * FROM #transactions WHERE 'trip-chicago-2016' IN tags AND payee ~ 'a' ORDER BY date, payee LIMIT 5",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "strict_names": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "payee", "type": "str"},
+    {"name": "narration", "type": "str"},
+    {"name": "tags", "type": "set"},
+    {"name": "links", "type": "set"},
+    {"name": "accounts", "type": "set"}
+  ],
+  "rows": [
+    ["2016-11-18", "*", "25 Degrees Burger Bar", "", ["trip-chicago-2016"], [], ["Expenses:Food:Restaurant", "Liabilities:US:Chase:Slate"]],
+    ["2016-11-18", "*", "Argo Tea", "", ["trip-chicago-2016"], [], ["Expenses:Food:Coffee", "Liabilities:US:Chase:Slate"]],
+    ["2016-11-18", "*", "Eataly Chicago", "", ["trip-chicago-2016"], [], ["Expenses:Food:Restaurant", "Liabilities:US:Chase:Slate"]],
+    ["2016-11-18", "*", "Mercadito", "", ["trip-chicago-2016"], [], ["Expenses:Food:Restaurant", "Liabilities:US:Chase:Slate"]],
+    ["2016-11-19", "*", "25 Degrees Burger Bar", "", ["trip-chicago-2016"], [], ["Expenses:Food:Restaurant", "Liabilities:US:Chase:Slate"]]
+  ],
+  "notes": "#transactions has one row per transaction. SELECT * expands to date, flag, payee, narration, tags, links, accounts (accounts is the set of posting accounts; meta is excluded from *). The table has no year/month/day, description or posting columns."
+}

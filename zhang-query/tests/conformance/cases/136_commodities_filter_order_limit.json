@@ -1,0 +1,20 @@
+{
+  "name": "commodities_filter_order_limit",
+  "query": "SELECT name, date FROM #commodities WHERE date < 2005-01-01 ORDER BY date DESC, name LIMIT 5",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "name", "type": "str"},
+    {"name": "date", "type": "date"}
+  ],
+  "rows": [
+    ["GLD", "2004-11-01"],
+    ["VHT", "2004-01-26"],
+    ["ITOT", "2004-01-20"],
+    ["VBMPX", "1995-09-18"],
+    ["IRAUSD", "1980-05-12"]
+  ],
+  "notes": "#commodities has one row per commodity directive; the currency column is named name. beanquery's SELECT * expands to meta, date, name, and meta (a dict) is not portable, so this case selects the columns explicitly."
+}

@@ -1,0 +1,21 @@
+{
+  "name": "bare_table_name",
+  "query": "SELECT currency, count(*) AS n FROM prices WHERE year(date) = 2017 GROUP BY currency ORDER BY currency",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "currency", "type": "str"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    ["GLD", 36],
+    ["ITOT", 36],
+    ["RGAGX", 36],
+    ["VBMPX", 36],
+    ["VEA", 36],
+    ["VHT", 36]
+  ],
+  "notes": "beanquery quirk: a bare FROM name that is not a column of the postings table is resolved as a table name, so FROM prices is FROM #prices. A name that is also a postings column (FROM accounts) stays a FROM expression."
+}

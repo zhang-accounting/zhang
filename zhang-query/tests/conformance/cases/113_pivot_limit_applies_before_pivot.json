@@ -1,0 +1,20 @@
+{
+  "name": "pivot_limit_applies_before_pivot",
+  "query": "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 ORDER BY n DESC PIVOT BY year, account LIMIT 5",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "strict_names": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "year/account", "type": "int"},
+    {"name": "Expenses:Food:Groceries", "type": "int"},
+    {"name": "Expenses:Food:Restaurant", "type": "int"}
+  ],
+  "rows": [
+    [2015, 27, 136],
+    [2016, 29, 143],
+    [2017, null, 91]
+  ],
+  "notes": "ORDER BY and LIMIT apply to the query BEFORE the pivot: the 5 largest (account, year) groups are kept, then pivoted. The pivoted rows are sorted by the first PIVOT BY column (year), whatever the ORDER BY, and the value columns come only from the rows that survived LIMIT (no Expenses:Food:Coffee or Alcohol column). The first PIVOT BY column may be any target, here the second one."
+}

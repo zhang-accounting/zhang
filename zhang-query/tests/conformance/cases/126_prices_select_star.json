@@ -1,0 +1,22 @@
+{
+  "name": "prices_select_star",
+  "query": "SELECT * FROM #prices WHERE currency = 'GLD' ORDER BY date DESC LIMIT 5",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "strict_names": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "currency", "type": "str"},
+    {"name": "amount", "type": "amount"}
+  ],
+  "rows": [
+    ["2017-09-08", "GLD", {"number": "306.91", "currency": "USD"}],
+    ["2017-09-01", "GLD", {"number": "304.48", "currency": "USD"}],
+    ["2017-08-25", "GLD", {"number": "304.17", "currency": "USD"}],
+    ["2017-08-18", "GLD", {"number": "302.94", "currency": "USD"}],
+    ["2017-08-11", "GLD", {"number": "301.22", "currency": "USD"}]
+  ],
+  "notes": "#prices has one row per price directive. SELECT * expands to date, currency, amount (an amount)."
+}

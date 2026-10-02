@@ -1,0 +1,30 @@
+{
+  "name": "pivot_monthly_by_category",
+  "query": "SELECT root(account, 2) AS category, month, sum(number) AS total WHERE account ~ '^Expenses:(Food|Home|Transport)' AND year = 2016 AND currency = 'USD' GROUP BY 1, 2 PIVOT BY category, month",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "strict_names": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "category/month", "type": "str"},
+    {"name": "1", "type": "decimal"},
+    {"name": "2", "type": "decimal"},
+    {"name": "3", "type": "decimal"},
+    {"name": "4", "type": "decimal"},
+    {"name": "5", "type": "decimal"},
+    {"name": "6", "type": "decimal"},
+    {"name": "7", "type": "decimal"},
+    {"name": "8", "type": "decimal"},
+    {"name": "9", "type": "decimal"},
+    {"name": "10", "type": "decimal"},
+    {"name": "11", "type": "decimal"},
+    {"name": "12", "type": "decimal"}
+  ],
+  "rows": [
+    ["Expenses:Food", "515.05", "535.83", "377.31", "823.68", "580.50", "516.63", "508.34", "490.03", "547.18", "500.35", "944.21", "520.61"],
+    ["Expenses:Home", "2611.44", "2585.49", "2609.22", "2617.31", "2590.80", "2618.81", "2597.03", "2597.16", "2607.55", "2606.61", "2623.17", "2615.96"],
+    ["Expenses:Transport", "120.00", "120.00", "120.00", "120.00", "120.00", "120.00", "120.00", "120.00", "120.00", "120.00", null, "120.00"]
+  ],
+  "notes": "PIVOT BY a, b runs the query, then makes one row per value of a and one column per value of b. The first column is named 'a/b' and has a's type. With a single remaining target, the value columns are named str(value of b) ('1' ... '12'), sorted by the value of b (ints numerically), with that target's type. A missing (a, b) pair is NULL (Expenses:Transport in November). Rows are sorted by a, so the result is ordered without ORDER BY."
+}
