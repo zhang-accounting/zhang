@@ -6257,6 +6257,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "zhang-query"
+version = "0.1.0"
+dependencies = [
+ "bigdecimal",
+ "chrono",
+ "indexmap 2.2.6",
+ "nom",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "zhang-ast",
+ "zhang-core",
+]
+
+[[package]]
 name = "zhang-server"
 version = "0.1.0"
 dependencies = [
