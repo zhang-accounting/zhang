@@ -8,7 +8,7 @@ export default defineConfig({
   },
   integrations: [
     starlight({
-      title: 'Zhang Accounting v0.1.10',
+      title: 'Zhang Accounting v0.2.0',
       head: [{
         tag: 'script',
         attrs: {
