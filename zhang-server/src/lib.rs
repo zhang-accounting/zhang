@@ -380,7 +380,19 @@ pub async fn start_server(
     routes::query::max_result_values();
 
     let app = create_server_app(opts, ledger_data, broadcaster, reload_sender);
-    app.run().await.map_err(|e| ZhangError::CustomError(e.to_string()))
+    run_app(app).await.map_err(|e| ZhangError::CustomError(e.to_string()))
+}
+
+/// [`GotchaApp::run`], serving with the peer address of the connections, which the sign-in rate
+/// limit falls back to without `X-Forwarded-For`.
+async fn run_app(app: ServerApp) -> Result<(), Box<dyn std::error::Error>> {
+    app.logger()?;
+    let config = app.config().await?;
+    let state = app.state(&config).await?;
+    let router = app.build_router(GotchaContext { config: config.clone(), state }).await?;
+    let listener = tokio::net::TcpListener::bind((config.basic.host.as_str(), config.basic.port)).await?;
+    axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
+    Ok(())
 }
 
 fn log_auth_settings(auth: &AuthState, opts: &ServeConfig) {

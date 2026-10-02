@@ -114,6 +114,12 @@ docker run --name zhang \
 
 Without `ZHANG_SESSION_SECRET`, a random key is generated every time the server starts, so a restart signs every browser out. Changing the secret signs every browser out as well.
 
+## Failed sign-in attempts
+
+To slow down password guessing, failed attempts at the password login and at the passkey registration secret are counted. After 5 failed attempts within 15 minutes from the same address, or 50 from all addresses together, further attempts are refused with `429 Too Many Requests` (and a `Retry-After` header) until the 15 minutes have passed, even with the right password. A successful sign-in resets the count of its address. Browsers that are already signed in, and passkey sign-ins, are not affected.
+
+The address is the first one in the `X-Forwarded-For` header set by a reverse proxy, or the address of the connection without one. The counts are kept in memory, so they start over when the server restarts.
+
 ## Troubleshooting
 
 - **The web UI opens without a login page**: neither `ZHANG_AUTH` nor `ZHANG_PASSKEY` reached the server. With Docker, check the `-e` options; `ZHANG_AUTH` needs the `{USERNAME}:{PASSWORD}` format.
@@ -122,3 +128,4 @@ Without `ZHANG_SESSION_SECRET`, a random key is generated every time the server 
 - **The login page comes back right after signing in**: the browser did not keep the session cookie. Behind a proxy that sets `X-Forwarded-Proto: https`, the cookie is `Secure` and only kept over HTTPS; open the web UI through HTTPS.
 - **Passkeys are not offered, or the browser rejects them**: open the web UI through its domain name (or `localhost`) over HTTPS, and when it runs behind a proxy that does not forward the host, set `ZHANG_PASSKEY_ORIGIN`.
 - **"The registration secret is incorrect"**: enter the exact value of `ZHANG_PASSKEY` the server was started with.
+- **"Too many attempts, try again in N minutes"**: too many failed attempts were made, see [Failed sign-in attempts](#failed-sign-in-attempts). Wait, or restart the server to clear the counts.

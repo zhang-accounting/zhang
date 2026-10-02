@@ -1,9 +1,11 @@
 //! Session login and passkey authentication (#435), through the router the server runs.
 
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::http::{header, HeaderMap, Method, Request, StatusCode};
 use axum::Router;
 use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD};
@@ -188,7 +190,15 @@ impl Reply {
 }
 
 async fn call(router: &Router, method: Method, uri: &str, headers: &[(&str, &str)], body: Option<Value>) -> Reply {
+    call_from(router, None, method, uri, headers, body).await
+}
+
+/// Sends a request from the `peer` address of the connection.
+async fn call_from(router: &Router, peer: Option<&str>, method: Method, uri: &str, headers: &[(&str, &str)], body: Option<Value>) -> Reply {
     let mut request = Request::builder().method(method).uri(uri).header(header::HOST, HOST);
+    if let Some(peer) = peer {
+        request = request.extension(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+    }
     for (name, value) in headers {
         request = request.header(*name, *value);
     }
@@ -798,4 +808,172 @@ async fn the_auth_endpoints_are_documented() {
         ]
     );
     assert!(spec.body["paths"]["/api/auth/passkeys/{passkey_id}"]["delete"].is_object());
+}
+
+fn assert_too_many_attempts(reply: &Reply) {
+    assert_eq!(reply.status, StatusCode::TOO_MANY_REQUESTS, "{}", reply.body);
+    assert_eq!(reply.body, json!({"message": "too many attempts, try again in 15 minutes"}));
+    let retry_after: u64 = reply
+        .headers
+        .get(header::RETRY_AFTER)
+        .expect("Retry-After is set")
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!((14 * 60..=15 * 60).contains(&retry_after), "Retry-After: {retry_after}");
+}
+
+async fn login_from(router: &Router, client: &str, password: &str) -> Reply {
+    post(
+        router,
+        "/api/auth/login",
+        &[("x-forwarded-for", client)],
+        json!({"username": "admin", "password": password}),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn failed_logins_are_rate_limited_per_client() {
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::both()).await;
+    let attacker = "203.0.113.7, 10.0.0.1";
+
+    for _ in 0..5 {
+        assert_eq!(login_from(&router, attacker, "guess").await.status, StatusCode::UNAUTHORIZED);
+    }
+    // the 6th attempt is refused before the password is checked, even the right one
+    assert_too_many_attempts(&login_from(&router, attacker, "guess").await);
+    assert_too_many_attempts(&login_from(&router, attacker, "secret").await);
+    // the registration secret shares the count
+    let reply = post(
+        &router,
+        "/api/auth/passkey/register/start",
+        &[("x-forwarded-for", attacker)],
+        json!({"secret": "letmein"}),
+    )
+    .await;
+    assert_too_many_attempts(&reply);
+
+    // another client is not affected
+    assert_eq!(login_from(&router, "203.0.113.8", "guess").await.status, StatusCode::UNAUTHORIZED);
+    let reply = login_from(&router, "203.0.113.8", "secret").await;
+    assert_eq!(reply.status, StatusCode::OK);
+    // and a session keeps working from the refused address
+    let cookie = reply.session_cookie();
+    let info = get(&router, "/api/info", &[("x-forwarded-for", attacker), ("cookie", &cookie)]).await;
+    assert_eq!(info.status, StatusCode::OK);
+    let reply = post(
+        &router,
+        "/api/auth/passkey/register/start",
+        &[("x-forwarded-for", attacker), ("cookie", &cookie)],
+        json!({"secret": null}),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+}
+
+#[tokio::test]
+async fn a_successful_login_resets_the_client_count() {
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::password()).await;
+    let client = "198.51.100.20";
+
+    for _ in 0..4 {
+        assert_eq!(login_from(&router, client, "guess").await.status, StatusCode::UNAUTHORIZED);
+    }
+    assert_eq!(login_from(&router, client, "secret").await.status, StatusCode::OK);
+    for _ in 0..5 {
+        assert_eq!(login_from(&router, client, "guess").await.status, StatusCode::UNAUTHORIZED);
+    }
+    assert_too_many_attempts(&login_from(&router, client, "guess").await);
+}
+
+#[tokio::test]
+async fn failed_registration_secrets_are_rate_limited() {
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::passkey()).await;
+    let start = |secret: &'static str| json!({"secret": secret, "name": null});
+
+    for _ in 0..5 {
+        let reply = post(&router, "/api/auth/passkey/register/start", &[("x-forwarded-for", "192.0.2.1")], start("guess")).await;
+        assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
+    }
+    let reply = post(
+        &router,
+        "/api/auth/passkey/register/start",
+        &[("x-forwarded-for", "192.0.2.1")],
+        start("letmein"),
+    )
+    .await;
+    assert_too_many_attempts(&reply);
+    let reply = post(
+        &router,
+        "/api/auth/passkey/register/start",
+        &[("x-forwarded-for", "192.0.2.2")],
+        start("letmein"),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    // requests without a secret are refused without counting
+    for _ in 0..10 {
+        let reply = post(
+            &router,
+            "/api/auth/passkey/register/start",
+            &[("x-forwarded-for", "192.0.2.3")],
+            json!({"secret": null}),
+        )
+        .await;
+        assert_unauthorized(&reply);
+    }
+    let reply = post(
+        &router,
+        "/api/auth/passkey/register/start",
+        &[("x-forwarded-for", "192.0.2.3")],
+        start("letmein"),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+}
+
+#[tokio::test]
+async fn without_a_forwarded_address_the_peer_is_the_client() {
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::password()).await;
+    let body = json!({"username": "admin", "password": "guess"});
+
+    for _ in 0..5 {
+        let reply = call_from(&router, Some("198.51.100.1:50000"), Method::POST, "/api/auth/login", &[], Some(body.clone())).await;
+        assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
+    }
+    // another port of the same address is the same client
+    let reply = call_from(&router, Some("198.51.100.1:50001"), Method::POST, "/api/auth/login", &[], Some(body.clone())).await;
+    assert_too_many_attempts(&reply);
+    let reply = call_from(&router, Some("198.51.100.2:50000"), Method::POST, "/api/auth/login", &[], Some(body.clone())).await;
+    assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
+    // the first hop of X-Forwarded-For wins over the peer (the proxy)
+    let reply = call_from(
+        &router,
+        Some("198.51.100.1:50002"),
+        Method::POST,
+        "/api/auth/login",
+        &[("x-forwarded-for", "192.0.2.50")],
+        Some(json!({"username": "admin", "password": "secret"})),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn too_many_failures_overall_refuse_everyone() {
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::password()).await;
+    for client in 0..10 {
+        let client = format!("192.0.2.{}", client + 100);
+        for _ in 0..5 {
+            assert_eq!(login_from(&router, &client, "guess").await.status, StatusCode::UNAUTHORIZED);
+        }
+    }
+    assert_too_many_attempts(&login_from(&router, "192.0.2.200", "secret").await);
 }

@@ -11,11 +11,13 @@
 //! a session (or the Basic header), answering `401 {"message": "unauthorized"}` otherwise. There is
 //! no `WWW-Authenticate` header, so browsers show the login page instead of their credentials popup.
 
+pub mod limiter;
 pub mod passkey;
 pub mod session;
 
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
@@ -27,7 +29,7 @@ use base64::Engine as _;
 use chrono::Utc;
 use gotcha::oas::Responses;
 use gotcha::{Responsible, Schematic};
-use log::{error, info};
+use log::{error, info, warn};
 use serde::Serialize;
 use serde_json::json;
 use tokio::sync::RwLock;
@@ -35,6 +37,7 @@ use webauthn_rs::prelude::{AuthenticationResult, Passkey, Url};
 use zhang_core::ledger::Ledger;
 use zhang_core::{ZhangError, ZhangResult};
 
+use self::limiter::FailureLimiter;
 use self::passkey::{Ceremonies, Ceremony, CeremonyKind, RelyingParty};
 pub use self::passkey::{PasskeyRecord, PASSKEYS_PATH};
 use self::session::{SessionClaims, SessionKey};
@@ -111,6 +114,8 @@ pub enum AuthError {
     Unauthorized(String),
     NotFound(String),
     Conflict(String),
+    /// too many failed attempts, try again after the duration
+    TooManyAttempts(Duration),
     Internal(String),
 }
 
@@ -130,12 +135,21 @@ impl AuthError {
 
 impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
+        if let AuthError::TooManyAttempts(wait) = self {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::RETRY_AFTER, limiter::whole_seconds(wait).to_string())],
+                Json(json!({ "message": limiter::too_many_attempts_message(wait) })),
+            )
+                .into_response();
+        }
         let (status, message) = match self {
             AuthError::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
             AuthError::Unauthorized(message) => (StatusCode::UNAUTHORIZED, message),
             AuthError::NotFound(message) => (StatusCode::NOT_FOUND, message),
             AuthError::Conflict(message) => (StatusCode::CONFLICT, message),
             AuthError::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
+            AuthError::TooManyAttempts(_) => unreachable!("answered above"),
         };
         (status, Json(json!({ "message": message }))).into_response()
     }
@@ -232,6 +246,7 @@ pub struct AuthState {
     ledger: Arc<RwLock<Ledger>>,
     passkeys: RwLock<Vec<PasskeyRecord>>,
     ceremonies: Mutex<Ceremonies>,
+    failures: Mutex<FailureLimiter>,
 }
 
 #[derive(Clone)]
@@ -258,6 +273,7 @@ impl AuthState {
             ledger,
             passkeys: RwLock::new(vec![]),
             ceremonies: Mutex::new(Ceremonies::default()),
+            failures: Mutex::new(FailureLimiter::default()),
         }
     }
 
@@ -477,6 +493,29 @@ impl AuthState {
         self.ceremonies.lock().expect("ceremonies lock is poisoned").start(kind, relying_party)
     }
 
+    fn failures(&self) -> std::sync::MutexGuard<'_, FailureLimiter> {
+        self.failures.lock().expect("failures lock is poisoned")
+    }
+
+    /// Refuses a client (or everyone) after too many failed sign-in attempts.
+    fn check_attempts(&self, client: &str) -> AuthResult<()> {
+        match self.failures().blocked_for(client, Instant::now()) {
+            Some(wait) => {
+                warn!("refused a sign-in attempt from {client}: too many failed attempts");
+                Err(AuthError::TooManyAttempts(wait))
+            }
+            None => Ok(()),
+        }
+    }
+
+    fn record_failed_attempt(&self, client: &str) {
+        self.failures().record_failure(client, Instant::now());
+    }
+
+    fn reset_failed_attempts(&self, client: &str) {
+        self.failures().reset(client);
+    }
+
     fn take_ceremony(&self, state_id: &str) -> AuthResult<Ceremony> {
         self.ceremonies
             .lock()
@@ -565,13 +604,16 @@ pub async fn require_authentication(State(auth): State<SharedAuth>, request: Req
 
 /// The handlers of the `/api/auth/*` endpoints, all reachable without a session.
 pub mod handlers {
-    use axum::extract::{Path, State};
+    use std::net::SocketAddr;
+
+    use axum::extract::{ConnectInfo, Path, State};
     use axum::http::HeaderMap;
     use axum::Json;
     use gotcha::api;
     use log::warn;
     use webauthn_rs::prelude::{PublicKeyCredential, RegisterPublicKeyCredential, Uuid};
 
+    use super::limiter::client_key;
     use super::passkey::CeremonyKind;
     use super::{AuthError, AuthResult, SharedAuth, WithSessionCookie};
     use crate::request::{LoginRequest, PasskeyLoginFinishRequest, PasskeyRegisterFinishRequest, PasskeyRegisterStartRequest};
@@ -592,15 +634,19 @@ pub mod handlers {
     /// Exchanges the `ZHANG_AUTH` credential for a session cookie.
     #[api(group = "auth")]
     pub async fn auth_login(
-        State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, Json(payload): Json<LoginRequest>,
+        State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, #[api(skip)] peer: Option<ConnectInfo<SocketAddr>>, Json(payload): Json<LoginRequest>,
     ) -> AuthResult<WithSessionCookie<AuthStatusEntity>> {
         if !auth.password_enabled() {
             return Err(AuthError::BadRequest("password login is not enabled".to_owned()));
         }
+        let client = client_key(&headers, peer.map(|it| it.0));
+        auth.check_attempts(&client)?;
         if !auth.verify_password(&payload.username, &payload.password) {
-            warn!("failed password login for user {:?}", payload.username);
+            warn!("failed password login for user {:?} from {client}", payload.username);
+            auth.record_failed_attempt(&client);
             return Err(AuthError::Unauthorized("invalid username or password".to_owned()));
         }
+        auth.reset_failed_attempts(&client);
         Ok(auth.status_with_cookie(&headers, auth.password_session()).await)
     }
 
@@ -613,15 +659,21 @@ pub mod handlers {
     /// Starts registering a passkey; needs a session or the `ZHANG_PASSKEY` secret.
     #[api(group = "auth")]
     pub async fn passkey_register_start(
-        State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, Json(payload): Json<PasskeyRegisterStartRequest>,
+        State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, #[api(skip)] peer: Option<ConnectInfo<SocketAddr>>,
+        Json(payload): Json<PasskeyRegisterStartRequest>,
     ) -> AuthResult<ResponseWrapper<PasskeyChallengeEntity>> {
         auth.ensure_passkey_enabled()?;
-        let secret_matches = payload.secret.as_deref().is_some_and(|secret| auth.verify_passkey_secret(secret));
-        if !secret_matches && auth.authenticate(&headers).await.is_none() {
-            return Err(match payload.secret {
-                Some(_) => AuthError::Unauthorized("invalid registration secret".to_owned()),
-                None => AuthError::unauthorized(),
-            });
+        if auth.authenticate(&headers).await.is_none() {
+            let Some(secret) = payload.secret.as_deref() else {
+                return Err(AuthError::unauthorized());
+            };
+            let client = client_key(&headers, peer.map(|it| it.0));
+            auth.check_attempts(&client)?;
+            if !auth.verify_passkey_secret(secret) {
+                warn!("invalid passkey registration secret from {client}");
+                auth.record_failed_attempt(&client);
+                return Err(AuthError::Unauthorized("invalid registration secret".to_owned()));
+            }
         }
         let relying_party = auth.relying_party(&headers)?;
         let webauthn = relying_party.webauthn()?;
@@ -646,7 +698,8 @@ pub mod handlers {
     /// Finishes registering a passkey, stores it and signs the caller in.
     #[api(group = "auth")]
     pub async fn passkey_register_finish(
-        State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, Json(payload): Json<PasskeyRegisterFinishRequest>,
+        State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, #[api(skip)] peer: Option<ConnectInfo<SocketAddr>>,
+        Json(payload): Json<PasskeyRegisterFinishRequest>,
     ) -> AuthResult<WithSessionCookie<AuthStatusEntity>> {
         auth.ensure_passkey_enabled()?;
         let ceremony = auth.take_ceremony(&payload.state_id)?;
@@ -664,6 +717,7 @@ pub mod handlers {
                 AuthError::BadRequest(format!("passkey registration failed: {e}"))
             })?;
         let record = auth.add_passkey(payload.name.as_deref().or(name.as_deref()), passkey).await?;
+        auth.reset_failed_attempts(&client_key(&headers, peer.map(|it| it.0)));
         let session = auth.passkey_session(&record.id);
         Ok(auth.status_with_cookie(&headers, Some(session)).await)
     }
@@ -691,7 +745,8 @@ pub mod handlers {
     /// Finishes a passkey login and signs the caller in.
     #[api(group = "auth")]
     pub async fn passkey_login_finish(
-        State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, Json(payload): Json<PasskeyLoginFinishRequest>,
+        State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, #[api(skip)] peer: Option<ConnectInfo<SocketAddr>>,
+        Json(payload): Json<PasskeyLoginFinishRequest>,
     ) -> AuthResult<WithSessionCookie<AuthStatusEntity>> {
         auth.ensure_passkey_enabled()?;
         let ceremony = auth.take_ceremony(&payload.state_id)?;
@@ -709,6 +764,7 @@ pub mod handlers {
                 AuthError::Unauthorized("passkey verification failed".to_owned())
             })?;
         let passkey_id = auth.record_passkey_use(&result).await?;
+        auth.reset_failed_attempts(&client_key(&headers, peer.map(|it| it.0)));
         let session = auth.passkey_session(&passkey_id);
         Ok(auth.status_with_cookie(&headers, Some(session)).await)
     }
