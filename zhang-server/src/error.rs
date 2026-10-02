@@ -41,12 +41,7 @@ impl IntoResponse for ServerError {
     fn into_response(self) -> Response {
         if let ServerError::QueryError(error) = self {
             // the query error body is exactly `{message, line, column}`
-            let payload = json!({
-                "message": error.message,
-                "line": error.line,
-                "column": error.column,
-            });
-            return (StatusCode::BAD_REQUEST, Json(payload)).into_response();
+            return (StatusCode::BAD_REQUEST, Json(crate::response::QueryErrorEntity::from(error))).into_response();
         }
         let payload = json!({
             "message": format!("{}", self),

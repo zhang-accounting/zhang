@@ -413,6 +413,98 @@ pub struct AccountBalanceHistoryEntity {
     pub balance: HashMap<Currency, Vec<AccountBalanceItemEntity>>,
 }
 
+/// A value that is always present in the JSON but may be `null`.
+///
+/// `Option<T>` makes gotcha mark a field optional (and a `Vec<Option<T>>` field too), while
+/// the query API always sends these keys; this keeps them required and nullable in OpenAPI.
+#[derive(Serialize, Debug)]
+#[serde(transparent)]
+pub struct Nullable<T>(pub Option<T>);
+
+impl<T: Schematic> Schematic for Nullable<T> {
+    fn name() -> &'static str {
+        T::name()
+    }
+
+    fn required() -> bool {
+        true
+    }
+
+    fn nullable() -> Option<bool> {
+        Some(true)
+    }
+
+    fn type_() -> &'static str {
+        T::type_()
+    }
+
+    fn doc() -> Option<String> {
+        T::doc()
+    }
+
+    fn generate_schema() -> gotcha::EnhancedSchema {
+        let mut schema = T::generate_schema();
+        schema.schema.nullable = Some(true);
+        schema.required = true;
+        schema
+    }
+}
+
+/// The body of a failed query (HTTP 400): positions are 1-based and count characters.
+#[derive(Serialize, Schematic)]
+pub struct QueryErrorEntity {
+    pub message: String,
+    pub line: Nullable<usize>,
+    pub column: Nullable<usize>,
+}
+
+impl From<zhang_query::QueryError> for QueryErrorEntity {
+    fn from(value: zhang_query::QueryError) -> Self {
+        QueryErrorEntity {
+            message: value.message,
+            line: Nullable(value.line),
+            column: Nullable(value.column),
+        }
+    }
+}
+
+/// The result of a query endpoint: documents the HTTP 400 [`QueryErrorEntity`] next to the
+/// `200` body in OpenAPI.
+pub struct QueryApiResult<T: Serialize + Schematic>(pub ServerResult<ResponseWrapper<T>>);
+
+impl<T: Serialize + Schematic> IntoResponse for QueryApiResult<T> {
+    fn into_response(self) -> Response {
+        match self.0 {
+            Ok(data) => data.into_response(),
+            Err(error) => error.into_response(),
+        }
+    }
+}
+
+impl<T: Serialize + Schematic> Responsible for QueryApiResult<T> {
+    fn response() -> Responses {
+        let mut responses = <ResponseWrapper<T> as Responsible>::response();
+        responses.data.insert(
+            "400".to_string(),
+            Referenceable::Data(gotcha::oas::Response {
+                description: "the query cannot be parsed, compiled or run".to_string(),
+                headers: None,
+                content: Some(BTreeMap::from([(
+                    "application/json".to_string(),
+                    gotcha::oas::MediaType {
+                        schema: Some(Referenceable::Data(QueryErrorEntity::generate_schema().schema)),
+                        example: None,
+                        examples: None,
+                        encoding: None,
+                    },
+                )])),
+                links: None,
+            }),
+        );
+        responses
+    }
+}
+
 /// The static type of a query result column.
 #[derive(Serialize, Schematic, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -466,14 +558,14 @@ pub struct QueryAmountEntity {
 pub struct QueryCostEntity {
     pub number: String,
     pub currency: String,
-    pub date: Option<String>,
-    pub label: Option<String>,
+    pub date: Nullable<String>,
+    pub label: Nullable<String>,
 }
 
 #[derive(Serialize, Schematic)]
 pub struct QueryPositionEntity {
     pub units: QueryAmountEntity,
-    pub cost: Option<QueryCostEntity>,
+    pub cost: Nullable<QueryCostEntity>,
 }
 
 /// Positions sorted by units currency, then cost.
@@ -509,21 +601,21 @@ impl From<&zhang_query::Position> for QueryPositionEntity {
     fn from(value: &zhang_query::Position) -> Self {
         QueryPositionEntity {
             units: (&value.units).into(),
-            cost: value.cost.as_ref().map(|cost| QueryCostEntity {
+            cost: Nullable(value.cost.as_ref().map(|cost| QueryCostEntity {
                 number: zhang_query::decimal::to_plain_string(&cost.number),
                 currency: cost.currency.clone(),
-                date: cost.date.map(|date| date.format("%Y-%m-%d").to_string()),
-                label: cost.label.clone(),
-            }),
+                date: Nullable(cost.date.map(|date| date.format("%Y-%m-%d").to_string())),
+                label: Nullable(cost.label.clone()),
+            })),
         }
     }
 }
 
 impl QueryCell {
-    pub fn encode(value: &zhang_query::Value) -> Option<QueryCell> {
+    pub fn encode(value: &zhang_query::Value) -> Nullable<QueryCell> {
         use zhang_query::Value;
-        Some(match value {
-            Value::Null => return None,
+        Nullable(Some(match value {
+            Value::Null => return Nullable(None),
             Value::Bool(it) => QueryCell::Bool(*it),
             Value::Int(it) => QueryCell::Int(*it),
             Value::Decimal(it) => QueryCell::Text(zhang_query::decimal::to_plain_string(it)),
@@ -535,7 +627,7 @@ impl QueryCell {
             Value::Inventory(it) => QueryCell::Inventory(QueryInventoryEntity {
                 positions: it.positions().map(|position| (&position).into()).collect(),
             }),
-        })
+        }))
     }
 }
 
@@ -543,7 +635,7 @@ impl QueryCell {
 #[derive(Serialize, Schematic)]
 pub struct QueryResultEntity {
     pub columns: Vec<QueryColumnEntity>,
-    pub rows: Vec<Vec<Option<QueryCell>>>,
+    pub rows: Vec<Vec<Nullable<QueryCell>>>,
 }
 
 impl From<zhang_query::QueryResult> for QueryResultEntity {

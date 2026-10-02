@@ -3,7 +3,7 @@ use axum::Json;
 use gotcha::api;
 
 use crate::request::QueryRequest;
-use crate::response::{QueryResultEntity, QuerySchemaEntity, ResponseWrapper};
+use crate::response::{QueryApiResult, QueryResultEntity, QuerySchemaEntity, ResponseWrapper};
 use crate::state::SharedLedger;
 use crate::ApiResult;
 
@@ -11,10 +11,12 @@ use crate::ApiResult;
 ///
 /// Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
 #[api(group = "query")]
-pub async fn run_query(ledger: State<SharedLedger>, Json(payload): Json<QueryRequest>) -> ApiResult<QueryResultEntity> {
+pub async fn run_query(ledger: State<SharedLedger>, Json(payload): Json<QueryRequest>) -> QueryApiResult<QueryResultEntity> {
     let ledger = ledger.read().await;
-    let result = zhang_query::execute(&ledger, &payload.query)?;
-    ResponseWrapper::json(result.into())
+    QueryApiResult(match zhang_query::execute(&ledger, &payload.query) {
+        Ok(result) => ResponseWrapper::json(result.into()),
+        Err(error) => Err(error.into()),
+    })
 }
 
 /// The columns and functions available to queries.
