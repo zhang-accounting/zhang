@@ -609,3 +609,91 @@ impl From<zhang_query::Schema> for QuerySchemaEntity {
         }
     }
 }
+
+#[cfg(test)]
+mod query_test {
+    use std::str::FromStr;
+
+    use bigdecimal::BigDecimal;
+    use chrono::NaiveDate;
+    use serde_json::json;
+    use zhang_query::{Amount, ColumnInfo, Cost, DataType, Inventory, Position, QueryResult, Value};
+
+    use crate::response::QueryResultEntity;
+
+    fn amount(number: &str, currency: &str) -> Amount {
+        Amount::new(BigDecimal::from_str(number).unwrap(), currency)
+    }
+
+    #[test]
+    fn query_results_follow_the_api_cell_encoding() {
+        let date = NaiveDate::from_ymd_opt(2024, 1, 31).unwrap();
+        let lot = Position::new(
+            amount("10", "AAPL"),
+            Some(Cost {
+                number: BigDecimal::from_str("150.00").unwrap(),
+                currency: "USD".to_owned(),
+                date: Some(date),
+                label: None,
+            }),
+        );
+        let mut inventory = Inventory::new();
+        inventory.add_position(&lot);
+        inventory.add_amount(&amount("-12.50", "EUR"));
+        let columns = [
+            ("b", DataType::Bool),
+            ("i", DataType::Int),
+            ("d", DataType::Decimal),
+            ("s", DataType::Str),
+            ("date", DataType::Date),
+            ("tags", DataType::Set),
+            ("a", DataType::Amount),
+            ("p", DataType::Position),
+            ("inv", DataType::Inventory),
+            ("n", DataType::Null),
+        ];
+        let result = QueryResult {
+            columns: columns
+                .iter()
+                .map(|(name, ty)| ColumnInfo {
+                    name: (*name).to_owned(),
+                    ty: *ty,
+                })
+                .collect(),
+            rows: vec![vec![
+                Value::Bool(true),
+                Value::Int(42),
+                Value::Decimal(BigDecimal::from_str("-12.50").unwrap()),
+                Value::from("午餐"),
+                Value::Date(date),
+                Value::Set(["b".to_owned(), "a".to_owned()].into_iter().collect()),
+                Value::Amount(amount("1E+3", "USD")),
+                Value::Position(lot),
+                Value::Inventory(inventory),
+                Value::Null,
+            ]],
+        };
+        let encoded = serde_json::to_value(QueryResultEntity::from(result)).unwrap();
+        assert_eq!(
+            encoded,
+            json!({
+                "columns": [
+                    {"name": "b", "type": "bool"}, {"name": "i", "type": "int"}, {"name": "d", "type": "decimal"},
+                    {"name": "s", "type": "str"}, {"name": "date", "type": "date"}, {"name": "tags", "type": "set"},
+                    {"name": "a", "type": "amount"}, {"name": "p", "type": "position"}, {"name": "inv", "type": "inventory"},
+                    {"name": "n", "type": "null"}
+                ],
+                "rows": [[
+                    true, 42, "-12.50", "午餐", "2024-01-31", ["a", "b"],
+                    {"number": "1000", "currency": "USD"},
+                    {"units": {"number": "10", "currency": "AAPL"}, "cost": {"number": "150.00", "currency": "USD", "date": "2024-01-31", "label": null}},
+                    {"positions": [
+                        {"units": {"number": "10", "currency": "AAPL"}, "cost": {"number": "150.00", "currency": "USD", "date": "2024-01-31", "label": null}},
+                        {"units": {"number": "-12.50", "currency": "EUR"}, "cost": null}
+                    ]},
+                    null
+                ]]
+            })
+        );
+    }
+}
