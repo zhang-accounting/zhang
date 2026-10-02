@@ -1,0 +1,19 @@
+{
+  "name": "close_on_conversion_entry",
+  "query": "SELECT date, flag, payee, account, position FROM CLOSE ON 2016-01-01 WHERE flag = 'C'",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "payee", "type": "str"},
+    {"name": "account", "type": "str"},
+    {"name": "position", "type": "position"}
+  ],
+  "rows": [
+    ["2015-12-31", "C", null, "Equity:Conversions:Current", {"units": {"number": "-0.01346", "currency": "USD"}, "cost": null}]
+  ],
+  "notes": "The conversions transaction of CLOSE ON d: dated d - 1, flag C, payee NULL, one posting per currency on Equity:Conversions:Current with minus the cost-basis total of all postings before d. Its narration ('Conversion for (...)', beancount's inventory formatting) is deliberately not selected. Note that zhang stores balance assertions as transactions with flag C too; they are not rows of the postings table."
+}

@@ -1,0 +1,21 @@
+{
+  "name": "balance_computed_before_order_by",
+  "query": "SELECT date, position, balance WHERE account ~ 'Checking' AND date >= 2017-06-01 ORDER BY date DESC LIMIT 5",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "position", "type": "position"},
+    {"name": "balance", "type": "inventory"}
+  ],
+  "rows": [
+    ["2017-09-07", {"units": {"number": "2550.60", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-55.08", "currency": "USD"}, "cost": null}]}],
+    ["2017-09-04", {"units": {"number": "-4.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-2605.68", "currency": "USD"}, "cost": null}]}],
+    ["2017-08-25", {"units": {"number": "-4500", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-2601.68", "currency": "USD"}, "cost": null}]}],
+    ["2017-08-24", {"units": {"number": "2550.60", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "1898.32", "currency": "USD"}, "cost": null}]}],
+    ["2017-08-23", {"units": {"number": "-80.08", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "-652.28", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "The running balance is computed in ledger order before ORDER BY and LIMIT: with ORDER BY date DESC the first row carries the final balance of the whole window, not its own position."
+}

@@ -1,0 +1,19 @@
+{
+  "name": "close_without_date",
+  "query": "SELECT date, flag, payee, account, position FROM CLOSE WHERE flag = 'C'",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "payee", "type": "str"},
+    {"name": "account", "type": "str"},
+    {"name": "position", "type": "position"}
+  ],
+  "rows": [
+    ["2017-09-08", "C", null, "Equity:Conversions:Current", {"units": {"number": "0.00056", "currency": "USD"}, "cost": null}]
+  ],
+  "notes": "CLOSE without a date truncates nothing; it only appends the conversions transaction, dated like the last entry of the ledger (2017-09-08, the date of the last transaction and of the last prices)."
+}

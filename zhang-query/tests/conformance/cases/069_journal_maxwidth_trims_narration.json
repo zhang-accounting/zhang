@@ -1,0 +1,30 @@
+{
+  "name": "journal_maxwidth_trims_narration",
+  "query": "JOURNAL 'Expenses:Food:Restaurant' FROM year = 2017 AND month = 6",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "MAXWIDTH(payee, 48)", "type": "str"},
+    {"name": "MAXWIDTH(narration, 80)", "type": "str"},
+    {"name": "account", "type": "str"},
+    {"name": "position", "type": "position"},
+    {"name": "balance", "type": "inventory"}
+  ],
+  "rows": [
+    ["2017-06-02", "*", "Giacomo's Restaurant", "", "Expenses:Food:Restaurant", {"units": {"number": "36.43", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "36.43", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-03", "*", "Legal Seafood", "", "Expenses:Food:Restaurant", {"units": {"number": "33.82", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "70.25", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-04", "*", "Uncle Boons", "Eating out", "Expenses:Food:Restaurant", {"units": {"number": "32.97", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "103.22", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-05", "*", "China Garden", "Eating out with Joe", "Expenses:Food:Restaurant", {"units": {"number": "32.80", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "136.02", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-09", "*", "Goba Goba", "Eating out with Julie", "Expenses:Food:Restaurant", {"units": {"number": "47.98", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "184.00", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-12", "*", "Jewel of Morroco", "Eating out alone", "Expenses:Food:Restaurant", {"units": {"number": "26.51", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "210.51", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-17", "*", "Jewel of Morroco", "Eating out with Julie", "Expenses:Food:Restaurant", {"units": {"number": "26.54", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "237.05", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-21", "*", "Kin Soy", "Eating out", "Expenses:Food:Restaurant", {"units": {"number": "38.91", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "275.96", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-26", "*", "Chichipotle", "Eating out with Bill", "Expenses:Food:Restaurant", {"units": {"number": "54.55", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "330.51", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-30", "*", "Cafe Modagor", "Eating out", "Expenses:Food:Restaurant", {"units": {"number": "43.05", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "373.56", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "maxwidth(s, n) is Python's textwrap.shorten(s, width=n): it collapses runs of whitespace, strips leading and trailing whitespace, and if the text is still longer than n it cuts at a word boundary and appends ' [...]'. The narration 'Eating out ' (trailing space in the ledger) is returned as 'Eating out'. No payee is longer than 48 characters and no narration longer than 80 in this ledger, so the truncation itself is not exercised."
+}

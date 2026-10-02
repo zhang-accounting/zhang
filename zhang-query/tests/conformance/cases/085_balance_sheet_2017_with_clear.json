@@ -1,0 +1,31 @@
+{
+  "name": "balance_sheet_2017_with_clear",
+  "query": "SELECT account, cost(sum(position)) AS book FROM CLOSE ON 2017-01-01 CLEAR WHERE account ~ '^(Assets|Liabilities|Equity)' GROUP BY 1 ORDER BY 1",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "book", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:BofA:Checking", {"positions": [{"units": {"number": "6377.23", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:Cash", {"positions": [{"units": {"number": "386.22", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:GLD", {"positions": [{"units": {"number": "3658.46", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:ITOT", {"positions": [{"units": {"number": "6154.51", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:VEA", {"positions": [{"units": {"number": "4959.50", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:VHT", {"positions": [{"units": {"number": "4613.89", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:Federal:PreTax401k", {"positions": []}],
+    ["Assets:US:Hoogle:Vacation", {"positions": [{"units": {"number": "25", "currency": "VACHR"}, "cost": null}]}],
+    ["Assets:US:Vanguard:Cash", {"positions": [{"units": {"number": "0.06", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:Vanguard:RGAGX", {"positions": [{"units": {"number": "32399.63072", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:Vanguard:VBMPX", {"positions": [{"units": {"number": "21600.30611", "currency": "USD"}, "cost": null}]}],
+    ["Equity:Conversions:Current", {"positions": [{"units": {"number": "0.00317", "currency": "USD"}, "cost": null}]}],
+    ["Equity:Earnings:Current", {"positions": [{"units": {"number": "-74890.41", "currency": "USD"}, "cost": null}, {"units": {"number": "-25", "currency": "VACHR"}, "cost": null}]}],
+    ["Equity:Opening-Balances", {"positions": [{"units": {"number": "-3490.52", "currency": "USD"}, "cost": null}]}],
+    ["Liabilities:AccountsPayable", {"positions": []}],
+    ["Liabilities:US:Chase:Slate", {"positions": [{"units": {"number": "-1768.88", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "Balance sheet at 2017-01-01. CLOSE ON then CLEAR: the transfers are dated like the last remaining entry, which is the conversions transaction on 2016-12-31. Equity:Earnings:Current holds the net income and Equity:Conversions:Current the conversion residual."
+}

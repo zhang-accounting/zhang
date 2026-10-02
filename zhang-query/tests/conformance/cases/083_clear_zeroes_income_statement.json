@@ -1,0 +1,18 @@
+{
+  "name": "clear_zeroes_income_statement",
+  "query": "SELECT root(account, 1) AS type, sum(position) AS total FROM CLEAR WHERE account ~ '^(Income|Expenses|Equity)' GROUP BY 1 ORDER BY 1",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "type", "type": "str"},
+    {"name": "total", "type": "inventory"}
+  ],
+  "rows": [
+    ["Equity", {"positions": [{"units": {"number": "-106826.05", "currency": "USD"}, "cost": null}, {"units": {"number": "13", "currency": "VACHR"}, "cost": null}]}],
+    ["Expenses", {"positions": []}],
+    ["Income", {"positions": []}]
+  ],
+  "notes": "After CLEAR, Income and Expenses sum to empty inventories and Equity holds the net income."
+}

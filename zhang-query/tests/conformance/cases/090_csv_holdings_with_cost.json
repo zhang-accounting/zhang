@@ -1,0 +1,18 @@
+{
+  "name": "csv_holdings_with_cost",
+  "query": "SELECT account, units(sum(position)) AS units, cost(sum(position)) AS book WHERE account ~ '^Assets:US:ETrade:' AND account != 'Assets:US:ETrade:Cash' GROUP BY account ORDER BY account",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "csv",
+  "columns": [],
+  "rows": [],
+  "csv": [
+    "account,units (VHT),units (VEA),units (ITOT),units (GLD),book (USD)",
+    "Assets:US:ETrade:GLD,,,,17,4559.80",
+    "Assets:US:ETrade:ITOT,,,104,,6828.88",
+    "Assets:US:ETrade:VEA,,36,,,4959.50",
+    "Assets:US:ETrade:VHT,64,,,,7821.27"
+  ],
+  "notes": "Four commodities with one row each tie on the count, so they are ordered by name descending: VHT, VEA, ITOT, GLD."
+}
