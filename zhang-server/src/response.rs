@@ -576,6 +576,9 @@ pub struct QueryInventoryEntity {
 
 /// One result cell. Booleans and integers are JSON booleans and numbers; decimals, strings
 /// and dates (`YYYY-MM-DD`) are strings; sets are sorted string arrays.
+///
+/// Integers are 64-bit and sent as JSON numbers; JavaScript parses numbers as doubles, so
+/// an integer outside ±2^53 (unusual for counts and date parts) loses precision there.
 #[derive(Serialize, Schematic)]
 #[serde(untagged)]
 pub enum QueryCell {
@@ -668,6 +671,8 @@ pub struct QuerySchemaFunctionEntity {
     /// e.g. `root(str, int) -> str`
     pub signature: String,
     pub description: String,
+    /// whether this is an aggregate function (`sum`, `count`, ...)
+    pub aggregate: bool,
 }
 
 /// The queryable columns and functions of `POST /api/query`.
@@ -696,6 +701,7 @@ impl From<zhang_query::Schema> for QuerySchemaEntity {
                     name: function.name.to_owned(),
                     signature: function.signature,
                     description: function.description.to_owned(),
+                    aggregate: function.aggregate,
                 })
                 .collect(),
         }
