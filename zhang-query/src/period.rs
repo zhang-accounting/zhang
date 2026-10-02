@@ -47,11 +47,11 @@ use std::fmt;
 use std::path::PathBuf;
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{NaiveDate, NaiveTime, TimeZone};
+use chrono::{NaiveDate, NaiveTime};
 use indexmap::IndexMap;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, AccountType, Directive, Flag, SpanInfo};
+use zhang_ast::{resolve_local_datetime, Account, AccountType, Directive, Flag, SpanInfo};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{PostingDomain, TransactionDomain};
 use zhang_core::utils::id::FromSpan;
@@ -561,12 +561,7 @@ impl<'a> Transform<'_, 'a> {
             content: String::new(),
             filename: Some(PathBuf::from(kind.source())),
         });
-        let timezone = self.ledger.options.timezone;
-        let midnight = date.and_time(NaiveTime::MIN);
-        let datetime = timezone
-            .from_local_datetime(&midnight)
-            .earliest()
-            .unwrap_or_else(|| timezone.from_utc_datetime(&midnight));
+        let datetime = resolve_local_datetime(&self.ledger.options.timezone, &date.and_time(NaiveTime::MIN));
         let mut stored = Vec::with_capacity(postings.len());
         for (posting_index, posting) in postings.into_iter().enumerate() {
             stored.push(PostingDomain {
