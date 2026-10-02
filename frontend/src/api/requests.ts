@@ -1,4 +1,6 @@
-import { openAPIFetcher } from './fetcher';
+import { ApiError } from 'openapi-typescript-fetch';
+import { openAPIFetcher, serverBaseUrl } from './fetcher';
+import type { SavedQuery } from './types';
 
 export const retrieveBudgets = openAPIFetcher.path('/api/budgets').method('get').create();
 
@@ -53,3 +55,56 @@ export const createAccountBalance = openAPIFetcher.path('/api/accounts/{account_
 export const executeQuery = openAPIFetcher.path('/api/query').method('post').create();
 
 export const retrieveQuerySchema = openAPIFetcher.path('/api/query/schema').method('get').create();
+
+// TEMPORARY(qp2): hand-written until `schemas.ts` is regenerated from a server that serves `GET /api/query/saved`.
+// Replace with `openAPIFetcher.path('/api/query/saved').method('get').create()` afterwards.
+export async function retrieveSavedQueries(): Promise<SavedQuery[]> {
+  const response = await fetch(`${serverBaseUrl}/api/query/saved`);
+  const body = await readBody(response);
+  if (!response.ok) throw toApiError(response, body);
+  return (body as { data: SavedQuery[] }).data;
+}
+
+/**
+ * Runs a query through `POST /api/query/csv` and returns the CSV file. A query error is thrown as an `ApiError`
+ * carrying the same `{message, line, column}` body as `POST /api/query`.
+ *
+ * The CSV body is not JSON, so this stays a plain `fetch` call even once the endpoint is in `schemas.ts`.
+ */
+export async function exportQueryCsv(query: string): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${serverBaseUrl}/api/query/csv`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  });
+  if (!response.ok) throw toApiError(response, await readBody(response));
+  const blob = await response.blob();
+  return { blob, filename: filenameOf(response.headers.get('Content-Disposition')) ?? 'query.csv' };
+}
+
+async function readBody(response: Response): Promise<unknown> {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : undefined;
+  } catch {
+    return text;
+  }
+}
+
+function toApiError(response: Response, data: unknown): ApiError {
+  return new ApiError({ headers: response.headers, url: response.url, status: response.status, statusText: response.statusText, data });
+}
+
+function filenameOf(contentDisposition: string | null): string | null {
+  if (!contentDisposition) return null;
+  const encoded = /filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i.exec(contentDisposition);
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1].trim().replace(/^"|"$/g, ''));
+    } catch {
+      // fall back to the plain filename parameter
+    }
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|[^;]+)/i.exec(contentDisposition);
+  return plain ? (plain[2] ?? plain[1]).trim() : null;
+}
