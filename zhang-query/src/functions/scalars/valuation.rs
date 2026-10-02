@@ -9,12 +9,13 @@
 //! - `value` prices the units in the cost currency; positions without cost, or without a
 //!   price, are returned as their units.
 //!
-//! Products are rounded like Python's default decimal context (28 significant digits,
-//! half-even), so results match beanquery even with inverted (28-digit) rates.
+//! `cost` is exact (`Position::at_cost`); products with market rates are rounded like
+//! Python's default decimal context (28 significant digits, half-even), so results match
+//! beanquery even with inverted (28-digit) rates. See `crate::decimal` for the policy.
 
 use chrono::NaiveDate;
 
-pub(super) use crate::decimal::mul;
+use crate::decimal::mul_in_context as mul;
 use crate::functions::FunctionContext;
 use crate::prices::PriceMap;
 use crate::value::{Position, Value};
@@ -27,11 +28,9 @@ fn date_arg(args: &[Value], idx: usize, function: &str) -> Result<Option<NaiveDa
 }
 
 /// beancount `convert.get_cost`: units × per-unit cost in the cost currency, or the units.
+/// Exact, and the same as `Inventory::at_cost` per position.
 fn position_cost(position: &Position) -> Amount {
-    match &position.cost {
-        Some(cost) => Amount::new(mul(&position.units.number, &cost.number), cost.currency.clone()),
-        None => position.units.clone(),
-    }
+    position.at_cost()
 }
 
 /// beancount `convert.get_value`: the units priced in the cost currency, or the units.

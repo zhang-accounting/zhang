@@ -1,15 +1,27 @@
-//! Exact decimal helpers shared by the evaluator and the function library.
+//! Decimal helpers shared by the evaluator and the function library.
 //!
-//! Addition, subtraction and multiplication of [`BigDecimal`] are exact. Division is the
-//! only operation that has to round: it follows the default context of Python's
-//! `decimal` module (28 significant digits, round-half-even), which is what beancount
-//! and beanquery use, so `1/3` gives `0.3333333333333333333333333333`.
+//! # Rounding policy
+//!
+//! - Ledger arithmetic is exact: sums, differences and products of ledger numbers
+//!   (`units × cost`, weights, `*` in queries) never round. beancount computes these in
+//!   Python's decimal context (28 significant digits), which is exact for every product of
+//!   ledger numbers that fits in 28 digits, so the results agree.
+//! - Division has to round: [`div`] follows Python's default context (28 significant
+//!   digits, round-half-even), so `1/3` is `0.3333333333333333333333333333`.
+//! - Valuation at market rates uses [`mul_in_context`], which rounds like beancount's decimal
+//!   context, because inverted rates carry 28 significant digits and beanquery rounds those
+//!   products.
+//!
+//! `BigDecimal`'s own `*` normalises when an operand is one (`-1000.00 × 1` becomes
+//! `-1000`), so all products go through [`mul`] or [`mul_in_context`], which keep the scale
+//! `lhs.scale + rhs.scale`.
 
 use std::num::NonZeroU64;
 
 use bigdecimal::{BigDecimal, RoundingMode, Zero};
 
-/// Number of significant digits kept by [`div`] and [`mul`] (Python's default context).
+/// Number of significant digits kept by [`div`] and [`mul_in_context`] (Python's default
+/// context).
 pub const DIVISION_PRECISION: u64 = 28;
 
 /// Divide `lhs` by `rhs`, returning `None` on division by zero.
@@ -37,15 +49,19 @@ pub fn div(lhs: &BigDecimal, rhs: &BigDecimal) -> Option<BigDecimal> {
     }
 }
 
-/// Multiply in Python's default decimal context: exact when the product fits in
-/// [`DIVISION_PRECISION`] significant digits, otherwise rounded half-even to that many.
-///
-/// The product keeps the scale `lhs.scale + rhs.scale` (`-1000.00 × 1 = -1000.00`);
-/// `BigDecimal`'s `*` normalises when an operand is one, which would drop those zeros.
+/// Multiply exactly. The product keeps the scale `lhs.scale + rhs.scale`
+/// (`-1000.00 × 1 = -1000.00`); see the module docs for the rounding policy.
 pub fn mul(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
     let (lhs_int, lhs_scale) = lhs.as_bigint_and_exponent();
     let (rhs_int, rhs_scale) = rhs.as_bigint_and_exponent();
-    let mut product = BigDecimal::new(lhs_int * rhs_int, lhs_scale + rhs_scale);
+    BigDecimal::new(lhs_int * rhs_int, lhs_scale + rhs_scale)
+}
+
+/// Multiply in Python's default decimal context: exact when the product fits in
+/// [`DIVISION_PRECISION`] significant digits, otherwise rounded half-even to that many.
+/// Used for valuation at market rates; see the module docs.
+pub fn mul_in_context(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
+    let mut product = mul(lhs, rhs);
     let precision = NonZeroU64::new(DIVISION_PRECISION).expect("non zero precision");
     // a carry (9.99… → 10.00…) adds a digit; the second pass drops the extra trailing zero
     while product.digits() > DIVISION_PRECISION {
@@ -101,6 +117,21 @@ mod tests {
         assert_eq!(to_plain_string(&div(&d("10.00"), &d("2")).unwrap()), "5.00");
         assert_eq!(to_plain_string(&div(&d("2"), &d("3")).unwrap()), "0.6666666666666666666666666667");
         assert_eq!(div(&d("1"), &d("0")), None);
+    }
+
+    #[test]
+    fn multiplication_in_context_rounds_to_28_digits() {
+        let exact = mul(&d("1600"), &d("0.9090909090909090909090909091"));
+        assert_eq!(to_plain_string(&exact), "1454.5454545454545454545454545600");
+        assert_eq!(
+            to_plain_string(&mul_in_context(&d("1600"), &d("0.9090909090909090909090909091"))),
+            "1454.545454545454545454545455"
+        );
+        assert_eq!(
+            to_plain_string(&mul_in_context(&d("9.999999999999999999999999999"), &d("1.0000000000000000000000000001"))),
+            "10.00000000000000000000000000"
+        );
+        assert_eq!(to_plain_string(&mul_in_context(&d("-1000.00"), &d("1"))), "-1000.00");
     }
 
     #[test]
