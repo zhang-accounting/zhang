@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use zhang_ast::{Directive, Spanned};
 
 pub mod http;
+pub mod stage;
 pub mod store;
 
 /// indicate which type the plugin belongs to
