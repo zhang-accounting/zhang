@@ -18,8 +18,9 @@ use crate::error::{LocatedError, QueryErrorKind, Span};
 use crate::functions::{AggregateKind, FunctionContext, ScalarFunction};
 use crate::params::Params;
 use crate::prices::PriceMap;
+use crate::projector::{borrowed_str, set_membership};
 use crate::table::{Dataset, Row};
-use crate::value::{Inventory, Value};
+use crate::value::{Inventory, Position, Value};
 
 /// How many rows are scanned between two deadline checks.
 const DEADLINE_CHECK_INTERVAL: usize = 256;
@@ -131,7 +132,10 @@ impl CExpr {
         match self {
             CExpr::Const(value) => Ok(value.clone()),
             CExpr::Column(def) => match (env.data, env.row) {
-                (Some(data), Some(row)) => Ok((def.get)(data, row)),
+                (Some(data), Some(row)) => {
+                    debug_assert!(data.projection.contains(def), "column '{}' is not projected", def.name);
+                    Ok((def.get)(data, row))
+                }
                 _ => Err(LocatedError::eval(format!("column '{}' is not available here", def.name), None)),
             },
             CExpr::Param(param) => Ok(env.params.get(param).cloned().unwrap_or(Value::Null)),
@@ -151,6 +155,9 @@ impl CExpr {
                 Ok(value)
             }
             CExpr::Compare { op, left, right } => {
+                if let (Some(left), Some(right)) = (borrowed_str(left, env), borrowed_str(right, env)) {
+                    return Ok(compare_str(*op, left, right));
+                }
                 let left = left.eval(env)?;
                 let right = right.eval(env)?;
                 Ok(compare(*op, &left, &right))
@@ -162,15 +169,30 @@ impl CExpr {
                 negated,
                 span,
                 ..
-            } => {
-                let subject = subject.eval(env)?;
-                eval_regex(subject, pattern, *case_insensitive, *negated, *span, env)
-            }
-            CExpr::InSet { needle, set, negated } => {
-                let needle = needle.eval(env)?;
-                let set = set.eval(env)?;
-                Ok(in_set(needle, set, *negated))
-            }
+            } => match borrowed_str(subject, env) {
+                Some(subject) => eval_regex(subject, pattern, *case_insensitive, *negated, *span, env),
+                None => match subject.eval(env)? {
+                    Value::Str(subject) => eval_regex(Some(&subject), pattern, *case_insensitive, *negated, *span, env),
+                    _ => Ok(Value::Null),
+                },
+            },
+            CExpr::InSet { needle, set, negated } => match set_membership(set, env) {
+                Some(contains) => {
+                    let found = match borrowed_str(needle, env) {
+                        Some(needle) => needle.map(&contains),
+                        None => match needle.eval(env)? {
+                            Value::Str(needle) => Some(contains(&needle)),
+                            _ => None,
+                        },
+                    };
+                    Ok(found.map_or(Value::Null, |found| Value::Bool(found != *negated)))
+                }
+                None => {
+                    let needle = needle.eval(env)?;
+                    let set = set.eval(env)?;
+                    Ok(in_set(needle, set, *negated))
+                }
+            },
             CExpr::InList { needle, items, negated } => {
                 let needle = needle.eval(env)?;
                 eval_in_list(needle, items, *negated, env)
@@ -247,12 +269,30 @@ fn compare(op: CmpOp, left: &Value, right: &Value) -> Value {
     })
 }
 
-fn eval_regex(subject: Value, pattern: &RegexPattern, case_insensitive: bool, negated: bool, span: Span, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
-    let Value::Str(subject) = subject else {
+/// `compare` for two strings read in place (see [`borrowed_str`]); `None` is NULL.
+fn compare_str(op: CmpOp, left: Option<&str>, right: Option<&str>) -> Value {
+    let (Some(left), Some(right)) = (left, right) else {
+        return Value::Null;
+    };
+    Value::Bool(match op {
+        CmpOp::Eq => left == right,
+        CmpOp::Ne => left != right,
+        CmpOp::Lt => left < right,
+        CmpOp::Le => left <= right,
+        CmpOp::Gt => left > right,
+        CmpOp::Ge => left >= right,
+    })
+}
+
+/// Match a string subject (`None` is NULL) against the pattern.
+fn eval_regex(
+    subject: Option<&str>, pattern: &RegexPattern, case_insensitive: bool, negated: bool, span: Span, env: &Env<'_, '_>,
+) -> Result<Value, LocatedError> {
+    let Some(subject) = subject else {
         return Ok(Value::Null);
     };
     let matched = match pattern {
-        RegexPattern::Compiled(regex) => regex.is_match(&subject),
+        RegexPattern::Compiled(regex) => regex.is_match(subject),
         RegexPattern::Dynamic(expr) => {
             let Value::Str(pattern) = expr.eval(env)? else {
                 return Ok(Value::Null);
@@ -260,7 +300,7 @@ fn eval_regex(subject: Value, pattern: &RegexPattern, case_insensitive: bool, ne
             env.regexes
                 .get(&pattern, case_insensitive)
                 .map_err(|message| LocatedError::eval(message, Some(span)))?
-                .is_match(&subject)
+                .is_match(subject)
         }
     };
     Ok(Value::Bool(matched != negated))
@@ -386,8 +426,8 @@ impl Accumulator {
                     *sum += it;
                 }
             }
-            (Accumulator::SumInventory(inventory), Value::Amount(it)) => inventory.add_amount(&it),
-            (Accumulator::SumInventory(inventory), Value::Position(it)) => inventory.add_position(&it),
+            (Accumulator::SumInventory(inventory), Value::Amount(it)) => inventory.add_owned_position(Position::new(it, None)),
+            (Accumulator::SumInventory(inventory), Value::Position(it)) => inventory.add_owned_position(it),
             (Accumulator::SumInventory(inventory), Value::Inventory(it)) => inventory.add_inventory(&it),
             (Accumulator::Pick(current), value) => {
                 let replace = match (call.function.kind, current.as_ref()) {

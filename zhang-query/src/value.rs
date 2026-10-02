@@ -172,6 +172,26 @@ impl Inventory {
         self.add(&position.units, position.cost.as_ref());
     }
 
+    /// [`Inventory::add_position`] for a position the caller no longer needs: its currency
+    /// and cost move into the inventory instead of being copied.
+    pub(crate) fn add_owned_position(&mut self, position: Position) {
+        let Position { units, cost } = position;
+        let key = (units.commodity, cost);
+        match self.lots.get_mut(&key) {
+            Some(existing) => {
+                *existing += &units.number;
+                if existing.is_zero() {
+                    self.lots.remove(&key);
+                }
+            }
+            None => {
+                if !units.number.is_zero() {
+                    self.lots.insert(key, units.number);
+                }
+            }
+        }
+    }
+
     /// Add units without cost.
     pub fn add_amount(&mut self, amount: &Amount) {
         self.add(amount, None);

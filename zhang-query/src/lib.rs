@@ -53,6 +53,7 @@ mod optimizer;
 pub mod params;
 mod parser;
 pub mod prices;
+mod projector;
 pub mod table;
 pub mod value;
 
@@ -86,6 +87,8 @@ pub struct QueryResult {
 pub struct Query {
     source: String,
     plan: compiler::Plan,
+    /// the columns the plan reads: executions only build these parts of the rows
+    projection: projector::Projection,
 }
 
 impl Query {
@@ -99,9 +102,11 @@ impl Query {
         let select = parser::parse(query)?;
         let plan = compiler::compile(query, &select, params).map_err(|err| err.resolve(query))?;
         let plan = optimizer::optimize(plan).map_err(|err| err.resolve(query))?;
+        let projection = projector::project(&plan);
         Ok(Query {
             source: query.to_owned(),
             plan,
+            projection,
         })
     }
 
@@ -111,9 +116,10 @@ impl Query {
     }
 
     /// An `EXPLAIN`-style description of the optimized plan: one line per target, aggregate,
-    /// the filter, grouping, ordering and limit.
+    /// the filter, grouping, ordering and limit, then the projected columns (the only ones
+    /// an execution computes).
     pub fn explain(&self) -> String {
-        self.plan.to_string()
+        format!("{}project: {}\n", self.plan, self.projection)
     }
 
     /// The `postings` columns the query reads, in name order.
@@ -185,7 +191,7 @@ impl Query {
             .store
             .read()
             .map_err(|_| QueryError::new(QueryErrorKind::Eval, "the ledger store is not readable"))?;
-        let data = table::Dataset::new(ledger, &store, today);
+        let data = table::Dataset::new(ledger, &store, today, self.projection);
         let rows = executor::execute(&self.plan, &data, params, deadline).map_err(|err| err.resolve(&self.source))?;
         Ok(QueryResult { columns: self.columns(), rows })
     }

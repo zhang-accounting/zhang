@@ -1,0 +1,359 @@
+//! The projector: the stage between the optimizer and the executor that decides which parts
+//! of the `postings` rows an execution builds.
+//!
+//! It takes the columns the optimized plan reads ([`Plan::referenced_columns`]: targets,
+//! including the hidden GROUP BY / ORDER BY ones, the filter and aggregate arguments) and
+//! turns them into a [`Projection`]. The row source ([`crate::table::Dataset`]) then builds
+//! only what the projected columns read:
+//!
+//! - Lot booking always runs over every posting held at cost: the lot a posting reduces
+//!   depends on all earlier postings, and how a reduction splits across lots decides the
+//!   rows themselves (their number and units), so even `SELECT count(*)` needs it. Only
+//!   whether the booked rows *carry* the cost of their lot depends on the projection
+//!   (`position`, `cost_*`, `weight`).
+//! - The price annotation (`price`, `weight`) is derived from the parsed directive (a
+//!   division for `@@` totals) only when projected.
+//! - Transaction columns (`id`, `flag`, `payee`, `narration`, `description`, `tags`,
+//!   `links`, `other_accounts`) are never copied up front: a row points at the stored
+//!   transaction and a column reads it when it is evaluated.
+//!
+//! Evaluation is lazy per column as well: a column value exists only while an expression
+//! reads it, and predicates over string and set columns read them in place, without
+//! copying them into a [`Value`] ([`borrowed_str`], [`set_membership`]).
+
+use std::fmt;
+
+use crate::compiler::{CExpr, Plan};
+use crate::executor::Env;
+use crate::table::{Borrow, ColumnDef, Reads, COLUMNS};
+use crate::value::Value;
+
+/// The `postings` columns one plan reads, and the row parts they need.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Projection {
+    /// bit `i` is set when `COLUMNS[i]` is read
+    columns: u64,
+    reads: Reads,
+}
+
+/// Build the projection of an optimized plan.
+pub(crate) fn project(plan: &Plan) -> Projection {
+    let referenced = plan.referenced_columns();
+    Projection::of_columns(COLUMNS.iter().filter(|column| referenced.contains(column.name)))
+}
+
+impl Projection {
+    /// Every column: rows carry everything.
+    #[cfg(test)]
+    pub fn all() -> Projection {
+        Projection::of_columns(COLUMNS.iter())
+    }
+
+    fn of_columns<'c>(columns: impl Iterator<Item = &'c ColumnDef>) -> Projection {
+        let mut projection = Projection {
+            columns: 0,
+            reads: Reads::default(),
+        };
+        for column in columns {
+            projection.columns |= bit(column);
+            projection.reads.cost |= column.reads.cost;
+            projection.reads.price |= column.reads.price;
+        }
+        projection
+    }
+
+    /// Whether the column is projected.
+    pub fn contains(&self, column: &ColumnDef) -> bool {
+        self.columns & bit(column) != 0
+    }
+
+    /// Whether booked rows keep the cost of their lot.
+    pub fn keeps_cost(&self) -> bool {
+        self.reads.cost
+    }
+
+    /// Whether rows keep the price annotation of their posting.
+    pub fn keeps_price(&self) -> bool {
+        self.reads.price
+    }
+
+    /// The projected column names, in name order (like [`Plan::referenced_columns`]).
+    pub fn names(&self) -> Vec<&'static str> {
+        let mut names = COLUMNS
+            .iter()
+            .filter(|column| self.contains(column))
+            .map(|column| column.name)
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        names
+    }
+}
+
+fn bit(column: &ColumnDef) -> u64 {
+    let index = COLUMNS.iter().position(|it| std::ptr::eq(it, column)).expect("a column of the postings table");
+    1 << index
+}
+
+/// `[account, position] (2 of 22 columns)`
+impl fmt::Display for Projection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let names = self.names();
+        write!(f, "[{}] ({} of {} columns)", names.join(", "), names.len(), COLUMNS.len())
+    }
+}
+
+/// The string an operand reads, borrowed from the row, the plan or the parameters: a string
+/// column that supports it ([`Borrow::Str`]), a string constant or a string parameter.
+/// `Some(None)` is a NULL string; `None` when the operand has to be evaluated instead.
+pub(crate) fn borrowed_str<'r>(expr: &'r CExpr, env: &Env<'r, '_>) -> Option<Option<&'r str>> {
+    match expr {
+        CExpr::Column(column) => match (column.borrow, env.data, env.row) {
+            (Borrow::Str(get), Some(data), Some(row)) => Some(get(data, row)),
+            _ => None,
+        },
+        CExpr::Const(Value::Str(text)) => Some(Some(text)),
+        CExpr::Param(param) => match env.params.get(param) {
+            Some(Value::Str(text)) => Some(Some(text)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// A membership test of a set column of the current row ([`Borrow::Contains`]), which does
+/// not build the set; `None` when the operand has to be evaluated instead.
+pub(crate) fn set_membership<'r, 'a>(expr: &'r CExpr, env: &Env<'r, 'a>) -> Option<impl Fn(&str) -> bool + use<'r, 'a>> {
+    match expr {
+        CExpr::Column(column) => match (column.borrow, env.data, env.row) {
+            (Borrow::Contains(contains), Some(data), Some(row)) => Some(move |needle: &str| contains(data, row, needle)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use chrono::NaiveDate;
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::ledger::Ledger;
+
+    use super::*;
+    use crate::executor::{execute, RegexCache};
+    use crate::params::Params;
+    use crate::table::{column, Dataset};
+    use crate::Query;
+
+    fn load(dir: PathBuf) -> Ledger {
+        let source = LocalFileSystemDataSource::new(ZhangDataType {});
+        Ledger::load_with_data_source(dir, "main.zhang".to_owned(), Arc::new(source)).expect("cannot load ledger")
+    }
+
+    fn fava_demo_ledger() -> Ledger {
+        load(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integration-tests/fava-demo-ledger"))
+    }
+
+    fn load_text(content: &str) -> Ledger {
+        let dir = tempfile::tempdir().expect("tempdir").into_path();
+        std::fs::write(dir.join("main.zhang"), content).expect("write ledger");
+        load(dir)
+    }
+
+    /// Lots (FIFO and LIFO, split reductions, `{}` and cost-only reductions, labels and
+    /// dates), `@` / `@@` prices, prices for valuation, metadata, tags and links.
+    const LEDGER: &str = r#"
+option "operating_currency" "USD"
+
+1970-01-01 commodity USD
+1970-01-01 commodity EUR
+1970-01-01 commodity AAPL
+
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Fifo
+1970-01-01 open Assets:Lifo
+  booking_method: "LIFO"
+1970-01-01 open Expenses:Food
+1970-01-01 open Expenses:Travel
+1970-01-01 open Income:Gains
+1970-01-01 open Equity:Opening
+
+2024-01-01 price EUR 1.10 USD
+2024-02-15 price AAPL 120.00 USD
+2024-03-01 price AAPL 150.00 USD
+
+2024-01-05 * "Cafe" "lunch" #food ^receipt-1
+  category: "meal"
+  Expenses:Food    12.50 USD
+  Assets:Bank
+
+2024-02-01 * "Broker" "buy"
+  Assets:Fifo     5 AAPL {100.00 USD}
+  Assets:Lifo     5 AAPL {100.00 USD, 2024-01-15, "first"}
+  Assets:Bank    -1000.00 USD
+
+2024-02-10 * "Broker" "buy more"
+  Assets:Fifo     5 AAPL {110.00 USD}
+  Assets:Lifo     5 AAPL {110.00 USD}
+  Assets:Bank    -1100.00 USD
+
+2024-03-05 * "Broker" "sell"
+  Assets:Fifo    -7 AAPL {} @ 150.00 USD
+  Assets:Lifo    -2 AAPL {100.00 USD}
+  Assets:Lifo    -6 AAPL {} @@ 900.00 USD
+  Assets:Bank    2250.00 USD
+  Income:Gains   -680.00 USD
+
+2024-03-10 * "Trip" "hotel" #travel
+  Expenses:Travel  100.00 EUR @@ 110.00 USD
+  Assets:Bank     -110.00 USD
+
+2024-04-02 balance Assets:Bank 2000.00 USD with pad Equity:Opening
+"#;
+
+    /// Queries covering every column, booking (lots and their costs), valuation, metadata,
+    /// FROM + WHERE, in-place predicates, grouping, ordering, DISTINCT and LIMIT.
+    const QUERIES: &[&str] = &[
+        "SELECT *",
+        "SELECT count(*)",
+        "SELECT count(*), sum(number) WHERE account ~ 'Expenses:Food'",
+        "SELECT account, number, cost_number, cost_currency, cost_date, cost_label, price, weight WHERE cost_number IS NOT NULL",
+        "SELECT account, sum(position) GROUP BY account ORDER BY account",
+        "SELECT account, units(sum(position)), cost(sum(position)), convert(units(sum(position)), 'USD') WHERE account ~ '^Assets' GROUP BY account ORDER BY account",
+        "SELECT account, value(position), value(position, date), convert(position, 'USD', date), getprice(currency, 'USD', date) WHERE account ~ 'Assets'",
+        "SELECT sum(weight), sum(cost(position)), count(*) WHERE number < 0",
+        "SELECT payee, entry_meta('category'), any_meta('category'), meta('category') WHERE any_meta('category') IS NOT NULL",
+        "SELECT payee, any_meta('title') WHERE entry_meta('title') IS NOT NULL",
+        "SELECT date, account, position FROM year = 2016 WHERE account ~ 'Assets' AND number > 0",
+        "SELECT date, account, position, price FROM month = 3 WHERE price IS NOT NULL OR cost_label = 'first'",
+        "SELECT date, payee, account, position WHERE 'trip-chicago-2016' IN tags",
+        "SELECT account, tags, links WHERE 'food' IN tags OR 'receipt-1' IN links OR 'travel' NOT IN tags",
+        "SELECT account, other_accounts WHERE 'Assets:Bank' IN other_accounts",
+        "SELECT id, flag, description, payee, narration WHERE payee ~ narration OR narration = 'buy' OR flag = 'P'",
+        "SELECT account WHERE account = 'Assets:Lifo' OR currency = 'EUR' OR cost_currency = 'USD' OR cost_label = ''",
+        "SELECT account, position WHERE account !~ 'Assets|Expenses' AND currency > 'A' AND payee <= 'Z'",
+        "SELECT year, month, root(account, 2), sum(position) WHERE account ~ '^Expenses' GROUP BY 1, 2, 3 ORDER BY 1, 2, 3",
+        "SELECT payee, sum(cost(position)) AS total WHERE account ~ '^Expenses' GROUP BY payee ORDER BY total DESC LIMIT 20",
+        "SELECT DISTINCT account, cost_currency ORDER BY account",
+        "SELECT account, position WHERE account ~ 'Expenses' LIMIT 7",
+        "SELECT root(account, 1) AS r, first(date), last(position), min(number), max(weight) GROUP BY r ORDER BY count(*) DESC, r",
+    ];
+
+    /// Run `sql` over a dataset built for `projection` (or the query's own projection).
+    fn run(ledger: &Ledger, sql: &str, projection: Option<Projection>) -> String {
+        let query = Query::compile(sql).unwrap_or_else(|err| panic!("{sql}: {err}"));
+        let store = ledger.store.read().unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let data = Dataset::new(ledger, &store, today, projection.unwrap_or(query.projection));
+        let rows = execute(&query.plan, &data, &Params::new(), None).unwrap_or_else(|err| panic!("{sql}: {}", err.message));
+        // the Debug form keeps decimal scales, so equal strings are identical results
+        format!("{rows:?}")
+    }
+
+    fn assert_pruning_keeps_results(ledger: &Ledger, queries: impl IntoIterator<Item = String>) {
+        for sql in queries {
+            let pruned = run(ledger, &sql, None);
+            let full = run(ledger, &sql, Some(Projection::all()));
+            assert_eq!(pruned, full, "{sql}");
+        }
+    }
+
+    fn every_column() -> impl Iterator<Item = String> {
+        COLUMNS.iter().map(|column| format!("SELECT {}", column.name))
+    }
+
+    #[test]
+    fn pruning_keeps_results_on_the_fava_demo_ledger() {
+        let ledger = fava_demo_ledger();
+        assert_pruning_keeps_results(&ledger, QUERIES.iter().map(|it| it.to_string()).chain(every_column()));
+    }
+
+    #[test]
+    fn pruning_keeps_results_with_lots_prices_and_metadata() {
+        let ledger = load_text(LEDGER);
+        // the ledger exercises split reductions: more rows than postings
+        assert!(
+            run(&ledger, "SELECT count(*)", None).contains("Int(19)"),
+            "{}",
+            run(&ledger, "SELECT count(*)", None)
+        );
+        assert_pruning_keeps_results(&ledger, QUERIES.iter().map(|it| it.to_string()).chain(every_column()));
+    }
+
+    #[test]
+    fn rows_drop_costs_and_prices_outside_the_projection() {
+        let ledger = load_text(LEDGER);
+        let store = ledger.store.read().unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let rows_of = |sql: &str| {
+            let projection = Query::compile(sql).unwrap().projection;
+            let data = Dataset::new(&ledger, &store, today, projection);
+            let costs = data.rows.iter().filter(|row| row.cost.is_some()).count();
+            let prices = data.rows.iter().filter(|row| row.price.is_some()).count();
+            (data.rows.len(), costs, prices)
+        };
+        // booking still splits the reductions, but the rows carry no cost or price
+        assert_eq!(rows_of("SELECT account, number"), (19, 0, 0));
+        assert_eq!(rows_of("SELECT cost_date"), (19, 9, 0));
+        assert_eq!(rows_of("SELECT price"), (19, 0, 5));
+        assert_eq!(rows_of("SELECT weight"), (19, 9, 5));
+    }
+
+    #[test]
+    fn projection_follows_the_columns_the_plan_reads() {
+        let projection = Query::compile("SELECT payee, sum(position) WHERE 'x' IN tags GROUP BY payee ORDER BY max(price)")
+            .unwrap()
+            .projection;
+        assert_eq!(projection.names(), vec!["payee", "position", "price", "tags"]);
+        assert!(projection.keeps_cost() && projection.keeps_price());
+        assert!(projection.contains(column("tags").unwrap()) && !projection.contains(column("account").unwrap()));
+        assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 22 columns)");
+
+        let projection = Query::compile("SELECT count(*), sum(number) WHERE account ~ 'Food'").unwrap().projection;
+        assert!(!projection.keeps_cost() && !projection.keeps_price());
+        assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 22 columns)");
+        assert_eq!(Projection::all().names().len(), COLUMNS.len());
+    }
+
+    /// The in-place readers of a column give the same answer as its value.
+    #[test]
+    fn borrowed_columns_agree_with_their_values() {
+        let ledger = load_text(LEDGER);
+        let store = ledger.store.read().unwrap();
+        let data = Dataset::new(&ledger, &store, NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(), Projection::all());
+        let params = Params::new();
+        let regexes = RegexCache::default();
+        let impure = std::cell::Cell::new(false);
+        let needles = ["food", "travel", "receipt-1", "Assets:Bank", "Income:Gains", "Expenses:Food", "x"];
+        let mut checked = 0;
+        for row in &data.rows {
+            let env = Env {
+                data: Some(&data),
+                row: Some(row),
+                aggregates: &[],
+                params: &params,
+                regexes: &regexes,
+                impure: &impure,
+            };
+            for column in COLUMNS {
+                let expr = CExpr::Column(column);
+                let value = (column.get)(&data, row);
+                if let Some(text) = borrowed_str(&expr, &env) {
+                    assert_eq!(text.map(|it| Value::Str(it.to_owned())).unwrap_or(Value::Null), value, "{}", column.name);
+                    checked += 1;
+                }
+                if let Some(contains) = set_membership(&expr, &env) {
+                    let Value::Set(set) = &value else { panic!("{} is not a set", column.name) };
+                    for needle in needles {
+                        assert_eq!(contains(needle), set.contains(needle), "{} {}", column.name, needle);
+                    }
+                    checked += 1;
+                };
+            }
+        }
+        assert_eq!(checked, data.rows.len() * 9);
+    }
+}
