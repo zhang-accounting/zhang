@@ -1,23 +1,35 @@
+import { Puzzle } from 'lucide-react';
+import { Badge } from './ui/badge';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from './ui/item';
+
 interface Props {
   name: string;
   plugin_type: ('Processor' | 'Mapper' | 'Router')[];
   version: string;
 }
 
+/** One installed plugin: name, capability badges and version. */
 export default function PluginBox(props: Props) {
   return (
-    <div className="bg-transparent p-4 border-2 border-gray-100 rounded-md">
-      <div className="flex justify-between items-center mb-2">
-        <span className="text-lg font-semibold">{props.name}</span>
-        <span className="bg-blue-500 text-white px-2 py-1 rounded-full text-sm">{props.version}</span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {props.plugin_type.map((item, index) => (
-          <span key={index} className="bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
-            {item}
-          </span>
-        ))}
-      </div>
-    </div>
+    <Item variant="outline" className="bg-card">
+      <ItemMedia variant="icon" className="size-9 rounded-lg bg-muted">
+        <Puzzle />
+      </ItemMedia>
+      <ItemContent className="min-w-0">
+        <ItemTitle className="w-full truncate">{props.name}</ItemTitle>
+        <ItemDescription className="flex flex-wrap gap-1">
+          {props.plugin_type.map((item) => (
+            <Badge key={item} variant="secondary">
+              {item}
+            </Badge>
+          ))}
+        </ItemDescription>
+      </ItemContent>
+      <ItemActions>
+        <Badge variant="outline" className="font-mono tabular-nums">
+          v{props.version}
+        </Badge>
+      </ItemActions>
+    </Item>
   );
 }

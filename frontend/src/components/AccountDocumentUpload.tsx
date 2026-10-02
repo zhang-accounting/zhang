@@ -1,62 +1,63 @@
-import { uploadAccountDocument, uploadTransactionDocument } from '@/api/requests';
-import { useCallback, useEffect, useState } from 'react';
+import { Upload } from 'lucide-react';
+import { useCallback, useState } from 'react';
 import { FileWithPath, useDropzone } from 'react-dropzone';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
+import { serverBaseUrl } from '@/api/fetcher';
+import { apiErrorMessage, responseError } from '@/lib/api-error';
+import { cn } from '@/lib/utils';
+import { Spinner } from './ui/spinner';
 
 interface Props {
   type: 'transaction' | 'account';
   id: string;
+  /** Called after a successful upload (e.g. to reload the document list). */
+  onUploaded?: () => void;
+  className?: string;
 }
 
-export default function AccountDocumentUpload(props: Props) {
-  const [files, setFiles] = useState<FileWithPath[]>([]);
+/** Square drop zone tile that uploads documents to an account or a transaction. */
+export default function AccountDocumentUpload({ type, id, onUploaded, className }: Props) {
+  const { t } = useTranslation();
+  const [uploading, setUploading] = useState(false);
 
-  const onDrop = useCallback((acceptedFiles: FileWithPath[]) => {
-    setFiles(acceptedFiles);
-  }, []);
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop });
-
-  const sendRequest = async (id: string, formData: FormData) => {
-    if (props.type === 'transaction') {
-      await uploadTransactionDocument({
-        //@ts-ignore
-        transaction_id: id,
-        //@ts-ignore
-        file: formData,
-      });
-    }
-    if (props.type === 'account') {
-      await uploadAccountDocument({
-        //@ts-ignore
-        account_name: id,
-        //@ts-ignore
-        file: formData,
-      });
-    }
-  };
-
-  useEffect(() => {
-    if (files.length > 0) {
+  const onDrop = useCallback(
+    async (files: FileWithPath[]) => {
+      if (files.length === 0) return;
       const formData = new FormData();
       files.forEach((file) => formData.append('file', file));
-      sendRequest(props.id, formData).then(() => {
-        setFiles([]);
-      });
-    }
-  }, [files, props.id, props.type]);
+      setUploading(true);
+      try {
+        // Plain fetch: the generated client JSON-encodes the body, which drops the multipart files.
+        const base = type === 'transaction' ? 'transactions' : 'accounts';
+        const response = await fetch(`${serverBaseUrl}/api/${base}/${encodeURIComponent(id)}/documents`, { method: 'POST', body: formData });
+        if (!response.ok) throw await responseError(response);
+        toast.success(t('ledger.documents.uploaded', { count: files.length }));
+        onUploaded?.();
+      } catch (error) {
+        toast.error(t('ledger.documents.upload_failed'), { description: await apiErrorMessage(error) });
+      } finally {
+        setUploading(false);
+      }
+    },
+    [type, id, onUploaded, t],
+  );
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, disabled: uploading });
 
   return (
-    <div {...getRootProps()} className="relative overflow-hidden rounded-md after:content-[''] after:block after:pb-[100%] bg-gray-100 dark:bg-dark-700">
-      <input {...getInputProps()} />
-      {isDragActive ? (
-        <div className="absolute w-full h-full flex flex-col items-center justify-center text-center p-4">
-          <p>Drop the files here ...</p> :
-        </div>
-      ) : (
-        <div className="cursor-pointer absolute w-full h-full flex flex-col items-center justify-center text-center p-4">
-          <p>Drag 'n' drop some files here, or click to select files</p>
-        </div>
+    <div
+      {...getRootProps()}
+      className={cn(
+        'flex aspect-square cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-3 text-center',
+        'bg-muted/30 text-xs text-muted-foreground transition-colors outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50',
+        isDragActive && 'border-primary bg-primary/5 text-foreground',
+        className,
       )}
+    >
+      <input {...getInputProps()} />
+      {uploading ? <Spinner className="size-5" /> : <Upload className="size-5" aria-hidden />}
+      <span>{isDragActive ? t('ledger.documents.drop_here') : t('ledger.documents.upload_hint')}</span>
     </div>
   );
 }

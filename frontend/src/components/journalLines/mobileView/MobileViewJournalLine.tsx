@@ -1,23 +1,22 @@
 import { JournalItem } from '@/api/types';
+import MobileViewBalanceCheckLine from './MobileViewBalanceCheckLine';
 import MobileViewBalancePadLine from './MobileViewBalancePadLine';
 import MobileViewTransactionLine from './MobileViewTransactionLine';
-import MobileViewBalanceCheckLine from './MobileViewBalanceCheckLine';
 
 interface Props {
   data: JournalItem;
+  /** Show the date next to the time (lists that are not grouped by day). */
+  showDate?: boolean;
 }
-export default function MobileViewJournalLine({ data }: Props) {
-  let line = null;
+
+export default function MobileViewJournalLine({ data, showDate }: Props) {
   switch (data.type) {
     case 'BalanceCheck':
-      line = <MobileViewBalanceCheckLine data={data} />;
-      break;
+      return <MobileViewBalanceCheckLine data={data} showDate={showDate} />;
     case 'BalancePad':
-      line = <MobileViewBalancePadLine data={data} />;
-      break;
+      return <MobileViewBalancePadLine data={data} showDate={showDate} />;
     case 'Transaction':
-      line = <MobileViewTransactionLine data={data} />;
-      break;
+      return <MobileViewTransactionLine data={data} showDate={showDate} />;
   }
-  return line;
+  return null;
 }

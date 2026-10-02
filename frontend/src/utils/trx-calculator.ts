@@ -11,15 +11,15 @@ interface CurrencyCount {
 }
 
 const transfer = (counter: CurrencyCount, amount: BigNumber, currency: string) => {
-  if (!counter.hasOwnProperty(currency)) {
+  if (!Object.prototype.hasOwnProperty.call(counter, currency)) {
     counter[currency] = new BigNumber(0);
   }
   counter[currency] = counter[currency].plus(amount);
 };
 
 export function calculate(trx: JournalTransactionItem): Set<SummaryItem> {
-  let counter: CurrencyCount = {};
-  let internal: CurrencyCount = {};
+  const counter: CurrencyCount = {};
+  const internal: CurrencyCount = {};
 
   trx.postings.forEach((posting) => {
     const unit_number = posting.unit?.number || posting.inferred_unit.number;

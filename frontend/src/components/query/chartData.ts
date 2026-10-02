@@ -153,7 +153,8 @@ export function defaultCurrency(currencies: string[], operatingCurrency?: string
 
 // ---- treemap ----
 
-export interface TreemapDatum {
+// A type alias, not an interface: recharts 3 types treemap data with an index signature, which interfaces do not satisfy.
+export type TreemapDatum = {
   /** the last account component, shown as the cell label */
   name: string;
   /** the full account name */
@@ -164,7 +165,7 @@ export interface TreemapDatum {
   signed?: string;
   negative?: boolean;
   children?: TreemapDatum[];
-}
+};
 
 interface AccountTrie {
   name: string;

@@ -1,21 +1,31 @@
 import * as React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { cn } from '@/lib/utils';
+import { Card } from './ui/card';
 
 interface Props {
-  title: string;
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  /** Actions / meta aligned to the right of the title. */
   rightSection?: React.ReactNode;
   children: React.ReactNode;
+  /** Let the content run edge to edge (lists, tables); the header gets a bottom border instead. */
   noPadding?: boolean;
+  className?: string;
+  contentClassName?: string;
 }
 
-export default function Section({ children, title, rightSection }: Props) {
+/** Titled card used to group page content (charts, lists, key/value blocks). */
+export default function Section({ children, title, description, rightSection, noPadding, className, contentClassName }: Props) {
   return (
-    <Card className="rounded-sm border-2 border-gray-100 bg-transparent hover:border-primary">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 ">
-        <CardTitle className="text-sm font-medium text-gray-900">{title}</CardTitle>
-        {rightSection}
-      </CardHeader>
-      <CardContent className="mt-2">{children}</CardContent>
+    <Card className={cn('gap-0 py-0', className)}>
+      <div className={cn('flex min-h-12 items-center justify-between gap-3 px-4 py-3', noPadding && 'border-b')}>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h2 className="truncate text-sm font-medium">{title}</h2>
+          {description && <p className="text-xs text-muted-foreground">{description}</p>}
+        </div>
+        {rightSection && <div className="flex shrink-0 items-center gap-2">{rightSection}</div>}
+      </div>
+      <div className={cn('min-w-0', !noPadding && 'px-4 pb-4', contentClassName)}>{children}</div>
     </Card>
   );
 }

@@ -12,11 +12,24 @@ import CodeMirror, {
   ViewPlugin,
   ViewUpdate,
 } from '@uiw/react-codemirror';
+import { useTheme } from 'next-themes';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
 
 // Lightweight BQL highlighting built on the view package only, since no CodeMirror language package is installed.
-const TOKEN_REGEXP =
-  /("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|\b(\d{4}-\d{2}-\d{2})\b|\b(\d+(?:\.\d+)?)\b|\b(select|distinct|from|where|group|by|order|asc|desc|limit|as|and|or|not|in|is|null|true|false|open|close|on|clear|balances|journal|at|pivot|having)\b|\b([a-z_][a-z0-9_]*)(?=\s*\()/gi;
+const KEYWORDS =
+  'select|distinct|from|where|group|by|order|asc|desc|limit|as|and|or|not|in|is|null|true|false|open|close|on|clear|balances|journal|at|pivot|having';
+// one capture group per token kind, in this order: string, date, number, keyword, function name
+const TOKEN_REGEXP = new RegExp(
+  [
+    /("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)/.source,
+    /\b(\d{4}-\d{2}-\d{2})\b/.source,
+    /\b(\d+(?:\.\d+)?)\b/.source,
+    `\\b(${KEYWORDS})\\b`,
+    /\b([a-z_][a-z0-9_]*)(?=\s*\()/.source,
+  ].join('|'),
+  'gi',
+);
 
 const tokenMarks = {
   string: Decoration.mark({ class: 'cm-bql-string' }),
@@ -77,17 +90,22 @@ const errorField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field),
 });
 
+// Token colours follow the app theme: `&light` / `&dark` match the CodeMirror theme chosen from next-themes below.
 const queryEditorTheme = EditorView.baseTheme({
-  '&': { fontSize: '13px' },
-  '.cm-content': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
+  '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.6' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-bql-keyword': { color: '#7c3aed', fontWeight: '600' },
-  '.cm-bql-function': { color: '#0369a1' },
-  '.cm-bql-string': { color: '#047857' },
-  '.cm-bql-number': { color: '#1d4ed8' },
-  '.cm-bql-date': { color: '#b45309' },
-  '.cm-query-error-line': { backgroundColor: 'rgba(220, 38, 38, 0.08)' },
-  '.cm-query-error': { textDecoration: 'underline wavy #dc2626', textDecorationSkipInk: 'none' },
+  '&light .cm-bql-keyword': { color: '#7c3aed', fontWeight: '600' },
+  '&light .cm-bql-function': { color: '#0369a1' },
+  '&light .cm-bql-string': { color: '#047857' },
+  '&light .cm-bql-number': { color: '#1d4ed8' },
+  '&light .cm-bql-date': { color: '#b45309' },
+  '&dark .cm-bql-keyword': { color: '#c4b5fd', fontWeight: '600' },
+  '&dark .cm-bql-function': { color: '#7dd3fc' },
+  '&dark .cm-bql-string': { color: '#6ee7b7' },
+  '&dark .cm-bql-number': { color: '#93c5fd' },
+  '&dark .cm-bql-date': { color: '#fcd34d' },
+  '.cm-query-error-line': { backgroundColor: 'color-mix(in oklch, var(--destructive) 12%, transparent)' },
+  '.cm-query-error': { textDecoration: 'underline wavy var(--destructive)', textDecorationSkipInk: 'none' },
 });
 
 interface Props {
@@ -96,10 +114,18 @@ interface Props {
   onRun: () => void;
   error: QueryError | null;
   placeholder?: string;
+  /** Accessible name of the editable area. */
+  label?: string;
   onCreateEditor?: (view: EditorView) => void;
+  className?: string;
 }
 
-export default function QueryEditor({ value, onChange, onRun, error, placeholder, onCreateEditor }: Props) {
+/**
+ * BQL editor (CodeMirror): Cmd/Ctrl+Enter runs, the server's error position is underlined. Font size comes from the
+ * container (`text-base md:text-sm`: 16px on phones so iOS does not zoom on focus).
+ */
+export default function QueryEditor({ value, onChange, onRun, error, placeholder, label, onCreateEditor, className }: Props) {
+  const { resolvedTheme } = useTheme();
   const [view, setView] = useState<EditorView | null>(null);
   const onRunRef = useRef(onRun);
   onRunRef.current = onRun;
@@ -121,8 +147,9 @@ export default function QueryEditor({ value, onChange, onRun, error, placeholder
       errorField,
       queryEditorTheme,
       EditorView.lineWrapping,
+      EditorView.contentAttributes.of(label ? { 'aria-label': label } : {}),
     ],
-    [],
+    [label],
   );
 
   useEffect(() => {
@@ -137,6 +164,13 @@ export default function QueryEditor({ value, onChange, onRun, error, placeholder
       onChange={onChange}
       extensions={extensions}
       placeholder={placeholder}
+      theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+      className={cn(
+        '[&_.cm-editor]:bg-transparent! [&_.cm-placeholder]:text-muted-foreground!',
+        '[&_.cm-gutters]:border-r! [&_.cm-gutters]:border-border! [&_.cm-gutters]:bg-transparent! [&_.cm-gutters]:text-muted-foreground!',
+        '[&_.cm-activeLineGutter]:bg-muted!',
+        className,
+      )}
       minHeight="120px"
       maxHeight="45vh"
       basicSetup={{ foldGutter: false, autocompletion: false }}

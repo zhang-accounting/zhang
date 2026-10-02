@@ -1,151 +1,240 @@
-import { retrieveBudgetEvent, retrieveBudgetInfo } from '@/api/requests.ts';
-import { Badge } from '@/components/ui/badge.tsx';
-import { Button } from '@/components/ui/button.tsx';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
-import { BUDGETS_LINK } from '@/layout/Sidebar.tsx';
-import { useDocumentTitle } from '@mantine/hooks';
-import { ChevronLeftIcon, ChevronRightIcon } from '@radix-ui/react-icons';
-import { format } from 'date-fns';
-import { useAtomValue, useSetAtom } from 'jotai/index';
-import { useEffect, useState } from 'react';
-import { useParams } from 'react-router';
-import { useAsync } from 'react-use';
-import Amount from '../components/Amount';
-import PayeeNarration from '../components/basic/PayeeNarration';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
+import { useAtomValue, useSetAtom } from 'jotai';
+import { ArrowLeft, ListX, TriangleAlert } from 'lucide-react';
+import { OpReturnType } from 'openapi-typescript-fetch';
+import { useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useAsync, useAsyncRetry } from 'react-use';
+import { retrieveBudgetEvent, retrieveBudgetInfo } from '@/api/requests';
+import { operations } from '@/api/schemas';
+import Amount from '@/components/Amount';
+import PayeeNarration from '@/components/basic/PayeeNarration';
+import { budgetUsage, formatMonth, monthFromSearchParams, monthSearchParams, usageProgressClass } from '@/components/budget/budget-utils';
+import { MonthSwitcher } from '@/components/budget/MonthSwitcher';
+import { EmptyState, PageHeader, PageShell, RefreshingLabel, ResponsiveList, type ResponsiveColumn } from '@/components/layout';
+import { KeyFigure, KeyFigures } from '@/components/layout/KeyFigures';
+import { useDateFormat } from '@/components/layout/use-date-format';
+import { Badge } from '@/components/ui/badge';
+import { buttonVariants } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useDocumentTitle } from '@/hooks/use-document-title';
+import { BUDGETS_LINK } from '@/layout/nav-links';
+import { cn } from '@/lib/utils';
+import { breadcrumbAtom, titleAtom } from '@/states/basic';
+
+type BudgetEvent = OpReturnType<operations['get_budget_interval_detail']>['data'][number];
+
+function isBudgetEvent(event: BudgetEvent): event is Extract<BudgetEvent, { type: 'BudgetEvent' }> {
+  return 'event_type' in event;
+}
+
+function toneClass(value: string | undefined) {
+  const number = Number(value ?? 0);
+  if (number < 0) return 'text-destructive';
+  if (number > 0) return 'text-emerald-600 dark:text-emerald-400';
+  return undefined;
+}
 
 function SingleBudget() {
+  const { t, i18n } = useTranslation();
+  const fmt = useDateFormat();
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  let { budgetName } = useParams();
-  const [date, setDate] = useState<Date>(new Date());
+  const { budgetName } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const date = useMemo(() => monthFromSearchParams(searchParams), [searchParams]);
+  const setDate = (next: Date) => setSearchParams(monthSearchParams(next), { replace: true });
   const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${budgetName} | Budgets - ${ledgerTitle}`);
+  useDocumentTitle(`${budgetName} | ${t('NAV_BUDGETS')} - ${ledgerTitle}`);
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+
   useEffect(() => {
     setBreadcrumb([
-      BUDGETS_LINK,
-      {
-        label: budgetName ?? '',
-        uri: `/budgets/${budgetName}`,
-        noTranslate: true,
-      },
+      { ...BUDGETS_LINK, uri: `/budgets?year=${year}&month=${month}` },
+      { label: budgetName ?? '', uri: `/budgets/${budgetName}`, noTranslate: true },
     ]);
-  }, [budgetName]);
+  }, [budgetName, year, month, setBreadcrumb]);
 
-  const goToMonth = (gap: number) => {
-    let newDate = new Date(date);
-    newDate.setMonth(newDate.getMonth() + gap);
-    setDate(newDate);
-  };
-  const { value: budget_info, error } = useAsync(async () => {
-    const res = await retrieveBudgetInfo({ budget_name: budgetName ?? '' });
+  const {
+    value: budgetInfo,
+    error,
+    loading: infoLoading,
+  } = useAsync(async () => {
+    const res = await retrieveBudgetInfo({ budget_name: budgetName ?? '', year, month });
     return res.data.data;
-  }, [budgetName]);
-  const { value: budget_interval_event } = useAsync(async () => {
-    const res = await retrieveBudgetEvent({ budget_name: budgetName ?? '', year: date.getFullYear(), month: date.getMonth() + 1 });
+  }, [budgetName, year, month]);
+  const {
+    value: events,
+    loading: eventsLoading,
+    error: eventsError,
+  } = useAsyncRetry(async () => {
+    const res = await retrieveBudgetEvent({ budget_name: budgetName ?? '', year, month });
     return res.data.data;
-  }, [budgetName, date]);
+  }, [budgetName, year, month]);
 
-  if (error) return <div>failed to load</div>;
-  if (!budget_info) return <div>{error}</div>;
-  return (
-    <div>
-      <div className="grid grid-cols-12 gap-4">
-        <Card className="mt-2 rounded-sm  col-span-8">
-          <CardHeader className="flex flex-row  justify-between space-y-0 pb-2 bg-gray-100">
-            <CardTitle>
-              <div className="flex items-center gap-2">
-                <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{budget_info.alias ?? budget_info.name}</h1>
-                {budget_info.alias && (
-                  <Badge variant="outline" className="text-sm text-gray-500">
-                    {budget_info.name}
-                  </Badge>
-                )}
-              </div>
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" onClick={() => goToMonth(-1)}>
-                <ChevronLeftIcon className="h-4 w-4" />
-              </Button>
-              <h1 className="inline-block shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">{`${format(date, 'MMM, yyyy')}`}</h1>
-              <Button
-                variant="ghost"
-                onClick={() => goToMonth(1)}
-                disabled={date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth()}
-              >
-                <ChevronRightIcon className="h-4 w-4" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className=" mt-4 text-sm">
-            <div className="grid gap-3">
-              <div className="font-semibold">Related Accounts</div>
+  const columns: ResponsiveColumn<BudgetEvent>[] = [
+    {
+      key: 'date',
+      header: t('budgets.date'),
+      className: 'w-36 text-muted-foreground tabular-nums',
+      cell: (event) => fmt.dayTime(event.timestamp * 1000),
+    },
+    {
+      key: 'activity',
+      header: t('budgets.description_column'),
+      cell: (event) =>
+        isBudgetEvent(event) ? <span>{t(`budgets.event.${event.event_type}`)}</span> : <PayeeNarration payee={event.payee} narration={event.narration} />,
+    },
+    {
+      key: 'account',
+      header: t('budgets.account'),
+      cell: (event) =>
+        !isBudgetEvent(event) && (
+          <Badge variant="outline" render={<Link to={`/accounts/${event.account}`} />}>
+            {event.account}
+          </Badge>
+        ),
+    },
+    {
+      key: 'assigned',
+      header: t('budgets.assigned'),
+      className: 'text-right tabular-nums',
+      cell: (event) => isBudgetEvent(event) && <Amount amount={event.amount.number} currency={event.amount.commodity} />,
+    },
+    {
+      key: 'activity_amount',
+      header: t('budgets.activity'),
+      className: 'text-right tabular-nums',
+      cell: (event) => !isBudgetEvent(event) && <Amount amount={event.inferred_unit.number} currency={event.inferred_unit.commodity} />,
+    },
+  ];
 
-              <div className="flex flex-wrap gap-2">
-                {budget_info.related_accounts.map((account) => (
-                  <Badge key={account}>{account}</Badge>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="mt-2 rounded-sm col-span-4">
-          <CardHeader className="flex flex-row  justify-between space-y-0 pb-2 bg-gray-100">
-            <CardTitle>Budget Balance</CardTitle>
-          </CardHeader>
-          <CardContent className=" mt-4 text-sm">
-            <ul className="grid gap-3">
-              <li className="flex items-center justify-between">
-                <span className="text-muted-foreground">Assigned Amount</span>
-                <Amount amount={budget_info.assigned_amount.number} currency={budget_info.assigned_amount.commodity}></Amount>
-              </li>
-
-              <li className="flex items-center justify-between">
-                <span className="text-muted-foreground">Activity Amount</span>
-                <Amount amount={budget_info.activity_amount.number} currency={budget_info.activity_amount.commodity}></Amount>
-              </li>
-
-              <li className="flex items-center justify-between">
-                <span className="text-muted-foreground">Available Amount</span>
-                <Amount amount={budget_info.available_amount.number} currency={budget_info.available_amount.commodity}></Amount>
-              </li>
-            </ul>
-          </CardContent>
-        </Card>
+  const renderCard = (event: BudgetEvent) => (
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium">
+          {isBudgetEvent(event) ? t(`budgets.event.${event.event_type}`) : [event.payee, event.narration].filter(Boolean).join(' · ') || event.account}
+        </div>
+        <div className="truncate text-xs text-muted-foreground">
+          {fmt.dayTime(event.timestamp * 1000)}
+          {!isBudgetEvent(event) && ` · ${event.account}`}
+        </div>
       </div>
-
-      <div className="rounded-md border mt-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Activity</TableHead>
-              <TableHead>Account</TableHead>
-              <TableHead style={{ textAlign: 'end' }}>Assigned Amount</TableHead>
-              <TableHead style={{ textAlign: 'end' }}>Activity Amount</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(budget_interval_event ?? []).map((it) => {
-              return (
-                <TableRow>
-                  <TableCell>{format(it.timestamp * 1000, 'MMM dd HH:mm:ss')}</TableCell>
-                  <TableCell>{'event_type' in it ? it.event_type : <PayeeNarration payee={it.payee} narration={it.narration} />}</TableCell>
-                  <TableCell>{!('event_type' in it) && <Badge>{it.account}</Badge>}</TableCell>
-                  <TableCell style={{ textAlign: 'end' }}>
-                    {'event_type' in it && <Amount amount={it.amount?.number!} currency={it.amount?.commodity!} />}
-                  </TableCell>
-                  <TableCell style={{ textAlign: 'end' }}>
-                    {!('event_type' in it) && <Amount amount={it.inferred_unit.number} currency={it.inferred_unit.commodity} />}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+      <div className="shrink-0 text-right text-sm font-medium tabular-nums">
+        {isBudgetEvent(event) ? (
+          <>
+            <Amount amount={event.amount.number} currency={event.amount.commodity} />
+            <div className="text-xs font-normal text-muted-foreground">{t('budgets.assigned')}</div>
+          </>
+        ) : (
+          <>
+            <Amount amount={event.inferred_unit.number} currency={event.inferred_unit.commodity} />
+            <div className="text-xs font-normal text-muted-foreground">{t('budgets.activity')}</div>
+          </>
+        )}
       </div>
     </div>
+  );
+
+  if (error) {
+    return (
+      <PageShell>
+        <PageHeader title={budgetName} />
+        <EmptyState
+          icon={TriangleAlert}
+          title={t('budgets.not_found_title')}
+          description={t('budgets.not_found_description', { name: budgetName })}
+          action={
+            <Link to="/budgets" className={cn(buttonVariants({ variant: 'outline' }), 'h-10 md:h-8')}>
+              <ArrowLeft />
+              {t('budgets.back_to_budgets')}
+            </Link>
+          }
+        />
+      </PageShell>
+    );
+  }
+
+  const usage = budgetInfo ? budgetUsage(budgetInfo.activity_amount.number, budgetInfo.assigned_amount.number) : undefined;
+  const firstLoad = infoLoading && budgetInfo === undefined;
+  // Switching month keeps the previous month's numbers on screen until the requests are back: dim them and say so.
+  const refreshing = (infoLoading && budgetInfo !== undefined) || (eventsLoading && events !== undefined);
+
+  return (
+    <PageShell>
+      <PageHeader
+        title={firstLoad ? <Skeleton className="h-7 w-48" /> : (budgetInfo?.alias ?? budgetInfo?.name ?? budgetName)}
+        description={refreshing ? <RefreshingLabel /> : t('budgets.detail_description', { month: formatMonth(date, i18n.language) })}
+        actions={<MonthSwitcher date={date} onChange={setDate} />}
+      >
+        {budgetInfo && (budgetInfo.alias || budgetInfo.category || budgetInfo.closed) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {budgetInfo.alias && <Badge variant="outline">{budgetInfo.name}</Badge>}
+            {budgetInfo.category && <Badge variant="secondary">{budgetInfo.category}</Badge>}
+            {budgetInfo.closed && <Badge variant="destructive">{t('budgets.closed')}</Badge>}
+          </div>
+        )}
+      </PageHeader>
+
+      <KeyFigures aria-busy={refreshing} className={cn('transition-opacity', refreshing && 'opacity-60')}>
+        <KeyFigure
+          loading={firstLoad}
+          label={t('budgets.assigned')}
+          value={budgetInfo && <Amount amount={budgetInfo.assigned_amount.number} currency={budgetInfo.assigned_amount.commodity} />}
+        />
+        <KeyFigure
+          loading={firstLoad}
+          label={t('budgets.activity')}
+          value={budgetInfo && <Amount amount={budgetInfo.activity_amount.number} currency={budgetInfo.activity_amount.commodity} />}
+        />
+        <KeyFigure
+          loading={firstLoad}
+          label={t('budgets.available')}
+          valueClassName={toneClass(budgetInfo?.available_amount.number)}
+          value={budgetInfo && <Amount amount={budgetInfo.available_amount.number} currency={budgetInfo.available_amount.commodity} />}
+        />
+        <KeyFigure loading={firstLoad} label={t('budgets.used')} value={<span className={cn(usage?.over && 'text-destructive')}>{usage?.label}</span>}>
+          {usage && <Progress value={usage.percent} aria-label={t('budgets.used')} className={cn('mt-1', usageProgressClass(usage.over))} />}
+        </KeyFigure>
+      </KeyFigures>
+
+      <Card size="sm">
+        <CardHeader>
+          <CardTitle>{t('budgets.related_accounts')}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          {firstLoad ? (
+            <Skeleton className="h-5 w-56" />
+          ) : (budgetInfo?.related_accounts ?? []).length === 0 ? (
+            <span className="text-sm text-muted-foreground">{t('budgets.no_related_accounts')}</span>
+          ) : (
+            budgetInfo?.related_accounts.map((account) => (
+              <Badge key={account} variant="outline" className="h-10 max-w-full px-3 md:h-6 md:px-2.5" render={<Link to={`/accounts/${account}`} />}>
+                <span className="truncate">{account}</span>
+              </Badge>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <section aria-busy={refreshing} className={cn('flex flex-col gap-3 transition-opacity', refreshing && 'opacity-60')}>
+        <h2 className="text-sm font-semibold">{t('budgets.activity_in', { month: formatMonth(date, i18n.language) })}</h2>
+        {eventsError ? (
+          <EmptyState icon={TriangleAlert} title={t('page_state.load_failed')} description={eventsError.message} />
+        ) : (
+          <ResponsiveList
+            items={events ?? []}
+            loading={eventsLoading && events === undefined}
+            getKey={(event, index) => `${event.timestamp}-${index}`}
+            columns={columns}
+            renderCard={renderCard}
+            empty={<EmptyState icon={ListX} title={t('budgets.no_activity_title')} description={t('budgets.no_activity_description')} />}
+          />
+        )}
+      </section>
+    </PageShell>
   );
 }
 

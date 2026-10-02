@@ -1,37 +1,68 @@
-import { retrieveStatisticSummary } from '@/api/requests.ts';
-import StatisticBox from './StatisticBox';
+import { ArrowDownLeft, ArrowUpRight, CreditCard, Landmark } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
+import { retrieveStatisticSummary } from '@/api/requests';
+import { cn } from '@/lib/utils';
+import StatisticBox from './StatisticBox';
 
-export default function StatisticBar() {
-  const now = new Date();
-  const beginning_time = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 1);
-  const end_time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+interface Props {
+  from: Date;
+  to: Date;
+  /** Hint under the income card, e.g. "Last 30 days". */
+  periodLabel?: string;
+  className?: string;
+}
 
+/** Dashboard KPIs for a period: 2 columns on mobile, 4 from lg. */
+export default function StatisticBar({ from, to, periodLabel, className }: Props) {
+  const { t } = useTranslation();
   const {
     value: data,
     loading,
     error,
   } = useAsync(async () => {
-    const res = await retrieveStatisticSummary({ from: beginning_time.toISOString(), to: end_time.toISOString() });
+    const res = await retrieveStatisticSummary({ from: from.toISOString(), to: to.toISOString() });
     return res.data.data;
-  });
+  }, [from.getTime(), to.getTime()]);
 
-  if (error) return <div>failed to load</div>;
-  if (loading || !data) return <>loading</>;
+  const isLoading = loading || (!data && !error);
 
   return (
-    <>
-      <div className="grid gap-4 md:grid-cols-2 md:gap-4 lg:grid-cols-4">
-        <StatisticBox
-          text={'ASSET_BALANCE'}
-          amount={data.balance.calculated.number}
-          currency={data.balance.calculated.commodity}
-          hint={'include assets and liabilities'}
-        />
-        <StatisticBox text={'LIABILITY'} amount={data.liability.calculated.number} currency={data.liability.calculated.commodity} negative />
-        <StatisticBox text={'CURRENT_MONTH_INCOME'} amount={data.income.calculated.number} currency={data.income.calculated.commodity} negative />
-        <StatisticBox text={'CURRENT_MONTH_EXPENSE'} amount={data.expense.calculated.number} currency={data.expense.calculated.commodity} />
-      </div>
-    </>
+    <div className={cn('grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4', className)}>
+      <StatisticBox
+        text="ASSET_BALANCE"
+        icon={Landmark}
+        loading={isLoading}
+        amount={data?.balance.calculated.number ?? '0'}
+        currency={data?.balance.calculated.commodity ?? ''}
+        hint={error ? t('ledger.common.load_failed') : t('ledger.home.net_worth_hint')}
+      />
+      <StatisticBox
+        text="LIABILITY"
+        icon={CreditCard}
+        loading={isLoading}
+        amount={data?.liability.calculated.number ?? '0'}
+        currency={data?.liability.calculated.commodity ?? ''}
+        negative
+        hint={t('ledger.home.liability_hint')}
+      />
+      <StatisticBox
+        text="ledger.chart.income"
+        icon={ArrowDownLeft}
+        loading={isLoading}
+        amount={data?.income.calculated.number ?? '0'}
+        currency={data?.income.calculated.commodity ?? ''}
+        negative
+        hint={periodLabel}
+      />
+      <StatisticBox
+        text="ledger.chart.expenses"
+        icon={ArrowUpRight}
+        loading={isLoading}
+        amount={data?.expense.calculated.number ?? '0'}
+        currency={data?.expense.calculated.commodity ?? ''}
+        hint={t('ledger.home.transactions', { count: data?.transaction_number ?? 0 })}
+      />
+    </div>
   );
 }

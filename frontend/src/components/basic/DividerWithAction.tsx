@@ -2,21 +2,19 @@ import { ReactNode } from 'react';
 import { Button } from '../ui/button';
 
 interface Props {
-  value: String;
+  value: string;
   icon?: ReactNode;
   onActionClick?(): void;
 }
+
+/** Small section label with a hairline and an optional trailing icon action. */
 export default function DividerWithAction({ value, icon, onActionClick }: Props) {
   return (
-    <div className="flex items-center justify-between my-2">
-      <div className="flex-grow">
-        <div className="flex items-center">
-          <span className="text-xs font-medium text-gray-500 mr-2">{value}</span>
-          <div className="flex-grow h-px bg-gray-200"></div>
-        </div>
-      </div>
+    <div className="my-2 flex items-center gap-2">
+      <span className="shrink-0 text-xs font-medium text-muted-foreground">{value}</span>
+      <div className="h-px grow bg-border" />
       {icon && (
-        <Button variant="ghost" size="icon" className="mx-1" onClick={onActionClick}>
+        <Button variant="ghost" size="icon" className="size-10 md:size-8" aria-label={value} onClick={onActionClick}>
           {icon}
         </Button>
       )}

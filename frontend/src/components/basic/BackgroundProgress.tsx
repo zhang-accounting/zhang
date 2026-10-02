@@ -3,7 +3,7 @@ interface Props {
 }
 
 export default function BackgroundProgress(props: Props) {
-  let percentage = parseFloat(props.percentage);
+  const percentage = parseFloat(props.percentage);
   let color = 'rgb(64,184,86)';
 
   if (percentage > 20) {

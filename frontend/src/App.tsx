@@ -1,5 +1,6 @@
-import { useLocalStorage } from '@mantine/hooks';
+import { useLocalStorage } from '@/hooks/use-local-storage';
 
+import { useTheme } from 'next-themes';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { basicInfoFetcher, onlineAtom, updatableVersionAtom } from './states/basic';
@@ -9,14 +10,18 @@ import { errorsFetcher } from './states/errors';
 import { accountFetcher } from './states/account';
 import { commoditiesFetcher } from './states/commodity';
 import { journalFetcher } from './states/journals';
-import Sidebar from './layout/Sidebar.tsx';
-import { Nav } from './layout/Nav.tsx';
 import { toast } from 'sonner';
-import NetworkStatus from './components/NetworkStatus';
-import MobileNavBar from './components/MobileNavBar';
+import { AppShell } from './layout/AppShell';
+
+/** `--background` in light / dark (see global.css); used for `<meta name="theme-color">` (browser chrome, PWA title bar). */
+const THEME_COLOR = { light: '#ffffff', dark: '#09090b' };
+
+/** BCP 47 tag for `<html lang>` (screen-reader pronunciation, CJK font selection, hyphenation). */
+const htmlLang = (language: string | undefined) => (language?.startsWith('zh') ? 'zh-CN' : 'en');
 
 export default function App() {
   const { i18n } = useTranslation();
+  const { resolvedTheme } = useTheme();
   const [lang] = useLocalStorage({ key: 'lang', defaultValue: 'en' });
 
   const setLedgerOnline = useSetAtom(onlineAtom);
@@ -34,16 +39,34 @@ export default function App() {
     }
   }, [i18n, lang]);
 
+  // index.html ships one theme-color per OS scheme; once the app knows the chosen theme (which may differ from the OS), follow it.
   useEffect(() => {
-    let events = new EventSource('/api/sse');
+    if (!resolvedTheme) return;
+    const color = resolvedTheme === 'dark' ? THEME_COLOR.dark : THEME_COLOR.light;
+    document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute('content', color));
+  }, [resolvedTheme]);
+
+  useEffect(() => {
+    const apply = (language: string) => {
+      document.documentElement.lang = htmlLang(language);
+    };
+    apply(i18n.language);
+    i18n.on('languageChanged', apply);
+    return () => i18n.off('languageChanged', apply);
+  }, [i18n]);
+
+  useEffect(() => {
+    // `i18n.t` (not a captured `t`) so toasts follow later language switches.
+    const events = new EventSource('/api/sse');
+    // "Connected" arrives on every page load; only worth a toast when it ends an offline period.
+    let wasOffline = false;
     events.onmessage = (event) => {
-      console.log(event);
       const data = JSON.parse(event.data);
       switch (data?.type) {
         case 'Reload':
-          toast.success('[Ledger Reload] reloaded', {
+          toast.success(i18n.t('SHELL_RELOAD_DONE'), {
             id: 'leger-reload',
-            description: 'reloading latest ledger info',
+            description: i18n.t('SHELL_RELOAD_DONE_DESCRIPTION'),
           });
 
           refreshErrors();
@@ -53,12 +76,13 @@ export default function App() {
           refreshJournal();
           break;
         case 'Connected':
-          toast.success('Connected to server');
+          if (wasOffline) toast.success(i18n.t('SHELL_SERVER_CONNECTED'), { id: 'offline' });
+          wasOffline = false;
           setLedgerOnline(true);
           refreshBasicInfo();
           break;
         case 'NewVersionFound':
-          toast.info('New Version Found');
+          toast.info(i18n.t('SHELL_UPDATE_AVAILABLE', { version: data.version }));
           setUpdatableVersion(data.version);
           break;
         default:
@@ -66,27 +90,20 @@ export default function App() {
       }
     };
     events.onerror = () => {
+      wasOffline = true;
       setLedgerOnline(false);
-      toast.error('Server Offline', {
+      toast.error(i18n.t('SHELL_SERVER_OFFLINE'), {
         id: 'offline',
-        description: 'Client can not connect to server',
+        description: i18n.t('SHELL_SERVER_OFFLINE_DESCRIPTION'),
       });
     };
+    return () => events.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <>
-      <div className="grid h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[220px_1fr]">
-        <Sidebar />
-        <div className="flex flex-col sm:gap-4 sm:py-4 overflow-hidden">
-          <Nav />
-          <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8 overflow-scroll pb-16 sm:pb-0">
-            <Router />
-          </main>
-        </div>
-      </div>
-      <MobileNavBar />
-      <NetworkStatus />
-    </>
+    <AppShell>
+      <Router />
+    </AppShell>
   );
 }

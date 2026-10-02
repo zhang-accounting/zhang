@@ -1,79 +1,133 @@
-import BigNumber from 'bignumber.js';
-import { format } from 'date-fns';
-import { max, min, sortBy } from 'lodash-es';
-import { Bar, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from 'recharts';
-import { ChartConfig, ChartContainer, ChartTooltipContent, ChartTooltip } from './ui/chart';
-import { OpReturnType } from 'openapi-typescript-fetch';
-import { operations } from '@/api/schemas';
-import { AccountType } from '@/api/types';
-type StatisticGraphResponse = OpReturnType<operations['get_statistic_graph']>['data'];
+import { ChartNoAxesColumn } from 'lucide-react';
+import * as React from 'react';
+import { useTranslation } from 'react-i18next';
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from 'recharts';
+import { GraphInterval, GraphRow, StatisticGraphResponse, useAxisFormatter, useGraphRows } from '@/components/layout/chart-utils';
+import { cn } from '@/lib/utils';
+import Amount from './Amount';
+import { ChartConfig, ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from './ui/chart';
 
-const chartConfig = {
-  total: {
-    label: 'Total',
-    color: 'hsl(var(--chart-2))',
-  },
-  income: {
-    label: 'Income',
-    color: 'var(--color-green-500)',
-  },
-  expense: {
-    label: 'Expense',
-    color: 'var(--color-red-500)',
-  },
-} satisfies ChartConfig;
+// Categorical slots 1 + 2 (blue / orange), validated for CVD separation and contrast on the light and dark card surfaces.
+const INCOME_COLOR = 'var(--chart-2)';
+const EXPENSE_COLOR = { light: '#eb6834', dark: '#d95926' };
+
+function TooltipRow({ color, label, value, commodity }: { color: string; label: React.ReactNode; value: number; commodity: string }) {
+  return (
+    <div className="flex w-full items-center gap-2">
+      <span className="size-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: color }} />
+      <span className="flex-1 text-muted-foreground">{label}</span>
+      <Amount className="font-medium text-foreground" amount={value} currency={commodity} />
+    </div>
+  );
+}
+
+function ChartEmpty({ className, children }: { className?: string; children: React.ReactNode }) {
+  return (
+    <div className={cn('flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-sm text-muted-foreground', className)}>
+      <ChartNoAxesColumn className="size-5" aria-hidden />
+      {children}
+    </div>
+  );
+}
+
+interface ChartProps {
+  rows: GraphRow[];
+  commodity: string;
+  /** Height utilities, e.g. `h-48 md:h-64`. */
+  className?: string;
+}
+
+/** Net worth over time: one series, one axis, y-domain fitted to the data so small movements stay visible. */
+export function BalanceTrendChart({ rows, commodity, className }: ChartProps) {
+  const { t } = useTranslation();
+  const values = React.useMemo(() => rows.map((row) => row.total), [rows]);
+  const axis = useAxisFormatter(values);
+  const config = { total: { label: t('ledger.chart.net_worth'), color: 'var(--chart-2)' } } satisfies ChartConfig;
+
+  if (rows.length === 0) return <ChartEmpty className={cn('h-56', className)}>{t('ledger.chart.no_data')}</ChartEmpty>;
+
+  return (
+    <ChartContainer config={config} className={cn('aspect-auto h-56 w-full', className)}>
+      <LineChart accessibilityLayer data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+        <CartesianGrid vertical={false} />
+        <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={28} />
+        <YAxis width={axis.width} tickLine={false} axisLine={false} ticks={axis.ticks} domain={axis.domain} tickFormatter={axis.format} />
+        <ChartTooltip
+          cursor={{ strokeDasharray: '3 3' }}
+          content={
+            <ChartTooltipContent
+              labelFormatter={(_, payload) => payload?.[0]?.payload?.fullLabel}
+              formatter={(value) => <TooltipRow color="var(--color-total)" label={config.total.label} value={Number(value)} commodity={commodity} />}
+            />
+          }
+        />
+        <Line dataKey="total" type="monotone" stroke="var(--color-total)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+      </LineChart>
+    </ChartContainer>
+  );
+}
+
+/** Income above / expenses below a shared zero line (one axis, two hues). */
+export function CashFlowChart({ rows, commodity, className }: ChartProps) {
+  const { t } = useTranslation();
+  const values = React.useMemo(() => rows.flatMap((row) => [row.income, row.expense]), [rows]);
+  const axis = useAxisFormatter(values);
+  const config = {
+    income: { label: t('ledger.chart.income'), color: INCOME_COLOR },
+    expense: { label: t('ledger.chart.expenses'), theme: EXPENSE_COLOR },
+  } satisfies ChartConfig;
+
+  if (!rows.some((row) => row.income !== 0 || row.expense !== 0)) {
+    return <ChartEmpty className={cn('h-56', className)}>{t('ledger.chart.no_cash_flow')}</ChartEmpty>;
+  }
+
+  return (
+    <ChartContainer config={config} className={cn('aspect-auto h-56 w-full', className)}>
+      <BarChart accessibilityLayer data={rows} stackOffset="sign" margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+        <CartesianGrid vertical={false} />
+        <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={28} />
+        <YAxis width={axis.width} tickLine={false} axisLine={false} ticks={axis.ticks} domain={axis.domain} tickFormatter={axis.format} />
+        <ReferenceLine y={0} stroke="var(--border)" />
+        <ChartTooltip
+          cursor={{ fill: 'var(--muted)', opacity: 0.6 }}
+          content={
+            <ChartTooltipContent
+              labelFormatter={(_, payload) => payload?.[0]?.payload?.fullLabel}
+              formatter={(value, name) => (
+                <TooltipRow
+                  color={`var(--color-${name})`}
+                  label={name === 'income' ? config.income.label : config.expense.label}
+                  value={Math.abs(Number(value))}
+                  commodity={commodity}
+                />
+              )}
+            />
+          }
+        />
+        <ChartLegend content={<ChartLegendContent />} itemSorter={(item) => (item.dataKey === 'income' ? 0 : 1)} />
+        <Bar dataKey="income" stackId="flow" fill="var(--color-income)" radius={[3, 3, 0, 0]} maxBarSize={28} isAnimationActive={false} />
+        <Bar dataKey="expense" stackId="flow" fill="var(--color-expense)" radius={[3, 3, 0, 0]} maxBarSize={28} isAnimationActive={false} />
+      </BarChart>
+    </ChartContainer>
+  );
+}
 
 interface Props {
   data?: StatisticGraphResponse;
-  height: number;
+  /** Kept for compatibility; height is now controlled with `className`. */
+  height?: number;
+  interval?: GraphInterval;
+  className?: string;
 }
 
-export default function ReportGraph({ data, height }: Props) {
+/** Both statistic charts stacked (net worth trend, then income vs. expenses). */
+export default function ReportGraph({ data, interval = 'Day', className }: Props) {
+  const { rows, commodity } = useGraphRows(data, interval);
   if (data === undefined) return null;
-
-  const sequencedDate = sortBy(Object.keys(data.balances), (date) => new Date(date));
-
-  const labels = sequencedDate.map((date) => format(new Date(date), 'MMM dd'));
-  let total_dataset = sequencedDate.map((date) => {
-    const target_day = data.balances[date];
-    return new BigNumber(target_day.calculated.number).toNumber();
-  });
-  let total_domain = [min(total_dataset) ?? 0, max(total_dataset) ?? 0];
-
-  const income_dataset = sequencedDate
-    .map((date) => data.changes[date]?.[AccountType.Income])
-    .map((amount) => -1 * new BigNumber(amount?.calculated.number ?? '0').toNumber());
-
-  const expense_dataset = sequencedDate
-    .map((date) => data.changes[date]?.[AccountType.Expenses])
-    .map((amount) => new BigNumber(amount?.calculated.number ?? '0').toNumber());
-
-  const max_income = Math.max(...income_dataset) + Math.max(...expense_dataset);
-
-  const chartData = labels.map((label, idx) => ({
-    date: label,
-    total: total_dataset[idx],
-    income: income_dataset[idx],
-    expense: expense_dataset[idx],
-  }));
-
   return (
-    <>
-      <ChartContainer config={chartConfig} className={`h-[${height}px] w-full`}>
-        <ComposedChart accessibilityLayer data={chartData}>
-          <XAxis dataKey="date" tickLine={false} tickMargin={10} axisLine={false} />
-
-          <YAxis hide type="number" domain={total_domain} yAxisId="left" scale="log" padding={{ top: 20, bottom: 20 }} />
-          <YAxis hide type="number" domain={[0, max_income]} yAxisId="right" padding={{ top: 20, bottom: 0 }} />
-
-          <ChartTooltip content={<ChartTooltipContent />} />
-          <CartesianGrid vertical={false} />
-
-          <Bar dataKey="income" stackId="a" fill="#3b82f6" yAxisId="right" />
-          <Bar dataKey="expense" stackId="a" fill="#ef4444" yAxisId="right" />
-          <Line type="monotone" dataKey="total" stroke="var(--color-total)" strokeWidth={2} dot={false} activeDot yAxisId="left" />
-        </ComposedChart>
-      </ChartContainer>
-    </>
+    <div className="flex flex-col gap-6">
+      <BalanceTrendChart rows={rows} commodity={commodity} className={className} />
+      <CashFlowChart rows={rows} commodity={commodity} className={className} />
+    </div>
   );
 }
