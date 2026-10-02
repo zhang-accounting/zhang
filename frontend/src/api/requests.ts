@@ -1,6 +1,5 @@
 import { ApiError } from 'openapi-typescript-fetch';
 import { openAPIFetcher, serverBaseUrl } from './fetcher';
-import type { SavedQuery } from './types';
 
 export const retrieveBudgets = openAPIFetcher.path('/api/budgets').method('get').create();
 
@@ -56,20 +55,14 @@ export const executeQuery = openAPIFetcher.path('/api/query').method('post').cre
 
 export const retrieveQuerySchema = openAPIFetcher.path('/api/query/schema').method('get').create();
 
-// TEMPORARY(qp2): hand-written until `schemas.ts` is regenerated from a server that serves `GET /api/query/saved`.
-// Replace with `openAPIFetcher.path('/api/query/saved').method('get').create()` afterwards.
-export async function retrieveSavedQueries(): Promise<SavedQuery[]> {
-  const response = await fetch(`${serverBaseUrl}/api/query/saved`);
-  const body = await readBody(response);
-  if (!response.ok) throw toApiError(response, body);
-  return (body as { data: SavedQuery[] }).data;
-}
+export const retrieveSavedQueries = openAPIFetcher.path('/api/query/saved').method('get').create();
 
 /**
  * Runs a query through `POST /api/query/csv` and returns the CSV file. A query error is thrown as an `ApiError`
  * carrying the same `{message, line, column}` body as `POST /api/query`.
  *
- * The CSV body is not JSON, so this stays a plain `fetch` call even once the endpoint is in `schemas.ts`.
+ * This is a plain `fetch` call: the generated fetcher would `JSON.parse` a CSV body that happens to be valid JSON,
+ * and the download needs the raw blob.
  */
 export async function exportQueryCsv(query: string): Promise<{ blob: Blob; filename: string }> {
   const response = await fetch(`${serverBaseUrl}/api/query/csv`, {
