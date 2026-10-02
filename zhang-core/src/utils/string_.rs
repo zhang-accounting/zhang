@@ -12,13 +12,17 @@
 //! control characters (Unicode category `Cc`), depending on the [`QuoteStyle`]:
 //!
 //! - [`QuoteStyle::Zhang`] writes `\n`, `\t`, `\r`, and every other control
-//!   character as `\uXXXX` with four hex digits.
+//!   character as `\uXXXX` with four hex digits. So are the characters that are
+//!   invisible or reorder the text around them in an editor: the bidi controls
+//!   (U+061C, U+200E, U+200F, U+202A–U+202E, U+2066–U+2069), the line and
+//!   paragraph separators U+2028 and U+2029, which some editors also drop, the
+//!   zero-width space U+200B and the byte order mark U+FEFF.
 //! - [`QuoteStyle::Beancount`] writes only the escapes Python beancount decodes,
 //!   `\n`, `\t`, `\r`, `\b` and `\f`, and every other control character as it is,
 //!   because beancount has no unicode escape and would read `\u0007` as `u0007`.
 //!
-//! Every other character, such as `$`, `` ` ``, a no-break space, U+2028, an emoji
-//! or CJK text, is written as it is. Neither style writes the legacy escapes `\$`,
+//! Every other character, such as `$`, `` ` ``, a no-break space, an emoji (with
+//! its zero-width joiners) or CJK text, is written as it is. Neither style writes the legacy escapes `\$`,
 //! `` \` `` or `\u{..}`.
 //!
 //! # Reading
@@ -87,7 +91,8 @@ impl StringExt for String {
 /// How [`quote_as`] writes control characters; see the [module docs](self).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum QuoteStyle {
-    /// zhang's text format: `\n`, `\t`, `\r`, and `\uXXXX` for other controls.
+    /// zhang's text format: `\n`, `\t`, `\r`, and `\uXXXX` for other controls and
+    /// for invisible or text-reordering characters, see the [module docs](self).
     #[default]
     Zhang,
     /// beancount's text format: only the escapes Python beancount decodes
@@ -116,8 +121,8 @@ pub fn quote_as(s: &str, style: QuoteStyle) -> String {
             ('\r', _) => output.push_str("\\r"),
             ('\u{08}', QuoteStyle::Beancount) => output.push_str("\\b"),
             ('\u{0c}', QuoteStyle::Beancount) => output.push_str("\\f"),
-            // every `Cc` character is below U+00A0, so four hex digits are enough
-            (c, QuoteStyle::Zhang) if c.is_control() => {
+            // all of these are in the BMP, so four hex digits are enough
+            (c, QuoteStyle::Zhang) if c.is_control() || is_hidden_format_char(c) => {
                 write!(output, "\\u{:04x}", c as u32).expect("writing to a String cannot fail");
             }
             (c, _) => output.push(c),
@@ -126,6 +131,16 @@ pub fn quote_as(s: &str, style: QuoteStyle) -> String {
 
     output.push('"');
     output
+}
+
+/// Characters [`QuoteStyle::Zhang`] writes as `\uXXXX` although they are not
+/// controls: they are invisible, or reorder the text around them in an editor
+/// (the "Trojan Source" bidi controls), or are dropped by some editors.
+fn is_hidden_format_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061c}' | '\u{200b}' | '\u{200e}' | '\u{200f}' | '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}'
+    )
 }
 
 /// The nom error kind of a malformed escape sequence. It is raised as
@@ -362,10 +377,41 @@ pub(crate) mod test {
 
     #[test]
     fn escape_with_quote_writes_separators_and_symbols_raw() {
-        for raw in ["\u{a0}", "\u{2028}", "\u{2029}", "\u{3000}", "\u{200d}", "\u{feff}", "😀", "👨‍👩‍👧", "你好", "é"] {
+        for raw in ["\u{a0}", "\u{3000}", "\u{200c}", "\u{200d}", "\u{ad}", "😀", "👨‍👩‍👧", "你好", "é"] {
             assert_eq!(format!("\"{raw}\""), escape_with_quote(raw), "{raw:?} should be written raw");
             assert_eq!(format!("\"{raw}\""), quote_as(raw, QuoteStyle::Beancount), "{raw:?} should be written raw");
         }
+    }
+
+    #[test]
+    fn zhang_style_escapes_invisible_and_bidi_characters() {
+        let hidden = [
+            ('\u{061c}', r"\u061c"),
+            ('\u{200b}', r"\u200b"),
+            ('\u{200e}', r"\u200e"),
+            ('\u{200f}', r"\u200f"),
+            ('\u{2028}', r"\u2028"),
+            ('\u{2029}', r"\u2029"),
+            ('\u{202a}', r"\u202a"),
+            ('\u{202b}', r"\u202b"),
+            ('\u{202c}', r"\u202c"),
+            ('\u{202d}', r"\u202d"),
+            ('\u{202e}', r"\u202e"),
+            ('\u{2066}', r"\u2066"),
+            ('\u{2067}', r"\u2067"),
+            ('\u{2068}', r"\u2068"),
+            ('\u{2069}', r"\u2069"),
+            ('\u{feff}', r"\ufeff"),
+        ];
+        for (c, escaped) in hidden {
+            let s = format!("a{c}b");
+            assert_eq!(escape_with_quote(&s), format!("\"a{escaped}b\""), "{c:?}");
+            // beancount has no unicode escape, so the beancount style writes them raw
+            assert_eq!(quote_as(&s, QuoteStyle::Beancount), format!("\"{s}\""), "{c:?}");
+            assert_eq!(unquote(&escape_with_quote(&s)), s);
+        }
+        // a right-to-left override cannot hide the closing quote from a reader
+        assert_eq!(escape_with_quote("\u{202e}cba"), r#""\u202ecba""#);
     }
 
     #[test]
