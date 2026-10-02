@@ -1,0 +1,16 @@
+{
+  "name": "sum_position_empty_inventory",
+  "query": "SELECT account, sum(position) AS balance WHERE account ~ '^Liabilities' GROUP BY account ORDER BY account",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "balance", "type": "inventory"}
+  ],
+  "rows": [
+    ["Liabilities:AccountsPayable", {"positions": []}],
+    ["Liabilities:US:Chase:Slate", {"positions": [{"units": {"number": "-2703.29", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "Liabilities:AccountsPayable nets to zero, giving an empty inventory {\"positions\": []}."
+}

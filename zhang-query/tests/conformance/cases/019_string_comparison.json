@@ -1,0 +1,17 @@
+{
+  "name": "string_comparison",
+  "query": "SELECT DISTINCT payee WHERE payee < 'B' OR payee >= 'Wine' ORDER BY payee",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "payee", "type": "str"}
+  ],
+  "rows": [
+    ["25 Degrees Burger Bar"],
+    ["Another Sports Pub"],
+    ["Argo Tea"],
+    ["Wine-Tarner Cable"]
+  ],
+  "notes": "Lexicographic (code point) string comparison; NULL payees compare as NULL and are filtered out."
+}

@@ -1,0 +1,22 @@
+{
+  "name": "order_by_unselected_expression",
+  "query": "SELECT date, narration WHERE account = 'Expenses:Home:Rent' AND year = 2017 ORDER BY month DESC",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "narration", "type": "str"}
+  ],
+  "rows": [
+    ["2017-08-04", "Paying the rent"],
+    ["2017-07-05", "Paying the rent"],
+    ["2017-06-05", "Paying the rent"],
+    ["2017-05-03", "Paying the rent"],
+    ["2017-04-03", "Paying the rent"],
+    ["2017-03-06", "Paying the rent"],
+    ["2017-02-04", "Paying the rent"],
+    ["2017-01-03", "Paying the rent"]
+  ],
+  "notes": ""
+}

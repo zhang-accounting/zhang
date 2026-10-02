@@ -8,6 +8,7 @@ pub mod statistics;
 pub mod transaction;
 
 pub mod plugin;
+pub mod query;
 
 #[cfg(feature = "frontend")]
 pub mod frontend;

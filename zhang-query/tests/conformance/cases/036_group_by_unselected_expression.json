@@ -1,0 +1,17 @@
+{
+  "name": "group_by_unselected_expression",
+  "query": "SELECT count(*) AS n, sum(number) AS total WHERE account ~ '^Expenses:Food' GROUP BY year",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "n", "type": "int"},
+    {"name": "total", "type": "decimal"}
+  ],
+  "rows": [
+    [167, "6614.67"],
+    [184, "6859.72"],
+    [112, "4686.42"]
+  ],
+  "notes": "GROUP BY an expression that is not in the target list (hidden group key)."
+}

@@ -1,0 +1,19 @@
+{
+  "name": "date_range_bare_literals",
+  "query": "SELECT date, payee, number WHERE account = 'Expenses:Home:Rent' AND date >= 2016-03-01 AND date < 2016-07-01 ORDER BY date",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "payee", "type": "str"},
+    {"name": "number", "type": "decimal"}
+  ],
+  "rows": [
+    ["2016-03-06", "RiverBank Properties", "2400.00"],
+    ["2016-04-05", "RiverBank Properties", "2400.00"],
+    ["2016-05-06", "RiverBank Properties", "2400.00"],
+    ["2016-06-03", "RiverBank Properties", "2400.00"]
+  ],
+  "notes": ""
+}

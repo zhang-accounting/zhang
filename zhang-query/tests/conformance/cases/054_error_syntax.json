@@ -1,0 +1,11 @@
+{
+  "name": "error_syntax",
+  "query": "SELECT account WHERE",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

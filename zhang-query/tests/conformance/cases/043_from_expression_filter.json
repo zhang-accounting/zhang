@@ -1,0 +1,18 @@
+{
+  "name": "from_expression_filter",
+  "query": "SELECT account, count(*) AS n FROM year = 2016 WHERE account ~ '^Expenses:Food' GROUP BY account ORDER BY account",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    ["Expenses:Food:Alcohol", 7],
+    ["Expenses:Food:Coffee", 5],
+    ["Expenses:Food:Groceries", 29],
+    ["Expenses:Food:Restaurant", 143]
+  ],
+  "notes": "The FROM expression is a row filter combined with WHERE by AND."
+}

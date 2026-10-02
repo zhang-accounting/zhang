@@ -1,0 +1,21 @@
+{
+  "name": "literals",
+  "query": "SELECT DISTINCT TRUE AS t, FALSE AS f, NULL AS n, 42 AS i, 2.50 AS d, 'single' AS s1, \"double\" AS s2, 2016-01-01 AS dt WHERE account = 'Expenses:Financial:Fees'",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "t", "type": "bool"},
+    {"name": "f", "type": "bool"},
+    {"name": "n", "type": "null"},
+    {"name": "i", "type": "int"},
+    {"name": "d", "type": "decimal"},
+    {"name": "s1", "type": "str"},
+    {"name": "s2", "type": "str"},
+    {"name": "dt", "type": "date"}
+  ],
+  "rows": [
+    [true, false, null, 42, "2.50", "single", "double", "2016-01-01"]
+  ],
+  "notes": "Literal types: bool, NULL (type null), int, decimal, single- and double-quoted strings, bare date. A SELECT without FROM still iterates the postings table, so DISTINCT collapses it to one row."
+}

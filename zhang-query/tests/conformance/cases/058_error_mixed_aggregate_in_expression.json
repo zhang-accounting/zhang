@@ -1,0 +1,11 @@
+{
+  "name": "error_mixed_aggregate_in_expression",
+  "query": "SELECT number + sum(number)",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

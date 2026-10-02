@@ -1,0 +1,15 @@
+{
+  "name": "regex_case_insensitive",
+  "query": "SELECT DISTINCT account WHERE account ~ 'expenses:food:(coffee|alcohol)$' ORDER BY account",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"}
+  ],
+  "rows": [
+    ["Expenses:Food:Alcohol"],
+    ["Expenses:Food:Coffee"]
+  ],
+  "notes": "~ is a case-insensitive regex search (partial match unless anchored)."
+}

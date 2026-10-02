@@ -49,3 +49,7 @@ export const uploadTransactionDocument = openAPIFetcher.path('/api/transactions/
 export const uploadAccountDocument = openAPIFetcher.path('/api/accounts/{account_name}/documents').method('post').create();
 
 export const createAccountBalance = openAPIFetcher.path('/api/accounts/{account_name}/balances').method('post').create();
+
+export const executeQuery = openAPIFetcher.path('/api/query').method('post').create();
+
+export const retrieveQuerySchema = openAPIFetcher.path('/api/query/schema').method('get').create();

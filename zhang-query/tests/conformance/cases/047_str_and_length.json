@@ -1,0 +1,31 @@
+{
+  "name": "str_and_length",
+  "query": "SELECT DISTINCT str(year) AS y, str(date) AS d, str(number) AS n, str(TRUE) AS t, length(narration) AS ln, length(tags) AS lt, length(other_accounts) AS lo WHERE account = 'Expenses:Financial:Fees' AND year = 2016 ORDER BY d",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "y", "type": "str"},
+    {"name": "d", "type": "str"},
+    {"name": "n", "type": "str"},
+    {"name": "t", "type": "str"},
+    {"name": "ln", "type": "int"},
+    {"name": "lt", "type": "int"},
+    {"name": "lo", "type": "int"}
+  ],
+  "rows": [
+    ["2016", "2016-01-04", "4.00", "TRUE", 16, 0, 1],
+    ["2016", "2016-02-04", "4.00", "TRUE", 16, 0, 1],
+    ["2016", "2016-03-04", "4.00", "TRUE", 16, 0, 1],
+    ["2016", "2016-04-04", "4.00", "TRUE", 16, 0, 1],
+    ["2016", "2016-05-04", "4.00", "TRUE", 16, 0, 1],
+    ["2016", "2016-06-04", "4.00", "TRUE", 16, 0, 1],
+    ["2016", "2016-07-04", "4.00", "TRUE", 16, 0, 1],
+    ["2016", "2016-08-04", "4.00", "TRUE", 16, 0, 1],
+    ["2016", "2016-09-04", "4.00", "TRUE", 16, 0, 1],
+    ["2016", "2016-10-04", "4.00", "TRUE", 16, 0, 1],
+    ["2016", "2016-11-04", "4.00", "TRUE", 16, 0, 1],
+    ["2016", "2016-12-04", "4.00", "TRUE", 16, 0, 1]
+  ],
+  "notes": "str(bool) is 'TRUE'/'FALSE'; str(decimal) keeps the exponent (4.00). length works on str and sets."
+}

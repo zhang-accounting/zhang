@@ -116,6 +116,8 @@ impl GotchaApp for ServerApp {
             .get("/api/budgets/:budget_name", get_budget_info)
             .get("/api/budgets/:budget_name/interval/:year/:month", get_budget_interval_detail)
             .get("/api/plugins", routes::plugin::plugin_list)
+            .post("/api/query", routes::query::run_query)
+            .get("/api/query/schema", routes::query::get_query_schema)
             .layer(CorsLayer::permissive())
             .layer(DefaultBodyLimit::disable())
             .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */));

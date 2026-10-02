@@ -1,0 +1,26 @@
+{
+  "name": "units_cost_value_without_cost",
+  "query": "SELECT date, units(position) AS u, cost(position) AS c, value(position) AS v, weight WHERE account = 'Expenses:Financial:Fees' AND year = 2017 ORDER BY date",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "u", "type": "amount"},
+    {"name": "c", "type": "amount"},
+    {"name": "v", "type": "amount"},
+    {"name": "weight", "type": "amount"}
+  ],
+  "rows": [
+    ["2017-01-04", {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}],
+    ["2017-02-04", {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}],
+    ["2017-03-04", {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}],
+    ["2017-04-04", {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}],
+    ["2017-05-04", {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}],
+    ["2017-06-04", {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}],
+    ["2017-07-04", {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}],
+    ["2017-08-04", {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}],
+    ["2017-09-04", {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}, {"number": "4.00", "currency": "USD"}]
+  ],
+  "notes": "Without a cost, cost(position) and value(position) both return the units amount."
+}

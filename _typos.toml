@@ -1,2 +1,2 @@
 [files]
-extend-exclude = ["integration-tests/*", "CHANGELOG.md"]
+extend-exclude = ["integration-tests/*", "CHANGELOG.md", "zhang-query/tests/golden/*", "zhang-query/tests/conformance/cases/*"]

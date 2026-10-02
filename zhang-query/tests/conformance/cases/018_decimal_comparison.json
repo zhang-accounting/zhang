@@ -1,0 +1,20 @@
+{
+  "name": "decimal_comparison",
+  "query": "SELECT date, payee, number WHERE account = 'Expenses:Food:Groceries' AND number >= 112 ORDER BY number DESC, date",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "payee", "type": "str"},
+    {"name": "number", "type": "decimal"}
+  ],
+  "rows": [
+    ["2017-07-01", "Corner Deli", "123.77"],
+    ["2017-06-15", "Corner Deli", "120.27"],
+    ["2016-12-16", "Farmer Fresh", "119.27"],
+    ["2016-08-11", "Good Moods Market", "118.95"],
+    ["2015-06-26", "Farmer Fresh", "113.34"]
+  ],
+  "notes": "Compares the decimal column number with the int literal 112 numerically."
+}

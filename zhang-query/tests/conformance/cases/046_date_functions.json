@@ -1,0 +1,29 @@
+{
+  "name": "date_functions",
+  "query": "SELECT DISTINCT date, year(date) AS y, month(date) AS m, day(date) AS d, quarter(date) AS q WHERE account = 'Expenses:Home:Rent' AND year = 2016 ORDER BY date",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "y", "type": "int"},
+    {"name": "m", "type": "int"},
+    {"name": "d", "type": "int"},
+    {"name": "q", "type": "str"}
+  ],
+  "rows": [
+    ["2016-01-06", 2016, 1, 6, "2016-Q1"],
+    ["2016-02-03", 2016, 2, 3, "2016-Q1"],
+    ["2016-03-06", 2016, 3, 6, "2016-Q1"],
+    ["2016-04-05", 2016, 4, 5, "2016-Q2"],
+    ["2016-05-06", 2016, 5, 6, "2016-Q2"],
+    ["2016-06-03", 2016, 6, 3, "2016-Q2"],
+    ["2016-07-06", 2016, 7, 6, "2016-Q3"],
+    ["2016-08-06", 2016, 8, 6, "2016-Q3"],
+    ["2016-09-04", 2016, 9, 4, "2016-Q3"],
+    ["2016-10-06", 2016, 10, 6, "2016-Q4"],
+    ["2016-11-03", 2016, 11, 3, "2016-Q4"],
+    ["2016-12-05", 2016, 12, 5, "2016-Q4"]
+  ],
+  "notes": "quarter() returns a string 'YYYY-Qn'."
+}

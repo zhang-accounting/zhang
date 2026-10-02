@@ -1,0 +1,11 @@
+{
+  "name": "error_ungrouped_column",
+  "query": "SELECT account, payee, count(*) GROUP BY account",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "With an explicit GROUP BY, every non-aggregate target must be grouped."
+}

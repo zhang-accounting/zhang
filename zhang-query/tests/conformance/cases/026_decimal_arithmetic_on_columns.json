@@ -1,0 +1,27 @@
+{
+  "name": "decimal_arithmetic_on_columns",
+  "query": "SELECT date, -number AS neg, number * 2 AS dbl, number / 4 AS quarter_part, number + 1 AS plus_one, number - 0.5 AS minus_half WHERE account = 'Expenses:Financial:Fees' AND year = 2017 ORDER BY date",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "neg", "type": "decimal"},
+    {"name": "dbl", "type": "decimal"},
+    {"name": "quarter_part", "type": "decimal"},
+    {"name": "plus_one", "type": "decimal"},
+    {"name": "minus_half", "type": "decimal"}
+  ],
+  "rows": [
+    ["2017-01-04", "-4.00", "8.00", "1.00", "5.00", "3.50"],
+    ["2017-02-04", "-4.00", "8.00", "1.00", "5.00", "3.50"],
+    ["2017-03-04", "-4.00", "8.00", "1.00", "5.00", "3.50"],
+    ["2017-04-04", "-4.00", "8.00", "1.00", "5.00", "3.50"],
+    ["2017-05-04", "-4.00", "8.00", "1.00", "5.00", "3.50"],
+    ["2017-06-04", "-4.00", "8.00", "1.00", "5.00", "3.50"],
+    ["2017-07-04", "-4.00", "8.00", "1.00", "5.00", "3.50"],
+    ["2017-08-04", "-4.00", "8.00", "1.00", "5.00", "3.50"],
+    ["2017-09-04", "-4.00", "8.00", "1.00", "5.00", "3.50"]
+  ],
+  "notes": "Decimal results; compare numerically (beanquery keeps Python Decimal exponents, e.g. 1.00)."
+}
