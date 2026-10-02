@@ -119,7 +119,7 @@ impl Position {
     /// units themselves when the position is not held at cost.
     pub fn at_cost(&self) -> Amount {
         match &self.cost {
-            Some(cost) => Amount::new(&self.units.number * &cost.number, cost.currency.clone()),
+            Some(cost) => Amount::new(crate::decimal::mul(&self.units.number, &cost.number), cost.currency.clone()),
             None => self.units.clone(),
         }
     }

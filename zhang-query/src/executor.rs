@@ -199,7 +199,7 @@ fn arithmetic(op: ArithOp, left: Value, right: Value) -> Result<Value, String> {
             match op {
                 ArithOp::Add => Decimal(a + b),
                 ArithOp::Sub => Decimal(a - b),
-                ArithOp::Mul => Decimal(a * b),
+                ArithOp::Mul => Decimal(decimal::mul(&a, &b)),
                 ArithOp::Div => decimal::div(&a, &b).map(Decimal).unwrap_or(Null),
             }
         }
@@ -220,13 +220,13 @@ fn arithmetic(op: ArithOp, left: Value, right: Value) -> Result<Value, String> {
         (Amount(amount), n @ (Int(_) | Decimal(_))) => {
             let n = n.as_decimal().expect("numeric");
             match op {
-                ArithOp::Mul => Amount(amount_with(&amount, &amount.number * n)),
+                ArithOp::Mul => Amount(amount_with(&amount, decimal::mul(&amount.number, &n))),
                 _ => decimal::div(&amount.number, &n)
                     .map(|number| Amount(amount_with(&amount, number)))
                     .unwrap_or(Null),
             }
         }
-        (n @ (Int(_) | Decimal(_)), Amount(amount)) => Amount(amount_with(&amount, n.as_decimal().expect("numeric") * &amount.number)),
+        (n @ (Int(_) | Decimal(_)), Amount(amount)) => Amount(amount_with(&amount, decimal::mul(&n.as_decimal().expect("numeric"), &amount.number))),
         (Amount(a), Amount(b)) => {
             if a.commodity != b.commodity {
                 return Err(format!("cannot combine amounts in different currencies ({} and {})", a.commodity, b.commodity));

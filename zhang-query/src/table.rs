@@ -381,8 +381,8 @@ fn opt_str(value: Option<&str>) -> Value {
 
 fn weight(row: &Row<'_>) -> Amount {
     match (&row.cost, &row.price) {
-        (Some(cost), _) => Amount::new(&row.units.number * &cost.number, cost.currency.clone()),
-        (None, Some(price)) => Amount::new(&row.units.number * &price.number, price.commodity.clone()),
+        (Some(cost), _) => Amount::new(decimal::mul(&row.units.number, &cost.number), cost.currency.clone()),
+        (None, Some(price)) => Amount::new(decimal::mul(&row.units.number, &price.number), price.commodity.clone()),
         (None, None) => row.units.as_ref().clone(),
     }
 }

@@ -232,6 +232,11 @@ fn arithmetic_and_literals() {
             "29"
         ]
     );
+    // multiplication keeps the scale of its operands, also when one of them is 1
+    assert_eq!(
+        query("SELECT number * 1, 1 * number, number * 1.0, weight * 1 WHERE narration = 'January salary' AND account = 'Assets:Bank'")[0],
+        vec!["1000.00", "1000.00", "1000.000", "1000.00 USD"]
+    );
     assert_eq!(query("SELECT position LIMIT 0").len(), 0, "LIMIT 0 returns nothing");
     assert_eq!(one("SELECT count(*) WHERE date >= '2024-03-01'"), "8");
     assert_eq!(one("SELECT count(*) WHERE date >= 2024-03-01 AND date < 2024-04-01"), "6");
@@ -302,6 +307,11 @@ fn group_by_index_alias_expression_and_implicit() {
     assert_eq!(
         column("SELECT count(*) GROUP BY root(account, 1) ORDER BY count(*) DESC, 1"),
         vec!["12", "3", "2", "1"]
+    );
+    // constants need no GROUP BY
+    assert_eq!(
+        query("SELECT root(account, 1), count(*), 'x', 1 / 4 GROUP BY 1 ORDER BY 1")[0],
+        vec!["Assets", "12", "x", "0.25"]
     );
     // a group key without aggregates de-duplicates
     assert_eq!(column("SELECT year GROUP BY year"), vec!["2024"]);

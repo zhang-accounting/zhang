@@ -37,6 +37,15 @@ pub fn div(lhs: &BigDecimal, rhs: &BigDecimal) -> Option<BigDecimal> {
     }
 }
 
+/// Multiply exactly; the scale of the product is the sum of the scales (as in Python's
+/// `decimal`), so `-1000.00 × 1 = -1000.00`. `BigDecimal`'s `*` normalises when an operand
+/// is one, which would drop those trailing zeros.
+pub fn mul(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
+    let (lhs_int, lhs_scale) = lhs.as_bigint_and_exponent();
+    let (rhs_int, rhs_scale) = rhs.as_bigint_and_exponent();
+    BigDecimal::new(lhs_int * rhs_int, lhs_scale + rhs_scale)
+}
+
 /// Render a decimal without exponent notation, preserving its scale (`-12.50` stays `-12.50`).
 pub fn to_plain_string(value: &BigDecimal) -> String {
     let (int_val, scale) = value.as_bigint_and_exponent();
@@ -84,6 +93,15 @@ mod tests {
         assert_eq!(to_plain_string(&div(&d("10.00"), &d("2")).unwrap()), "5.00");
         assert_eq!(to_plain_string(&div(&d("2"), &d("3")).unwrap()), "0.6666666666666666666666666667");
         assert_eq!(div(&d("1"), &d("0")), None);
+    }
+
+    #[test]
+    fn multiplication_keeps_the_sum_of_scales() {
+        assert_eq!(to_plain_string(&mul(&d("-1000.00"), &d("1"))), "-1000.00");
+        assert_eq!(to_plain_string(&mul(&d("1"), &d("4.50"))), "4.50");
+        assert_eq!(to_plain_string(&mul(&d("3.513"), &d("136.65"))), "480.05145");
+        assert_eq!(to_plain_string(&mul(&d("0.00"), &d("2.5"))), "0.000");
+        assert_eq!(to_plain_string(&mul(&d("2"), &d("1.5"))), "3.0");
     }
 
     #[test]

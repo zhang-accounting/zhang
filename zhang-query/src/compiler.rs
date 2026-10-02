@@ -253,7 +253,8 @@ impl Compiler<'_> {
                             *span,
                         );
                     }
-                } else if !keys.contains(&idx) {
+                } else if !keys.contains(&idx) && bare_columns[idx].is_some() {
+                    // expressions without columns (constants, parameters) are the same for every row
                     return err(
                         format!(
                             "all non-aggregate targets must be covered by the GROUP BY clause of an aggregate query; '{}' is missing",
