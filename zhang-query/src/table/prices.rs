@@ -4,6 +4,7 @@ use zhang_ast::{Directive, Price, Spanned};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
+use super::directives::{directives_where, meta_value};
 use super::{ColumnDef, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
@@ -17,12 +18,7 @@ pub(super) static PRICES: Table = Table {
 };
 
 fn rows<'a>(ledger: &'a Ledger, _store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    ledger
-        .directives
-        .iter()
-        .filter(|directive| matches!(directive.data, Directive::Price(_)))
-        .map(Record::Directive)
-        .collect()
+    directives_where(ledger, |it| matches!(it, Directive::Price(_)))
 }
 
 fn price<'r>(record: &'r Record<'_>) -> Option<&'r Price> {
@@ -43,5 +39,8 @@ static COLUMNS: &[ColumnDef] = &[
     }),
     ColumnDef::record("amount", DataType::Amount, "The price of one unit of the commodity.", |_, record| {
         price(record).map_or(Value::Null, |it| Value::Amount(it.amount.clone()))
+    }),
+    ColumnDef::record("meta", DataType::Str, "Metadata of the price, as `key: \"value\"` pairs.", |_, record| {
+        meta_value(record)
     }),
 ];

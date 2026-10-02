@@ -67,14 +67,24 @@ ERROR_CLASSES = {
 }
 
 
-def case(area, name, query, kind=ENGINE, ordered=False, expect="rows", notes="", oracle_query=None, phase=1):
+def case(area, name, query, kind=ENGINE, ordered=False, expect="rows", notes="", oracle_query=None, phase=1,
+         strict_names=False):
     return dict(area=area, name=name, query=query, kind=kind, ordered=ordered, expect=expect,
-                notes=notes, oracle_query=oracle_query, phase=phase)
+                notes=notes, oracle_query=oracle_query, phase=phase, strict_names=strict_names)
 
 
 def case2(area, name, query, **kwargs):
     """A Phase 2 case (issue #434): BALANCES, JOURNAL, the balance column, FROM OPEN/CLOSE/CLEAR, CSV."""
     return case(area, name, query, phase=2, **kwargs)
+
+
+def case3(area, name, query, **kwargs):
+    """A Phase 3 case (issue #434): HAVING, PIVOT BY and FROM #table.
+
+    ``strict_names=True`` makes the harness compare the column names too, for results whose names carry
+    meaning: the pivoted columns and the expansion of ``SELECT *`` over a table.
+    """
+    return case(area, name, query, phase=3, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -610,6 +620,268 @@ CASES = [
           notes="CLOSE date must follow OPEN date (a compile error, not a syntax error). Equal dates are allowed."),
     case2("error", "error_balances_unknown_summary_function", "BALANCES AT nosuch", expect="error",
           notes="AT f applies f to position; an unknown function is a compile error."),
+
+    # =======================================================================
+    # Phase 3 (issue #434). Fixtures carry "phase": 3.
+    # =======================================================================
+
+    # --- HAVING ------------------------------------------------------------
+    case3("having", "having_on_aggregate",
+          "SELECT account, count(*) AS n, sum(number) AS total WHERE account ~ '^Expenses:Food' "
+          "GROUP BY account HAVING count(*) > 20 ORDER BY account",
+          ordered=True,
+          notes="HAVING is part of the GROUP BY clause: GROUP BY ... [HAVING expr] [ORDER BY ...] [PIVOT BY ...] "
+                "[LIMIT n]. It keeps the groups whose HAVING value is true. The aggregate may also be a target."),
+    case3("having", "having_on_hidden_aggregate",
+          "SELECT account WHERE account ~ '^Expenses:(Home|Food)' GROUP BY account HAVING sum(number) > 3000 "
+          "ORDER BY account",
+          ordered=True,
+          notes="The HAVING aggregate does not have to be selected: it is computed per group like a hidden "
+                "target and is not part of the output."),
+    case3("having", "having_group_key_inside_aggregate",
+          "SELECT account, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY account "
+          "HAVING min(account) ~ 'Coffee|Alcohol' OR count(*) > 300 ORDER BY account",
+          ordered=True,
+          notes="beanquery requires the HAVING expression to contain an aggregate, so a group key is tested "
+                "through an aggregate of it (min(account) is the key itself). A bare group key in HAVING is a "
+                "compile error (error_having_bare_group_key)."),
+    case3("having", "having_order_by_limit",
+          "SELECT payee, count(*) AS n, sum(number) AS total WHERE account ~ '^Expenses' AND currency = 'USD' "
+          "GROUP BY payee HAVING count(*) >= 10 ORDER BY total DESC LIMIT 5",
+          ordered=True,
+          notes="HAVING filters the groups before ORDER BY and LIMIT."),
+    case3("having", "having_hidden_group_key",
+          "SELECT count(*) AS n, sum(number) AS total WHERE account ~ '^Expenses:Food' GROUP BY year "
+          "HAVING sum(number) > 6800",
+          notes="GROUP BY a column that is not selected, filtered by HAVING: only the 2016 group passes."),
+    case3("having", "having_null_drops_group",
+          "SELECT account, count(*) AS n WHERE account ~ '^Assets:US:(Vanguard|Hoogle|ETrade)' GROUP BY account "
+          "HAVING max(payee) < 'I' ORDER BY account",
+          ordered=True,
+          notes="max(payee) is NULL for the accounts whose postings have no payee, so the comparison is NULL "
+                "and the group is dropped, like a false HAVING value. Only the two accounts with payee "
+                "'Hoogle' remain."),
+    case3("error", "error_having_without_group_by",
+          "SELECT account, count(*) AS n WHERE account ~ '^Expenses:Food' HAVING count(*) > 100", expect="error",
+          notes="HAVING belongs to the GROUP BY clause, so it cannot be combined with an implicit GROUP BY "
+                "(aggregates mixed with plain targets and no GROUP BY): a syntax error. Write GROUP BY account "
+                "HAVING ... instead."),
+    case3("error", "error_having_bare_group_key",
+          "SELECT account, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY account "
+          "HAVING account ~ 'Coffee'", expect="error",
+          notes="beanquery rejects a HAVING expression without an aggregate, even when it only uses group keys "
+                "(SQL would accept it): 'the HAVING clause must be an aggregate expression'."),
+    case3("error", "error_having_target_alias",
+          "SELECT account, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY account HAVING n > 100",
+          expect="error",
+          notes="HAVING is compiled against the table's columns, not against the target names, so it cannot "
+                "use the alias n: 'column \"n\" not found in table \"postings\"'. Repeat the aggregate instead."),
+
+    # --- PIVOT BY ----------------------------------------------------------
+    case3("pivot", "pivot_monthly_by_category",
+          "SELECT root(account, 2) AS category, month, sum(number) AS total "
+          "WHERE account ~ '^Expenses:(Food|Home|Transport)' AND year = 2016 AND currency = 'USD' "
+          "GROUP BY 1, 2 PIVOT BY category, month",
+          ordered=True, strict_names=True,
+          notes="PIVOT BY a, b runs the query, then makes one row per value of a and one column per value of b. "
+                "The first column is named 'a/b' and has a's type. With a single remaining target, the value "
+                "columns are named str(value of b) ('1' ... '12'), sorted by the value of b (ints numerically), "
+                "with that target's type. A missing (a, b) pair is NULL (Expenses:Transport in November). Rows "
+                "are sorted by a, so the result is ordered without ORDER BY."),
+    case3("pivot", "pivot_inventory_cells",
+          "SELECT year, root(account, 1) AS type, sum(position) AS total WHERE account ~ '^(Income|Expenses)' "
+          "GROUP BY 1, 2 PIVOT BY 1, 2",
+          ordered=True, strict_names=True,
+          notes="PIVOT BY takes target indexes too. The cells keep the type of the pivoted target, here "
+                "multi-currency inventories (USD, VACHR, IRAUSD)."),
+    case3("pivot", "pivot_several_value_columns",
+          "SELECT account, year, count(*) AS n, sum(number) AS total "
+          "WHERE account ~ '^Expenses:Food:(Coffee|Alcohol|Groceries)' GROUP BY 1, 2 PIVOT BY account, year",
+          ordered=True, strict_names=True,
+          notes="With several remaining targets, each value of b gets one column per target, named "
+                "'<value>/<target>' and ordered value first, then target order: 2015/n, 2015/total, 2016/n, ... "
+                "Expenses:Food:Alcohol has postings only in 2016, so its other cells are NULL."),
+    case3("pivot", "pivot_limit_applies_before_pivot",
+          "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 ORDER BY n DESC "
+          "PIVOT BY year, account LIMIT 5",
+          ordered=True, strict_names=True,
+          notes="ORDER BY and LIMIT apply to the query BEFORE the pivot: the 5 largest (account, year) groups are "
+                "kept, then pivoted. The pivoted rows are sorted by the first PIVOT BY column (year), whatever "
+                "the ORDER BY, and the value columns come only from the rows that survived LIMIT (no "
+                "Expenses:Food:Coffee or Alcohol column). The first PIVOT BY column may be any target, here "
+                "the second one."),
+    case3("pivot", "pivot_implicit_group_by_bool_keys",
+          "SELECT account, number > 50 AS big, count(*) AS n WHERE account ~ '^Expenses:Food' "
+          "PIVOT BY account, big",
+          ordered=True, strict_names=True,
+          notes="PIVOT BY works with the implicit GROUP BY (no GROUP BY clause). The value columns are named "
+                "with Python's str() of the key, so boolean keys give 'False' and 'True' (not 'FALSE'/'TRUE' "
+                "like str(TRUE)), sorted False first."),
+    case3("pivot", "pivot_having_over_prices_table",
+          "SELECT currency, year(date) AS y, max(number(amount)) AS high FROM #prices WHERE currency ~ '^V' "
+          "GROUP BY 1, 2 HAVING count(*) > 40 PIVOT BY currency, y",
+          ordered=True, strict_names=True,
+          notes="PIVOT BY combined with FROM #prices and HAVING. 2017 has only 36 weekly prices per commodity, "
+                "so HAVING drops those groups and no '2017' column is produced: the columns come from the "
+                "rows left after HAVING."),
+    case3("error", "error_pivot_one_column",
+          "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 PIVOT BY account",
+          expect="error",
+          notes="PIVOT BY takes exactly two columns; one or three is a syntax error."),
+    case3("error", "error_pivot_expression",
+          "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 "
+          "PIVOT BY account, year(date)", expect="error",
+          notes="Each PIVOT BY column is a target name or a 1-based target index, not an expression."),
+    case3("error", "error_pivot_column_not_in_targets",
+          "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 "
+          "PIVOT BY account, payee", expect="error",
+          notes="A PIVOT BY name must be a target name (or alias); a table column that is not selected is a "
+                "compile error."),
+    case3("error", "error_pivot_index_out_of_range",
+          "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 PIVOT BY 1, 4",
+          expect="error"),
+    case3("error", "error_pivot_same_column",
+          "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 PIVOT BY year, 2",
+          expect="error",
+          notes="Both PIVOT BY columns resolve to the target year (by name and by index): a compile error."),
+    case3("error", "error_pivot_second_not_group_key",
+          "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 PIVOT BY account, n",
+          expect="error",
+          notes="The second PIVOT BY column must be a GROUP BY column, so that its values are unique per row of "
+                "the first column; an aggregate target is a compile error."),
+
+    # --- FROM #table -------------------------------------------------------
+    case3("table", "entries_portable_columns",
+          "SELECT type, date, year, month, day, flag, payee, narration, description, tags, links, accounts "
+          "FROM #entries WHERE (year = 2016 AND type IN ('open', 'event')) OR date = 2016-11-17",
+          notes="#entries has one row per directive. type is the lower-case directive name ('open', 'event', "
+                "'transaction', ...). Transaction columns are NULL for other directives, and so are tags, links "
+                "and description (not the empty set or ''); accounts is the set of accounts the directive "
+                "refers to (empty for an event). beanquery's SELECT * FROM #entries expands to id, type, "
+                "filename, lineno, date, year, month, day, flag, payee, narration, description, tags, links, "
+                "meta, accounts; id (a hash), filename (an absolute path) and meta (a dict) are not portable, "
+                "so this case selects the other columns explicitly."),
+    case3("table", "entries_count_by_type",
+          "SELECT type, count(*) AS n, min(date) AS first, max(date) AS last FROM #entries GROUP BY type "
+          "ORDER BY type",
+          kind=LEDGER, ordered=True,
+          notes="One row per directive kind of the ledger. A balance directive is a 'balance' entry, not a "
+                "transaction."),
+    case3("table", "transactions_select_star",
+          "SELECT * FROM #transactions WHERE 'trip-chicago-2016' IN tags AND payee ~ 'a' "
+          "ORDER BY date, payee LIMIT 5",
+          ordered=True, strict_names=True,
+          notes="#transactions has one row per transaction. SELECT * expands to date, flag, payee, narration, "
+                "tags, links, accounts (accounts is the set of posting accounts; meta is excluded from *). "
+                "The table has no year/month/day, description or posting columns."),
+    case3("table", "transactions_count_by_year",
+          "SELECT year(date) AS y, count(*) AS n, count(payee) AS with_payee FROM #transactions GROUP BY 1 "
+          "ORDER BY 1",
+          kind=LEDGER, ordered=True,
+          notes="year is not a column of #transactions, so the query uses year(date)."),
+    case3("table", "prices_select_star",
+          "SELECT * FROM #prices WHERE currency = 'GLD' ORDER BY date DESC LIMIT 5",
+          ordered=True, strict_names=True,
+          notes="#prices has one row per price directive. SELECT * expands to date, currency, amount (an "
+                "amount)."),
+    case3("table", "prices_aggregate_per_currency",
+          "SELECT currency, count(*) AS n, min(date) AS first, max(date) AS last, min(number(amount)) AS low, "
+          "max(number(amount)) AS high, last(amount) AS latest FROM #prices GROUP BY currency ORDER BY currency",
+          ordered=True,
+          notes="Aggregates over the price directives; last() follows the table order (by date)."),
+    case3("table", "balances_select_star",
+          "SELECT * FROM #balances WHERE year(date) = 2017 ORDER BY date, account LIMIT 6",
+          kind=LEDGER, ordered=True, strict_names=True,
+          notes="#balances has one row per balance directive. SELECT * expands to date, account, amount, "
+                "tolerance, discrepancy. tolerance is the explicit tolerance of the directive (none in this "
+                "ledger) and discrepancy the difference found by the balance check, NULL when the assertion "
+                "holds (every assertion here), so the result depends on the ledger's balance checking."),
+    case3("table", "balances_aggregate_per_account",
+          "SELECT account, count(*) AS n, min(date) AS first, max(date) AS last, sum(amount) AS total "
+          "FROM #balances GROUP BY account ORDER BY account",
+          ordered=True,
+          notes="sum(amount) gives an inventory; the three 0 IRAUSD assertions sum to the empty inventory."),
+    case3("table", "events_natural_order",
+          "SELECT * FROM #events",
+          ordered=True, strict_names=True,
+          notes="#events has one row per event directive. SELECT * expands to date, type, description. Without "
+                "ORDER BY the rows come in ledger order (by date); the dates are all different, so the order is "
+                "fully determined."),
+    case3("table", "events_filter_aggregate",
+          "SELECT description, count(*) AS n, max(date) AS last FROM #events WHERE type = 'location' "
+          "GROUP BY description ORDER BY n DESC, description",
+          ordered=True,
+          notes="In #events, type is the event type and description its value."),
+    case3("table", "notes_select_star",
+          "SELECT * FROM #notes ORDER BY date",
+          ordered=True, strict_names=True,
+          notes="The ledger has no note directives, so only the columns are pinned: SELECT * expands to date, "
+                "account, comment, tags, links."),
+    case3("table", "documents_select_star",
+          "SELECT * FROM #documents ORDER BY date",
+          ordered=True, strict_names=True,
+          notes="The ledger has no document directives, so only the columns are pinned: SELECT * expands to "
+                "date, account, filename, tags, links."),
+    case3("table", "accounts_open_close_fields",
+          "SELECT account, open.date AS opened, open.currencies AS currencies, close.date AS closed "
+          "FROM #accounts WHERE account ~ 'Vanguard|Chase|Opening' ORDER BY account",
+          ordered=True,
+          notes="#accounts has one row per account with an open or close directive. Its columns are account, "
+                "open and close; open and close are the directives themselves (structured values, NULL when "
+                "missing), so SELECT * is not portable and this case reads their fields with attribute "
+                "access: open.date, open.currencies (the constraint currencies, NULL when the open has none) "
+                "and close.date (NULL: the ledger closes no account)."),
+    case3("table", "accounts_count_by_type",
+          "SELECT root(account, 1) AS type, count(*) AS n FROM #accounts GROUP BY 1 ORDER BY 1",
+          ordered=True,
+          notes="The 60 opened accounts, including parent accounts that have their own open directive "
+                "(Assets:US:BofA)."),
+    case3("table", "commodities_filter_order_limit",
+          "SELECT name, date FROM #commodities WHERE date < 2005-01-01 ORDER BY date DESC, name LIMIT 5",
+          ordered=True,
+          notes="#commodities has one row per commodity directive; the currency column is named name. "
+                "beanquery's SELECT * expands to meta, date, name, and meta (a dict) is not portable, so this "
+                "case selects the columns explicitly."),
+    case3("table", "postings_explicit_table",
+          "SELECT account, count(*) AS n, sum(position) AS balance FROM #postings WHERE account ~ '^Expenses:Food' "
+          "GROUP BY account ORDER BY account",
+          ordered=True,
+          notes="FROM #postings names the default table explicitly; the result is the same as without FROM."),
+    case3("table", "bare_table_name",
+          "SELECT currency, count(*) AS n FROM prices WHERE year(date) = 2017 GROUP BY currency ORDER BY currency",
+          ordered=True,
+          notes="beanquery quirk: a bare FROM name that is not a column of the postings table is resolved as a "
+                "table name, so FROM prices is FROM #prices. A name that is also a postings column (FROM "
+                "accounts) stays a FROM expression."),
+    case3("error", "error_unknown_table", "SELECT * FROM #nosuch", expect="error",
+          notes="An unknown table is a compile error ('table \"nosuch\" does not exist'). Table names are "
+                "case-sensitive: #Prices is unknown too."),
+    case3("error", "error_table_with_open", "SELECT count(*) FROM #postings OPEN ON 2016-01-01", expect="error",
+          notes="OPEN, CLOSE and CLEAR belong to the FROM expression form, so they cannot follow a #table: a "
+                "syntax error."),
+    case3("error", "error_table_with_close_clear", "SELECT count(*) FROM #entries CLOSE ON 2017-01-01 CLEAR",
+          expect="error"),
+    case3("error", "error_column_not_in_table", "SELECT account FROM #transactions", expect="error",
+          notes="Columns are per table: #transactions has no account column."),
+
+    # --- CSV of pivoted and table results ----------------------------------
+    case3("csv", "csv_pivot_inventory_date_keys",
+          "SELECT root(account, 1) AS type, yearmonth(date) AS month, sum(position) AS total "
+          "WHERE account ~ '^(Income|Expenses):' AND year = 2017 AND month <= 3 GROUP BY 1, 2 "
+          "PIVOT BY type, month",
+          expect="csv", ordered=True,
+          notes="Date keys name the pivoted columns as YYYY-MM-DD. numberify then splits each inventory column "
+                "per currency, so the header is '2017-01-01 (USD)', ... The currency columns of each pivoted "
+                "column follow the usual numberify order (rows holding the currency, then name descending)."),
+    case3("csv", "csv_prices_table",
+          "SELECT date, currency, amount FROM #prices WHERE date >= 2017-09-01 ORDER BY date, currency",
+          expect="csv", ordered=True,
+          notes="The amount column of #prices becomes 'amount (USD)'."),
+    case3("csv", "csv_balances_select_star",
+          "SELECT * FROM #balances WHERE account ~ 'Slate' AND year(date) = 2017 ORDER BY date LIMIT 4",
+          expect="csv", kind=LEDGER, ordered=True,
+          notes="SELECT * over #balances in CSV: tolerance is a decimal column of empty cells, and discrepancy "
+                "is an amount column that is NULL on every row, so numberify drops it (no CSV column)."),
 ]
 
 
@@ -808,7 +1080,7 @@ def dumps(value):
 
 def render_fixture(fixture):
     lines = ["{"]
-    for key in ("name", "query", "phase", "kind", "ordered", "expect", "error_class"):
+    for key in ("name", "query", "phase", "kind", "ordered", "strict_names", "expect", "error_class"):
         if key in fixture:
             lines.append(f"  {dumps(key)}: {dumps(fixture[key])},")
     for key in ("columns", "rows", "csv"):
@@ -825,6 +1097,15 @@ def render_fixture(fixture):
     lines.append(f"  {dumps('notes')}: {dumps(fixture['notes'])}")
     lines.append("}")
     return "\n".join(lines) + "\n"
+
+
+def synthetic_note(spec):
+    """The note added to a ledger-dependent case that zhang's synthetic balance-check transactions change."""
+    if spec["phase"] < 3:
+        return ("Also sensitive to whether zhang's synthetic balance-check transactions (zero-amount postings) are "
+                "part of the postings table.")
+    return ("Also sensitive to zhang's synthetic balance-check transactions: beanquery has no such transactions "
+            "(a balance directive is a balance entry), so they must not appear as transactions.")
 
 
 def build_fixture(index, spec, conns, dcontext):
@@ -856,8 +1137,7 @@ def build_fixture(index, spec, conns, dcontext):
                 problems.append("sensitive to zhang's synthetic balance-check postings; mark it ledger-dependent "
                                 "or narrow the WHERE clause")
             else:
-                extra = ("Also sensitive to whether zhang's synthetic balance-check transactions (zero-amount "
-                         "postings) are part of the postings table.")
+                extra = synthetic_note(spec)
                 notes = f"{notes} {extra}".strip()
     elif spec["expect"] == "error":
         try:
@@ -888,9 +1168,10 @@ def build_fixture(index, spec, conns, dcontext):
                 problems.append("sensitive to zhang's synthetic balance-check postings; mark it ledger-dependent "
                                 "or narrow the WHERE clause")
             else:
-                extra = ("Also sensitive to whether zhang's synthetic balance-check transactions (zero-amount "
-                         "postings) are part of the postings table.")
+                extra = synthetic_note(spec)
                 notes = f"{notes} {extra}".strip()
+    if spec["strict_names"] and spec["expect"] != "rows":
+        problems.append("strict_names applies to rows fixtures only (csv headers are always compared)")
     if problems:
         raise SystemExit(f"case {spec['name']}: " + "; ".join(problems))
 
@@ -900,6 +1181,7 @@ def build_fixture(index, spec, conns, dcontext):
         **({"phase": spec["phase"]} if spec["phase"] != 1 else {}),
         "kind": spec["kind"],
         "ordered": spec["ordered"],
+        **({"strict_names": True} if spec["strict_names"] else {}),
         "expect": spec["expect"],
         **({"error_class": error_class} if error_class else {}),
         "columns": columns,

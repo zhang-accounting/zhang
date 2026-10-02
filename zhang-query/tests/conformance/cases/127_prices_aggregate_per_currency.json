@@ -1,0 +1,26 @@
+{
+  "name": "prices_aggregate_per_currency",
+  "query": "SELECT currency, count(*) AS n, min(date) AS first, max(date) AS last, min(number(amount)) AS low, max(number(amount)) AS high, last(amount) AS latest FROM #prices GROUP BY currency ORDER BY currency",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "currency", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "first", "type": "date"},
+    {"name": "last", "type": "date"},
+    {"name": "low", "type": "decimal"},
+    {"name": "high", "type": "decimal"},
+    {"name": "latest", "type": "amount"}
+  ],
+  "rows": [
+    ["GLD", 141, "2015-01-02", "2017-09-08", "167.19", "306.91", {"number": "306.91", "currency": "USD"}],
+    ["ITOT", 141, "2015-01-02", "2017-09-08", "54.33", "81.02", {"number": "79.93", "currency": "USD"}],
+    ["RGAGX", 141, "2015-01-02", "2017-09-08", "75.62", "88.89", {"number": "81.09", "currency": "USD"}],
+    ["VBMPX", 141, "2015-01-02", "2017-09-08", "136.57", "212.88", {"number": "212.88", "currency": "USD"}],
+    ["VEA", 141, "2015-01-02", "2017-09-08", "130.07", "149.80", {"number": "143.87", "currency": "USD"}],
+    ["VHT", 141, "2015-01-02", "2017-09-08", "105.63", "132.32", {"number": "130.97", "currency": "USD"}]
+  ],
+  "notes": "Aggregates over the price directives; last() follows the table order (by date)."
+}

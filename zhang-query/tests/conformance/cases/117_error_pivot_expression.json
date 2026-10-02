@@ -1,0 +1,12 @@
+{
+  "name": "error_pivot_expression",
+  "query": "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 PIVOT BY account, year(date)",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": "Each PIVOT BY column is a target name or a 1-based target index, not an expression."
+}

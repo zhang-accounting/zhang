@@ -1,0 +1,18 @@
+{
+  "name": "having_on_aggregate",
+  "query": "SELECT account, count(*) AS n, sum(number) AS total WHERE account ~ '^Expenses:Food' GROUP BY account HAVING count(*) > 20 ORDER BY account",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "total", "type": "decimal"}
+  ],
+  "rows": [
+    ["Expenses:Food:Groceries", 73, "5936.42"],
+    ["Expenses:Food:Restaurant", 370, "12083.83"]
+  ],
+  "notes": "HAVING is part of the GROUP BY clause: GROUP BY ... [HAVING expr] [ORDER BY ...] [PIVOT BY ...] [LIMIT n]. It keeps the groups whose HAVING value is true. The aggregate may also be a target."
+}

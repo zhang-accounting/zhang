@@ -1,0 +1,20 @@
+{
+  "name": "pivot_last_row_of_a_pair_wins",
+  "query": "SELECT year, root(account, 2) AS category, month, count(*) AS n WHERE account ~ '^Expenses:(Food|Home)' GROUP BY 1, 2, 3 ORDER BY month DESC, year, category PIVOT BY year, category",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "year/category", "type": "int"},
+    {"name": "Expenses:Food/month", "type": "int"},
+    {"name": "Expenses:Food/n", "type": "int"},
+    {"name": "Expenses:Home/month", "type": "int"},
+    {"name": "Expenses:Home/n", "type": "int"}
+  ],
+  "rows": [
+    [2015, 1, 13, 1, 4],
+    [2016, 1, 13, 1, 4],
+    [2017, 1, 11, 1, 4]
+  ],
+  "notes": "When several rows share a (first, second) pair, the last one in result order fills the cells: here the earliest month of each year."
+}

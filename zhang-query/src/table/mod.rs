@@ -16,13 +16,19 @@
 //!   when an expression reads them. A builder may skip work that only unprojected columns
 //!   need (see [`Projection::contains`]).
 //!
+//! A column named `base.attribute` is an attribute of the structured value `base`, read
+//! with attribute access (`open.date` in `#accounts`); `base` itself is a column too.
+//!
 //! # Adding a table
 //!
 //! Add a module with a `static` [`Table`] whose columns read a [`Record`] variant (add one
 //! when no existing variant fits), register it in [`TABLES`], and describe it in the query
 //! language reference. Its columns appear in `GET /api/query/schema` automatically.
 
+mod accounts;
 mod budgets;
+mod directives;
+mod entries;
 mod errors;
 mod postings;
 mod prices;
@@ -32,6 +38,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use chrono::NaiveDate;
+use zhang_ast::amount::Amount;
 use zhang_ast::{Directive, Meta, Spanned};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
@@ -69,6 +76,17 @@ impl Table {
     pub fn is_postings(&self) -> bool {
         std::ptr::eq(self, &POSTINGS)
     }
+
+    /// The attributes of the structured column `base` (the columns named `base.attribute`),
+    /// in column order; empty when `base` has none.
+    pub(crate) fn attributes(&self, base: &str) -> Vec<&'static str> {
+        self.columns
+            .iter()
+            .filter_map(|column| column.name.split_once('.'))
+            .filter(|(prefix, _)| prefix.eq_ignore_ascii_case(base))
+            .map(|(_, attribute)| attribute)
+            .collect()
+    }
 }
 
 /// How a table produces its rows.
@@ -92,7 +110,20 @@ pub static POSTINGS: Table = Table {
 };
 
 /// Every table, in the order the schema lists them.
-static TABLES: &[&Table] = &[&POSTINGS, &prices::PRICES, &budgets::BUDGETS, &errors::ERRORS];
+static TABLES: &[&Table] = &[
+    &POSTINGS,
+    &entries::ENTRIES,
+    &entries::TRANSACTIONS,
+    &prices::PRICES,
+    &directives::BALANCES,
+    &directives::NOTES,
+    &directives::EVENTS,
+    &directives::DOCUMENTS,
+    &accounts::ACCOUNTS,
+    &directives::COMMODITIES,
+    &budgets::BUDGETS,
+    &errors::ERRORS,
+];
 
 /// Every table a query can read, `postings` first.
 pub fn tables() -> &'static [&'static Table] {
@@ -196,24 +227,58 @@ pub(crate) enum Borrow {
 pub(crate) enum Record<'a> {
     /// a dated directive of the processed ledger
     Directive(&'a Spanned<Directive>),
+    /// a balance assertion (`balance`, or `balance ... with pad`) and, when the projection
+    /// reads it, the difference its check found (the balance minus the asserted amount)
+    Balance {
+        directive: &'a Spanned<Directive>,
+        discrepancy: Option<Amount>,
+    },
+    /// an account with its `open` and `close` directives (at least one of them)
+    Account {
+        name: &'a str,
+        open: Option<&'a Spanned<Directive>>,
+        close: Option<&'a Spanned<Directive>>,
+    },
     /// one month of a budget
     Budget(budgets::BudgetMonth<'a>),
     /// a ledger error
     Error(errors::LedgerError<'a>),
 }
 
-impl Record<'_> {
-    /// Metadata `key` of the row, as a string: what `meta()`, `entry_meta()` and `any_meta()`
-    /// read on a record table.
-    fn meta(&self, key: &str) -> Option<String> {
+impl<'a> Record<'a> {
+    /// The metadata of the row: what `meta()`, `entry_meta()` and `any_meta()` read on a
+    /// record table (an account reads the metadata of its `open`, else of its `close`).
+    fn metadata(&self) -> Option<&'a Meta> {
         match self {
-            Record::Directive(directive) => directive_meta(&directive.data)
-                .and_then(|meta| meta.get_one(key))
-                .map(|value| value.as_str().to_owned()),
-            Record::Budget(month) => month.meta(key),
-            Record::Error(error) => error.meta(key),
+            Record::Directive(directive) | Record::Balance { directive, .. } => directive_meta(&directive.data),
+            Record::Account { open, close, .. } => open.or(*close).and_then(|directive| directive_meta(&directive.data)),
+            Record::Budget(month) => month.metadata(),
+            // an error's details are not directive metadata (see `meta`)
+            Record::Error(_) => None,
         }
     }
+
+    /// Metadata `key` of the row, as a string; for an error, what zhang records about it.
+    fn meta(&self, key: &str) -> Option<String> {
+        match self {
+            Record::Error(error) => error.meta(key),
+            _ => self.metadata().and_then(|meta| meta.get_one(key)).map(|value| value.as_str().to_owned()),
+        }
+    }
+}
+
+/// Metadata as text, the value of the `meta` columns: `key: "value"` pairs sorted by key and
+/// separated by `, ` (the values of a repeated key in ledger order); `''` without metadata.
+/// Quotes and backslashes in values are escaped with a backslash.
+pub(crate) fn render_meta(meta: Option<&Meta>) -> Value {
+    let mut pairs = meta.cloned().map(|meta| meta.get_flatten()).unwrap_or_default();
+    pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
+    let text = pairs
+        .iter()
+        .map(|(key, value)| format!("{}: \"{}\"", key, value.as_str().replace('\\', "\\\\").replace('"', "\\\"")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Value::Str(text)
 }
 
 /// The metadata of a directive.

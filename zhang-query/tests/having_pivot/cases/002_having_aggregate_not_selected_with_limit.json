@@ -1,0 +1,16 @@
+{
+  "name": "having_aggregate_not_selected_with_limit",
+  "query": "SELECT account, sum(position) AS total WHERE account ~ '^Expenses:Food' GROUP BY account HAVING count(*) > 10 ORDER BY account LIMIT 2",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "total", "type": "inventory"}
+  ],
+  "rows": [
+    ["Expenses:Food:Coffee", {"positions": [{"units": {"number": "76.98", "currency": "USD"}, "cost": null}]}],
+    ["Expenses:Food:Groceries", {"positions": [{"units": {"number": "5936.42", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "HAVING may use an aggregate that is not a target. LIMIT applies after HAVING."
+}

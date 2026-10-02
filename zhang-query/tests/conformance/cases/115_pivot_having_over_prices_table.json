@@ -1,0 +1,20 @@
+{
+  "name": "pivot_having_over_prices_table",
+  "query": "SELECT currency, year(date) AS y, max(number(amount)) AS high FROM #prices WHERE currency ~ '^V' GROUP BY 1, 2 HAVING count(*) > 40 PIVOT BY currency, y",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "strict_names": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "currency/y", "type": "str"},
+    {"name": "2015", "type": "decimal"},
+    {"name": "2016", "type": "decimal"}
+  ],
+  "rows": [
+    ["VBMPX", "163.27", "183.99"],
+    ["VEA", "139.43", "149.75"],
+    ["VHT", "116.31", "120.64"]
+  ],
+  "notes": "PIVOT BY combined with FROM #prices and HAVING. 2017 has only 36 weekly prices per commodity, so HAVING drops those groups and no '2017' column is produced: the columns come from the rows left after HAVING."
+}

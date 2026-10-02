@@ -78,9 +78,10 @@ pub(crate) struct BudgetMonth<'a> {
     meta: Option<&'a Meta>,
 }
 
-impl BudgetMonth<'_> {
-    pub(super) fn meta(&self, key: &str) -> Option<String> {
-        self.meta.and_then(|meta| meta.get_one(key)).map(|value| value.as_str().to_owned())
+impl<'a> BudgetMonth<'a> {
+    /// The metadata of the `budget` directive.
+    pub(super) fn metadata(&self) -> Option<&'a Meta> {
+        self.meta
     }
 
     /// Whether zhang recorded a detail for this very month (rather than carrying one over).

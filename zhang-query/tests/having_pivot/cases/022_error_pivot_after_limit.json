@@ -1,0 +1,11 @@
+{
+  "name": "error_pivot_after_limit",
+  "query": "SELECT account, year, sum(number) AS total GROUP BY 1, 2 LIMIT 3 PIVOT BY account, year",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

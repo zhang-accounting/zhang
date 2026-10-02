@@ -55,4 +55,6 @@ export interface QueryError {
   column: number | null;
 }
 export type QuerySchema = FetchReturnType<typeof retrieveQuerySchema>['data'];
+export type QueryTableDoc = QuerySchema['tables'][number];
+export type QueryTableColumnDoc = QueryTableDoc['columns'][number];
 export type SavedQuery = FetchReturnType<typeof retrieveSavedQueries>['data'][number];

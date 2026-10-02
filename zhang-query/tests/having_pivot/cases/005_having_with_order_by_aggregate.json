@@ -1,0 +1,19 @@
+{
+  "name": "having_with_order_by_aggregate",
+  "query": "SELECT year, root(account, 2) AS category, count(*) AS n WHERE account ~ '^Expenses' GROUP BY 1, 2 HAVING count(*) >= 100 ORDER BY sum(number) DESC LIMIT 4",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "year", "type": "int"},
+    {"name": "category", "type": "str"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    [2015, "Expenses:Taxes", 177],
+    [2016, "Expenses:Taxes", 173],
+    [2017, "Expenses:Taxes", 126],
+    [2016, "Expenses:Food", 184]
+  ],
+  "notes": "ORDER BY and LIMIT apply to the groups HAVING keeps."
+}

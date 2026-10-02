@@ -1,0 +1,12 @@
+{
+  "name": "error_pivot_second_not_group_key",
+  "query": "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 PIVOT BY account, n",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "The second PIVOT BY column must be a GROUP BY column, so that its values are unique per row of the first column; an aggregate target is a compile error."
+}

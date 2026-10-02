@@ -1,0 +1,22 @@
+{
+  "name": "pivot_two_value_columns_by_index",
+  "query": "SELECT year, root(account, 2) AS category, count(*) AS n, sum(number) AS total WHERE account ~ '^Expenses:(Food|Home|Transport)' GROUP BY 1, 2 PIVOT BY 1, 2",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "year/category", "type": "int"},
+    {"name": "Expenses:Food/n", "type": "int"},
+    {"name": "Expenses:Food/total", "type": "decimal"},
+    {"name": "Expenses:Home/n", "type": "int"},
+    {"name": "Expenses:Home/total", "type": "decimal"},
+    {"name": "Expenses:Transport/n", "type": "int"},
+    {"name": "Expenses:Transport/total", "type": "decimal"}
+  ],
+  "rows": [
+    [2015, 167, "6614.67", 48, "31304.42", 12, "1440.00"],
+    [2016, 184, "6859.72", 48, "31280.55", 11, "1320.00"],
+    [2017, 112, "4686.42", 32, "20866.27", 8, "960.00"]
+  ],
+  "notes": "With several other targets each value gets one column per target, named '<value>/<target>'. Columns may be given by their 1-based index."
+}

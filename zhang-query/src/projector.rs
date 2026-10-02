@@ -144,7 +144,7 @@ fn total_function(expr: &CExpr) -> bool {
 /// changes nothing but the work done.
 fn infallible(expr: &CExpr) -> bool {
     let node = match expr {
-        CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) => true,
+        CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) | CExpr::Target(_) => true,
         CExpr::Not(_) | CExpr::And(_) | CExpr::Or(_) | CExpr::Compare { .. } | CExpr::InSet { .. } | CExpr::InList { .. } | CExpr::IsNull { .. } => true,
         CExpr::Scalar { .. } => total_function(expr),
         CExpr::Aggregate(_) | CExpr::Neg(..) | CExpr::Arith { .. } | CExpr::Regex { .. } => false,
@@ -296,7 +296,7 @@ mod tests {
     use super::*;
     use crate::executor::{execute, RegexCache};
     use crate::params::Params;
-    use crate::table::{column, Dataset, COLUMNS};
+    use crate::table::{column, Dataset, Record, COLUMNS};
     use crate::Query;
 
     fn load(dir: PathBuf) -> Ledger {
@@ -434,6 +434,53 @@ option "operating_currency" "USD"
         assert_pruning_keeps_results(&ledger, QUERIES.iter().map(|it| it.to_string()).chain(every_column()));
     }
 
+    /// Run `sql` over the rows of its table built for `projection` (or the query's own).
+    fn run_table(ledger: &Ledger, sql: &str, projection: Option<Projection>) -> String {
+        let query = Query::compile(sql).unwrap_or_else(|err| panic!("{sql}: {err}"));
+        let store = ledger.store.read().unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let data = Dataset::build(ledger, &store, today, projection.unwrap_or(query.projection));
+        let rows = execute(&query.plan, &data, &Params::new(), None).unwrap_or_else(|err| panic!("{sql}: {}", err.message));
+        format!("{rows:?}")
+    }
+
+    #[test]
+    fn record_tables_prune_without_changing_results() {
+        let ledger = load_text(&format!(
+            "{LEDGER}\n2024-04-03 balance Assets:Bank 1999.00 USD\n2024-04-04 note Assets:Bank \"x\"\n"
+        ));
+        let mut checked = 0;
+        for table in crate::table::tables().iter().filter(|table| !table.is_postings()) {
+            let all = Projection::all_of(table);
+            let queries = table
+                .columns
+                .iter()
+                .map(|column| format!("SELECT {} FROM #{}", column.name, table.name))
+                .chain([format!("SELECT * FROM #{}", table.name), format!("SELECT count(*) FROM #{}", table.name)]);
+            for sql in queries {
+                assert_eq!(run_table(&ledger, &sql, None), run_table(&ledger, &sql, Some(all)), "{sql}");
+                checked += 1;
+            }
+        }
+        assert!(checked > 60, "{checked}");
+    }
+
+    #[test]
+    fn balances_look_up_discrepancies_only_when_projected() {
+        let ledger = load_text(&format!("{LEDGER}\n2024-04-03 balance Assets:Bank 1999.00 USD\n"));
+        let store = ledger.store.read().unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let discrepancies = |sql: &str| {
+            let data = Dataset::build(&ledger, &store, today, Query::compile(sql).unwrap().projection);
+            data.records
+                .iter()
+                .filter(|record| matches!(record, Record::Balance { discrepancy: Some(_), .. }))
+                .count()
+        };
+        assert_eq!(discrepancies("SELECT date, amount FROM #balances"), 0);
+        assert_eq!(discrepancies("SELECT date FROM #balances WHERE discrepancy IS NOT NULL"), 1);
+    }
+
     #[test]
     fn rows_drop_costs_and_prices_outside_the_projection() {
         let ledger = load_text(LEDGER);
@@ -485,6 +532,7 @@ option "operating_currency" "USD"
                 data: Some(&data),
                 row: Some(RowRef::Posting(row)),
                 aggregates: &[],
+                cells: &[],
                 running: None,
                 params: &params,
                 regexes: &regexes,

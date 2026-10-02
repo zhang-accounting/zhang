@@ -8,7 +8,7 @@ Zhang can answer ad-hoc questions about your ledger with a small query language.
 Queries run directly against the ledger that Zhang has already loaded into memory. They are read-only, and all arithmetic uses exact decimals, so amounts never pass through floating point.
 
 :::caution[Early version]
-This page covers the query language as of Phase 2 of [#434](https://github.com/zhang-accounting/zhang/issues/434): `SELECT`, `BALANCES` and `JOURNAL` over a single `postings` table, the accounting-period clauses `OPEN ON`, `CLOSE` and `CLEAR`, saved queries and CSV export. [Differences from BQL and beanquery](#differences-from-bql-and-beanquery) lists what is not available yet.
+This page covers the query language as of Phase 3 of [#434](https://github.com/zhang-accounting/zhang/issues/434): `SELECT`, `BALANCES` and `JOURNAL` over the `postings` table, the [other tables](#other-tables) and the [Zhang-specific tables](#zhang-specific-tables), the accounting-period clauses `OPEN ON`, `CLOSE` and `CLEAR`, saved queries and CSV export. [Differences from BQL and beanquery](#differences-from-bql-and-beanquery) lists what is not available yet.
 :::
 
 ## Running a query
@@ -98,8 +98,9 @@ This returns the ten most recent postings to `Expenses:Food` and its sub-account
 SELECT [DISTINCT] target [, target ...] | *
   [FROM from_clause]
   [WHERE expression]
-  [GROUP BY group_key [, group_key ...]]
+  [GROUP BY group_key [, group_key ...] [HAVING expression]]
   [ORDER BY order_key [ASC | DESC] [, order_key [ASC | DESC] ...]]
+  [PIVOT BY pivot_key, pivot_key]
   [LIMIT count]
   [;]
 
@@ -110,25 +111,29 @@ JOURNAL ['pattern'] [AT function] [FROM from_clause] [;]
 target      = expression [AS name]
 group_key   = expression | target name | target number
 order_key   = expression | target name | target number
-from_clause = [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
+pivot_key   = target name | target number
+from_clause = #table | [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
 ```
 
 - A query is a single statement: a `SELECT`, or one of the shorthands [`BALANCES` and `JOURNAL`](#balances-and-journal). `PRINT` is not supported.
 - The clauses must appear in the order shown. All of them except the first keyword are optional, and a single trailing `;` is allowed.
-- Keywords, column names and function names are all case-insensitive: `SELECT account`, `select ACCOUNT` and `Select Account` are the same query.
+- Keywords, column names and function names are all case-insensitive: `SELECT account`, `select ACCOUNT` and `Select Account` are the same query. [Table names](#other-tables) are case-sensitive, as in beanquery.
+- A field of a structured column is read with a dot, without spaces: `open.date` in [`#accounts`](#accounts).
 - Names consist of ASCII letters, digits and underscores, and cannot start with a digit. The words `SELECT`, `DISTINCT`, `FROM`, `WHERE`, `GROUP`, `BY`, `ORDER`, `ASC`, `DESC`, `LIMIT`, `AS`, `AND`, `OR`, `NOT`, `IN`, `IS`, `NULL`, `TRUE`, `FALSE`, `HAVING` and `PIVOT` are reserved and cannot be used as column names.
 - Spaces and line breaks between tokens are not significant, so a query can span several lines.
 - `--` starts a comment that runs to the end of the line.
 
 ### How a query is evaluated
 
-1. The [period clauses](#accounting-periods) of `FROM` (`OPEN ON`, `CLOSE` and `CLEAR`), if there are any, rewrite the postings of the whole ledger.
-2. The expression of `FROM` and the `WHERE` clause choose which postings take part.
+1. `FROM #table` chooses the [table](#other-tables) to read; without it the query reads the postings. The [period clauses](#accounting-periods) of `FROM` (`OPEN ON`, `CLOSE` and `CLEAR`), if there are any, rewrite the postings of the whole ledger.
+2. The expression of `FROM` and the `WHERE` clause choose which rows take part.
 3. If the query reads the [running balance](#the-running-balance), it is added up over the chosen postings, in ledger order.
 4. If the query uses an [aggregate function](#aggregate-functions) or has a `GROUP BY` clause, the chosen postings are grouped and each group produces one row. Otherwise each posting produces one row.
-5. `ORDER BY` sorts the rows.
-6. `DISTINCT` removes duplicate rows, keeping the first of each.
-7. `LIMIT` keeps the first rows and drops the rest.
+5. `HAVING` drops the groups that do not satisfy its condition.
+6. `ORDER BY` sorts the rows.
+7. `DISTINCT` removes duplicate rows, keeping the first of each.
+8. `LIMIT` keeps the first rows and drops the rest.
+9. `PIVOT BY` turns the remaining rows into a table with one column per value of a target.
 
 Before any posting is read, Zhang checks the query and simplifies it. Parts that involve only constants, such as `'^Expenses:' + 'Food'`, are computed once at that point. Functions that depend on the ledger or on the current date (`today`, `convert`, `value`, `getprice` and the metadata functions) are not. As a result, an invalid regular expression in a constant pattern is reported immediately, with its position, even if no posting would ever be matched against it.
 
@@ -136,14 +141,14 @@ Before any posting is read, Zhang checks the query and simplifies it. Parts that
 
 The targets are the expressions to compute for each row, separated by commas.
 
-- `SELECT *` is short for `SELECT date, flag, payee, narration, account, position`.
+- `SELECT *` is short for `SELECT date, flag, payee, narration, account, position`. Over another table it expands to [that table's columns](#other-tables).
 - `AS name` gives a target a name. The name can be used in `GROUP BY` and `ORDER BY`, but not in `WHERE`.
 - Each result column is named after its alias if it has one. Otherwise it is named after the target's text exactly as you wrote it, without surrounding spaces: `account`, `ACCOUNT`, `sum(position)` or `sum( position )`. The columns of `SELECT *` use the lowercase names listed above.
 - `SELECT DISTINCT` removes rows that are identical to an earlier row. Only the selected values are compared.
 
 ### FROM
 
-`FROM` is followed by an expression, by [period clauses](#accounting-periods), or by both, but not by a table name. The expression filters postings exactly like `WHERE`, and when a query has both, a posting must satisfy both:
+`FROM` is followed by a table, by an expression, by [period clauses](#accounting-periods), or by an expression and period clauses. The expression filters postings exactly like `WHERE`, and when a query has both, a posting must satisfy both:
 
 ```sql
 SELECT account, sum(position)
@@ -163,7 +168,15 @@ WHERE account ~ '^(Income|Expenses)'
 GROUP BY account
 ```
 
-The query always reads the `postings` table. Naming a table, as in `FROM postings` or `FROM #postings`, is an error.
+`FROM #name` reads one of the [other tables](#other-tables), and `FROM #postings` names the default table. A table stands alone in `FROM`: filter its rows with `WHERE`. The period clauses only apply to the postings, so they cannot follow a table, and `BALANCES` and `JOURNAL` always read the postings.
+
+```sql
+SELECT date, account, amount, discrepancy
+FROM #balances
+WHERE discrepancy IS NOT NULL
+```
+
+As in beanquery, a bare name that is not a column of the postings table names a table too: `FROM prices` is `FROM #prices`. An unknown table is an error that points at its name.
 
 ### WHERE
 
@@ -189,6 +202,23 @@ WHERE account ~ '^Expenses'
 GROUP BY category
 ```
 
+### HAVING
+
+`HAVING` filters the groups of an aggregate query, the way `WHERE` filters postings. It comes right after `GROUP BY` and keeps the groups for which its condition is `TRUE`. A condition that is `FALSE` or `NULL` drops the group.
+
+```sql
+SELECT root(account, 2) AS category, sum(position) AS total
+WHERE account ~ '^Expenses'
+GROUP BY category
+HAVING sum(number) > 1000
+```
+
+- `HAVING` needs a `GROUP BY` clause. Without one it is a syntax error, even when the query is grouped [implicitly](#group-by).
+- The condition must be a boolean expression that uses an [aggregate function](#aggregate-functions). The aggregates do not have to be selected: `HAVING count(*) > 10` works even if `count(*)` is not a target.
+- Names in `HAVING` are columns of the `postings` table, as in `WHERE`, never target aliases. `HAVING total > 1000` is an error; repeat the expression, as in `HAVING sum(number) > 1000`.
+- Outside an aggregate function, a column may only be read through a group key: an expression equal to a group key is that group's value. In `GROUP BY account HAVING account ~ 'Food' AND count(*) > 10`, `account` is the account of each group. Any other column must be inside an aggregate function.
+- `LIMIT` counts the groups that `HAVING` keeps.
+
 ### ORDER BY
 
 - An order key can be an expression, a target name or a target number, just like a group key. An expression that is not selected is still used for sorting, but it does not appear in the result.
@@ -201,6 +231,31 @@ GROUP BY category
 ### LIMIT
 
 `LIMIT n` keeps the first `n` rows, after sorting and `DISTINCT`. `n` must be a non-negative integer literal. `LIMIT 0` returns no rows.
+
+### PIVOT BY
+
+`PIVOT BY a, b` turns the result of an aggregate query into a table: one row for each value of the target `a`, and one column for each value of the target `b`.
+
+```sql
+SELECT root(account, 2) AS category, year, sum(position) AS total
+WHERE account ~ '^Expenses:(Food|Home)'
+GROUP BY category, year
+PIVOT BY category, year
+```
+
+| category/year | 2015 | 2016 | 2017 |
+|---|---|---|---|
+| Expenses:Food | 6614.67 USD | 6859.72 USD | 4686.42 USD |
+| Expenses:Home | 31304.42 USD | 31280.55 USD | 20866.27 USD |
+
+- `PIVOT BY` comes after `ORDER BY` and before `LIMIT`, and takes exactly two targets, each given by its name or by its number in the `SELECT` list. Expressions are not allowed.
+- The query must be an aggregate query, and the second target must be a group key. The two targets must be different.
+- It applies last, to the rows that `HAVING`, `ORDER BY`, `DISTINCT` and `LIMIT` leave. Only those rows create columns.
+- The rows are sorted by `a`, whatever the `ORDER BY`. The columns are sorted by the value of `b`.
+- The first column is named `a/b`, after the two targets. Each other column is named after a value of `b`, such as `2016`, and holds the remaining target for that value. When more than one target remains, there is one column per value and target, named `<value>/<target>`, for example `2016/total` and `2016/count`.
+- A value is written like this in a column name: `2016-01-31` for a date, `12.50` for a decimal, `True` and `False` for booleans, and `NULL` for `NULL`.
+- A cell for a pair of `a` and `b` that has no row is `NULL`. If several rows have the same pair, which happens when the query groups by more than `a` and `b`, the last row in the result order fills the cells.
+- The columns keep the types of their targets, so [CSV export](#export-as-csv) splits pivoted amounts and inventories per currency, as in `2016 (USD)`.
 
 ### Parameters
 
@@ -491,7 +546,7 @@ A value is `NULL` when it is missing, for example the payee of a transaction tha
 
 ## The postings table
 
-There is a single table, `postings`. It has one row for every posting of every transaction, with the transaction's fields repeated on each of its postings.
+The default table is `postings`. It has one row for every posting of every transaction, with the transaction's fields repeated on each of its postings. The [other tables](#other-tables) hold the directives, and the [Zhang-specific tables](#zhang-specific-tables) hold your budgets and the ledger's errors.
 
 - **Included:** all transactions whatever their flag, and the padding transactions that Zhang creates for `balance ... with pad ...` directives. These have the flag `P`, the payee `Balance Pad` and a narration such as `pad Assets:Bank to Equity:Opening`. A query with [period clauses](#accounting-periods) also sees the [synthetic transactions](#synthetic-transactions) they add.
 - **Not included:** balance assertions, and directives that are not transactions, such as `open`, `close`, `price`, `note`, `document` and budget directives.
@@ -560,9 +615,115 @@ LIMIT 10
 
 This returns the ten most recent postings to the account, each with the balance after it. The first row shows the current balance.
 
+## Other tables
+
+Besides `postings`, a query can read one of the tables below with `FROM #name`. They are beanquery's tables, with the same column names, types and row order:
+
+| Table | One row per | `SELECT *` |
+|-------|-------------|------------|
+| `#entries` | directive of any kind | `id, type, filename, date, year, month, day, flag, payee, narration, description, tags, links, meta, accounts` |
+| `#transactions` | transaction | `date, flag, payee, narration, tags, links, accounts` |
+| `#prices` | `price` directive | `date, currency, amount` |
+| `#balances` | balance assertion | `date, account, amount, tolerance, discrepancy` |
+| `#notes` | `note` directive | `date, account, comment, tags, links` |
+| `#events` | `event` directive | `date, type, description` |
+| `#documents` | `document` directive | `date, account, filename, tags, links` |
+| `#accounts` | account with an `open` or `close` directive | `account, open, close` |
+| `#commodities` | `commodity` directive | `meta, date, name` |
+
+Zhang adds two tables of its own, `#budgets` and `#errors`, described in [Zhang-specific tables](#zhang-specific-tables).
+
+```sql
+SELECT currency, last(amount) AS latest
+FROM #prices
+WHERE date >= 2024-01-01
+GROUP BY currency
+ORDER BY currency
+```
+
+- **Columns are per table.** A table has only the columns listed for it, and none of the `postings` columns. `year`, `month` and `day` exist only on `#entries` and `postings`; elsewhere use [`year(date)`](#date-functions) and the other date functions. All functions, aggregates, `GROUP BY`, `HAVING`, `ORDER BY`, `PIVOT BY`, `DISTINCT` and `LIMIT` work on every table.
+- **Row order.** Without `ORDER BY`, rows come in ledger order: by date, then the order in which beancount sorts the directives of one day (`open` first, then balance assertions, the other directives, `document` and `close` last), then the order of your files.
+- **Metadata.** Every directive table has a `meta` column, the directive's metadata as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` without metadata. `meta(key)`, `entry_meta(key)` and `any_meta(key)` read one key of the row's directive (in `#accounts`, of its `open` directive).
+- **Balance assertions are not transactions.** Zhang stores each balance assertion as a transaction with the flag `C`. Those never appear in `#transactions` or `#entries`, where an assertion is a `balance` entry. Transactions that Zhang rejected while loading the ledger are not rows either. The padding transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
+
+### #entries
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | `str` | Unique id of the directive. For a transaction it is the transaction's id, the same as the `id` column of its postings. |
+| `type` | `str` | Kind of directive, lowercase: `transaction`, `open`, `close`, `balance`, `price`, `note`, `document`, `event`, `commodity`, `custom` or `query`, and Zhang's `budget`, `budget-add`, `budget-transfer` and `budget-close`. A `balance ... with pad` is a `balance`. |
+| `filename` | `str` | The ledger file that holds the directive. |
+| `date`, `year`, `month`, `day` | `date`, `int` | Date of the directive and its parts. |
+| `flag`, `payee`, `narration`, `description` | `str` | As in `postings`, for a transaction. `NULL` for other directives. |
+| `tags`, `links` | `set` | Tags and links of a transaction, note or document. `NULL` for other directives. |
+| `meta` | `str` | Metadata of the directive. |
+| `accounts` | `set` | The accounts the directive refers to: the posting accounts of a transaction, the account of an `open`, `close`, `balance`, `note` or `document`, and the pad account of `balance ... with pad`. Empty for other directives. |
+
+### #transactions
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `date` | `date` | Date of the transaction. |
+| `flag` | `str` | `*`, `!`, or `P` for padding. |
+| `payee` | `str` | Payee, or `NULL`. |
+| `narration` | `str` | Narration, `''` if there is none. |
+| `tags`, `links` | `set` | Tags and links. |
+| `accounts` | `set` | Accounts of the postings. |
+| `meta` | `str` | Metadata of the transaction. |
+
+### #prices, #balances, #notes, #events, #documents and #commodities
+
+| Table | Column | Type | Description |
+|-------|--------|------|-------------|
+| `#prices` | `date` | `date` | Date of the price. |
+| | `currency` | `str` | The commodity being priced. |
+| | `amount` | `amount` | The price of one unit. |
+| `#balances` | `date` | `date` | Date of the assertion. |
+| | `account` | `str` | The account whose balance is asserted. |
+| | `amount` | `amount` | The asserted balance. |
+| | `tolerance` | `decimal` | The explicit tolerance (`~ 0.01`), or `NULL`. |
+| | `discrepancy` | `amount` | If the assertion fails, the balance minus the asserted amount; `NULL` if it holds. A `balance ... with pad` always holds. |
+| `#notes` | `date`, `account` | `date`, `str` | Date and account of the note. |
+| | `comment` | `str` | The text of the note. |
+| | `tags`, `links` | `set` | Tags and links. |
+| `#events` | `date` | `date` | Date of the event. |
+| | `type` | `str` | The kind of event, such as `location`. |
+| | `description` | `str` | Its value, such as a city. |
+| `#documents` | `date`, `account` | `date`, `str` | Date and account of the document. |
+| | `filename` | `str` | Path of the file. A relative path is resolved against the directory of the ledger file that declares it, as in beancount. |
+| | `tags`, `links` | `set` | Tags and links. |
+| `#commodities` | `date` | `date` | Date of the `commodity` directive. |
+| | `name` | `str` | The commodity, such as `USD`. |
+
+Each of these tables also has a `meta` column.
+
+### #accounts
+
+`open` and `close` are the account's `open` and `close` directives, as structured values. Read their fields with a dot:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `account` | `str` | Name of the account. |
+| `open`, `open.date` | `date` | Date of the `open` directive, or `NULL` if there is none. On its own, `open` reads as this date. |
+| `open.account` | `str` | The account of the `open` directive. |
+| `open.currencies` | `set` | The currencies the account is restricted to, or `NULL` if it accepts any. |
+| `open.booking` | `str` | The booking method, from the `booking_method` metadata, or `NULL`. |
+| `open.meta` | `str` | Metadata of the `open` directive. |
+| `close`, `close.date` | `date` | Date of the `close` directive, or `NULL` while the account is open. On its own, `close` reads as this date. |
+| `close.account`, `close.meta` | `str` | The account and the metadata of the `close` directive. |
+
+```sql
+SELECT account, open.date, open.currencies
+FROM #accounts
+WHERE close IS NULL
+ORDER BY account
+```
+
+An attribute of a missing directive is `NULL`. An unknown attribute, such as `open.datum`, is an error that points at the attribute.
+
 ## Zhang-specific tables
 
-Zhang has two tables of its own, for data that Beancount does not have: `#budgets`, the monthly figures of your [budgets](/directives/4-budget/), and `#errors`, the problems Zhang found in your ledger. Name the table after `FROM`, as in `SELECT * FROM #budgets`. The rest of the query works as it does on postings: `WHERE`, `GROUP BY` and the aggregate functions, `ORDER BY`, `LIMIT` and CSV export. A query can only use the columns of its table, so `account` is not a column of `#budgets`, for example. On these tables, `meta(key)`, `entry_meta(key)` and `any_meta(key)` all read the row's own metadata.
+Zhang has two tables of its own, for data that Beancount does not have: `#budgets`, the monthly figures of your [budgets](/directives/4-budget/), and `#errors`, the problems Zhang found in your ledger. They are read like the [other tables](#other-tables), with `FROM #budgets` and `FROM #errors`, and the same rules apply: a table has only its own columns, so `account` is not a column of `#budgets`, and every clause and function works on it. Unlike the directive tables, they have no `meta` column, and their rows come in the order given below for each table. `meta(key)`, `entry_meta(key)` and `any_meta(key)` all read the row's own metadata.
 
 ### Budgets
 
@@ -808,7 +969,7 @@ The `year`, `month` and `day` columns are shortcuts: `year` is the same as `year
 | `entry_meta(str) -> str` | Value of a metadata key on the transaction, or `NULL` if it is not set. |
 | `any_meta(str) -> str` | Value of a metadata key on the posting, falling back to the transaction, or `NULL` if neither has it. |
 
-Metadata values are always returned as text.
+Metadata values are always returned as text. On the [other tables](#other-tables), all three read the metadata of the row's directive. On `#budgets` they read the metadata of the `budget` directive, and on `#errors` the details Zhang records about the error.
 
 :::note
 Zhang does not keep metadata per posting yet: every metadata line inside a transaction, including lines indented under a posting, is stored on the transaction. Until that changes ([#434](https://github.com/zhang-accounting/zhang/issues/434)), `meta` always returns `NULL`. Use `entry_meta` or `any_meta` to read metadata.
@@ -917,7 +1078,7 @@ These limits protect the server from queries that would take too much memory or 
 
 - Nesting counts parentheses, function calls, `IN` lists, `NOT` and unary minus that are placed inside each other. A long chain of `AND`, `OR`, `+` or `*`, such as `account = 'A' OR account = 'B' OR ...`, is not nested and can be as long as the length limit allows.
 - The execution time includes building the rows of the `postings` table and applying the period clauses. While a query runs, it holds a read lock on the ledger, and the time limit bounds how long that lock is held.
-- The result size counts each cell as one value, plus one for each position of an inventory, each element of a set and each 64 bytes of text. The rows that a query collects before `ORDER BY`, `DISTINCT` and `LIMIT` count too, and so do the groups of an aggregate query while they are built. A query that goes over the limit fails with an error that suggests narrowing it with `FROM` or `WHERE`, or adding a `LIMIT`.
+- The result size counts each cell as one value, plus one for each position of an inventory, each element of a set and each 64 bytes of text. The rows that a query collects before `ORDER BY`, `DISTINCT` and `LIMIT` count too, and so do the groups of an aggregate query while they are built. A `PIVOT BY` table counts all of its cells, including the empty ones, and is checked before it is built. A query that goes over the limit fails with an error that suggests narrowing it with `FROM` or `WHERE`, or adding a `LIMIT`.
 - Server operators can raise or lower the result size limit with the environment variable `ZHANG_QUERY_MAX_RESULT_VALUES`.
 - `LIMIT` keeps a result small, and so does the way the [running balance](#the-running-balance) is computed. `balance` is only built for the rows that end up in the result, unless the query sorts, groups or de-duplicates by it. `units(balance)` and `cost(balance)`, and so `JOURNAL ... AT units` and `AT cost`, are added up per currency without keeping the lots.
 - The same limits apply to [CSV export](#export-as-csv).
@@ -969,7 +1130,7 @@ Text is written as it is, without any protection against formulas, as in beanque
 
 ### Schema
 
-`GET /api/query/schema` describes the `postings` table and every function overload. The reference panel on the Explore page is built from it.
+`GET /api/query/schema` describes every table and every function overload. The reference panel on the Explore page is built from it.
 
 ```json
 {
@@ -979,12 +1140,20 @@ Text is written as it is, without any protection against formulas, as in beanque
     ],
     "functions": [
       { "name": "count", "signature": "count(*) -> int", "description": "Number of rows.", "aggregate": true }
+    ],
+    "tables": [
+      {
+        "name": "postings",
+        "description": "One row per posting of every transaction, ...",
+        "columns": [{ "name": "date", "type": "date", "description": "Date of the transaction." }]
+      }
     ]
   }
 }
 ```
 
 - `columns` has one entry per column, 23 in all, in the order of the [column table](#columns). The last one is the running `balance`.
+- `tables` has one entry per table, `postings` first, then the [other tables](#other-tables) in the order listed there, then `budgets` and `errors`. `name` has no `#`. The `postings` entry has the same columns as `columns`, and the attributes of a structured column are listed as columns named like `open.date`.
 - `functions` has one entry per overload, 66 in all: first the aggregate functions, then the scalar functions, including `account_sortkey` and `maxwidth`. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
 
 ## Examples
@@ -996,6 +1165,29 @@ SELECT year, month, root(account, 2), sum(position) WHERE account ~ "^Expenses" 
 ```
 
 One row per month and second-level expense account (such as `Expenses:Food`), with the total spent. `GROUP BY 1, 2, 3` and `ORDER BY 1, 2, 3` refer to the first three targets by number.
+
+### Categories above a threshold
+
+```sql
+SELECT root(account, 2) AS category, sum(position) AS total
+WHERE account ~ '^Expenses' AND currency = 'USD'
+GROUP BY category
+HAVING sum(number) > 1000
+ORDER BY category
+```
+
+The expense categories on which you spent more than 1000 USD. `HAVING` filters the groups after they are added up; `WHERE` could not, because it sees one posting at a time.
+
+### Monthly expenses with one column per year
+
+```sql
+SELECT month, year, sum(position) AS total
+WHERE account ~ '^Expenses:Food'
+GROUP BY month, year
+PIVOT BY month, year
+```
+
+One row per month and one column per year, so the same month of different years sits side by side. A month without postings in a year is empty.
 
 ### Spending by payee
 
@@ -1156,13 +1348,12 @@ One row per day with postings, with the account's balance at the end of the day.
 ### Not available yet
 
 - **`PRINT`**, which is rejected with an error.
-- **`HAVING` and `PIVOT BY`.**
-- **Other tables:** only `postings` exists. There are no entries, prices, accounts, commodities, documents or balances tables, and no table names or subqueries after `FROM`.
-- **The beanquery columns** `posting_flag`, `filename`, `lineno`, `location`, `meta`, `entry`, `accounts` and `type`.
+- **Subqueries** after `FROM`, the double-quoted table names of beanquery (`FROM "prices"`), and its one-row table `FROM #`.
+- **The beanquery columns** `posting_flag`, `filename`, `lineno`, `location`, `meta`, `entry`, `accounts` and `type` of the postings table, and `lineno` of `#entries`: Zhang does not keep line numbers.
+- **Subscripts**, such as `meta['name']`. Use `meta('name')`.
 - **Operators `BETWEEN` and `%`**, and beanquery's quoted identifiers.
 - **Functions not listed on this page**, such as `round`, `safediv`, `has_account`, `open_date`, `close_date`, `open_meta`, `currency_meta`, `grep`, `subst`, `upper`, `lower`, `joinstr`, `findfirst`, the conversion functions `int`, `decimal` and `date`, and the `date_*` functions. Calling one is an error.
 
-The roadmap in [#434](https://github.com/zhang-accounting/zhang/issues/434) schedules `HAVING`, `PIVOT BY` and more tables for a later phase.
 
 ### Behaving differently
 
@@ -1183,4 +1374,14 @@ The roadmap in [#434](https://github.com/zhang-accounting/zhang/issues/434) sche
 - **The `FROM` expression filters after the period clauses.** This is what beanquery does. In BQL v2, the expression chose the transactions before `OPEN`, `CLOSE` and `CLEAR` were applied.
 - **Equity accounts.** An `account_previous_*` or `account_current_*` option whose value is not a valid account name is ignored, and the default account is used.
 - **The last entry of a period**, which dates the `T` transactions of `CLEAR` and the `C` transaction of a bare `CLOSE`, ignores Zhang's budget directives, which Beancount does not have.
+- **Columns in `HAVING`.** beanquery reads a column used outside an aggregate function in `HAVING` from an arbitrary posting. Zhang reads a group key as the value of each group and rejects any other column.
+- **`HAVING` must be a boolean expression.** beanquery also accepts other values and keeps the groups for which they are not zero or empty, as in `HAVING sum(number)`. Zhang rejects them, as it does in `WHERE`; write `HAVING sum(number) != 0`.
+- **`PIVOT BY` with `NULL` values.** beanquery fails when the values of a pivot target mix `NULL` with others. Zhang sorts `NULL` first and names its column `NULL`.
+- **`PIVOT BY` without grouping** is an error in Zhang. beanquery fails while it runs such a query.
+- **CSV export of a pivot with missing cells.** beanquery fails to numberify the empty cells of a pivoted amount or inventory column. Zhang leaves them empty.
+- **Metadata is text.** beanquery's `meta` columns are dictionaries that also hold `filename` and `lineno`. In Zhang, `meta` is the text `key: "value", ...` of the directive's own metadata, and `open.meta` and `close.meta` likewise.
+- **`open` and `close` of `#accounts` read as their date** when used without an attribute. In beanquery they are the whole directives.
+- **`entry_meta()` and `any_meta()` work on every table**, like `meta()`. beanquery only accepts them on the postings table.
+- **`#entries` holds Zhang's directives.** It has Zhang's budget directives, and a `balance ... with pad` is one `balance` entry followed by its padding transaction, where beancount has a `pad` and a `balance` entry. The `id` of an entry is Zhang's id, not beancount's hash.
+- **`discrepancy` follows Zhang's balance checks.** After every balance assertion Zhang moves the account to the asserted amount, so the discrepancy of an assertion is measured from the previous one. beancount leaves the account where it was after an assertion that fails or is only met within its tolerance.
 - **CSV export keeps exact numbers.** `bean-query` pads numbers for alignment (`" 600.00"`), rounds numberified numbers to each currency's display precision (`360.03` instead of `360.03016`), and writes some numbers with an exponent (`1E+3`). Zhang does none of this.

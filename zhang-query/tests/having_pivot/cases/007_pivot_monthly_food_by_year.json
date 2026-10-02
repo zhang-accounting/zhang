@@ -1,0 +1,28 @@
+{
+  "name": "pivot_monthly_food_by_year",
+  "query": "SELECT month, year, sum(number) AS total WHERE account ~ '^Expenses:Food' GROUP BY month, year PIVOT BY month, year",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "month/year", "type": "int"},
+    {"name": "2015", "type": "decimal"},
+    {"name": "2016", "type": "decimal"},
+    {"name": "2017", "type": "decimal"}
+  ],
+  "rows": [
+    [1, "489.24", "515.05", "437.82"],
+    [2, "452.84", "535.83", "569.45"],
+    [3, "581.15", "377.31", "486.57"],
+    [4, "598.15", "823.68", "484.98"],
+    [5, "739.39", "580.50", "794.94"],
+    [6, "479.89", "516.63", "506.62"],
+    [7, "617.13", "508.34", "595.71"],
+    [8, "586.89", "490.03", "618.62"],
+    [9, "614.01", "547.18", "191.71"],
+    [10, "402.41", "500.35", null],
+    [11, "515.42", "944.21", null],
+    [12, "538.15", "520.61", null]
+  ],
+  "notes": "A missing (month, year) pair is NULL: the ledger ends in September 2017."
+}

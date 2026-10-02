@@ -1,0 +1,11 @@
+{
+  "name": "error_pivot_index_out_of_range",
+  "query": "SELECT account, year, sum(number) AS total GROUP BY 1, 2 PIVOT BY 1, 4",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

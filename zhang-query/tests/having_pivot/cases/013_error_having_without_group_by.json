@@ -1,0 +1,11 @@
+{
+  "name": "error_having_without_group_by",
+  "query": "SELECT sum(number) AS total WHERE account ~ '^Expenses' HAVING sum(number) > 10",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": "HAVING is part of the GROUP BY clause."
+}

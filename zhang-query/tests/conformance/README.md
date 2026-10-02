@@ -1,12 +1,12 @@
 # BQL conformance fixtures (beanquery oracle)
 
 This directory holds an independent conformance suite for zhang's native
-BQL-compatible query engine (issue #434, Phases 1 and 2). The expected results
+BQL-compatible query engine (issue #434, Phases 1 to 3). The expected results
 were produced by the official Python **beanquery**, not by zhang, so they are
 the reference the engine is cross-validated against.
 
-- `cases/NNN_<name>.json`: one fixture per query (100 cases: 001–060 for
-  Phase 1, 061–100 for Phase 2).
+- `cases/NNN_<name>.json`: one fixture per query (145 cases: 001–060 for
+  Phase 1, 061–100 for Phase 2, 101–145 for Phase 3).
 - `generate.py`: the generator. It holds the case list and writes the fixtures.
 - Oracle versions used: **beancount 3.2.3, beanquery 0.2.0** (Python 3.9).
 
@@ -63,8 +63,9 @@ cd zhang-query/tests/conformance
 
 `generate.py [LEDGER]` defaults to the shared ledger. It uses only the
 standard library plus beancount and beanquery. To add a case, append a
-`case(...)` entry to `CASES`, or `case2(...)` for a Phase 2 case. Fixtures are
-numbered by their position in the list, so append new cases at the end.
+`case(...)` entry to `CASES`, or `case2(...)` / `case3(...)` for a Phase 2 or
+Phase 3 case. Fixtures are numbered by their position in the list, so append
+new cases at the end.
 
 Before writing anything, the generator checks every case:
 
@@ -78,8 +79,8 @@ Before writing anything, the generator checks every case:
   zero-amount transaction per `balance` directive, which mimics zhang's Store.
   An `engine` case that changes is rejected. A `ledger-dependent` case that
   changes gets an automatic note.
-- **Shape.** A query with `LIMIT` must be `ordered`, and each fixture has at
-  most 200 rows.
+- **Shape.** A query with `LIMIT` must be `ordered`, each fixture has at
+  most 200 rows, and only rows fixtures may set `strict_names`.
 - **CSV rounding.** For a csv case, beanquery's numberify step rounds numbers
   to the ledger's display precision (inferred by beancount per currency). A
   case whose cells change under that rounding is rejected, so no fixture
@@ -104,7 +105,9 @@ windows with at most one selected posting per day.
 }
 ```
 
-A Phase 2 fixture adds `"phase": 2` after `query`. A csv fixture has
+A Phase 2 or Phase 3 fixture adds `"phase": 2` or `"phase": 3` after `query`.
+A fixture whose column names carry meaning adds `"strict_names": true` after
+`ordered` (see "Comparison rules"). A csv fixture has
 `"expect": "csv"`, empty `columns` and `rows`, and a `csv` field:
 
 ```json
@@ -135,12 +138,16 @@ A Phase 2 fixture adds `"phase": 2` after `query`. A csv fixture has
     ledger-processing difference rather than an engine bug. It is tolerated
     only through an explicit allow-list entry with a reason (see "Running the
     harness").
-- `phase`: absent for the Phase 1 fixtures, `2` for the Phase 2 ones. The
-  harness keeps Phase 2 fixtures non-fatal until the Phase 2 features land
-  (see "Running the harness").
+- `phase`: absent for the Phase 1 fixtures, `2` or `3` for the Phase 2 and
+  Phase 3 ones. The harness keeps the fixtures of a phase non-fatal until that
+  phase's features land (see "Running the harness").
 - `ordered`: `true` only when the row order is fully determined: by the
-  query's `ORDER BY`, by `BALANCES` (which sorts by account), or by ledger
-  order for a `JOURNAL` whose rows all have different dates.
+  query's `ORDER BY`, by `BALANCES` (which sorts by account), by `PIVOT BY`
+  (which sorts by its first column), or by ledger order for a `JOURNAL` or a
+  table whose rows all have different dates.
+- `strict_names`: present and `true` only for results whose column names are
+  part of the semantics: the pivoted columns of `PIVOT BY` and the expansion
+  of `SELECT *` over a `#table`. Absent otherwise.
 - `expect`: `"rows"`, `"error"` or `"csv"`. Error and csv fixtures have
   `"columns": []` and `"rows": []`. A csv fixture holds the expected CSV in
   `csv` (see "CSV fixtures"). An error fixture has an `error_class` taken
@@ -165,7 +172,7 @@ A Phase 2 fixture adds `"phase": 2` after `query`. A csv fixture has
 | `Decimal` | `decimal` |
 | `str` | `str` |
 | `datetime.date` | `date` |
-| `set`, `frozenset`, `list`, `typing.Set[str]` (`tags`, `links`, `other_accounts`) | `set` |
+| `set`, `frozenset`, `list`, `typing.Set[str]` (`tags`, `links`, `other_accounts`, `accounts`, `open.currencies`) | `set` |
 | `Amount` | `amount` |
 | `Position` | `position` |
 | `Inventory` | `inventory` |
@@ -231,7 +238,9 @@ on how an engine names unaliased expressions.
 1. **Columns:** compare the count and each column's `type` by position.
    Column `name`s come from beanquery (e.g. `sum(position)`, `count(*)`, or the
    `AS` alias) and are advisory only, since zhang may name unaliased
-   expressions differently.
+   expressions differently. A `strict_names` fixture also compares the names,
+   exactly and in order: there the names are the pivot keys or a table's
+   column list, and its queries alias every computed target.
 2. **Rows:** if `ordered` is true, compare the sequences; otherwise compare
    multisets of rows.
 3. **Decimals** (decimal cells, amount/position/cost numbers) are compared
@@ -272,21 +281,24 @@ It prints a table to stderr with one status per case:
   engine must return instead.
 - `LEDGER-DEP`: a `ledger-dependent` case differs and is listed, with a
   reason, in `LEDGER_DEPENDENT_ALLOWED`. The list is empty today.
-- `PENDING-PHASE2`: a `"phase": 2` fixture while the temporary gate
-  `PHASE2_FEATURES_LANDED` in the harness is `false`. The case still runs,
+- `PENDING-PHASE2` / `PENDING-PHASE3`: a `"phase": 2` or `"phase": 3`
+  fixture while the temporary gate `PHASE2_FEATURES_LANDED` or
+  `PHASE3_FEATURES_LANDED` in the harness is `false`. The case still runs,
   and the detail column shows the status it would get (`would PASS`,
   `would FAIL: ...`). A summary line counts the pending cases that would
-  fail.
+  fail. `PHASE2_FEATURES_LANDED` is `true` since Phase 2 landed; set
+  `PHASE3_FEATURES_LANDED` to `true` during the Phase 3 integration.
 - `FAIL`: any other difference. This includes unlisted ledger-dependent
   cases, an error of the wrong class, and functions the engine lacks.
 
 Only `FAIL` makes the test fail. Phase 1 fixtures are always strict. An
 allow-list entry for a case that passes is reported as a stale entry.
 
-During the Phase 2 integration, set `PHASE2_FEATURES_LANDED` to `true` and
-replace the body of `engine_csv()` with
-`Some(zhang_query::export::to_csv(result))`. Until then, csv cases report the
-export as missing. A second test, `csv_comparison_rules`, checks the CSV
+The Phase 2 integration set `PHASE2_FEATURES_LANDED` to `true` and wired
+`engine_csv()` to `zhang_query::export::to_csv`. During the Phase 3
+integration, set `PHASE3_FEATURES_LANDED` to `true`; nothing else needs
+wiring, because the csv cases of Phase 3 use the same export and the
+`strict_names` check is already in place. A second test, `csv_comparison_rules`, checks the CSV
 comparison itself on the csv fixtures: an equivalent rewrite (trimmed,
 normalized, fully quoted, LF line ends) must compare equal, and a changed
 number or header must not.
@@ -424,6 +436,140 @@ Phase 1 decisions, and are worth deciding on explicitly.
     table, but an implementation that uses flags to tell them apart must not
     confuse the two.
 
+### Phase 3
+
+**`HAVING`** (101–109)
+
+- `HAVING` is part of the `GROUP BY` clause, so the clause order is `WHERE`,
+  `GROUP BY … [HAVING …]`, `ORDER BY`, `PIVOT BY`, `LIMIT`. `HAVING` without
+  `GROUP BY` is a syntax error, also when the query has the implicit `GROUP
+  BY` (107), and so is `HAVING` after `ORDER BY`.
+- **The `HAVING` expression must contain an aggregate.** `HAVING account ~
+  'x'` is a compile error even though `account` is a group key (108). Test a
+  key through an aggregate of it, such as `min(account)` (103).
+- `HAVING` is compiled against the table's columns, not against the target
+  names, so an alias such as `n` is an unknown column, a compile error (109).
+  Repeat the aggregate instead.
+- The aggregates in `HAVING` do not have to be selected (102). `HAVING` keeps
+  a group only when its value is true: a NULL value drops the group (106). It
+  is applied before `ORDER BY` and `LIMIT` (104), and it works with a hidden
+  group key (105).
+- Two beanquery behaviours have no fixture and should not be copied:
+  - A `HAVING` that mixes an aggregate with a bare column (`count(*) > 1 AND
+    account ~ 'Coffee'`) compiles, but beanquery evaluates the bare column on
+    the last row of the whole table instead of the group, so the result is
+    meaningless. zhang can reject it, or evaluate the key per group.
+  - beanquery keeps a group when the value is truthy, so a non-boolean
+    `HAVING count(*)` is accepted. zhang may require a boolean.
+
+**`PIVOT BY a, b`** (110–121, 143)
+
+- It comes after `ORDER BY` and before `LIMIT`, and takes exactly two items
+  (116). Each one is a target name (or alias) or a 1-based target index, not
+  an expression (117). Compile errors: a name that is not a target (118), an
+  index out of range (119), both items naming the same target (120), and a
+  second item that is not a `GROUP BY` column (121). It works with the
+  implicit `GROUP BY` (114). On a query without aggregates beanquery crashes
+  (`TypeError`), so there is no oracle; a compile error is the natural choice.
+- **The query runs completely first, including `ORDER BY` and `LIMIT`; the
+  pivot comes last** (113). `LIMIT n` therefore keeps n unpivoted rows, not n
+  output rows.
+- The output has one row per distinct value of `a`, **sorted by `a`
+  ascending whatever the `ORDER BY`**. It has one group of value columns per
+  distinct value of `b`, sorted ascending, and taken only from the rows left
+  after `HAVING` and `LIMIT` (113, 115). A missing `(a, b)` cell is NULL
+  (110, 112).
+- The value columns hold the other targets, in target order, without `a`
+  and `b`.
+- **Column names** (compared exactly, `strict_names`):
+  - The first column is named `<a>/<b>` from the target names (`category/month`)
+    and has the type of `a`.
+  - With one other target, each value column is named with the value of `b`
+    alone (`1`, …, `12`).
+  - With several other targets, each value column is named `<value>/<target>`.
+    Columns are grouped by value, then follow target order: `2015/n`,
+    `2015/total`, `2016/n`, … (112).
+  - Values are written with Python's `str()`: ints `2015`, dates `YYYY-MM-DD`
+    (143), strings as they are, and booleans **`False` and `True`**, unlike
+    `str(TRUE)` = `'TRUE'` (114).
+  - Each value column has the type of its target, so inventories stay
+    inventories (111).
+- These cases have no fixture:
+  - With no other target, beanquery returns only the `<a>/<b>` column. It
+    builds the value names, but zips them with a single type.
+  - A NULL value of `a` or `b` makes beanquery's sort crash.
+  - When `(a, b)` is not unique, because a third group key is not pivoted,
+    the last row wins.
+- In CSV, numberify splits every pivoted inventory column per currency, for
+  example `2017-01-01 (USD)` (143).
+
+**`FROM #table`** (115, 122–142, 144, 145)
+
+- `FROM #name` selects a table. It is a complete `FROM` clause, so `OPEN`,
+  `CLOSE` and `CLEAR` cannot follow it (syntax errors, 140, 141); they only
+  apply to the default postings table. An unknown table is a compile error
+  (139). Table names are case-sensitive, so `#Prices` is unknown.
+- beanquery also resolves a table name in two other forms:
+  - A double-quoted name: `FROM "prices"` is a table, not a string.
+  - **A bare name that is not a column of the postings table** (138). `FROM
+    prices` is the prices table, but `FROM accounts` is the postings column
+    `accounts` used as a filter (a non-empty set, so every posting passes).
+  - `FROM #` alone is a one-row table without columns (`SELECT 1 + 1 FROM
+    #`). It is not covered.
+- Every table has its own columns and none of the postings columns (142).
+  `year`, `month` and `day` exist only on `#entries` and the postings table;
+  elsewhere use `year(date)` (115, 125, 128, 138). Functions such as
+  `number(amount)`, `root(account, n)` and the aggregates work on any table.
+- Without `ORDER BY`, rows come in ledger order. The fixtures rely on that
+  only when every date is different (130).
+- The tables, with their `SELECT *` expansion in order:
+
+| Table | `SELECT *` | Rows | Cases |
+|---|---|---|---|
+| `#postings` | as without `FROM` | the default table | 137 |
+| `#entries` | `id, type, filename, lineno, date, year, month, day, flag, payee, narration, description, tags, links, meta, accounts` | one per directive, sorted by date, then `open`, `balance`, the other kinds, `document`, `close`, then by source line | 122, 123 |
+| `#transactions` | `date, flag, payee, narration, tags, links, accounts` | one per transaction | 124, 125 |
+| `#prices` | `date, currency, amount` | one per price directive | 115, 126, 127, 138, 144 |
+| `#balances` | `date, account, amount, tolerance, discrepancy` | one per balance directive | 128, 129, 145 |
+| `#notes` | `date, account, comment, tags, links` | one per note (none here) | 132 |
+| `#events` | `date, type, description` | one per event | 130, 131 |
+| `#documents` | `date, account, filename, tags, links` | one per document (none here) | 133 |
+| `#accounts` | `account, open, close` | one per account with an open or close directive, in the order of its first one | 134, 135 |
+| `#commodities` | `meta, date, name` | one per commodity directive | 136 |
+
+- Notes on these tables:
+  - `meta` is a column of every directive table. `*` leaves it out, except
+    on `#entries` and `#commodities`, where it comes first.
+  - In `#entries`:
+    - `type` is the lower-case directive name: `transaction`, `open`,
+      `balance`, `price`, `event`, `commodity`, …
+    - For other directives, `flag`, `payee`, `narration` and `description`
+      are NULL. So are `tags` and `links`, which are not empty sets.
+    - `accounts` is the set of accounts the directive refers to, and empty
+      for an event (122).
+  - In `#accounts`, `open` and `close` are the directives themselves, as
+    structured values. They are NULL when missing, and their fields are read
+    with attribute access: `open.date`, `open.currencies` (NULL without
+    currencies), `close.date` (134).
+  - In `#commodities`, the currency is the column `name`.
+  - In `#balances`:
+    - `tolerance` is the directive's explicit tolerance.
+    - `discrepancy` is the difference found by the balance check, and NULL
+      when the assertion holds, as every one does here (128).
+    - In CSV, the all-NULL `discrepancy` column disappears (145).
+- zhang stores each balance assertion as a synthetic transaction. In
+  `#transactions` and `#entries` it must not appear as a transaction: in
+  `#entries` it is a `balance` entry (123, 125).
+- Not pinned:
+  - The `id`, `filename`, `lineno` and `meta` columns. Respectively a hash,
+    an absolute path, a line number zhang may not keep, and a dict.
+  - Therefore `SELECT *` over `#entries`, `#accounts` and `#commodities`.
+  - Subscripts such as `meta['export']`.
+  - beanquery's `open_date()`, `close_date()`, `open_meta()` and
+    `commodity_meta()` functions.
+  - Rows of `#notes` and `#documents`. The ledger has neither, so only their
+    columns are pinned.
+
 ## Not covered
 
 These are deliberately out of scope or not exercisable on this ledger:
@@ -442,16 +588,21 @@ These are deliberately out of scope or not exercisable on this ledger:
 - CSV output without numberify (`bean-query -f csv`). It renders amounts and
   inventories as padded text and drops cost dates, so it is not a useful
   target.
-- Phase 3 features: `HAVING`, `PIVOT BY`, and other tables.
+- The Phase 3 corners listed at the end of each Phase 3 topic above, and the
+  zhang-specific tables (`#budgets`, `#errors`), which have no oracle.
 
 ## Cases
 
-100 cases:
+145 cases:
 
 - Phase 1 (001–060), 60 cases: 47 `engine` with rows, 6 `ledger-dependent`, and 7 errors (`engine`).
 - Phase 2 (061–100), 40 cases: 13 `engine` and 15 `ledger-dependent` with rows, 3 `engine` and 2
   `ledger-dependent` csv cases, and 7 errors (`engine`). By area: `balances` 6, `journal` 5,
   `balance-column` 4, `period` 13, `csv` 5, `error` 7.
+- Phase 3 (101–145), 45 cases: 26 `engine` and 3 `ledger-dependent` with rows, 2 `engine` and 1
+  `ledger-dependent` csv cases, and 13 errors (`engine`). By feature: `HAVING` 9 (6 with rows, 3
+  errors), `PIVOT BY` 12 (6 with rows, 6 errors), `FROM #table` 21 (17 with rows, 4 errors), and
+  3 csv cases (1 pivot, 2 tables). 12 cases set `strict_names`.
 
 | # | Case | Phase | Area | Kind | Ordered | Expect |
 |---|---|---|---|---|---|---|
@@ -555,3 +706,48 @@ These are deliberately out of scope or not exercisable on this ledger:
 | 098 | `error_clear_before_close` | 2 | error | engine | no | error |
 | 099 | `error_close_date_before_open_date` | 2 | error | engine | no | error |
 | 100 | `error_balances_unknown_summary_function` | 2 | error | engine | no | error |
+| 101 | `having_on_aggregate` | 3 | having | engine | yes | 2 rows |
+| 102 | `having_on_hidden_aggregate` | 3 | having | engine | yes | 3 rows |
+| 103 | `having_group_key_inside_aggregate` | 3 | having | engine | yes | 3 rows |
+| 104 | `having_order_by_limit` | 3 | having | engine | yes | 5 rows |
+| 105 | `having_hidden_group_key` | 3 | having | engine | no | 1 rows |
+| 106 | `having_null_drops_group` | 3 | having | engine | yes | 2 rows |
+| 107 | `error_having_without_group_by` | 3 | error | engine | no | error |
+| 108 | `error_having_bare_group_key` | 3 | error | engine | no | error |
+| 109 | `error_having_target_alias` | 3 | error | engine | no | error |
+| 110 | `pivot_monthly_by_category` | 3 | pivot | engine | yes | 3 rows |
+| 111 | `pivot_inventory_cells` | 3 | pivot | engine | yes | 3 rows |
+| 112 | `pivot_several_value_columns` | 3 | pivot | engine | yes | 3 rows |
+| 113 | `pivot_limit_applies_before_pivot` | 3 | pivot | engine | yes | 3 rows |
+| 114 | `pivot_implicit_group_by_bool_keys` | 3 | pivot | engine | yes | 4 rows |
+| 115 | `pivot_having_over_prices_table` | 3 | pivot | engine | yes | 3 rows |
+| 116 | `error_pivot_one_column` | 3 | error | engine | no | error |
+| 117 | `error_pivot_expression` | 3 | error | engine | no | error |
+| 118 | `error_pivot_column_not_in_targets` | 3 | error | engine | no | error |
+| 119 | `error_pivot_index_out_of_range` | 3 | error | engine | no | error |
+| 120 | `error_pivot_same_column` | 3 | error | engine | no | error |
+| 121 | `error_pivot_second_not_group_key` | 3 | error | engine | no | error |
+| 122 | `entries_portable_columns` | 3 | table | engine | no | 12 rows |
+| 123 | `entries_count_by_type` | 3 | table | ledger-dependent | yes | 6 rows |
+| 124 | `transactions_select_star` | 3 | table | engine | yes | 5 rows |
+| 125 | `transactions_count_by_year` | 3 | table | ledger-dependent | yes | 3 rows |
+| 126 | `prices_select_star` | 3 | table | engine | yes | 5 rows |
+| 127 | `prices_aggregate_per_currency` | 3 | table | engine | yes | 6 rows |
+| 128 | `balances_select_star` | 3 | table | ledger-dependent | yes | 6 rows |
+| 129 | `balances_aggregate_per_account` | 3 | table | engine | yes | 3 rows |
+| 130 | `events_natural_order` | 3 | table | engine | yes | 9 rows |
+| 131 | `events_filter_aggregate` | 3 | table | engine | yes | 4 rows |
+| 132 | `notes_select_star` | 3 | table | engine | yes | 0 rows |
+| 133 | `documents_select_star` | 3 | table | engine | yes | 0 rows |
+| 134 | `accounts_open_close_fields` | 3 | table | engine | yes | 6 rows |
+| 135 | `accounts_count_by_type` | 3 | table | engine | yes | 5 rows |
+| 136 | `commodities_filter_order_limit` | 3 | table | engine | yes | 5 rows |
+| 137 | `postings_explicit_table` | 3 | table | engine | yes | 4 rows |
+| 138 | `bare_table_name` | 3 | table | engine | yes | 6 rows |
+| 139 | `error_unknown_table` | 3 | error | engine | no | error |
+| 140 | `error_table_with_open` | 3 | error | engine | no | error |
+| 141 | `error_table_with_close_clear` | 3 | error | engine | no | error |
+| 142 | `error_column_not_in_table` | 3 | error | engine | no | error |
+| 143 | `csv_pivot_inventory_date_keys` | 3 | csv | engine | yes | csv, 2 rows |
+| 144 | `csv_prices_table` | 3 | csv | engine | yes | csv, 12 rows |
+| 145 | `csv_balances_select_star` | 3 | csv | ledger-dependent | yes | csv, 4 rows |
