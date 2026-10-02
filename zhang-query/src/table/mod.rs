@@ -22,6 +22,8 @@
 //! when no existing variant fits), register it in [`TABLES`], and describe it in the query
 //! language reference. Its columns appear in `GET /api/query/schema` automatically.
 
+mod budgets;
+mod errors;
 mod postings;
 mod prices;
 
@@ -90,7 +92,7 @@ pub static POSTINGS: Table = Table {
 };
 
 /// Every table, in the order the schema lists them.
-static TABLES: &[&Table] = &[&POSTINGS, &prices::PRICES];
+static TABLES: &[&Table] = &[&POSTINGS, &prices::PRICES, &budgets::BUDGETS, &errors::ERRORS];
 
 /// Every table a query can read, `postings` first.
 pub fn tables() -> &'static [&'static Table] {
@@ -194,6 +196,10 @@ pub(crate) enum Borrow {
 pub(crate) enum Record<'a> {
     /// a dated directive of the processed ledger
     Directive(&'a Spanned<Directive>),
+    /// one month of a budget
+    Budget(budgets::BudgetMonth<'a>),
+    /// a ledger error
+    Error(errors::LedgerError<'a>),
 }
 
 impl Record<'_> {
@@ -204,6 +210,8 @@ impl Record<'_> {
             Record::Directive(directive) => directive_meta(&directive.data)
                 .and_then(|meta| meta.get_one(key))
                 .map(|value| value.as_str().to_owned()),
+            Record::Budget(month) => month.meta(key),
+            Record::Error(error) => error.meta(key),
         }
     }
 }

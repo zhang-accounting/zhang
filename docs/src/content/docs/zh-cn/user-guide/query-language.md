@@ -560,6 +560,102 @@ LIMIT 10
 
 这个查询返回该账户最近的十条分录，每条都带有记账之后的余额。第一行显示的就是当前余额。
 
+## 张记账特有的表
+
+张记账有两张自己的表，存放 Beancount 中没有的数据：`#budgets` 是[预算](/zh-cn/directives/budget/)的逐月数据，`#errors` 是张记账在账本中发现的问题。在 `FROM` 后写出表名即可读取，例如 `SELECT * FROM #budgets`。查询的其余部分与读取分录时相同：`WHERE`、`GROUP BY` 与聚合函数、`ORDER BY`、`LIMIT` 和 CSV 导出都照常可用。查询只能使用所读表的列，例如 `account` 不是 `#budgets` 的列。在这两张表上，`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取的都是该行自己的元数据。
+
+### 预算表
+
+`#budgets` 中每个预算每个月对应一行，数据与网页界面的预算页面在该月显示的一致。
+
+- 每个预算从其 `budget` 指令所在的月份起，到账本的最后一个月为止，每个月都有一行。账本的最后一个月是账本中最晚的带日期指令所在的月份；如果该预算最晚的条目更晚，则以它所在的月份为准。没有预算条目、也没有支出的月份同样有一行，可用金额顺延到这个月，与预算页面一致。这些行只取决于账本，与今天的日期无关：账本最后一个月之后的月份，就是最后一行顺延过去、没有任何支出的样子。
+- `assigned`、`activity` 和 `available` 即预算页面上的 Assigned、Activity 和 Available 列。`assigned` 是这个月的起始金额（上个月月底仍可用的金额），加上本月 `budget-add` 和 `budget-transfer` 指令放入的金额（`added`）。`activity` 是预算关联的账户在本月的支出，`available` 即 `assigned - activity`，会顺延到下个月。
+- 由于 `assigned` 包含顺延的金额，把多个月的 `assigned` 相加会把同一笔钱算多次。要统计一段时间内一共安排了多少预算，请对 `added` 求和。
+- 预算关联的账户，是 `open` 指令中带有指向它的 `budget` 元数据（例如 `budget: food`）的账户。这些账户的分录就是该预算的支出。
+- `meta(key)` 读取 `budget` 指令的元数据。
+- 各行先按预算名称、再按月份排列。`SELECT *` 是 `SELECT name, date, assigned, activity, available` 的简写。
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| `name` | `str` | 预算的名称，即指令中写的名字。 |
+| `alias` | `str` | 预算的显示名称，来自 `alias` 元数据，没有则为 `NULL`。 |
+| `category` | `str` | 预算页面对预算分组所用的类别，来自 `category` 元数据，没有则为 `NULL`。 |
+| `currency` | `str` | 预算使用的商品（货币）。 |
+| `date` | `date` | 该月的第一天。 |
+| `year` | `int` | 该月所在的年份。 |
+| `month` | `int` | 月份，1 到 12。 |
+| `assigned` | `amount` | 本月分配给该预算的金额：从上个月顺延的可用金额加上 `added`。 |
+| `added` | `amount` | 本月 `budget-add` 和 `budget-transfer` 指令放入该预算的金额。从该预算转出的金额计为负数。 |
+| `activity` | `amount` | 预算关联的账户在本月的支出。退款计为负数。 |
+| `available` | `amount` | 月底剩余的金额，即 `assigned - activity`。它会顺延到下个月，超支时为负数。 |
+| `accounts` | `set` | 其分录计入该预算支出的账户。 |
+| `closed` | `bool` | 该预算是否已在本月或更早用 `budget-close` 关闭。 |
+
+按预算页面的分组，查看每个预算还剩多少：
+
+```sql
+SELECT category, name, available
+FROM #budgets
+WHERE date = 2024-06-01
+ORDER BY category, name
+```
+
+2024 年每个预算安排了多少、花了多少：
+
+```sql
+SELECT name, sum(added) AS budgeted, sum(activity) AS spent
+FROM #budgets
+WHERE year = 2024
+GROUP BY name
+ORDER BY spent DESC
+```
+
+未关闭的预算在哪些月份超支：
+
+```sql
+SELECT date, name, available
+FROM #budgets
+WHERE number(available) < 0 AND NOT closed
+```
+
+### 错误表
+
+`#errors` 中每个账本错误对应一行，即网页界面的错误页面列出、`GET /api/errors` 返回的那些问题。
+
+- `kind` 是错误代码，例如 `UnbalancedTransaction`。[错误代码指南](/zh-cn/user-guide/error-code/)解释了每个代码及其修复方法。`message` 是错误页面为它显示的那句话（英文）。
+- `file` 是引发错误的指令所在的文件，路径相对于账本目录，与网页界面的文件列表一致。`source` 是该指令的文本。`line` 和 `column` 目前为 `NULL`，因为张记账还不记录行号。
+- `date` 是该指令的日期；没有日期的指令（例如 `option`）为 `NULL`。`account` 是错误涉及的账户，只有指明了账户的错误才有，例如 `AccountDoesNotExist`、`AccountClosed` 和 `AccountBalanceCheckError`。
+- `meta(key)` 读取张记账为错误记录的其他信息。交易中的错误，`meta('txn_id')` 是该交易的 `id`，与 postings 表中的一致。分录引用了未定义的预算时，有 `meta('budget_name')`。
+- 各行先按文件、再按在文件中的位置排列。`SELECT *` 是 `SELECT file, date, kind, account, message` 的简写。
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| `kind` | `str` | 错误代码，例如 `UnbalancedTransaction`，即 `GET /api/errors` 中的 `error_type`。 |
+| `message` | `str` | 错误页面对该错误的说明。 |
+| `file` | `str` | 引发错误的指令所在的文件，路径相对于账本目录；文件不在账本目录中时为完整路径。 |
+| `line` | `int` | 指令在文件中的行号。目前总是 `NULL`。 |
+| `column` | `int` | 指令在行中的列号。目前总是 `NULL`。 |
+| `date` | `date` | 指令的日期，没有日期的指令为 `NULL`。 |
+| `account` | `str` | 错误涉及的账户，错误没有指明账户时为 `NULL`。 |
+| `source` | `str` | 引发错误的指令的文本。 |
+
+每种错误各有多少：
+
+```sql
+SELECT kind, count(*) AS errors
+FROM #errors
+GROUP BY kind
+ORDER BY errors DESC
+```
+
+按文件中的顺序列出某个文件的错误：
+
+```sql
+SELECT date, kind, account, source
+FROM #errors
+WHERE file = 'data/2024.zhang'
+```
+
 ## 类型
 
 | 类型 | 说明 | 示例 |

@@ -560,6 +560,102 @@ LIMIT 10
 
 This returns the ten most recent postings to the account, each with the balance after it. The first row shows the current balance.
 
+## Zhang-specific tables
+
+Zhang has two tables of its own, for data that Beancount does not have: `#budgets`, the monthly figures of your [budgets](/directives/4-budget/), and `#errors`, the problems Zhang found in your ledger. Name the table after `FROM`, as in `SELECT * FROM #budgets`. The rest of the query works as it does on postings: `WHERE`, `GROUP BY` and the aggregate functions, `ORDER BY`, `LIMIT` and CSV export. A query can only use the columns of its table, so `account` is not a column of `#budgets`, for example. On these tables, `meta(key)`, `entry_meta(key)` and `any_meta(key)` all read the row's own metadata.
+
+### Budgets
+
+`#budgets` has one row per budget per month, with the figures the budget page of the web UI shows for that month.
+
+- A budget has a row for every month from the month of its `budget` directive through the ledger's last month, which is the month of the latest dated directive in the ledger, or of the budget's latest entry if that is later. Months without budget entries or spending have a row too, with the available amount carried over, as on the budget page. The rows only depend on the ledger, not on today's date: a month after the ledger's last one is the last row carried over, with nothing spent.
+- `assigned`, `activity` and `available` are the Assigned, Activity and Available columns of the budget page. `assigned` is what the month starts with, the amount still available at the end of the previous month, plus what the month's `budget-add` and `budget-transfer` directives put in (`added`). `activity` is what the budget's accounts spent in the month, and `available`, which is `assigned - activity`, carries over to the next month.
+- Because `assigned` includes the carry-over, adding it up over several months counts the same money more than once. Add up `added` instead to see how much was budgeted over a period.
+- A budget's accounts are the accounts whose `open` directive has a `budget` metadata entry naming it, such as `budget: food`. Their postings are the budget's activity.
+- `meta(key)` reads the metadata of the `budget` directive.
+- Rows are ordered by budget name, then by month. `SELECT *` is short for `SELECT name, date, assigned, activity, available`.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `name` | `str` | Name of the budget, as written in its directives. |
+| `alias` | `str` | Display name of the budget, from its `alias` metadata, or `NULL` if it has none. |
+| `category` | `str` | Category the budget page groups the budget under, from its `category` metadata, or `NULL` if it has none. |
+| `currency` | `str` | Commodity the budget is kept in. |
+| `date` | `date` | First day of the month. |
+| `year` | `int` | Year of the month. |
+| `month` | `int` | Month of the year, from 1 to 12. |
+| `assigned` | `amount` | Amount assigned to the budget for the month: the available amount carried over from the previous month plus `added`. |
+| `added` | `amount` | Amount the month's `budget-add` and `budget-transfer` directives put into the budget. A transfer out of the budget counts as negative. |
+| `activity` | `amount` | Amount the budget's accounts spent in the month. A refund counts as negative. |
+| `available` | `amount` | Amount left at the end of the month, `assigned - activity`. It carries over to the next month, and is negative when the budget is overspent. |
+| `accounts` | `set` | Accounts whose postings count as the budget's activity. |
+| `closed` | `bool` | Whether the budget was closed with `budget-close` in or before the month. |
+
+What is left in each budget, grouped as on the budget page:
+
+```sql
+SELECT category, name, available
+FROM #budgets
+WHERE date = 2024-06-01
+ORDER BY category, name
+```
+
+How much was budgeted and spent in 2024, per budget:
+
+```sql
+SELECT name, sum(added) AS budgeted, sum(activity) AS spent
+FROM #budgets
+WHERE year = 2024
+GROUP BY name
+ORDER BY spent DESC
+```
+
+The months in which an open budget was overspent:
+
+```sql
+SELECT date, name, available
+FROM #budgets
+WHERE number(available) < 0 AND NOT closed
+```
+
+### Errors
+
+`#errors` has one row per ledger error: the problems the errors page of the web UI lists and `GET /api/errors` returns.
+
+- `kind` is the error code, such as `UnbalancedTransaction`. The [Error Code Guide](/user-guide/error-code/) explains each code and how to fix it. `message` is the sentence the errors page shows for it.
+- `file` is the file of the directive that caused the error, relative to the ledger's directory, as in the web UI's file list. `source` is the text of that directive. `line` and `column` are `NULL` for now, because Zhang does not record line numbers yet.
+- `date` is the date of the directive, or `NULL` for an undated one such as an `option`. `account` is the account the error is about, for errors that name one, such as `AccountDoesNotExist`, `AccountClosed` and `AccountBalanceCheckError`.
+- `meta(key)` reads the other details Zhang records about an error. For an error in a transaction, `meta('txn_id')` is the transaction's `id` in the postings table. Undefined budgets referenced by a posting have `meta('budget_name')`.
+- Rows are ordered by file, then by position in the file. `SELECT *` is short for `SELECT file, date, kind, account, message`.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `kind` | `str` | Error code, such as `UnbalancedTransaction`. It is the `error_type` of `GET /api/errors`. |
+| `message` | `str` | What the errors page says about the error. |
+| `file` | `str` | File of the directive that caused the error, relative to the ledger's directory, or its full path if it is outside the directory. |
+| `line` | `int` | Line of the directive in its file. Always `NULL` for now. |
+| `column` | `int` | Column of the directive in its line. Always `NULL` for now. |
+| `date` | `date` | Date of the directive, or `NULL` for an undated directive. |
+| `account` | `str` | Account the error is about, or `NULL` if the error does not name one. |
+| `source` | `str` | Text of the directive that caused the error. |
+
+How many errors of each kind there are:
+
+```sql
+SELECT kind, count(*) AS errors
+FROM #errors
+GROUP BY kind
+ORDER BY errors DESC
+```
+
+The errors of one file, in file order:
+
+```sql
+SELECT date, kind, account, source
+FROM #errors
+WHERE file = 'data/2024.zhang'
+```
+
 ## Types
 
 | Type | Description | Example |
