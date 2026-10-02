@@ -23,12 +23,14 @@
 //! 4. the sum of all weights, per commodity, is the residual the store fold checks against each
 //!    commodity's precision.
 //!
-//! Lot matching itself is the booking the store fold used to do inline. Its other known quirks
-//! (E5-E10 in the design, pinned by `tests/booking.rs`) are kept on purpose; fixing them is left to
-//! separate, behavior-changing PRs.
+//! Lot matching follows beancount (E5, [`LotFilter`]): the fields a cost spec gives are criteria
+//! and the missing ones wildcards, so a reduction `{10 CNY}` matches the lots held at 10 CNY from any
+//! acquisition date. Its other known quirks (E6, E8 and E9 in the design, pinned by
+//! `tests/booking.rs`) are kept on purpose; fixing them is left to separate, behavior-changing PRs.
 //!
-//! Booking methods (E1, E7):
-//! - `FIFO` and `LIFO` take the matching lots in lot (creation) order, from the front or the back.
+//! Booking methods (E1, E7, E10):
+//! - `FIFO` and `LIFO` take the matching lots by acquisition date, oldest or newest first, like
+//!   beancount ([`pick`]). The lots themselves stay in creation order.
 //! - `STRICT` follows beancount's `booking_method_STRICT`: a reduction must match a single lot, or
 //!   reduce every lot it matches in full. Any other reduction matching several lots is reported as
 //!   [`ErrorKind::AmbiguousLotMatch`] and still booked, like FIFO among the matching lots, so the
@@ -68,7 +70,8 @@ pub(crate) struct Booker {
     /// the booking method of each account with a `booking_method` meta, folded from `open`s in
     /// stream order. An invalid or unsupported value resolves to `default_method` (E1, E7)
     methods: HashMap<String, BookingMethod>,
-    /// lots per account. Insertion order is the order FIFO/LIFO pick lots in (E10)
+    /// lots per account, in creation order, the order `Store.commodity_lots` keeps. FIFO and LIFO
+    /// pick lots by acquisition date instead ([`pick`], E10)
     lots: HashMap<String, Vec<CommodityLotRecord>>,
     /// precision and rounding of every defined commodity, folded in stream order like the store's
     /// commodities
@@ -133,6 +136,18 @@ pub(crate) struct BookingError {
 
 /// the lots of some accounts, saved to undo a dry run; `None` for an account without lots
 type LotsSnapshot = Vec<(String, Option<Vec<CommodityLotRecord>>)>;
+
+/// the lots a cost posting books against ([`Booker::lot_filter`]). As in beancount, the fields its
+/// cost spec gives are criteria and the missing ones wildcards (E5): a reduction `{10 CNY}` matches
+/// the lots held at 10 CNY from any acquisition date, `{10 CNY, 2024-05-16}` only the ones acquired
+/// that day, and `{}` every lot held at cost
+struct LotFilter<'a> {
+    commodity: &'a str,
+    /// the lots' cost; `None` matches every lot held at cost
+    cost: Option<&'a Amount>,
+    /// the lots' acquisition date; `None` matches any
+    date: Option<NaiveDate>,
+}
 
 impl Booker {
     pub(crate) fn new(default_method: BookingMethod) -> Self {
@@ -313,12 +328,13 @@ impl Booker {
 
         // handle implicit posting cost
         if let Some(cost) = lot_meta.cost {
+            let filter = self.lot_filter(&account, units, &cost, txn_date);
             if booking_method == BookingMethod::Strict {
-                errors.extend(self.ambiguous_reduction(&account, units, &cost, txn_date));
+                errors.extend(self.ambiguous_reduction(&account, units, &filter));
             }
             let mut accr_amount = units.number.clone();
             loop {
-                let target_lot_record = self.lot_by_meta(&account, &units.commodity, &cost, txn_date, booking_method);
+                let target_lot_record = self.lot_by_meta(&account, &filter, &cost, txn_date, booking_method);
                 let calculated = (&target_lot_record.amount).add(&accr_amount);
                 if !calculated.is_negative() {
                     // the calculated amount is positive, means it is normal case
@@ -376,16 +392,33 @@ impl Booker {
         self.methods.get(account_name).copied().unwrap_or(self.default_method)
     }
 
+    /// the lots `units` with the cost spec `cost` book against in the account. A cost with a number
+    /// but no date matches lots of any date when the posting reduces them, that is when a lot it
+    /// matches holds the opposite sign (like beancount's `is_reduced_by`). Otherwise the posting
+    /// augments: it adds to the lot of its cost acquired on the transaction's date, or opens it
+    fn lot_filter<'a>(&self, account_name: &str, units: &'a Amount, cost: &'a PostingCost, txn_date: NaiveDate) -> LotFilter<'a> {
+        let mut filter = LotFilter {
+            commodity: &units.commodity,
+            cost: cost.base.as_ref(),
+            date: cost.date.as_ref().map(|it| it.naive_date()),
+        };
+        if filter.cost.is_some() && filter.date.is_none() {
+            let lots = self.lots.get(account_name).map(Vec::as_slice).unwrap_or_default();
+            if !matching_lots(lots, &filter).any(|lot| reduces(lot, &units.number)) {
+                filter.date = Some(txn_date);
+            }
+        }
+        filter
+    }
+
     /// STRICT, as beancount's `booking_method_STRICT`: a reduction matching several lots must
     /// reduce all of them in full. Otherwise the match is ambiguous and this is the error to
     /// report, with metas `account_name`, `transaction_amount` (the units) and `matched_lots`.
     /// The lots a posting reduces are the matching lots holding the opposite sign: an augmentation
     /// matches none of them
-    fn ambiguous_reduction(&self, account_name: &str, units: &Amount, lot_meta: &PostingCost, txn_date: NaiveDate) -> Option<BookingError> {
+    fn ambiguous_reduction(&self, account_name: &str, units: &Amount, filter: &LotFilter<'_>) -> Option<BookingError> {
         let lots = self.lots.get(account_name)?;
-        let reduced = matching_lots(lots, &units.commodity, lot_meta, txn_date)
-            .filter(|lot| (lot.amount.is_positive() && units.number.is_negative()) || (lot.amount.is_negative() && units.number.is_positive()))
-            .collect_vec();
+        let reduced = matching_lots(lots, filter).filter(|lot| reduces(lot, &units.number)).collect_vec();
         if reduced.len() < 2 {
             return None;
         }
@@ -435,28 +468,20 @@ impl Booker {
         }
     }
 
+    /// the lot matching `filter` that `booking_method` books against first ([`pick`]), or a new
+    /// empty lot for `lot_meta`, added after the account's lots
     fn lot_by_meta(
-        &mut self, account_name: &str, currency: &str, lot_meta: &PostingCost, txn_date: NaiveDate, booking_method: BookingMethod,
+        &mut self, account_name: &str, filter: &LotFilter<'_>, lot_meta: &PostingCost, txn_date: NaiveDate, booking_method: BookingMethod,
     ) -> CommodityLotRecord {
         let entry = self.lots.entry(account_name.to_owned()).or_default();
 
-        let lot_record = {
-            let mut option = matching_lots(entry, currency, lot_meta, txn_date);
-            match booking_method {
-                BookingMethod::Lifo => option.next_back().cloned(),
-                // FIFO, and STRICT once `ambiguous_reduction` has checked the match. NONE, AVERAGE
-                // and AVERAGE_ONLY never get here: they resolve to the default method at the `open`
-                BookingMethod::Fifo | BookingMethod::Strict | BookingMethod::Average | BookingMethod::AverageOnly | BookingMethod::None => {
-                    option.next().cloned()
-                }
-            }
-        };
+        let lot_record = pick(matching_lots(entry, filter), booking_method).cloned();
         if let Some(record) = lot_record {
             record
         } else {
             // if target lot record does not exist, insert a new one and return it
             let new_lot_record = CommodityLotRecord {
-                commodity: currency.to_owned(),
+                commodity: filter.commodity.to_owned(),
                 amount: BigDecimal::zero(),
 
                 // get cost date as acquisition date if persists,
@@ -492,32 +517,37 @@ impl Booker {
     }
 }
 
-/// the lots a cost posting books against, in lot order: the same commodity and, for `{c}`, the cost
-/// `c` and the cost's date or else the transaction's date (E5); `{}` matches every lot held at cost
-fn matching_lots<'a>(
-    lots: &'a [CommodityLotRecord], currency: &'a str, lot_meta: &'a PostingCost, txn_date: NaiveDate,
-) -> impl DoubleEndedIterator<Item = &'a CommodityLotRecord> + 'a {
-    lots.iter()
-        // match commodity
-        .filter(move |lot| lot.commodity.eq(currency))
-        // match cost, works with empty cost
-        .filter(move |it| {
-            if lot_meta.base.is_some() {
-                it.cost.eq(&lot_meta.base)
-            } else {
-                it.cost.is_some()
+/// the lots matching `filter`, in lot (creation) order. Lots held without cost never match
+fn matching_lots<'a>(lots: &'a [CommodityLotRecord], filter: &'a LotFilter<'a>) -> impl Iterator<Item = &'a CommodityLotRecord> + 'a {
+    lots.iter().filter(move |lot| {
+        lot.commodity == filter.commodity
+            && match filter.cost {
+                Some(cost) => lot.cost.as_ref() == Some(cost),
+                None => lot.cost.is_some(),
             }
-        })
-        // match cost date
-        .filter(move |it| {
-            if lot_meta.base.is_some() {
-                // if cost date in lot meta is defined, use txn date
-                it.acquisition_date.eq(&lot_meta.date.as_ref().map(|it| it.naive_date()).or(Some(txn_date)))
-            } else {
-                // if cost  in meta is null, return all lots
-                true
-            }
-        })
+            && filter.date.is_none_or(|date| lot.acquisition_date == Some(date))
+    })
+}
+
+/// the lot `booking_method` books against first among `lots`, like beancount's FIFO and LIFO (E10):
+/// the one with the oldest acquisition date, or the newest for LIFO. Lots of the same date go in
+/// creation order, reversed for LIFO, so LIFO takes the one created last: the order is exactly
+/// FIFO's, reversed. STRICT books like FIFO once `ambiguous_reduction` has checked the match. NONE,
+/// AVERAGE and AVERAGE_ONLY never get here: they resolve to the default method at the `open`
+fn pick<'a>(lots: impl Iterator<Item = &'a CommodityLotRecord>, booking_method: BookingMethod) -> Option<&'a CommodityLotRecord> {
+    match booking_method {
+        // the last of the equally newest
+        BookingMethod::Lifo => lots.max_by_key(|lot| lot.acquisition_date),
+        // the first of the equally oldest
+        BookingMethod::Fifo | BookingMethod::Strict | BookingMethod::Average | BookingMethod::AverageOnly | BookingMethod::None => {
+            lots.min_by_key(|lot| lot.acquisition_date)
+        }
+    }
+}
+
+/// whether booking `units` against `lot` reduces it: they have opposite signs
+fn reduces(lot: &CommodityLotRecord, units: &BigDecimal) -> bool {
+    (lot.amount.is_positive() && units.is_negative()) || (lot.amount.is_negative() && units.is_positive())
 }
 
 /// whether the posting's weight is decided by the lots it books against: an explicit posting with
