@@ -482,6 +482,86 @@ mod test {
             assert_eq!(ledger.options.timezone, "Antarctica/South_Pole".parse().unwrap());
             Ok(())
         }
+
+        /// the instants (in UTC) of the stored transactions, keyed by narration
+        fn transaction_instants(ledger: &crate::ledger::Ledger) -> std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> {
+            let operations = ledger.operations();
+            let store = operations.read();
+            store
+                .transactions
+                .values()
+                .map(|trx| (trx.narration.clone().unwrap_or_default(), trx.datetime.to_utc()))
+                .collect()
+        }
+
+        fn utc(text: &str) -> chrono::DateTime<chrono::Utc> {
+            text.parse().unwrap()
+        }
+
+        #[test]
+        fn should_load_a_local_time_skipped_by_dst() -> Result<(), Box<dyn std::error::Error>> {
+            // 02:30 does not exist in New York on 2023-03-12: clocks jump 02:00 EST -> 03:00 EDT
+            let ledger = load_from_text(indoc! {r#"
+                option "timezone" "America/New_York"
+                option "operating_currency" "USD"
+
+                2023-01-01 open Assets:Cash USD
+                2023-01-01 open Expenses:Food USD
+
+                2023-03-12 02:30:00 "gap" "this local time does not exist"
+                  Assets:Cash -1 USD
+                  Expenses:Food
+            "#});
+
+            assert!(ledger.operations().errors()?.is_empty());
+            let instants = transaction_instants(&ledger);
+            // read with the offset before the transition: 02:30 EST = 07:30 UTC = 03:30 EDT
+            assert_eq!(instants["this local time does not exist"], utc("2023-03-12T07:30:00Z"));
+
+            let operations = ledger.operations();
+            let store = operations.read();
+            assert_eq!(store.postings.len(), 2);
+            assert!(store
+                .postings
+                .iter()
+                .all(|posting| posting.trx_datetime.to_utc() == utc("2023-03-12T07:30:00Z")));
+            Ok(())
+        }
+
+        #[test]
+        fn should_load_ambiguous_and_midnight_skipped_local_times() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                option "timezone" "America/New_York"
+                option "operating_currency" "USD"
+
+                2023-01-01 open Assets:Cash USD
+                2023-01-01 open Expenses:Food USD
+
+                2023-11-05 01:30:00 "overlap" "this local time happens twice"
+                  Assets:Cash -1 USD
+                  Expenses:Food
+            "#});
+            assert!(ledger.operations().errors()?.is_empty());
+            // the earlier of 01:30 EDT and 01:30 EST
+            assert_eq!(transaction_instants(&ledger)["this local time happens twice"], utc("2023-11-05T05:30:00Z"));
+
+            // Santiago switches at midnight, so 2023-09-03 has no 00:00 for a date-only directive
+            let ledger = load_from_text(indoc! {r#"
+                option "timezone" "America/Santiago"
+                option "operating_currency" "CLP"
+
+                2023-09-03 open Assets:Cash CLP
+                2023-09-03 open Expenses:Food CLP
+
+                2023-09-03 "midnight" "this day has no midnight"
+                  Assets:Cash -1 CLP
+                  Expenses:Food
+            "#});
+            assert!(ledger.operations().errors()?.is_empty());
+            // 00:00 -04 = 04:00 UTC = 01:00 -03
+            assert_eq!(transaction_instants(&ledger)["this day has no midnight"], utc("2023-09-03T04:00:00Z"));
+            Ok(())
+        }
     }
 
     mod transaction {

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::amount::Amount;
 use crate::models::*;
 use crate::utils::multi_value_map::MultiValueMap;
+use crate::utils::timezone::resolve_local_datetime;
 use crate::Account;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
@@ -24,8 +25,11 @@ impl Date {
     pub fn now(timezone: &Tz) -> Date {
         Date::Datetime(Utc::now().with_timezone(timezone).naive_local())
     }
+    /// The instant this wall-clock date means in `timezone`. A date-only value means local
+    /// midnight. Times that daylight saving makes ambiguous or skips are resolved by
+    /// [`resolve_local_datetime`] instead of panicking.
     pub fn to_timezone_datetime(&self, timezone: &Tz) -> DateTime<Tz> {
-        timezone.from_local_datetime(&self.naive_datetime()).unwrap()
+        resolve_local_datetime(timezone, &self.naive_datetime())
     }
     pub(crate) fn naive_datetime(&self) -> NaiveDateTime {
         match self {
