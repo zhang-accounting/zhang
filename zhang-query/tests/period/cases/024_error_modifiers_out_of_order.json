@@ -1,0 +1,11 @@
+{
+  "name": "error_modifiers_out_of_order",
+  "query": "SELECT count(*) FROM CLEAR OPEN ON 2016-01-01",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

@@ -1,0 +1,18 @@
+{
+  "name": "bare_close_conversion",
+  "query": "SELECT date, flag, account, position, price FROM CLOSE WHERE flag = 'C'",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "account", "type": "str"},
+    {"name": "position", "type": "position"},
+    {"name": "price", "type": "amount"}
+  ],
+  "rows": [
+    ["2017-09-08", "C", "Equity:Conversions:Current", {"units": {"number": "0.00056", "currency": "USD"}, "cost": null}, {"number": "0", "currency": "NOTHING"}]
+  ],
+  "notes": "A bare CLOSE drops nothing and dates the conversion entry like the last entry of the ledger."
+}

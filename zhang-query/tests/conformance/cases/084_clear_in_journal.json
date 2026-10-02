@@ -1,0 +1,34 @@
+{
+  "name": "clear_in_journal",
+  "query": "JOURNAL 'Expenses:Food:Coffee' FROM CLEAR",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "MAXWIDTH(payee, 48)", "type": "str"},
+    {"name": "MAXWIDTH(narration, 80)", "type": "str"},
+    {"name": "account", "type": "str"},
+    {"name": "position", "type": "position"},
+    {"name": "balance", "type": "inventory"}
+  ],
+  "rows": [
+    ["2015-09-08", "*", "Starbucks", "", "Expenses:Food:Coffee", {"units": {"number": "6.12", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "6.12", "currency": "USD"}, "cost": null}]}],
+    ["2015-09-09", "*", "Starbucks", "", "Expenses:Food:Coffee", {"units": {"number": "4.86", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "10.98", "currency": "USD"}, "cost": null}]}],
+    ["2015-09-10", "*", "Starbucks", "", "Expenses:Food:Coffee", {"units": {"number": "5.27", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "16.25", "currency": "USD"}, "cost": null}]}],
+    ["2015-09-14", "*", "Starbucks", "", "Expenses:Food:Coffee", {"units": {"number": "5.68", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "21.93", "currency": "USD"}, "cost": null}]}],
+    ["2016-04-12", "*", "Starbucks", "", "Expenses:Food:Coffee", {"units": {"number": "5.94", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "27.87", "currency": "USD"}, "cost": null}]}],
+    ["2016-04-19", "*", "Starbucks", "", "Expenses:Food:Coffee", {"units": {"number": "5.23", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "33.10", "currency": "USD"}, "cost": null}]}],
+    ["2016-11-18", "*", "Argo Tea", "", "Expenses:Food:Coffee", {"units": {"number": "6.15", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "39.25", "currency": "USD"}, "cost": null}]}],
+    ["2016-11-21", "*", "Argo Tea", "", "Expenses:Food:Coffee", {"units": {"number": "5.73", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "44.98", "currency": "USD"}, "cost": null}]}],
+    ["2016-11-22", "*", "Argo Tea", "", "Expenses:Food:Coffee", {"units": {"number": "6.91", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "51.89", "currency": "USD"}, "cost": null}]}],
+    ["2017-05-25", "*", "Starbucks", "", "Expenses:Food:Coffee", {"units": {"number": "6.14", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "58.03", "currency": "USD"}, "cost": null}]}],
+    ["2017-05-31", "*", "Starbucks", "", "Expenses:Food:Coffee", {"units": {"number": "6.16", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "64.19", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-01", "*", "Starbucks", "", "Expenses:Food:Coffee", {"units": {"number": "5.54", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "69.73", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-03", "*", "Starbucks", "", "Expenses:Food:Coffee", {"units": {"number": "7.25", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "76.98", "currency": "USD"}, "cost": null}]}],
+    ["2017-09-08", "T", null, "Transfer balance for 'Expenses:Food:Coffee' (Transfer balance)", "Expenses:Food:Coffee", {"units": {"number": "-76.98", "currency": "USD"}, "cost": null}, {"positions": []}]
+  ],
+  "notes": "The T row comes last and brings the running balance back to the empty inventory."
+}

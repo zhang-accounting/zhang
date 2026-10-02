@@ -1,0 +1,16 @@
+{
+  "name": "open_after_the_ledger",
+  "query": "SELECT flag, count(*) AS n, sum(cost(position)) AS total FROM OPEN ON 2030-01-01 GROUP BY 1 ORDER BY 1",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "flag", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "total", "type": "inventory"}
+  ],
+  "rows": [
+    ["S", 238, {"positions": []}]
+  ],
+  "notes": ""
+}

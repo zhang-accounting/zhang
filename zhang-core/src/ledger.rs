@@ -303,6 +303,7 @@ impl Ledger {
                 Directive::Price(price) => price.handler(self, &directive.span)?,
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
+                Directive::Query(query) => query.handler(self, &directive.span)?,
                 Directive::Plugin(_) => {}
                 Directive::Include(_) => {}
                 Directive::Comment(_) => {}
@@ -1139,6 +1140,76 @@ mod test {
                 .unwrap()
                 .unwrap();
             assert_eq!(BigDecimal::from(7), option.amount)
+        }
+    }
+
+    mod query {
+        use std::sync::Arc;
+
+        use chrono::NaiveDate;
+        use indoc::indoc;
+        use itertools::Itertools;
+        use tempfile::tempdir;
+        use zhang_ast::Directive;
+
+        use crate::data_source::LocalFileSystemDataSource;
+        use crate::data_type::text::ZhangDataType;
+        use crate::domains::schemas::QueryDomain;
+        use crate::ledger::test::load_from_temp_str;
+        use crate::ledger::Ledger;
+
+        fn saved(date: (i32, u32, u32), name: &str, query: &str) -> QueryDomain {
+            QueryDomain {
+                date: NaiveDate::from_ymd_opt(date.0, date.1, date.2).unwrap(),
+                name: name.to_owned(),
+                query: query.to_owned(),
+            }
+        }
+
+        #[test]
+        fn should_store_queries_in_ledger_order_and_keep_duplicates() {
+            let ledger = load_from_temp_str(indoc! {r#"
+                2024-02-01 query "late" "SELECT 1"
+                2024-01-01 query "cash" "SELECT account, sum(position) WHERE account ~ 'Cash'"
+                  owner: "alice"
+                2024-01-01 query "future" "BALANCES AT cost"
+                2024-03-01 query "cash" "SELECT date, position"
+            "#});
+
+            let operations = ledger.operations();
+            assert_eq!(
+                operations.queries().unwrap(),
+                vec![
+                    saved((2024, 1, 1), "cash", "SELECT account, sum(position) WHERE account ~ 'Cash'"),
+                    saved((2024, 1, 1), "future", "BALANCES AT cost"),
+                    saved((2024, 2, 1), "late", "SELECT 1"),
+                    saved((2024, 3, 1), "cash", "SELECT date, position"),
+                ]
+            );
+            // the text is not validated at load time
+            assert!(operations.read().errors.is_empty());
+            // the directives stay in the ledger's directive list
+            assert_eq!(ledger.directives.iter().filter(|it| matches!(it.data, Directive::Query(_))).count(), 4);
+        }
+
+        #[test]
+        fn should_store_queries_from_included_files() {
+            let temp_dir = tempdir().unwrap().into_path();
+            std::fs::write(
+                temp_dir.join("main.zhang"),
+                indoc! {r#"
+                    include "queries.zhang"
+                    2024-01-01 query "main" "SELECT account"
+                "#},
+            )
+            .unwrap();
+            std::fs::write(temp_dir.join("queries.zhang"), "2024-01-02 query \"included\" \"SELECT payee\"\n").unwrap();
+            let source = LocalFileSystemDataSource::new(ZhangDataType {});
+            let ledger = Ledger::load_with_data_source(temp_dir, "main.zhang".to_string(), Arc::new(source)).unwrap();
+
+            let names = ledger.operations().queries().unwrap().into_iter().map(|it| it.name).collect_vec();
+            assert_eq!(names, vec!["main", "included"]);
+            assert_eq!(ledger.visited_files.len(), 2);
         }
     }
 

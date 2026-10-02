@@ -1,0 +1,18 @@
+{
+  "name": "open_on_only_summaries_before_date",
+  "query": "SELECT flag, count(*) AS n, min(date) AS first, max(date) AS last FROM OPEN ON 2016-01-01 WHERE date < 2016-01-01 GROUP BY flag",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "flag", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "first", "type": "date"},
+    {"name": "last", "type": "date"}
+  ],
+  "rows": [
+    ["S", 90, "2015-12-31", "2015-12-31"]
+  ],
+  "notes": "Before the OPEN date only the S postings remain, all dated 2015-12-31. Their number (90) is two per summarized position, so it depends on the lots."
+}

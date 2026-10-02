@@ -1,0 +1,12 @@
+{
+  "name": "error_journal_where_clause",
+  "query": "JOURNAL 'Checking' WHERE year = 2016",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": "JOURNAL accepts only an account pattern, AT and FROM; filter with FROM <expr> instead."
+}

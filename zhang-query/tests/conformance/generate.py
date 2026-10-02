@@ -25,13 +25,20 @@ Besides running each query, the generator validates every case:
   zhang's Store represents balance checks. A case marked ``engine`` must not be
   sensitive to these rows; ledger-dependent cases get an automatic note.
 * Shape: queries with LIMIT must be ordered, and results stay below MAX_ROWS.
+* CSV (``expect: "csv"``): the result goes through beanquery's numberify step
+  and CSV writer, as ``bean-query -m -f csv`` does. The numberify step rounds
+  numbers to the ledger's display precision; a case whose cells change under
+  that rounding is rejected, so the fixtures never depend on it.
 """
 
 import argparse
 import collections
+import csv
 import datetime
+import io
 import json
 import os
+import re
 import sys
 import typing
 from decimal import Decimal
@@ -40,6 +47,8 @@ import beancount
 import beanquery
 from beancount import loader
 from beancount.core import amount, data, inventory, position
+from beanquery.numberify import numberify_results
+from beanquery.query_render import render_csv
 from beanquery.sources import beancount as bq_source
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -58,9 +67,14 @@ ERROR_CLASSES = {
 }
 
 
-def case(area, name, query, kind=ENGINE, ordered=False, expect="rows", notes="", oracle_query=None):
+def case(area, name, query, kind=ENGINE, ordered=False, expect="rows", notes="", oracle_query=None, phase=1):
     return dict(area=area, name=name, query=query, kind=kind, ordered=ordered, expect=expect,
-                notes=notes, oracle_query=oracle_query)
+                notes=notes, oracle_query=oracle_query, phase=phase)
+
+
+def case2(area, name, query, **kwargs):
+    """A Phase 2 case (issue #434): BALANCES, JOURNAL, the balance column, FROM OPEN/CLOSE/CLEAR, CSV."""
+    return case(area, name, query, phase=2, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +374,242 @@ CASES = [
     case("error", "error_mixed_aggregate_in_expression", "SELECT number + sum(number)", expect="error"),
     case("error", "error_aggregate_in_where", "SELECT count(*) WHERE sum(number) > 0", expect="error"),
     case("error", "error_type_mismatch", "SELECT 'a' + 1", expect="error"),
+
+    # =======================================================================
+    # Phase 2 (issue #434). Fixtures carry "phase": 2.
+    # =======================================================================
+
+    # --- BALANCES ----------------------------------------------------------
+    case2("balances", "balances_plain", "BALANCES",
+          kind=LEDGER, ordered=True,
+          notes="BALANCES [AT f] [FROM ...] [WHERE ...] is SELECT account, sum(f(position)) GROUP BY account "
+                "ORDER BY account_sortkey(account). The order is by account type (Assets, Liabilities, Equity, "
+                "Income, Expenses), then by name. Every account with postings is listed, even when its balance "
+                "nets to the empty inventory (Assets:US:Federal:PreTax401k, Liabilities:AccountsPayable). "
+                "beanquery names the second column SUM((position)). Lots are kept, so the result depends on "
+                "booking."),
+    case2("balances", "balances_where_account_type_order", "BALANCES WHERE account ~ 'Vacation|Opening|Slate|Fees'",
+          ordered=True,
+          notes="The account_sortkey order is not alphabetical: Liabilities comes before Equity, and Income "
+                "before Expenses."),
+    case2("balances", "balances_at_units", "BALANCES AT units WHERE account ~ '^Assets'",
+          ordered=True,
+          notes="AT units sums units(position): lots of one commodity merge into a single position without "
+                "cost."),
+    case2("balances", "balances_at_cost", "BALANCES AT cost WHERE account ~ '^Assets:US:(ETrade|Vanguard)'",
+          kind=LEDGER, ordered=True,
+          notes="AT cost sums cost(position), the book value of every lot. Exact products are kept "
+                "(49049.66613 USD), not rounded to the currency precision."),
+    case2("balances", "balances_from_close_on", "BALANCES FROM CLOSE ON 2015-02-01",
+          kind=LEDGER, ordered=True,
+          notes="CLOSE ON d keeps the entries dated before d and appends a conversions transaction (flag C) on "
+                "Equity:Conversions:Current, which holds minus the cost-basis total of all postings so that the "
+                "ledger sums to zero. Here that is the rounding residual of lot purchases, -0.00177 USD."),
+    case2("balances", "balances_at_cost_open_close_where",
+          "BALANCES AT cost FROM OPEN ON 2017-01-01 CLOSE ON 2017-07-01 WHERE account ~ '^(Assets:US:ETrade|Equity)'",
+          kind=LEDGER, ordered=True,
+          notes="All three modifiers with AT and WHERE. OPEN moves earlier income and expenses to "
+                "Equity:Earnings:Previous and earlier conversions to Equity:Conversions:Previous, then "
+                "summarizes every balance against Equity:Opening-Balances. CLOSE adds Equity:Conversions:Current."),
+
+    # --- JOURNAL -----------------------------------------------------------
+    case2("journal", "journal_account_regex", "JOURNAL 'expenses:food:coffee'",
+          ordered=True,
+          notes="JOURNAL 'r' [AT f] [FROM ...] is SELECT date, flag, maxwidth(payee, 48), maxwidth(narration, 80), "
+                "account, f(position), f(balance) WHERE account ~ \"r\", with no ORDER BY: rows come in ledger "
+                "order (by date, then source order). The pattern is the case-insensitive partial-match ~ "
+                "regex. Column names are beanquery's (MAXWIDTH(payee, 48), ...) and advisory only. JOURNAL "
+                "takes no WHERE, ORDER BY or LIMIT. Every matched account has one posting per day, so the "
+                "order and the running balance do not depend on ties."),
+    case2("journal", "journal_several_accounts_and_currencies",
+          "JOURNAL '^Expenses:(Vacation|Home:Rent)$' FROM year = 2017",
+          ordered=True,
+          notes="An anchored regex matching two accounts. The balance column is one running inventory over "
+                "all journal rows, not one per account, so it mixes USD and VACHR. The FROM expression "
+                "restricts the rows, so the balance starts from zero on the first 2017 row. A NULL payee "
+                "stays NULL through maxwidth()."),
+    case2("journal", "journal_maxwidth_trims_narration",
+          "JOURNAL 'Expenses:Food:Restaurant' FROM year = 2017 AND month = 6",
+          ordered=True,
+          notes="maxwidth(s, n) is Python's textwrap.shorten(s, width=n): it collapses runs of whitespace, strips "
+                "leading and trailing whitespace, and if the text is still longer than n it cuts at a word "
+                "boundary and appends ' [...]'. The narration 'Eating out ' (trailing space in the ledger) is "
+                "returned as 'Eating out'. No payee is longer than 48 characters and no narration longer than "
+                "80 in this ledger, so the truncation itself is not exercised."),
+    case2("journal", "journal_at_cost", "JOURNAL 'GLD' AT cost",
+          kind=LEDGER, ordered=True,
+          notes="AT cost applies cost() to both the position and the running balance: cost(position) is an "
+                "amount and cost(balance) an inventory. The sells reduce lots booked by the ledger."),
+    case2("journal", "journal_open_close_summary_row",
+          "JOURNAL 'Assets:US:BofA:Checking' FROM OPEN ON 2017-06-01 CLOSE ON 2017-07-01",
+          kind=LEDGER, ordered=True,
+          notes="The first row is the OPEN summarization posting: dated the day before the OPEN date, flag S, "
+                "payee NULL, narration \"Opening balance for 'Assets:US:BofA:Checking' (Summarization)\". It "
+                "carries the account's balance at the OPEN date, so the running balance continues from it. "
+                "CLOSE ON 2017-07-01 drops the rows dated 2017-07-01 and later."),
+
+    # --- running balance column --------------------------------------------
+    case2("balance-column", "balance_running_total",
+          "SELECT date, position, balance WHERE account ~ 'Checking' AND date >= 2017-06-01 ORDER BY date LIMIT 15",
+          kind=LEDGER, ordered=True,
+          notes="balance is the running sum (an inventory) of position over the rows that pass FROM and WHERE, "
+                "in ledger order. It starts empty, so it does not include postings before the WHERE window. "
+                "The window has one Checking posting per day, so the sums do not depend on ties."),
+    case2("balance-column", "balance_computed_before_order_by",
+          "SELECT date, position, balance WHERE account ~ 'Checking' AND date >= 2017-06-01 "
+          "ORDER BY date DESC LIMIT 5",
+          kind=LEDGER, ordered=True,
+          notes="The running balance is computed in ledger order before ORDER BY and LIMIT: with ORDER BY date "
+                "DESC the first row carries the final balance of the whole window, not its own position."),
+    case2("balance-column", "balance_spans_all_selected_accounts",
+          "SELECT date, account, position, balance WHERE account ~ '^Expenses:Food:(Coffee|Alcohol)$' "
+          "AND year = 2016 AND month = 4 ORDER BY date",
+          ordered=True,
+          notes="One running balance over all selected rows, across accounts."),
+    case2("balance-column", "balance_with_lots",
+          "SELECT date, units(position) AS units, cost(position) AS cost, balance "
+          "WHERE account = 'Assets:US:ETrade:VHT' ORDER BY date",
+          kind=LEDGER, ordered=True,
+          notes="The running inventory keeps lots: a reduction removes units from the lot it was booked "
+                "against. Depends on booking."),
+
+    # --- FROM OPEN / CLOSE / CLEAR -----------------------------------------
+    case2("period", "open_on_summarization_rows",
+          "SELECT account, count(*) AS n, sum(position) AS total FROM OPEN ON 2016-01-01 "
+          "WHERE flag = 'S' AND account !~ ':(RGAGX|VBMPX)$' GROUP BY account ORDER BY account",
+          kind=LEDGER, ordered=True,
+          notes="OPEN ON d (1) inserts a conversions transaction dated d - 1 on Equity:Conversions:Previous, "
+                "(2) transfers each income/expense balance before d to Equity:Earnings:Previous, then "
+                "(3) replaces every transaction before d by one summarization transaction per account, dated "
+                "d - 1, flag S, with one posting per position (lot) of the account's balance and one "
+                "counterpart posting at cost on Equity:Opening-Balances per position. Income and expense "
+                "accounts therefore get no S rows. Equity:Opening-Balances also summarizes its own balance, "
+                "so it has many S postings. The Vanguard lot accounts are excluded only to keep the fixture "
+                "small."),
+    case2("period", "open_on_only_summaries_before_date",
+          "SELECT flag, count(*) AS n, min(date) AS first, max(date) AS last FROM OPEN ON 2016-01-01 "
+          "WHERE date < 2016-01-01 GROUP BY flag",
+          kind=LEDGER,
+          notes="Before the OPEN date only the S postings remain, all dated 2015-12-31. Their number (90) is "
+                "two per summarized position, so it depends on the lots."),
+    case2("period", "income_statement_2016",
+          "SELECT account, sum(position) FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 "
+          "WHERE account ~ '^(Income|Expenses)' GROUP BY 1",
+          notes="Representative query from #434. OPEN moves earlier income and expenses to equity, so these "
+                "accounts start the period at zero and the sums are exactly the 2016 activity."),
+    case2("period", "close_on_conversion_entry",
+          "SELECT date, flag, payee, account, position FROM CLOSE ON 2016-01-01 WHERE flag = 'C'",
+          kind=LEDGER, ordered=True,
+          notes="The conversions transaction of CLOSE ON d: dated d - 1, flag C, payee NULL, one posting per "
+                "currency on Equity:Conversions:Current with minus the cost-basis total of all postings before "
+                "d. Its narration ('Conversion for (...)', beancount's inventory formatting) is deliberately not "
+                "selected. Note that zhang stores balance assertions as transactions with flag C too; they are "
+                "not rows of the postings table."),
+    case2("period", "close_on_truncates_before_date",
+          "SELECT count(*) AS n, min(date) AS first, max(date) AS last FROM CLOSE ON 2016-01-01 WHERE flag = '*'",
+          notes="CLOSE ON d is exclusive: only postings dated before d remain."),
+    case2("period", "close_without_date",
+          "SELECT date, flag, payee, account, position FROM CLOSE WHERE flag = 'C'",
+          kind=LEDGER, ordered=True,
+          notes="CLOSE without a date truncates nothing; it only appends the conversions transaction, dated "
+                "like the last entry of the ledger (2017-09-08, the date of the last transaction and of the "
+                "last prices)."),
+    case2("period", "clear_transfers",
+          "SELECT root(account, 1) AS type, count(*) AS n, min(date) AS first, max(date) AS last, "
+          "sum(position) AS total FROM CLEAR WHERE flag = 'T' GROUP BY 1 ORDER BY 1",
+          ordered=True,
+          notes="CLEAR adds one transfer transaction per income/expense account with a non-empty balance: "
+                "flag T, payee NULL, dated like the last entry (2017-09-08 here), one posting per position "
+                "that zeroes the account and a counterpart on Equity:Earnings:Current."),
+    case2("period", "clear_zeroes_income_statement",
+          "SELECT root(account, 1) AS type, sum(position) AS total FROM CLEAR "
+          "WHERE account ~ '^(Income|Expenses|Equity)' GROUP BY 1 ORDER BY 1",
+          ordered=True,
+          notes="After CLEAR, Income and Expenses sum to empty inventories and Equity holds the net income."),
+    case2("period", "clear_in_journal", "JOURNAL 'Expenses:Food:Coffee' FROM CLEAR",
+          ordered=True,
+          notes="The T row comes last and brings the running balance back to the empty inventory."),
+    case2("period", "balance_sheet_2017_with_clear",
+          "SELECT account, cost(sum(position)) AS book FROM CLOSE ON 2017-01-01 CLEAR "
+          "WHERE account ~ '^(Assets|Liabilities|Equity)' GROUP BY 1 ORDER BY 1",
+          kind=LEDGER, ordered=True,
+          notes="Balance sheet at 2017-01-01. CLOSE ON then CLEAR: the transfers are dated like the last remaining "
+                "entry, which is the conversions transaction on 2016-12-31. Equity:Earnings:Current holds the net "
+                "income and Equity:Conversions:Current the conversion residual."),
+    case2("period", "open_close_clear_flags",
+          "SELECT flag, count(*) AS n, min(date) AS first, max(date) AS last "
+          "FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 CLEAR GROUP BY flag ORDER BY flag",
+          kind=LEDGER, ordered=True,
+          notes="Counts and dates of the synthetic postings per flag: S (summarization, 2015-12-31), C "
+                "(conversions, 2016-12-31) and T (transfers, 2016-12-31), next to the real '*' postings."),
+    case2("period", "summarization_narrations",
+          "SELECT date, flag, payee, narration, account, position FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 CLEAR "
+          "WHERE flag IN ('S', 'T') AND narration ~ 'Coffee|Checking' ORDER BY flag, account",
+          ordered=True,
+          notes="Narrations of the synthetic transactions: \"Opening balance for '<account>' (Summarization)\" "
+                "and \"Transfer balance for '<account>' (Transfer balance)\". The counterpart posting "
+                "(Equity:Opening-Balances, Equity:Earnings:Current) has the narration of the account it "
+                "balances. Payee is NULL."),
+    case2("period", "from_expression_with_open_close",
+          "SELECT date, flag, position, balance FROM account = 'Assets:US:ETrade:Cash' "
+          "OPEN ON 2017-01-01 CLOSE ON 2017-03-01 ORDER BY date",
+          ordered=True,
+          notes="FROM <expr> OPEN ON ... CLOSE ON ...: the modifiers transform the whole ledger and the expression "
+                "then filters its postings, so the S row carries the full balance at the OPEN date."),
+
+    # --- CSV export (numberify) --------------------------------------------
+    case2("csv", "csv_inventory_sums",
+          "SELECT account, sum(position) AS balance WHERE account ~ '^Liabilities|Vacation' "
+          "GROUP BY account ORDER BY account",
+          expect="csv", ordered=True,
+          notes="numberify splits an inventory column into one decimal column per currency, named "
+                "'<column> (<currency>)'. The columns are ordered by the number of rows holding the currency "
+                "(most first), ties by currency name descending. A currency missing from the row, or summing to "
+                "zero, is an empty cell; an empty inventory is all empty cells."),
+    case2("csv", "csv_holdings_with_cost",
+          "SELECT account, units(sum(position)) AS units, cost(sum(position)) AS book "
+          "WHERE account ~ '^Assets:US:ETrade:' AND account != 'Assets:US:ETrade:Cash' GROUP BY account ORDER BY account",
+          expect="csv", kind=LEDGER, ordered=True,
+          notes="Four commodities with one row each tie on the count, so they are ordered by name descending: "
+                "VHT, VEA, ITOT, GLD."),
+    case2("csv", "csv_amount_columns_mixed_currencies",
+          "SELECT account, units(position) AS units, weight WHERE date = 2017-01-12 AND payee = 'Hoogle' "
+          "ORDER BY account",
+          expect="csv", ordered=True,
+          notes="Amount columns split per currency like inventories: USD (13 rows), then VACHR and IRAUSD "
+                "(2 rows each, name descending)."),
+    case2("csv", "csv_positions_cost_and_price",
+          "SELECT date, account, position, price, weight, cost_number WHERE account ~ 'ETrade:(GLD|Cash)' "
+          "AND date >= 2017-02-15 AND date <= 2017-03-19 ORDER BY date, account, number",
+          expect="csv", kind=LEDGER, ordered=True,
+          notes="A position column keeps only the units number per currency; the cost basis is dropped. "
+                "price (an amount) is empty when NULL. cost_number is a plain decimal column."),
+    case2("csv", "csv_sets_nulls_bools",
+          "SELECT date, payee, narration, tags, other_accounts, payee IS NULL AS no_payee, price, number "
+          "WHERE (account = 'Assets:US:ETrade:Cash' AND year = 2017 AND month <= 3) "
+          "OR (account = 'Expenses:Food:Coffee' AND year = 2017) ORDER BY date, number",
+          expect="csv", ordered=True,
+          notes="NULL and the empty string are both an empty cell. A set is its sorted elements joined by ',' "
+                "(quoted by the CSV writer when it has several). Booleans are TRUE and FALSE, dates YYYY-MM-DD. "
+                "beanquery pads decimals with spaces to align them; cells are compared trimmed. The price column "
+                "is NULL on every row, so numberify finds no currency for it and the column DISAPPEARS from the "
+                "CSV: an amount, position or inventory column without any currency yields zero CSV columns."),
+
+    # --- Phase 2 errors ----------------------------------------------------
+    case2("error", "error_journal_non_string", "JOURNAL 42", expect="error",
+          notes="The JOURNAL account pattern must be a string literal."),
+    case2("error", "error_journal_where_clause", "JOURNAL 'Checking' WHERE year = 2016", expect="error",
+          notes="JOURNAL accepts only an account pattern, AT and FROM; filter with FROM <expr> instead."),
+    case2("error", "error_open_on_non_date", "SELECT count(*) FROM OPEN ON 2016", expect="error",
+          notes="OPEN ON and CLOSE ON take a bare date literal (YYYY-MM-DD)."),
+    case2("error", "error_open_without_on", "SELECT count(*) FROM OPEN 2016-01-01", expect="error"),
+    case2("error", "error_clear_before_close", "SELECT count(*) FROM CLEAR CLOSE ON 2017-01-01", expect="error",
+          notes="The modifiers have a fixed order: [<expr>] [OPEN ON d] [CLOSE [ON d]] [CLEAR]."),
+    case2("error", "error_close_date_before_open_date",
+          "SELECT count(*) FROM OPEN ON 2017-01-01 CLOSE ON 2016-01-01", expect="error",
+          notes="CLOSE date must follow OPEN date (a compile error, not a syntax error). Equal dates are allowed."),
+    case2("error", "error_balances_unknown_summary_function", "BALANCES AT nosuch", expect="error",
+          notes="AT f applies f to position; an unknown function is a compile error."),
 ]
 
 
@@ -512,6 +762,43 @@ def same_result(a_rows, b_rows, ordered):
 
 
 # ---------------------------------------------------------------------------
+# CSV (see README.md, "CSV fixtures")
+# ---------------------------------------------------------------------------
+
+PLAIN_NUMBER = re.compile(r"-?[0-9]+(\.[0-9]+)?")
+
+
+def csv_lines(conn, query, dcontext):
+    """beanquery's numberified CSV output (as `bean-query -m -f csv`), split into lines.
+
+    Returns (lines, quantized): `quantized` is true when numberify's rounding to the display
+    precision changed a number, which a fixture must not depend on.
+    """
+    description, rows = run(conn, query)
+    columns, numbered = numberify_results(description, rows, dcontext.build())
+    _, exact = numberify_results(description, rows, None)
+    quantized = any(a != b for row_a, row_b in zip(numbered, exact) for a, b in zip(row_a, row_b))
+    out = io.StringIO()
+    render_csv(columns, numbered, dcontext, out)
+    text = out.getvalue()
+    if not text.endswith("\r\n"):
+        raise SystemExit(f"unexpected CSV line terminator in {text!r}")
+    lines = text[:-2].split("\r\n")
+    if any("\r" in line or "\n" in line for line in lines):
+        raise SystemExit(f"a CSV cell contains a line break: {query}")
+    return lines, quantized
+
+
+def csv_canonical(lines):
+    """Header and data rows with cells trimmed and plain numbers normalized (the harness rules)."""
+    def cell(text):
+        text = text.strip()
+        return format(Decimal(text).normalize(), "f") if PLAIN_NUMBER.fullmatch(text) else text
+    records = [[cell(c) for c in record] for record in csv.reader(lines)]
+    return records[0], records[1:]
+
+
+# ---------------------------------------------------------------------------
 # Fixture writing
 # ---------------------------------------------------------------------------
 
@@ -521,10 +808,12 @@ def dumps(value):
 
 def render_fixture(fixture):
     lines = ["{"]
-    for key in ("name", "query", "kind", "ordered", "expect", "error_class"):
+    for key in ("name", "query", "phase", "kind", "ordered", "expect", "error_class"):
         if key in fixture:
             lines.append(f"  {dumps(key)}: {dumps(fixture[key])},")
-    for key in ("columns", "rows"):
+    for key in ("columns", "rows", "csv"):
+        if key not in fixture:
+            continue
         items = fixture[key]
         if items:
             lines.append(f"  {dumps(key)}: [")
@@ -538,14 +827,39 @@ def render_fixture(fixture):
     return "\n".join(lines) + "\n"
 
 
-def build_fixture(index, spec, conns):
+def build_fixture(index, spec, conns, dcontext):
     base, shuffled, synthetic = conns
     query = spec["oracle_query"] or spec["query"]
     problems = []
     notes = spec["notes"]
 
     error_class = None
-    if spec["expect"] == "error":
+    lines = None
+    if spec["expect"] == "csv":
+        columns, rows = [], []
+        lines, quantized = csv_lines(base, query, dcontext)
+        detail = f"csv, {len(lines) - 1} rows"
+        if quantized:
+            problems.append("numberify's rounding to the display precision changes a number; pick other data")
+        if len(lines) - 1 > MAX_ROWS:
+            problems.append(f"{len(lines) - 1} rows exceeds MAX_ROWS={MAX_ROWS}")
+        if " LIMIT " in f" {spec['query'].upper()} " and not spec["ordered"]:
+            problems.append("LIMIT without a determining ORDER BY (mark ordered and order totally)")
+        header, records = csv_canonical(lines)
+        for label, conn in (("shuffled", shuffled), ("synthetic", synthetic)):
+            other_header, other_records = csv_canonical(csv_lines(conn, query, dcontext)[0])
+            if other_header == header and same_result(records, other_records, spec["ordered"]):
+                continue
+            if label == "shuffled":
+                problems.append("result depends on tie-breaking between equal sort keys or same-day rows")
+            elif spec["kind"] == ENGINE:
+                problems.append("sensitive to zhang's synthetic balance-check postings; mark it ledger-dependent "
+                                "or narrow the WHERE clause")
+            else:
+                extra = ("Also sensitive to whether zhang's synthetic balance-check transactions (zero-amount "
+                         "postings) are part of the postings table.")
+                notes = f"{notes} {extra}".strip()
+    elif spec["expect"] == "error":
         try:
             run(base, query)
         except tuple(ERROR_CLASSES) as exc:
@@ -583,12 +897,14 @@ def build_fixture(index, spec, conns):
     fixture = {
         "name": spec["name"],
         "query": spec["query"],
+        **({"phase": spec["phase"]} if spec["phase"] != 1 else {}),
         "kind": spec["kind"],
         "ordered": spec["ordered"],
         "expect": spec["expect"],
         **({"error_class": error_class} if error_class else {}),
         "columns": columns,
         "rows": rows,
+        **({"csv": lines} if lines is not None else {}),
         "notes": notes,
     }
     filename = f"{index:03d}_{spec['name']}.json"
@@ -616,7 +932,7 @@ def main():
     outputs = {}
     details = []
     for index, spec in enumerate(CASES, start=1):
-        filename, text, detail = build_fixture(index, spec, conns)
+        filename, text, detail = build_fixture(index, spec, conns, options["dcontext"])
         outputs[filename] = text
         details.append(detail)
         print(f"  {filename:<55} {spec['kind']:<17} {detail}")
@@ -641,15 +957,21 @@ def main():
                 handle.write(text)
 
     by_area = collections.Counter(spec["area"] for spec in CASES)
-    by_kind = collections.Counter(spec["kind"] if spec["expect"] == "rows" else "error" for spec in CASES)
-    print(f"{len(CASES)} cases; by area: {dict(by_area)}; by kind: {dict(by_kind)}")
+    by_kind = collections.Counter(spec["kind"] if spec["expect"] != "error" else "error" for spec in CASES)
+    by_phase = collections.Counter(spec["phase"] for spec in CASES)
+    print(f"{len(CASES)} cases; by phase: {dict(by_phase)}; by area: {dict(by_area)}; by kind: {dict(by_kind)}")
+    for phase in sorted(by_phase):
+        specs = [spec for spec in CASES if spec["phase"] == phase]
+        counts = collections.Counter(
+            "error" if spec["expect"] == "error" else f"{spec['kind']} {spec['expect']}" for spec in specs)
+        print(f"  phase {phase}: {len(specs)} cases; {dict(counts)}")
 
     if args.table:
-        print("\n| # | Case | Area | Kind | Ordered | Expect |")
-        print("|---|---|---|---|---|---|")
+        print("\n| # | Case | Phase | Area | Kind | Ordered | Expect |")
+        print("|---|---|---|---|---|---|---|")
         for (index, spec), detail in zip(enumerate(CASES, start=1), details):
             expect = "error" if spec["expect"] == "error" else detail
-            print(f"| {index:03d} | `{spec['name']}` | {spec['area']} | {spec['kind']} | "
+            print(f"| {index:03d} | `{spec['name']}` | {spec['phase']} | {spec['area']} | {spec['kind']} | "
                   f"{'yes' if spec['ordered'] else 'no'} | {expect} |")
 
 

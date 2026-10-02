@@ -1,4 +1,5 @@
-import { openAPIFetcher } from './fetcher';
+import { ApiError } from 'openapi-typescript-fetch';
+import { openAPIFetcher, serverBaseUrl } from './fetcher';
 
 export const retrieveBudgets = openAPIFetcher.path('/api/budgets').method('get').create();
 
@@ -53,3 +54,50 @@ export const createAccountBalance = openAPIFetcher.path('/api/accounts/{account_
 export const executeQuery = openAPIFetcher.path('/api/query').method('post').create();
 
 export const retrieveQuerySchema = openAPIFetcher.path('/api/query/schema').method('get').create();
+
+export const retrieveSavedQueries = openAPIFetcher.path('/api/query/saved').method('get').create();
+
+/**
+ * Runs a query through `POST /api/query/csv` and returns the CSV file. A query error is thrown as an `ApiError`
+ * carrying the same `{message, line, column}` body as `POST /api/query`.
+ *
+ * This is a plain `fetch` call: the generated fetcher would `JSON.parse` a CSV body that happens to be valid JSON,
+ * and the download needs the raw blob.
+ */
+export async function exportQueryCsv(query: string): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${serverBaseUrl}/api/query/csv`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  });
+  if (!response.ok) throw toApiError(response, await readBody(response));
+  const blob = await response.blob();
+  return { blob, filename: filenameOf(response.headers.get('Content-Disposition')) ?? 'query.csv' };
+}
+
+async function readBody(response: Response): Promise<unknown> {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : undefined;
+  } catch {
+    return text;
+  }
+}
+
+function toApiError(response: Response, data: unknown): ApiError {
+  return new ApiError({ headers: response.headers, url: response.url, status: response.status, statusText: response.statusText, data });
+}
+
+function filenameOf(contentDisposition: string | null): string | null {
+  if (!contentDisposition) return null;
+  const encoded = /filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i.exec(contentDisposition);
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1].trim().replace(/^"|"$/g, ''));
+    } catch {
+      // fall back to the plain filename parameter
+    }
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|[^;]+)/i.exec(contentDisposition);
+  return plain ? (plain[2] ?? plain[1]).trim() : null;
+}

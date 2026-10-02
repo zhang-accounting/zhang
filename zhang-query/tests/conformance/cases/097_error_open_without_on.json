@@ -1,0 +1,12 @@
+{
+  "name": "error_open_without_on",
+  "query": "SELECT count(*) FROM OPEN 2016-01-01",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

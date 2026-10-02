@@ -1,0 +1,15 @@
+{
+  "name": "open_and_close_on_the_same_day",
+  "query": "SELECT flag, count(*) AS n FROM open on 2016-01-01 close on 2016-01-01 GROUP BY 1 ORDER BY 1",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "flag", "type": "str"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    ["S", 90]
+  ],
+  "notes": "Keywords are case-insensitive; CLOSE may equal OPEN."
+}

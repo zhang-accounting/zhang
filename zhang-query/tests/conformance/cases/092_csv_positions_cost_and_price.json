@@ -1,0 +1,22 @@
+{
+  "name": "csv_positions_cost_and_price",
+  "query": "SELECT date, account, position, price, weight, cost_number WHERE account ~ 'ETrade:(GLD|Cash)' AND date >= 2017-02-15 AND date <= 2017-03-19 ORDER BY date, account, number",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "csv",
+  "columns": [],
+  "rows": [],
+  "csv": [
+    "date,account,position (USD),position (GLD),price (USD),weight (USD),cost_number",
+    "2017-02-15,Assets:US:ETrade:Cash,2723.85,,, 2723.85,",
+    "2017-02-15,Assets:US:ETrade:GLD,,-10,273.28,-2090.00,209.00",
+    "2017-03-18,Assets:US:ETrade:Cash,  91.45,,,   91.45,",
+    "2017-03-19,Assets:US:ETrade:Cash,-702.25,,, -702.25,",
+    "2017-03-19,Assets:US:ETrade:Cash,-683.32,,, -683.32,",
+    "2017-03-19,Assets:US:ETrade:Cash,-603.31,,, -603.31,",
+    "2017-03-19,Assets:US:ETrade:Cash,-566.93,,, -566.93,",
+    "2017-03-19,Assets:US:ETrade:GLD,,  2,,  557.98,278.99"
+  ],
+  "notes": "A position column keeps only the units number per currency; the cost basis is dropped. price (an amount) is empty when NULL. cost_number is a plain decimal column."
+}

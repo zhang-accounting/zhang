@@ -603,6 +603,24 @@ fn event_body(date: Date, i: &str) -> IResult<&str, Directive> {
     ))
 }
 
+/// `query = date "query" space+ string space+ quote_string`; the query text is
+/// kept verbatim and not validated here.
+fn query_body(date: Date, i: &str) -> IResult<&str, Directive> {
+    let (i, _) = space1(i)?;
+    let (i, name) = string(i)?;
+    let (i, _) = space1(i)?;
+    let (i, query_string) = quote_string(i)?;
+    Ok((
+        i,
+        Directive::Query(Query {
+            date,
+            name,
+            query_string,
+            meta: Meta::default(),
+        }),
+    ))
+}
+
 fn commodity_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, _) = space1(i)?;
     let (i, currency) = commodity_name(i)?;
@@ -713,6 +731,7 @@ fn dated_directive(original: &str) -> IResult<&str, Directive> {
         "document" => document_body(date, rest),
         "price" => price_body(date, rest),
         "event" => event_body(date, rest),
+        "query" => query_body(date, rest),
         "commodity" => commodity_body(date, rest),
         "custom" => custom_body(date, rest),
         "budget" => budget_body(date, rest),
@@ -1091,6 +1110,70 @@ mod test {
                 assert_eq!(inner.event_type, quote!("something"));
                 assert_eq!(inner.description, quote!("value"));
             }
+        }
+    }
+    mod query {
+
+        use indoc::indoc;
+        use zhang_ast::{Directive, Meta, ZhangString};
+
+        use crate::data_type::text::parser::parse;
+
+        #[test]
+        fn should_parse() {
+            let mut vec = parse(
+                indoc! {r#"
+                            2024-01-01 query "france-balances" "SELECT account, sum(position) WHERE 'trip-france' IN tags"
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            let Directive::Query(inner) = directive else {
+                panic!("expected a query directive, got {:?}", directive);
+            };
+            assert_eq!(inner.date, date!(2024, 1, 1));
+            assert_eq!(inner.name, quote!("france-balances"));
+            assert_eq!(inner.query_string, quote!("SELECT account, sum(position) WHERE 'trip-france' IN tags"));
+            assert_eq!(inner.meta, Meta::default());
+        }
+
+        #[test]
+        fn should_parse_with_meta_and_trailing_comment() {
+            let mut vec = parse(
+                indoc! {r#"
+                            2024-01-01 query monthly "SELECT year, month, sum(position)" ; saved
+                              owner: "alice"
+                              category: "reports"
+                        "#},
+                None,
+            )
+            .unwrap();
+            assert_eq!(vec.len(), 1);
+            let directive = vec.pop().unwrap().data;
+            let Directive::Query(inner) = directive else {
+                panic!("expected a query directive, got {:?}", directive);
+            };
+            assert_eq!(inner.name, ZhangString::unquote("monthly"));
+            assert_eq!(inner.query_string, quote!("SELECT year, month, sum(position)"));
+            assert_eq!(inner.meta.get_one("owner"), Some(&quote!("alice")));
+            assert_eq!(inner.meta.get_one("category"), Some(&quote!("reports")));
+        }
+
+        #[test]
+        fn should_keep_multi_line_and_escaped_query_text() {
+            let mut vec = parse("2024-01-01 query \"q\" \"SELECT payee\n  WHERE narration ~ \\\"x\\\"\"\n", None).unwrap();
+            let Directive::Query(inner) = vec.pop().unwrap().data else {
+                panic!("expected a query directive");
+            };
+            assert_eq!(inner.query_string, quote!("SELECT payee\n  WHERE narration ~ \"x\""));
+        }
+
+        #[test]
+        fn should_reject_an_unquoted_query_text() {
+            assert!(parse("2024-01-01 query name SELECT\n", None).is_err());
+            assert!(parse("2024-01-01 query \"name\"\n", None).is_err());
         }
     }
     mod plugin {

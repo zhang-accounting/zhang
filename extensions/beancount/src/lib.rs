@@ -206,6 +206,14 @@ impl DataType for Beancount {
                 }),
                 span,
             )),
+            // beancount only accepts a quoted query name
+            Directive::Query(query) => zhang_data_type.export(Spanned::new(
+                Directive::Query(Query {
+                    name: ZhangString::quote(query.name.to_plain_string()),
+                    ..query
+                }),
+                span,
+            )),
             _ => zhang_data_type.export(Spanned::new(data, span)),
         }
     }
@@ -282,6 +290,7 @@ fn convert_datetime_to_date(directive: Spanned<Directive>) -> Spanned<Directive>
         Directive::Price(mut directive) => Directive::Price(convert_to_datetime!(directive)),
         Directive::Event(mut directive) => Directive::Event(convert_to_datetime!(directive)),
         Directive::Custom(mut directive) => Directive::Custom(convert_to_datetime!(directive)),
+        Directive::Query(mut directive) => Directive::Query(convert_to_datetime!(directive)),
         _ => data,
     };
     Spanned::new(data, span)
@@ -311,6 +320,7 @@ impl Beancount {
                 Directive::Price(directive) => extract_time!(directive),
                 Directive::Event(directive) => extract_time!(directive),
                 Directive::Custom(directive) => extract_time!(directive),
+                Directive::Query(directive) => extract_time!(directive),
                 _ => {}
             },
             Either::Right(beancount_onyly_directive) => match beancount_onyly_directive {

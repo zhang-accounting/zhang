@@ -10,12 +10,13 @@ use std::fmt;
 use regex::{Regex, RegexBuilder};
 
 pub(crate) use crate::ast::ArithOp;
-use crate::ast::{BinaryOp, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
+use crate::ast::{self, BinaryOp, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
 use crate::error::{LocatedError, Span};
 use crate::functions::aggregates::{is_aggregate, resolve_aggregate};
 use crate::functions::{resolve_scalar, AggregateFunction, ScalarFunction};
 use crate::params::{ParamRef, ParamTypes};
-use crate::table::{column, ColumnDef, WILDCARD_COLUMNS};
+use crate::period::{Period, PeriodDate};
+use crate::table::{column, ColumnDef, BALANCE_COLUMN, WILDCARD_COLUMNS};
 use crate::value::{DataType, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +61,10 @@ pub(crate) struct ArithStep {
 pub(crate) enum CExpr {
     Const(Value),
     Column(&'static ColumnDef),
+    /// the `balance` column (the running inventory of the rows produced so far, including
+    /// the current one), or a linear function of it the optimizer turned into its own running
+    /// sum. It is stateful, so it is never folded, and the executor provides it.
+    Running(Running),
     Param(ParamRef),
     Scalar {
         function: &'static ScalarFunction,
@@ -108,6 +113,108 @@ pub(crate) enum CExpr {
     },
 }
 
+/// What a [`CExpr::Running`] total adds up, row by row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Running {
+    /// the positions: the `balance` column
+    Balance,
+    /// `units(position)`, which sums to `units(balance)`
+    Units,
+    /// `cost(position)`, which sums to `cost(balance)`
+    Cost,
+}
+
+impl Running {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Running::Balance => BALANCE_COLUMN,
+            Running::Units => "units",
+            Running::Cost => "cost",
+        }
+    }
+
+    /// The expression the total stands for.
+    pub fn expression(&self) -> &'static str {
+        match self {
+            Running::Balance => BALANCE_COLUMN,
+            Running::Units => "units(balance)",
+            Running::Cost => "cost(balance)",
+        }
+    }
+}
+
+/// How the executor applies LIMIT.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum LimitMode {
+    /// on the finished rows, after ORDER BY and DISTINCT
+    #[default]
+    AfterSort,
+    /// stop scanning once LIMIT rows are produced (no ORDER BY); DISTINCT rows are told
+    /// apart while scanning
+    StopScan,
+    /// keep only the first LIMIT rows of the ORDER BY while scanning (no DISTINCT)
+    TopK,
+    /// aggregate only the first LIMIT groups (no ORDER BY, no DISTINCT)
+    FirstGroups,
+}
+
+/// How the running `balance` is materialized.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct RunningPlan {
+    /// the main pass keeps the running state, because an expression it evaluates reads it
+    pub eager: bool,
+    /// visible targets of a non-aggregate query that the main pass leaves empty: once ORDER
+    /// BY and LIMIT have chosen the rows, one replay over the filtered rows in ledger order
+    /// evaluates them for the chosen rows only
+    pub deferred_targets: Vec<usize>,
+    /// `first()` / `last()` aggregates that only remember which row they pick; the replay
+    /// evaluates their argument at that row
+    pub deferred_aggregates: Vec<usize>,
+    /// the running totals the state keeps
+    pub totals: Vec<Running>,
+}
+
+impl RunningPlan {
+    /// Whether the plan reads a running total at all.
+    pub fn used(&self) -> bool {
+        !self.totals.is_empty()
+    }
+
+    pub fn replays(&self) -> bool {
+        !self.deferred_targets.is_empty() || !self.deferred_aggregates.is_empty()
+    }
+}
+
+/// The execution strategy chosen for a plan. [`Execution::naive`] evaluates every expression
+/// for every row and applies LIMIT to the sorted rows (stopping early only without ORDER BY
+/// and DISTINCT), which is what the optimizer and projector decisions must agree with.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Execution {
+    pub running: RunningPlan,
+    pub limit: LimitMode,
+    /// the linear functions of `balance` the optimizer turned into running sums
+    pub rewrites: Vec<Running>,
+}
+
+impl Execution {
+    pub fn naive(plan: &Plan) -> Execution {
+        let running_balance = plan.referenced_columns().contains(BALANCE_COLUMN);
+        Execution {
+            running: RunningPlan {
+                eager: running_balance,
+                totals: if running_balance { vec![Running::Balance] } else { vec![] },
+                ..RunningPlan::default()
+            },
+            limit: if plan.group_keys.is_none() && plan.order.is_empty() && !plan.distinct {
+                LimitMode::StopScan
+            } else {
+                LimitMode::AfterSort
+            },
+            rewrites: vec![],
+        }
+    }
+}
+
 /// An aggregate call extracted from a target.
 pub(crate) struct AggregateCall {
     pub function: &'static AggregateFunction,
@@ -127,6 +234,9 @@ pub(crate) struct Plan {
     /// visible targets first, then hidden ones added by GROUP BY / ORDER BY
     pub targets: Vec<PlannedTarget>,
     pub visible: usize,
+    /// `OPEN` / `CLOSE` / `CLEAR` of the FROM clause: transforms the postings before the
+    /// filters see them
+    pub period: Option<Period>,
     /// the row filters as compiled: the FROM expression, then WHERE
     pub filters: Vec<CExpr>,
     /// the single row filter the executor applies, set by the optimizer from `filters`
@@ -140,6 +250,8 @@ pub(crate) struct Plan {
     pub limit: Option<u64>,
     /// every parameter reference with its declared type, for checking bound values
     pub params: Vec<(ParamRef, DataType, Span)>,
+    /// how the executor runs the plan, decided by the optimizer and the projector
+    pub execution: Execution,
 }
 
 /// Where an expression is compiled.
@@ -186,6 +298,15 @@ impl Compiler<'_> {
         self.src.get(span.start..span.end).unwrap_or("").trim()
     }
 
+    /// The name of an unaliased target: its source text, or the rendering of the compiled
+    /// expression when it has none (expressions synthesized by BALANCES and JOURNAL).
+    fn name(&self, span: Span, compiled: &CExpr) -> String {
+        match self.text(span) {
+            "" => compiled.to_string(),
+            text => text.to_owned(),
+        }
+    }
+
     fn plan(&mut self, select: &Select) -> Result<Plan, LocatedError> {
         // targets
         let target_exprs: Vec<(Expr, Option<String>)> = match &select.targets {
@@ -205,6 +326,10 @@ impl Compiler<'_> {
             target_asts.push(expr);
         }
         let visible = targets.len();
+
+        // the period modifiers transform the postings; the FROM expression then filters the
+        // transformed rows like WHERE (as in beanquery)
+        let period = select.period.as_ref().map(|period| self.period(period)).transpose()?;
 
         // FROM and WHERE are both row filters; the optimizer merges them
         let mut filters = vec![];
@@ -284,9 +409,10 @@ impl Compiler<'_> {
             None
         };
 
-        Ok(Plan {
+        let mut plan = Plan {
             targets,
             visible,
+            period,
             filters,
             filter: None,
             aggregates: std::mem::take(&mut self.aggregates),
@@ -295,13 +421,49 @@ impl Compiler<'_> {
             distinct: select.distinct,
             limit: select.limit,
             params: std::mem::take(&mut self.params),
+            execution: Execution::default(),
+        };
+        plan.execution = Execution::naive(&plan);
+        Ok(plan)
+    }
+
+    /// Compile `OPEN ON` / `CLOSE [ON]` / `CLEAR`.
+    fn period(&mut self, period: &ast::Period) -> Result<Period, LocatedError> {
+        let open = period.open.as_ref().map(|date| self.period_date(date, "OPEN ON")).transpose()?;
+        let close = match &period.close {
+            None => None,
+            Some(None) => Some(None),
+            Some(Some(date)) => Some(Some(self.period_date(date, "CLOSE ON")?)),
+        };
+        if let (Some(PeriodDate::Fixed(open)), Some(Some(PeriodDate::Fixed(close)))) = (&open, &close) {
+            if close < open {
+                let span = period.close.as_ref().and_then(Option::as_ref).map(|date| date.span).unwrap_or_default();
+                return err(format!("the CLOSE date {} is before the OPEN date {}", close, open), span);
+            }
+        }
+        Ok(Period {
+            open,
+            close,
+            clear: period.clear,
         })
+    }
+
+    /// A date literal or a date parameter of the period modifiers.
+    fn period_date(&mut self, date: &Expr, clause: &str) -> Result<PeriodDate, LocatedError> {
+        match &date.kind {
+            ExprKind::Literal(Literal::Date(date)) => Ok(PeriodDate::Fixed(*date)),
+            ExprKind::Param(param) => match self.param(param, date.span)? {
+                (_, DataType::Date) => Ok(PeriodDate::Param(param.clone(), date.span)),
+                (_, ty) => err(format!("{} expects a date, but parameter {} is a {}", clause, param, ty), date.span),
+            },
+            _ => err(format!("{} expects a date literal or a date parameter", clause), date.span),
+        }
     }
 
     fn target(&mut self, expr: &Expr, alias: Option<String>) -> Result<(PlannedTarget, Option<(String, Span)>), LocatedError> {
         let mut info = ExprInfo::default();
         let (compiled, ty) = self.expr(expr, Mode::Target, &mut info)?;
-        let name = alias.unwrap_or_else(|| self.text(expr.span).to_owned());
+        let name = alias.unwrap_or_else(|| self.name(expr.span, &compiled));
         Ok((
             PlannedTarget {
                 name,
@@ -341,7 +503,7 @@ impl Compiler<'_> {
         let mut info = ExprInfo::default();
         let (compiled, ty) = self.expr(item, mode, &mut info)?;
         targets.push(PlannedTarget {
-            name: self.text(item.span).to_owned(),
+            name: self.name(item.span, &compiled),
             ty,
             expr: compiled,
             is_aggregate: info.has_aggregate,
@@ -360,7 +522,7 @@ impl Compiler<'_> {
         Ok(match &expr.kind {
             ExprKind::Literal(literal) => return Ok(literal_value(literal)),
             ExprKind::Param(param) => return self.param(param, span),
-            ExprKind::Column(name) => return column_ref(name, span, info),
+            ExprKind::Column(name) => return column_ref(name, span, mode, info),
             ExprKind::Call { name, args, star } => self.call(name, args, *star, span, mode, info)?,
             ExprKind::Unary(op, inner) => {
                 let operand = self.expr(inner, mode, info)?;
@@ -617,13 +779,22 @@ fn literal_value(literal: &Literal) -> Typed {
     }
 }
 
-fn column_ref(name: &str, span: Span, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+fn column_ref(name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
     match column(name) {
         Some(def) => {
             if info.bare_column.is_none() {
                 info.bare_column = Some((def.name.to_owned(), span));
             }
-            Ok((CExpr::Column(def), def.ty))
+            if def.name != BALANCE_COLUMN {
+                return Ok((CExpr::Column(def), def.ty));
+            }
+            if let Mode::Row(clause @ ("FROM" | "WHERE")) = mode {
+                return err(
+                    format!("balance cannot be used in {}: the running balance adds up the rows the filter selects", clause),
+                    span,
+                );
+            }
+            Ok((CExpr::Running(Running::Balance), def.ty))
         }
         None => {
             let hint = if crate::functions::SCALAR_FUNCTIONS.iter().any(|it| it.name == name) || is_aggregate(name) {
@@ -740,7 +911,7 @@ impl CExpr {
     pub(crate) fn map_children<E>(self, f: &mut impl FnMut(CExpr) -> Result<CExpr, E>) -> Result<CExpr, E> {
         let boxed = |expr: Box<CExpr>, f: &mut dyn FnMut(CExpr) -> Result<CExpr, E>| f(*expr).map(Box::new);
         Ok(match self {
-            leaf @ (CExpr::Const(_) | CExpr::Column(_) | CExpr::Param(_) | CExpr::Aggregate(_)) => leaf,
+            leaf @ (CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_)) => leaf,
             CExpr::Scalar { function, args, span } => CExpr::Scalar {
                 function,
                 args: args.into_iter().map(&mut *f).collect::<Result<_, _>>()?,
@@ -806,7 +977,7 @@ impl CExpr {
     /// The direct children of this node.
     pub(crate) fn children(&self) -> Vec<&CExpr> {
         match self {
-            CExpr::Const(_) | CExpr::Column(_) | CExpr::Param(_) | CExpr::Aggregate(_) => vec![],
+            CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_) => vec![],
             CExpr::Scalar { args, .. } => args.iter().collect(),
             CExpr::WidenInt(inner) | CExpr::Neg(inner, _) | CExpr::Not(inner) => vec![inner],
             CExpr::And(operands) | CExpr::Or(operands) => operands.iter().collect(),
@@ -824,8 +995,14 @@ impl CExpr {
 
     /// Add the names of the columns this expression reads to `columns`.
     pub(crate) fn collect_columns(&self, columns: &mut BTreeSet<&'static str>) {
-        if let CExpr::Column(def) = self {
-            columns.insert(def.name);
+        match self {
+            CExpr::Column(def) => {
+                columns.insert(def.name);
+            }
+            CExpr::Running(_) => {
+                columns.insert(BALANCE_COLUMN);
+            }
+            _ => {}
         }
         for child in self.children() {
             child.collect_columns(columns);
@@ -870,6 +1047,7 @@ impl fmt::Display for CExpr {
             CExpr::Const(Value::Date(it)) => write!(f, "{}", it),
             CExpr::Const(value) => write!(f, "{}", value),
             CExpr::Column(def) => f.write_str(def.name),
+            CExpr::Running(running) => f.write_str(running.expression()),
             CExpr::Param(param) => write!(f, "{}", param),
             CExpr::Scalar { function, args, .. } => {
                 write!(f, "{}(", function.name)?;
@@ -935,6 +1113,9 @@ impl fmt::Display for Plan {
                 None => writeln!(f, "agg#{}: {}(*)", idx, aggregate.function.name)?,
             }
         }
+        if let Some(period) = &self.period {
+            writeln!(f, "period: {}", period)?;
+        }
         match &self.filter {
             Some(filter) => writeln!(f, "filter: {}", filter)?,
             None => {
@@ -958,7 +1139,30 @@ impl fmt::Display for Plan {
             writeln!(f, "distinct")?;
         }
         if let Some(limit) = self.limit {
-            writeln!(f, "limit: {}", limit)?;
+            let how = match self.execution.limit {
+                LimitMode::AfterSort => "",
+                LimitMode::StopScan => " (stops the scan)",
+                LimitMode::TopK => " (top-k while scanning)",
+                LimitMode::FirstGroups => " (first groups only)",
+            };
+            writeln!(f, "limit: {}{}", limit, how)?;
+        }
+        for rewrite in &self.execution.rewrites {
+            writeln!(f, "rewrite: {} -> running {}", rewrite.expression(), rewrite.name())?;
+        }
+        let running = &self.execution.running;
+        if running.used() {
+            let mut how = vec![];
+            if running.eager {
+                how.push("running while scanning".to_owned());
+            }
+            if !running.deferred_targets.is_empty() {
+                how.push(format!("deferred targets {:?}", running.deferred_targets));
+            }
+            for idx in &running.deferred_aggregates {
+                how.push(format!("deferred agg#{}", idx));
+            }
+            writeln!(f, "balance: {}", how.join(", "))?;
         }
         Ok(())
     }

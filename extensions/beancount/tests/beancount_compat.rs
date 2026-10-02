@@ -79,3 +79,46 @@ fn pushmeta_applies_to_following_directives() {
     );
     assert_eq!(opens[1].meta.get_one("project"), None, "after popmeta: no meta");
 }
+
+#[test]
+fn query_directive_round_trips_through_the_beancount_exporter() {
+    use beancount::Beancount;
+    use zhang_ast::ZhangString;
+
+    let beancount = Beancount::default();
+    let content = "2014-07-09 query \"france-balances\" \"SELECT account, sum(position) WHERE 'trip-france-2014' in tags\"\n  owner: \"alice\"\n";
+    let directive = beancount.transform(content.to_string(), None).unwrap().pop().unwrap();
+    let Directive::Query(query) = &directive.data else {
+        panic!("expected a query directive, got {:?}", directive.data);
+    };
+    assert_eq!(query.name, ZhangString::quote("france-balances"));
+    assert_eq!(query.meta.get_one("owner"), Some(&ZhangString::quote("alice")));
+
+    let exported = beancount.export(directive.clone());
+    assert_eq!(exported, content.trim_end());
+    let reparsed = beancount.transform(exported, None).unwrap().pop().unwrap();
+    assert_eq!(reparsed.data, directive.data);
+}
+
+#[test]
+fn query_directive_keeps_its_time_and_quotes_its_name_for_beancount() {
+    use beancount::Beancount;
+    use zhang_ast::{Date, ZhangString};
+
+    let beancount = Beancount::default();
+    // zhang syntax accepts a bare name and a datetime; beancount needs a quoted name and a date
+    let zhang = ZhangDataType::default()
+        .transform("2014-07-09 10:30:00 query cash \"SELECT account\"\n".to_string(), None)
+        .unwrap()
+        .pop()
+        .unwrap();
+    let exported = beancount.export(zhang);
+    assert_eq!(exported, "2014-07-09 query \"cash\" \"SELECT account\"\n  time: \"10:30:00\"");
+
+    let Directive::Query(query) = beancount.transform(exported, None).unwrap().pop().unwrap().data else {
+        panic!("expected a query directive");
+    };
+    assert_eq!(query.name, ZhangString::quote("cash"));
+    assert!(matches!(query.date, Date::Datetime(_)), "the time meta is folded back into the date");
+    assert_eq!(query.meta.get_one("time"), None);
+}

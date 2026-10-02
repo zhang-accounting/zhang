@@ -1,0 +1,12 @@
+{
+  "name": "error_clear_before_close",
+  "query": "SELECT count(*) FROM CLEAR CLOSE ON 2017-01-01",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": "The modifiers have a fixed order: [<expr>] [OPEN ON d] [CLOSE [ON d]] [CLEAR]."
+}

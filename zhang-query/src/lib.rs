@@ -46,14 +46,20 @@
 mod ast;
 mod compiler;
 pub mod decimal;
+#[cfg(test)]
+mod equivalence_tests;
 pub mod error;
 mod executor;
+pub mod export;
 pub mod functions;
 mod optimizer;
 pub mod params;
 mod parser;
+mod period;
 pub mod prices;
 mod projector;
+mod running;
+mod statements;
 pub mod table;
 pub mod value;
 
@@ -101,7 +107,24 @@ impl Query {
     pub fn compile_with_params(query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
         let select = parser::parse(query)?;
         let plan = compiler::compile(query, &select, params).map_err(|err| err.resolve(query))?;
-        let plan = optimizer::optimize(plan).map_err(|err| err.resolve(query))?;
+        let mut plan = optimizer::optimize(plan).map_err(|err| err.resolve(query))?;
+        projector::plan_running(&mut plan);
+        let projection = projector::project(&plan);
+        Ok(Query {
+            source: query.to_owned(),
+            plan,
+            projection,
+        })
+    }
+
+    /// Compile without the execution decisions of the optimizer and the projector: every
+    /// expression is evaluated for every row and LIMIT applies to the sorted rows. Tests
+    /// compare it with [`Query::compile`], which must return the same results.
+    #[cfg(test)]
+    pub(crate) fn compile_naive(query: &str) -> Result<Query, QueryError> {
+        let select = parser::parse(query)?;
+        let plan = compiler::compile(query, &select, &ParamTypes::default()).map_err(|err| err.resolve(query))?;
+        let plan = optimizer::optimize_naive(plan).map_err(|err| err.resolve(query))?;
         let projection = projector::project(&plan);
         Ok(Query {
             source: query.to_owned(),
@@ -139,7 +162,7 @@ impl Query {
     }
 
     /// Execute against a ledger, with `today()` read from the system clock in the ledger's
-    /// timezone and the [`DEFAULT_TIMEOUT`].
+    /// timezone, the [`DEFAULT_TIMEOUT`] and the [`DEFAULT_MAX_RESULT_VALUES`].
     ///
     /// This reads the system clock; on targets without one (e.g. `wasm32-unknown-unknown`)
     /// use [`Query::execute_at`].
@@ -150,12 +173,13 @@ impl Query {
             &ExecuteOptions {
                 today: None,
                 timeout: Some(DEFAULT_TIMEOUT),
+                max_result_values: Some(DEFAULT_MAX_RESULT_VALUES),
             },
         )
     }
 
-    /// Execute against a ledger with a fixed date for `today()` and no time limit. It never
-    /// reads the clock.
+    /// Execute against a ledger with a fixed date for `today()`, no time limit and the
+    /// [`DEFAULT_MAX_RESULT_VALUES`]. It never reads the clock.
     pub fn execute_at(&self, ledger: &Ledger, params: &Params, today: NaiveDate) -> Result<QueryResult, QueryError> {
         self.execute_with_options(
             ledger,
@@ -163,6 +187,7 @@ impl Query {
             &ExecuteOptions {
                 today: Some(today),
                 timeout: None,
+                max_result_values: Some(DEFAULT_MAX_RESULT_VALUES),
             },
         )
     }
@@ -186,13 +211,29 @@ impl Query {
                 Some(_) => {}
             }
         }
+        let period = self
+            .plan
+            .period
+            .as_ref()
+            .map(|period| period.resolve(params))
+            .transpose()
+            .map_err(|err| err.resolve(&self.source))?;
         let today = options.today.unwrap_or_else(|| Utc::now().with_timezone(&ledger.options.timezone).date_naive());
         let store = ledger
             .store
             .read()
             .map_err(|_| QueryError::new(QueryErrorKind::Eval, "the ledger store is not readable"))?;
-        let data = table::Dataset::new(ledger, &store, today, self.projection);
-        let rows = executor::execute(&self.plan, &data, params, deadline).map_err(|err| err.resolve(&self.source))?;
+        let equity;
+        let data = match &period {
+            None => table::Dataset::new(ledger, &store, today, self.projection),
+            Some(period) => {
+                equity = period::EquityAccounts::from_options(&store.options);
+                let data = table::Dataset::new(ledger, &store, today, self.projection.with_cost());
+                period.apply(data, ledger, &equity)
+            }
+        };
+        let budget = executor::Budget::new(options.max_result_values);
+        let rows = executor::execute_within(&self.plan, &data, params, deadline, budget).map_err(|err| err.resolve(&self.source))?;
         Ok(QueryResult { columns: self.columns(), rows })
     }
 }
@@ -200,8 +241,19 @@ impl Query {
 /// The time limit [`Query::execute`] applies.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// The result size [`Query::execute`], [`Query::execute_at`] and [`ExecuteOptions::default`]
+/// allow, in values: every cell is one value, and every position of a position or inventory
+/// cell, element of a set and 64 bytes of text one more (see
+/// [`ExecuteOptions::max_result_values`]).
+///
+/// One million values is about five times the largest result of the fava demo ledger (its
+/// whole `JOURNAL`: 3,209 rows whose running balances hold 178,576 positions, about 210,000
+/// values), and bounds a result to roughly 400 MB in memory (an inventory position takes
+/// about 370 bytes) and 120 MB of JSON.
+pub const DEFAULT_MAX_RESULT_VALUES: u64 = 1_000_000;
+
 /// Options of one execution.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecuteOptions {
     /// the date returned by `today()`; `None` reads the system clock in the ledger's timezone
     pub today: Option<NaiveDate>,
@@ -209,6 +261,23 @@ pub struct ExecuteOptions {
     /// (checked every few hundred rows); `None` for no limit. A limit reads the monotonic
     /// clock, so leave it `None` on targets without one.
     pub timeout: Option<Duration>,
+    /// stop with a [`QueryErrorKind::TooLarge`] error as soon as the execution would hold more
+    /// than this many values of its result: one per cell, plus one per position of a position
+    /// or inventory, per element of a set and per 64 bytes of text. It covers the rows before
+    /// ORDER BY, DISTINCT and LIMIT apply (a LIMIT without ORDER BY stops early) and the
+    /// groups of an aggregate query while they are built. `None` for no limit.
+    pub max_result_values: Option<u64>,
+}
+
+/// No time limit, today from the clock, and the [`DEFAULT_MAX_RESULT_VALUES`].
+impl Default for ExecuteOptions {
+    fn default() -> Self {
+        ExecuteOptions {
+            today: None,
+            timeout: None,
+            max_result_values: Some(DEFAULT_MAX_RESULT_VALUES),
+        }
+    }
 }
 
 /// Compile and execute a query without parameters.

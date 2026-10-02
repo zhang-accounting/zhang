@@ -1,14 +1,14 @@
 ---
 title: 查询语言
-description: 张记账兼容 BQL 的查询语言参考，包括语法、postings 表、类型、函数、HTTP API 以及与 Beancount 查询语言的差异。
+description: 张记账兼容 BQL 的查询语言参考，包括语法、BALANCES 和 JOURNAL 语句、会计期间、postings 表、类型、函数、图表、保存的查询、CSV 导出、HTTP API 以及与 Beancount 查询语言的差异。
 ---
 
-张记账提供了一门小型查询语言，用来临时回答关于账本的各种问题。它支持 [Beancount 查询语言（BQL）](https://beancount.github.io/docs/beancount_query_language/)的一个子集，为 Beancount 或 Fava 编写的大多数 `SELECT` 查询无需修改即可使用。当 BQL v2 与其后继者 [beanquery](https://github.com/beancount/beanquery) 行为不一致时，张记账以 beanquery 为准，本页末尾列出的少数有意为之的差异除外。
+张记账提供了一门小型查询语言，用来临时回答关于账本的各种问题。它支持 [Beancount 查询语言（BQL）](https://beancount.github.io/docs/beancount_query_language/)的一个子集，为 Beancount 或 Fava 编写的大多数查询无需修改即可使用。当 BQL v2 与其后继者 [beanquery](https://github.com/beancount/beanquery) 行为不一致时，张记账以 beanquery 为准，本页末尾列出的少数有意为之的差异除外。
 
 查询直接在张记账已加载到内存中的账本上执行。查询是只读的，所有运算都使用精确的十进制数，金额永远不会经过浮点数转换。
 
 :::caution[早期版本]
-本页描述的是查询语言的第一个版本（[#434](https://github.com/zhang-accounting/zhang/issues/434) 的第一阶段）：只支持在单一的 `postings` 表上执行 `SELECT` 查询。尚未支持的功能见[与 BQL 和 beanquery 的差异](#与-bql-和-beanquery-的差异)。
+本页描述的是 [#434](https://github.com/zhang-accounting/zhang/issues/434) 第二阶段的查询语言：在单一的 `postings` 表上执行的 `SELECT`、`BALANCES` 和 `JOURNAL` 语句，会计期间子句 `OPEN ON`、`CLOSE` 和 `CLEAR`，保存的查询以及 CSV 导出。尚未支持的功能见[与 BQL 和 beanquery 的差异](#与-bql-和-beanquery-的差异)。
 :::
 
 ## 运行查询
@@ -19,12 +19,63 @@ description: 张记账兼容 BQL 的查询语言参考，包括语法、postings
 
 - 在编辑器中输入查询。只有点击运行按钮或按下 <kbd>Ctrl</kbd>+<kbd>Enter</kbd>（macOS 上为 <kbd>Cmd</kbd>+<kbd>Enter</kbd>）时才会执行，输入过程中不会自动执行。
 - 结果以表格展示，每个单元格按其[类型](#类型)渲染。库存（inventory）单元格每行显示一个持仓。
+- 由一个标签和一个数值或金额组成的两列结果，还会在表格上方绘制成图表，见[图表](#图表)。
 - 查询出错时，编辑器会高亮出错的行和列。
-- 示例菜单可以插入现成的查询，参考面板列出了所有列和函数。
+- **示例** 菜单把现成的查询放进编辑器并执行，其中包括损益表、年末余额和账户流水。
+- **已保存** 菜单列出账本中保存的查询，见[保存的查询](#保存的查询)。
+- **参考** 面板列出了所有列和函数。
+- **导出 CSV** 把结果下载为 CSV 文件，见[导出为 CSV](#导出为-csv)。
+
+#### 图表
+
+当结果正好有两列、至少有一行，并且第二列是数值或金额（`int`、`decimal`、`amount`、`position` 或 `inventory`）时，查询页面会把它绘制成图表。图表的种类由第一列决定：
+
+| 第一列 | 图表 |
+|--------|------|
+| `date` | 折线图，每个日期一个点，按日期升序排列。 |
+| `str`，且每个标签看起来都是账户名 | 按账户层级绘制的矩形树图。 |
+| 其他 `str` | 柱状图，每个标签一根柱子，按结果中的顺序排列。最多绘制 50 根柱子。 |
+
+- 由不含空格、以 `:` 分隔的若干段组成的标签，看起来就是账户名。至少要有一个标签包含 `:`，空标签和 `NULL` 标签不参与判断。
+- 持仓和库存按单位绘制，不计成本。图表每次只显示一种货币。结果中有多种货币时，可以用 **货币** 选择器选择要绘制的货币。默认选中账本的运营货币（`operating_currency` 选项，如果结果中有），否则选中出现在最多行中的货币。
+- 标签相同的行会相加，值为 `NULL` 的行会被跳过。在折线图中，在所选货币下没有值的日期按零绘制。
+- 在矩形树图中，账户按其各段逐层嵌套，所有账户共有的顶层（例如 `Expenses`）会被省略。矩形的面积表示绝对值，颜色表示值的正负。
+- 数值的相加是精确的，只在绘制时才转换为浮点数。
+- **图表** 开关可以隐藏或显示图表，浏览器会记住这个设置。
+
+下面的查询把一年的支出绘制成矩形树图：
+
+```sql
+SELECT account, sum(position) WHERE account ~ '^Expenses' AND year = 2024 GROUP BY account
+```
+
+下面的查询把每月支出绘制成折线图：
+
+```sql
+SELECT yearmonth(date) AS month, sum(position) WHERE account ~ '^Expenses' GROUP BY month ORDER BY month
+```
+
+#### 保存的查询
+
+用 [`query` 指令](/zh-cn/directives/query/)保存在账本中的查询，会出现在 **已保存** 菜单中：
+
+```zhang
+2024-01-01 query "food by payee" "SELECT payee, sum(position) WHERE account ~ '^Expenses:Food' GROUP BY payee"
+```
+
+- 每一项显示查询的名字、日期和查询文本的开头。查询按账本顺序列出；同名的查询都会列出，可以通过日期区分。
+- 选择一项会把它的查询放进编辑器并执行。
+- 无法被当前版本的查询引擎编译的查询依然会列出，标记为 **（无效）**，并显示错误信息。加载账本时不会检查保存的查询，所以无效的查询不会让账本报告错误。
+- 每次打开菜单都会重新获取列表，所以打开页面之后才加入账本的查询，无需刷新页面就会出现。
+- 查询是账本文件中带引号的字符串，所以其中的每个反斜杠都要写两次：要保存正则表达式 `\d+`，请写 `'\\d+'`。见[转义](/zh-cn/directives/query/#转义)。
+
+#### 导出为 CSV
+
+**导出 CSV** 把编辑器中的查询发送到 [`POST /api/query/csv`](#csv-导出)，并把结果下载为 `query.csv`。查询不需要先执行。金额、持仓和库存会按货币拆分成数值列，因此文件可以直接在电子表格中打开。如果查询有错误，错误的显示方式与执行失败时相同。在电子表格软件中打开导出的文件之前，请先阅读[关于公式的注意事项](#csv-导出)。
 
 ### 通过 HTTP
 
-将查询发送到 `POST /api/query`。请求和响应格式见 [HTTP API](#http-api)。
+将查询发送到 `POST /api/query`；发送到 `POST /api/query/csv` 则得到 CSV 格式的结果。`GET /api/query/saved` 列出保存的查询。请求和响应格式见 [HTTP API](#http-api)。
 
 ## 第一个查询
 
@@ -45,19 +96,25 @@ LIMIT 10
 
 ```text
 SELECT [DISTINCT] target [, target ...] | *
-  [FROM expression]
+  [FROM from_clause]
   [WHERE expression]
   [GROUP BY group_key [, group_key ...]]
   [ORDER BY order_key [ASC | DESC] [, order_key [ASC | DESC] ...]]
   [LIMIT count]
   [;]
 
-target    = expression [AS name]
-group_key = expression | target name | target number
-order_key = expression | target name | target number
+BALANCES [AT function] [FROM from_clause] [WHERE expression] [;]
+
+JOURNAL ['pattern'] [AT function] [FROM from_clause] [;]
+
+target      = expression [AS name]
+group_key   = expression | target name | target number
+order_key   = expression | target name | target number
+from_clause = [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
 ```
 
-- 各子句必须按上面的顺序出现。除 `SELECT` 外都是可选的，末尾可以有一个 `;`。
+- 一个查询就是一条语句：`SELECT`，或者简写形式 [`BALANCES` 和 `JOURNAL`](#balances-与-journal) 之一。不支持 `PRINT`。
+- 各子句必须按上面的顺序出现。除开头的关键字外都是可选的，末尾可以有一个 `;`。
 - 关键字、列名和函数名都不区分大小写：`SELECT account`、`select ACCOUNT` 和 `Select Account` 是同一个查询。
 - 名字由 ASCII 字母、数字和下划线组成，不能以数字开头。`SELECT`、`DISTINCT`、`FROM`、`WHERE`、`GROUP`、`BY`、`ORDER`、`ASC`、`DESC`、`LIMIT`、`AS`、`AND`、`OR`、`NOT`、`IN`、`IS`、`NULL`、`TRUE`、`FALSE`、`HAVING` 和 `PIVOT` 是保留字，不能用作列名。
 - 词法单元之间的空格和换行没有意义，一个查询可以分成多行书写。
@@ -65,11 +122,13 @@ order_key = expression | target name | target number
 
 ### 查询的执行过程
 
-1. `FROM` 和 `WHERE` 决定哪些分录参与计算。
-2. 如果查询使用了[聚合函数](#聚合函数)或带有 `GROUP BY` 子句，被选中的分录会被分组，每组产生一行；否则每条分录产生一行。
-3. `ORDER BY` 对结果行排序。
-4. `DISTINCT` 去除重复的行，每组重复只保留第一行。
-5. `LIMIT` 保留前面的若干行，丢弃其余的行。
+1. 如果 `FROM` 中有[会计期间子句](#会计期间)（`OPEN ON`、`CLOSE` 和 `CLEAR`），它们先改写整个账本的分录。
+2. `FROM` 中的表达式和 `WHERE` 子句决定哪些分录参与计算。
+3. 如果查询读取了[累计余额](#累计余额)，就按账本顺序在被选中的分录上累加。
+4. 如果查询使用了[聚合函数](#聚合函数)或带有 `GROUP BY` 子句，被选中的分录会被分组，每组产生一行；否则每条分录产生一行。
+5. `ORDER BY` 对结果行排序。
+6. `DISTINCT` 去除重复的行，每组重复只保留第一行。
+7. `LIMIT` 保留前面的若干行，丢弃其余的行。
 
 在读取任何分录之前，张记账会先检查并简化查询。只包含常量的部分（例如 `'^Expenses:' + 'Food'`）在这时就计算一次。依赖账本或当前日期的函数（`today`、`convert`、`value`、`getprice` 和元数据函数）不会被提前计算。因此，常量模式中无效的正则表达式会立即报错并给出位置，即使没有任何分录会与它匹配。
 
@@ -84,7 +143,7 @@ order_key = expression | target name | target number
 
 ### FROM
 
-在第一阶段中，`FROM` 后面跟的是表达式而不是表名。它和 `WHERE` 一样过滤分录；当两者同时存在时，分录必须同时满足两个条件：
+`FROM` 后面跟的是表达式、[会计期间子句](#会计期间)或两者兼有，而不是表名。其中的表达式和 `WHERE` 一样过滤分录；当两者同时存在时，分录必须同时满足两个条件：
 
 ```sql
 SELECT account, sum(position)
@@ -95,7 +154,16 @@ GROUP BY account
 
 等价于 `... WHERE (year = 2024) AND (account ~ '^Expenses') ...`。这与 beanquery 的行为一致，在 `FROM` 中做过滤的 BQL 查询因此可以继续使用。
 
-查询总是读取 `postings` 表。在 `FROM` 中写表名（如 `FROM postings` 或 `FROM #postings`）会报错，时间段子句 `OPEN ON`、`CLOSE ON` 和 `CLEAR` 也会报错，替代写法见[变通方法](#变通方法)。
+会计期间子句写在表达式之后。它们先改写分录，表达式再过滤改写后的分录：
+
+```sql
+SELECT account, sum(position)
+FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01
+WHERE account ~ '^(Income|Expenses)'
+GROUP BY account
+```
+
+查询总是读取 `postings` 表。在 `FROM` 中写表名（如 `FROM postings` 或 `FROM #postings`）会报错。
 
 ### WHERE
 
@@ -133,6 +201,169 @@ GROUP BY category
 ### LIMIT
 
 `LIMIT n` 在排序和 `DISTINCT` 之后保留前 `n` 行。`n` 必须是非负整数字面量。`LIMIT 0` 不返回任何行。
+
+### 参数
+
+张记账在自己的代码中（通过 `zhang-query` crate 的 Rust API）执行查询时，查询中凡是可以写值的地方都可以写参数 `$1`、`$2`、... 或 `:name`，参数的值另行绑定。`JOURNAL` 的模式以及 `OPEN ON` 和 `CLOSE ON` 的日期也可以是参数。HTTP API 不绑定参数，所以通过 HTTP 发送的查询中如果含有参数，会报错 `parameter $1 is not bound`。
+
+## BALANCES 与 JOURNAL
+
+与 beanquery 一样，`BALANCES` 和 `JOURNAL` 是两种常用查询的简写。张记账在执行之前会把它们改写为下面所示的 `SELECT`，所以本页关于 `SELECT` 的所有内容同样适用于它们。
+
+### BALANCES
+
+```text
+BALANCES [AT function] [FROM from_clause] [WHERE expression]
+```
+
+等价于
+
+```text
+SELECT account, sum(function(position))
+FROM from_clause
+WHERE expression
+GROUP BY account, account_sortkey(account)
+ORDER BY account_sortkey(account)
+```
+
+- 每个有分录的账户一行，给出其持仓之和。分录合计为零的账户也会列出，值为空库存。
+- 账户先按类型排序，顺序为 `Assets`、`Liabilities`、`Equity`、`Income`、`Expenses`，再按名字排序，见 [`account_sortkey`](#账户函数)。
+- `FROM` 和 `WHERE` 决定哪些分录参与求和。`BALANCES FROM year = 2024` 给出的是各账户在 2024 年内的变化，而不是年末余额；年末余额请使用 [`CLOSE ON`](#会计期间)。
+- `BALANCES` 没有 `GROUP BY`、`ORDER BY` 和 `LIMIT` 子句。
+
+```sql
+BALANCES WHERE account ~ '^Assets'
+```
+
+### JOURNAL
+
+```text
+JOURNAL ['pattern'] [AT function] [FROM from_clause]
+```
+
+等价于
+
+```text
+SELECT date, flag, maxwidth(payee, 48), maxwidth(narration, 80), account,
+       function(position), function(balance)
+FROM from_clause
+WHERE account ~ 'pattern'
+```
+
+- 账户与模式匹配的每条分录一行，按账本顺序排列，最后一列是[累计余额](#累计余额)。没有模式时列出所有分录。
+- 模式是写在引号中的正则表达式，用 [`~`](#正则匹配) 匹配，因此不区分大小写，并且可以匹配账户名的任意一部分。`JOURNAL 'checking'` 列出名字中含有 `Checking` 的所有账户。
+- 累计余额把流水中的每一行都加进去，不论属于哪个账户。如果模式匹配了多个账户，余额就是它们的合计余额。
+- 收款方被缩短到 48 个字符，描述被缩短到 80 个字符，见 [`maxwidth`](#字符串函数)。
+- `JOURNAL` 没有 `WHERE`、`GROUP BY`、`ORDER BY` 和 `LIMIT` 子句。请用 `FROM` 过滤分录。
+
+```sql
+JOURNAL 'Assets:Bank:Checking' FROM year = 2024
+```
+
+### AT
+
+`AT function` 把一个函数应用到每个持仓上；在 `JOURNAL` 中，还应用到累计余额上：
+
+| 语句 | 结果列 |
+|------|--------|
+| `BALANCES` | `account`、`sum(position)` |
+| `BALANCES AT cost` | `account`、`sum(cost(position))` |
+| `JOURNAL 'Cash'` | `date`、`flag`、`maxwidth(payee, 48)`、`maxwidth(narration, 80)`、`account`、`position`、`balance` |
+| `JOURNAL 'Cash' AT units` | `date`、`flag`、`maxwidth(payee, 48)`、`maxwidth(narration, 80)`、`account`、`units(position)`、`units(balance)` |
+
+- 函数名后面不加括号。该函数必须接受单个 `position` 参数；用于 `JOURNAL` 时还必须接受单个 `inventory` 参数。常用的是[估值函数](#估值函数) `units`、`cost` 和 `value`，`abs` 和 `neg` 也可以。
+- `AT units` 去掉成本，所以同一货币的各个批次合并为一个持仓。`AT cost` 给出账面价值，`AT value` 给出按最新价格计算的市值。
+- 未知的函数，或者没有合适重载的函数，会报错，错误位置指向函数名。
+- 如表中所示，结果列的命名与等价的 `SELECT` 相同。
+
+## 会计期间
+
+`FROM` 子句中的 `OPEN ON`、`CLOSE` 和 `CLEAR` 像 Beancount 的报表那样，把账本变成某一个会计期间的账簿。有了它们，损益表和资产负债表都只需要一个查询。
+
+2024 年的损益表：
+
+```sql
+SELECT account, sum(position) AS total
+FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01
+WHERE account ~ '^(Income|Expenses)'
+GROUP BY account
+ORDER BY account
+```
+
+2025 年初的资产负债表：
+
+```sql
+BALANCES FROM CLOSE ON 2025-01-01 CLEAR
+WHERE account ~ '^(Assets|Liabilities|Equity)'
+```
+
+### 期间子句的语法
+
+```text
+FROM [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
+```
+
+- 各子句必须按这个顺序出现，每个最多出现一次。`FROM CLEAR OPEN ON 2024-01-01` 会报错。
+- `FROM` 后面至少要有表达式或一个子句，也可以两者都有。
+- 日期是不带引号的日期字面量（例如 `2024-01-01`），或者一个[参数](#参数)。
+- 同时给出两个日期时，`CLOSE` 的日期不能早于 `OPEN` 的日期，两者可以相同。
+- 这些子句可以用于 `SELECT`、`BALANCES` 和 `JOURNAL`。
+
+### 各子句的作用
+
+这些子句按 `OPEN`、`CLOSE`、`CLEAR` 的顺序改写账本中的所有分录。之后 `FROM` 中的表达式和 `WHERE` 才选择分录，所以过滤条件不会改变子句的计算结果。例如 `FROM year = 2023 OPEN ON 2024-01-01` 只保留日期为 2023-12-31 的期初余额。
+
+**`OPEN ON d`** 让期间从 `d` 开始，并把 `d` 之前的所有内容替换为期初余额：
+
+1. `d` 之前的转换差额被转入 `Equity:Conversions:Previous`。转换差额是所有分录按成本计价后合计不为零的部分。按价格（`@`）把一种货币兑换为另一种货币的交易会留下这样的差额，批次买入时的舍入也会。
+2. `d` 之前收入和支出账户的余额被转入 `Equity:Earnings:Previous`，因此这些账户在期间开始时为零。
+3. 仍有余额的每个账户得到一笔汇总交易，标记为 `S`，日期为 `d − 1`。余额中的每个批次对应一条分录，所以持仓保留其成本、成本日期和标签；每条分录在 `Equity:Opening-Balances` 上都有一条按该批次成本计的对应分录。
+
+`d` 当天及之后的分录保持不变。
+
+**`CLOSE ON d`** 让期间在 `d` 之前结束。日期为 `d` 或更晚的分录被丢弃，所以 `d` 当天不属于该期间。如果剩下的分录存在转换差额，会加入一笔标记为 `C`、日期为 `d − 1` 的转换交易，把差额记入 `Equity:Conversions:Current`。这些分录的价格为零，以转换货币（默认为 `NOTHING`）计。
+
+不带日期的 **`CLOSE`** 不丢弃任何分录，只加入上述转换交易，其日期为期间内最后一笔条目的日期。
+
+**`CLEAR`** 把每个收入和支出账户的余额转入 `Equity:Earnings:Current`，每个账户一笔转账交易，标记为 `T`，日期为期间内最后一笔条目的日期。之后收入和支出账户的合计为零，资产负债表因此平衡。
+
+期间内的最后一笔条目，指期间内的分录，以及账本中从 `OPEN` 日期到 `CLOSE` 日期前一天的其他带日期指令（例如价格和余额断言）中，日期最晚的那一个。预算指令不计算在内。
+
+### 合成交易
+
+这些子句加入的交易和其他交易一样，是 postings 表中的行：
+
+| 标记 | 由谁加入 | 日期 | 描述 | 账户 |
+|------|----------|------|------|------|
+| `S` | `OPEN ON d` | `d − 1` | `Opening balance for '<account>' (Summarization)` | 该账户，以及 `Equity:Opening-Balances` |
+| `C` | `CLOSE` | `CLOSE ON d` 时为 `d − 1`，否则为期间内最后一笔条目的日期 | `Conversion for (<inventory>)` | `Equity:Conversions:Current` |
+| `T` | `CLEAR` | 期间内最后一笔条目的日期 | `Transfer balance for '<account>' (Transfer balance)` | 该账户，以及 `Equity:Earnings:Current` |
+
+- 它们的 `payee` 为 `NULL`，没有标签、链接和元数据。同一笔交易的所有分录共享一个 `id`。
+- 对应分录的描述就是它所属交易的描述，因此其中写的是它所平衡的账户。
+- `OPEN` 产生的前期收益和前期转换差额，表现为 `Equity:Earnings:Previous` 和 `Equity:Conversions:Previous` 两个账户的 `S` 交易。
+- 它们计入[累计余额](#累计余额)。使用 `OPEN ON` 之后，每个账户的第一行就是它的期初余额。
+- 可以按 `flag` 过滤它们。例如 `WHERE flag != 'S'` 会隐藏期初余额。
+
+```sql
+SELECT flag, count(*) FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01 CLEAR WHERE flag IN ('S', 'C', 'T') GROUP BY flag
+```
+
+### 权益账户
+
+这些子句记账所用的账户不需要在账本中开立。表格最后一列的 Beancount 选项可以修改它们：
+
+| 账户 | 使用者 | 选项 |
+|------|--------|------|
+| `Equity:Opening-Balances` | `OPEN ON` | `account_previous_balances` |
+| `Equity:Earnings:Previous` | `OPEN ON` | `account_previous_earnings` |
+| `Equity:Conversions:Previous` | `OPEN ON` | `account_previous_conversions` |
+| `Equity:Earnings:Current` | `CLEAR` | `account_current_earnings` |
+| `Equity:Conversions:Current` | `CLOSE` | `account_current_conversions` |
+
+- 选项给出的是名字中 `Equity:` 之后的部分。写了 `option "account_previous_balances" "Opening"` 之后，`OPEN ON` 使用 `Equity:Opening`。
+- 不是有效账户名的值（例如空值或含有空格的值）会被忽略，此时使用默认账户。
+- `option "conversion_currency" "..."` 设置转换分录零价格所用的货币，默认为 `NOTHING`。
 
 ## 字面量
 
@@ -260,9 +491,9 @@ WHERE payee IN ('Amazon')
 
 ## postings 表
 
-第一阶段只有一张表 `postings`。每笔交易的每条分录对应一行，交易的字段会重复出现在它的每条分录上。
+只有一张表 `postings`。每笔交易的每条分录对应一行，交易的字段会重复出现在它的每条分录上。
 
-- **包含：**所有交易（无论标记是什么），以及张记账为 `balance ... with pad ...` 指令生成的补齐交易。补齐交易的标记为 `P`，收款方为 `Balance Pad`，描述形如 `pad Assets:Bank to Equity:Opening`。
+- **包含：**所有交易（无论标记是什么），以及张记账为 `balance ... with pad ...` 指令生成的补齐交易。补齐交易的标记为 `P`，收款方为 `Balance Pad`，描述形如 `pad Assets:Bank to Equity:Opening`。带有[会计期间子句](#会计期间)的查询还会看到这些子句加入的[合成交易](#合成交易)。
 - **不包含：**余额断言，以及所有非交易指令，例如 `open`、`close`、`price`、`note`、`document` 和预算指令。
 - 没有写金额的分录，使用张记账在平衡交易时推断出的金额。
 - 按成本持有的分录会按[批次记账](#批次记账)中的规则与批次匹配。减少了多个批次的分录会产生多行。
@@ -289,7 +520,7 @@ WHERE payee IN ('Amazon')
 | `year` | `int` | `date` 的年份。 |
 | `month` | `int` | `date` 的月份，1 到 12。 |
 | `day` | `int` | `date` 在当月的日，1 到 31。 |
-| `flag` | `str` | 交易的标记：`*`（没有写标记时也是它）、`!`、表示补齐的 `P`，或自定义标记。 |
+| `flag` | `str` | 交易的标记：`*`（没有写标记时也是它）、`!`、表示补齐的 `P`、表示会计期间子句[合成交易](#合成交易)的 `S`、`C` 或 `T`，或自定义标记。 |
 | `payee` | `str` | 交易的收款方，没有则为 `NULL`。交易头只有一个字符串时，该字符串是描述，收款方为 `NULL`。 |
 | `narration` | `str` | 交易的描述，没有则为 `''`（空字符串），与 Beancount 一致。 |
 | `description` | `str` | 用 `" \| "` 连接收款方和描述。缺失或为空的部分会被省略，所以两者都缺失时为 `''`。 |
@@ -307,6 +538,27 @@ WHERE payee IN ('Amazon')
 | `price` | `amount` | 用 `@` 写出的单价，没有则为 `NULL`。用 `@@` 写出的总价会除以单位数量。 |
 | `weight` | `amount` | 分录在交易平衡中所占的金额：按成本持有时为单位数量乘以单位成本；否则如果有价格，为单位数量乘以价格；否则为单位本身。 |
 | `other_accounts` | `set` | 同一交易中其他分录的账户。 |
+| `balance` | `inventory` | [累计余额](#累计余额)：截至并包括本行的各行持仓之和。不能用在 `FROM` 或 `WHERE` 中。 |
+
+### 累计余额
+
+`balance` 列是 `position` 的累计合计，类型为库存。
+
+- 它从空库存开始，按账本顺序累加通过 `FROM` 和 `WHERE` 的各行。被过滤掉的分录不计入。使用 `WHERE account = 'Assets:Bank:Checking' AND year = 2024` 时，余额从 2024 年的第一条分录开始从零累计。如果要从账户的真实余额开始，请改用 [`OPEN ON` 和 `CLOSE ON`](#会计期间) 限定日期：`FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01 WHERE account = 'Assets:Bank:Checking'`。
+- 它是所有行的一个总计，而不是每个账户各一个。如果只想跟踪一个账户，请只选择该账户的分录。
+- 它在分组、`ORDER BY`、`DISTINCT` 和 `LIMIT` 之前计算，所以对行排序不会改变它们的余额。使用 `ORDER BY date DESC` 时，第一行带有最终余额。
+- 它保留批次，所以以不同成本买入的持仓会显示为多个持仓。`units(balance)` 会把它们合并，`cost(balance)` 给出账面价值。
+- 在聚合查询中，它可以用在聚合函数内部。`last(balance)` 是每组最后一条分录之后的余额。
+- 它不能用在 `FROM` 或 `WHERE` 中，因为正是这两个子句决定了累加哪些行。这样使用会报错。
+
+```sql
+SELECT date, payee, position, balance
+WHERE account = 'Assets:Bank:Checking'
+ORDER BY date DESC
+LIMIT 10
+```
+
+这个查询返回该账户最近的十条分录，每条都带有记账之后的余额。第一行显示的就是当前余额。
 
 ## 类型
 
@@ -436,6 +688,7 @@ WHERE payee IN ('Amazon')
 | `root(str, int) -> str` | 账户名的前 `n` 段。如果账户只有 `n` 段或更少，则原样返回。 | `root('Expenses:Food:Dining', 2)` 为 `'Expenses:Food'` |
 | `parent(str) -> str` | 去掉最后一段后的账户名。顶级账户的结果为 `''`。 | `parent('Expenses:Food:Dining')` 为 `'Expenses:Food'` |
 | `leaf(str) -> str` | 账户名的最后一段。 | `leaf('Expenses:Food:Dining')` 为 `'Dining'` |
+| `account_sortkey(str) -> str` | 一个排序键，先按账户类型排序（顺序为 `Assets`、`Liabilities`、`Equity`、`Income`、`Expenses`），再按名字排序。它由类型的序号（`0` 到 `4`）、`-` 和账户名组成。第一段不完全等于这些类型之一的名字得到 `5`，因此排在它们之后。[`BALANCES`](#balances) 按这个键排序。 | `account_sortkey('Expenses:Food')` 为 `'4-Expenses:Food'` |
 
 ### 日期函数
 
@@ -472,6 +725,14 @@ WHERE payee IN ('Amazon')
 | `str(any) -> str` | 任意值的文本形式。布尔值为 `TRUE` 和 `FALSE`，集合用 `, ` 连接，库存写在括号中。 | `str(2024-01-31)` 为 `'2024-01-31'` |
 | `length(str) -> int` | 字符串中的字符数。 | `length('Food')` 为 `4` |
 | `length(set) -> int` | 集合中的元素个数。 | `length(tags)` |
+| `maxwidth(str, int) -> str` | 把文本缩短到 `n` 个字符以内，与 Python 的 `textwrap.shorten` 相同，详见下文。 | `maxwidth('Paying the  rent', 12)` 为 `'Paying [...]'` |
+
+`maxwidth(text, n)` 分两步处理：
+
+1. 每一段连续的空白都变成一个空格，并去掉两端的空格。如果此时文本不超过 `n` 个字符，就原样返回：`maxwidth('  Eating out ', 48)` 为 `'Eating out'`。
+2. 更长的文本保留尽可能多的完整单词，使其连同占位符 ` [...]` 一起不超过 `n` 个字符，占位符加在末尾。如果连第一个单词都放不下，结果为 `'[...]'`。与 Python 一样，单词也可以在两个字母之间的连字符后断开：`maxwidth('abc-def-ghi jkl', 12)` 为 `'abc- [...]'`。
+
+`n` 至少为 5，即 `[...]` 的长度，更小的宽度会报错。[`JOURNAL`](#journal) 用 `maxwidth` 缩短收款方和描述。
 
 ## HTTP API
 
@@ -544,7 +805,7 @@ curl -X POST http://localhost:8000/api/query \
 - `line` 和 `column` 给出问题在查询文本中的位置，都从 1 开始。
 - `column` 按 Unicode 字符而不是字节计数，一个汉字或带重音的字母算作一列。
 - 错误包括语法错误、未知的列或函数、参数类型错误、不合法的 `GROUP BY` 用法、无效的正则表达式、不支持的语句或子句，以及超出下面的[限制](#限制)。
-- 有些错误没有位置信息，此时 `line` 和 `column` 为 `null`：查询过长、查询超时，以及少数在计算各行时发现的错误（例如 `sum` 中的整数溢出）。
+- 有些错误没有位置信息，此时 `line` 和 `column` 为 `null`：查询过长、查询超时、结果过大，以及少数在计算各行时发现的错误（例如 `sum` 中的整数溢出）。
 
 ### 限制
 
@@ -556,9 +817,59 @@ curl -X POST http://localhost:8000/api/query \
 | 嵌套深度 | 64 层 | `the query is nested too deeply (at most 64 levels)`，位置为达到限制的地方。 |
 | 单个正则表达式编译后的大小 | 1 MiB | `invalid regular expression: Compiled regex exceeds size limit ...`，位置指向该模式。 |
 | 执行时间 | 10 秒 | `the query was stopped because it ran longer than the 10s time limit`，没有位置信息。 |
+| 结果大小 | 默认 1,000,000 个值 | `the result is too large: ...`，没有位置信息。 |
 
 - 嵌套深度统计的是相互嵌套的括号、函数调用、`IN` 列表、`NOT` 和一元负号。由 `AND`、`OR`、`+` 或 `*` 连接的长链（例如 `account = 'A' OR account = 'B' OR ...`）不算嵌套，在长度限制以内可以任意长。
-- 执行时间包括构建 `postings` 表各行的时间。查询运行期间会持有账本的读锁，时间限制也限定了持有读锁的时长。
+- 执行时间包括构建 `postings` 表各行以及应用会计期间子句的时间。查询运行期间会持有账本的读锁，时间限制也限定了持有读锁的时长。
+- 结果大小把每个单元格计为一个值，库存中的每个持仓、集合中的每个元素以及文本中的每 64 字节各再计一个值。查询在 `ORDER BY`、`DISTINCT` 和 `LIMIT` 之前收集的行也计算在内，聚合查询在构建过程中的分组同样如此。超出限制的查询会报错，错误信息建议用 `FROM` 或 `WHERE` 缩小查询范围，或者加上 `LIMIT`。
+- 服务器管理员可以通过环境变量 `ZHANG_QUERY_MAX_RESULT_VALUES` 调高或调低结果大小的限制。
+- `LIMIT` 可以让结果保持较小，[累计余额](#累计余额)的计算方式也有帮助：除非查询按 `balance` 排序、分组或去重，否则只为最终出现在结果中的行构建 `balance`。`units(balance)` 和 `cost(balance)`（以及 `JOURNAL ... AT units` 和 `AT cost`）按货币累加，不保留批次。
+- [CSV 导出](#csv-导出)同样受这些限制。
+
+### CSV 导出
+
+`POST /api/query/csv` 接受与 `POST /api/query` 相同的 JSON 请求体，并以 CSV 文件的形式返回结果：
+
+```shell
+curl -X POST http://localhost:8000/api/query/csv \
+  -H 'Content-Type: application/json' \
+  -d '{"query": "SELECT account, sum(position) AS total WHERE account ~ \"^Assets:Broker\" GROUP BY account"}'
+```
+
+- 响应的内容类型为 `text/csv; charset=utf-8`，并带有 `Content-Disposition: attachment; filename="query.csv"` 头。
+- 查询失败时，返回与 `POST /api/query` 相同的 HTTP 400 错误和 JSON 响应体，见[错误](#错误)。
+
+为了方便在电子表格中使用，金额会像 beanquery 的 *numberify* 选项（`bean-query -m`）那样转换为纯数字：
+
+- 名为 `name` 的 `amount`、`position` 或 `inventory` 列，按货币拆分为多个 `decimal` 列，每种货币一列，列名为 `name (CUR)`。没有出现任何货币的列会被省略。
+- 由同一列拆分出的各列，按其货币出现的行数从多到少排列；行数相同时按货币名降序排列，所以 `USD` 排在 `EUR` 之前。
+- `amount` 把数值写在其货币对应的列中。为零的金额视为缺失：单元格为空，也不计入该列的货币。
+- `position` 给出其单位的数值，不含成本。单位为零时写作 `0`。
+- `inventory` 给出每种货币的单位合计，把所有批次相加，不计成本。合计为零时单元格为空。
+- 其他列保持不变。
+
+例如，对于一个现金账户和一个黄金持仓，上面的查询得到：
+
+```text
+account,total (USD),total (GLD)
+Assets:Broker:Cash,855.83,
+Assets:Broker:GLD,,17
+```
+
+文件遵循 RFC 4180：
+
+- 第一条记录是列名。每条记录都以 CRLF 结尾，最后一条也不例外。
+- `NULL` 为空字段。布尔值写作 `TRUE` 和 `FALSE`，日期写作 `YYYY-MM-DD`，集合写作排好序、用 `,` 连接的元素。
+- 数字是精确的：保留全部数字和小数位，不会补空格、不会舍入，也不会使用指数写法。
+- 含有 `,`、`"`、回车或换行的字段会用双引号括起来，其中的 `"` 写成两个。只有一个空字段的行写作 `""`，以免成为空行。
+
+:::caution[电子表格中的公式]
+与 beanquery 的 CSV 输出一样，文本按原样写出，不做任何防止公式的处理。以 `=`、`+`、`-` 或 `@` 开头的文本单元格（例如收款方或描述），在电子表格软件中打开文件时可能被当作公式。对于并非由你自己编写文本的账本，导出后请谨慎打开，或者把这些列作为文本导入。
+:::
+
+### 列出保存的查询
+
+`GET /api/query/saved` 按账本顺序列出用 [`query` 指令](/zh-cn/directives/query/)保存在账本中的查询。每一项包含 `name`、查询文本 `query`、指令的日期 `date`，以及 `valid` 和 `error`，后两者说明该查询能否被当前的查询引擎编译以及不能编译的原因。响应示例见 [`query` 指令](/zh-cn/directives/query/#http-api)。要执行保存的查询，把它的 `query` 文本发送到 `POST /api/query`。
 
 ### Schema
 
@@ -577,8 +888,8 @@ curl -X POST http://localhost:8000/api/query \
 }
 ```
 
-- `columns` 每列一项，顺序与[列](#列)表格相同。
-- `functions` 每个重载一项：先是聚合函数，然后是标量函数。`signature` 的写法与本页表格相同；[聚合函数](#聚合函数)的 `aggregate` 为 `true`，其他函数为 `false`。
+- `columns` 每列一项，共 23 项，顺序与[列](#列)表格相同，最后一项是累计余额 `balance`。
+- `functions` 每个重载一项，共 66 项：先是聚合函数，然后是标量函数，其中包括 `account_sortkey` 和 `maxwidth`。`signature` 的写法与本页表格相同；[聚合函数](#聚合函数)的 `aggregate` 为 `true`，其他函数为 `false`。
 
 ## 示例
 
@@ -696,20 +1007,66 @@ GROUP BY type
 
 收入在账本中是负数。`possign` 在求和之前把每条收入分录的符号取反，所以两个合计都显示为正数。
 
+### 某一年的损益表
+
+```sql
+SELECT account, sum(position) AS total
+FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01
+WHERE account ~ '^(Income|Expenses)'
+GROUP BY account
+ORDER BY account
+```
+
+`OPEN ON` 把以前各年的收入和支出转入权益，`CLOSE ON` 丢弃 2025 年及以后的所有内容，所以合计只包含 2024 年。
+
+### 资产负债表
+
+```sql
+BALANCES FROM CLOSE ON 2025-01-01 CLEAR
+WHERE account ~ '^(Assets|Liabilities|Equity)'
+```
+
+2025 年初资产、负债和权益账户的余额，按账户类型排序。`CLEAR` 把所有收入和支出转入 `Equity:Earnings:Current`，所以权益账户中包含了收益。
+
+### 按成本计的持仓
+
+```sql
+BALANCES AT cost WHERE account ~ '^Assets'
+```
+
+每个资产账户的账面价值，以其持仓的成本货币计。
+
+### 账户流水
+
+```sql
+JOURNAL 'Assets:Bank:Checking' FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01
+```
+
+该账户在 2024 年的每一条分录，带有累计余额。第一行是 2023 年 12 月 31 日的期初余额，所以余额列显示的是账户的真实余额。
+
+### 每天结束时的余额
+
+```sql
+SELECT date, last(balance) AS closing
+WHERE account = 'Assets:Bank:Checking'
+GROUP BY date
+ORDER BY date
+```
+
+每个有分录的日期一行，给出该账户当天结束时的余额。结果由一个日期列和一个库存列组成，所以查询页面会把它绘制成折线图。
+
 ## 与 BQL 和 beanquery 的差异
 
 ### 尚未支持
 
-- **`SELECT` 以外的语句：**`BALANCES`、`JOURNAL` 和 `PRINT` 会报错。
-- **`FROM` 中的时间段子句：**不支持 `OPEN ON`、`CLOSE ON` 和 `CLEAR`，`FROM` 后面也不能跟表名或子查询。
+- **`PRINT`**，使用时会报错。
 - **`HAVING` 和 `PIVOT BY`。**
-- **其他表：**只有 `postings` 表，没有 entries、prices、accounts、commodities、documents 或 balances 等表。
-- **累计余额 `balance` 列**，以及 beanquery 的 `posting_flag`、`filename`、`lineno`、`location`、`meta`、`entry`、`accounts` 和 `type` 列。
-- **`query` 指令：**尚不能列出或执行保存在账本中的查询（`2024-01-01 query "name" "SELECT ..."`）。
+- **其他表：**只有 `postings` 表，没有 entries、prices、accounts、commodities、documents 或 balances 等表，`FROM` 后面也不能跟表名或子查询。
+- **beanquery 的列** `posting_flag`、`filename`、`lineno`、`location`、`meta`、`entry`、`accounts` 和 `type`。
 - **`BETWEEN` 和 `%` 运算符**，以及 beanquery 的带引号标识符。
-- **本页未列出的函数**，例如 `round`、`safediv`、`account_sortkey`、`has_account`、`open_date`、`close_date`、`open_meta`、`currency_meta`、`grep`、`subst`、`upper`、`lower`、`joinstr`、`findfirst`，类型转换函数 `int`、`decimal` 和 `date`，以及 `date_*` 系列函数。调用它们会报错。
+- **本页未列出的函数**，例如 `round`、`safediv`、`has_account`、`open_date`、`close_date`、`open_meta`、`currency_meta`、`grep`、`subst`、`upper`、`lower`、`joinstr`、`findfirst`，类型转换函数 `int`、`decimal` 和 `date`，以及 `date_*` 系列函数。调用它们会报错。
 
-[#434](https://github.com/zhang-accounting/zhang/issues/434) 中的路线图计划在下一阶段支持 `BALANCES`、`JOURNAL`、`OPEN`/`CLOSE`/`CLEAR`、`query` 指令和 CSV 导出，之后再支持 `HAVING`、`PIVOT BY` 和更多的表。
+[#434](https://github.com/zhang-accounting/zhang/issues/434) 中的路线图计划在之后的阶段支持 `HAVING`、`PIVOT BY` 和更多的表。
 
 ### 行为不同之处
 
@@ -720,30 +1077,14 @@ GROUP BY type
 - **注释**以 `--` 开头。不支持 beanquery 的 `;` 行注释和 `/* */` 块注释。`;` 只能出现在查询末尾。
 - **正则表达式**使用 Rust 语法，不支持环视和反向引用。
 - **记账方法。**使用 `STRICT`、`AVERAGE`、`AVERAGE_ONLY` 或 `NONE` 的账户目前按 FIFO 记账，`STRICT` 下有歧义的匹配也不会报错，见[批次记账](#批次记账)。
-- **限制。**查询的长度、嵌套深度、正则表达式大小和执行时间都有限制，见[限制](#限制)。
+- **限制。**查询的长度、嵌套深度、正则表达式大小、执行时间和结果大小都有限制，见[限制](#限制)。
 - **错误带有位置信息。**只要能定位，每个查询错误都会给出出错的行和列。
 - **全程使用精确小数。**数字是任意精度的十进制数，金额不会以固定的小数位数存储。
-
-### 变通方法
-
-在支持 `OPEN ON` 和 `CLOSE ON` 之前，可以改为按 `date` 过滤。
-
-2024 年的损益表：
-
-```sql
-SELECT account, sum(position)
-WHERE account ~ '^(Income|Expenses)' AND date >= 2024-01-01 AND date < 2025-01-01
-GROUP BY 1
-ORDER BY 1
-```
-
-2025 年 4 月 1 日开始时的资产和负债余额：
-
-```sql
-SELECT account, sum(position)
-WHERE account ~ '^(Assets|Liabilities)' AND date < 2025-04-01
-GROUP BY account
-ORDER BY account
-```
-
-与 `CLOSE ON ... CLEAR` 不同，这些查询不会把收入和支出结转到权益账户，因此只对所选的账户等价。
+- **`BALANCES` 和 `JOURNAL` 的列名**与等价的 `SELECT` 相同：`sum(position)`、`sum(cost(position))` 和 `maxwidth(payee, 48)`。beanquery 把它们命名为 `SUM((position))`、`SUM(cost(position))` 和 `MAXWIDTH(payee, 48)`。
+- **累计余额。**`balance` 不能用在 `FROM` 或 `WHERE` 中，它累加的正好是通过这两个子句的行。beanquery 在每次计算该列时更新余额，所以在 `WHERE` 子句中，它累加的是被测试的行，而不是被保留的行。
+- **`account_sortkey`** 对第一段不是账户类型的名字，返回排在所有类型之后的键。beanquery 会报错。
+- **参数。**`JOURNAL` 的模式以及 `OPEN ON` 和 `CLOSE ON` 的日期可以是[参数](#参数)。beanquery 在这些地方只接受字面量。
+- **`FROM` 中的表达式在会计期间子句之后过滤。**这与 beanquery 一致。在 BQL v2 中，该表达式在应用 `OPEN`、`CLOSE` 和 `CLEAR` 之前选择交易。
+- **权益账户。**`account_previous_*` 或 `account_current_*` 选项的值如果不是有效的账户名，会被忽略，并使用默认账户。
+- **期间内的最后一笔条目**决定 `CLEAR` 的 `T` 交易和不带日期的 `CLOSE` 的 `C` 交易的日期。它不考虑张记账特有的预算指令，Beancount 没有这类指令。
+- **CSV 导出保留精确的数字。**`bean-query` 会为对齐而在数字前补空格（`" 600.00"`），把 numberify 后的数字舍入到各货币的显示精度（`360.03` 而不是 `360.03016`），有些数字还会用指数写法（`1E+3`）。张记账都不会这样做。

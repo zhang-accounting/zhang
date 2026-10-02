@@ -99,6 +99,28 @@ export interface paths {
      */
     post: operations['run_query'];
   };
+  '/api/query/csv': {
+    /**
+     * Run Query Csv
+     * @description Run a BQL-compatible query and download the result as CSV (`query.csv`).
+     *
+     * Amount, position and inventory columns are split into one numeric column per currency,
+     * named like `balance (USD)`, as beanquery's numberify does. Query errors are answered
+     * with HTTP 400 and `{"message", "line", "column"}`, as in `POST /api/query`.
+     */
+    post: operations['run_query_csv'];
+  };
+  '/api/query/saved': {
+    /**
+     * Get Saved Queries
+     * @description The queries saved in the ledger by `query` directives, in ledger order (by date, then
+     * source order). Queries sharing a name are all listed.
+     *
+     * Each query is compiled to report whether it is `valid` with the current engine; an
+     * invalid one is still listed, with its `error`.
+     */
+    get: operations['get_saved_queries'];
+  };
   '/api/query/schema': {
     /**
      * Get Query Schema
@@ -1007,6 +1029,85 @@ export interface operations {
             column: number | null;
             line: number | null;
             message: string;
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Run Query Csv
+   * @description Run a BQL-compatible query and download the result as CSV (`query.csv`).
+   *
+   * Amount, position and inventory columns are split into one numeric column per currency,
+   * named like `balance (USD)`, as beanquery's numberify does. Query errors are answered
+   * with HTTP 400 and `{"message", "line", "column"}`, as in `POST /api/query`.
+   */
+  run_query_csv: {
+    requestBody: {
+      content: {
+        'application/json': {
+          /** @description the BQL query text */
+          query: string;
+        };
+      };
+    };
+    responses: {
+      /** @description the result as RFC 4180 CSV with a header row; amount, position and inventory columns are split into one numeric column per currency, named like `balance (USD)` */
+      200: {
+        headers: {
+          /**
+           * @description download as query.csv
+           * @example attachment; filename="query.csv"
+           */
+          'Content-Disposition': string;
+        };
+        content: {
+          'text/csv; charset=utf-8': string;
+        };
+      };
+      /** @description the query cannot be parsed, compiled or run */
+      400: {
+        content: {
+          'application/json': {
+            column: number | null;
+            line: number | null;
+            message: string;
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Get Saved Queries
+   * @description The queries saved in the ledger by `query` directives, in ledger order (by date, then
+   * source order). Queries sharing a name are all listed.
+   *
+   * Each query is compiled to report whether it is `valid` with the current engine; an
+   * invalid one is still listed, with its `error`.
+   */
+  get_saved_queries: {
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * Format: date
+               * @description the directive's date, `YYYY-MM-DD`
+               */
+              date: string;
+              /** @description why the query does not compile (with its position when known), `null` when valid */
+              error: string | null;
+              name: string;
+              /** @description the query text, verbatim */
+              query: string;
+              /**
+               * @description whether the query compiles with the current engine; saved queries are never
+               * validated at load time, so one written for a future feature is simply `false`
+               */
+              valid: boolean;
+            }[];
           };
         };
       };

@@ -1,0 +1,30 @@
+{
+  "name": "journal_open_close_summary_row",
+  "query": "JOURNAL 'Assets:US:BofA:Checking' FROM OPEN ON 2017-06-01 CLOSE ON 2017-07-01",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "MAXWIDTH(payee, 48)", "type": "str"},
+    {"name": "MAXWIDTH(narration, 80)", "type": "str"},
+    {"name": "account", "type": "str"},
+    {"name": "position", "type": "position"},
+    {"name": "balance", "type": "inventory"}
+  ],
+  "rows": [
+    ["2017-05-31", "S", null, "Opening balance for 'Assets:US:BofA:Checking' (Summarization)", "Assets:US:BofA:Checking", {"units": {"number": "2809.14", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "2809.14", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-01", "*", "Hoogle", "Payroll", "Assets:US:BofA:Checking", {"units": {"number": "1350.60", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "4159.74", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-04", "*", "BANK FEES", "Monthly bank fee", "Assets:US:BofA:Checking", {"units": {"number": "-4.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "4155.74", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-05", "*", "RiverBank Properties", "Paying the rent", "Assets:US:BofA:Checking", {"units": {"number": "-2400.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "1755.74", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-08", "*", "EDISON POWER", "", "Assets:US:BofA:Checking", {"units": {"number": "-65.00", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "1690.74", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-10", "*", "Chase:Slate", "Paying off credit card", "Assets:US:BofA:Checking", {"units": {"number": "-392.77", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "1297.97", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-15", "*", "Hoogle", "Payroll", "Assets:US:BofA:Checking", {"units": {"number": "1350.60", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "2648.57", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-20", "*", "Verizon Wireless", "", "Assets:US:BofA:Checking", {"units": {"number": "-71.41", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "2577.16", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-21", "*", "Wine-Tarner Cable", "", "Assets:US:BofA:Checking", {"units": {"number": "-79.99", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "2497.17", "currency": "USD"}, "cost": null}]}],
+    ["2017-06-29", "*", "Hoogle", "Payroll", "Assets:US:BofA:Checking", {"units": {"number": "1350.60", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "3847.77", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "The first row is the OPEN summarization posting: dated the day before the OPEN date, flag S, payee NULL, narration \"Opening balance for 'Assets:US:BofA:Checking' (Summarization)\". It carries the account's balance at the OPEN date, so the running balance continues from it. CLOSE ON 2017-07-01 drops the rows dated 2017-07-01 and later. Also sensitive to whether zhang's synthetic balance-check transactions (zero-amount postings) are part of the postings table."
+}

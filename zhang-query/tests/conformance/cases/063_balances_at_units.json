@@ -1,0 +1,26 @@
+{
+  "name": "balances_at_units",
+  "query": "BALANCES AT units WHERE account ~ '^Assets'",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "SUM(units(position))", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:BofA:Checking", {"positions": [{"units": {"number": "2754.06", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:Cash", {"positions": [{"units": {"number": "855.83", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:GLD", {"positions": [{"units": {"number": "17", "currency": "GLD"}, "cost": null}]}],
+    ["Assets:US:ETrade:ITOT", {"positions": [{"units": {"number": "104", "currency": "ITOT"}, "cost": null}]}],
+    ["Assets:US:ETrade:VEA", {"positions": [{"units": {"number": "36", "currency": "VEA"}, "cost": null}]}],
+    ["Assets:US:ETrade:VHT", {"positions": [{"units": {"number": "64", "currency": "VHT"}, "cost": null}]}],
+    ["Assets:US:Federal:PreTax401k", {"positions": []}],
+    ["Assets:US:Hoogle:Vacation", {"positions": [{"units": {"number": "-13", "currency": "VACHR"}, "cost": null}]}],
+    ["Assets:US:Vanguard:Cash", {"positions": [{"units": {"number": "-0.02", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:Vanguard:RGAGX", {"positions": [{"units": {"number": "597.748", "currency": "RGAGX"}, "cost": null}]}],
+    ["Assets:US:Vanguard:VBMPX", {"positions": [{"units": {"number": "193.442", "currency": "VBMPX"}, "cost": null}]}]
+  ],
+  "notes": "AT units sums units(position): lots of one commodity merge into a single position without cost."
+}

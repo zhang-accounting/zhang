@@ -17,6 +17,7 @@ pub(crate) mod open;
 pub(crate) mod options;
 pub(crate) mod plugin;
 pub(crate) mod price;
+pub(crate) mod query;
 pub(crate) mod transaction;
 /// Directive Process is used to handle how a directive be validated, how we process directives and store the result into [Store]
 pub(crate) trait DirectiveProcess: std::fmt::Debug {

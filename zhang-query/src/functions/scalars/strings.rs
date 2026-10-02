@@ -1,4 +1,8 @@
-//! `str` and `length`.
+//! `str`, `length` and `maxwidth`.
+
+use std::sync::OnceLock;
+
+use regex::Regex;
 
 use crate::functions::FunctionContext;
 use crate::value::{position_sort_cmp, Inventory, Value};
@@ -31,6 +35,121 @@ pub(super) fn length(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value
     i64::try_from(length)
         .map(Value::Int)
         .map_err(|_| "length() overflows a 64-bit integer".to_owned())
+}
+
+/// What `maxwidth` appends to a shortened text.
+const PLACEHOLDER: &str = " [...]";
+
+/// beanquery `maxwidth(text, width)`, which is Python's `textwrap.shorten`: every run of
+/// whitespace becomes one space and the ends are trimmed; a text still longer than `width`
+/// characters keeps as many leading chunks as fit together with `" [...]"`. The width must
+/// leave room for the placeholder (at least 5), as in Python.
+pub(super) fn maxwidth(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+    let text = args[0].as_str().ok_or("maxwidth() expects a string")?;
+    let width = args[1].as_int().ok_or("maxwidth() expects an integer width")?;
+    let min = PLACEHOLDER.trim_start().chars().count();
+    match usize::try_from(width) {
+        Ok(width) if width >= min => Ok(Value::Str(shorten(text, width))),
+        _ => Err(format!(
+            "the width must be at least {} to fit the placeholder '{}', got {}",
+            min,
+            PLACEHOLDER.trim_start(),
+            width
+        )),
+    }
+}
+
+/// Python's `textwrap.shorten(text, width)` with its default options (`width` ≥ 5).
+fn shorten(text: &str, width: usize) -> String {
+    // `str.split()` also splits at the ASCII separators U+001C..U+001F
+    let collapsed = text
+        .split(|c: char| c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c))
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let chars = collapsed.chars().collect::<Vec<_>>();
+    if chars.len() <= width {
+        return collapsed;
+    }
+    // the longest run of whole chunks, ending in a word, that leaves room for the placeholder
+    let budget = width.saturating_sub(PLACEHOLDER.chars().count());
+    let mut kept = 0;
+    for (start, end) in wrap_chunks(&chars) {
+        if end > budget {
+            break;
+        }
+        if chars[start] != ' ' {
+            kept = end;
+        }
+    }
+    if kept == 0 {
+        return PLACEHOLDER.trim_start().to_owned();
+    }
+    let mut shortened = chars[..kept].iter().collect::<String>();
+    shortened.push_str(PLACEHOLDER);
+    shortened
+}
+
+/// Whether `c` is a decimal digit (Unicode category Decimal_Number), like Python's `\d`:
+/// `٣` is one, `²` is not.
+fn decimal_digit(c: char) -> bool {
+    static DECIMAL_DIGIT: OnceLock<Regex> = OnceLock::new();
+    if c.is_ascii() {
+        return c.is_ascii_digit();
+    }
+    c.is_numeric()
+        && DECIMAL_DIGIT
+            .get_or_init(|| Regex::new(r"\A\p{Decimal_Number}\z").expect("a valid pattern"))
+            .is_match(c.encode_utf8(&mut [0; 4]))
+}
+
+/// The `(start, end)` character ranges `textwrap` breaks a collapsed text into: single
+/// spaces, and words, where a word also breaks after a hyphen between letters
+/// (`well-known` → `well-`, `known`; but not `e-mail`) and around an em-dash written as
+/// `--` between words.
+fn wrap_chunks(chars: &[char]) -> Vec<(usize, usize)> {
+    let at = |idx: usize| chars.get(idx).copied().unwrap_or(' ');
+    // `\w`, and textwrap's letters (`[^\d\W]`, where `\d` is any decimal digit) and word
+    // punctuation
+    let word = |c: char| c == '_' || c.is_alphanumeric();
+    let letter = |c: char| word(c) && !decimal_digit(c);
+    let word_punct = |c: char| word(c) || "!\"'&.,?".contains(c);
+    // a run of two or more hyphens at `idx` followed by a word character (an em-dash)
+    let em_dash = |idx: usize| {
+        let run = chars[idx.min(chars.len())..].iter().take_while(|c| **c == '-').count();
+        run >= 2 && word(at(idx + run))
+    };
+
+    let mut chunks = vec![];
+    let mut start = 0;
+    while start < chars.len() {
+        let end = if chars[start] == ' ' {
+            start + 1
+        } else if start > 0 && word_punct(chars[start - 1]) && em_dash(start) {
+            start + chars[start..].iter().take_while(|c| **c == '-').count()
+        } else {
+            // the shortest word that ends at a breakable hyphen, before a space, at the end
+            // of the text or before an em-dash
+            let mut end = start + 1;
+            loop {
+                let hyphen_breaks = at(end) == '-'
+                    && ((end >= 2 && letter(at(end - 2)) && letter(at(end - 1)))
+                        || (end >= 3 && letter(at(end - 3)) && at(end - 2) == '-' && letter(at(end - 1))))
+                    && letter(at(end + 1))
+                    && (letter(at(end + 2)) || (at(end + 2) == '-' && letter(at(end + 3))));
+                if hyphen_breaks {
+                    break end + 1;
+                }
+                if end == chars.len() || chars[end] == ' ' || (word_punct(chars[end - 1]) && em_dash(end)) {
+                    break end;
+                }
+                end += 1;
+            }
+        };
+        chunks.push((start, end));
+        start = end;
+    }
+    chunks
 }
 
 #[cfg(test)]
@@ -89,5 +208,46 @@ mod tests {
         let tags = ["a", "b"].iter().map(|it| it.to_string()).collect::<BTreeSet<_>>();
         assert_eq!(call("length", vec![Value::Set(tags)]), Value::Int(2));
         assert_eq!(call("length", vec![Value::Set(BTreeSet::new())]), Value::Int(0));
+    }
+
+    /// Expected values from Python's `textwrap.shorten`, which beanquery's `maxwidth` calls.
+    #[test]
+    fn maxwidth_shortens_like_textwrap() {
+        for (text, width, expected) in [
+            ("Paying the  rent", 12, "Paying [...]"),
+            ("  Eating out ", 48, "Eating out"),
+            ("tab\tand\nnewline\u{a0}nbsp", 80, "tab and newline nbsp"),
+            ("Investing 40% of cash in VBMPX", 20, "Investing 40% [...]"),
+            // hyphenated words break after a hyphen between letters, but not in `e-mail`
+            ("well-known fact about everything", 20, "well-known [...]"),
+            ("abc-def-ghi jkl", 12, "abc- [...]"),
+            ("e-mail address here", 12, "e-mail [...]"),
+            ("word1 word2-more", 14, "word1 [...]"),
+            // a hyphen breaks between letters only: `٣` is a (decimal) digit, `²` a letter
+            ("ab-٣c zzzzzzzzz", 10, "[...]"),
+            ("ab-²c zzzzzzzzz", 10, "ab- [...]"),
+            ("x٣-yz zzzzzzzz", 10, "[...]"),
+            // an em-dash written `--` is a chunk of its own
+            ("x--y zz", 7, "x--y zz"),
+            ("x--y zz", 6, "[...]"),
+            // nothing fits next to the placeholder
+            ("aaaaaaaaaaaaaaaaaaaa bb", 10, "[...]"),
+            ("toolong", 5, "[...]"),
+            ("short", 5, "short"),
+            ("", 5, ""),
+        ] {
+            assert_eq!(
+                call("maxwidth", vec![text.into(), Value::Int(width)]),
+                Value::from(expected),
+                "{:?} {}",
+                text,
+                width
+            );
+        }
+        assert_eq!(call("maxwidth", vec![Value::Null, Value::Int(10)]), Value::Null);
+        // as in Python, the width must fit the placeholder
+        let err = try_call_with(&crate::functions::TestContext::default(), "maxwidth", vec!["text".into(), Value::Int(4)]).unwrap_err();
+        assert!(err.contains("at least 5"), "{}", err);
+        assert!(try_call_with(&crate::functions::TestContext::default(), "maxwidth", vec!["text".into(), Value::Int(-1)]).is_err());
     }
 }

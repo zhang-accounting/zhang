@@ -1,0 +1,17 @@
+{
+  "name": "close_on_truncates_before_date",
+  "query": "SELECT count(*) AS n, min(date) AS first, max(date) AS last FROM CLOSE ON 2016-01-01 WHERE flag = '*'",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "n", "type": "int"},
+    {"name": "first", "type": "date"},
+    {"name": "last", "type": "date"}
+  ],
+  "rows": [
+    [1153, "2015-01-01", "2015-12-31"]
+  ],
+  "notes": "CLOSE ON d is exclusive: only postings dated before d remain."
+}

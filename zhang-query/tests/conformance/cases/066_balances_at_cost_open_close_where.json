@@ -1,0 +1,24 @@
+{
+  "name": "balances_at_cost_open_close_where",
+  "query": "BALANCES AT cost FROM OPEN ON 2017-01-01 CLOSE ON 2017-07-01 WHERE account ~ '^(Assets:US:ETrade|Equity)'",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "SUM(cost(position))", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:ETrade:Cash", {"positions": [{"units": {"number": "747.24", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:GLD", {"positions": [{"units": {"number": "2126.44", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:ITOT", {"positions": [{"units": {"number": "6828.88", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:VEA", {"positions": [{"units": {"number": "5553.86", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:VHT", {"positions": [{"units": {"number": "5307.19", "currency": "USD"}, "cost": null}]}],
+    ["Equity:Conversions:Current", {"positions": [{"units": {"number": "-0.00101", "currency": "USD"}, "cost": null}]}],
+    ["Equity:Conversions:Previous", {"positions": [{"units": {"number": "0.00317", "currency": "USD"}, "cost": null}]}],
+    ["Equity:Earnings:Previous", {"positions": [{"units": {"number": "-74890.41", "currency": "USD"}, "cost": null}, {"units": {"number": "-25", "currency": "VACHR"}, "cost": null}]}],
+    ["Equity:Opening-Balances", {"positions": [{"units": {"number": "-3490.52000", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "All three modifiers with AT and WHERE. OPEN moves earlier income and expenses to Equity:Earnings:Previous and earlier conversions to Equity:Conversions:Previous, then summarizes every balance against Equity:Opening-Balances. CLOSE adds Equity:Conversions:Current."
+}

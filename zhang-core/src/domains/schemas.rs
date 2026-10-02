@@ -64,6 +64,18 @@ pub struct PriceDomain {
     pub target_commodity: Currency,
 }
 
+/// a named query saved in the ledger by a `query` directive.
+///
+/// The text is stored verbatim: it is not validated at load time, so a ledger may
+/// keep queries written for engine features that do not exist yet. Every `query`
+/// directive is kept, including ones that share a name — the date tells them apart.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct QueryDomain {
+    pub date: NaiveDate,
+    pub name: String,
+    pub query: String,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MetaDomain {
     pub meta_type: String,

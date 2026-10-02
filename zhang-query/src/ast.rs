@@ -257,11 +257,31 @@ pub(crate) struct OrderItem {
     pub descending: bool,
 }
 
+/// The accounting-period modifiers of a FROM clause: `[OPEN ON date] [CLOSE [ON date]] [CLEAR]`.
+///
+/// Each date is a date literal or a parameter.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Period {
+    pub open: Option<Expr>,
+    /// `Some(None)` for a bare `CLOSE`
+    pub close: Option<Option<Expr>>,
+    pub clear: bool,
+}
+
+/// A parsed `FROM` clause: a row filter and/or the period modifiers.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FromClause {
+    pub expr: Option<Expr>,
+    pub period: Option<Period>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Select {
     pub distinct: bool,
     pub targets: Targets,
     pub from: Option<Expr>,
+    /// `OPEN` / `CLOSE` / `CLEAR` of the FROM clause, applied to the postings before any filter
+    pub period: Option<Period>,
     pub where_clause: Option<Expr>,
     pub group_by: Option<Vec<Expr>>,
     pub order_by: Option<Vec<OrderItem>>,

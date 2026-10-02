@@ -20,11 +20,21 @@
 //! Evaluation is lazy per column as well: a column value exists only while an expression
 //! reads it, and predicates over string and set columns read them in place, without
 //! copying them into a [`Value`] ([`borrowed_str`], [`set_membership`]).
+//!
+//! The running `balance` is materialized late ([`plan_running`]): a row's balance is an
+//! inventory of every open lot, so building one for every filtered row costs rows × lots.
+//! Unless something needs the balances while scanning (ORDER BY or DISTINCT over them, a
+//! GROUP BY key, an aggregate other than `first()` / `last()`), the targets that read it are
+//! left empty by the scan, and once grouping, ORDER BY and LIMIT have chosen the result rows,
+//! one replay of the filtered rows in ledger order evaluates them for those rows only. A
+//! `first()` / `last()` over it remembers the row it picks and is evaluated there. A plan that
+//! does not read `balance` keeps no running total at all.
 
 use std::fmt;
 
-use crate::compiler::{CExpr, Plan};
+use crate::compiler::{AggregateCall, CExpr, Plan, Running, RunningPlan};
 use crate::executor::Env;
+use crate::functions::{AggregateKind, ParamType};
 use crate::table::{Borrow, ColumnDef, Reads, COLUMNS};
 use crate::value::Value;
 
@@ -34,6 +44,112 @@ pub(crate) struct Projection {
     /// bit `i` is set when `COLUMNS[i]` is read
     columns: u64,
     reads: Reads,
+}
+
+/// Decide how the plan materializes its running totals (see the module docs).
+pub(crate) fn plan_running(plan: &mut Plan) {
+    let mut totals = vec![];
+    for target in &plan.targets {
+        collect_running(&target.expr, &mut totals);
+    }
+    for aggregate in &plan.aggregates {
+        if let Some(arg) = &aggregate.arg {
+            collect_running(arg, &mut totals);
+        }
+    }
+    totals.sort();
+    totals.dedup();
+    if totals.is_empty() {
+        plan.execution.running = RunningPlan::default();
+        return;
+    }
+    let reads_running = |expr: &CExpr| {
+        let mut found = vec![];
+        collect_running(expr, &mut found);
+        !found.is_empty()
+    };
+    let mut running = RunningPlan {
+        totals,
+        ..RunningPlan::default()
+    };
+    match &plan.group_keys {
+        None => {
+            for (idx, target) in plan.targets.iter().enumerate() {
+                if !reads_running(&target.expr) {
+                    continue;
+                }
+                let sorted_on = plan.order.iter().any(|(key, _)| *key == idx);
+                if idx < plan.visible && !plan.distinct && !sorted_on && infallible(&target.expr) {
+                    running.deferred_targets.push(idx);
+                } else {
+                    running.eager = true;
+                }
+            }
+        }
+        Some(keys) => {
+            running.eager = keys.iter().any(|idx| reads_running(&plan.targets[*idx].expr));
+            for (idx, aggregate) in plan.aggregates.iter().enumerate() {
+                match &aggregate.arg {
+                    Some(arg) if reads_running(arg) => {
+                        if picks_a_row(aggregate) && never_null(arg) {
+                            running.deferred_aggregates.push(idx);
+                        } else {
+                            running.eager = true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    plan.execution.running = running;
+}
+
+fn collect_running(expr: &CExpr, totals: &mut Vec<Running>) {
+    if let CExpr::Running(total) = expr {
+        totals.push(*total);
+    }
+    for child in expr.children() {
+        collect_running(child, totals);
+    }
+}
+
+fn picks_a_row(aggregate: &AggregateCall) -> bool {
+    matches!(aggregate.function.kind, AggregateKind::First | AggregateKind::Last)
+}
+
+/// Functions that return a value, never NULL or an error, for arguments of their types,
+/// as long as they take no integer (`abs` and `neg` can overflow one).
+const TOTAL_FUNCTIONS: &[&str] = &["units", "cost", "value", "convert", "str", "only", "filter_currency", "possign", "abs", "neg"];
+
+fn total_function(expr: &CExpr) -> bool {
+    match expr {
+        CExpr::Scalar { function, .. } => TOTAL_FUNCTIONS.contains(&function.name) && !function.params.contains(&ParamType::Exact(crate::value::DataType::Int)),
+        _ => false,
+    }
+}
+
+/// Whether evaluating the expression can never fail, so evaluating it for fewer rows
+/// changes nothing but the work done.
+fn infallible(expr: &CExpr) -> bool {
+    let node = match expr {
+        CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) => true,
+        CExpr::Not(_) | CExpr::And(_) | CExpr::Or(_) | CExpr::Compare { .. } | CExpr::InSet { .. } | CExpr::InList { .. } | CExpr::IsNull { .. } => true,
+        CExpr::Scalar { .. } => total_function(expr),
+        CExpr::Aggregate(_) | CExpr::Neg(..) | CExpr::Arith { .. } | CExpr::Regex { .. } => false,
+    };
+    node && expr.children().into_iter().all(infallible)
+}
+
+/// Whether the expression is never NULL and never fails, so `first()` / `last()` over it
+/// pick the first / last row of their group.
+fn never_null(expr: &CExpr) -> bool {
+    match expr {
+        CExpr::Running(_) => true,
+        CExpr::Const(value) => !value.is_null(),
+        CExpr::Scalar { args, .. } => total_function(expr) && args.iter().all(never_null),
+        _ => false,
+    }
 }
 
 /// Build the projection of an optimized plan.
@@ -72,6 +188,13 @@ impl Projection {
         self.reads.cost
     }
 
+    /// The same columns, with booked rows that keep the cost of their lot (the period
+    /// modifiers sum balances at cost, whatever the query reads).
+    pub fn with_cost(mut self) -> Projection {
+        self.reads.cost = true;
+        self
+    }
+
     /// Whether rows keep the price annotation of their posting.
     pub fn keeps_price(&self) -> bool {
         self.reads.price
@@ -94,7 +217,7 @@ fn bit(column: &ColumnDef) -> u64 {
     1 << index
 }
 
-/// `[account, position] (2 of 22 columns)`
+/// `[account, position] (2 of 23 columns)`
 impl fmt::Display for Projection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let names = self.names();
@@ -310,11 +433,11 @@ option "operating_currency" "USD"
         assert_eq!(projection.names(), vec!["payee", "position", "price", "tags"]);
         assert!(projection.keeps_cost() && projection.keeps_price());
         assert!(projection.contains(column("tags").unwrap()) && !projection.contains(column("account").unwrap()));
-        assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 22 columns)");
+        assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 23 columns)");
 
         let projection = Query::compile("SELECT count(*), sum(number) WHERE account ~ 'Food'").unwrap().projection;
         assert!(!projection.keeps_cost() && !projection.keeps_price());
-        assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 22 columns)");
+        assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 23 columns)");
         assert_eq!(Projection::all().names().len(), COLUMNS.len());
     }
 
@@ -334,6 +457,7 @@ option "operating_currency" "USD"
                 data: Some(&data),
                 row: Some(row),
                 aggregates: &[],
+                running: None,
                 params: &params,
                 regexes: &regexes,
                 impure: &impure,

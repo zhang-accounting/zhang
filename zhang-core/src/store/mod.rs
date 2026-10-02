@@ -10,7 +10,7 @@ use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Flag, SpanInfo};
 
-use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain};
+use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain, QueryDomain};
 
 #[derive(Default, serde::Serialize)]
 pub struct Store {
@@ -28,6 +28,9 @@ pub struct Store {
     pub commodity_lots: HashMap<String, Vec<CommodityLotRecord>>,
 
     pub documents: Vec<DocumentDomain>,
+
+    /// saved queries from `query` directives, in ledger order (by date, then source order)
+    pub queries: Vec<QueryDomain>,
 
     pub metas: Vec<MetaDomain>,
 

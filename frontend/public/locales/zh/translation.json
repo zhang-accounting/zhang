@@ -76,7 +76,10 @@
       "spending_by_payee": "按收款方统计支出",
       "postings_with_tag": "带有指定标签的记账行",
       "holdings": "持仓的成本与市值",
-      "recent_postings": "最近的记账行"
+      "recent_postings": "最近的记账行",
+      "income_statement": "2016 年损益表",
+      "balances": "2016 年末余额",
+      "journal": "账户流水"
     },
     "reference": "参考",
     "reference_description": "查询中可用的列与函数，点击即可插入到编辑器中。",
@@ -94,6 +97,27 @@
     "show_all": "显示全部",
     "error_title": "查询错误",
     "error_position": "第 {{line}} 行，第 {{column}} 列",
-    "error_line": "第 {{line}} 行"
+    "error_line": "第 {{line}} 行",
+    "export_csv": "导出 CSV",
+    "exporting_csv": "导出中...",
+    "export_error_title": "CSV 导出失败",
+    "show_chart": "图表",
+    "saved": "已保存",
+    "saved_loading": "正在加载已保存的查询...",
+    "saved_load_failed": "无法加载已保存的查询。",
+    "saved_empty": "账本中没有已保存的查询。",
+    "saved_empty_hint": "可以用 query 指令保存查询，例如：",
+    "saved_invalid": "（无效）",
+    "chart": {
+      "treemap": "按账户的矩形树图",
+      "bar": "柱状图",
+      "line": "随时间变化",
+      "currency": "货币",
+      "positive": "正值",
+      "negative": "负值",
+      "treemap_absolute": "矩形面积表示绝对值。",
+      "bars_truncated": "仅显示前 {{shown}} 项，共 {{total}} 项。",
+      "nothing_to_plot": "没有可绘制的数据。"
+    }
   }
 }

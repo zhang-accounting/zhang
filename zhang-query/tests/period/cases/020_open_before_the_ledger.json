@@ -1,0 +1,15 @@
+{
+  "name": "open_before_the_ledger",
+  "query": "SELECT flag, count(*) AS n FROM OPEN ON 2010-01-01 GROUP BY 1 ORDER BY 1",
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "flag", "type": "str"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    ["*", 3209]
+  ],
+  "notes": "Nothing to summarize: the postings are unchanged. Also sensitive to whether zhang's synthetic balance-check transactions (zero-amount postings) are part of the postings table."
+}

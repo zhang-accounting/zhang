@@ -1,0 +1,19 @@
+{
+  "name": "csv_inventory_sums",
+  "query": "SELECT account, sum(position) AS balance WHERE account ~ '^Liabilities|Vacation' GROUP BY account ORDER BY account",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "csv",
+  "columns": [],
+  "rows": [],
+  "csv": [
+    "account,balance (VACHR),balance (USD)",
+    "Assets:US:Hoogle:Vacation, -13,",
+    "Expenses:Vacation, 368,",
+    "Income:US:Hoogle:Vacation,-355,",
+    "Liabilities:AccountsPayable,,",
+    "Liabilities:US:Chase:Slate,,-2703.29"
+  ],
+  "notes": "numberify splits an inventory column into one decimal column per currency, named '<column> (<currency>)'. The columns are ordered by the number of rows holding the currency (most first), ties by currency name descending. A currency missing from the row, or summing to zero, is an empty cell; an empty inventory is all empty cells."
+}

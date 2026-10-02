@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Neg;
+use std::sync::Arc;
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
@@ -158,10 +159,15 @@ impl fmt::Display for Position {
 ///
 /// Positions iterate (and serialise) sorted by units currency, then cost, with the
 /// no-cost lot first.
+///
+/// Clones share their lots until one of them changes (copy on write), so a clone is cheap:
+/// the running `balance` hands every row a clone of the same inventory.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Inventory {
-    lots: BTreeMap<(String, Option<Cost>), BigDecimal>,
+    lots: Arc<Lots>,
 }
+
+type Lots = BTreeMap<(String, Option<Cost>), BigDecimal>;
 
 impl Inventory {
     pub fn new() -> Self {
@@ -177,17 +183,21 @@ impl Inventory {
     pub(crate) fn add_owned_position(&mut self, position: Position) {
         let Position { units, cost } = position;
         let key = (units.commodity, cost);
-        match self.lots.get_mut(&key) {
+        if units.number.is_zero() && !self.lots.contains_key(&key) {
+            // nothing changes, so a shared inventory stays shared
+            return;
+        }
+        // (adding zero to a lot still widens the scale of its number)
+        let lots = Arc::make_mut(&mut self.lots);
+        match lots.get_mut(&key) {
             Some(existing) => {
                 *existing += &units.number;
                 if existing.is_zero() {
-                    self.lots.remove(&key);
+                    lots.remove(&key);
                 }
             }
             None => {
-                if !units.number.is_zero() {
-                    self.lots.insert(key, units.number);
-                }
+                lots.insert(key, units.number);
             }
         }
     }
@@ -198,7 +208,7 @@ impl Inventory {
     }
 
     pub fn add_inventory(&mut self, other: &Inventory) {
-        for ((currency, cost), number) in &other.lots {
+        for ((currency, cost), number) in other.lots.iter() {
             self.add_number(currency, cost.as_ref(), number);
         }
     }
@@ -209,21 +219,28 @@ impl Inventory {
 
     fn add_number(&mut self, currency: &str, cost: Option<&Cost>, number: &BigDecimal) {
         let key = (currency.to_owned(), cost.cloned());
-        let remove = match self.lots.get_mut(&key) {
+        if number.is_zero() && !self.lots.contains_key(&key) {
+            return;
+        }
+        let lots = Arc::make_mut(&mut self.lots);
+        let remove = match lots.get_mut(&key) {
             Some(existing) => {
                 *existing += number;
                 existing.is_zero()
             }
             None => {
-                if !number.is_zero() {
-                    self.lots.insert(key.clone(), number.clone());
-                }
+                lots.insert(key.clone(), number.clone());
                 false
             }
         };
         if remove {
-            self.lots.remove(&key);
+            lots.remove(&key);
         }
+    }
+
+    /// The number of the lot with this (units currency, cost) key, if it is open.
+    pub(crate) fn lot(&self, key: &(String, Option<Cost>)) -> Option<&BigDecimal> {
+        self.lots.get(key)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -241,6 +258,12 @@ impl Inventory {
             units: Amount::new(number.clone(), currency.clone()),
             cost: cost.clone(),
         })
+    }
+
+    /// The units currency and number of every lot, in the order of
+    /// [`Inventory::positions`], without copying them.
+    pub(crate) fn lot_units(&self) -> impl Iterator<Item = (&str, &BigDecimal)> + '_ {
+        self.lots.iter().map(|((currency, _), number)| (currency.as_str(), number))
     }
 
     /// Reduce every position to an amount with `f` and sum the results into a new
@@ -264,7 +287,12 @@ impl Inventory {
 
     /// The units of every lot, merged per currency.
     pub fn units(&self) -> Inventory {
-        self.reduce(|position| position.units.clone())
+        // like `reduce`, without copying the costs it drops
+        let mut ret = Inventory::new();
+        for (currency, number) in self.lot_units() {
+            ret.add_number(currency, None, number);
+        }
+        ret
     }
 
     /// The cost of every lot, merged per currency.
@@ -278,7 +306,7 @@ impl Neg for Inventory {
 
     fn neg(self) -> Self::Output {
         Inventory {
-            lots: self.lots.into_iter().map(|(key, number)| (key, -number)).collect(),
+            lots: Arc::new(Arc::unwrap_or_clone(self.lots).into_iter().map(|(key, number)| (key, -number)).collect()),
         }
     }
 }
@@ -594,6 +622,25 @@ mod tests {
         assert_eq!(inventory.to_string(), "15 AAPL {100 USD, 2024-01-01}, 4.00 USD");
         assert_eq!(inventory.units().to_string(), "15 AAPL, 4.00 USD");
         assert_eq!(inventory.at_cost().to_string(), "1504.00 USD");
+    }
+
+    #[test]
+    fn clones_share_their_lots_until_one_changes() {
+        let mut inventory = Inventory::new();
+        inventory.add_position(&Position::new(amount("10", "AAPL"), cost("100", "USD")));
+        let snapshot = inventory.clone();
+        assert!(Arc::ptr_eq(&inventory.lots, &snapshot.lots));
+        // adding zero to a missing lot changes nothing
+        inventory.add_amount(&amount("0", "USD"));
+        assert!(Arc::ptr_eq(&inventory.lots, &snapshot.lots));
+        inventory.add_amount(&amount("1", "USD"));
+        assert!(!Arc::ptr_eq(&inventory.lots, &snapshot.lots));
+        assert_eq!(snapshot.to_string(), "10 AAPL {100 USD, 2024-01-01}");
+        assert_eq!(inventory.to_string(), "10 AAPL {100 USD, 2024-01-01}, 1 USD");
+        // adding zero to a lot widens its scale, as before
+        inventory.add_amount(&amount("0.00", "USD"));
+        assert_eq!(inventory.to_string(), "10 AAPL {100 USD, 2024-01-01}, 1.00 USD");
+        assert_eq!(-inventory.clone(), -inventory);
     }
 
     #[test]

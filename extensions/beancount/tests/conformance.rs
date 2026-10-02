@@ -6,15 +6,12 @@
 //!    example ledger (`bean-example`, ~2000 directives; the same file backs the
 //!    `fava-demo-ledger` integration fixture) must parse end to end.
 //! 2. `supported_language_constructs_parse` — every construct of the beancount
-//!    language surface we currently support must parse.
+//!    language surface must parse.
 //!
-//! The only remaining unsupported construct is the `query` directive
-//! (`2014-01-01 query "name" "SELECT account"`); representing it needs a
-//! first-class `Directive::Query` variant threaded through the whole codebase.
-//! Everything else on the beancount language surface — including balance
-//! tolerance `~`, the `txn` keyword, cost lot labels, total cost `{{ }}`, and
-//! `pushmeta`/`popmeta` — is supported (see `beancount_compat.rs` for the
-//! behavioural checks).
+//! The whole beancount language surface is supported — including balance
+//! tolerance `~`, the `txn` keyword, cost lot labels, total cost `{{ }}`,
+//! `pushmeta`/`popmeta` and the `query` directive (see `beancount_compat.rs`
+//! for the behavioural checks).
 
 use std::path::PathBuf;
 
@@ -70,6 +67,12 @@ fn supported_language_constructs_parse() {
         ("cost lot label", "2014-01-01 * \"x\"\n  Assets:Cash 1 HOOL {100 USD, \"lot1\"}\n  Equity:X\n"),
         ("total cost", "2014-01-01 * \"x\"\n  Assets:Cash 1 HOOL {{100 USD}}\n  Equity:X\n"),
         ("pushmeta / popmeta", "pushmeta project: \"X\"\n2014-01-01 open Assets:Cash\npopmeta project:\n"),
+        ("query", "2014-01-01 query \"name\" \"SELECT account\"\n"),
+        ("query with metadata", "2014-01-01 query \"name\" \"SELECT account\"\n  owner: \"alice\"\n"),
+        (
+            "multi-line query",
+            "2014-01-01 query \"name\" \"\n  SELECT account\n  WHERE account ~ 'Cash'\n\"\n",
+        ),
     ];
 
     let failed: Vec<&str> = cases

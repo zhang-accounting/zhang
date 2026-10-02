@@ -553,6 +553,24 @@ fn event_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
     ))
 }
 
+/// `query = date "query" space+ string space+ quote_string`; the query text is
+/// kept verbatim and not validated here.
+fn query_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(i)?;
+    let (i, name) = string(i)?;
+    let (i, _) = space1(i)?;
+    let (i, query_string) = quote_string(i)?;
+    Ok((
+        i,
+        Either::Left(Directive::Query(Query {
+            date,
+            name,
+            query_string,
+            meta: Meta::default(),
+        })),
+    ))
+}
+
 fn commodity_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
     let (i, _) = space1(i)?;
     let (i, currency) = commodity_name(i)?;
@@ -679,6 +697,7 @@ fn dated_directive(original: &str) -> IResult<&str, BeancountDirective> {
         "document" => document_body(date, rest),
         "price" => price_body(date, rest),
         "event" => event_body(date, rest),
+        "query" => query_body(date, rest),
         "commodity" => commodity_body(date, rest),
         "custom" => custom_body(date, rest),
         _ => Err(nom::Err::Error(nom::error::Error::new(original, nom::error::ErrorKind::Tag))),
@@ -1055,6 +1074,57 @@ mod test {
                   Assets:Card -1e-9 USD
                 "#});
             assert_eq!(trx.flag, Some(Flag::Custom("#".to_string())));
+        }
+    }
+    mod query {
+        use chrono::NaiveDate;
+        use indoc::indoc;
+        use zhang_ast::{Date, Directive, Query, ZhangString};
+
+        use crate::parser::parse;
+        use crate::parser::test::get_left_directive;
+
+        fn get_query(content: &str) -> Query {
+            match get_left_directive(content) {
+                Directive::Query(query) => query,
+                other => unreachable!("should get query, but found {:?}", other),
+            }
+        }
+
+        #[test]
+        fn should_parse_query() {
+            let query = get_query(indoc! {r#"
+                            2014-07-09 query "france-balances" "SELECT account, sum(position) WHERE 'trip-france-2014' in tags"
+                        "#});
+            assert_eq!(query.date, Date::Date(NaiveDate::from_ymd_opt(2014, 7, 9).unwrap()));
+            assert_eq!(query.name, ZhangString::quote("france-balances"));
+            assert_eq!(
+                query.query_string,
+                ZhangString::quote("SELECT account, sum(position) WHERE 'trip-france-2014' in tags")
+            );
+        }
+
+        #[test]
+        fn should_parse_query_with_meta() {
+            let query = get_query(indoc! {r#"
+                            2014-07-09 query "cash" "SELECT account" ; a comment
+                              owner: "alice"
+                              rank: 2
+                        "#});
+            assert_eq!(query.query_string, ZhangString::quote("SELECT account"));
+            assert_eq!(query.meta.get_one("owner"), Some(&ZhangString::quote("alice")));
+            assert_eq!(query.meta.get_one("rank"), Some(&ZhangString::unquote("2")));
+        }
+
+        #[test]
+        fn should_parse_multi_line_query() {
+            let query = get_query("2014-07-09 query \"multi\" \"\n  SELECT account\n  WHERE account ~ 'Cash'\n\"\n");
+            assert_eq!(query.query_string, ZhangString::quote("\n  SELECT account\n  WHERE account ~ 'Cash'\n"));
+        }
+
+        #[test]
+        fn should_reject_query_without_text() {
+            assert!(parse("2014-07-09 query \"name\"\n", None).is_err());
         }
     }
     mod budget {

@@ -1,0 +1,6 @@
+{
+  "name": "inventory_by_root_account",
+  "query": "SELECT root(account, 1) AS root, sum(position) AS balance GROUP BY root ORDER BY root",
+  "notes": "inventories with many cost lots per currency: units are summed per currency, costs dropped",
+  "csv": "root,balance (USD),balance (VACHR),balance (IRAUSD),balance (VHT),balance (VEA),balance (VBMPX),balance (RGAGX),balance (ITOT),balance (GLD)\r\nAssets,   3609.87, -13,,64,36,193.442,597.748,104,17\r\nEquity,  -3490.52,,,,,,,,\r\nExpenses, 254609.05, 368, 54500.00,,,,,,\r\nIncome,-357944.58,-355,-54500.00,,,,,,\r\nLiabilities,  -2703.29,,,,,,,,\r\n"
+}
