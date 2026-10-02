@@ -101,11 +101,17 @@ pub struct ServerOpts {
     #[clap(short, long, default_value_t = 8000)]
     pub port: u16,
 
-    /// web basic auth credential to enable basic auth. or enable it via env ZHANG_AUTH
+    /// `user:pass` credential to enable the password login, or enable it via env ZHANG_AUTH
     #[clap(long)]
     pub auth: Option<String>,
 
-    /// data source type, default is fs, or enable it via env ZHANG_AUTH
+    /// enable the passkey login; the value is the secret needed to register a passkey without a session,
+    /// or enable it via env ZHANG_PASSKEY. ZHANG_PASSKEY_RP_ID and ZHANG_PASSKEY_ORIGIN override the
+    /// relying party id and origin derived from the request, ZHANG_SESSION_SECRET keeps the sessions across restarts
+    #[clap(long)]
+    pub passkey: Option<String>,
+
+    /// data source type, default is fs, or enable it via env ZHANG_DATA_SOURCE
     #[clap(long)]
     pub source: Option<FileSystem>,
 
@@ -128,12 +134,17 @@ impl Opts {
                 info!("active file system is {:?}", file_system);
                 let data_source = OpendalDataSource::from_env(file_system.clone(), &mut opts).await;
                 let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(':'));
+                let passkey_secret = opts.passkey.or_else(|| env_value("ZHANG_PASSKEY")).filter(|it| !it.is_empty());
                 let result = zhang_server::serve(ServeConfig {
                     path: opts.path,
                     endpoint: opts.endpoint,
                     addr: opts.addr,
                     port: opts.port,
                     auth_credential,
+                    passkey_secret,
+                    passkey_rp_id: env_value("ZHANG_PASSKEY_RP_ID"),
+                    passkey_origin: env_value("ZHANG_PASSKEY_ORIGIN"),
+                    session_secret: env_value("ZHANG_SESSION_SECRET"),
                     is_local_fs: file_system == FileSystem::Fs,
                     no_report: opts.no_report,
                     data_source: Arc::new(data_source),
@@ -171,6 +182,11 @@ impl Opts {
             }
         }
     }
+}
+
+/// The value of an environment variable, when it is set and not empty.
+fn env_value(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|it| !it.trim().is_empty())
 }
 
 #[tokio::main]
@@ -282,6 +298,7 @@ mod test {
                             addr: "".to_string(),
                             port: 0,
                             auth: None,
+                            passkey: None,
                             source: None,
                             no_report: false,
                         },
@@ -302,6 +319,10 @@ mod test {
                             addr: "".to_string(),
                             port: 0,
                             auth_credential: None,
+                            passkey_secret: None,
+                            passkey_rp_id: None,
+                            passkey_origin: None,
+                            session_secret: None,
                             is_local_fs: true,
                             no_report: false,
                             data_source: data_source.clone(),
@@ -363,5 +384,130 @@ mod test {
                 }
             }
         }
+    }
+
+    /// Sends a request to `router` as a browser on `http://localhost:8010` would; the status and the JSON body.
+    async fn send(router: &axum::Router, method: http::Method, uri: &str, cookie: Option<&str>, body: Option<Value>) -> (StatusCode, Option<String>, Value) {
+        let mut request = Request::builder().method(method).uri(uri).header(http::header::HOST, "localhost:8010");
+        if let Some(cookie) = cookie {
+            request = request.header(http::header::COOKIE, cookie);
+        }
+        let request = match body {
+            Some(body) => request
+                .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                .body(Body::from(serde_json::to_vec(&body).unwrap())),
+            None => request.body(Body::empty()),
+        }
+        .unwrap();
+        let response = router.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let cookie = response
+            .headers()
+            .get(http::header::SET_COOKIE)
+            .map(|it| it.to_str().unwrap().split(';').next().unwrap().to_owned());
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        (status, cookie, serde_json::from_slice(&body).unwrap_or(Value::Null))
+    }
+
+    async fn passkey_server(path: &std::path::Path) -> axum::Router {
+        let mut opts = ServerOpts {
+            path: path.to_path_buf(),
+            endpoint: "main.zhang".to_string(),
+            addr: "".to_string(),
+            port: 0,
+            auth: None,
+            passkey: Some("letmein".to_string()),
+            source: None,
+            no_report: true,
+        };
+        let data_source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        let ledger = Ledger::async_load(path.to_path_buf(), "main.zhang".to_string(), data_source.clone())
+            .await
+            .expect("cannot load ledger");
+        let (tx, _) = mpsc::channel(1);
+        let app = create_server_app(
+            ServeConfig {
+                path: path.to_path_buf(),
+                endpoint: "main.zhang".to_string(),
+                addr: "".to_string(),
+                port: 0,
+                auth_credential: None,
+                passkey_secret: opts.passkey.clone(),
+                passkey_rp_id: None,
+                passkey_origin: None,
+                session_secret: Some("session-secret".to_string()),
+                is_local_fs: true,
+                no_report: true,
+                data_source,
+            },
+            Arc::new(RwLock::new(ledger)),
+            Broadcaster::create(),
+            Arc::new(ReloadSender(tx)),
+        );
+        let config = app.config().await.unwrap();
+        let state = app.state(&config).await.unwrap();
+        app.build_router(GotchaContext { config, state }).await.unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn passkeys_persist_through_the_opendal_data_source() {
+        use webauthn_authenticator_rs::softpasskey::SoftPasskey;
+        use webauthn_authenticator_rs::WebauthnAuthenticator;
+        use webauthn_rs::prelude::{CreationChallengeResponse, RequestChallengeResponse, Url};
+
+        let tempdir = tempdir().unwrap();
+        std::fs::write(tempdir.path().join("main.zhang"), "1970-01-01 commodity CNY\n").unwrap();
+        let origin = Url::parse("http://localhost:8010").unwrap();
+        let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+
+        let router = passkey_server(tempdir.path()).await;
+        let (status, _, started) = send(
+            &router,
+            http::Method::POST,
+            "/api/auth/passkey/register/start",
+            None,
+            Some(serde_json::json!({"secret": "letmein", "name": "Phone"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{started}");
+        let mut options = started["data"]["options"].clone();
+        // the soft token cannot store discoverable credentials
+        options["publicKey"]["authenticatorSelection"]["requireResidentKey"] = false.into();
+        let options: CreationChallengeResponse = serde_json::from_value(options).unwrap();
+        let credential = authenticator.do_registration(origin.clone(), options).unwrap();
+        let (status, cookie, body) = send(
+            &router,
+            http::Method::POST,
+            "/api/auth/passkey/register/finish",
+            None,
+            Some(serde_json::json!({"state_id": started["data"]["state_id"], "credential": credential})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, _, _) = send(&router, http::Method::GET, "/api/info", cookie.as_deref(), None).await;
+        assert_eq!(status, StatusCode::OK);
+
+        // the opendal fs data source creates the folder, next to the ledger
+        let stored: Vec<Value> = serde_json::from_slice(&std::fs::read(tempdir.path().join(".zhang/passkeys.json")).unwrap()).unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0]["name"], "Phone");
+
+        // and reads it back on the next start
+        let router = passkey_server(tempdir.path()).await;
+        let (_, _, status) = send(&router, http::Method::GET, "/api/auth/status", None, None).await;
+        assert_eq!(status["data"]["passkey_registered"], true);
+        let (_, _, started) = send(&router, http::Method::POST, "/api/auth/passkey/login/start", None, None).await;
+        let options: RequestChallengeResponse = serde_json::from_value(started["data"]["options"].clone()).unwrap();
+        let credential = authenticator.do_authentication(origin, options).unwrap();
+        let (status, cookie, body) = send(
+            &router,
+            http::Method::POST,
+            "/api/auth/passkey/login/finish",
+            None,
+            Some(serde_json::json!({"state_id": started["data"]["state_id"], "credential": credential})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(cookie.is_some_and(|it| it.starts_with("zhang_session=")));
     }
 }

@@ -893,3 +893,41 @@ mod query_test {
         );
     }
 }
+
+#[derive(Serialize, Schematic)]
+pub struct AuthMethodsEntity {
+    /// username and password, `ZHANG_AUTH`
+    pub password: bool,
+    /// passkeys, `ZHANG_PASSKEY`
+    pub passkey: bool,
+}
+
+#[derive(Serialize, Schematic)]
+pub struct AuthStatusEntity {
+    /// whether any authentication method is enabled
+    pub enabled: bool,
+    /// whether the caller can use the API (always true when authentication is disabled)
+    pub authenticated: bool,
+    pub methods: AuthMethodsEntity,
+    /// whether at least one passkey is registered
+    pub passkey_registered: bool,
+    /// who the caller is signed in as
+    pub user: Option<String>,
+    /// title of ledger
+    pub title: Option<String>,
+}
+
+#[derive(Serialize, Schematic)]
+pub struct PasskeyChallengeEntity {
+    /// identifies the ceremony when finishing it
+    pub state_id: String,
+    /// the options to pass to `navigator.credentials.create` / `navigator.credentials.get`
+    pub options: serde_json::Value,
+}
+
+#[derive(Serialize, Schematic)]
+pub struct PasskeyEntity {
+    pub id: String,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+}

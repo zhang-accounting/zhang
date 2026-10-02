@@ -157,3 +157,33 @@ pub struct QueryRequest {
     /// the BQL query text
     pub query: String,
 }
+
+#[derive(Schematic, Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Schematic, Deserialize)]
+pub struct PasskeyRegisterStartRequest {
+    /// the `ZHANG_PASSKEY` secret, needed when the caller has no session
+    pub secret: Option<String>,
+    /// the name of the new passkey
+    pub name: Option<String>,
+}
+
+#[derive(Schematic, Deserialize)]
+pub struct PasskeyRegisterFinishRequest {
+    pub state_id: String,
+    /// the name of the new passkey, overriding the one given when starting
+    pub name: Option<String>,
+    /// the `RegisterPublicKeyCredential` of `navigator.credentials.create`
+    pub credential: serde_json::Value,
+}
+
+#[derive(Schematic, Deserialize)]
+pub struct PasskeyLoginFinishRequest {
+    pub state_id: String,
+    /// the `PublicKeyCredential` of `navigator.credentials.get`
+    pub credential: serde_json::Value,
+}
