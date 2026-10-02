@@ -1,9 +1,11 @@
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use axum::extract::State;
 use axum::Json;
 use gotcha::api;
-use zhang_query::{ExecuteOptions, Params, Query, QueryResult};
+use log::{info, warn};
+use zhang_query::{ExecuteOptions, Params, Query, QueryResult, DEFAULT_MAX_RESULT_VALUES};
 
 use crate::request::QueryRequest;
 use crate::response::{QueryApiResult, QueryCsvResult, QueryResultEntity, QuerySchemaEntity, ResponseWrapper, SavedQueryEntity};
@@ -13,16 +15,51 @@ use crate::{ApiResult, ServerResult};
 /// How long one query may run before it is stopped with a 400.
 const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How large a result may grow, in values, before the query is stopped with a 400: the
-/// engine's default, which also bounds the size of the JSON and CSV encodings.
-const QUERY_MAX_RESULT_VALUES: u64 = zhang_query::DEFAULT_MAX_RESULT_VALUES;
+/// The environment variable that sets how large a query result may grow, in values (see
+/// [`zhang_query::ExecuteOptions::max_result_values`]), before `/api/query` and
+/// `/api/query/csv` stop the query with a 400. It also bounds the size of the JSON and CSV
+/// encodings, so instances with little memory can lower it.
+pub const MAX_RESULT_VALUES_ENV: &str = "ZHANG_QUERY_MAX_RESULT_VALUES";
+
+/// The result size limit of the query API: [`MAX_RESULT_VALUES_ENV`] when it is a positive
+/// integer, else the engine's [`DEFAULT_MAX_RESULT_VALUES`]. The variable is read once, at
+/// startup ([`crate::start_server`] calls this first).
+pub fn max_result_values() -> u64 {
+    static LIMIT: OnceLock<u64> = OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        let limit = match parse_max_result_values(std::env::var(MAX_RESULT_VALUES_ENV).ok().as_deref()) {
+            Ok(limit) => limit,
+            Err(message) => {
+                warn!("{}", message);
+                DEFAULT_MAX_RESULT_VALUES
+            }
+        };
+        info!("query results are limited to {} values", limit);
+        limit
+    })
+}
+
+/// The limit a value of [`MAX_RESULT_VALUES_ENV`] sets; the default when it is unset, and an
+/// error to warn about when it is not a positive integer.
+fn parse_max_result_values(value: Option<&str>) -> Result<u64, String> {
+    let Some(value) = value else {
+        return Ok(DEFAULT_MAX_RESULT_VALUES);
+    };
+    match value.trim().parse::<u64>() {
+        Ok(limit) if limit > 0 => Ok(limit),
+        _ => Err(format!(
+            "{} must be a positive integer, got {:?}; using the default of {} values",
+            MAX_RESULT_VALUES_ENV, value, DEFAULT_MAX_RESULT_VALUES
+        )),
+    }
+}
 
 /// Run a BQL-compatible query over the ledger.
 ///
 /// Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
 #[api(group = "query")]
 pub async fn run_query(ledger: State<SharedLedger>, Json(payload): Json<QueryRequest>) -> QueryApiResult<QueryResultEntity> {
-    QueryApiResult(run(ledger.0 .0.clone(), payload.query, QUERY_MAX_RESULT_VALUES).await)
+    QueryApiResult(run(ledger.0 .0.clone(), payload.query, max_result_values()).await)
 }
 
 async fn run(
@@ -45,7 +82,7 @@ pub async fn run_query_csv(ledger: State<SharedLedger>, Json(payload): Json<Quer
 }
 
 async fn export_csv(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::Ledger>>, text: String) -> ServerResult<String> {
-    let result = execute(ledger, text, QUERY_MAX_RESULT_VALUES).await?;
+    let result = execute(ledger, text, max_result_values()).await?;
     // the read lock is released by now; rendering is CPU-bound, so it stays off the async workers
     Ok(tokio::task::spawn_blocking(move || zhang_query::export::to_csv(&result)).await?)
 }
@@ -267,8 +304,9 @@ mod result_limit_test {
     use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::ledger::Ledger;
+    use zhang_query::DEFAULT_MAX_RESULT_VALUES;
 
-    use super::{run, QUERY_MAX_RESULT_VALUES};
+    use super::{parse_max_result_values, run};
 
     async fn ledger() -> Arc<RwLock<Ledger>> {
         let mut content = String::from("1970-01-01 open Assets:Broker\n1970-01-01 open Assets:Cash\n");
@@ -303,12 +341,23 @@ mod result_limit_test {
             })
         );
 
-        // the server's own limit is the engine default, which this result is far below
-        assert_eq!(QUERY_MAX_RESULT_VALUES, zhang_query::DEFAULT_MAX_RESULT_VALUES);
-        let response = run(ledger, "JOURNAL".to_owned(), QUERY_MAX_RESULT_VALUES).await.into_response();
+        // the default limit, which this result is far below
+        let response = run(ledger, "JOURNAL".to_owned(), DEFAULT_MAX_RESULT_VALUES).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["data"]["rows"].as_array().unwrap().len(), 56);
+    }
+
+    #[test]
+    fn the_limit_comes_from_a_positive_integer() {
+        assert_eq!(parse_max_result_values(None), Ok(DEFAULT_MAX_RESULT_VALUES));
+        assert_eq!(parse_max_result_values(Some("250000")), Ok(250_000));
+        assert_eq!(parse_max_result_values(Some(" 5000\n")), Ok(5_000));
+        for invalid in ["", "0", "-1", "1.5", "1e6", "a lot", "18446744073709551616"] {
+            let message = parse_max_result_values(Some(invalid)).unwrap_err();
+            assert!(message.starts_with("ZHANG_QUERY_MAX_RESULT_VALUES must be a positive integer"), "{}", message);
+            assert!(message.ends_with("using the default of 1000000 values"), "{}", message);
+        }
     }
 }

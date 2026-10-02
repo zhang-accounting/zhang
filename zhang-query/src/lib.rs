@@ -246,10 +246,11 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 /// cell, element of a set and 64 bytes of text one more (see
 /// [`ExecuteOptions::max_result_values`]).
 ///
-/// Two million values is about ten times the largest result of the fava demo ledger (its
+/// One million values is about five times the largest result of the fava demo ledger (its
 /// whole `JOURNAL`: 3,209 rows whose running balances hold 178,576 positions, about 210,000
-/// values), and bounds a result to roughly 800 MB in memory and 250 MB of JSON.
-pub const DEFAULT_MAX_RESULT_VALUES: u64 = 2_000_000;
+/// values), and bounds a result to roughly 400 MB in memory (an inventory position takes
+/// about 370 bytes) and 120 MB of JSON.
+pub const DEFAULT_MAX_RESULT_VALUES: u64 = 1_000_000;
 
 /// Options of one execution.
 #[derive(Debug, Clone, PartialEq, Eq)]

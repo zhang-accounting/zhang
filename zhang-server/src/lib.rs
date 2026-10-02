@@ -330,6 +330,8 @@ pub async fn start_server(
     opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>,
 ) -> ZhangResult<()> {
     info!("zhang is listening on http://{}:{}/", opts.addr, opts.port);
+    // read the query result limit once, at startup, so a bad value is reported right away
+    routes::query::max_result_values();
 
     let app = create_server_app(opts, ledger_data, broadcaster, reload_sender);
     app.run().await.unwrap();
