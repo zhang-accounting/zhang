@@ -1,0 +1,17 @@
+{
+  "name": "having_null_drops_group",
+  "query": "SELECT account, count(*) AS n WHERE account ~ '^Assets:US:(Vanguard|Hoogle|ETrade)' GROUP BY account HAVING max(payee) < 'I' ORDER BY account",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    ["Assets:US:Hoogle:Vacation", 75],
+    ["Assets:US:Vanguard:Cash", 276]
+  ],
+  "notes": "max(payee) is NULL for the accounts whose postings have no payee, so the comparison is NULL and the group is dropped, like a false HAVING value. Only the two accounts with payee 'Hoogle' remain."
+}

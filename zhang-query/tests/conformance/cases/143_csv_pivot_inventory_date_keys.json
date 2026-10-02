@@ -1,0 +1,16 @@
+{
+  "name": "csv_pivot_inventory_date_keys",
+  "query": "SELECT root(account, 1) AS type, yearmonth(date) AS month, sum(position) AS total WHERE account ~ '^(Income|Expenses):' AND year = 2017 AND month <= 3 GROUP BY 1, 2 PIVOT BY type, month",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "csv",
+  "columns": [],
+  "rows": [],
+  "csv": [
+    "type/month,2017-01-01 (USD),2017-01-01 (IRAUSD),2017-01-01 (VACHR),2017-02-01 (USD),2017-02-01 (VACHR),2017-02-01 (IRAUSD),2017-03-01 (USD),2017-03-01 (VACHR),2017-03-01 (IRAUSD)",
+    "Expenses,  7343.64,  2400.00,,  7512.17,,2400.00,  8342.34,,2400.00",
+    "Income,-10479.40,-18500.00,-10,-11122.20,-10,,-10570.85,-10,"
+  ],
+  "notes": "Date keys name the pivoted columns as YYYY-MM-DD. numberify then splits each inventory column per currency, so the header is '2017-01-01 (USD)', ... The currency columns of each pivoted column follow the usual numberify order (rows holding the currency, then name descending)."
+}

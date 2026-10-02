@@ -1,0 +1,21 @@
+{
+  "name": "having_order_by_limit",
+  "query": "SELECT payee, count(*) AS n, sum(number) AS total WHERE account ~ '^Expenses' AND currency = 'USD' GROUP BY payee HAVING count(*) >= 10 ORDER BY total DESC LIMIT 5",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "payee", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "total", "type": "decimal"}
+  ],
+  "rows": [
+    ["Hoogle", 710, "147404.56"],
+    ["RiverBank Properties", 32, "76800.00"],
+    ["Metro Transport Authority", 31, "3720.00"],
+    ["Wine-Tarner Cable", 32, "2559.51"],
+    ["EDISON POWER", 32, "2080.00"]
+  ],
+  "notes": "HAVING filters the groups before ORDER BY and LIMIT."
+}

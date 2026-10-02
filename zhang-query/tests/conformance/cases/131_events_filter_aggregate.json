@@ -1,0 +1,20 @@
+{
+  "name": "events_filter_aggregate",
+  "query": "SELECT description, count(*) AS n, max(date) AS last FROM #events WHERE type = 'location' GROUP BY description ORDER BY n DESC, description",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "description", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "last", "type": "date"}
+  ],
+  "rows": [
+    ["New Metropolis", 4, "2017-06-03"],
+    ["Los Angeles", 2, "2016-04-11"],
+    ["Boston", 1, "2017-05-18"],
+    ["Chicago", 1, "2016-11-16"]
+  ],
+  "notes": "In #events, type is the event type and description its value."
+}

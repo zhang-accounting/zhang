@@ -1,0 +1,26 @@
+{
+  "name": "events_natural_order",
+  "query": "SELECT * FROM #events",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "strict_names": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "type", "type": "str"},
+    {"name": "description", "type": "str"}
+  ],
+  "rows": [
+    ["2015-01-01", "employer", "Hoogle, 1600 Amphibious Parkway, River View, CA"],
+    ["2015-09-07", "location", "Los Angeles"],
+    ["2015-09-16", "location", "New Metropolis"],
+    ["2016-04-11", "location", "Los Angeles"],
+    ["2016-04-19", "location", "New Metropolis"],
+    ["2016-11-16", "location", "Chicago"],
+    ["2016-11-29", "location", "New Metropolis"],
+    ["2017-05-18", "location", "Boston"],
+    ["2017-06-03", "location", "New Metropolis"]
+  ],
+  "notes": "#events has one row per event directive. SELECT * expands to date, type, description. Without ORDER BY the rows come in ledger order (by date); the dates are all different, so the order is fully determined."
+}

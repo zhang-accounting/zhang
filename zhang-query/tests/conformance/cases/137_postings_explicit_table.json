@@ -1,0 +1,20 @@
+{
+  "name": "postings_explicit_table",
+  "query": "SELECT account, count(*) AS n, sum(position) AS balance FROM #postings WHERE account ~ '^Expenses:Food' GROUP BY account ORDER BY account",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "balance", "type": "inventory"}
+  ],
+  "rows": [
+    ["Expenses:Food:Alcohol", 7, {"positions": [{"units": {"number": "63.58", "currency": "USD"}, "cost": null}]}],
+    ["Expenses:Food:Coffee", 13, {"positions": [{"units": {"number": "76.98", "currency": "USD"}, "cost": null}]}],
+    ["Expenses:Food:Groceries", 73, {"positions": [{"units": {"number": "5936.42", "currency": "USD"}, "cost": null}]}],
+    ["Expenses:Food:Restaurant", 370, {"positions": [{"units": {"number": "12083.83", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "FROM #postings names the default table explicitly; the result is the same as without FROM."
+}

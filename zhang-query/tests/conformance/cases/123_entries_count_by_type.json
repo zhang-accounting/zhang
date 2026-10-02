@@ -1,0 +1,23 @@
+{
+  "name": "entries_count_by_type",
+  "query": "SELECT type, count(*) AS n, min(date) AS first, max(date) AS last FROM #entries GROUP BY type ORDER BY type",
+  "phase": 3,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "type", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "first", "type": "date"},
+    {"name": "last", "type": "date"}
+  ],
+  "rows": [
+    ["balance", 82, "2015-01-01", "2017-08-29"],
+    ["commodity", 10, "1792-01-01", "2009-05-01"],
+    ["event", 9, "2015-01-01", "2017-06-03"],
+    ["open", 60, "1980-05-12", "2017-01-01"],
+    ["price", 846, "2015-01-02", "2017-09-08"],
+    ["transaction", 1044, "2015-01-01", "2017-09-08"]
+  ],
+  "notes": "One row per directive kind of the ledger. A balance directive is a 'balance' entry, not a transaction. Also sensitive to zhang's synthetic balance-check transactions: beanquery has no such transactions (a balance directive is a balance entry), so they must not appear as transactions."
+}

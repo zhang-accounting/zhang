@@ -1,0 +1,12 @@
+{
+  "name": "error_having_bare_group_key",
+  "query": "SELECT account, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY account HAVING account ~ 'Coffee'",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "beanquery rejects a HAVING expression without an aggregate, even when it only uses group keys (SQL would accept it): 'the HAVING clause must be an aggregate expression'."
+}
