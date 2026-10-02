@@ -59,14 +59,12 @@ jobs:
         # macOS runners are scarce and slow, only run them on main
         os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-22.04"]' || '["ubuntu-22.04", "macOS-latest"]') }}
         rust: [ stable ]
-        features: [ default, plugin_runtime ]
     steps:
       - uses: actions/checkout@v4
       - name: Install ${{ matrix.rust }}
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ matrix.rust }}
-          cache-key: ${{ matrix.features }}
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: fake frontend build
         run: mkdir -p dist
@@ -75,7 +73,11 @@ jobs:
         with:
           python-version: '3.10'
       - name: Run test
-        run: cargo test --features ${{matrix.features}}
+        run: cargo test
+      # zhang-server enables `plugin_runtime` of zhang-core, so the workspace build above always has it on.
+      # Test zhang-core alone to cover the build without the plugin runtime.
+      - name: Run zhang-core test without plugin runtime
+        run: cargo test -p zhang-core
   wasm-test:
     runs-on: ubuntu-22.04
     steps:

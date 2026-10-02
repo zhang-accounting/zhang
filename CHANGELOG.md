@@ -5,6 +5,144 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-02
+
+### Added
+
+- Add tracing log in directive process trait for better debugging
+- Add help text for healthy ledger
+- Add typos checker config file
+- Add typo checker in develop build
+- Add some padding for setting page
+- Add some missing i18n
+- Add i18n extraction server and some i18n
+- Support random tags and links for transactions
+- Add testcase for ledger syntax
+- Support inconsistent space and optional space for posting
+- Add pagination i18n
+- Add OpenAPI documentation section in settings
+- Add wildcard include directive support and regex dependency
+- Add "no results" message to Explore page
+- Add s3 data source (#428)
+
+### Changed
+
+- Bump to v0.1.10
+- #357 introduce jotai and refactor error fetcher and pagination
+- #357 use jotai for all reduce data
+- Bump ws from 7.5.9 to 7.5.10 in /frontend
+- Bump rustls from 0.22.3 to 0.22.4 (#302)
+- Replace wee_alloc with talc (#359)
+- Use cfg_if to control feature related code (#361)
+- Bump openssl from 0.10.64 to 0.10.66
+- Report graph use right Y axis to display income & expense data
+- Journal list can be filter by tags and links
+- Display tags and link and can be filter by them
+- Make fmt happy
+- Fmt code
+- Use vite as packager
+- Restore prettier command
+- Integrate with shadcn/ui
+- New sidebar and dashboard
+- New composed chart for report
+- Refactor the accounts page
+- Refactor commodity page
+- Refactor single commodity page
+- Doucment page
+- Budget page
+- Single budget page
+- Report page
+- New raw edit page
+- Setting page
+- New notification
+- New transaction model
+- Preview model and edit model
+- New account line
+- Budget line
+- Journal table line
+- Journal preview model
+- Account balance graph
+- Dropzone
+- Prettier code
+- Log scale for graph
+- Make error count red
+- Grid for homepage
+- Elide the lifetimes
+- Use stable rust toolchain for clippy
+- Porting the change to beancount extension
+- Allow integration test to load beancount file
+- Use match expr instead of if expr
+- Lock python version
+- Make prettier happy
+- Make prettier happy
+- Integrate Gotcha framework and enhance server architecture
+- Add detailed documentation for response entities
+- Simplify ServerApp configuration and state management
+- Integrate OpenAPI TypeScript for type-safe API interactions
+- Migrate frontend to use new API types and fetchers
+- Update Gotcha framework import and trait name
+- Organize imports and clean up code structure
+- Simplify Account and Directive creation in route handlers
+- Add PWA support and mobile-friendly improvements
+- Add responsive drawer and auto-drawer components
+- Enhance AutoDrawer component with improved child handling
+- Update API request structures and enhance mobile view components
+- Make prettier happy
+- Rename response structures for consistency and clarity
+- Update documentation for directives and enhance structure
+- Integrate minijinja for directive output path customization
+- Clean up example
+- Make fmt happy
+- Make prettier happy
+- Deploy docs to cf woker
+- Update deploy command
+- Update CI workflows to use Ubuntu 22.04
+- Implement SQL execution feature
+- Migrate zhang & beancount text parsers from pest to nom (#414)
+- Beancount balance tolerance, txn keyword, cost labels, total cost, pushmeta/popmeta (#416)
+- Dedup domain types, unify commodity, decouple ast (+ frontend) (#418)
+- Make Windows best-effort so it no longer blocks CI (#417)
+- Per-plugin allowed_hosts + config, fix router/panic/perf issues (#420)
+- Drop windows test leg, fix clippy on rust 1.99 and fix rust caching (#429)
+- Skip release builds and macos tests on pull requests (#430)
+
+### Fixed
+
+- Mul the unit sign to posting's total price
+- Journal api should return correct total count given filtered keyword
+- Fix all the typo
+- No translate for breadcrumb
+- Fix ts compile error
+- Update frontend dist folder after switching to vite compiler
+- Update frontend dist folder after switching to vite compiler
+- Use full name of pnpm in git hooks
+- Fix the typo of folder
+- Display commodities in col
+- Correct indent of account tiers
+- Fix the sidebar and scroll the content only
+- Page click event in pagination
+- Update online playground link in README
+- Standardize API schema and response structures
+- Fix docs ci
+- Clippy redundant-reference warnings in python binding (#415)
+- Prettier-format generated schemas.ts + auto-format in `api` script (#419)
+- Write plugin output back to directives, dedup process paths, reuse module bytes (#426)
+
+### Removed
+
+- Remove self implemented bigdecimal scale round
+- Remove useless console log
+- Remove redux dependencies
+- Remove useless dependency
+- Remove done todo
+- Remove useless deps
+- Remove needs condition for formatter and clippy to speed up the CI
+- Remove gap in trx line
+- Remove dot and only active dot on hover
+- Remove unused imports and simplify route modules
+- Remove global.ts and axios dependencies
+- Remove example notify
+
 ## [0.1.10] - 2024-06-19
 
 ### Added

@@ -9,7 +9,6 @@ use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::ZhangResult;
 
-pub(crate) mod balance;
 pub(crate) mod budget;
 pub(crate) mod close;
 pub(crate) mod commodity;

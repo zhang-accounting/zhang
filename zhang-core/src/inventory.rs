@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use strum::Display;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Currency, Posting, PostingCost, SingleTotalPrice, Transaction};
+use zhang_ast::{Currency, Flag, Posting, PostingCost, SingleTotalPrice, Transaction};
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize, Clone, Copy, Display)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
@@ -242,6 +242,15 @@ impl TxnPosting<'_> {
 pub trait TransactionInference {
     fn txn_postings(&self) -> Vec<TxnPosting<'_>>;
     fn get_postings_inventory(&self) -> Result<Inventory, ErrorKind>;
+
+    /// the AST-only half of transaction validation, shared by the store fold and
+    /// pipeline stages so both agree on which transactions reach the store:
+    /// - `Ok(None)`: exempt from validation (balance-check entries, flag `C`)
+    /// - `Ok(Some(inventory))`: the postings inventory to validate against
+    /// - `Err(kind)`: posting amounts cannot be inferred (one of the
+    ///   `Transaction*` inference errors); the fold rejects the transaction, so it
+    ///   never reaches the store nor counts toward balances
+    fn validation_inventory(&self) -> Result<Option<Inventory>, ErrorKind>;
 }
 
 impl TransactionInference for Transaction {
@@ -259,5 +268,12 @@ impl TransactionInference for Transaction {
         }
         // todo work with commodity precision
         Ok(inventory)
+    }
+
+    fn validation_inventory(&self) -> Result<Option<Inventory>, ErrorKind> {
+        if self.flag == Some(Flag::BalanceCheck) {
+            return Ok(None);
+        }
+        self.get_postings_inventory().map(Some)
     }
 }
