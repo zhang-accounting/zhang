@@ -51,6 +51,12 @@ MAX_ROWS = 200
 ENGINE = "engine"
 LEDGER = "ledger-dependent"
 
+# beanquery exception type -> fixture `error_class` of an `expect: "error"` case
+ERROR_CLASSES = {
+    beanquery.ParseError: "syntax",
+    beanquery.CompilationError: "compile",
+}
+
 
 def case(area, name, query, kind=ENGINE, ordered=False, expect="rows", notes="", oracle_query=None):
     return dict(area=area, name=name, query=query, kind=kind, ordered=ordered, expect=expect,
@@ -515,8 +521,9 @@ def dumps(value):
 
 def render_fixture(fixture):
     lines = ["{"]
-    for key in ("name", "query", "kind", "ordered", "expect"):
-        lines.append(f"  {dumps(key)}: {dumps(fixture[key])},")
+    for key in ("name", "query", "kind", "ordered", "expect", "error_class"):
+        if key in fixture:
+            lines.append(f"  {dumps(key)}: {dumps(fixture[key])},")
     for key in ("columns", "rows"):
         items = fixture[key]
         if items:
@@ -537,11 +544,16 @@ def build_fixture(index, spec, conns):
     problems = []
     notes = spec["notes"]
 
+    error_class = None
     if spec["expect"] == "error":
         try:
             run(base, query)
-        except Exception as exc:  # beanquery raises ParseError / CompilationError
-            detail = f"{type(exc).__name__}: {exc}"
+        except tuple(ERROR_CLASSES) as exc:
+            error_class = next(name for cls, name in ERROR_CLASSES.items() if isinstance(exc, cls))
+            detail = f"{error_class}: {type(exc).__name__}: {exc}"
+        except Exception as exc:
+            raise SystemExit(f"case {spec['name']}: beanquery failed with {type(exc).__name__} ({exc}), which is "
+                             "neither a ParseError nor a CompilationError; the oracle has no expectation for it")
         else:
             raise SystemExit(f"case {spec['name']}: expected an error but beanquery accepted the query")
         columns, rows = [], []
@@ -574,6 +586,7 @@ def build_fixture(index, spec, conns):
         "kind": spec["kind"],
         "ordered": spec["ordered"],
         "expect": spec["expect"],
+        **({"error_class": error_class} if error_class else {}),
         "columns": columns,
         "rows": rows,
         "notes": notes,
