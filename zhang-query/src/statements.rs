@@ -124,10 +124,12 @@ pub(crate) fn balances(keyword: Span, at: Option<AtFunction>, where_clause: Opti
         period: None,
         where_clause,
         group_by: Some(vec![synth.column("account"), synth.account_sortkey()]),
+        having: None,
         order_by: Some(vec![OrderItem {
             expr: synth.account_sortkey(),
             descending: false,
         }]),
+        pivot_by: None,
         limit: None,
     }
 }
@@ -158,7 +160,9 @@ pub(crate) fn journal(keyword: Span, account: Option<Expr>, at: Option<AtFunctio
         period: None,
         where_clause,
         group_by: None,
+        having: None,
         order_by: None,
+        pivot_by: None,
         limit: None,
     }
 }

@@ -56,6 +56,7 @@ mod optimizer;
 pub mod params;
 mod parser;
 mod period;
+mod pivot;
 pub mod prices;
 mod projector;
 mod running;
@@ -139,8 +140,8 @@ impl Query {
     }
 
     /// An `EXPLAIN`-style description of the optimized plan: one line per target, aggregate,
-    /// the filter, grouping, ordering and limit, then the projected columns (the only ones
-    /// an execution computes).
+    /// the filter, grouping, HAVING, ordering, limit and pivot, then the projected columns
+    /// (the only ones an execution computes).
     pub fn explain(&self) -> String {
         format!("{}project: {}\n", self.plan, self.projection)
     }
@@ -151,6 +152,9 @@ impl Query {
     }
 
     /// The result columns.
+    ///
+    /// The columns of a `PIVOT BY` query depend on the data: this lists the columns before
+    /// the pivot, and [`QueryResult::columns`] of each execution the pivoted ones.
     pub fn columns(&self) -> Vec<ColumnInfo> {
         self.plan.targets[..self.plan.visible]
             .iter()
@@ -233,8 +237,11 @@ impl Query {
             }
         };
         let budget = executor::Budget::new(options.max_result_values);
-        let rows = executor::execute_within(&self.plan, &data, params, deadline, budget).map_err(|err| err.resolve(&self.source))?;
-        Ok(QueryResult { columns: self.columns(), rows })
+        let output = executor::execute_within(&self.plan, &data, params, deadline, budget).map_err(|err| err.resolve(&self.source))?;
+        Ok(QueryResult {
+            columns: output.columns.unwrap_or_else(|| self.columns()),
+            rows: output.rows,
+        })
     }
 }
 

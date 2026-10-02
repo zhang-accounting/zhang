@@ -1,0 +1,11 @@
+{
+  "name": "error_pivot_three_columns",
+  "query": "SELECT account, year, sum(number) AS total GROUP BY 1, 2 PIVOT BY account, year, total",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

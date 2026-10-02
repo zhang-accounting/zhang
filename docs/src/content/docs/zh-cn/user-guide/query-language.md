@@ -98,8 +98,9 @@ LIMIT 10
 SELECT [DISTINCT] target [, target ...] | *
   [FROM from_clause]
   [WHERE expression]
-  [GROUP BY group_key [, group_key ...]]
+  [GROUP BY group_key [, group_key ...] [HAVING expression]]
   [ORDER BY order_key [ASC | DESC] [, order_key [ASC | DESC] ...]]
+  [PIVOT BY pivot_key, pivot_key]
   [LIMIT count]
   [;]
 
@@ -110,6 +111,7 @@ JOURNAL ['pattern'] [AT function] [FROM from_clause] [;]
 target      = expression [AS name]
 group_key   = expression | target name | target number
 order_key   = expression | target name | target number
+pivot_key   = target name | target number
 from_clause = [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
 ```
 
@@ -126,9 +128,11 @@ from_clause = [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
 2. `FROM` 中的表达式和 `WHERE` 子句决定哪些分录参与计算。
 3. 如果查询读取了[累计余额](#累计余额)，就按账本顺序在被选中的分录上累加。
 4. 如果查询使用了[聚合函数](#聚合函数)或带有 `GROUP BY` 子句，被选中的分录会被分组，每组产生一行；否则每条分录产生一行。
-5. `ORDER BY` 对结果行排序。
-6. `DISTINCT` 去除重复的行，每组重复只保留第一行。
-7. `LIMIT` 保留前面的若干行，丢弃其余的行。
+5. `HAVING` 丢弃不满足其条件的分组。
+6. `ORDER BY` 对结果行排序。
+7. `DISTINCT` 去除重复的行，每组重复只保留第一行。
+8. `LIMIT` 保留前面的若干行，丢弃其余的行。
+9. `PIVOT BY` 把剩下的行转换成一张表，某个目标的每个值占一列。
 
 在读取任何分录之前，张记账会先检查并简化查询。只包含常量的部分（例如 `'^Expenses:' + 'Food'`）在这时就计算一次。依赖账本或当前日期的函数（`today`、`convert`、`value`、`getprice` 和元数据函数）不会被提前计算。因此，常量模式中无效的正则表达式会立即报错并给出位置，即使没有任何分录会与它匹配。
 
@@ -189,6 +193,23 @@ WHERE account ~ '^Expenses'
 GROUP BY category
 ```
 
+### HAVING
+
+`HAVING` 过滤聚合查询的分组，就像 `WHERE` 过滤分录一样。它紧跟在 `GROUP BY` 之后，保留条件为 `TRUE` 的分组；条件为 `FALSE` 或 `NULL` 的分组会被丢弃。
+
+```sql
+SELECT root(account, 2) AS category, sum(position) AS total
+WHERE account ~ '^Expenses'
+GROUP BY category
+HAVING sum(number) > 1000
+```
+
+- `HAVING` 需要 `GROUP BY` 子句。没有 `GROUP BY` 时是语法错误，即使查询已经[隐式分组](#group-by)。
+- 条件必须是使用了[聚合函数](#聚合函数)的布尔表达式。其中的聚合函数不必出现在 `SELECT` 中：即使 `count(*)` 不是目标，`HAVING count(*) > 10` 也可以使用。
+- `HAVING` 中的名字和 `WHERE` 中一样，指的是 `postings` 表的列，而不是目标的别名。`HAVING total > 1000` 会报错，应该重复写出表达式，例如 `HAVING sum(number) > 1000`。
+- 在聚合函数之外，只能通过分组键读取列：与某个分组键相同的表达式取该分组的值。在 `GROUP BY account HAVING account ~ 'Food' AND count(*) > 10` 中，`account` 是每个分组的账户。其他列必须写在聚合函数之内。
+- `LIMIT` 只计算 `HAVING` 保留下来的分组。
+
 ### ORDER BY
 
 - 排序键和分组键一样，可以是表达式、目标名或目标序号。没有被选择的表达式也可以用来排序，只是不会出现在结果中。
@@ -201,6 +222,31 @@ GROUP BY category
 ### LIMIT
 
 `LIMIT n` 在排序和 `DISTINCT` 之后保留前 `n` 行。`n` 必须是非负整数字面量。`LIMIT 0` 不返回任何行。
+
+### PIVOT BY
+
+`PIVOT BY a, b` 把聚合查询的结果转换成一张表：目标 `a` 的每个值占一行，目标 `b` 的每个值占一列。
+
+```sql
+SELECT root(account, 2) AS category, year, sum(position) AS total
+WHERE account ~ '^Expenses:(Food|Home)'
+GROUP BY category, year
+PIVOT BY category, year
+```
+
+| category/year | 2015 | 2016 | 2017 |
+|---|---|---|---|
+| Expenses:Food | 6614.67 USD | 6859.72 USD | 4686.42 USD |
+| Expenses:Home | 31304.42 USD | 31280.55 USD | 20866.27 USD |
+
+- `PIVOT BY` 写在 `ORDER BY` 之后、`LIMIT` 之前，正好接受两个目标，每个目标用名字或它在 `SELECT` 列表中的序号表示，不能是表达式。
+- 查询必须是聚合查询，第二个目标必须是分组键，两个目标不能相同。
+- 它最后执行，作用于经过 `HAVING`、`ORDER BY`、`DISTINCT` 和 `LIMIT` 之后剩下的行，只有这些行会产生列。
+- 无论 `ORDER BY` 如何，结果行都按 `a` 排序，列按 `b` 的值排序。
+- 第一列以两个目标命名为 `a/b`。其余每一列以 `b` 的一个值命名（例如 `2016`），存放该值对应的剩余目标。剩余的目标不止一个时，每个值的每个目标各占一列，命名为 `<值>/<目标>`，例如 `2016/total` 和 `2016/count`。
+- 值在列名中的写法：日期为 `2016-01-31`，小数为 `12.50`，布尔值为 `True` 和 `False`，`NULL` 为 `NULL`。
+- 某对 `a` 和 `b` 没有对应的行时，单元格为 `NULL`。如果有多行对应同一对值（查询除 `a` 和 `b` 外还按其他键分组时会出现），由结果顺序中的最后一行填充。
+- 各列保持其目标的类型，所以 [CSV 导出](#csv-导出)会按货币拆分透视后的金额和库存列，例如 `2016 (USD)`。
 
 ### 参数
 
@@ -821,7 +867,7 @@ curl -X POST http://localhost:8000/api/query \
 
 - 嵌套深度统计的是相互嵌套的括号、函数调用、`IN` 列表、`NOT` 和一元负号。由 `AND`、`OR`、`+` 或 `*` 连接的长链（例如 `account = 'A' OR account = 'B' OR ...`）不算嵌套，在长度限制以内可以任意长。
 - 执行时间包括构建 `postings` 表各行以及应用会计期间子句的时间。查询运行期间会持有账本的读锁，时间限制也限定了持有读锁的时长。
-- 结果大小把每个单元格计为一个值，库存中的每个持仓、集合中的每个元素以及文本中的每 64 字节各再计一个值。查询在 `ORDER BY`、`DISTINCT` 和 `LIMIT` 之前收集的行也计算在内，聚合查询在构建过程中的分组同样如此。超出限制的查询会报错，错误信息建议用 `FROM` 或 `WHERE` 缩小查询范围，或者加上 `LIMIT`。
+- 结果大小把每个单元格计为一个值，库存中的每个持仓、集合中的每个元素以及文本中的每 64 字节各再计一个值。查询在 `ORDER BY`、`DISTINCT` 和 `LIMIT` 之前收集的行也计算在内，聚合查询在构建过程中的分组同样如此。`PIVOT BY` 生成的表计算所有单元格（包括空单元格），并在构建之前检查。超出限制的查询会报错，错误信息建议用 `FROM` 或 `WHERE` 缩小查询范围，或者加上 `LIMIT`。
 - 服务器管理员可以通过环境变量 `ZHANG_QUERY_MAX_RESULT_VALUES` 调高或调低结果大小的限制。
 - `LIMIT` 可以让结果保持较小，[累计余额](#累计余额)的计算方式也有帮助：除非查询按 `balance` 排序、分组或去重，否则只为最终出现在结果中的行构建 `balance`。`units(balance)` 和 `cost(balance)`（以及 `JOURNAL ... AT units` 和 `AT cost`）按货币累加，不保留批次。
 - [CSV 导出](#csv-导出)同样受这些限制。
@@ -900,6 +946,29 @@ SELECT year, month, root(account, 2), sum(position) WHERE account ~ "^Expenses" 
 ```
 
 每个月、每个二级支出账户（如 `Expenses:Food`）一行，给出总支出。`GROUP BY 1, 2, 3` 和 `ORDER BY 1, 2, 3` 通过序号引用前三个目标。
+
+### 超过某个金额的支出类别
+
+```sql
+SELECT root(account, 2) AS category, sum(position) AS total
+WHERE account ~ '^Expenses' AND currency = 'USD'
+GROUP BY category
+HAVING sum(number) > 1000
+ORDER BY category
+```
+
+支出超过 1000 USD 的支出类别。`HAVING` 在分组合计之后过滤分组；`WHERE` 做不到，因为它每次只看到一条分录。
+
+### 每月支出，每年一列
+
+```sql
+SELECT month, year, sum(position) AS total
+WHERE account ~ '^Expenses:Food'
+GROUP BY month, year
+PIVOT BY month, year
+```
+
+每个月一行，每年一列，不同年份的同一个月并排显示。某年某月没有分录时，单元格为空。
 
 ### 按收款方统计支出
 
@@ -1060,13 +1129,12 @@ ORDER BY date
 ### 尚未支持
 
 - **`PRINT`**，使用时会报错。
-- **`HAVING` 和 `PIVOT BY`。**
 - **其他表：**只有 `postings` 表，没有 entries、prices、accounts、commodities、documents 或 balances 等表，`FROM` 后面也不能跟表名或子查询。
 - **beanquery 的列** `posting_flag`、`filename`、`lineno`、`location`、`meta`、`entry`、`accounts` 和 `type`。
 - **`BETWEEN` 和 `%` 运算符**，以及 beanquery 的带引号标识符。
 - **本页未列出的函数**，例如 `round`、`safediv`、`has_account`、`open_date`、`close_date`、`open_meta`、`currency_meta`、`grep`、`subst`、`upper`、`lower`、`joinstr`、`findfirst`，类型转换函数 `int`、`decimal` 和 `date`，以及 `date_*` 系列函数。调用它们会报错。
 
-[#434](https://github.com/zhang-accounting/zhang/issues/434) 中的路线图计划在之后的阶段支持 `HAVING`、`PIVOT BY` 和更多的表。
+[#434](https://github.com/zhang-accounting/zhang/issues/434) 中的路线图计划在之后的阶段支持更多的表。
 
 ### 行为不同之处
 
@@ -1087,4 +1155,9 @@ ORDER BY date
 - **`FROM` 中的表达式在会计期间子句之后过滤。**这与 beanquery 一致。在 BQL v2 中，该表达式在应用 `OPEN`、`CLOSE` 和 `CLEAR` 之前选择交易。
 - **权益账户。**`account_previous_*` 或 `account_current_*` 选项的值如果不是有效的账户名，会被忽略，并使用默认账户。
 - **期间内的最后一笔条目**决定 `CLEAR` 的 `T` 交易和不带日期的 `CLOSE` 的 `C` 交易的日期。它不考虑张记账特有的预算指令，Beancount 没有这类指令。
+- **`HAVING` 中的列。**对于 `HAVING` 中在聚合函数之外使用的列，beanquery 会从任意一条分录读取。张记账把分组键读作每个分组的值，其他列则会报错。
+- **`HAVING` 必须是布尔表达式。**beanquery 也接受其他值，保留值不为零或不为空的分组，例如 `HAVING sum(number)`。张记账与 `WHERE` 一样拒绝这类条件，应写成 `HAVING sum(number) != 0`。
+- **`PIVOT BY` 遇到 `NULL` 值。**透视目标的值中既有 `NULL` 又有其他值时，beanquery 会出错。张记账把 `NULL` 排在最前，对应的列命名为 `NULL`。
+- **没有分组的 `PIVOT BY`** 在张记账中会报错。beanquery 在执行这类查询时出错。
+- **导出缺少单元格的透视结果为 CSV。**beanquery 无法对透视后金额或库存列中的空单元格做 numberify。张记账把它们留空。
 - **CSV 导出保留精确的数字。**`bean-query` 会为对齐而在数字前补空格（`" 600.00"`），把 numberify 后的数字舍入到各货币的显示精度（`360.03` 而不是 `360.03016`），有些数字还会用指数写法（`1E+3`）。张记账都不会这样做。
