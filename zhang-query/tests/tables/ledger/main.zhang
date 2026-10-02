@@ -27,8 +27,8 @@ option "operating_currency" "USD"
   Expenses:Food        7.50 USD
   Assets:Bank         -7.50 USD
 
-2020-01-04 note Assets:Bank "called the bank"
-2020-01-05 document Assets:Bank "statements/2020-01.pdf"
+2020-01-04 note Assets:Bank "called the bank" #t1 ^ln
+2020-01-05 document Assets:Bank "statements/2020-01.pdf" #scan ^stmt-1 ^stmt-2
 2020-01-06 event "location" "Berlin"
 2020-01-07 price AAPL 300.00 USD
 2020-01-07 price AAPL 301.00 EUR

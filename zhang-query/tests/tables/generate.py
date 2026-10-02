@@ -85,6 +85,8 @@ CASES = [
     # documents (the filename is an absolute path, compared in tests/tables.rs instead)
     case("extra", "SELECT date, account, tags, links FROM #documents ORDER BY date", ordered=True),
     case("extra", "SELECT account, count(*) AS n FROM #documents GROUP BY account", ordered=True),
+    case("extra", "SELECT date, comment FROM #notes WHERE 't1' IN tags AND 'ln' IN links", ordered=True),
+    case("extra", "SELECT type, tags, links FROM #entries WHERE type IN ('note', 'document') ORDER BY date", ordered=True),
     # accounts
     case("fava", "SELECT account, open.date, open.currencies, close.date FROM #accounts ORDER BY account", ordered=True),
     case("fava", "SELECT account, open.date FROM #accounts", ordered=True),

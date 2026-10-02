@@ -265,7 +265,7 @@ option "operating_currency" "USD"
 
 2024-02-01 balance Assets:Bank 100.00 USD with pad Equity:Opening
 2024-02-02 balance Assets:Bank 99.00 USD
-2024-02-03 note Assets:Bank "check the statement"
+2024-02-03 note Assets:Bank "check the statement" #todo ^stmt
 2024-02-04 document Assets:Bank "../docs/./statement.pdf"
 2024-02-05 custom "fava-option" "language" "en"
 2024-03-01 close Expenses:Food
@@ -313,7 +313,7 @@ fn entries_hold_every_directive_in_beancount_order() {
                 "Assets:Bank, Equity:Opening"
             ],
             &["2024-02-02", "balance", "NULL", "NULL", "NULL", "NULL", "Assets:Bank"],
-            &["2024-02-03", "note", "NULL", "NULL", "NULL", "", "Assets:Bank"],
+            &["2024-02-03", "note", "NULL", "NULL", "NULL", "todo", "Assets:Bank"],
             &["2024-02-04", "document", "NULL", "NULL", "NULL", "", "Assets:Bank"],
             &["2024-02-05", "custom", "NULL", "NULL", "NULL", "NULL", ""],
             &["2024-03-01", "close", "NULL", "NULL", "NULL", "NULL", "Expenses:Food"],
@@ -389,7 +389,7 @@ fn balances_report_the_discrepancy_zhang_found() {
 fn notes_documents_and_commodities() {
     assert_eq!(
         on_directives("SELECT * FROM #notes"),
-        rows(&[&["2024-02-03", "Assets:Bank", "check the statement", "", ""]])
+        rows(&[&["2024-02-03", "Assets:Bank", "check the statement", "todo", "stmt"]])
     );
     // a relative document path is resolved against the directory of its ledger file
     let documents = on_directives("SELECT filename FROM #documents");

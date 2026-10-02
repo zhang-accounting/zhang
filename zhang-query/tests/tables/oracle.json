@@ -924,8 +924,12 @@
      null,
      null,
      null,
-     [],
-     [],
+     [
+      "t1"
+     ],
+     [
+      "ln"
+     ],
      [
       "Assets:Bank"
      ]
@@ -937,8 +941,13 @@
      null,
      null,
      null,
-     [],
-     [],
+     [
+      "scan"
+     ],
+     [
+      "stmt-1",
+      "stmt-2"
+     ],
      [
       "Assets:Bank"
      ]
@@ -2709,8 +2718,12 @@
      "2020-01-04",
      "Assets:Bank",
      "called the bank",
-     [],
-     []
+     [
+      "t1"
+     ],
+     [
+      "ln"
+     ]
     ],
     [
      "2020-02-02",
@@ -2900,8 +2913,13 @@
     [
      "2020-01-05",
      "Assets:Bank",
-     [],
-     []
+     [
+      "scan"
+     ],
+     [
+      "stmt-1",
+      "stmt-2"
+     ]
     ]
    ]
   },
@@ -2923,6 +2941,72 @@
     [
      "Assets:Bank",
      1
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT date, comment FROM #notes WHERE 't1' IN tags AND 'ln' IN links",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "comment",
+     "type": "str"
+    }
+   ],
+   "rows": [
+    [
+     "2020-01-04",
+     "called the bank"
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT type, tags, links FROM #entries WHERE type IN ('note', 'document') ORDER BY date",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "type",
+     "type": "str"
+    },
+    {
+     "name": "tags",
+     "type": "set"
+    },
+    {
+     "name": "links",
+     "type": "set"
+    }
+   ],
+   "rows": [
+    [
+     "note",
+     [
+      "t1"
+     ],
+     [
+      "ln"
+     ]
+    ],
+    [
+     "document",
+     [
+      "scan"
+     ],
+     [
+      "stmt-1",
+      "stmt-2"
+     ]
+    ],
+    [
+     "note",
+     [],
+     []
     ]
    ]
   },
