@@ -133,7 +133,7 @@ fn total_function(expr: &CExpr) -> bool {
 /// changes nothing but the work done.
 fn infallible(expr: &CExpr) -> bool {
     let node = match expr {
-        CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) => true,
+        CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) | CExpr::Target(_) => true,
         CExpr::Not(_) | CExpr::And(_) | CExpr::Or(_) | CExpr::Compare { .. } | CExpr::InSet { .. } | CExpr::InList { .. } | CExpr::IsNull { .. } => true,
         CExpr::Scalar { .. } => total_function(expr),
         CExpr::Aggregate(_) | CExpr::Neg(..) | CExpr::Arith { .. } | CExpr::Regex { .. } => false,
@@ -457,6 +457,7 @@ option "operating_currency" "USD"
                 data: Some(&data),
                 row: Some(row),
                 aggregates: &[],
+                cells: &[],
                 running: None,
                 params: &params,
                 regexes: &regexes,

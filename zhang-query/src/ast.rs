@@ -284,6 +284,10 @@ pub(crate) struct Select {
     pub period: Option<Period>,
     pub where_clause: Option<Expr>,
     pub group_by: Option<Vec<Expr>>,
+    /// `HAVING expr`, which the grammar only accepts after a GROUP BY
+    pub having: Option<Expr>,
     pub order_by: Option<Vec<OrderItem>>,
+    /// `PIVOT BY a, b`: each a target name or a 1-based target index
+    pub pivot_by: Option<[Expr; 2]>,
     pub limit: Option<u64>,
 }

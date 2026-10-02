@@ -1,0 +1,22 @@
+{
+  "name": "pivot_boolean_column_names",
+  "query": "SELECT root(account, 2) AS category, payee IS NULL AS no_payee, count(*) AS n WHERE account ~ '^Expenses' GROUP BY 1, 2 PIVOT BY category, no_payee",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "category/no_payee", "type": "str"},
+    {"name": "False", "type": "int"},
+    {"name": "True", "type": "int"}
+  ],
+  "rows": [
+    ["Expenses:Financial", 33, 28],
+    ["Expenses:Food", 463, null],
+    ["Expenses:Health", 284, null],
+    ["Expenses:Home", 128, null],
+    ["Expenses:Taxes", 472, 4],
+    ["Expenses:Transport", 31, null],
+    ["Expenses:Vacation", null, 4]
+  ],
+  "notes": "Columns are named with Python's str() of the value: False and True."
+}

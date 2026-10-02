@@ -1,0 +1,19 @@
+{
+  "name": "having_categories_over_1000",
+  "query": "SELECT root(account, 2) AS category, sum(number) AS total WHERE account ~ '^Expenses' GROUP BY 1 HAVING sum(number) > 1000 ORDER BY 1",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "category", "type": "str"},
+    {"name": "total", "type": "decimal"}
+  ],
+  "rows": [
+    ["Expenses:Food", "18160.81"],
+    ["Expenses:Health", "6879.90"],
+    ["Expenses:Home", "83451.24"],
+    ["Expenses:Taxes", "196514.50"],
+    ["Expenses:Transport", "3720.00"]
+  ],
+  "notes": "HAVING keeps the groups whose aggregate passes; it is evaluated per finished group."
+}

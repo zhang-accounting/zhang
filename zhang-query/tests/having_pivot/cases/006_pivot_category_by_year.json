@@ -1,0 +1,23 @@
+{
+  "name": "pivot_category_by_year",
+  "query": "SELECT root(account, 2) AS category, year, sum(position) AS total WHERE account ~ '^Expenses' GROUP BY 1, 2 PIVOT BY category, year",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "category/year", "type": "str"},
+    {"name": "2015", "type": "inventory"},
+    {"name": "2016", "type": "inventory"},
+    {"name": "2017", "type": "inventory"}
+  ],
+  "rows": [
+    ["Expenses:Financial", {"positions": [{"units": {"number": "119.60", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "155.40", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "107.60", "currency": "USD"}, "cost": null}]}],
+    ["Expenses:Food", {"positions": [{"units": {"number": "6614.67", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "6859.72", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "4686.42", "currency": "USD"}, "cost": null}]}],
+    ["Expenses:Health", {"positions": [{"units": {"number": "2616.30", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "2519.40", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "1744.20", "currency": "USD"}, "cost": null}]}],
+    ["Expenses:Home", {"positions": [{"units": {"number": "31304.42", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "31280.55", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "20866.27", "currency": "USD"}, "cost": null}]}],
+    ["Expenses:Taxes", {"positions": [{"units": {"number": "18000.00", "currency": "IRAUSD"}, "cost": null}, {"units": {"number": "53187.86", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "18000.00", "currency": "IRAUSD"}, "cost": null}, {"units": {"number": "52047.35", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "18500.00", "currency": "IRAUSD"}, "cost": null}, {"units": {"number": "36779.29", "currency": "USD"}, "cost": null}]}],
+    ["Expenses:Transport", {"positions": [{"units": {"number": "1440.00", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "1320.00", "currency": "USD"}, "cost": null}]}, {"positions": [{"units": {"number": "960.00", "currency": "USD"}, "cost": null}]}],
+    ["Expenses:Vacation", {"positions": [{"units": {"number": "72", "currency": "VACHR"}, "cost": null}]}, {"positions": [{"units": {"number": "168", "currency": "VACHR"}, "cost": null}]}, {"positions": [{"units": {"number": "128", "currency": "VACHR"}, "cost": null}]}]
+  ],
+  "notes": "One row per value of the first column, sorted; one column per value of the second, sorted and named after the value. The first column is named '<first>/<second>'."
+}
