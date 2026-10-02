@@ -574,3 +574,17 @@ fn executions_stop_at_their_deadline() {
     };
     assert_eq!(compiled.execute_with_options(ledger(), &Params::new(), &options).unwrap().rows.len(), 7);
 }
+
+#[test]
+fn metadata_functions_are_row_dependent_when_grouping() {
+    let err = error("SELECT account, entry_meta('category'), count(*) GROUP BY account");
+    assert!(err.message.contains("is missing"), "{}", err);
+    assert_eq!(err.column, Some(17));
+    let err = error("SELECT entry_meta('category'), count(*) GROUP BY account");
+    assert!(err.message.contains("is missing"), "{}", err);
+    assert_eq!(
+        query("SELECT entry_meta('category') AS c, count(*) GROUP BY c ORDER BY c"),
+        vec![vec!["NULL", "16"], vec!["meal", "2"]]
+    );
+    assert_eq!(one("SELECT count(entry_meta('category'))"), "2");
+}

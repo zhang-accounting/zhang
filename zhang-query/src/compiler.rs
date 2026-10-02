@@ -379,6 +379,10 @@ impl Compiler<'_> {
         if star {
             return err(format!("{}(*) is not supported; only count(*) is", name), span);
         }
+        if ROW_FUNCTIONS.contains(&name) && info.bare_column.is_none() {
+            // metadata functions read the current row, like a column reference
+            info.bare_column = Some((format!("{}(...)", name), span));
+        }
         let mut compiled = Vec::with_capacity(args.len());
         let mut types = Vec::with_capacity(args.len());
         for arg in args {
@@ -565,6 +569,10 @@ impl Compiler<'_> {
         }
     }
 }
+
+/// Scalar functions that read the row being evaluated (its metadata): in grouped queries
+/// they must be grouped or used inside an aggregate, like columns.
+const ROW_FUNCTIONS: &[&str] = &["meta", "entry_meta", "any_meta"];
 
 fn literal_value(literal: &Literal) -> Typed {
     match literal {
