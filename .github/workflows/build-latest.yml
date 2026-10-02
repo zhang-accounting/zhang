@@ -65,6 +65,8 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ matrix.rust }}
+          cache-key: ${{ matrix.features }}
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: fake frontend build
         run: mkdir -p dist
         working-directory: ./frontend
@@ -78,6 +80,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: jetli/wasm-pack-action@v0.4.0
         with:
@@ -157,6 +161,7 @@ jobs:
         with:
           toolchain: nightly
           components: rustfmt
+          cache: false
       - name: fake frontend build
         run: mkdir -p dist
         working-directory: ./frontend
@@ -171,6 +176,7 @@ jobs:
         with:
           toolchain: stable
           components: clippy
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: fake frontend build
         run: mkdir -p dist
         working-directory: ./frontend
