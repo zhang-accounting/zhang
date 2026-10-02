@@ -90,9 +90,19 @@ impl DirectiveProcess for Transaction {
                 Amount::new(after_number, previous.commodity),
             )?;
 
-            // budget related
+            // budget related: like `budget-add`, activity on a budget the stream has not defined
+            // (yet) is skipped. It is reported once per (account, budget), on the first
+            // transaction that loses activity, instead of once per posting
             let budgets_name = operations.get_account_budget(posting.account.name())?;
             for budget in budgets_name {
+                if !operations.contains_budget(&budget) {
+                    let account_name = posting.account.name().to_owned();
+                    if ledger.reported_undefined_budgets.insert((account_name.clone(), budget.clone())) {
+                        let metas = HashMap::of2("account_name", account_name, "budget_name", budget);
+                        operations.new_error(ErrorKind::BudgetDoesNotExist, span, metas)?;
+                    }
+                    continue;
+                }
                 let budget_activity_amount = inferred_amount.mul(BigDecimal::from(posting.account.get_account_sign()));
                 operations.budget_add_activity(budget, self.date.to_timezone_datetime(&ledger.options.timezone), budget_activity_amount)?;
             }
