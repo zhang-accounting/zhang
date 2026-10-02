@@ -59,7 +59,7 @@ use zhang_core::utils::id::FromSpan;
 use crate::error::{LocatedError, Span};
 use crate::params::{ParamRef, Params};
 use crate::table::{Dataset, Entry, Row};
-use crate::value::{Cost, Inventory, Position, Value};
+use crate::value::{Cost, Position, Value};
 
 /// A date of the period modifiers: a literal of the query or a parameter bound at execution.
 #[derive(Debug, Clone, PartialEq)]
@@ -255,6 +255,30 @@ impl Lots {
         }
         reduced
     }
+}
+
+/// The positions as beancount prints an inventory: by currency rank (the major currencies
+/// USD, EUR, JPY, CAD, GBP, AUD, NZD and CHF in this order, then the others by the length of
+/// their name), then by cost number (zero without a cost), cost currency and units; ties keep
+/// their order. Observed from beancount's output: the currency name, cost date and label do not
+/// take part.
+fn beancount_order(mut positions: Vec<Position>) -> Vec<String> {
+    const MAJOR: [&str; 8] = ["USD", "EUR", "JPY", "CAD", "GBP", "AUD", "NZD", "CHF"];
+    let rank = |position: &Position| {
+        let currency = position.units.commodity.as_str();
+        MAJOR.iter().position(|it| *it == currency).unwrap_or(MAJOR.len() + currency.chars().count())
+    };
+    let zero = BigDecimal::zero();
+    let cost_number = |position: &Position| position.cost.as_ref().map_or(&zero, |cost| &cost.number).clone();
+    let cost_currency = |position: &Position| position.cost.as_ref().map_or("", |cost| cost.currency.as_str()).to_owned();
+    positions.sort_by(|a, b| {
+        rank(a)
+            .cmp(&rank(b))
+            .then_with(|| cost_number(a).cmp(&cost_number(b)))
+            .then_with(|| cost_currency(a).cmp(&cost_currency(b)))
+            .then_with(|| a.units.number.cmp(&b.units.number))
+    });
+    positions.iter().map(ToString::to_string).collect()
 }
 
 /// The balance of one account.
@@ -483,7 +507,7 @@ impl<'a> Transform<'_, 'a> {
                 price: Some(price.clone()),
             })
             .collect();
-        let narration = format!("Conversion for ({})", balance.positions().collect::<Inventory>());
+        let narration = format!("Conversion for ({})", beancount_order(balance.positions().collect()).join(", "));
         let mut rows = std::mem::take(&mut self.rows);
         self.push_entry(&mut rows, Kind::Conversion, entry_date, narration, postings);
         self.rows = rows;
@@ -680,6 +704,34 @@ mod tests {
         lots.add(&usd(3), None);
         let positions = lots.positions().map(|it| it.units).collect::<Vec<_>>();
         assert_eq!(positions, vec![eur(2), usd(3)]);
+    }
+
+    #[test]
+    fn orders_positions_like_beancount() {
+        let position = |number: &str, currency: &str, cost: Option<(&str, &str)>| {
+            let cost = cost.map(|(number, currency)| Cost {
+                number: number.parse().unwrap(),
+                currency: currency.to_owned(),
+                date: None,
+                label: None,
+            });
+            Position::new(Amount::new(number.parse().unwrap(), currency), cost)
+        };
+        // expected orders observed from beancount's inventory output
+        let currencies = ["XYZ", "AB", "ABCD", "CHF", "NZD", "AUD", "GBP", "CAD", "JPY", "EUR", "USD", "CNY", "A"];
+        let ordered = beancount_order(currencies.iter().map(|currency| position("1", currency, None)).collect());
+        assert_eq!(
+            ordered.join(", "),
+            "1 USD, 1 EUR, 1 JPY, 1 CAD, 1 GBP, 1 AUD, 1 NZD, 1 CHF, 1 A, 1 AB, 1 XYZ, 1 CNY, 1 ABCD"
+        );
+        let ordered = beancount_order(vec![
+            position("3", "AAA", None),
+            position("1", "VHT", Some(("100", "USD"))),
+            position("2", "VEA", Some(("50", "USD"))),
+            position("4", "GLD", Some(("50", "CAD"))),
+            position("1", "ZZZ", None),
+        ]);
+        assert_eq!(ordered.join(", "), "1 ZZZ, 3 AAA, 4 GLD {50 CAD}, 2 VEA {50 USD}, 1 VHT {100 USD}");
     }
 
     #[test]

@@ -85,7 +85,20 @@ CASES = [
          "SELECT date, flag, payee, account, position, price, weight, cost_number, other_accounts "
          "FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 WHERE flag = 'C'",
          notes="The conversion entry of CLOSE: the residual of the price conversions at cost, priced at zero in "
-               "the conversion currency (NOTHING). Its narration lists the period's balance and is not compared."),
+               "the conversion currency (NOTHING). Its narration is compared in conversion_narration_*."),
+    case("synthetic", "conversion_narration_mid_2016",
+         "SELECT narration FROM CLOSE ON 2016-06-01 WHERE flag = 'C'",
+         kind=LEDGER,
+         notes="The conversion entry's narration lists the balance of the period with its lots, in beancount's "
+               "inventory order: major currencies (USD first), then the others by name length, then by cost and "
+               "units."),
+    case("synthetic", "conversion_narration_2017",
+         "SELECT narration FROM CLOSE ON 2017-01-01 WHERE flag = 'C'",
+         kind=LEDGER),
+    case("synthetic", "conversion_narration_2016_after_open",
+         "SELECT narration FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 WHERE flag = 'C'",
+         kind=LEDGER,
+         notes="After OPEN the balance includes the summarized lots and the equity accounts."),
     case("synthetic", "bare_close_conversion",
          "SELECT date, flag, account, position, price FROM CLOSE WHERE flag = 'C'",
          notes="A bare CLOSE drops nothing and dates the conversion entry like the last entry of the ledger."),
