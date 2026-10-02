@@ -105,17 +105,12 @@ impl ZhangDataTypeExportable for Transaction {
         header.append(&mut tags);
         header.append(&mut links);
 
-        let mut transaction = self
-            .postings
-            .into_iter()
-            .map(|posting| posting.export_as(style))
-            .map(|it| format!("  {}", it))
-            .collect_vec();
-        transaction.insert(0, header.into_iter().flatten().join(" "));
-        let mut txn_meta = self.meta.export_as(style).into_iter().map(|it| format!("  {}", it)).collect_vec();
-        transaction.append(&mut txn_meta);
-
-        transaction.into_iter().join("\n")
+        // metadata goes before the postings: beancount attaches a metadata line that
+        // follows a posting to that posting, not to the transaction
+        let meta = self.meta.export_as(style).into_iter();
+        let postings = self.postings.into_iter().map(|posting| posting.export_as(style));
+        let lines = meta.chain(postings).map(|it| format!("  {}", it));
+        std::iter::once(header.into_iter().flatten().join(" ")).chain(lines).join("\n")
     }
 }
 
@@ -596,8 +591,8 @@ mod test {
             "transaction directive with meta",
             indoc! {r#"
             1970-01-01 * "Payee" "Narration" ^link1 ^link-2
-              Assets:123 -1 CNY
               time: "123"
+              Assets:123 -1 CNY
         "#}
         );
 
@@ -605,10 +600,36 @@ mod test {
             "transaction posting and meta",
             indoc! {r#"
             1970-01-01 * "Payee" "Narration" ^link1 ^link-2
+              a: b
               Assets:123 -1 CNY
               Expenses:TestCategory:One 1 CCC @@ 1 CNY
-              a: b
         "#}
+        );
+    }
+
+    #[test]
+    fn transaction_meta_is_written_before_the_postings() {
+        // metadata after the postings is still read as transaction metadata, and is
+        // written back before them, where beancount reads it as transaction metadata
+        // too (checked with beancount 3.2.3: a metadata line after a posting belongs to
+        // that posting)
+        let source = indoc! {r#"
+            1970-01-01 * "Payee" "Narration"
+              Assets:123 -1 CNY
+              Expenses:Food 1 CNY
+              a: "b"
+              c: "d"
+        "#};
+        assert_eq!(
+            parse_and_export(source.trim()),
+            indoc! {r#"
+                1970-01-01 * "Payee" "Narration"
+                  a: "b"
+                  c: "d"
+                  Assets:123 -1 CNY
+                  Expenses:Food 1 CNY
+            "#}
+            .trim()
         );
     }
 
