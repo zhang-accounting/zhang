@@ -48,3 +48,6 @@ serde_qs = "0.13.0"
 
 [build-dependencies]
 chrono = { version = "0.4" }
+
+[dev-dependencies]
+beancount = { version = "0.1", path = "../extensions/beancount" }

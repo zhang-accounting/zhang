@@ -14,7 +14,7 @@ use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 use zhang_core::data_source::{DataSource, LoadResult};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::data_type::DataType;
+use zhang_core::data_type::{is_beancount_endpoint, DataType};
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
@@ -330,22 +330,14 @@ impl OpendalDataSource {
                 Operator::new(builder).expect("cannot build s3 operator, check your s3 configuration")
             }
         };
-        let is_beancount = match PathBuf::from(&server_opts.endpoint)
-            .extension()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string()
-            .as_str()
-        {
-            "bc" | "bean" | "beancount" => {
-                info!("detected ledger type: beancount");
-                true
-            }
-            "zhang" => {
-                info!("detected ledger type: zhang");
-                false
-            }
-            _ => unreachable!("not supported data format"),
+        let is_beancount = if is_beancount_endpoint(&server_opts.endpoint) {
+            info!("detected ledger type: beancount");
+            true
+        } else if PathBuf::from(&server_opts.endpoint).extension().is_some_and(|it| it == "zhang") {
+            info!("detected ledger type: zhang");
+            false
+        } else {
+            unreachable!("not supported data format")
         };
         let new_data_type: Box<dyn DataType<Carrier = String> + Send + Sync> = if is_beancount { Box::new(Beancount {}) } else { Box::new(ZhangDataType {}) };
         Self {

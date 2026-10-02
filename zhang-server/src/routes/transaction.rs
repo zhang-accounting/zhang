@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 use axum::extract::{Multipart, Path, State};
 use axum::Json;
-use chrono_tz::Tz;
 use gotcha::api;
 use indexmap::IndexSet;
 use itertools::Itertools;
@@ -11,7 +10,9 @@ use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
 use zhang_core::constants::TXN_ID;
+use zhang_core::data_type::is_beancount_endpoint;
 use zhang_core::domains::schemas::MetaType;
+use zhang_core::ledger::Ledger;
 use zhang_core::store::TransactionDomain;
 use zhang_core::utils::string_::{quote_as, QuoteStyle, StringExt};
 
@@ -128,8 +129,9 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
 
 /// Build the transaction a create or update request describes, rejecting with a
 /// 400 any account, commodity, tag, link or flag that would be written unquoted and
-/// not read back.
-fn transaction_from_request(payload: CreateTransactionRequest, timezone: &Tz) -> ServerResult<Directive> {
+/// not read back, and in a beancount ledger any metadata key beancount cannot read.
+fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) -> ServerResult<Directive> {
+    let beancount = is_beancount_endpoint(&ledger.entry.1);
     let mut postings = vec![];
     for posting in payload.postings {
         if let Some(unit) = &posting.unit {
@@ -145,9 +147,9 @@ fn transaction_from_request(payload: CreateTransactionRequest, timezone: &Tz) ->
         });
     }
 
-    // any metadata key reads back: the exporter quotes one that is not a bare word
     let mut metas = Meta::default();
     for meta in payload.metas {
+        validate::meta_key(&meta.key, beancount)?;
         metas.insert(meta.key, meta.value.to_quote());
     }
     for tag in &payload.tags {
@@ -159,7 +161,7 @@ fn transaction_from_request(payload: CreateTransactionRequest, timezone: &Tz) ->
     let flag = payload.flag.map(Flag::from).unwrap_or(Flag::Okay);
     validate::flag(&flag.to_string())?;
 
-    let time = payload.datetime.with_timezone(timezone).naive_local();
+    let time = payload.datetime.with_timezone(&ledger.options.timezone).naive_local();
     Ok(Directive::Transaction(Transaction {
         date: Date::Datetime(time),
         flag: Some(flag),
@@ -178,7 +180,7 @@ pub async fn create_new_transaction(
 ) -> ApiResult<String> {
     let ledger = ledger.read().await;
 
-    let trx = transaction_from_request(payload, &ledger.options.timezone)?;
+    let trx = transaction_from_request(payload, &ledger)?;
 
     ledger.data_source.async_append(&ledger, vec![trx]).await?;
     reload_sender.reload();
@@ -255,7 +257,7 @@ pub async fn update_single_transaction(
         return ResponseWrapper::bad_request();
     };
 
-    let trx = transaction_from_request(payload, &ledger.options.timezone)?;
+    let trx = transaction_from_request(payload, &ledger)?;
     let txn_content = ledger.data_source.export(trx)?;
     let trx_content = String::from_utf8_lossy(&txn_content);
     let source_file_path = span_info.source_file.to_string_lossy().to_string();
@@ -463,6 +465,11 @@ mod string_round_trip_test {
             key: "receipt-no".to_owned(),
             value: "1".to_owned(),
         });
+        // a zhang ledger takes any metadata key, quoting one that is not a bare word
+        request.metas.push(MetaRequest {
+            key: "receipt no".to_owned(),
+            value: "2".to_owned(),
+        });
         let response = create_new_transaction(ledger, reload, Json(request)).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);
 
@@ -474,6 +481,7 @@ mod string_round_trip_test {
         assert_eq!(created.links, vec!["inv-1"]);
         let receipt = reloaded.operations().metas(MetaType::TransactionMeta, created.id.to_string()).unwrap();
         assert!(receipt.iter().any(|meta| meta.key == "receipt-no" && meta.value == "1"), "{receipt:?}");
+        assert!(receipt.iter().any(|meta| meta.key == "receipt no" && meta.value == "2"), "{receipt:?}");
 
         std::fs::remove_dir_all(dir).ok();
     }
@@ -525,6 +533,44 @@ mod string_round_trip_test {
             .into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(std::fs::read_to_string(&data_file).unwrap(), written);
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_beancount_ledger_rejects_metadata_keys_beancount_cannot_read() {
+        // the ledger format comes from the main file's extension
+        let dir = std::env::temp_dir().join(format!("zhang-beancount-meta-keys-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("data/2024")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let main = "include \"data/2024/1.bean\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n";
+        std::fs::write(dir.join("main.bean"), main).unwrap();
+        let data_file = dir.join("data/2024/1.bean");
+        std::fs::write(&data_file, "").unwrap();
+        let load = || async {
+            let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+        };
+
+        for key in ["receipt no", ";path", ""] {
+            let mut create = request("coffee", "note");
+            create.metas.push(MetaRequest {
+                key: key.to_owned(),
+                value: "1".to_owned(),
+            });
+            let (ledger, reload) = states(load().await);
+            let response = create_new_transaction(ledger, reload, Json(create)).await.into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{key:?}");
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            let message = body["message"].as_str().unwrap();
+            assert!(
+                message.starts_with(&format!("invalid metadata key {key:?}: beancount does not support it")),
+                "{message}"
+            );
+            assert_eq!(std::fs::read_to_string(&data_file).unwrap(), "", "nothing is written for {key:?}");
+            assert_eq!(std::fs::read_to_string(dir.join("main.bean")).unwrap(), main);
+        }
 
         std::fs::remove_dir_all(dir).ok();
     }
