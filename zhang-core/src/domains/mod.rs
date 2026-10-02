@@ -12,13 +12,12 @@ use log::debug;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, PostingCost, Rounding, SpanInfo, Transaction};
+use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, PostingCost, Rounding, SpanInfo};
 
 use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType,
     OptionDomain, PriceDomain, QueryDomain, TransactionInfoDomain,
 };
-use crate::inventory::TransactionInference;
 use crate::store::{BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, DocumentDomain, DocumentType, PostingDomain, Store, TransactionDomain};
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
@@ -126,30 +125,29 @@ impl Operations {
         Ok(())
     }
 
-    /// check whether transaction is valid or not, return the ErrorKind of the issue
+    /// check a booked transaction's residual (the sum of its weights per commodity), returning the
+    /// problem to report:
+    /// - [`ErrorKind::CommodityDoesNotDefine`] if a weight commodity is not defined. It goes first:
+    ///   the residual of an undefined commodity has no precision to round with;
+    /// - else [`ErrorKind::UnbalancedTransaction`] if the residual of a commodity does not round to
+    ///   zero under the commodity's precision and rounding.
     ///
-    /// the AST-only part is [`TransactionInference::validation_inventory`]; this adds
-    /// the store-dependent commodity checks
-    pub(crate) fn check_transaction(&self, txn: &Transaction) -> ZhangResult<Option<ErrorKind>> {
-        match txn.validation_inventory() {
-            Ok(Some(inventory)) => {
-                for (currency, amount) in inventory.currencies.iter() {
-                    let commodity = self.commodity(currency)?;
-                    let Some(commodity) = commodity else {
-                        return Ok(Some(ErrorKind::CommodityDoesNotDefine));
-                    };
-                    let precision = commodity.precision;
-                    let rounding = commodity.rounding;
-                    let decimal = amount.with_scale_round(precision as i64, rounding.to_mode());
-                    if !decimal.is_zero() {
-                        return Ok(Some(ErrorKind::UnbalancedTransaction));
-                    }
-                }
-                Ok(None)
-            }
-            Ok(None) => Ok(None),
-            Err(e) => Ok(Some(e)),
+    /// Commodities are checked in commodity order, so the result is deterministic (#441)
+    pub(crate) fn check_transaction_balance(&self, residual: &BTreeMap<Currency, BigDecimal>) -> ZhangResult<Option<ErrorKind>> {
+        let mut commodities = Vec::with_capacity(residual.len());
+        for currency in residual.keys() {
+            let Some(commodity) = self.commodity(currency)? else {
+                return Ok(Some(ErrorKind::CommodityDoesNotDefine));
+            };
+            commodities.push(commodity);
         }
+        for (commodity, amount) in commodities.iter().zip(residual.values()) {
+            let rounded = amount.with_scale_round(commodity.precision as i64, commodity.rounding.to_mode());
+            if !rounded.is_zero() {
+                return Ok(Some(ErrorKind::UnbalancedTransaction));
+            }
+        }
+        Ok(None)
     }
 
     /// insert transaction postings

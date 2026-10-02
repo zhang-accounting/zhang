@@ -285,7 +285,12 @@ impl Ledger {
     fn handle_other_directives(&mut self, directives: &mut [Spanned<Directive>]) -> Result<(), ZhangError> {
         // `open`s and transactions feed the booker as they are folded; the lots it ends with become
         // the store's lots. Nothing in the fold reads the store's lots
-        self.booker = Some(Booker::new(self.options.default_booking_method));
+        let mut booker = Booker::new(self.options.default_booking_method);
+        // the commodities the options defined; `commodity` directives define the rest as folded
+        for commodity in self.operations().read().commodities.values() {
+            booker.define_commodity(&commodity.name, commodity.precision, commodity.rounding);
+        }
+        self.booker = Some(booker);
         for directive in directives.iter_mut() {
             match &mut directive.data {
                 // only dated directives reach the fold: options/plugins were handled
@@ -348,7 +353,8 @@ impl Ledger {
         let directives = Ledger::sort_directives_datetime(directives);
         let stages = self.build_stages();
         let options = self.operations().options()?;
-        let mut ctx = StageContext::new(&options);
+        let commodities = self.operations().read().commodities.values().cloned().collect_vec();
+        let mut ctx = StageContext::new(&options).with_commodities(commodities);
         let directives = run_pipeline(&stages, directives, &mut ctx)?;
 
         let mut operations = self.operations();
