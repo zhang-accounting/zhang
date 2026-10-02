@@ -1,0 +1,25 @@
+{
+  "name": "min_max_first_last_grouped",
+  "query": "SELECT account, min(payee) AS min_payee, max(payee) AS max_payee, first(date) AS first_date, last(date) AS last_date, first(number) AS first_amount, last(number) AS last_amount, min(number) AS min_amount, max(number) AS max_amount WHERE account ~ '^Expenses:Food' GROUP BY account ORDER BY account",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "min_payee", "type": "str"},
+    {"name": "max_payee", "type": "str"},
+    {"name": "first_date", "type": "date"},
+    {"name": "last_date", "type": "date"},
+    {"name": "first_amount", "type": "decimal"},
+    {"name": "last_amount", "type": "decimal"},
+    {"name": "min_amount", "type": "decimal"},
+    {"name": "max_amount", "type": "decimal"}
+  ],
+  "rows": [
+    ["Expenses:Food:Alcohol", "Another Sports Pub", "E.B.'s Beer and Wine", "2016-04-13", "2016-11-27", "8.14", "8.18", "8.14", "11.74"],
+    ["Expenses:Food:Coffee", "Argo Tea", "Starbucks", "2015-09-08", "2017-06-03", "6.12", "7.25", "4.86", "7.25"],
+    ["Expenses:Food:Groceries", "Corner Deli", "Onion Market", "2015-01-18", "2017-09-06", "71.90", "86.31", "44.06", "123.77"],
+    ["Expenses:Food:Restaurant", "25 Degrees Burger Bar", "Uncle Boons", "2015-01-04", "2017-09-08", "37.84", "33.71", "11.01", "87.42"]
+  ],
+  "notes": "min/max over str and decimal; first/last follow the row iteration order (by date, then source order)."
+}

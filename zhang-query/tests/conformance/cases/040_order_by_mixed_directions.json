@@ -1,0 +1,19 @@
+{
+  "name": "order_by_mixed_directions",
+  "query": "SELECT date, account, number WHERE account ~ '^Expenses:Food:(Coffee|Alcohol)' AND year = 2017 ORDER BY account DESC, date ASC, number DESC",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "account", "type": "str"},
+    {"name": "number", "type": "decimal"}
+  ],
+  "rows": [
+    ["2017-05-25", "Expenses:Food:Coffee", "6.14"],
+    ["2017-05-31", "Expenses:Food:Coffee", "6.16"],
+    ["2017-06-01", "Expenses:Food:Coffee", "5.54"],
+    ["2017-06-03", "Expenses:Food:Coffee", "7.25"]
+  ],
+  "notes": "Each ORDER BY key has its own direction (beanquery semantics)."
+}

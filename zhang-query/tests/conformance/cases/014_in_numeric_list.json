@@ -1,0 +1,16 @@
+{
+  "name": "in_numeric_list",
+  "query": "SELECT year, count(*) AS n WHERE year NOT IN (2016, 2018) AND number IN (4, 8.95) AND account ~ '^Expenses:Financial' GROUP BY year ORDER BY year",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "year", "type": "int"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    [2015, 20],
+    [2017, 17]
+  ],
+  "notes": "NOT IN over a list of ints; IN mixes an int literal (4) and a decimal (8.95), and the decimal column number = 4.00 must match the int 4."
+}

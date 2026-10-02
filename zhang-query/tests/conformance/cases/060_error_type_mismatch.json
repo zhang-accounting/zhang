@@ -1,0 +1,10 @@
+{
+  "name": "error_type_mismatch",
+  "query": "SELECT 'a' + 1",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

@@ -1,0 +1,38 @@
+{
+  "name": "posting_columns",
+  "query": "SELECT date, account, number, currency, position, weight, other_accounts WHERE 'trip-boston-2017' IN tags AND account ~ '^Expenses' ORDER BY date, account, number",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "account", "type": "str"},
+    {"name": "number", "type": "decimal"},
+    {"name": "currency", "type": "str"},
+    {"name": "position", "type": "position"},
+    {"name": "weight", "type": "amount"},
+    {"name": "other_accounts", "type": "set"}
+  ],
+  "rows": [
+    ["2017-05-20", "Expenses:Food:Restaurant", "33.76", "USD", {"units": {"number": "33.76", "currency": "USD"}, "cost": null}, {"number": "33.76", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-21", "Expenses:Food:Restaurant", "31.70", "USD", {"units": {"number": "31.70", "currency": "USD"}, "cost": null}, {"number": "31.70", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-22", "Expenses:Food:Restaurant", "32.23", "USD", {"units": {"number": "32.23", "currency": "USD"}, "cost": null}, {"number": "32.23", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-24", "Expenses:Food:Restaurant", "24.59", "USD", {"units": {"number": "24.59", "currency": "USD"}, "cost": null}, {"number": "24.59", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-25", "Expenses:Food:Coffee", "6.14", "USD", {"units": {"number": "6.14", "currency": "USD"}, "cost": null}, {"number": "6.14", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-25", "Expenses:Food:Restaurant", "24.67", "USD", {"units": {"number": "24.67", "currency": "USD"}, "cost": null}, {"number": "24.67", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-25", "Expenses:Food:Restaurant", "38.36", "USD", {"units": {"number": "38.36", "currency": "USD"}, "cost": null}, {"number": "38.36", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-26", "Expenses:Food:Restaurant", "45.67", "USD", {"units": {"number": "45.67", "currency": "USD"}, "cost": null}, {"number": "45.67", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-28", "Expenses:Food:Restaurant", "34.51", "USD", {"units": {"number": "34.51", "currency": "USD"}, "cost": null}, {"number": "34.51", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-29", "Expenses:Food:Restaurant", "32.92", "USD", {"units": {"number": "32.92", "currency": "USD"}, "cost": null}, {"number": "32.92", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-29", "Expenses:Food:Restaurant", "35.09", "USD", {"units": {"number": "35.09", "currency": "USD"}, "cost": null}, {"number": "35.09", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-29", "Expenses:Food:Restaurant", "40.18", "USD", {"units": {"number": "40.18", "currency": "USD"}, "cost": null}, {"number": "40.18", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-30", "Expenses:Food:Restaurant", "27.07", "USD", {"units": {"number": "27.07", "currency": "USD"}, "cost": null}, {"number": "27.07", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-31", "Expenses:Food:Coffee", "6.16", "USD", {"units": {"number": "6.16", "currency": "USD"}, "cost": null}, {"number": "6.16", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-05-31", "Expenses:Food:Restaurant", "43.16", "USD", {"units": {"number": "43.16", "currency": "USD"}, "cost": null}, {"number": "43.16", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-06-01", "Expenses:Food:Coffee", "5.54", "USD", {"units": {"number": "5.54", "currency": "USD"}, "cost": null}, {"number": "5.54", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-06-02", "Expenses:Food:Restaurant", "36.43", "USD", {"units": {"number": "36.43", "currency": "USD"}, "cost": null}, {"number": "36.43", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-06-03", "Expenses:Food:Coffee", "7.25", "USD", {"units": {"number": "7.25", "currency": "USD"}, "cost": null}, {"number": "7.25", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]],
+    ["2017-06-03", "Expenses:Food:Restaurant", "33.82", "USD", {"units": {"number": "33.82", "currency": "USD"}, "cost": null}, {"number": "33.82", "currency": "USD"}, ["Liabilities:US:Chase:Slate"]]
+  ],
+  "notes": "Posting-level columns. Without a cost, weight equals units. other_accounts is the sorted set of the other postings' accounts in the same transaction."
+}

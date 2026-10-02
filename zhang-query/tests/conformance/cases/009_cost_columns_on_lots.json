@@ -1,0 +1,29 @@
+{
+  "name": "cost_columns_on_lots",
+  "query": "SELECT date, account, units(position) AS units, cost_number, cost_currency, cost_date, cost_label, price, weight WHERE account = 'Assets:US:ETrade:GLD' ORDER BY date, number",
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "account", "type": "str"},
+    {"name": "units", "type": "amount"},
+    {"name": "cost_number", "type": "decimal"},
+    {"name": "cost_currency", "type": "str"},
+    {"name": "cost_date", "type": "date"},
+    {"name": "cost_label", "type": "str"},
+    {"name": "price", "type": "amount"},
+    {"name": "weight", "type": "amount"}
+  ],
+  "rows": [
+    ["2015-09-15", "Assets:US:ETrade:GLD", {"number": "5", "currency": "GLD"}, "197.06", "USD", "2015-09-15", null, null, {"number": "985.30", "currency": "USD"}],
+    ["2015-11-13", "Assets:US:ETrade:GLD", {"number": "10", "currency": "GLD"}, "209.00", "USD", "2015-11-13", null, null, {"number": "2090.00", "currency": "USD"}],
+    ["2015-11-18", "Assets:US:ETrade:GLD", {"number": "-5", "currency": "GLD"}, "197.06", "USD", "2015-09-15", null, {"number": "209.00", "currency": "USD"}, {"number": "-985.30", "currency": "USD"}],
+    ["2016-05-05", "Assets:US:ETrade:GLD", {"number": "2", "currency": "GLD"}, "205.78", "USD", "2016-05-05", null, null, {"number": "411.56", "currency": "USD"}],
+    ["2016-09-23", "Assets:US:ETrade:GLD", {"number": "5", "currency": "GLD"}, "231.38", "USD", "2016-09-23", null, null, {"number": "1156.90", "currency": "USD"}],
+    ["2017-02-15", "Assets:US:ETrade:GLD", {"number": "-10", "currency": "GLD"}, "209.00", "USD", "2015-11-13", null, {"number": "273.28", "currency": "USD"}, {"number": "-2090.00", "currency": "USD"}],
+    ["2017-03-19", "Assets:US:ETrade:GLD", {"number": "2", "currency": "GLD"}, "278.99", "USD", "2017-03-19", null, null, {"number": "557.98", "currency": "USD"}],
+    ["2017-08-27", "Assets:US:ETrade:GLD", {"number": "8", "currency": "GLD"}, "304.17", "USD", "2017-08-27", null, null, {"number": "2433.36", "currency": "USD"}]
+  ],
+  "notes": "Depends on booking (lot matching fills cost and cost_date on reductions) and on the @ price, which the current zhang Store posting does not keep. cost_label is NULL for a cost without label. For a posting with both cost and price, weight is units x cost."
+}

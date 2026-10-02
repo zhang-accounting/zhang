@@ -1,0 +1,18 @@
+{
+  "name": "not_vs_not_equal_on_null",
+  "query": "SELECT payee IS NULL AS no_payee, NOT (payee = 'Hoogle') AS not_eq, payee != 'Hoogle' AS ne, count(*) AS n WHERE account = 'Assets:US:Vanguard:Cash' GROUP BY 1, 2, 3 ORDER BY 1",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "no_payee", "type": "bool"},
+    {"name": "not_eq", "type": "bool"},
+    {"name": "ne", "type": "bool"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    [false, false, false, 46],
+    [true, true, null, 230]
+  ],
+  "notes": "beanquery quirk: for a NULL payee, payee != 'Hoogle' is NULL but NOT (payee = 'Hoogle') is TRUE, so WHERE NOT (x = y) keeps NULL rows while WHERE x != y drops them."
+}

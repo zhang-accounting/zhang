@@ -1,0 +1,15 @@
+{
+  "name": "meta_missing_key",
+  "query": "SELECT DISTINCT meta('category') AS m, entry_meta('category') AS em WHERE account ~ '^Expenses:Food'",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "m", "type": "str"},
+    {"name": "em", "type": "str"}
+  ],
+  "rows": [
+    [null, null]
+  ],
+  "notes": "The shared ledger has no posting or transaction metadata, so only the missing-key -> NULL path is covered. beanquery types meta()/entry_meta() as object; the fixture uses str."
+}

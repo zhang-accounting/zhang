@@ -1,0 +1,13 @@
+{
+  "name": "aggregate_over_no_rows",
+  "query": "SELECT count(*) AS n, sum(number) AS total WHERE account = 'Expenses:Does:Not:Exist'",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "n", "type": "int"},
+    {"name": "total", "type": "decimal"}
+  ],
+  "rows": [],
+  "notes": "beanquery returns ZERO rows (not one row with 0/NULL) when an aggregate query without GROUP BY matches no input row. This differs from SQL."
+}

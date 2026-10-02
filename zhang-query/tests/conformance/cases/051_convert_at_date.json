@@ -1,0 +1,19 @@
+{
+  "name": "convert_at_date",
+  "query": "SELECT account, convert(sum(position), 'USD', 2016-06-30) AS market_mid_2016 WHERE account ~ '^Assets:US:ETrade:' AND date <= 2016-06-30 GROUP BY account ORDER BY account",
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "market_mid_2016", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:ETrade:Cash", {"positions": [{"units": {"number": "560.51", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:GLD", {"positions": [{"units": {"number": "2643.24", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:ITOT", {"positions": [{"units": {"number": "1659.58", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:VEA", {"positions": [{"units": {"number": "2576.02", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:ETrade:VHT", {"positions": [{"units": {"number": "1523.86", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "convert(x, ccy, date) uses the latest price on or before date."
+}
