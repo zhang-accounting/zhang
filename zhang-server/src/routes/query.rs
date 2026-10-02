@@ -3,10 +3,10 @@ use std::time::Duration;
 use axum::extract::State;
 use axum::Json;
 use gotcha::api;
-use zhang_query::{ExecuteOptions, Params, Query};
+use zhang_query::{ExecuteOptions, Params, Query, QueryResult};
 
 use crate::request::QueryRequest;
-use crate::response::{QueryApiResult, QueryResultEntity, QuerySchemaEntity, ResponseWrapper};
+use crate::response::{QueryApiResult, QueryCsvResult, QueryResultEntity, QuerySchemaEntity, ResponseWrapper};
 use crate::state::SharedLedger;
 use crate::{ApiResult, ServerResult};
 
@@ -18,10 +18,29 @@ const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
 /// Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
 #[api(group = "query")]
 pub async fn run_query(ledger: State<SharedLedger>, Json(payload): Json<QueryRequest>) -> QueryApiResult<QueryResultEntity> {
-    QueryApiResult(execute(ledger.0 .0.clone(), payload.query).await)
+    let result = execute(ledger.0 .0.clone(), payload.query).await;
+    QueryApiResult(result.and_then(|result| ResponseWrapper::json(result.into())))
 }
 
-async fn execute(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::Ledger>>, text: String) -> ServerResult<ResponseWrapper<QueryResultEntity>> {
+/// Run a BQL-compatible query and download the result as CSV (`query.csv`).
+///
+/// Amount, position and inventory columns are split into one numeric column per currency,
+/// named like `balance (USD)`, as beanquery's numberify does. Query errors are answered
+/// with HTTP 400 and `{"message", "line", "column"}`, as in `POST /api/query`.
+#[api(group = "query")]
+pub async fn run_query_csv(ledger: State<SharedLedger>, Json(payload): Json<QueryRequest>) -> QueryCsvResult {
+    QueryCsvResult(export_csv(ledger.0 .0.clone(), payload.query).await)
+}
+
+async fn export_csv(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::Ledger>>, text: String) -> ServerResult<String> {
+    let result = execute(ledger, text).await?;
+    // the read lock is released by now; rendering is CPU-bound, so it stays off the async workers
+    Ok(tokio::task::spawn_blocking(move || zhang_query::export::to_csv(&result)).await?)
+}
+
+/// Compile and run a query off the async workers, under the ledger read lock and the time
+/// limit. The query length is capped by the parser.
+async fn execute(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::Ledger>>, text: String) -> ServerResult<QueryResult> {
     // compiling needs no ledger; run it, and the CPU-bound execution, off the async workers
     let query = tokio::task::spawn_blocking(move || Query::compile(&text)).await??;
     // an owned guard moves into the blocking task; the time limit bounds how long it is held
@@ -34,11 +53,113 @@ async fn execute(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::
         query.execute_with_options(&ledger, &Params::new(), &options)
     })
     .await??;
-    ResponseWrapper::json(result.into())
+    Ok(result)
 }
 
 /// The columns and functions available to queries.
 #[api(group = "query")]
 pub async fn get_query_schema() -> ApiResult<QuerySchemaEntity> {
     ResponseWrapper::json(zhang_query::schema().into())
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use axum::extract::State;
+    use axum::http::{header, StatusCode};
+    use axum::response::{IntoResponse, Response};
+    use axum::Json;
+    use gotcha::Responsible;
+    use serde_json::json;
+    use tokio::sync::RwLock;
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::ledger::Ledger;
+
+    use super::run_query_csv;
+    use crate::request::QueryRequest;
+    use crate::response::QueryCsvResult;
+    use crate::state::SharedLedger;
+
+    const LEDGER: &str = r#"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+
+1970-01-01 open Assets:Cash
+1970-01-01 open Assets:Broker
+1970-01-01 open Expenses:Food
+1970-01-01 open Equity:Opening
+
+2024-01-01 "Shop" "Lunch, with friends"
+  Assets:Cash -12.50 CNY
+  Expenses:Food 12.50 CNY
+
+2024-01-02 "Broker" "Buy"
+  Assets:Broker 2 AAPL {150.00 USD}
+  Equity:Opening -300.00 USD
+"#;
+
+    async fn ledger() -> SharedLedger {
+        let dir = std::env::temp_dir().join(format!("zhang-query-csv-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("main.zhang"), LEDGER).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::async_load(dir.clone(), "main.zhang".to_owned(), source).await.expect("load ledger");
+        // queries only read the in-memory store
+        std::fs::remove_dir_all(dir).ok();
+        SharedLedger(Arc::new(RwLock::new(ledger)))
+    }
+
+    async fn post_csv(query: &str) -> Response {
+        let request = QueryRequest { query: query.to_owned() };
+        run_query_csv(State(ledger().await), Json(request)).await.into_response()
+    }
+
+    async fn text(response: Response) -> String {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn query_csv_downloads_a_numberified_csv() {
+        let response = post_csv("SELECT account, narration, sum(position) AS balance GROUP BY account, narration ORDER BY account").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "text/csv; charset=utf-8");
+        assert_eq!(response.headers()[header::CONTENT_DISPOSITION], "attachment; filename=\"query.csv\"");
+        assert_eq!(
+            text(response).await,
+            // CNY occurs in two rows; USD and AAPL tie at one and order by name descending
+            "account,narration,balance (CNY),balance (USD),balance (AAPL)\r\n\
+             Assets:Broker,Buy,,,2\r\n\
+             Assets:Cash,\"Lunch, with friends\",-12.50,,\r\n\
+             Equity:Opening,Buy,,-300.00,\r\n\
+             Expenses:Food,\"Lunch, with friends\",12.50,,\r\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn query_csv_errors_are_the_query_api_400() {
+        let response = post_csv("SELECT account WHERE").await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+        let body: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
+        assert_eq!(body, json!({"message": "expected an expression, found end of query", "line": 1, "column": 21}));
+
+        let response = post_csv("SELECT nope").await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
+        assert_eq!(body["line"], 1);
+        assert_eq!(body["column"], 8);
+    }
+
+    #[test]
+    fn query_csv_is_declared_as_text_csv_with_a_400() {
+        let responses = serde_json::to_value(<QueryCsvResult as Responsible>::response()).unwrap();
+        assert_eq!(responses["200"]["content"]["text/csv; charset=utf-8"]["schema"]["type"], "string");
+        assert_eq!(responses["200"]["headers"]["Content-Disposition"]["required"], true);
+        let error = &responses["400"]["content"]["application/json"]["schema"];
+        assert_eq!(error["required"], json!(["message", "line", "column"]));
+    }
 }

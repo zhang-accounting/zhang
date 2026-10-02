@@ -1,0 +1,6 @@
+{
+  "name": "empty_result_drops_split_columns",
+  "query": "SELECT account, sum(position) AS balance WHERE account = 'Assets:Nowhere' GROUP BY account",
+  "notes": "no rows: the inventory column has no currency, so only the header 'account' remains",
+  "csv": "account\r\n"
+}

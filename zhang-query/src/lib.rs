@@ -48,6 +48,7 @@ mod compiler;
 pub mod decimal;
 pub mod error;
 mod executor;
+pub mod export;
 pub mod functions;
 mod optimizer;
 pub mod params;
