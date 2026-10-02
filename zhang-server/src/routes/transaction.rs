@@ -128,17 +128,17 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
 
 /// Build the transaction a create or update request describes, rejecting with a
 /// 400 any account, commodity, tag, link or flag that would be written unquoted and
-/// not read back, and in a beancount ledger any name beancount itself rejects.
+/// not read back, and in a beancount ledger any new name beancount itself rejects.
 fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) -> ServerResult<Directive> {
-    let format = validate::Format::of(ledger);
+    let rules = validate::Rules::of(ledger);
     let mut postings = vec![];
     for posting in payload.postings {
         if let Some(unit) = &posting.unit {
-            validate::amount(unit, format)?;
+            validate::amount(unit, &rules)?;
         }
         postings.push(Posting {
             flag: None,
-            account: validate::account(&posting.account, format)?,
+            account: validate::account(&posting.account, &rules)?,
             units: posting.unit,
             cost: None,
             price: None,
@@ -148,14 +148,14 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) 
 
     let mut metas = Meta::default();
     for meta in payload.metas {
-        validate::meta_key(&meta.key, format)?;
+        validate::meta_key(&meta.key, &rules)?;
         metas.insert(meta.key, meta.value.to_quote());
     }
     for tag in &payload.tags {
-        validate::tag(tag, format)?;
+        validate::tag(tag, &rules)?;
     }
     for link in &payload.links {
-        validate::link(link, format)?;
+        validate::link(link, &rules)?;
     }
     let flag = payload.flag.map(Flag::from).unwrap_or(Flag::Okay);
     validate::flag(&flag.to_string())?;
@@ -612,6 +612,78 @@ mod string_round_trip_test {
             assert_eq!(std::fs::read_to_string(&data_file).unwrap(), "", "nothing is written for {name:?}");
             assert_eq!(std::fs::read_to_string(dir.join("main.bean")).unwrap(), main);
         }
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_beancount_ledger_takes_names_it_already_has() {
+        // a zhang user with a `.bean` file and Chinese names keeps writing them; only
+        // new names must be ones beancount accepts
+        let dir = std::env::temp_dir().join(format!("zhang-beancount-known-names-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("data/2024")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(
+            dir.join("main.bean"),
+            "include \"data/2024/1.zhang\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n\
+             1970-01-01 open Expenses:Food\n1970-01-01 open Assets:银行\n\
+             2023-06-01 * \"Shop\" \"trip\" #旅行\n  Receipt: \"1\"\n  Assets:Cash -1 CNY\n  Expenses:Food 1 CNY\n",
+        )
+        .unwrap();
+        // the local file system data source appends to existing `.zhang` files only
+        std::fs::write(dir.join("data/2024/1.zhang"), "").unwrap();
+        let load = || async {
+            let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+        };
+
+        let cases: Vec<(&str, StatusCode, Change)> = vec![
+            (
+                "opened account",
+                StatusCode::OK,
+                Box::new(|it| it.postings[0].account = "Assets:银行".to_owned()),
+            ),
+            ("used tag", StatusCode::OK, Box::new(|it| it.tags.push("旅行".to_owned()))),
+            (
+                "used metadata key",
+                StatusCode::OK,
+                Box::new(|it| {
+                    it.metas.push(MetaRequest {
+                        key: "Receipt".to_owned(),
+                        value: "2".to_owned(),
+                    })
+                }),
+            ),
+            ("new tag", StatusCode::BAD_REQUEST, Box::new(|it| it.tags.push("出差".to_owned()))),
+            (
+                "new account",
+                StatusCode::BAD_REQUEST,
+                Box::new(|it| it.postings[0].account = "Assets:现金".to_owned()),
+            ),
+            (
+                "new metadata key",
+                StatusCode::BAD_REQUEST,
+                Box::new(|it| {
+                    it.metas.push(MetaRequest {
+                        key: "Memo".to_owned(),
+                        value: "2".to_owned(),
+                    })
+                }),
+            ),
+        ];
+        for (case, status, change) in cases {
+            let mut create = request("coffee", "note");
+            change(&mut create);
+            let (ledger, reload) = states(load().await);
+            let response = create_new_transaction(ledger, reload, Json(create)).await.into_response();
+            assert_eq!(response.status(), status, "{case}");
+        }
+        let written = std::fs::read_to_string(dir.join("data/2024/1.zhang")).unwrap();
+        assert!(
+            written.contains("Assets:银行") && written.contains("#旅行") && written.contains("Receipt: \"2\""),
+            "{written}"
+        );
+        assert!(!written.contains("出差") && !written.contains("现金") && !written.contains("Memo"), "{written}");
 
         std::fs::remove_dir_all(dir).ok();
     }

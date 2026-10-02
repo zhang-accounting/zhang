@@ -13,12 +13,12 @@ use zhang_core::utils::calculable::Calculable;
 use crate::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
 use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, Created, DocumentEntity, ResponseWrapper};
 use crate::state::{SharedLedger, SharedReloadSender};
-use crate::validate::Format;
+use crate::validate::Rules;
 use crate::{validate, ApiResult, ServerResult};
 
 /// `amount`, once its commodity is checked to read back unchanged.
-fn validated(amount: Amount, format: Format) -> ServerResult<Amount> {
-    validate::amount(&amount, format)?;
+fn validated(amount: Amount, rules: &Rules) -> ServerResult<Amount> {
+    validate::amount(&amount, rules)?;
     Ok(amount)
 }
 
@@ -87,7 +87,7 @@ pub async fn upload_account_document(
 ) -> ServerResult<Created> {
     let account_name = path.0 .0;
     let ledger_stage = ledger.read().await;
-    let account = validate::account(&account_name, Format::of(&ledger_stage))?;
+    let account = validate::account(&account_name, &Rules::of(&ledger_stage))?;
     let entry = &ledger_stage.entry.0;
     let mut documents = vec![];
 
@@ -188,22 +188,22 @@ pub async fn create_account_balance(
 ) -> ServerResult<Created> {
     let target_account = params.0 .0;
     let ledger = ledger.read().await;
-    let format = Format::of(&ledger);
+    let rules = Rules::of(&ledger);
 
     let balance = match payload {
         AccountBalanceRequest::Check { amount } => Directive::BalanceCheck(BalanceCheck {
             date: Date::now(&ledger.options.timezone),
-            account: validate::account(&target_account, format)?,
-            amount: validated(amount, format)?,
+            account: validate::account(&target_account, &rules)?,
+            amount: validated(amount, &rules)?,
             tolerance: None,
             meta: Default::default(),
         }),
         AccountBalanceRequest::Pad { amount, pad } => Directive::BalancePad(BalancePad {
             date: Date::now(&ledger.options.timezone),
-            account: validate::account(&target_account, format)?,
-            amount: validated(amount, format)?,
+            account: validate::account(&target_account, &rules)?,
+            amount: validated(amount, &rules)?,
             meta: Default::default(),
-            pad: validate::account(&pad, format)?,
+            pad: validate::account(&pad, &rules)?,
         }),
     };
 
@@ -217,23 +217,23 @@ pub async fn create_batch_account_balances(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<Vec<BatchAccountBalanceRequest>>,
 ) -> ServerResult<Created> {
     let ledger = ledger.read().await;
-    let format = Format::of(&ledger);
+    let rules = Rules::of(&ledger);
     let mut directives = vec![];
     for balance in payload {
         let balance = match balance {
             BatchAccountBalanceRequest::Check { account_name, amount } => Directive::BalanceCheck(BalanceCheck {
                 date: Date::now(&ledger.options.timezone),
-                account: validate::account(&account_name, format)?,
-                amount: validated(amount, format)?,
+                account: validate::account(&account_name, &rules)?,
+                amount: validated(amount, &rules)?,
                 tolerance: None,
                 meta: Default::default(),
             }),
             BatchAccountBalanceRequest::Pad { account_name, amount, pad } => Directive::BalancePad(BalancePad {
                 date: Date::now(&ledger.options.timezone),
-                account: validate::account(&account_name, format)?,
-                amount: validated(amount, format)?,
+                account: validate::account(&account_name, &rules)?,
+                amount: validated(amount, &rules)?,
                 meta: Default::default(),
-                pad: validate::account(&pad, format)?,
+                pad: validate::account(&pad, &rules)?,
             }),
         };
         directives.push(balance);
