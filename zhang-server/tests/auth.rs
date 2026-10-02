@@ -103,6 +103,8 @@ struct Settings {
     rp_id: Option<&'static str>,
     origin: Option<&'static str>,
     session_secret: Option<&'static str>,
+    /// `ZHANG_TRUSTED_PROXY_HOPS`, 1 when absent
+    proxy_hops: Option<usize>,
 }
 
 impl Settings {
@@ -154,6 +156,7 @@ async fn app(dir: &Path, settings: &Settings) -> ServerApp {
             passkey_rp_id: settings.rp_id.map(str::to_owned),
             passkey_origin: settings.origin.map(str::to_owned),
             session_secret: settings.session_secret.map(str::to_owned),
+            trusted_proxy_hops: settings.proxy_hops.unwrap_or(1),
             is_local_fs: false,
         },
         Arc::new(RwLock::new(ledger)),
@@ -838,7 +841,7 @@ async fn login_from(router: &Router, client: &str, password: &str) -> Reply {
 async fn failed_logins_are_rate_limited_per_client() {
     let dir = ScratchDir::new();
     let router = server(&dir.0, &Settings::both()).await;
-    let attacker = "203.0.113.7, 10.0.0.1";
+    let attacker = "203.0.113.7";
 
     for _ in 0..5 {
         assert_eq!(login_from(&router, attacker, "guess").await.status, StatusCode::UNAUTHORIZED);
@@ -952,7 +955,7 @@ async fn without_a_forwarded_address_the_peer_is_the_client() {
     assert_too_many_attempts(&reply);
     let reply = call_from(&router, Some("198.51.100.2:50000"), Method::POST, "/api/auth/login", &[], Some(body.clone())).await;
     assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
-    // the first hop of X-Forwarded-For wins over the peer (the proxy)
+    // behind the trusted proxy, the address it appended to X-Forwarded-For wins over the peer (the proxy)
     let reply = call_from(
         &router,
         Some("198.51.100.1:50002"),
@@ -976,4 +979,126 @@ async fn too_many_failures_overall_refuse_everyone() {
         }
     }
     assert_too_many_attempts(&login_from(&router, "192.0.2.200", "secret").await);
+}
+
+async fn login_through(router: &Router, peer: &str, forwarded_for: &str, password: &str) -> Reply {
+    call_from(
+        router,
+        Some(peer),
+        Method::POST,
+        "/api/auth/login",
+        &[("x-forwarded-for", forwarded_for)],
+        Some(json!({"username": "admin", "password": password})),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn behind_one_proxy_the_address_it_appended_is_the_client() {
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::password()).await;
+    let proxy = "10.0.0.2:41000";
+
+    // the client rotates what it sends, the proxy appends its real address
+    for spoofed in 0..5 {
+        let forwarded_for = format!("192.0.2.{spoofed}, 203.0.113.7");
+        assert_eq!(login_through(&router, proxy, &forwarded_for, "guess").await.status, StatusCode::UNAUTHORIZED);
+    }
+    assert_too_many_attempts(&login_through(&router, proxy, "192.0.2.99, 203.0.113.7", "secret").await);
+    assert_too_many_attempts(&login_through(&router, proxy, "203.0.113.7", "secret").await);
+    // a client claiming the blocked address is judged by its real one
+    assert_eq!(login_through(&router, proxy, "203.0.113.7, 203.0.113.8", "secret").await.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn without_trusted_proxies_the_forwarded_headers_are_ignored() {
+    let dir = ScratchDir::new();
+    let settings = Settings {
+        proxy_hops: Some(0),
+        ..Settings::both()
+    };
+    let router = server(&dir.0, &settings).await;
+
+    for forwarded in 0..5 {
+        let forwarded_for = format!("192.0.2.{forwarded}");
+        assert_eq!(
+            login_through(&router, "198.51.100.1:50000", &forwarded_for, "guess").await.status,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_too_many_attempts(&login_through(&router, "198.51.100.1:50001", "192.0.2.200", "secret").await);
+    assert_eq!(
+        login_through(&router, "198.51.100.2:50000", "198.51.100.1", "secret").await.status,
+        StatusCode::OK
+    );
+
+    // nor do X-Forwarded-Host and X-Forwarded-Proto change the relying party or the cookie
+    let reply = post(
+        &router,
+        "/api/auth/passkey/register/start",
+        &[("x-forwarded-host", "zhang.example.com"), ("x-forwarded-proto", "https")],
+        json!({"secret": "letmein"}),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    assert_eq!(reply.body["data"]["options"]["publicKey"]["rp"]["id"], "localhost");
+    let login = call_from(
+        &router,
+        Some("198.51.100.3:50000"),
+        Method::POST,
+        "/api/auth/login",
+        &[("x-forwarded-proto", "https")],
+        Some(json!({"username": "admin", "password": "secret"})),
+    )
+    .await;
+    assert!(!login.set_cookie().contains("Secure"), "{}", login.set_cookie());
+}
+
+#[tokio::test]
+async fn behind_two_proxies_the_address_the_outer_one_saw_is_the_client() {
+    let dir = ScratchDir::new();
+    let settings = Settings {
+        proxy_hops: Some(2),
+        ..Settings::both()
+    };
+    let router = server(&dir.0, &settings).await;
+    let inner_proxy = "10.0.0.3:41000";
+
+    for spoofed in 0..5 {
+        // spoofed by the client, appended by the outer proxy, appended by the inner proxy
+        let forwarded_for = format!("192.0.2.{spoofed}, 203.0.113.7, 172.16.0.{spoofed}");
+        assert_eq!(
+            login_through(&router, inner_proxy, &forwarded_for, "guess").await.status,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_too_many_attempts(&login_through(&router, inner_proxy, "203.0.113.7, 172.16.0.9", "secret").await);
+    assert_eq!(
+        login_through(&router, inner_proxy, "203.0.113.7, 203.0.113.8, 172.16.0.1", "secret")
+            .await
+            .status,
+        StatusCode::OK
+    );
+    // with fewer entries than proxies, the leftmost one
+    for _ in 0..5 {
+        assert_eq!(
+            login_through(&router, inner_proxy, "198.51.100.9", "guess").await.status,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_too_many_attempts(&login_through(&router, inner_proxy, "198.51.100.9", "secret").await);
+
+    // the host and scheme follow the same rule
+    let reply = post(
+        &router,
+        "/api/auth/passkey/register/start",
+        &[
+            ("x-forwarded-host", "spoofed.example.org, zhang.example.com, internal.local"),
+            ("x-forwarded-proto", "https, http"),
+        ],
+        json!({"secret": "letmein"}),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    assert_eq!(reply.body["data"]["options"]["publicKey"]["rp"]["id"], "zhang.example.com");
 }

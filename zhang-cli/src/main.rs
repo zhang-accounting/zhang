@@ -145,6 +145,7 @@ impl Opts {
                     passkey_rp_id: env_value("ZHANG_PASSKEY_RP_ID"),
                     passkey_origin: env_value("ZHANG_PASSKEY_ORIGIN"),
                     session_secret: env_value("ZHANG_SESSION_SECRET"),
+                    trusted_proxy_hops: trusted_proxy_hops(),
                     is_local_fs: file_system == FileSystem::Fs,
                     no_report: opts.no_report,
                     data_source: Arc::new(data_source),
@@ -187,6 +188,17 @@ impl Opts {
 /// The value of an environment variable, when it is set and not empty.
 fn env_value(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|it| !it.trim().is_empty())
+}
+
+/// `ZHANG_TRUSTED_PROXY_HOPS`: how many reverse proxies are in front of zhang.
+fn trusted_proxy_hops() -> usize {
+    match env_value("ZHANG_TRUSTED_PROXY_HOPS") {
+        Some(value) => value
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| panic!("ZHANG_TRUSTED_PROXY_HOPS must be a number of proxies (0 without a proxy), got `{}`", value)),
+        None => zhang_server::auth::DEFAULT_TRUSTED_PROXY_HOPS,
+    }
 }
 
 #[tokio::main]
@@ -323,6 +335,7 @@ mod test {
                             passkey_rp_id: None,
                             passkey_origin: None,
                             session_secret: None,
+                            trusted_proxy_hops: 1,
                             is_local_fs: true,
                             no_report: false,
                             data_source: data_source.clone(),
@@ -436,6 +449,7 @@ mod test {
                 passkey_rp_id: None,
                 passkey_origin: None,
                 session_secret: Some("session-secret".to_string()),
+                trusted_proxy_hops: 1,
                 is_local_fs: true,
                 no_report: true,
                 data_source,

@@ -204,6 +204,9 @@ pub struct ServeConfig {
     pub passkey_origin: Option<String>,
     /// the key that signs the sessions, random (sessions end on restart) when absent (`ZHANG_SESSION_SECRET`)
     pub session_secret: Option<String>,
+    /// how many reverse proxies in front of zhang append to `X-Forwarded-For` / `-Host` / `-Proto`,
+    /// 0 to ignore these headers (`ZHANG_TRUSTED_PROXY_HOPS`, by default [`auth::DEFAULT_TRUSTED_PROXY_HOPS`])
+    pub trusted_proxy_hops: usize,
     pub is_local_fs: bool,
 }
 
@@ -406,7 +409,11 @@ fn log_auth_settings(auth: &AuthState, opts: &ServeConfig) {
     if auth.passkey_enabled() {
         methods.push("passkey".to_owned());
     }
-    info!("authentication is enabled: {}", methods.join(", "));
+    info!(
+        "authentication is enabled: {} (trusted proxy hops: {})",
+        methods.join(", "),
+        opts.trusted_proxy_hops
+    );
     if !auth.has_session_secret() {
         info!("ZHANG_SESSION_SECRET is not set, sessions end when the server restarts");
     }

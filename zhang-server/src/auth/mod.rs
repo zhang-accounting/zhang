@@ -15,11 +15,12 @@ pub mod limiter;
 pub mod passkey;
 pub mod session;
 
+use std::net::SocketAddr;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use axum::extract::{Request, State};
+use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -71,8 +72,12 @@ impl PasswordCredential {
     }
 }
 
+/// How many reverse proxies are in front of zhang by default: one, the usual TLS terminator or
+/// hosting platform edge.
+pub const DEFAULT_TRUSTED_PROXY_HOPS: usize = 1;
+
 /// The authentication settings of the server.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AuthConfig {
     /// enables the password method
     pub password: Option<PasswordCredential>,
@@ -84,6 +89,21 @@ pub struct AuthConfig {
     pub passkey_origin: Option<String>,
     /// the key that signs the sessions; random (sessions end on restart) when absent
     pub session_secret: Option<String>,
+    /// how many reverse proxies in front of zhang append to the `X-Forwarded-*` headers, see [`forwarded_value`]
+    pub trusted_proxy_hops: usize,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        AuthConfig {
+            password: None,
+            passkey_secret: None,
+            passkey_rp_id: None,
+            passkey_origin: None,
+            session_secret: None,
+            trusted_proxy_hops: DEFAULT_TRUSTED_PROXY_HOPS,
+        }
+    }
 }
 
 impl AuthConfig {
@@ -97,6 +117,7 @@ impl AuthConfig {
             passkey_rp_id: non_empty(&opts.passkey_rp_id),
             passkey_origin: non_empty(&opts.passkey_origin),
             session_secret: opts.session_secret.clone().filter(|it| !it.is_empty()),
+            trusted_proxy_hops: opts.trusted_proxy_hops,
         }
     }
 }
@@ -176,46 +197,62 @@ impl<T: Serialize + Schematic> Responsible for WithSessionCookie<T> {
 }
 
 /// The scheme and host (with the port) a request was sent to, as seen by the browser: the
-/// `X-Forwarded-Proto` / `X-Forwarded-Host` headers of a reverse proxy win over `Host`.
+/// `X-Forwarded-Proto` / `X-Forwarded-Host` headers of the trusted proxies win over `Host`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RequestSite {
     scheme: String,
     host: String,
 }
 
-/// The first value of a (possibly comma separated) header.
-fn first_header_value<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
+/// The value of an `X-Forwarded-*` header as the trusted proxies set it. Each proxy appends what it
+/// saw, so with `hops` proxies in front of zhang the value is the `hops`-th entry from the right (the
+/// entries before it are whatever the client sent); with fewer entries, the leftmost one. Without
+/// trusted proxies (`hops == 0`) the header is ignored.
+pub(crate) fn forwarded_value<'a>(headers: &'a HeaderMap, name: &str, hops: usize) -> Option<&'a str> {
+    if hops == 0 {
+        return None;
+    }
+    let entries: Vec<&str> = headers
+        .get_all(name)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
         .map(str::trim)
         .filter(|value| !value.is_empty())
+        .collect();
+    let index = entries.len().saturating_sub(hops);
+    entries.get(index).copied()
 }
 
 impl RequestSite {
-    fn from_headers(headers: &HeaderMap) -> Option<Self> {
-        let host = first_header_value(headers, "x-forwarded-host").or_else(|| first_header_value(headers, header::HOST.as_str()))?;
+    fn from_headers(headers: &HeaderMap, hops: usize) -> Option<Self> {
+        let host = forwarded_value(headers, "x-forwarded-host", hops).or_else(|| {
+            headers
+                .get(header::HOST)
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })?;
         Some(RequestSite {
-            scheme: request_scheme(headers),
+            scheme: request_scheme(headers, hops),
             host: host.to_owned(),
         })
     }
 }
 
-fn request_scheme(headers: &HeaderMap) -> String {
-    first_header_value(headers, "x-forwarded-proto")
+fn request_scheme(headers: &HeaderMap, hops: usize) -> String {
+    forwarded_value(headers, "x-forwarded-proto", hops)
         .map(str::to_ascii_lowercase)
         .unwrap_or_else(|| "http".to_owned())
 }
 
 /// The value of the session cookie: `Secure` when the browser talks https.
-fn session_cookie(headers: &HeaderMap, token: Option<&str>) -> HeaderValue {
+fn session_cookie(headers: &HeaderMap, hops: usize, token: Option<&str>) -> HeaderValue {
     let mut cookie = match token {
         Some(token) => format!("{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_TTL_SECONDS}"),
         None => format!("{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"),
     };
-    if request_scheme(headers) == "https" {
+    if request_scheme(headers, hops) == "https" {
         cookie.push_str("; Secure");
     }
     HeaderValue::from_str(&cookie).expect("session cookies are valid header values")
@@ -464,7 +501,7 @@ impl AuthState {
             data: self.status(principal).await,
         };
         WithSessionCookie {
-            cookie: session_cookie(headers, session.as_ref().map(|(_, token)| token.as_str())),
+            cookie: session_cookie(headers, self.config.trusted_proxy_hops, session.as_ref().map(|(_, token)| token.as_str())),
             body,
         }
     }
@@ -474,7 +511,8 @@ impl AuthState {
         let origin = match &self.config.passkey_origin {
             Some(origin) => Url::parse(origin).map_err(|_| AuthError::Internal(format!("ZHANG_PASSKEY_ORIGIN `{origin}` is not a valid URL")))?,
             None => {
-                let site = RequestSite::from_headers(headers).ok_or_else(|| AuthError::BadRequest("the request has no Host header".to_owned()))?;
+                let site = RequestSite::from_headers(headers, self.config.trusted_proxy_hops)
+                    .ok_or_else(|| AuthError::BadRequest("the request has no Host header".to_owned()))?;
                 Url::parse(&format!("{}://{}", site.scheme, site.host))
                     .map_err(|_| AuthError::BadRequest(format!("`{}://{}` is not a valid origin", site.scheme, site.host)))?
             }
@@ -491,6 +529,11 @@ impl AuthState {
 
     fn start_ceremony(&self, kind: CeremonyKind, relying_party: RelyingParty) -> String {
         self.ceremonies.lock().expect("ceremonies lock is poisoned").start(kind, relying_party)
+    }
+
+    /// The client a sign-in attempt comes from, see [`limiter::client_key`].
+    fn client(&self, headers: &HeaderMap, peer: Option<ConnectInfo<SocketAddr>>) -> String {
+        limiter::client_key(headers, peer.map(|it| it.0), self.config.trusted_proxy_hops)
     }
 
     fn failures(&self) -> std::sync::MutexGuard<'_, FailureLimiter> {
@@ -613,7 +656,6 @@ pub mod handlers {
     use log::warn;
     use webauthn_rs::prelude::{PublicKeyCredential, RegisterPublicKeyCredential, Uuid};
 
-    use super::limiter::client_key;
     use super::passkey::CeremonyKind;
     use super::{AuthError, AuthResult, SharedAuth, WithSessionCookie};
     use crate::request::{LoginRequest, PasskeyLoginFinishRequest, PasskeyRegisterFinishRequest, PasskeyRegisterStartRequest};
@@ -639,7 +681,7 @@ pub mod handlers {
         if !auth.password_enabled() {
             return Err(AuthError::BadRequest("password login is not enabled".to_owned()));
         }
-        let client = client_key(&headers, peer.map(|it| it.0));
+        let client = auth.client(&headers, peer);
         auth.check_attempts(&client)?;
         if !auth.verify_password(&payload.username, &payload.password) {
             warn!("failed password login for user {:?} from {client}", payload.username);
@@ -667,7 +709,7 @@ pub mod handlers {
             let Some(secret) = payload.secret.as_deref() else {
                 return Err(AuthError::unauthorized());
             };
-            let client = client_key(&headers, peer.map(|it| it.0));
+            let client = auth.client(&headers, peer);
             auth.check_attempts(&client)?;
             if !auth.verify_passkey_secret(secret) {
                 warn!("invalid passkey registration secret from {client}");
@@ -717,7 +759,7 @@ pub mod handlers {
                 AuthError::BadRequest(format!("passkey registration failed: {e}"))
             })?;
         let record = auth.add_passkey(payload.name.as_deref().or(name.as_deref()), passkey).await?;
-        auth.reset_failed_attempts(&client_key(&headers, peer.map(|it| it.0)));
+        auth.reset_failed_attempts(&auth.client(&headers, peer));
         let session = auth.passkey_session(&record.id);
         Ok(auth.status_with_cookie(&headers, Some(session)).await)
     }
@@ -764,7 +806,7 @@ pub mod handlers {
                 AuthError::Unauthorized("passkey verification failed".to_owned())
             })?;
         let passkey_id = auth.record_passkey_use(&result).await?;
-        auth.reset_failed_attempts(&client_key(&headers, peer.map(|it| it.0)));
+        auth.reset_failed_attempts(&auth.client(&headers, peer));
         let session = auth.passkey_session(&passkey_id);
         Ok(auth.status_with_cookie(&headers, Some(session)).await)
     }
@@ -798,7 +840,7 @@ pub mod handlers {
 mod test {
     use axum::http::{HeaderMap, HeaderValue, Method};
 
-    use super::{requires_authentication, session_cookie, session_cookie_values, PasswordCredential, RequestSite};
+    use super::{forwarded_value, requires_authentication, session_cookie, session_cookie_values, PasswordCredential, RequestSite};
 
     fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -834,26 +876,43 @@ mod test {
     }
 
     #[test]
+    fn forwarded_values_are_read_through_the_trusted_hops() {
+        let forwarded = headers(&[("x-forwarded-for", "198.51.100.1, 203.0.113.7"), ("x-forwarded-for", "10.0.0.1")]);
+        let value = |hops| forwarded_value(&forwarded, "x-forwarded-for", hops);
+        assert_eq!(value(0), None, "without proxies the header is ignored");
+        assert_eq!(value(1), Some("10.0.0.1"));
+        assert_eq!(value(2), Some("203.0.113.7"));
+        assert_eq!(value(3), Some("198.51.100.1"));
+        assert_eq!(value(9), Some("198.51.100.1"), "fewer entries than hops: the leftmost");
+        assert_eq!(forwarded_value(&headers(&[("x-forwarded-for", " , ")]), "x-forwarded-for", 1), None);
+        assert_eq!(forwarded_value(&HeaderMap::new(), "x-forwarded-for", 1), None);
+    }
+
+    #[test]
     fn the_site_prefers_the_forwarded_headers() {
-        let site = RequestSite::from_headers(&headers(&[("host", "localhost:8000")])).unwrap();
+        let site = RequestSite::from_headers(&headers(&[("host", "localhost:8000")]), 1).unwrap();
         assert_eq!((site.scheme.as_str(), site.host.as_str()), ("http", "localhost:8000"));
 
-        let site = RequestSite::from_headers(&headers(&[
+        let forwarded = headers(&[
             ("host", "10.0.0.1:8000"),
-            ("x-forwarded-host", "zhang.example.com, proxy.internal"),
+            ("x-forwarded-host", "spoofed.example.org, zhang.example.com"),
             ("x-forwarded-proto", "HTTPS"),
-        ]))
-        .unwrap();
+        ]);
+        let site = RequestSite::from_headers(&forwarded, 1).unwrap();
         assert_eq!((site.scheme.as_str(), site.host.as_str()), ("https", "zhang.example.com"));
-        assert!(RequestSite::from_headers(&HeaderMap::new()).is_none());
+        let site = RequestSite::from_headers(&forwarded, 0).unwrap();
+        assert_eq!((site.scheme.as_str(), site.host.as_str()), ("http", "10.0.0.1:8000"), "without proxies");
+        assert!(RequestSite::from_headers(&HeaderMap::new(), 1).is_none());
     }
 
     #[test]
     fn session_cookies_are_secure_over_https() {
-        let cookie = session_cookie(&headers(&[]), Some("token"));
+        let cookie = session_cookie(&headers(&[]), 1, Some("token"));
         assert_eq!(cookie, "zhang_session=token; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000");
-        let cookie = session_cookie(&headers(&[("x-forwarded-proto", "https")]), None);
+        let cookie = session_cookie(&headers(&[("x-forwarded-proto", "https")]), 1, None);
         assert_eq!(cookie, "zhang_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure");
+        let cookie = session_cookie(&headers(&[("x-forwarded-proto", "https")]), 0, None);
+        assert_eq!(cookie, "zhang_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0", "without proxies");
     }
 
     #[test]
