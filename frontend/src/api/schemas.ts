@@ -959,7 +959,7 @@ export interface operations {
                 /** @enum {string} */
                 type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory';
               }[];
-              rows?: (
+              rows: (
                 | boolean
                 | number
                 | string
@@ -969,10 +969,10 @@ export interface operations {
                     number: string;
                   }
                 | {
-                    cost?: {
+                    cost: {
                       currency: string;
-                      date?: string | null;
-                      label?: string | null;
+                      date: string | null;
+                      label: string | null;
                       number: string;
                     } | null;
                     units: {
@@ -982,10 +982,10 @@ export interface operations {
                   }
                 | {
                     positions: {
-                      cost?: {
+                      cost: {
                         currency: string;
-                        date?: string | null;
-                        label?: string | null;
+                        date: string | null;
+                        label: string | null;
                         number: string;
                       } | null;
                       units: {
@@ -997,6 +997,16 @@ export interface operations {
                 | null
               )[][];
             };
+          };
+        };
+      };
+      /** @description the query cannot be parsed, compiled or run */
+      400: {
+        content: {
+          'application/json': {
+            column: number | null;
+            line: number | null;
+            message: string;
           };
         };
       };
@@ -1020,6 +1030,8 @@ export interface operations {
                 type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory';
               }[];
               functions: {
+                /** @description whether this is an aggregate function (`sum`, `count`, ...) */
+                aggregate: boolean;
                 description: string;
                 name: string;
                 /** @description e.g. `root(str, int) -> str` */

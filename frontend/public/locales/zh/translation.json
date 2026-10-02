@@ -85,6 +85,7 @@
     "reference_loading": "加载中...",
     "reference_load_failed": "无法加载查询参考。",
     "columns": "列",
+    "aggregates": "聚合函数",
     "functions": "函数",
     "rows_other": "{{count}} 行",
     "elapsed": "{{ms}} 毫秒",

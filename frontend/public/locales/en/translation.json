@@ -88,6 +88,7 @@
     "reference_loading": "Loading...",
     "reference_load_failed": "Failed to load the query reference.",
     "columns": "Columns",
+    "aggregates": "Aggregates",
     "functions": "Functions",
     "rows_one": "{{count}} row",
     "rows_other": "{{count}} rows",

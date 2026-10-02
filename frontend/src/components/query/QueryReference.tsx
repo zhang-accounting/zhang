@@ -45,6 +45,10 @@ export default function QueryReference({ onInsert }: Props) {
   const matches = (...texts: string[]) => keyword === '' || texts.some((text) => text.toLowerCase().includes(keyword));
   const columns = (schema?.columns ?? []).filter((column) => matches(column.name, column.description));
   const functions = (schema?.functions ?? []).filter((func) => matches(func.name, func.signature, func.description));
+  const functionGroups = [
+    { title: t('query.aggregates'), items: functions.filter((func) => func.aggregate) },
+    { title: t('query.functions'), items: functions.filter((func) => !func.aggregate) },
+  ];
 
   // The insertion is applied once the sheet has closed, so the editor can take the focus back from the dialog.
   const pendingInsert = useRef<{ text: string; cursorBack?: number } | null>(null);
@@ -104,17 +108,19 @@ export default function QueryReference({ onInsert }: Props) {
                   />
                 ))}
               </section>
-              <section>
-                <h3 className="px-2 pb-1 text-sm font-semibold">{t('query.functions')}</h3>
-                {functions.map((func, index) => (
-                  <ReferenceItem
-                    key={`${func.name}-${index}`}
-                    title={func.signature}
-                    description={func.description}
-                    onClick={() => insert(`${func.name}()`, 1)}
-                  />
-                ))}
-              </section>
+              {functionGroups.map((group) => (
+                <section key={group.title}>
+                  <h3 className="px-2 pb-1 text-sm font-semibold">{group.title}</h3>
+                  {group.items.map((func, index) => (
+                    <ReferenceItem
+                      key={`${func.name}-${index}`}
+                      title={func.signature}
+                      description={func.description}
+                      onClick={() => insert(`${func.name}()`, 1)}
+                    />
+                  ))}
+                </section>
+              ))}
             </div>
           )}
         </div>
