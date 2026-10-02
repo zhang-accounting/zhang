@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::DefaultBodyLimit;
+use chrono::Utc;
 use gotcha::config::BasicConfig;
 use gotcha::{ConfigWrapper, GotchaApp, GotchaContext, GotchaRouter};
 use itertools::Itertools;
@@ -23,12 +24,13 @@ use state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::{mpsc, RwLock};
+use tokio::task::JoinHandle;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 use zhang_core::data_source::DataSource;
+use zhang_core::inputs::ExtraInput;
 use zhang_core::ledger::Ledger;
-use zhang_core::utils::has_path_visited;
 use zhang_core::ZhangResult;
 
 use crate::broadcast::{BroadcastEvent, Broadcaster};
@@ -45,6 +47,7 @@ pub mod state;
 pub mod tasks;
 pub mod util;
 mod validate;
+mod watch;
 
 pub type LedgerState = Arc<RwLock<Ledger>>;
 
@@ -210,7 +213,7 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
     let reload_sender = Arc::new(ReloadSender(tx));
 
     info!("start reload listener");
-    start_reload_listener(ledger_data.clone(), broadcaster.clone(), rx);
+    start_reload_listener(ledger_data.clone(), broadcaster.clone(), reload_sender.clone(), rx);
 
     if opts.is_local_fs {
         info!("start fs event listener");
@@ -262,6 +265,7 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
             let guard1 = cloned_ledger.read().await;
             guard1.entry.0.clone()
         };
+        let roots = watch::watch_roots(&entry_path);
         info!("watching {}", entry_path.to_str().unwrap_or(""));
         watcher.watch(entry_path.as_path(), RecursiveMode::Recursive).expect("cannot watch entry path");
         'looper: loop {
@@ -284,19 +288,14 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
             }
             trace!("receive all file changes: {:?}", all);
             let guard = cloned_ledger.read().await;
-            let is_visited_file_updated = all
-                .into_iter()
-                .filter_map(|event| event.ok())
-                .filter(|event| {
-                    let include_visited_files = event.paths.iter().any(|path| has_path_visited(&guard.visited_files, path));
-                    include_visited_files && event.kind.is_modify()
-                })
-                .count()
-                > 0;
+            let is_stale = all
+                .iter()
+                .filter_map(|event| event.as_ref().ok())
+                .any(|event| watch::should_reload(event, &roots, &guard.visited_files, &guard.extra_inputs));
 
             drop(guard);
 
-            if is_visited_file_updated {
+            if is_stale {
                 debug!("gotcha event, sending reload event...");
                 reload_sender_for_fs.0.try_send(1).ok();
             }
@@ -304,8 +303,11 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
     });
 }
 
-fn start_reload_listener(ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcaster: Arc<Broadcaster>, mut rx: Receiver<i32>) {
+fn start_reload_listener(
+    ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>, mut rx: Receiver<i32>,
+) {
     tokio::spawn(async move {
+        let mut midnight_reload = schedule_midnight_reload(&*ledger_for_reload.read().await, &reload_sender);
         while rx.recv().await.is_some() {
             info!("start reloading...");
             let start_time = Instant::now();
@@ -322,9 +324,33 @@ fn start_reload_listener(ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcas
                     // todo: broadcast the error
                 }
             }
+            // replaced on every reload, for the ledger now served: a failed reload keeps the previous one
+            if let Some(task) = midnight_reload.take() {
+                task.abort();
+            }
+            midnight_reload = schedule_midnight_reload(&guard, &reload_sender);
             drop(guard);
         }
     });
+}
+
+/// reload `ledger` at the next local midnight in its timezone if it depends on the date
+fn schedule_midnight_reload(ledger: &Ledger, reload_sender: &Arc<ReloadSender>) -> Option<JoinHandle<()>> {
+    if !ledger.extra_inputs.contains(&ExtraInput::Clock) {
+        return None;
+    }
+    let timezone = ledger.options.timezone;
+    let at = watch::next_local_midnight(Utc::now(), timezone);
+    info!("the ledger depends on the date, reloading it at {}", at.with_timezone(&timezone));
+    let reload_sender = reload_sender.clone();
+    Some(tokio::spawn(async move {
+        // check the wall clock at least every minute instead of sleeping once: a sleep stops while the machine is
+        // suspended, and the wall clock can be adjusted
+        while let Ok(remaining) = (at - Utc::now()).to_std() {
+            tokio::time::sleep(remaining.min(Duration::from_secs(60))).await;
+        }
+        reload_sender.reload();
+    }))
 }
 
 pub async fn start_server(

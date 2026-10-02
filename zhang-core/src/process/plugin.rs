@@ -74,6 +74,10 @@ impl DirectiveProcess for Plugin {
             #[cfg(feature = "plugin_runtime")]
             {
                 ledger.plugins.insert_plugin(self)?;
+                // a rebuilt local module makes the ledger stale
+                if let Some(input) = crate::inputs::ExtraInput::plugin_module(&ledger.entry.0, self.module.as_str()) {
+                    ledger.extra_inputs.insert(input);
+                }
             }
         });
 
