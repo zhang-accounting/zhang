@@ -1,0 +1,331 @@
+//! Valuation functions: `units`, `cost`, `convert`, `value` and `getprice`.
+//!
+//! Semantics follow beancount's `convert` module as used by beanquery:
+//! - `cost` multiplies the units by the per-unit cost; a position without cost is its units.
+//! - `convert` converts the units with the market rate from the units currency to the
+//!   target (the book cost is never used). Without a rate the units are returned as-is.
+//!   Deviation (Phase 1 decision): beancount's `convert_position` additionally tries an
+//!   implied two-hop rate units → cost currency → target for positions held at cost; zhang
+//!   leaves such positions unconverted.
+//! - `value` prices the units in the cost currency; positions without cost, or without a
+//!   price, are returned as their units.
+//!
+//! Products are rounded like Python's default decimal context (28 significant digits,
+//! half-even), so results match beanquery even with inverted (28-digit) rates.
+
+use std::num::NonZeroU64;
+
+use bigdecimal::{BigDecimal, RoundingMode};
+use chrono::NaiveDate;
+
+use crate::decimal::DIVISION_PRECISION;
+use crate::functions::FunctionContext;
+use crate::prices::PriceMap;
+use crate::value::{Position, Value};
+use crate::Amount;
+
+/// Multiply in Python's default decimal context: exact when the product fits in 28
+/// significant digits, otherwise rounded half-even to 28 digits.
+///
+/// The product keeps the scale `lhs.scale + rhs.scale` (`-1000.00 × 1` is `-1000.00`);
+/// bigdecimal's `*` normalises when either side is 1, so it is computed on the
+/// coefficients instead.
+pub(super) fn mul(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
+    let (lhs_digits, lhs_scale) = lhs.as_bigint_and_exponent();
+    let (rhs_digits, rhs_scale) = rhs.as_bigint_and_exponent();
+    let product = BigDecimal::new(lhs_digits * rhs_digits, lhs_scale + rhs_scale);
+    let precision = NonZeroU64::new(DIVISION_PRECISION).expect("non zero precision");
+    let mut rounded = product;
+    // a carry (9.99… → 10.00…) adds a digit; the second pass drops the extra trailing zero
+    while rounded.digits() > DIVISION_PRECISION {
+        rounded = rounded.with_precision_round(precision, RoundingMode::HalfEven);
+    }
+    rounded
+}
+
+fn date_arg(args: &[Value], idx: usize, function: &str) -> Result<Option<NaiveDate>, String> {
+    args.get(idx)
+        .map(|it| it.as_date().ok_or_else(|| format!("{}() expects a date", function)))
+        .transpose()
+}
+
+/// beancount `convert.get_cost`: units × per-unit cost in the cost currency, or the units.
+fn position_cost(position: &Position) -> Amount {
+    match &position.cost {
+        Some(cost) => Amount::new(mul(&position.units.number, &cost.number), cost.currency.clone()),
+        None => position.units.clone(),
+    }
+}
+
+/// beancount `convert.get_value`: the units priced in the cost currency, or the units.
+fn position_value(position: &Position, prices: &PriceMap, date: Option<NaiveDate>) -> Amount {
+    if let Some(cost) = &position.cost {
+        if let Some(rate) = prices.rate(&position.units.commodity, &cost.currency, date) {
+            return Amount::new(mul(&position.units.number, &rate), cost.currency.clone());
+        }
+    }
+    position.units.clone()
+}
+
+/// beancount `convert.convert_amount` (without the implied `via` rates): the amount at the
+/// market rate into `target`, or the amount unchanged when there is no rate.
+fn convert_units(units: &Amount, target: &str, prices: &PriceMap, date: Option<NaiveDate>) -> Amount {
+    match prices.rate(&units.commodity, target, date) {
+        Some(rate) => Amount::new(mul(&units.number, &rate), target),
+        None => units.clone(),
+    }
+}
+
+pub(super) fn units(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+    match &args[0] {
+        Value::Position(position) => Ok(Value::Amount(position.units.clone())),
+        Value::Inventory(inventory) => Ok(Value::Inventory(inventory.units())),
+        _ => Err("units() expects a position or an inventory".to_owned()),
+    }
+}
+
+pub(super) fn cost(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+    match &args[0] {
+        Value::Position(position) => Ok(Value::Amount(position_cost(position))),
+        Value::Inventory(inventory) => Ok(Value::Inventory(inventory.reduce(position_cost))),
+        _ => Err("cost() expects a position or an inventory".to_owned()),
+    }
+}
+
+pub(super) fn convert(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+    let target = args[1].as_str().ok_or("convert() expects a target currency")?;
+    let date = date_arg(args, 2, "convert")?;
+    let prices = ctx.prices();
+    match &args[0] {
+        Value::Amount(amount) => Ok(Value::Amount(convert_units(amount, target, prices, date))),
+        Value::Position(position) => Ok(Value::Amount(convert_units(&position.units, target, prices, date))),
+        Value::Inventory(inventory) => Ok(Value::Inventory(
+            inventory.reduce(|position| convert_units(&position.units, target, prices, date)),
+        )),
+        _ => Err("convert() expects an amount, a position or an inventory".to_owned()),
+    }
+}
+
+pub(super) fn value(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+    let date = date_arg(args, 1, "value")?;
+    let prices = ctx.prices();
+    match &args[0] {
+        Value::Position(position) => Ok(Value::Amount(position_value(position, prices, date))),
+        Value::Inventory(inventory) => Ok(Value::Inventory(inventory.reduce(|position| position_value(position, prices, date)))),
+        _ => Err("value() expects a position or an inventory".to_owned()),
+    }
+}
+
+pub(super) fn getprice(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+    let base = args[0].as_str().ok_or("getprice() expects a base currency")?;
+    let quote = args[1].as_str().ok_or("getprice() expects a quote currency")?;
+    let date = date_arg(args, 2, "getprice")?;
+    Ok(ctx.prices().rate(&base.to_uppercase(), &quote.to_uppercase(), date).into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::testing::*;
+    use super::*;
+    use crate::functions::TestContext;
+
+    /// AAPL is quoted in USD (150, then 160), USD in CNY, EUR in USD, XYZ in EUR, and
+    /// CNY/JPY only in the inverse direction.
+    fn ctx() -> TestContext {
+        context_with_prices(&[
+            ("2024-01-01", "AAPL", "USD", "150"),
+            ("2024-02-01", "AAPL", "USD", "160"),
+            ("2024-01-01", "USD", "CNY", "7"),
+            ("2024-01-01", "EUR", "USD", "1.1"),
+            ("2024-01-01", "EUR", "CNY", "8"),
+            ("2024-01-01", "XYZ", "EUR", "3"),
+            ("2024-01-10", "XYZ", "EUR", "4"),
+            ("2024-01-01", "JPY", "CNY", "0.05"),
+        ])
+    }
+
+    fn aapl_lot() -> Value {
+        Value::Position(position("10", "AAPL", Some(("100", "USD"))))
+    }
+
+    fn mixed_inventory() -> Value {
+        Value::Inventory(inventory(vec![
+            position("10", "AAPL", Some(("100", "USD"))),
+            position("5", "XYZ", Some(("2", "EUR"))),
+            position("-1011.00", "USD", None),
+        ]))
+    }
+
+    #[test]
+    fn mul_rounds_like_python_decimal() {
+        let plain = |it: BigDecimal| crate::decimal::to_plain_string(&it);
+        assert_eq!(plain(mul(&d("10.00"), &d("7"))), "70.00");
+        assert_eq!(plain(mul(&d("-1000.00"), &d("1"))), "-1000.00");
+        assert_eq!(plain(mul(&d("1"), &d("2.50"))), "2.50");
+        assert_eq!(plain(mul(&d("0.00"), &d("3"))), "0.00");
+        assert_eq!(
+            crate::decimal::to_plain_string(&mul(&d("1600"), &d("0.9090909090909090909090909091"))),
+            "1454.545454545454545454545455"
+        );
+        assert_eq!(
+            crate::decimal::to_plain_string(&mul(&d("9.999999999999999999999999999"), &d("1.0000000000000000000000000001"))),
+            "10.00000000000000000000000000"
+        );
+    }
+
+    #[test]
+    fn units_of_position_and_inventory() {
+        assert_eq!(call_str("units", vec![aapl_lot()]), "10 AAPL");
+        assert_eq!(call_str("units", vec![Value::Position(position("-3.50", "USD", None))]), "-3.50 USD");
+        let mut lots = inventory(vec![position("10", "AAPL", Some(("100", "USD"))), position("5", "AAPL", Some(("120", "USD")))]);
+        lots.add_amount(&amount("4.00", "USD"));
+        assert_eq!(call_str("units", vec![Value::Inventory(lots)]), "(4.00 USD, 15 AAPL)");
+        assert_eq!(call_str("units", vec![Value::Inventory(inventory(vec![]))]), "()");
+    }
+
+    #[test]
+    fn cost_of_position_and_inventory() {
+        assert_eq!(call_str("cost", vec![aapl_lot()]), "1000 USD");
+        // no cost: the units
+        assert_eq!(call_str("cost", vec![Value::Position(position("2.50", "EUR", None))]), "2.50 EUR");
+        assert_eq!(
+            call_str("cost", vec![Value::Position(position("-2", "AAPL", Some(("100.5", "USD"))))]),
+            "-201.0 USD"
+        );
+        assert_eq!(call_str("cost", vec![mixed_inventory()]), "(-11.00 USD, 10 EUR)");
+    }
+
+    #[test]
+    fn convert_amount_uses_direct_and_inverse_rates() {
+        let ctx = ctx();
+        let usd = || Value::Amount(amount("-1000.00", "USD"));
+        assert_eq!(call_str_with(&ctx, "convert", vec![usd(), "CNY".into()]), "-7000.00 CNY");
+        // same currency: rate 1
+        assert_eq!(call_str_with(&ctx, "convert", vec![usd(), "USD".into()]), "-1000.00 USD");
+        // inverse of CNY→USD = 1/7
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![Value::Amount(amount("7", "CNY")), "USD".into()]),
+            "1.000000000000000000000000000 USD"
+        );
+        // only JPY→CNY is quoted: CNY→JPY uses the inverse
+        assert_eq!(call_str_with(&ctx, "convert", vec![Value::Amount(amount("1", "CNY")), "JPY".into()]), "20 JPY");
+        // missing price: unchanged
+        assert_eq!(call_str_with(&ctx, "convert", vec![Value::Amount(amount("5", "GBP")), "CNY".into()]), "5 GBP");
+        // no AAPL→CNY price (only AAPL→USD): unchanged
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![Value::Amount(amount("10", "AAPL")), "CNY".into()]),
+            "10 AAPL"
+        );
+        // the product with an inverted (28-digit) rate is rounded like Python's decimal context
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![Value::Amount(amount("1600", "USD")), "EUR".into()]),
+            "1454.545454545454545454545455 EUR"
+        );
+    }
+
+    #[test]
+    fn convert_with_date_uses_latest_price_on_or_before() {
+        let ctx = ctx();
+        let aapl = || Value::Amount(amount("10", "AAPL"));
+        assert_eq!(call_str_with(&ctx, "convert", vec![aapl(), "USD".into()]), "1600 USD");
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![aapl(), "USD".into(), Value::Date(date("2024-01-31"))]),
+            "1500 USD"
+        );
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![aapl(), "USD".into(), Value::Date(date("2024-02-01"))]),
+            "1600 USD"
+        );
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![aapl(), "USD".into(), Value::Date(date("2023-12-31"))]),
+            "10 AAPL"
+        );
+    }
+
+    #[test]
+    fn convert_position_uses_the_market_rate_of_its_units() {
+        let ctx = ctx();
+        // the market price, not the book cost
+        assert_eq!(call_str_with(&ctx, "convert", vec![aapl_lot(), "USD".into()]), "1600 USD");
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![aapl_lot(), "USD".into(), Value::Date(date("2024-01-05"))]),
+            "1500 USD"
+        );
+        // AAPL→CNY is not quoted. beanquery would hop AAPL→USD→CNY (11200 CNY); Phase 1
+        // leaves the position unconverted.
+        assert_eq!(call_str_with(&ctx, "convert", vec![aapl_lot(), "CNY".into()]), "10 AAPL");
+        let xyz = || Value::Position(position("5", "XYZ", Some(("2", "EUR"))));
+        assert_eq!(call_str_with(&ctx, "convert", vec![xyz(), "EUR".into()]), "20 EUR");
+        assert_eq!(call_str_with(&ctx, "convert", vec![xyz(), "CNY".into()]), "5 XYZ");
+        // no market price at all: unconverted
+        let ghost = Value::Position(position("5", "GHOST", Some(("2", "EUR"))));
+        assert_eq!(call_str_with(&ctx, "convert", vec![ghost, "EUR".into()]), "5 GHOST");
+        // positions without cost convert like amounts
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![Value::Position(position("2", "EUR", None)), "CNY".into()]),
+            "16 CNY"
+        );
+    }
+
+    #[test]
+    fn convert_inventory_reduces_every_lot() {
+        let ctx = ctx();
+        assert_eq!(call_str_with(&ctx, "convert", vec![mixed_inventory(), "USD".into()]), "(589.00 USD, 5 XYZ)");
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![mixed_inventory(), "USD".into(), Value::Date(date("2024-01-05"))]),
+            "(489.00 USD, 5 XYZ)"
+        );
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![mixed_inventory(), "CNY".into()]),
+            "(-7077.00 CNY, 5 XYZ, 10 AAPL)"
+        );
+        let mut partial = inventory(vec![position("5", "GHOST", None)]);
+        partial.add_amount(&amount("1.00", "USD"));
+        assert_eq!(
+            call_str_with(&ctx, "convert", vec![Value::Inventory(partial), "CNY".into()]),
+            "(7.00 CNY, 5 GHOST)"
+        );
+    }
+
+    #[test]
+    fn value_prices_units_in_the_cost_currency() {
+        let ctx = ctx();
+        assert_eq!(call_str_with(&ctx, "value", vec![aapl_lot()]), "1600 USD");
+        assert_eq!(call_str_with(&ctx, "value", vec![aapl_lot(), Value::Date(date("2024-01-15"))]), "1500 USD");
+        // no price before the first quote: units
+        assert_eq!(call_str_with(&ctx, "value", vec![aapl_lot(), Value::Date(date("2023-06-01"))]), "10 AAPL");
+        // no cost: units, even when a price exists
+        assert_eq!(
+            call_str_with(&ctx, "value", vec![Value::Position(position("-1000.00", "USD", None))]),
+            "-1000.00 USD"
+        );
+        assert_eq!(call_str_with(&ctx, "value", vec![Value::Position(position("10", "AAPL", None))]), "10 AAPL");
+        // no price for the units: units
+        assert_eq!(
+            call_str_with(&ctx, "value", vec![Value::Position(position("5", "GHOST", Some(("2", "EUR"))))]),
+            "5 GHOST"
+        );
+        assert_eq!(call_str_with(&ctx, "value", vec![mixed_inventory()]), "(589.00 USD, 20 EUR)");
+        assert_eq!(
+            call_str_with(&ctx, "value", vec![mixed_inventory(), Value::Date(date("2024-01-05"))]),
+            "(489.00 USD, 15 EUR)"
+        );
+        // with an empty price map nothing is valued
+        assert_eq!(call_str("value", vec![mixed_inventory()]), "(-1011.00 USD, 5 XYZ, 10 AAPL)");
+    }
+
+    #[test]
+    fn getprice_looks_up_rates() {
+        let ctx = ctx();
+        let price = |args: Vec<Value>| call_with(&ctx, "getprice", args);
+        assert_eq!(price(vec!["AAPL".into(), "USD".into()]), Value::Decimal(d("160")));
+        assert_eq!(
+            price(vec!["aapl".into(), "usd".into(), Value::Date(date("2024-01-15"))]),
+            Value::Decimal(d("150"))
+        );
+        assert_eq!(price(vec!["AAPL".into(), "USD".into(), Value::Date(date("2023-01-01"))]), Value::Null);
+        assert_eq!(price(vec!["USD".into(), "AAPL".into()]), Value::Decimal(d("0.00625")));
+        assert_eq!(price(vec!["GBP".into(), "USD".into()]), Value::Null);
+        assert_eq!(price(vec!["GBP".into(), "GBP".into()]), Value::Decimal(d("1")));
+    }
+}
