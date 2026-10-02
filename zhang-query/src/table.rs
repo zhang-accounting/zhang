@@ -306,9 +306,10 @@ fn per_unit_price<'a>(price: &'a SingleTotalPrice, units: &Amount) -> Option<Cow
 ///   when the spec has no date. A spec without a cost number cannot open a lot, so that
 ///   part keeps no cost.
 ///
-/// zhang-core's lot store implements only the FIFO and LIFO methods (it panics on the others
-/// for any posting at cost), so every method other than LIFO books FIFO here, and beancount's
-/// STRICT "ambiguous match" errors have no counterpart.
+/// zhang-core books STRICT like FIFO (reporting ambiguous matches as ledger errors) and books the
+/// unsupported methods (NONE, AVERAGE, AVERAGE_ONLY) with the ledger's default method, so every
+/// method other than LIFO books FIFO here. Booking errors are reported by zhang-core, not by
+/// queries.
 ///
 /// The lots are always tracked in full, because later postings depend on them; `keep_cost`
 /// only says whether the rows carry the cost of their lot.

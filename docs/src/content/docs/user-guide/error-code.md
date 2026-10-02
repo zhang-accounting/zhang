@@ -253,6 +253,10 @@ option "operating_currency" "USD"
 
 Occurs when parsing invalid metadata in directives, which can lead to errors in processing and interpretation.
 
+An invalid `booking_method` on an account, or an invalid `default_booking_method` option, is reported on that `open` or
+`option` directive. The ledger still loads: the account books with the ledger's default booking method, and an invalid
+option leaves the default at `FIFO`.
+
 **Example of Error:**
 ```zhang
 1970-01-01 open Assets:Cash
@@ -266,3 +270,56 @@ Occurs when parsing invalid metadata in directives, which can lead to errors in 
 ```
 
 **Solution:** Ensure metadata is correctly formatted and valid for the context in which it is used.
+
+## UnsupportedBookingMethod
+
+Triggered when an account's `booking_method`, or the `default_booking_method` option, is a booking method Zhang
+Accounting does not implement yet: `NONE`, `AVERAGE` or `AVERAGE_ONLY`. The error is reported once, on the `open` (or
+`option`) directive. The ledger still loads: the account books with the ledger's default booking method, and an
+unsupported option leaves the default at `FIFO`.
+
+**Example of Error:**
+```zhang
+1970-01-01 open Assets:Stocks
+    booking_method: "AVERAGE"
+```
+
+**Correct Case:**
+```zhang
+1970-01-01 open Assets:Stocks
+    booking_method: "STRICT"
+```
+
+**Solution:** Use one of the supported booking methods: `STRICT`, `FIFO` or `LIFO`.
+
+## AmbiguousLotMatch
+
+Raised on an account using the `STRICT` booking method when a reduction matches several lots and does not reduce all of
+them in full, so the lot to reduce is ambiguous. This follows Beancount's `STRICT` method. The transaction is still
+booked, like `FIFO` among the matching lots, so the ledger keeps its numbers until the ambiguity is resolved.
+
+**Example of Error:**
+```zhang {11}
+1970-01-01 open Assets:Stocks
+    booking_method: "STRICT"
+
+2024-01-01 * "buy"
+    Assets:Stocks  10 AAPL {100 USD}
+    Assets:Cash  -1000 USD
+2024-02-01 * "buy"
+    Assets:Stocks  10 AAPL {110 USD}
+    Assets:Cash  -1100 USD
+2024-03-01 * "sell"
+    Assets:Stocks  -5 AAPL {}
+    Assets:Cash  500 USD
+```
+
+**Correct Case:**
+```zhang
+2024-03-01 * "sell"
+    Assets:Stocks  -5 AAPL {100 USD, 2024-01-01}
+    Assets:Cash  500 USD
+```
+
+**Solution:** Name the lot to reduce with its cost (and acquisition date), reduce all matching lots at once, or use the
+`FIFO` or `LIFO` booking method on the account.

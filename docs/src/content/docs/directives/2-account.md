@@ -29,14 +29,21 @@ Assigns a more descriptive name for display purposes.
 ### Booking Method
 
 Specifies the method used for handling complex investment scenarios. This is particularly important for accounts dealing with investments or trading.
+It decides which lot a reduction (for example `-5 AAPL {}`) takes its units from. Without the meta, the account uses
+the `default_booking_method` option (`FIFO` unless set).
 
-Available options:
-- `STRICT`: Strict matching of lots
+Supported methods:
+- `STRICT`: Beancount's default. A reduction must match a single lot, or reduce every lot it matches in full.
+  Otherwise the ledger reports an [`AmbiguousLotMatch`](/user-guide/error-code/#ambiguouslotmatch) error and books the
+  reduction like `FIFO` among the matching lots.
 - `FIFO`: First In First Out
 - `LIFO`: Last In First Out
-- `AVERAGE`: Average cost basis
-- `AVERAGE_ONLY`: Only allow average cost basis
-- `NONE`: No specific booking method
+
+`AVERAGE`, `AVERAGE_ONLY` and `NONE` are not implemented yet. An account using one of them, or a value that is not a
+booking method, gets an error on its `open` directive
+([`UnsupportedBookingMethod`](/user-guide/error-code/#unsupportedbookingmethod) or
+[`ParseInvalidMeta`](/user-guide/error-code/#parseinvalidmeta)) and books with the default booking method. The ledger
+still loads.
 
 ```zhang
 2023-01-01 open Investments:Stocks USD
@@ -135,7 +142,7 @@ Zhang Accounting is fully compatible with Beancount's account directives. The sy
   booking_method: "FIFO"
   alias: "Stock Portfolio"
 2023-01-01 open Investments:Bonds USD
-  booking_method: "AVERAGE"
+  booking_method: "STRICT"
   alias: "Bond Portfolio"
 
 ; Liability Accounts

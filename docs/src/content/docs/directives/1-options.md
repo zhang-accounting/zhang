@@ -71,9 +71,9 @@ option "default_booking_method" "FIFO"
   - `FIFO`
   - `STRICT`
   - `LIFO`
-  - `AVERAGE`
-  - `AVERAGE_ONLY`
-  - `NONE`
+- `AVERAGE`, `AVERAGE_ONLY` and `NONE` are not implemented yet. Using one of them, or a value that is not a booking
+  method, reports an error on the option and keeps `FIFO` as the default. See
+  [Booking Method](/directives/2-account/#booking-method) for what each method does.
   
 ### Timezone
 

@@ -670,7 +670,9 @@ export interface operations {
                   | 'BudgetDoesNotExist'
                   | 'DefineDuplicatedBudget'
                   | 'MultipleOperatingCurrencyDetect'
-                  | 'ParseInvalidMeta';
+                  | 'ParseInvalidMeta'
+                  | 'UnsupportedBookingMethod'
+                  | 'AmbiguousLotMatch';
                 id: string;
                 metas: {
                   [key: string]: string;

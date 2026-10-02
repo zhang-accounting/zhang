@@ -107,10 +107,7 @@ impl DirectiveProcess for Transaction {
 
             // booking: augment or reduce the account's lots
             let amount = txn_posting.units().unwrap_or(inferred_amount);
-            let booking = ledger
-                .booker_mut()
-                .book_posting(&txn_posting, &amount)
-                .map_err(|kind| ZhangError::ProcessError { span: span.clone(), kind })?;
+            let booking = ledger.booker_mut().book_posting(&txn_posting, &amount);
             for error in booking.errors {
                 operations.new_error(error.kind, span, error.metas)?;
             }

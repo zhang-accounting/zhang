@@ -25,4 +25,7 @@ pub enum ErrorKind {
     MultipleOperatingCurrencyDetect,
 
     ParseInvalidMeta,
+
+    UnsupportedBookingMethod,
+    AmbiguousLotMatch,
 }

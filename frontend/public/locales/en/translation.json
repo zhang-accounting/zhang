@@ -47,7 +47,10 @@
     "CloseNonZeroAccount": "Trying to close an account with non zero balance",
     "MultipleOperatingCurrencyDetect": "Ledger contains multiple operating currency options, which is not recommended in zhang",
     "DefineDuplicatedBudget": "Trying to define duplicated budget name",
-    "UnbalancedTransaction": "Transaction is Unbalanced"
+    "UnbalancedTransaction": "Transaction is Unbalanced",
+    "ParseInvalidMeta": "Directive has an invalid meta value",
+    "UnsupportedBookingMethod": "Booking method is not supported yet, the account uses the default booking method",
+    "AmbiguousLotMatch": "Reduction matches several lots, which is ambiguous under the STRICT booking method"
   },
   "ACCOUNT_FILTER_PLACEHOLDER": "filter by keyword...",
   "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "clean account filter keyword",
