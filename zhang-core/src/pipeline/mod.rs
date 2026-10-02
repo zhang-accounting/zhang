@@ -6,10 +6,20 @@
 //! (adapted from WASM) share this one interface; the executor runs them in
 //! declaration order and re-sorts the stream after every stage, so a stage never
 //! has to maintain ordering itself.
+//!
+//! Built-in stages ([`builtin_stages`]) run after the user's plugin stages:
+//! [`PadStage`] then [`BalanceCheckStage`], two independent folds over the stream
+//! that share only the pure helpers in the `balance` module.
+
+pub(crate) mod balance;
+mod balance_check;
+mod pad;
 
 use std::collections::HashMap;
 
+pub use balance_check::BalanceCheckStage;
 use log::debug;
+pub use pad::PadStage;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, SpanInfo, Spanned};
 
@@ -55,8 +65,18 @@ pub trait ProcessStage {
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>>;
 }
 
+/// the native core stages, in execution order; they run after all plugin stages
+pub fn builtin_stages() -> Vec<Box<dyn ProcessStage>> {
+    vec![Box::new(PadStage), Box::new(BalanceCheckStage)]
+}
+
 /// run stages in order; the stream is re-sorted after every stage
-/// ("don't trust the stages" — beancount does the same after every plugin)
+/// ("don't trust the stages" — beancount does the same after every plugin).
+///
+/// The sort is stable and by datetime; within one datetime, balance entries
+/// (balance pad/check directives and `P`/`C`-flagged transactions) come first,
+/// after `open`. A stage inserting a balance transaction right after its
+/// directive can rely on it staying there.
 pub fn run_pipeline(stages: &[Box<dyn ProcessStage>], mut directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
     for stage in stages {
         debug!("running pipeline stage: {}", stage.name());
@@ -67,14 +87,27 @@ pub fn run_pipeline(stages: &[Box<dyn ProcessStage>], mut directives: Vec<Spanne
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use std::collections::HashMap;
 
     use zhang_ast::error::ErrorKind;
     use zhang_ast::{Comment, Directive, SpanInfo, Spanned};
 
-    use super::{run_pipeline, ProcessStage, StageContext};
+    use super::{builtin_stages, run_pipeline, ProcessStage, StageContext};
+    use crate::data_type::text::ZhangDataType;
+    use crate::data_type::DataType;
+    use crate::ledger::Ledger;
     use crate::ZhangResult;
+
+    /// parse a ledger, run the built-in stages over it and return the output
+    /// stream with the kinds of the errors the stages reported
+    pub(crate) fn run_builtin_stages(content: &str) -> (Vec<Directive>, Vec<ErrorKind>) {
+        let directives = ZhangDataType {}.transform(content.to_owned(), None).unwrap();
+        let mut ctx = StageContext::new(&[]);
+        let out = run_pipeline(&builtin_stages(), Ledger::sort_directives_datetime(directives), &mut ctx).unwrap();
+        let errors = ctx.into_errors().into_iter().map(|it| it.kind).collect();
+        (out.into_iter().map(|it| it.data).collect(), errors)
+    }
 
     fn span() -> SpanInfo {
         SpanInfo {

@@ -129,12 +129,12 @@ impl Operations {
     }
 
     /// check whether transaction is valid or not, return the ErrorKind of the issue
+    ///
+    /// the AST-only part is [`TransactionInference::validation_inventory`]; this adds
+    /// the store-dependent commodity checks
     pub(crate) fn check_transaction(&self, txn: &Transaction) -> ZhangResult<Option<ErrorKind>> {
-        if txn.flag == Some(Flag::BalanceCheck) {
-            return Ok(None);
-        }
-        match txn.get_postings_inventory() {
-            Ok(inventory) => {
+        match txn.validation_inventory() {
+            Ok(Some(inventory)) => {
                 for (currency, amount) in inventory.currencies.iter() {
                     let commodity = self.commodity(currency)?;
                     let Some(commodity) = commodity else {
@@ -149,6 +149,7 @@ impl Operations {
                 }
                 Ok(None)
             }
+            Ok(None) => Ok(None),
             Err(e) => Ok(Some(e)),
         }
     }
