@@ -1,0 +1,18 @@
+{
+  "name": "tags_links_sets",
+  "query": "SELECT DISTINCT tags, links WHERE length(tags) > 0",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "tags", "type": "set"},
+    {"name": "links", "type": "set"}
+  ],
+  "rows": [
+    [["trip-los-angeles-2015"], []],
+    [["trip-los-angeles-2016"], []],
+    [["trip-chicago-2016"], []],
+    [["trip-boston-2017"], []]
+  ],
+  "notes": "Set-typed columns, encoded as sorted string arrays. The ledger has no links, so links is always []."
+}

@@ -1,0 +1,16 @@
+{
+  "name": "in_string_list_and_not_in_set",
+  "query": "select account, count(*) as n where account in ('Expenses:Food:Coffee', 'Expenses:Food:Alcohol', 'Expenses:Does:Not:Exist') and 'trip-chicago-2016' not in tags group by account order by account",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    ["Expenses:Food:Alcohol", 4],
+    ["Expenses:Food:Coffee", 10]
+  ],
+  "notes": "Value IN a parenthesized list, NOT IN over the tags set. Keywords are written in lower case."
+}

@@ -1,0 +1,16 @@
+{
+  "name": "count_variants",
+  "query": "SELECT count(*) AS n, count(payee) AS with_payee, count(cost_number) AS with_cost WHERE account ~ '^Assets:US:(ETrade|Vanguard)'",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "n", "type": "int"},
+    {"name": "with_payee", "type": "int"},
+    {"name": "with_cost", "type": "int"}
+  ],
+  "rows": [
+    [530, 46, 212]
+  ],
+  "notes": "count(*) counts rows; count(x) counts non-NULL values."
+}

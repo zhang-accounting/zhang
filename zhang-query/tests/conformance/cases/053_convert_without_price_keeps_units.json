@@ -1,0 +1,17 @@
+{
+  "name": "convert_without_price_keeps_units",
+  "query": "SELECT currency, count(*) AS n, sum(convert(units(position), 'USD')) AS converted WHERE account ~ '^Expenses:(Taxes|Vacation)' AND currency != 'USD' GROUP BY currency ORDER BY currency",
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "currency", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "converted", "type": "inventory"}
+  ],
+  "rows": [
+    ["IRAUSD", 46, {"positions": [{"units": {"number": "54500.00", "currency": "IRAUSD"}, "cost": null}]}],
+    ["VACHR", 4, {"positions": [{"units": {"number": "368", "currency": "VACHR"}, "cost": null}]}]
+  ],
+  "notes": "With no IRAUSD/VACHR price in the price map, convert() returns the amount unchanged."
+}

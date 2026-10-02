@@ -1,0 +1,19 @@
+{
+  "name": "null_logic_standard",
+  "query": "SELECT DISTINCT TRUE AND NULL AS a, FALSE AND NULL AS b, TRUE OR NULL AS c, NULL OR FALSE AS d, NULL IS NULL AS e, NULL IS NOT NULL AS f WHERE account = 'Expenses:Financial:Fees'",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "a", "type": "bool"},
+    {"name": "b", "type": "bool"},
+    {"name": "c", "type": "bool"},
+    {"name": "d", "type": "bool"},
+    {"name": "e", "type": "bool"},
+    {"name": "f", "type": "bool"}
+  ],
+  "rows": [
+    [null, false, true, null, true, false]
+  ],
+  "notes": "Agrees with SQL three-valued logic."
+}
