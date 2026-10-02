@@ -90,6 +90,22 @@ export interface paths {
     /** Plugin List */
     get: operations['plugin_list'];
   };
+  '/api/query': {
+    /**
+     * Run Query
+     * @description Run a BQL-compatible query over the ledger.
+     *
+     * Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
+     */
+    post: operations['run_query'];
+  };
+  '/api/query/schema': {
+    /**
+     * Get Query Schema
+     * @description The columns and functions available to queries.
+     */
+    get: operations['get_query_schema'];
+  };
   '/api/reload': {
     /** Reload */
     post: operations['reload'];
@@ -912,6 +928,116 @@ export interface operations {
               plugin_type: ('Processor' | 'Mapper' | 'Router')[];
               version: string;
             }[];
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Run Query
+   * @description Run a BQL-compatible query over the ledger.
+   *
+   * Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
+   */
+  run_query: {
+    requestBody: {
+      content: {
+        'application/json': {
+          /** @description the BQL query text */
+          query: string;
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              columns: {
+                name: string;
+                /** @enum {string} */
+                type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory';
+              }[];
+              rows: (
+                | boolean
+                | number
+                | string
+                | string[]
+                | {
+                    currency: string;
+                    number: string;
+                  }
+                | {
+                    cost: {
+                      currency: string;
+                      date: string | null;
+                      label: string | null;
+                      number: string;
+                    } | null;
+                    units: {
+                      currency: string;
+                      number: string;
+                    };
+                  }
+                | {
+                    positions: {
+                      cost: {
+                        currency: string;
+                        date: string | null;
+                        label: string | null;
+                        number: string;
+                      } | null;
+                      units: {
+                        currency: string;
+                        number: string;
+                      };
+                    }[];
+                  }
+                | null
+              )[][];
+            };
+          };
+        };
+      };
+      /** @description the query cannot be parsed, compiled or run */
+      400: {
+        content: {
+          'application/json': {
+            column: number | null;
+            line: number | null;
+            message: string;
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Get Query Schema
+   * @description The columns and functions available to queries.
+   */
+  get_query_schema: {
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              columns: {
+                description: string;
+                name: string;
+                /** @enum {string} */
+                type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory';
+              }[];
+              functions: {
+                /** @description whether this is an aggregate function (`sum`, `count`, ...) */
+                aggregate: boolean;
+                description: string;
+                name: string;
+                /** @description e.g. `root(str, int) -> str` */
+                signature: string;
+              }[];
+            };
           };
         };
       };

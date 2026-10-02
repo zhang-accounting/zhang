@@ -20,6 +20,7 @@
   "NAV_TOOLS": "工具",
   "NAV_SETTING": "设置",
   "NAV_BUDGETS": "预算",
+  "NAV_QUERY": "查询",
   "ACCOUNT_FILTER_PLACEHOLDER": "按关键字过滤...",
   "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "清空过滤关键字",
   "TXN_EDIT_PREVIEW": "预览",
@@ -62,5 +63,37 @@
   },
   "settings": {
     "title": "设置"
+  },
+  "query": {
+    "run": "运行",
+    "running": "运行中...",
+    "run_hint": "或按下",
+    "placeholder": "输入查询语句，例如 SELECT date, payee, account, position LIMIT 10",
+    "empty_hint": "输入查询语句或从示例中选择一条，然后运行。",
+    "examples": "示例",
+    "example": {
+      "monthly_expenses": "按分类统计每月支出",
+      "spending_by_payee": "按收款方统计支出",
+      "postings_with_tag": "带有指定标签的记账行",
+      "holdings": "持仓的成本与市值",
+      "recent_postings": "最近的记账行"
+    },
+    "reference": "参考",
+    "reference_description": "查询中可用的列与函数，点击即可插入到编辑器中。",
+    "reference_docs": "查询语言文档",
+    "reference_filter": "过滤列与函数...",
+    "reference_loading": "加载中...",
+    "reference_load_failed": "无法加载查询参考。",
+    "columns": "列",
+    "aggregates": "聚合函数",
+    "functions": "函数",
+    "rows_other": "{{count}} 行",
+    "elapsed": "{{ms}} 毫秒",
+    "no_rows": "查询没有返回任何结果。",
+    "truncated": "仅显示前 {{shown}} 行，共 {{total}} 行。",
+    "show_all": "显示全部",
+    "error_title": "查询错误",
+    "error_position": "第 {{line}} 行，第 {{column}} 列",
+    "error_line": "第 {{line}} 行"
   }
 }
