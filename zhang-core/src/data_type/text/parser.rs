@@ -13,7 +13,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1, take_while_m_n};
 use nom::character::complete::{char, line_ending, not_line_ending, one_of, satisfy, space0, space1};
-use nom::combinator::{map, map_res, opt, recognize, value};
+use nom::combinator::{map, map_res, opt, recognize, value, verify};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
@@ -429,14 +429,20 @@ fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
 // metadata
 // ---------------------------------------------------------------------------
 
-/// `key_value_line = string space* ":" space* string`
+/// An unquoted metadata key: a bare word that does not start with a comment
+/// prefix, so an indented line such as `;path: "C:\x"` stays a comment.
+fn meta_key(i: &str) -> IResult<&str, &str> {
+    verify(unquote_string_raw, |key: &str| comment_prefix(key).is_err())(i)
+}
+
+/// `key_value_line = (meta_key | quote_string) space* ":" space* string`
 fn key_value_line(i: &str) -> IResult<&str, (String, ZhangString)> {
-    let (i, key) = string(i)?;
+    let (i, key) = alt((map(meta_key, str::to_owned), map(quote_string, |key| key.to_plain_string())))(i)?;
     let (i, _) = space0(i)?;
     let (i, _) = char(':')(i)?;
     let (i, _) = space0(i)?;
     let (i, value) = string(i)?;
-    Ok((i, (key.to_plain_string(), value)))
+    Ok((i, (key, value)))
 }
 
 /// A single indented metadata line following a directive.
@@ -1740,6 +1746,36 @@ mod test {
             let queries = ledger.operations().queries().unwrap();
             assert_eq!(queries.len(), 1);
             assert_eq!(queries[0].query, r"SELECT narration WHERE narration ~ '\d+'");
+        }
+
+        #[test]
+        fn should_keep_indented_comment_like_lines_out_of_metadata() {
+            for prefix in [";", "#", "*", "//"] {
+                let line = format!("  {prefix}path: \"C:\\Users\\me\"");
+                let txn = get_txn(&format!("2024-01-01 * \"x\"\n  Assets:Cash -5 CNY\n{line}\n  Expenses:Food\n"));
+                assert!(txn.meta.get_one(&format!("{prefix}path")).is_none(), "{line}");
+                assert_eq!(txn.postings.len(), 2, "{line}");
+
+                let directives = parse(&format!("2024-01-01 open Assets:Cash\n{line}\n"), None).unwrap();
+                assert_eq!(directives.len(), 2, "{line}");
+                let Directive::Open(open) = &directives[0].data else {
+                    panic!("expected an open directive, got {:?}", directives[0].data);
+                };
+                assert!(open.meta.get_one(&format!("{prefix}path")).is_none(), "{line}");
+                assert!(matches!(directives[1].data, Directive::Comment(_)), "{line}");
+            }
+        }
+
+        #[test]
+        fn should_still_read_plain_and_quoted_metadata_keys() {
+            let directives = parse("2024-01-01 open Assets:Cash\n  path: \"a\"\n  \";path\": \"b\"\n  a;b: \"c\"\n", None).unwrap();
+            assert_eq!(directives.len(), 1);
+            let Directive::Open(open) = &directives[0].data else {
+                panic!("expected an open directive, got {:?}", directives[0].data);
+            };
+            assert_eq!(open.meta.get_one("path").map(|it| it.as_str()), Some("a"));
+            assert_eq!(open.meta.get_one(";path").map(|it| it.as_str()), Some("b"));
+            assert_eq!(open.meta.get_one("a;b").map(|it| it.as_str()), Some("c"));
         }
 
         #[test]
