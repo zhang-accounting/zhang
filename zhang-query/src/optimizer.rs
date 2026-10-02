@@ -14,7 +14,8 @@
 //!    `x OR TRUE` is `TRUE`, `FALSE OR x` is `x`; `NULL` operands are kept, because
 //!    `x OR NULL` is not `x`.
 //! 4. [`fold_constants`]: a node whose operands are all constants is evaluated once at compile
-//!    time, unless it depends on the execution (`today()`, prices, row metadata).
+//!    time, unless it depends on the execution (`today()`, prices, row metadata). The running
+//!    `balance` is state of the execution and is never folded.
 //! 5. [`precompile_regex`]: a match against a constant pattern compiles the regular
 //!    expression once; invalid patterns are compile errors at the pattern.
 
@@ -151,7 +152,7 @@ pub(crate) fn simplify_logic(expr: CExpr) -> CExpr {
 /// Evaluate a node whose operands are all constants once, at compile time.
 pub(crate) fn fold_constants(expr: CExpr) -> CExpr {
     let foldable = match &expr {
-        CExpr::Const(_) | CExpr::Column(_) | CExpr::Param(_) | CExpr::Aggregate(_) => false,
+        CExpr::Const(_) | CExpr::Column(_) | CExpr::RunningBalance | CExpr::Param(_) | CExpr::Aggregate(_) => false,
         CExpr::Scalar { function, .. } if NOT_FOLDABLE.contains(&function.name) => false,
         node => node.children().iter().all(|child| matches!(child, CExpr::Const(_))),
     };
@@ -329,6 +330,10 @@ mod tests {
         assert_eq!(show(&fold_constants(scalar("entry_meta", vec![str_("x")]))), "entry_meta('x')");
         // nodes reading a column are not constant
         assert_eq!(show(&fold_constants(is_null(col("payee")))), "(payee IS NULL)");
+        // nor is the running balance, which changes from row to row
+        assert_eq!(show(&fold_constants(CExpr::RunningBalance)), "balance");
+        assert_eq!(show(&fold_constants(is_null(CExpr::RunningBalance))), "(balance IS NULL)");
+        assert_eq!(show(&optimize_expr(scalar("units", vec![CExpr::RunningBalance])).unwrap()), "units(balance)");
         // failures are left for execution, which reports them with a position
         let overflow = chain(CExpr::Const(Value::Int(i64::MAX)), vec![(ArithOp::Add, CExpr::Const(Value::Int(1)))]);
         assert!(matches!(fold_constants(overflow), CExpr::Arith { .. }));

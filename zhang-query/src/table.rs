@@ -28,7 +28,7 @@ use zhang_core::store::{Store, TransactionDomain};
 use crate::decimal;
 use crate::prices::PriceMap;
 use crate::projector::Projection;
-use crate::value::{Cost, DataType, Position, Value};
+use crate::value::{Cost, DataType, Inventory, Position, Value};
 
 /// The transaction-level part of a row.
 pub(crate) struct Entry<'a> {
@@ -463,6 +463,16 @@ pub(crate) enum Borrow {
     Contains(fn(&Dataset<'_>, &Row<'_>, &str) -> bool),
 }
 
+/// The `balance` column. The executor evaluates it as a running sum (see
+/// [`crate::compiler::CExpr::RunningBalance`]); its [`ColumnDef::get`] is the row's own
+/// contribution.
+pub(crate) const BALANCE_COLUMN: &str = "balance";
+
+/// The units and cost of a row, as the `position` column reads them.
+pub(crate) fn position(row: &Row<'_>) -> Position {
+    Position::new(row.units.as_ref().clone(), row.cost.clone())
+}
+
 /// The columns produced by `SELECT *`.
 pub(crate) const WILDCARD_COLUMNS: [&str; 6] = ["date", "flag", "payee", "narration", "account", "position"];
 
@@ -647,7 +657,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "position",
         ty: DataType::Position,
         description: "Units and cost of the posting.",
-        get: |_, row| Value::Position(Position::new(row.units.as_ref().clone(), row.cost.clone())),
+        get: |_, row| Value::Position(position(row)),
         reads: Reads::COST,
         borrow: Borrow::No,
     },
@@ -706,6 +716,15 @@ pub static COLUMNS: &[ColumnDef] = &[
         get: |data, row| Value::Set(other_accounts(data, row).map(str::to_owned).collect()),
         reads: Reads::POSTING,
         borrow: Borrow::Contains(|data, row, account| other_accounts(data, row).any(|it| it == account)),
+    },
+    ColumnDef {
+        name: BALANCE_COLUMN,
+        ty: DataType::Inventory,
+        description: "Running balance: the sum of the positions of the rows produced so far, in ledger order after FROM and WHERE, \
+                      including this one; not allowed in FROM or WHERE.",
+        get: |_, row| Value::Inventory(Inventory::from_iter([position(row)])),
+        reads: Reads::COST,
+        borrow: Borrow::No,
     },
 ];
 

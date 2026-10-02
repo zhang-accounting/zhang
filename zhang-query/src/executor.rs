@@ -19,7 +19,7 @@ use crate::functions::{AggregateKind, FunctionContext, ScalarFunction};
 use crate::params::Params;
 use crate::prices::PriceMap;
 use crate::projector::{borrowed_str, set_membership};
-use crate::table::{Dataset, Row};
+use crate::table::{self, Dataset, Row};
 use crate::value::{Inventory, Position, Value};
 
 /// How many rows are scanned between two deadline checks.
@@ -60,6 +60,8 @@ pub(crate) struct Env<'e, 'a> {
     pub row: Option<&'e Row<'a>>,
     /// finished aggregate values of the current group
     pub aggregates: &'e [Value],
+    /// the running balance including the current row, when the plan reads it
+    pub balance: Option<&'e Inventory>,
     pub params: &'e Params,
     pub regexes: &'e RegexCache,
     /// set when an expression reads the execution context; folding then gives up
@@ -113,6 +115,7 @@ pub(crate) fn eval_constant(expr: &CExpr) -> Option<Value> {
         data: None,
         row: None,
         aggregates: &[],
+        balance: None,
         params: &params,
         regexes: &regexes,
         impure: &impure,
@@ -137,6 +140,14 @@ impl CExpr {
                     Ok((def.get)(data, row))
                 }
                 _ => Err(LocatedError::eval(format!("column '{}' is not available here", def.name), None)),
+            },
+            CExpr::RunningBalance => match env.balance {
+                Some(balance) => Ok(Value::Inventory(balance.clone())),
+                None => {
+                    // never constant: folding gives up on it
+                    env.impure.set(true);
+                    Err(LocatedError::eval("balance is not available here", None))
+                }
             },
             CExpr::Param(param) => Ok(env.params.get(param).cloned().unwrap_or(Value::Null)),
             CExpr::Scalar { function, args, span } => eval_scalar(function, args, *span, env),
@@ -491,14 +502,39 @@ impl Deadline {
     }
 }
 
+/// The running `balance`: the positions of the rows that passed the filter so far, in row
+/// order. Like beanquery's, it is accumulated before rows are grouped, sorted, de-duplicated
+/// or limited, so ORDER BY reorders rows without changing their balances.
+struct RunningBalance {
+    /// `None` when the plan does not read `balance`
+    inventory: Option<Inventory>,
+}
+
+impl RunningBalance {
+    fn new(plan: &Plan) -> Self {
+        RunningBalance {
+            inventory: plan.running_balance.then(Inventory::new),
+        }
+    }
+
+    /// Add a row that passed the filter; returns the balance including it.
+    fn add(&mut self, row: &Row<'_>) -> Option<&Inventory> {
+        let inventory = self.inventory.as_mut()?;
+        inventory.add_owned_position(table::position(row));
+        Some(inventory)
+    }
+}
+
 /// Run the plan and return the visible columns of the result rows.
 pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline: Option<Deadline>) -> Result<Vec<Vec<Value>>, LocatedError> {
     let regexes = RegexCache::default();
     let impure = Cell::new(false);
+    let mut running = RunningBalance::new(plan);
     let base = Env {
         data: Some(data),
         row: None,
         aggregates: &[],
+        balance: None,
         params,
         regexes: &regexes,
         impure: &impure,
@@ -519,6 +555,10 @@ pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline
                 if !passes(&plan.filter, &env)? {
                     continue;
                 }
+                let env = Env {
+                    balance: running.add(row),
+                    ..env
+                };
                 rows.push(plan.targets.iter().map(|target| target.expr.eval(&env)).collect::<Result<Vec<_>, _>>()?);
             }
         }
@@ -530,6 +570,10 @@ pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline
                 if !passes(&plan.filter, &env)? {
                     continue;
                 }
+                let env = Env {
+                    balance: running.add(row),
+                    ..env
+                };
                 let key = keys.iter().map(|idx| plan.targets[*idx].expr.eval(&env)).collect::<Result<Vec<_>, _>>()?;
                 let accumulators = groups.entry(key).or_insert_with(|| plan.aggregates.iter().map(Accumulator::new).collect());
                 for (call, accumulator) in plan.aggregates.iter().zip(accumulators.iter_mut()) {

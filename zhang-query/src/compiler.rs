@@ -15,7 +15,7 @@ use crate::error::{LocatedError, Span};
 use crate::functions::aggregates::{is_aggregate, resolve_aggregate};
 use crate::functions::{resolve_scalar, AggregateFunction, ScalarFunction};
 use crate::params::{ParamRef, ParamTypes};
-use crate::table::{column, ColumnDef, WILDCARD_COLUMNS};
+use crate::table::{column, ColumnDef, BALANCE_COLUMN, WILDCARD_COLUMNS};
 use crate::value::{DataType, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +60,9 @@ pub(crate) struct ArithStep {
 pub(crate) enum CExpr {
     Const(Value),
     Column(&'static ColumnDef),
+    /// the `balance` column: the running inventory of the rows produced so far, including
+    /// the current one. It is stateful, so it is never folded, and the executor provides it.
+    RunningBalance,
     Param(ParamRef),
     Scalar {
         function: &'static ScalarFunction,
@@ -140,6 +143,9 @@ pub(crate) struct Plan {
     pub limit: Option<u64>,
     /// every parameter reference with its declared type, for checking bound values
     pub params: Vec<(ParamRef, DataType, Span)>,
+    /// whether the plan reads the running `balance`, which the executor then accumulates
+    /// over the rows that pass the filter
+    pub running_balance: bool,
 }
 
 /// Where an expression is compiled.
@@ -184,6 +190,15 @@ fn err<T>(message: impl Into<String>, span: Span) -> Result<T, LocatedError> {
 impl Compiler<'_> {
     fn text(&self, span: Span) -> &str {
         self.src.get(span.start..span.end).unwrap_or("").trim()
+    }
+
+    /// The name of an unaliased target: its source text, or the rendering of the compiled
+    /// expression when it has none (expressions synthesized by BALANCES and JOURNAL).
+    fn name(&self, span: Span, compiled: &CExpr) -> String {
+        match self.text(span) {
+            "" => compiled.to_string(),
+            text => text.to_owned(),
+        }
     }
 
     fn plan(&mut self, select: &Select) -> Result<Plan, LocatedError> {
@@ -284,7 +299,7 @@ impl Compiler<'_> {
             None
         };
 
-        Ok(Plan {
+        let mut plan = Plan {
             targets,
             visible,
             filters,
@@ -295,13 +310,16 @@ impl Compiler<'_> {
             distinct: select.distinct,
             limit: select.limit,
             params: std::mem::take(&mut self.params),
-        })
+            running_balance: false,
+        };
+        plan.running_balance = plan.referenced_columns().contains(BALANCE_COLUMN);
+        Ok(plan)
     }
 
     fn target(&mut self, expr: &Expr, alias: Option<String>) -> Result<(PlannedTarget, Option<(String, Span)>), LocatedError> {
         let mut info = ExprInfo::default();
         let (compiled, ty) = self.expr(expr, Mode::Target, &mut info)?;
-        let name = alias.unwrap_or_else(|| self.text(expr.span).to_owned());
+        let name = alias.unwrap_or_else(|| self.name(expr.span, &compiled));
         Ok((
             PlannedTarget {
                 name,
@@ -341,7 +359,7 @@ impl Compiler<'_> {
         let mut info = ExprInfo::default();
         let (compiled, ty) = self.expr(item, mode, &mut info)?;
         targets.push(PlannedTarget {
-            name: self.text(item.span).to_owned(),
+            name: self.name(item.span, &compiled),
             ty,
             expr: compiled,
             is_aggregate: info.has_aggregate,
@@ -360,7 +378,7 @@ impl Compiler<'_> {
         Ok(match &expr.kind {
             ExprKind::Literal(literal) => return Ok(literal_value(literal)),
             ExprKind::Param(param) => return self.param(param, span),
-            ExprKind::Column(name) => return column_ref(name, span, info),
+            ExprKind::Column(name) => return column_ref(name, span, mode, info),
             ExprKind::Call { name, args, star } => self.call(name, args, *star, span, mode, info)?,
             ExprKind::Unary(op, inner) => {
                 let operand = self.expr(inner, mode, info)?;
@@ -617,13 +635,22 @@ fn literal_value(literal: &Literal) -> Typed {
     }
 }
 
-fn column_ref(name: &str, span: Span, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+fn column_ref(name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
     match column(name) {
         Some(def) => {
             if info.bare_column.is_none() {
                 info.bare_column = Some((def.name.to_owned(), span));
             }
-            Ok((CExpr::Column(def), def.ty))
+            if def.name != BALANCE_COLUMN {
+                return Ok((CExpr::Column(def), def.ty));
+            }
+            if let Mode::Row(clause @ ("FROM" | "WHERE")) = mode {
+                return err(
+                    format!("balance cannot be used in {}: the running balance adds up the rows the filter selects", clause),
+                    span,
+                );
+            }
+            Ok((CExpr::RunningBalance, def.ty))
         }
         None => {
             let hint = if crate::functions::SCALAR_FUNCTIONS.iter().any(|it| it.name == name) || is_aggregate(name) {
@@ -740,7 +767,7 @@ impl CExpr {
     pub(crate) fn map_children<E>(self, f: &mut impl FnMut(CExpr) -> Result<CExpr, E>) -> Result<CExpr, E> {
         let boxed = |expr: Box<CExpr>, f: &mut dyn FnMut(CExpr) -> Result<CExpr, E>| f(*expr).map(Box::new);
         Ok(match self {
-            leaf @ (CExpr::Const(_) | CExpr::Column(_) | CExpr::Param(_) | CExpr::Aggregate(_)) => leaf,
+            leaf @ (CExpr::Const(_) | CExpr::Column(_) | CExpr::RunningBalance | CExpr::Param(_) | CExpr::Aggregate(_)) => leaf,
             CExpr::Scalar { function, args, span } => CExpr::Scalar {
                 function,
                 args: args.into_iter().map(&mut *f).collect::<Result<_, _>>()?,
@@ -806,7 +833,7 @@ impl CExpr {
     /// The direct children of this node.
     pub(crate) fn children(&self) -> Vec<&CExpr> {
         match self {
-            CExpr::Const(_) | CExpr::Column(_) | CExpr::Param(_) | CExpr::Aggregate(_) => vec![],
+            CExpr::Const(_) | CExpr::Column(_) | CExpr::RunningBalance | CExpr::Param(_) | CExpr::Aggregate(_) => vec![],
             CExpr::Scalar { args, .. } => args.iter().collect(),
             CExpr::WidenInt(inner) | CExpr::Neg(inner, _) | CExpr::Not(inner) => vec![inner],
             CExpr::And(operands) | CExpr::Or(operands) => operands.iter().collect(),
@@ -824,8 +851,14 @@ impl CExpr {
 
     /// Add the names of the columns this expression reads to `columns`.
     pub(crate) fn collect_columns(&self, columns: &mut BTreeSet<&'static str>) {
-        if let CExpr::Column(def) = self {
-            columns.insert(def.name);
+        match self {
+            CExpr::Column(def) => {
+                columns.insert(def.name);
+            }
+            CExpr::RunningBalance => {
+                columns.insert(BALANCE_COLUMN);
+            }
+            _ => {}
         }
         for child in self.children() {
             child.collect_columns(columns);
@@ -870,6 +903,7 @@ impl fmt::Display for CExpr {
             CExpr::Const(Value::Date(it)) => write!(f, "{}", it),
             CExpr::Const(value) => write!(f, "{}", value),
             CExpr::Column(def) => f.write_str(def.name),
+            CExpr::RunningBalance => f.write_str(BALANCE_COLUMN),
             CExpr::Param(param) => write!(f, "{}", param),
             CExpr::Scalar { function, args, .. } => {
                 write!(f, "{}(", function.name)?;

@@ -57,6 +57,13 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         description: "The last component of an account name, e.g. leaf('Assets:Bank:Checking') = 'Checking'.",
         eval: accounts::leaf,
     },
+    ScalarFunction {
+        name: "account_sortkey",
+        params: &[Exact(Str)],
+        returns: ReturnType::Exact(Str),
+        description: "A key that sorts accounts by type (Assets, Liabilities, Equity, Income, Expenses), then by name, e.g. account_sortkey('Expenses:Food') = '4-Expenses:Food'.",
+        eval: accounts::account_sortkey,
+    },
     // ---- function library: dates ----
     ScalarFunction {
         name: "month",
@@ -397,6 +404,13 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         returns: ReturnType::Exact(Int),
         description: "The number of elements in a set, e.g. length(tags).",
         eval: strings::length,
+    },
+    ScalarFunction {
+        name: "maxwidth",
+        params: &[Exact(Str), Exact(Int)],
+        returns: ReturnType::Exact(Str),
+        description: "The text with its whitespace collapsed and, when longer than n characters, cut after a word with ' [...]' to fit n (as Python's textwrap.shorten), e.g. maxwidth('Paying the  rent', 12) = 'Paying [...]'.",
+        eval: strings::maxwidth,
     },
 ];
 
