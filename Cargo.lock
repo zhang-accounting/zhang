@@ -6263,12 +6263,10 @@ dependencies = [
  "bigdecimal",
  "chrono",
  "indexmap 2.2.6",
- "itertools 0.14.0",
  "nom",
  "regex",
  "serde_json",
  "tempfile",
- "uuid",
  "zhang-ast",
  "zhang-core",
 ]

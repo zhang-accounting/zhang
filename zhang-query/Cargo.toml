@@ -9,12 +9,10 @@ zhang-core = { version = "0.1", path = "../zhang-core" }
 zhang-ast = { version = "0.1", path = "../zhang-ast" }
 bigdecimal = { workspace = true }
 indexmap = { workspace = true }
-itertools = { workspace = true }
 
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 nom = "7"
 regex = "1"
-uuid = { version = "1", default-features = false }
 
 [dev-dependencies]
 serde_json = { workspace = true }

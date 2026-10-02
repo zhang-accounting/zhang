@@ -115,10 +115,8 @@ pub trait FunctionContext {
     /// `None` when absent or when there is no current row.
     fn entry_meta(&self, key: &str) -> Option<String>;
 
-    /// Metadata `key` of the posting being evaluated. zhang folds posting-level metadata
-    /// lines into the transaction, so this currently resolves like [`entry_meta`].
-    ///
-    /// [`entry_meta`]: FunctionContext::entry_meta
+    /// Metadata `key` of the posting being evaluated. Always `None` until zhang-core keeps
+    /// posting-level metadata (see `Dataset::posting_meta` and issue #434).
     fn posting_meta(&self, key: &str) -> Option<String>;
 }
 
@@ -218,7 +216,7 @@ impl FunctionContext for TestContext {
     fn entry_meta(&self, key: &str) -> Option<String> {
         self.meta.get(key).cloned()
     }
-    fn posting_meta(&self, key: &str) -> Option<String> {
-        self.meta.get(key).cloned()
+    fn posting_meta(&self, _key: &str) -> Option<String> {
+        None
     }
 }
