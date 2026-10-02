@@ -163,8 +163,8 @@ jobs:
   docker-image-release:
     runs-on: ubuntu-22.04
     needs: publish
-    # Run for tags and pushes to the default branch
-    if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag') || github.event.repository.default_branch == github.ref_name
+    # images are published for version tags only
+    if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag')
     steps:
       - uses: actions/checkout@v4
 
@@ -195,19 +195,11 @@ jobs:
       - name: podman build linux/amd64
         run: podman build --format docker --platform linux/amd64 --manifest zhang -f Dockerfile target/x86_64-unknown-linux-gnu/release
 
-      - name: podman manifest push snapshot
-        run: podman manifest push zhang docker.io/kilerd/zhang:snapshot
-
-      - name: podman manifest push snapshot with hash
-        run: podman manifest push zhang docker.io/kilerd/zhang:${{ github.sha }}
-
       - name: podman manifest push latest
         run: podman manifest push zhang docker.io/kilerd/zhang:latest
-        if: startsWith(github.ref_name, 'v')
 
       - name: podman manifest push tag version
         run: podman manifest push zhang docker.io/kilerd/zhang:${{ steps.extract_version.outputs.version }}
-        if: startsWith(github.ref_name, 'v')
 
   release-wasm:
     runs-on: ubuntu-22.04
