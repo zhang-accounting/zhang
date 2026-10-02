@@ -135,7 +135,7 @@ fn budgets_carry_over_months_without_entries_and_count_transfers() {
                 "Expenses:Dining, Expenses:Food",
                 "FALSE"
             ],
-            // through the ledger's last month, the month of its last price
+            // after the last transaction, through the month planned ahead
             &[
                 "food",
                 "NULL",
@@ -157,6 +157,18 @@ fn budgets_carry_over_months_without_entries_and_count_transfers() {
                 "0 CNY",
                 "0 CNY",
                 "-110 CNY",
+                "Expenses:Dining, Expenses:Food",
+                "FALSE"
+            ],
+            &[
+                "food",
+                "NULL",
+                "Living",
+                "2024-06-01",
+                "-10 CNY",
+                "100 CNY",
+                "0 CNY",
+                "-10 CNY",
                 "Expenses:Dining, Expenses:Food",
                 "FALSE"
             ],
@@ -197,24 +209,13 @@ fn budgets_carry_over_months_without_entries_and_count_transfers() {
                 "Expenses:Fun",
                 "FALSE"
             ],
-            // closed by the budget-close of 2024-04-01
+            // closed by the budget-close of 2024-04-01, its last entry; the price of May does
+            // not extend the series
             &[
                 "fun",
                 "Fun money",
                 "NULL",
                 "2024-04-01",
-                "20 CNY",
-                "0 CNY",
-                "0 CNY",
-                "20 CNY",
-                "Expenses:Fun",
-                "TRUE"
-            ],
-            &[
-                "fun",
-                "Fun money",
-                "NULL",
-                "2024-05-01",
                 "20 CNY",
                 "0 CNY",
                 "0 CNY",
@@ -243,7 +244,7 @@ fn budget_queries_filter_group_order_and_limit() {
     // overspent months
     assert_eq!(
         query("SELECT date, name, available FROM #budgets WHERE number(available) < 0 AND NOT closed ORDER BY date DESC LIMIT 2"),
-        rows(&[&["2024-05-01", "food", "-110 CNY"], &["2024-04-01", "food", "-110 CNY"]])
+        rows(&[&["2024-06-01", "food", "-10 CNY"], &["2024-05-01", "food", "-110 CNY"]])
     );
     // budgets by account
     assert_eq!(
@@ -257,7 +258,7 @@ fn budget_queries_filter_group_order_and_limit() {
     );
     assert_eq!(
         query("SELECT count(*), min(date), max(date) FROM #budgets"),
-        rows(&[&["10", "2024-01-01", "2024-05-01"]])
+        rows(&[&["10", "2024-01-01", "2024-06-01"]])
     );
 }
 
@@ -428,8 +429,8 @@ fn zhang_tables_export_to_csv_and_respect_the_result_budget() {
         timeout: None,
         max_result_values: Some(limit),
     };
-    // 10 rows of 5 values, 6 rows of 4 values
-    for (sql, values) in [("SELECT * FROM #budgets", 50), ("SELECT file, date, kind, account FROM #errors", 24)] {
+    // 10 rows of 5 values plus the 10 generated budget rows, 6 rows of 4 values
+    for (sql, values) in [("SELECT * FROM #budgets", 60), ("SELECT file, date, kind, account FROM #errors", 24)] {
         let compiled = Query::compile(sql).unwrap();
         assert!(compiled.execute_with_options(ledger(), &Params::new(), &options(values)).is_ok(), "{}", sql);
         let err = compiled.execute_with_options(ledger(), &Params::new(), &options(values - 1)).unwrap_err();
@@ -492,19 +493,20 @@ fn the_schema_describes_the_zhang_tables() {
 #[test]
 fn the_documented_examples_run() {
     assert_eq!(
-        query("SELECT category, name, available FROM #budgets WHERE date = 2024-05-01 ORDER BY category, name"),
+        query("SELECT category, name, available FROM #budgets WHERE date = 2024-04-01 ORDER BY category, name"),
         rows(&[&["NULL", "fun", "20 CNY"], &["Living", "food", "-110 CNY"]])
     );
     assert_eq!(
         query("SELECT name, sum(added) AS budgeted, sum(activity) AS spent FROM #budgets WHERE year = 2024 GROUP BY name ORDER BY spent DESC"),
-        rows(&[&["food", "750 CNY", "860 CNY"], &["fun", "50 CNY", "30 CNY"]])
+        rows(&[&["food", "850 CNY", "860 CNY"], &["fun", "50 CNY", "30 CNY"]])
     );
     assert_eq!(
         query("SELECT date, name, available FROM #budgets WHERE number(available) < 0 AND NOT closed"),
         rows(&[
             &["2024-03-01", "food", "-110 CNY"],
             &["2024-04-01", "food", "-110 CNY"],
-            &["2024-05-01", "food", "-110 CNY"]
+            &["2024-05-01", "food", "-110 CNY"],
+            &["2024-06-01", "food", "-10 CNY"]
         ])
     );
     assert_eq!(
@@ -526,4 +528,83 @@ fn the_documented_examples_run() {
         query(&format!("SELECT narration, account, position WHERE id = '{}'", txn_id)),
         rows(&[&["unbalanced", "Expenses:Food", "10 CNY"], &["unbalanced", "Assets:Bank", "-9 CNY"]])
     );
+}
+
+/// A budget's months run through its own last entry or the ledger's last month with a
+/// transaction, whichever is later; other directives do not extend them.
+#[test]
+fn budget_months_follow_the_budget_and_the_transactions() {
+    let ledger = common::load_text(
+        r#"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+  budget: food
+2024-01-01 budget food CNY
+2024-01-01 budget plan CNY
+2024-02-10 * "Market"
+  Expenses:Food 10 CNY
+  Assets:Bank
+2024-05-01 budget-add plan 300 CNY
+2024-09-01 price USD 7.1 CNY
+9999-12-31 event "location" "a typo"
+2030-01-01 note Assets:Bank "far ahead"
+"#,
+    );
+    // food ends with the last transaction; plan with its budget-add planned for May
+    assert_eq!(
+        run(&ledger, "SELECT name, min(date), max(date), count(*) FROM #budgets GROUP BY name"),
+        rows(&[&["food", "2024-01-01", "2024-02-01", "2"], &["plan", "2024-01-01", "2024-05-01", "5"]])
+    );
+}
+
+/// The ledger of the review of #434: a hundred budgets from the year 1000 and an event in 9999.
+/// The event does not extend the budgets, so the table stays small.
+#[test]
+fn a_far_future_event_does_not_generate_months() {
+    let mut text = String::from("9999-12-31 event \"location\" \"a typo\"\n");
+    for index in 0..100 {
+        text.push_str(&format!("1000-01-01 budget b{} CNY\n", index));
+    }
+    let ledger = common::load_text(&text);
+    assert_eq!(
+        run(&ledger, "SELECT count(*), min(date), max(date) FROM #budgets"),
+        rows(&[&["100", "1000-01-01", "1000-01-01"]])
+    );
+    assert!(run(&ledger, "SELECT name FROM #budgets WHERE year = 2024").is_empty());
+}
+
+/// A date typo on a transaction can still ask for millions of months: the generated rows are
+/// charged to the result budget and the deadline is checked while they are built, so the query
+/// stops instead of holding them all.
+#[test]
+fn generated_budget_months_are_bounded_by_the_result_budget_and_the_deadline() {
+    let mut text = String::from("1970-01-01 open Assets:Bank\n1970-01-01 open Expenses:Food\n1970-01-01 commodity CNY\n");
+    text.push_str("9999-12-31 * \"a typo\"\n  Expenses:Food 1 CNY\n  Assets:Bank\n");
+    for index in 0..100 {
+        text.push_str(&format!("1000-01-01 budget b{} CNY\n", index));
+    }
+    let ledger = common::load_text(&text);
+    let compiled = Query::compile("SELECT count(*) FROM #budgets WHERE year = 2024").unwrap();
+    // 100 budgets of 9000 years of months would be 10.8 million rows
+    let err = compiled.execute_at(&ledger, &Params::new(), today()).unwrap_err();
+    assert_eq!(err.kind, QueryErrorKind::TooLarge, "{}", err.message);
+    let options = |timeout, max_result_values| ExecuteOptions {
+        today: Some(today()),
+        timeout,
+        max_result_values,
+    };
+    let err = compiled
+        .execute_with_options(&ledger, &Params::new(), &options(None, Some(10_000)))
+        .unwrap_err();
+    assert_eq!(err.kind, QueryErrorKind::TooLarge, "{}", err.message);
+    let err = compiled
+        .execute_with_options(&ledger, &Params::new(), &options(Some(std::time::Duration::ZERO), None))
+        .unwrap_err();
+    assert_eq!(err.kind, QueryErrorKind::Timeout, "{}", err.message);
+    // one budget fits: 9000 years of months, of which 12 are in 2024
+    let mut text = String::from("1970-01-01 open Assets:Bank\n1970-01-01 open Expenses:Food\n1970-01-01 commodity CNY\n");
+    text.push_str("9999-12-31 * \"a typo\"\n  Expenses:Food 1 CNY\n  Assets:Bank\n1000-01-01 budget b CNY\n");
+    let ledger = common::load_text(&text);
+    assert_eq!(run(&ledger, "SELECT count(*) FROM #budgets WHERE year = 2024"), rows(&[&["12"]]));
 }

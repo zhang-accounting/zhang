@@ -526,7 +526,7 @@ impl Deadline {
         }
     }
 
-    fn check(deadline: Option<&Deadline>, counter: usize) -> Result<(), LocatedError> {
+    pub(crate) fn check(deadline: Option<&Deadline>, counter: usize) -> Result<(), LocatedError> {
         match deadline {
             Some(deadline) if counter.is_multiple_of(DEADLINE_CHECK_INTERVAL) && Instant::now() >= deadline.at => Err(LocatedError {
                 kind: QueryErrorKind::Timeout,

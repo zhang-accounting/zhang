@@ -22,10 +22,19 @@
 //! - **Every month, not only months with entries.** The UI shows a budget for every month
 //!   from its first one, carrying the available amount over months without entries, so the
 //!   table does too: a query for one month lists every budget the UI lists, and a budget's rows
-//!   form a gap-free monthly series. The series runs from the budget's first month through the
-//!   ledger's last month, the month of its latest dated directive (or of the budget's latest
-//!   entry, if later). The rows only depend on the ledger, not on the current date; a later
-//!   month looks like the last row carried over, with nothing spent.
+//!   form a gap-free monthly series. The series runs from the budget's first month through
+//!   the later of the budget's own last month (its last `budget-add`, `budget-transfer`,
+//!   `budget-close` or spending) and the ledger's last month with a transaction: the budget
+//!   page is about money coming in and going out, so the series follows the transactions, and
+//!   a budget planned ahead with a `budget-add` in a future month shows that month too. Other
+//!   directives, such as prices, events or notes, do not extend it, so a date typo on one of
+//!   them cannot add centuries of months. The rows only depend on the ledger, not on the
+//!   current date; a later month looks like the last row carried over, with nothing spent.
+//! - **Bounded.** The months are generated, not read from the ledger, so a typo in the date of
+//!   a transaction or a budget directive could still ask for a very long series: every
+//!   generated row is charged to the result budget and the deadline is checked while they are
+//!   built (see [`Limits`]), so such a query stops with a "too large" or "time limit" error
+//!   instead of exhausting memory.
 //! - **Months are dates.** `date` is the first day of the month, so the date literals,
 //!   comparisons and functions of the other tables work (`WHERE date >= 2024-01-01`), and
 //!   `year` and `month` are there for grouping, as in the `postings` table.
@@ -51,16 +60,17 @@ use zhang_core::domains::schemas::MetaType;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{BudgetDomain, BudgetIntervalDetail, Store};
 
-use super::{ColumnDef, Record, Rows, Table};
+use super::{ColumnDef, Limits, Record, Rows, Table};
+use crate::error::LocatedError;
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
 pub(super) static BUDGETS: Table = Table {
     name: "budgets",
-    description: "One row per budget per month, from the budget's first month through the ledger's last month, with the assigned, activity and available amounts the budget pages show; ordered by name, then month.",
+    description: "One row per budget per month, from the budget's first month through its last entry or the ledger's last month with a transaction, whichever is later, with the assigned, activity and available amounts the budget pages show; ordered by name, then month.",
     columns: COLUMNS,
     wildcard: &["name", "date", "assigned", "activity", "available"],
-    rows: Rows::Records(rows),
+    rows: Rows::Generated(rows),
 };
 
 /// One month of a budget: a row of the `budgets` table.
@@ -134,16 +144,17 @@ fn first_of_month(date: NaiveDate) -> NaiveDate {
     date.with_day(1).expect("every month has a first day")
 }
 
-fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
-    // the ledger's last month, and the `budget` and `budget-close` directives of each budget
-    let mut last_date: Option<NaiveDate> = None;
+fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection, limits: &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError> {
+    // the ledger's last month with a transaction, and the `budget` and `budget-close`
+    // directives of each budget
+    let mut last_transaction: Option<NaiveDate> = None;
     let mut metas: HashMap<&str, &Meta> = HashMap::new();
     let mut close_dates: HashMap<&str, NaiveDate> = HashMap::new();
     for directive in &ledger.directives {
-        if let Some(datetime) = directive.datetime() {
-            last_date = last_date.max(Some(datetime.date()));
-        }
         match &directive.data {
+            Directive::Transaction(transaction) => {
+                last_transaction = last_transaction.max(Some(transaction.date.naive_date()));
+            }
             Directive::Budget(budget) => {
                 metas.entry(budget.name.as_str()).or_insert(&budget.meta);
             }
@@ -154,7 +165,7 @@ fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec
             _ => {}
         }
     }
-    let last_month = last_date.map(first_of_month);
+    let last_transaction_month = last_transaction.map(first_of_month);
 
     let mut accounts: HashMap<&str, BTreeSet<String>> = HashMap::new();
     if projects(projection, "accounts") {
@@ -178,15 +189,23 @@ fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec
         let (Some((first, _)), Some((last, _))) = (details.first(), details.last()) else {
             continue;
         };
-        let end = last_month.map_or(*last, |month| month.max(*last));
         // zhang records a close, but not when; the `budget-close` directive has the date
-        let closed_from = budget.closed.then(|| close_dates.get(budget.name.as_str()).map(|date| first_of_month(*date)));
+        let close_month = budget.closed.then(|| close_dates.get(budget.name.as_str()).map(|date| first_of_month(*date)));
+        // the budget's own last month (its details cover the months of its `budget`,
+        // `budget-add` and `budget-transfer` directives and of its spending), its close, and
+        // the last month with a transaction
+        let end = [Some(*last), close_month.flatten(), last_transaction_month]
+            .into_iter()
+            .flatten()
+            .max()
+            .unwrap_or(*last);
         let budget_accounts = Rc::new(accounts.remove(budget.name.as_str()).unwrap_or_default());
         let meta = metas.get(budget.name.as_str()).copied();
 
         let mut next = 0;
         let mut month = *first;
         while month <= end {
+            limits.row()?;
             while next < details.len() && details[next].0 <= month {
                 next += 1;
             }
@@ -194,14 +213,17 @@ fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec
                 budget,
                 month,
                 detail: details[next - 1].1,
-                closed: closed_from.is_some_and(|from| from.is_none_or(|from| from <= month)),
+                closed: close_month.is_some_and(|from| from.is_none_or(|from| from <= month)),
                 accounts: Rc::clone(&budget_accounts),
                 meta,
             }));
-            month = month + Months::new(1);
+            let Some(following) = month.checked_add_months(Months::new(1)) else {
+                break;
+            };
+            month = following;
         }
     }
-    records
+    Ok(records)
 }
 
 /// Whether the column `name` of this table is projected.
