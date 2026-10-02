@@ -55,3 +55,15 @@ export interface QueryError {
   column: number | null;
 }
 export type QuerySchema = FetchReturnType<typeof retrieveQuerySchema>['data'];
+
+// TEMPORARY(qp2): hand-written until `schemas.ts` is regenerated from a server that serves `GET /api/query/saved`.
+// Replace with `FetchReturnType<typeof retrieveSavedQueries>['data'][number]` afterwards.
+export interface SavedQuery {
+  name: string;
+  query: string;
+  /** the date of the `query` directive, `YYYY-MM-DD` */
+  date: string;
+  /** `false` when the saved query does not parse or compile; absent on servers that do not validate saved queries */
+  valid?: boolean;
+  error?: string | null;
+}

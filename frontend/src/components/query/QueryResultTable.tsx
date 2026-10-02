@@ -1,7 +1,8 @@
-import { QueryAmount, QueryCost, QueryInventory, QueryPosition, QueryResult } from '@/api/types';
+import { QueryAmount, QueryCost, QueryPosition, QueryResult } from '@/api/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { isAmount, isInventory, isPosition } from '@/components/query/values';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -34,22 +35,6 @@ function formatCost(cost: QueryCost): string {
 function formatPosition(position: QueryPosition): string {
   const units = formatAmount(position.units);
   return position.cost ? `${units} ${formatCost(position.cost)}` : units;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isAmount(value: unknown): value is QueryAmount {
-  return isObject(value) && 'number' in value && 'currency' in value;
-}
-
-function isPosition(value: unknown): value is QueryPosition {
-  return isObject(value) && isAmount(value.units);
-}
-
-function isInventory(value: unknown): value is QueryInventory {
-  return isObject(value) && Array.isArray(value.positions);
 }
 
 function Empty() {
