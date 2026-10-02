@@ -20,7 +20,7 @@ where
     let vec = match tokio::fs::read(&target_file).await {
         Ok(data) => data,
         _ => {
-            info!("missing cache with id [{}]...", &id);
+            info!("missing cache with id [{}]...", id);
             let fetched_data = miss_fn.await?;
             tokio::fs::write(&target_file, &fetched_data).await?;
             fetched_data

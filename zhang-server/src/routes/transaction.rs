@@ -190,7 +190,7 @@ pub async fn upload_transaction_document(
         let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
         let striped_buf = buf.strip_prefix(entry).unwrap();
         let striped_path_string = striped_buf.to_string_lossy().to_string();
-        info!("uploading document `{}`(id={}) to transaction {}", file_name, &v4.to_string(), &transaction_id);
+        info!("uploading document `{}`(id={}) to transaction {}", file_name, v4, transaction_id);
         let content_buf = field.bytes().await.unwrap();
 
         ledger.data_source.async_save(&ledger, striped_path_string, &content_buf).await?;

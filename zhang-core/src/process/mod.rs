@@ -22,9 +22,9 @@ pub(crate) mod transaction;
 /// Directive Process is used to handle how a directive be validated, how we process directives and store the result into [Store]
 pub(crate) trait DirectiveProcess: std::fmt::Debug {
     fn handler(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        trace!("[DirectiveProcess] processing: {:?}", &self);
+        trace!("[DirectiveProcess] processing: {:?}", self);
         let should_process = DirectiveProcess::validate(self, ledger, span)?;
-        trace!("[DirectiveProcess] validate logic return: {}", &should_process);
+        trace!("[DirectiveProcess] validate logic return: {}", should_process);
         if should_process {
             DirectiveProcess::process(self, ledger, span)
         } else {

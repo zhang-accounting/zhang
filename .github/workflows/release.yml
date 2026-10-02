@@ -6,7 +6,8 @@ on:
       - main
     tags:
       - "v*"
-  pull_request:
+  # release binaries are built on main and tags only; run it manually to get binaries of a branch
+  workflow_dispatch:
 
 jobs:
   create-release:
@@ -113,6 +114,11 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - run: sudo apt install musl-tools
         if: startsWith(matrix.os, 'ubuntu')
