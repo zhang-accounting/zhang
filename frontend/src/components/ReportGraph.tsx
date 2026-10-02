@@ -7,9 +7,10 @@ import { cn } from '@/lib/utils';
 import Amount from './Amount';
 import { ChartConfig, ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from './ui/chart';
 
-// Categorical slots 1 + 2 (blue / orange), validated for CVD separation and contrast on the light and dark card surfaces.
-const INCOME_COLOR = 'var(--chart-2)';
-const EXPENSE_COLOR = { light: '#eb6834', dark: '#d95926' };
+// Income = chart-1 (teal), expenses = chart-2 (caramel) everywhere; single-series trends use the brand primary.
+const INCOME_COLOR = 'var(--chart-1)';
+const EXPENSE_COLOR = 'var(--chart-2)';
+const TREND_COLOR = 'var(--primary)';
 
 function TooltipRow({ color, label, value, commodity }: { color: string; label: React.ReactNode; value: number; commodity: string }) {
   return (
@@ -42,7 +43,7 @@ export function BalanceTrendChart({ rows, commodity, className }: ChartProps) {
   const { t } = useTranslation();
   const values = React.useMemo(() => rows.map((row) => row.total), [rows]);
   const axis = useAxisFormatter(values);
-  const config = { total: { label: t('ledger.chart.net_worth'), color: 'var(--chart-2)' } } satisfies ChartConfig;
+  const config = { total: { label: t('ledger.chart.net_worth'), color: TREND_COLOR } } satisfies ChartConfig;
 
   if (rows.length === 0) return <ChartEmpty className={cn('h-56', className)}>{t('ledger.chart.no_data')}</ChartEmpty>;
 
@@ -74,7 +75,7 @@ export function CashFlowChart({ rows, commodity, className }: ChartProps) {
   const axis = useAxisFormatter(values);
   const config = {
     income: { label: t('ledger.chart.income'), color: INCOME_COLOR },
-    expense: { label: t('ledger.chart.expenses'), theme: EXPENSE_COLOR },
+    expense: { label: t('ledger.chart.expenses'), color: EXPENSE_COLOR },
   } satisfies ChartConfig;
 
   if (!rows.some((row) => row.income !== 0 || row.expense !== 0)) {

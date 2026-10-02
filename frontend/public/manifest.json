@@ -4,16 +4,16 @@
   "description": "A modern accounting application",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "transparent",
+  "background_color": "#fcfaf0",
+  "theme_color": "#fcfaf0",
   "icons": [
     {
-      "src": "icons/icon-192x192.png",
+      "src": "/otter-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "icons/icon-512x512.png",
+      "src": "/otter-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }

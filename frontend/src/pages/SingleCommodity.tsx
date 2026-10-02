@@ -29,7 +29,9 @@ type CommodityDetail = OpReturnType<operations['get_single_commodity']>['data'];
 type Lot = CommodityDetail['lots'][number];
 type Price = CommodityDetail['prices'][number];
 
-const COLOR_SET = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
+/** One quote commodity: the brand primary. Several: chart-1..5 in a fixed order (never cycled), any further ones muted. */
+const SERIES_COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
+const seriesColor = (index: number, count: number) => (count === 1 ? 'var(--primary)' : (SERIES_COLORS[index] ?? 'var(--muted-foreground)'));
 
 function UnitPrice({ unit }: { unit?: { number: string; commodity: string } | null }) {
   if (!unit) return <span className="text-muted-foreground">—</span>;
@@ -50,7 +52,7 @@ function PriceHistoryChart({ prices }: { prices: Price[] }) {
         byDate.set(key, row);
       });
     const chartConfig = quoteCommodities.reduce<ChartConfig>(
-      (acc, commodity, index) => ({ ...acc, [commodity]: { label: commodity, color: COLOR_SET[index % COLOR_SET.length] } }),
+      (acc, commodity, index) => ({ ...acc, [commodity]: { label: commodity, color: seriesColor(index, quoteCommodities.length) } }),
       {},
     );
     return { series: quoteCommodities, data: Array.from(byDate.values()), config: chartConfig };

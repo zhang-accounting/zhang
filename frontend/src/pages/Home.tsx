@@ -14,6 +14,7 @@ import { TransactionPreviewModal } from '@/components/modals/TransactionPreviewM
 import { JournalCardsSkeleton } from '@/components/skeletons/journalListSkeleton';
 import { Skeleton } from '@/components/ui/skeleton';
 import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { DASHBOARD_LINK } from '@/layout/nav-links';
 import ErrorBox from '../components/ErrorBox';
@@ -25,7 +26,7 @@ import StatisticBox from '../components/StatisticBox';
 import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { errorCountAtom } from '../states/errors';
 
-const LINK_BUTTON = buttonVariants({ variant: 'ghost', size: 'sm', className: 'h-10 md:h-7' });
+const LINK_BUTTON = cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'h-10 md:h-7');
 
 function Home() {
   const { t } = useTranslation();
@@ -82,7 +83,7 @@ function Home() {
         description={description ?? <span className="inline-block h-4 w-56 animate-pulse rounded-md bg-muted align-middle" />}
         actions={
           isMobile ? undefined : (
-            <Link to="/report" className={buttonVariants({ variant: 'outline' })}>
+            <Link to="/report" className={cn(buttonVariants({ variant: 'outline' }))}>
               <ChartColumn data-icon="inline-start" />
               {t('ledger.home.open_report')}
             </Link>

@@ -179,11 +179,11 @@ const REMOVE_ICON_CLASS = cn(
   'group-hover/remove:bg-foreground/10 group-focus-visible/remove:ring-2 group-focus-visible/remove:ring-ring',
 );
 
-/** Active filter pill; the remove button has a 40px hit area on mobile while the pill itself stays compact. */
+/** Active filter chip; the remove button has a 40px hit area on mobile while the pill itself stays compact. */
 function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   const { t } = useTranslation();
   return (
-    <span className="inline-flex h-8 items-center rounded-4xl bg-secondary pl-2.5 text-sm text-secondary-foreground md:h-6 md:text-xs">
+    <span className="inline-flex h-8 items-center rounded-md bg-secondary pl-2.5 text-sm text-secondary-foreground md:h-6 md:text-xs">
       {label}
       <button
         type="button"

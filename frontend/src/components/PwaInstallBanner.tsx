@@ -51,7 +51,7 @@ const PwaInstallBanner: React.FC<{ className?: string }> = ({ className }) => {
   if (isInstalled) {
     return (
       <Item variant="muted" className={className}>
-        <ItemMedia variant="icon" className="size-9 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+        <ItemMedia variant="icon" className="size-9 rounded-lg bg-positive/10 text-positive">
           <CircleCheck />
         </ItemMedia>
         <ItemContent>

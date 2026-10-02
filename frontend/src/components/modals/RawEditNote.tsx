@@ -8,11 +8,7 @@ import { RAW_EDIT_URI } from '../journalLines/journal-utils';
 export function RawEditNote({ id, className }: { id?: string; className?: string }) {
   const { t } = useTranslation();
   return (
-    <div
-      id={id}
-      role="note"
-      className={cn('flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300', className)}
-    >
+    <div id={id} role="note" className={cn('flex gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning', className)}>
       <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
       <p>
         {t('ledger.txn.edit_blocked')}{' '}

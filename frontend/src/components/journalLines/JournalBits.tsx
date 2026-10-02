@@ -40,7 +40,7 @@ export function JournalTypeIcon({ type, status = 'ok', className }: { type: Jour
       className={cn(
         'flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground',
         status === 'error' && 'bg-destructive/10 text-destructive',
-        status === 'warning' && 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+        status === 'warning' && 'bg-warning/10 text-warning',
         className,
       )}
       aria-hidden
@@ -56,7 +56,7 @@ export function JournalStatusBadge({ data, className }: { data: JournalItem; cla
   const status = journalStatus(data);
   if (status === 'ok') return null;
   if (status === 'warning') {
-    return <Badge className={cn('bg-amber-500/15 text-amber-700 dark:text-amber-400', className)}>{t('ledger.journal.flagged')}</Badge>;
+    return <Badge className={cn('bg-warning/10 text-warning', className)}>{t('ledger.journal.flagged')}</Badge>;
   }
   return (
     <Badge variant="destructive" className={className}>
@@ -69,7 +69,7 @@ export function JournalStatusBadge({ data, className }: { data: JournalItem; cla
 export function StatusEdge({ data }: { data: JournalItem }) {
   const status = journalStatus(data);
   if (status === 'ok') return null;
-  return <span aria-hidden className={cn('absolute inset-y-1.5 left-0 w-0.5 rounded-full', status === 'error' ? 'bg-destructive' : 'bg-amber-500')} />;
+  return <span aria-hidden className={cn('absolute inset-y-1.5 left-0 w-0.5 rounded-full', status === 'error' ? 'bg-destructive' : 'bg-warning')} />;
 }
 
 /** Inline chips stay compact inside rows but keep a 24×24 minimum hit area (WCAG 2.5.8; see DESIGN.md). */

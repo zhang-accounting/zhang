@@ -28,7 +28,7 @@ const NetworkStatus: React.FC = () => {
       role="alert"
       className={cn(
         'fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-50 md:bottom-0',
-        'flex items-center justify-center gap-2 bg-destructive px-4 py-2.5 text-center text-sm font-medium text-white',
+        'flex items-center justify-center gap-2 bg-destructive px-4 py-2.5 text-center text-sm font-medium text-background',
       )}
     >
       <WifiOff className="size-4 shrink-0" />

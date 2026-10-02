@@ -65,7 +65,7 @@ function TreeLevel({ tier, depth, selected, dirtyPath, onChange }: Omit<FileTree
             >
               <FileText className={cn('size-4 shrink-0', active ? 'text-link' : 'text-muted-foreground')} />
               <span className="truncate">{key}</span>
-              {dirtyPath === path && <span className="ml-auto size-2 shrink-0 rounded-full bg-amber-500" aria-hidden />}
+              {dirtyPath === path && <span className="ml-auto size-2 shrink-0 rounded-full bg-warning" aria-hidden />}
             </button>
           </li>
         );
@@ -92,7 +92,7 @@ export function TableOfContentsFloating({ files, selected, dirtyPath, onChange, 
       <SheetTrigger render={<Button variant="outline" className={cn('h-10 min-w-0 justify-start gap-2 px-3', className)} />}>
         <FileText className="text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-left">{selected ?? t('raw_edit.choose_file')}</span>
-        {dirtyPath && dirtyPath === selected && <span className="size-2 shrink-0 rounded-full bg-amber-500" aria-label={t('raw_edit.unsaved')} />}
+        {dirtyPath && dirtyPath === selected && <span className="size-2 shrink-0 rounded-full bg-warning" aria-label={t('raw_edit.unsaved')} />}
         <ChevronDown className="text-muted-foreground" />
       </SheetTrigger>
       <SheetContent side="bottom" showCloseButton={false} className="max-h-[80svh] gap-0 rounded-t-2xl pb-[env(safe-area-inset-bottom)]">

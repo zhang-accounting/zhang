@@ -6,12 +6,19 @@ React 19 + Vite 5 + TypeScript · Tailwind CSS 4 (`@tailwindcss/vite`; no `tailw
 react-day-picker 10 (`ui/calendar`) · react-i18next · jotai. `cn` comes from `@/lib/utils` (re-exports the `cn` package).
 
 ## Tokens (`src/global.css`)
-- shadcn oklch tokens: zinc neutrals + one blue accent (`primary`, `ring`, `chart-1..5`, `sidebar-primary`). Use semantic
-  classes only: `bg-background text-foreground`, `text-muted-foreground`, `bg-card`, `border`, `bg-primary
-  text-primary-foreground`, `text-destructive`, `bg-muted`. Avoid raw `gray-*`/`white`; they break dark mode.
-- Charts/inline styles: `var(--chart-2)`, never `hsl(var(--chart-2))` (tokens are oklch now).
+- "Otter" brand palette (oklch, from the logo `public/otter-*.png`): light = cream surfaces, otter-brown `primary`, mint
+  `accent` / `sidebar-accent`, deep-mint `link` / `ring`, cream `sidebar`; dark = espresso surfaces with a mint `primary`.
+  Use semantic classes only: `bg-background text-foreground`, `text-muted-foreground`, `bg-card`, `border`, `bg-primary
+  text-primary-foreground`, `text-link`, `text-destructive`, `bg-muted`. No Tailwind palette classes (`emerald-500`,
+  `gray-*`, `white`) or raw hex in TSX; they ignore the theme and break dark mode.
+- Status: `text-positive` / `text-negative` for signed money (`<Amount tone>`), `warning` (`bg-warning`, `bg-warning/10
+  text-warning`) for flagged / unsaved / disconnected, `destructive` (= `negative`) for errors.
+- Charts: income `var(--chart-1)` (teal), expenses `var(--chart-2)` (caramel) everywhere; single-series lines / bars
+  `var(--primary)`; negative values `var(--negative)`; more categories `chart-1..5` in order, never cycled. Never
+  `hsl(var(--chart-2))` (tokens are oklch).
 - Fonts: `font-sans` = system UI stack with CJK fallbacks (PingFang SC, Microsoft YaHei, Noto Sans CJK); `font-mono`.
-  Amounts: `tabular-nums`. Radius: `--radius` 0.625rem → `rounded-md/lg/xl`.
+  Amounts: `tabular-nums`. Radius: `--radius` 0.25rem (data-dense, crisp corners) → `rounded-md/lg/xl`; keep
+  `rounded-full` for dots, avatars / round icon tiles, spinners and progress tracks, and pills only for chips <= 24px tall.
 - Dark mode: `.dark` on `<html>` via next-themes (`theme` in localStorage); `index.html` applies it before first paint.
 
 ## Shell (`src/layout`)

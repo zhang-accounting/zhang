@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import { AppShell } from './layout/AppShell';
 
 /** `--background` in light / dark (see global.css); used for `<meta name="theme-color">` (browser chrome, PWA title bar). */
-const THEME_COLOR = { light: '#ffffff', dark: '#09090b' };
+const THEME_COLOR = { light: '#fcfaf0', dark: '#19120f' };
 
 /** BCP 47 tag for `<html lang>` (screen-reader pronunciation, CJK font selection, hyphenation). */
 const htmlLang = (language: string | undefined) => (language?.startsWith('zh') ? 'zh-CN' : 'en');

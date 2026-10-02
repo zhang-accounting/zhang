@@ -52,12 +52,7 @@ export default function BudgetLine(props: Props) {
         </div>
         <div className="min-w-0 text-right">
           <dt className="text-muted-foreground">{t('budgets.available')}</dt>
-          <dd
-            className={cn(
-              'truncate font-medium tabular-nums',
-              available < 0 ? 'text-destructive' : available > 0 ? 'text-emerald-600 dark:text-emerald-400' : undefined,
-            )}
-          >
+          <dd className={cn('truncate font-medium tabular-nums', available < 0 ? 'text-negative' : available > 0 ? 'text-positive' : undefined)}>
             <Amount amount={props.available_amount.number} currency={props.available_amount.commodity} />
           </dd>
         </div>

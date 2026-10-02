@@ -96,7 +96,7 @@ export default function SingleFileEdit({ path, onDirtyChange, className }: Props
             value={content}
             height="100%"
             width="100%"
-            className="h-full [&_.cm-editor]:bg-card! [&_.cm-gutters]:bg-card!"
+            className="h-full [&_.cm-editor]:bg-card! [&_.cm-gutters]:bg-card! [&_.cm-activeLine]:bg-muted/40! [&_.cm-activeLineGutter]:bg-muted!"
             theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
             extensions={extensions}
             onChange={(value) => setContent(value)}
@@ -108,7 +108,7 @@ export default function SingleFileEdit({ path, onDirtyChange, className }: Props
         <div className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
           {dirty ? (
             <>
-              <span className="size-2 shrink-0 rounded-full bg-amber-500" aria-hidden />
+              <span className="size-2 shrink-0 rounded-full bg-warning" aria-hidden />
               <span className="truncate font-medium text-foreground">{t('raw_edit.unsaved')}</span>
             </>
           ) : (

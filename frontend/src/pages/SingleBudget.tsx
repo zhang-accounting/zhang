@@ -32,8 +32,8 @@ function isBudgetEvent(event: BudgetEvent): event is Extract<BudgetEvent, { type
 
 function toneClass(value: string | undefined) {
   const number = Number(value ?? 0);
-  if (number < 0) return 'text-destructive';
-  if (number > 0) return 'text-emerald-600 dark:text-emerald-400';
+  if (number < 0) return 'text-negative';
+  if (number > 0) return 'text-positive';
   return undefined;
 }
 

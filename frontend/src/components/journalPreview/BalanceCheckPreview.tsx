@@ -24,7 +24,7 @@ export default function BalanceCheckPreview({ data }: Props) {
           <>
             <JournalTypeBadge type="BalanceCheck" />
             {isBalanced ? (
-              <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">{t('ledger.preview.check_pass')}</Badge>
+              <Badge className="bg-positive/10 text-positive">{t('ledger.preview.check_pass')}</Badge>
             ) : (
               <Badge variant="destructive">{t('ledger.journal.check_failed')}</Badge>
             )}

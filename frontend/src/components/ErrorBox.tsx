@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LedgerError } from '@/api/types';
 import { useDisclosure } from '@/hooks/use-disclosure';
-import Joyride from '../assets/joyride.svg';
 import { errorAtom, errorPageAtom } from '../states/errors';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -19,7 +18,7 @@ function errorLocation(error: LedgerError | null) {
   return `${filename ?? ''}:L${start}${end !== start ? `-${end}` : ''}`;
 }
 
-/** Ledger error list (Home): tappable rows opening a detail dialog, compact pager, "healthy" illustration when empty. */
+/** Ledger error list (Home): tappable rows opening a detail dialog, compact pager, the otter + "healthy" when empty. */
 export default function ErrorBox() {
   const { t } = useTranslation();
   const [isOpen, isOpenHandler] = useDisclosure(false);
@@ -116,7 +115,7 @@ export default function ErrorBox() {
 
       {totalCount === 0 ? (
         <div className="flex flex-col items-center gap-3 py-4 text-center">
-          <img className="w-40 max-w-[60%] dark:opacity-90" src={Joyride} alt="" />
+          <img className="size-30 rounded-lg" src="/otter-512.png" alt="" />
           <p className="text-base font-semibold">{t('LEDGER_IS_HEALTHY')}</p>
         </div>
       ) : (

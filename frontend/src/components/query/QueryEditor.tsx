@@ -90,20 +90,20 @@ const errorField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field),
 });
 
-// Token colours follow the app theme: `&light` / `&dark` match the CodeMirror theme chosen from next-themes below.
+/**
+ * Syntax colours from the chart palette, pulled towards `--foreground` so they read as text (>= 5:1 on the card in light and
+ * dark; amber needs the larger share). The tokens switch with `.dark`, so one rule covers both themes.
+ */
+const syntaxColor = (chart: number, share = 80) => `color-mix(in oklch, var(--chart-${chart}) ${share}%, var(--foreground))`;
+
 const queryEditorTheme = EditorView.baseTheme({
   '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.6' },
   '&.cm-focused': { outline: 'none' },
-  '&light .cm-bql-keyword': { color: '#7c3aed', fontWeight: '600' },
-  '&light .cm-bql-function': { color: '#0369a1' },
-  '&light .cm-bql-string': { color: '#047857' },
-  '&light .cm-bql-number': { color: '#1d4ed8' },
-  '&light .cm-bql-date': { color: '#b45309' },
-  '&dark .cm-bql-keyword': { color: '#c4b5fd', fontWeight: '600' },
-  '&dark .cm-bql-function': { color: '#7dd3fc' },
-  '&dark .cm-bql-string': { color: '#6ee7b7' },
-  '&dark .cm-bql-number': { color: '#93c5fd' },
-  '&dark .cm-bql-date': { color: '#fcd34d' },
+  '.cm-bql-keyword': { color: syntaxColor(5), fontWeight: '600' },
+  '.cm-bql-function': { color: syntaxColor(3) },
+  '.cm-bql-string': { color: syntaxColor(1) },
+  '.cm-bql-number': { color: syntaxColor(2) },
+  '.cm-bql-date': { color: syntaxColor(4, 60) },
   '.cm-query-error-line': { backgroundColor: 'color-mix(in oklch, var(--destructive) 12%, transparent)' },
   '.cm-query-error': { textDecoration: 'underline wavy var(--destructive)', textDecorationSkipInk: 'none' },
 });
@@ -168,7 +168,7 @@ export default function QueryEditor({ value, onChange, onRun, error, placeholder
       className={cn(
         '[&_.cm-editor]:bg-transparent! [&_.cm-placeholder]:text-muted-foreground!',
         '[&_.cm-gutters]:border-r! [&_.cm-gutters]:border-border! [&_.cm-gutters]:bg-transparent! [&_.cm-gutters]:text-muted-foreground!',
-        '[&_.cm-activeLineGutter]:bg-muted!',
+        '[&_.cm-activeLine]:bg-muted/40! [&_.cm-activeLineGutter]:bg-muted!',
         className,
       )}
       minHeight="120px"

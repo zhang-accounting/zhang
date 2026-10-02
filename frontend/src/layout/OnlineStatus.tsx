@@ -14,8 +14,8 @@ const STATUS_LABEL: Record<Status, string> = {
 };
 
 const STATUS_DOT: Record<Status, string> = {
-  connected: 'bg-emerald-500',
-  disconnected: 'bg-amber-500',
+  connected: 'bg-positive',
+  disconnected: 'bg-warning',
   offline: 'bg-destructive',
 };
 

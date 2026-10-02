@@ -19,7 +19,7 @@ interface Props {
    * the full value is kept in the `title` attribute.
    */
   compact?: boolean;
-  /** Colour by sign: positive → green, negative → red, zero → unchanged. */
+  /** Colour by sign: positive → `text-positive`, negative → `text-negative`, zero → unchanged. */
   tone?: boolean;
   /** Prefix positive values with `+`. */
   signed?: boolean;
@@ -30,7 +30,7 @@ interface Props {
 function amountToneClass(value: BigNumber.Value) {
   const number = new BigNumber(value);
   if (number.isNaN() || number.isZero()) return '';
-  return number.isPositive() ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive';
+  return number.isPositive() ? 'text-positive' : 'text-negative';
 }
 
 /** Below this, compact notation would only drop precision without saving space. */

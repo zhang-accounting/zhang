@@ -9,6 +9,7 @@ import { EmptyState, PageHeader, PageShell, ResponsiveList } from '@/components/
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDocumentTitle } from '@/hooks/use-document-title';
@@ -70,7 +71,7 @@ function SingleAccount() {
           title={t('ledger.account.not_found', { name: accountName })}
           description={String(info.error)}
           action={
-            <Link to="/accounts" className={buttonVariants({ variant: 'outline', className: 'h-10 md:h-8' })}>
+            <Link to="/accounts" className={cn(buttonVariants({ variant: 'outline' }), 'h-10 md:h-8')}>
               {t('ledger.account.back_to_accounts')}
             </Link>
           }

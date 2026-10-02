@@ -145,7 +145,10 @@ function NetFlow({ income, expense, commodity }: { income?: string; expense?: st
   );
 }
 
-/** Totals per account as horizontal bars (largest first), sized relative to the largest account. */
+/**
+ * Totals per account as horizontal bars (largest first), sized relative to the largest account. Bars use the cash-flow
+ * chart colours: income (`negative`, stored as negative numbers) chart-1, expenses chart-2.
+ */
 function Breakdown({ title, data, loading, negative }: { title: string; data?: AccountTypeStatistic; loading: boolean; negative?: boolean }) {
   const { t } = useTranslation();
   const items = useMemo(() => {
@@ -189,7 +192,7 @@ function Breakdown({ title, data, loading, negative }: { title: string; data?: A
                 </div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                   <div
-                    className="h-full rounded-full bg-primary/70 dark:bg-chart-2"
+                    className={cn('h-full rounded-full', negative ? 'bg-chart-1' : 'bg-chart-2')}
                     style={{ width: `${Math.max(2, it.value.abs().dividedBy(largest).multipliedBy(100).toNumber())}%` }}
                   />
                 </div>

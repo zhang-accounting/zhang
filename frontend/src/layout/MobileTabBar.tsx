@@ -31,7 +31,7 @@ const BAR_CLASS = cn(
   'backdrop-blur supports-backdrop-filter:bg-background/80',
 );
 const UPGRADE_BUTTON_CLASS = cn(buttonVariants({ variant: 'outline' }), 'h-10');
-const BADGE_CLASS = 'absolute -top-1 -right-2 min-w-4 rounded-full bg-destructive px-1 text-[10px] leading-4 text-white';
+const BADGE_CLASS = 'absolute -top-1 -right-2 min-w-4 rounded-full bg-destructive px-1 text-[10px] leading-4 text-background';
 
 function SegmentedButton({ active, className, ...props }: React.ComponentProps<typeof Button> & { active: boolean }) {
   return (
@@ -69,7 +69,10 @@ function MoreSheet() {
         className="max-h-[85svh] gap-0 overflow-y-auto overscroll-contain rounded-t-2xl pb-[env(safe-area-inset-bottom)]"
       >
         <SheetHeader className="pr-12">
-          <SheetTitle className="truncate">{ledgerTitle}</SheetTitle>
+          <SheetTitle className="flex min-w-0 items-center gap-2">
+            <img src="/otter-192.png" alt="" className="size-7 shrink-0 rounded-md" />
+            <span className="truncate">{ledgerTitle}</span>
+          </SheetTitle>
           <SheetDescription className="flex items-center gap-2">
             <span>Zhang {version ?? ''}</span>
             <OnlineStatus showLabel className="h-6 px-0" />

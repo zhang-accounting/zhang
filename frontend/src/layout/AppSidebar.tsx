@@ -26,7 +26,6 @@ import { useReloadLedger } from './use-reload-ledger';
 
 const UPGRADE_BUTTON_CLASS = cn(buttonVariants({ size: 'sm' }), 'mt-2 w-full');
 const BADGE_CLASS = 'bg-destructive/10 text-destructive peer-data-active/menu-button:text-destructive';
-const LOGO_CLASS = 'flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground';
 
 function NavItem({ link, badge }: { link: NavLink; badge?: number }) {
   const { t } = useTranslation();
@@ -58,7 +57,8 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" render={<Link to="/" />} tooltip={ledgerTitle ?? undefined}>
-              <span className={LOGO_CLASS}>账</span>
+              {/* Decorative: the ledger title next to it names the link. Stays visible when the sidebar collapses to icons. */}
+              <img src="/otter-192.png" alt="" className="size-8 shrink-0 rounded-lg" />
               <span className="grid flex-1 text-left leading-tight">
                 <span className="truncate font-semibold">{ledgerTitle}</span>
                 <span className="truncate text-xs text-muted-foreground">Zhang {version ?? ''}</span>
