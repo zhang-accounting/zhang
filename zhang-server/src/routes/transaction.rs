@@ -275,7 +275,7 @@ pub async fn update_single_transaction(
 /// Transactions written through the API read back exactly (issue #442).
 #[cfg(test)]
 mod string_round_trip_test {
-    use std::path::Path as FsPath;
+    use std::path::{Path as FsPath, PathBuf};
     use std::str::FromStr;
     use std::sync::Arc;
 
@@ -381,8 +381,10 @@ mod string_round_trip_test {
         written
     }
 
-    #[tokio::test]
-    async fn created_and_updated_transactions_read_back_exactly() {
+    /// A ledger directory whose January 2024 data file, where the API appends the
+    /// test transactions, exists already: the local file system data source appends
+    /// to existing files only. Returns the directory and the data file.
+    fn ledger_dir() -> (PathBuf, PathBuf) {
         let dir = std::env::temp_dir().join(format!("zhang-transaction-strings-{}", Uuid::new_v4()));
         std::fs::create_dir_all(dir.join("data/2024")).unwrap();
         let dir = dir.canonicalize().unwrap();
@@ -392,9 +394,14 @@ mod string_round_trip_test {
              1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n",
         )
         .unwrap();
-        // the local file system data source appends to existing files only
         let data_file = dir.join("data/2024/1.zhang");
         std::fs::write(&data_file, "").unwrap();
+        (dir, data_file)
+    }
+
+    #[tokio::test]
+    async fn created_and_updated_transactions_read_back_exactly() {
+        let (dir, data_file) = ledger_dir();
 
         // create
         let (ledger, reload) = states(load(&dir).await);
@@ -425,6 +432,25 @@ mod string_round_trip_test {
         assert_eq!(updated.payee.as_deref(), Some(PAYEE));
         assert_eq!(updated.narration.as_deref(), Some(narration));
         assert_eq!(updated_note, "`$`");
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_transaction_without_narration_keeps_its_payee() {
+        let (dir, data_file) = ledger_dir();
+        let (ledger, reload) = states(load(&dir).await);
+        let request = CreateTransactionRequest {
+            narration: None,
+            ..request("unused", "note")
+        };
+        let response = create_new_transaction(ledger, reload, Json(request)).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        assert_written_text_round_trips(&data_file);
+        let (created, _) = transaction(&load(&dir).await);
+        assert_eq!(created.payee.as_deref(), Some(PAYEE));
+        assert_eq!(created.narration.as_deref(), Some(""));
 
         std::fs::remove_dir_all(dir).ok();
     }

@@ -94,11 +94,17 @@ impl ZhangDataTypeExportable for StringOrAccount {
 impl ZhangDataTypeExportable for Transaction {
     type Output = String;
     fn export_as(self, style: QuoteStyle) -> String {
+        // after a flag a single string is the narration, so a payee without a
+        // narration is written with an empty narration to stay the payee
+        let narration = match (&self.flag, &self.payee, self.narration) {
+            (Some(_), Some(_), None) => Some(ZhangString::QuoteString(String::new())),
+            (_, _, narration) => narration,
+        };
         let mut header = vec![
             Some(self.date.export_as(style)),
             self.flag.map(|it| it.export_as(style)),
             self.payee.map(|it| it.export_as(style)),
-            self.narration.map(|it| it.export_as(style)),
+            narration.map(|it| it.export_as(style)),
         ];
         let mut tags = self.tags.into_iter().map(|it| Some(format!("#{}", it))).collect_vec();
         let mut links = self.links.into_iter().map(|it| Some(format!("^{}", it))).collect_vec();
@@ -605,6 +611,41 @@ mod test {
               Expenses:TestCategory:One 1 CCC @@ 1 CNY
         "#}
         );
+    }
+
+    #[test]
+    fn a_payee_without_narration_stays_the_payee() {
+        use zhang_ast::{Date, Directive, Flag, SpanInfo, Spanned, Transaction, ZhangString};
+
+        let data_type = ZhangDataType {};
+        let date = Date::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 2).unwrap());
+        let transaction = |flag: Option<Flag>| Transaction {
+            date: date.clone(),
+            flag,
+            payee: Some(ZhangString::quote("Cafe")),
+            narration: None,
+            tags: Default::default(),
+            links: Default::default(),
+            postings: vec![],
+            meta: Default::default(),
+        };
+
+        // with a flag, a single string would be read as the narration
+        let exported = data_type.export(Spanned::new(Directive::Transaction(transaction(Some(Flag::Okay))), SpanInfo::default()));
+        assert_eq!(exported, r#"2024-01-02 * "Cafe" """#);
+        let Directive::Transaction(reparsed) = data_type.transform(format!("{exported}\n  Assets:Cash"), None).unwrap().remove(0).data else {
+            panic!("expected a transaction");
+        };
+        assert_eq!(reparsed.payee, Some(ZhangString::quote("Cafe")));
+        assert_eq!(reparsed.narration, Some(ZhangString::quote("")));
+
+        // without a flag, a single string is the payee, and reads back exactly
+        let exported = data_type.export(Spanned::new(Directive::Transaction(transaction(None)), SpanInfo::default()));
+        assert_eq!(exported, r#"2024-01-02 "Cafe""#);
+        let Directive::Transaction(reparsed) = data_type.transform(format!("{exported}\n  Assets:Cash"), None).unwrap().remove(0).data else {
+            panic!("expected a transaction");
+        };
+        assert_eq!((reparsed.payee, reparsed.narration), (Some(ZhangString::quote("Cafe")), None));
     }
 
     #[test]
