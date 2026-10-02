@@ -178,15 +178,18 @@ impl IntoResponse for AuthError {
 
 pub type AuthResult<T> = Result<T, AuthError>;
 
-/// A JSON response that also sets (or clears) the session cookie.
+/// A JSON response that may also set (or clear) the session cookie.
 pub struct WithSessionCookie<T: Serialize + Schematic> {
-    cookie: HeaderValue,
+    cookie: Option<HeaderValue>,
     body: ResponseWrapper<T>,
 }
 
 impl<T: Serialize + Schematic> IntoResponse for WithSessionCookie<T> {
     fn into_response(self) -> Response {
-        ([(header::SET_COOKIE, self.cookie)], self.body).into_response()
+        match self.cookie {
+            Some(cookie) => ([(header::SET_COOKIE, cookie)], self.body).into_response(),
+            None => self.body.into_response(),
+        }
     }
 }
 
@@ -501,8 +504,22 @@ impl AuthState {
             data: self.status(principal).await,
         };
         WithSessionCookie {
-            cookie: session_cookie(headers, self.config.trusted_proxy_hops, session.as_ref().map(|(_, token)| token.as_str())),
+            cookie: Some(session_cookie(
+                headers,
+                self.config.trusted_proxy_hops,
+                session.as_ref().map(|(_, token)| token.as_str()),
+            )),
             body,
+        }
+    }
+
+    /// The status of `principal`, leaving its session (cookie) as it is.
+    async fn status_keeping_session(&self, principal: &Principal) -> WithSessionCookie<AuthStatusEntity> {
+        WithSessionCookie {
+            cookie: None,
+            body: ResponseWrapper {
+                data: self.status(Some(principal)).await,
+            },
         }
     }
 
@@ -737,13 +754,15 @@ pub mod handlers {
         })
     }
 
-    /// Finishes registering a passkey, stores it and signs the caller in.
+    /// Finishes registering a passkey and stores it. A caller without a session (registering with
+    /// the secret) is signed in with the new passkey; a signed-in caller keeps their session.
     #[api(group = "auth")]
     pub async fn passkey_register_finish(
         State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, #[api(skip)] peer: Option<ConnectInfo<SocketAddr>>,
         Json(payload): Json<PasskeyRegisterFinishRequest>,
     ) -> AuthResult<WithSessionCookie<AuthStatusEntity>> {
         auth.ensure_passkey_enabled()?;
+        let principal = auth.authenticate(&headers).await;
         let ceremony = auth.take_ceremony(&payload.state_id)?;
         let CeremonyKind::Registration { state, name } = ceremony.kind else {
             return Err(AuthError::expired_ceremony());
@@ -760,8 +779,14 @@ pub mod handlers {
             })?;
         let record = auth.add_passkey(payload.name.as_deref().or(name.as_deref()), passkey).await?;
         auth.reset_failed_attempts(&auth.client(&headers, peer));
-        let session = auth.passkey_session(&record.id);
-        Ok(auth.status_with_cookie(&headers, Some(session)).await)
+        match principal {
+            // moving the session onto the new passkey would end it when that passkey is removed
+            Some(principal) => Ok(auth.status_keeping_session(&principal).await),
+            None => {
+                let session = auth.passkey_session(&record.id);
+                Ok(auth.status_with_cookie(&headers, Some(session)).await)
+            }
+        }
     }
 
     /// Starts a passkey login, allowing every registered passkey.

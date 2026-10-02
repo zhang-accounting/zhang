@@ -275,7 +275,7 @@ async fn register_passkey(router: &Router, authenticator: &mut WebauthnAuthentic
     post(
         router,
         "/api/auth/passkey/register/finish",
-        &[],
+        headers,
         json!({"state_id": started.body["data"]["state_id"], "name": null, "credential": credential}),
     )
     .await
@@ -641,9 +641,9 @@ async fn removing_passkeys_ends_their_sessions_but_never_locks_out() {
     assert_eq!(reply.status, StatusCode::NOT_FOUND);
 
     let mut laptop = soft_authenticator();
-    let laptop_cookie = register_passkey(&router, &mut laptop, &[("cookie", &phone_cookie)], json!({"name": "Laptop"}))
-        .await
-        .session_cookie();
+    let added = register_passkey(&router, &mut laptop, &[("cookie", &phone_cookie)], json!({"name": "Laptop"})).await;
+    assert_eq!(added.status, StatusCode::OK, "{}", added.body);
+    let laptop_cookie = passkey_login(&router, &mut laptop).await.session_cookie();
     // a phone login started before the removal
     let started = post(&router, "/api/auth/passkey/login/start", &[], json!({})).await;
     let options: RequestChallengeResponse = serde_json::from_value(started.body["data"]["options"].clone()).unwrap();
@@ -1101,4 +1101,60 @@ async fn behind_two_proxies_the_address_the_outer_one_saw_is_the_client() {
     .await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
     assert_eq!(reply.body["data"]["options"]["publicKey"]["rp"]["id"], "zhang.example.com");
+}
+
+#[tokio::test]
+async fn adding_a_passkey_keeps_the_current_session() {
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::both()).await;
+
+    // signed in with the password, a passkey is added, then removed
+    let password_cookie = password_login(&router).await;
+    let mut laptop = soft_authenticator();
+    let added = register_passkey(&router, &mut laptop, &[("cookie", &password_cookie)], json!({"name": "Laptop"})).await;
+    assert_eq!(added.status, StatusCode::OK, "{}", added.body);
+    assert!(added.headers.get(header::SET_COOKIE).is_none(), "the session is kept");
+    assert_eq!(added.body["data"]["authenticated"], true);
+    assert_eq!(added.body["data"]["user"], "admin");
+    assert_eq!(added.body["data"]["passkey_registered"], true);
+    let laptop_id = dir.stored_passkeys()[0]["id"].as_str().unwrap().to_owned();
+    let removed = call(
+        &router,
+        Method::DELETE,
+        &format!("/api/auth/passkeys/{laptop_id}"),
+        &[("cookie", &password_cookie)],
+        None,
+    )
+    .await;
+    assert_eq!(removed.status, StatusCode::OK, "{}", removed.body);
+    assert_eq!(get(&router, "/api/info", &[("cookie", &password_cookie)]).await.status, StatusCode::OK);
+    assert_eq!(
+        get(&router, "/api/auth/status", &[("cookie", &password_cookie)]).await.body["data"]["authenticated"],
+        true
+    );
+
+    // signed in with passkey A, passkey B is added, then removed
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::passkey()).await;
+    let mut phone = soft_authenticator();
+    let first = register_passkey(&router, &mut phone, &[], json!({"secret": "letmein", "name": "Phone"})).await;
+    let phone_cookie = first.session_cookie();
+    let mut laptop = soft_authenticator();
+    let added = register_passkey(&router, &mut laptop, &[("cookie", &phone_cookie)], json!({"name": "Laptop"})).await;
+    assert_eq!(added.status, StatusCode::OK, "{}", added.body);
+    assert!(added.headers.get(header::SET_COOKIE).is_none(), "the session is kept");
+    let laptop_id = dir.stored_passkeys()[1]["id"].as_str().unwrap().to_owned();
+    let removed = call(
+        &router,
+        Method::DELETE,
+        &format!("/api/auth/passkeys/{laptop_id}"),
+        &[("cookie", &phone_cookie)],
+        None,
+    )
+    .await;
+    assert_eq!(removed.status, StatusCode::OK, "{}", removed.body);
+    assert_eq!(get(&router, "/api/info", &[("cookie", &phone_cookie)]).await.status, StatusCode::OK);
+
+    // a registration with the secret, without a session, still signs in with the new passkey
+    assert!(first.set_cookie().contains("Max-Age=2592000"));
 }
