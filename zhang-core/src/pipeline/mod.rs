@@ -7,6 +7,9 @@
 //! declaration order and re-sorts the stream after every stage, so a stage never
 //! has to maintain ordering itself.
 //!
+//! A stage that reads anything besides the stream (a file, the current date)
+//! records it with [`StageContext::add_input`], so the ledger knows when it is stale.
+//!
 //! Built-in stages ([`builtin_stages`]) run after the user's plugin stages:
 //! [`ActiveAccountsStage`], which only reports references to inactive accounts,
 //! then [`PadStage`] then [`BalanceCheckStage`], two independent folds over the
@@ -21,12 +24,14 @@ use std::collections::HashMap;
 
 pub use active_accounts::ActiveAccountsStage;
 pub use balance_check::BalanceCheckStage;
+use indexmap::IndexSet;
 use log::debug;
 pub use pad::PadStage;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, SpanInfo, Spanned};
 
 use crate::domains::schemas::{CommodityDomain, OptionDomain};
+use crate::inputs::ExtraInput;
 use crate::ledger::Ledger;
 use crate::ZhangResult;
 
@@ -46,6 +51,7 @@ pub struct StageContext<'a> {
     /// `commodity` directives are in the stream
     pub commodities: Vec<CommodityDomain>,
     errors: Vec<StageError>,
+    inputs: IndexSet<ExtraInput>,
 }
 
 impl<'a> StageContext<'a> {
@@ -54,6 +60,7 @@ impl<'a> StageContext<'a> {
             options,
             commodities: vec![],
             errors: vec![],
+            inputs: IndexSet::new(),
         }
     }
 
@@ -66,6 +73,16 @@ impl<'a> StageContext<'a> {
     /// report a problem without aborting the pipeline
     pub fn emit_error(&mut self, kind: ErrorKind, span: SpanInfo, metas: HashMap<String, String>) {
         self.errors.push(StageError { kind, span, metas });
+    }
+
+    /// record something a stage read besides the stream; recording it again changes nothing
+    pub fn add_input(&mut self, input: ExtraInput) {
+        self.inputs.insert(input);
+    }
+
+    /// the inputs stages recorded, in the order they were first recorded
+    pub fn inputs(&self) -> &IndexSet<ExtraInput> {
+        &self.inputs
     }
 
     /// consume the context and take the errors stages reported
@@ -114,6 +131,7 @@ pub(crate) mod test {
     use super::{builtin_stages, run_pipeline, ProcessStage, StageContext};
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
+    use crate::inputs::ExtraInput;
     use crate::ledger::Ledger;
     use crate::ZhangResult;
 
@@ -156,6 +174,34 @@ pub(crate) mod test {
             ctx.emit_error(ErrorKind::ParseInvalidMeta, span(), HashMap::default());
             Ok(directives)
         }
+    }
+
+    struct ReadStage(Vec<ExtraInput>);
+    impl ProcessStage for ReadStage {
+        fn name(&self) -> &str {
+            "read"
+        }
+        fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
+            for input in &self.0 {
+                ctx.add_input(input.clone());
+            }
+            Ok(directives)
+        }
+    }
+
+    #[test]
+    fn should_collect_each_input_once_in_first_recorded_order() {
+        let receipt = ExtraInput::File("documents/receipt.pdf".into());
+        let documents = ExtraInput::Dir("documents".into());
+        let stages: Vec<Box<dyn ProcessStage>> = vec![
+            Box::new(ReadStage(vec![receipt.clone(), ExtraInput::Clock, receipt.clone()])),
+            Box::new(ReadStage(vec![documents.clone(), ExtraInput::Clock])),
+        ];
+        let mut ctx = StageContext::new(&[]);
+
+        run_pipeline(&stages, vec![], &mut ctx).unwrap();
+
+        assert_eq!(ctx.inputs().iter().cloned().collect::<Vec<_>>(), vec![receipt, ExtraInput::Clock, documents]);
     }
 
     #[test]

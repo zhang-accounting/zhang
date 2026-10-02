@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, RwLock};
 
+use indexmap::IndexSet;
 use itertools::Itertools;
 use log::{error, info};
 use zhang_ast::{Directive, Flag, Options, Plugin, SpanInfo, Spanned};
@@ -12,6 +13,7 @@ use crate::booking::Booker;
 use crate::data_source::DataSource;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
+use crate::inputs::ExtraInput;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::pipeline::{builtin_stages, run_pipeline, ProcessStage, StageContext};
 use crate::process::{DirectivePreProcess, DirectiveProcess};
@@ -23,7 +25,12 @@ pub struct Ledger {
 
     pub data_source: Arc<dyn DataSource>,
 
+    /// the ledger's own files; the file editor lists them
     pub visited_files: Vec<PathBuf>,
+
+    /// what the load read besides [`Ledger::visited_files`] (plugin modules, files plugins read, the date), each once
+    /// in the order first recorded. A change to any of them makes the ledger stale
+    pub extra_inputs: IndexSet<ExtraInput>,
 
     pub options: InMemoryOptions,
 
@@ -139,6 +146,7 @@ impl Ledger {
             options: InMemoryOptions::default(),
             entry: context.entry,
             visited_files: context.visited_files,
+            extra_inputs: IndexSet::new(),
             directives: vec![],
             metas: vec![],
             data_source: context.data_source,
@@ -352,7 +360,8 @@ impl Ledger {
     }
 
     /// run the pipeline over the full directive stream; stage-reported errors are
-    /// materialized into the store before the fold
+    /// materialized into the store before the fold, and the inputs stages recorded
+    /// join [`Ledger::extra_inputs`]
     fn run_stages(&mut self, directives: Vec<Spanned<Directive>>) -> ZhangResult<Vec<Spanned<Directive>>> {
         let directives = Ledger::sort_directives_datetime(directives);
         let stages = self.build_stages();
@@ -361,6 +370,7 @@ impl Ledger {
         let mut ctx = StageContext::new(&options).with_commodities(commodities);
         let directives = run_pipeline(&stages, directives, &mut ctx)?;
 
+        self.extra_inputs.extend(ctx.inputs().iter().cloned());
         let mut operations = self.operations();
         for error in ctx.into_errors() {
             operations.new_error(error.kind, &error.span, error.metas)?;
@@ -1438,6 +1448,102 @@ mod test {
             let names = ledger.operations().queries().unwrap().into_iter().map(|it| it.name).collect_vec();
             assert_eq!(names, vec!["main", "included"]);
             assert_eq!(ledger.visited_files.len(), 2);
+        }
+    }
+
+    mod extra_inputs {
+        use indoc::indoc;
+
+        use crate::ledger::test::load_from_temp_str;
+
+        #[test]
+        fn should_not_record_the_module_of_a_plugin_that_is_not_loaded() {
+            let ledger = load_from_temp_str(indoc! {r#"
+                plugin "plugins/passthrough.wasm"
+                1970-01-01 open Assets:Cash
+            "#});
+
+            // plugins are off, so the module is never read
+            assert!(ledger.extra_inputs.is_empty());
+            assert_eq!(ledger.visited_files.len(), 1);
+        }
+
+        #[cfg(feature = "plugin_runtime")]
+        mod plugin_module {
+            use std::path::PathBuf;
+            use std::sync::Arc;
+
+            use indoc::indoc;
+            use itertools::Itertools;
+            use tempfile::tempdir;
+
+            use crate::data_source::LocalFileSystemDataSource;
+            use crate::data_type::text::ZhangDataType;
+            use crate::inputs::ExtraInput;
+            use crate::ledger::Ledger;
+
+            const PASSTHROUGH: &str = include_str!("../tests/plugins/passthrough.wat");
+
+            /// load `main.zhang` from a fresh ledger root holding the passthrough plugin at
+            /// `plugins/passthrough.wat`; `{module}` in `content` is the module's absolute path
+            fn load_with_plugin(content: &str) -> (PathBuf, Ledger) {
+                // canonical, like the root `load_with_data_source` resolves
+                let root = tempdir().unwrap().into_path().canonicalize().unwrap();
+                std::fs::create_dir(root.join("plugins")).unwrap();
+                let module = root.join("plugins/passthrough.wat");
+                std::fs::write(&module, PASSTHROUGH).unwrap();
+                let content = content.replace("{module}", &module.to_string_lossy());
+                std::fs::write(root.join("main.zhang"), content).unwrap();
+                let source = LocalFileSystemDataSource::new(ZhangDataType {});
+                let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_string(), Arc::new(source)).unwrap();
+                (root, ledger)
+            }
+
+            const LEDGER: &str = indoc! {r#"
+                option "features.plugin" "true"
+                plugin "{module}"
+                1970-01-01 open Assets:Cash
+                1970-01-01 open Equity:Open
+                2024-01-01 * "lunch"
+                  Assets:Cash -10 CNY
+                  Equity:Open
+            "#};
+
+            #[test]
+            fn should_record_a_local_plugin_module_relative_to_the_root() {
+                let (root, ledger) = load_with_plugin(LEDGER);
+
+                // the plugin ran: its echo of the stream reached the store
+                assert_eq!(ledger.plugins.ordered.len(), 1);
+                assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
+                assert_eq!(
+                    ledger.extra_inputs.iter().cloned().collect_vec(),
+                    vec![ExtraInput::File(PathBuf::from("plugins/passthrough.wat"))]
+                );
+                // the module stays out of the file editor's list
+                assert_eq!(ledger.visited_files, vec![root.join("main.zhang")]);
+            }
+
+            #[test]
+            fn should_record_a_module_declared_twice_once() {
+                let (_, ledger) = load_with_plugin(&LEDGER.replace("plugin \"{module}\"", "plugin \"{module}\"\nplugin \"{module}\""));
+
+                assert_eq!(ledger.plugins.ordered.len(), 2);
+                assert_eq!(ledger.extra_inputs.len(), 1);
+            }
+
+            #[test]
+            fn should_record_extra_inputs_again_on_reload() {
+                let (root, mut ledger) = load_with_plugin(LEDGER);
+
+                ledger.reload().unwrap();
+
+                assert_eq!(
+                    ledger.extra_inputs.iter().cloned().collect_vec(),
+                    vec![ExtraInput::File(PathBuf::from("plugins/passthrough.wat"))]
+                );
+                assert_eq!(ledger.visited_files, vec![root.join("main.zhang")]);
+            }
         }
     }
 

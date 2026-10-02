@@ -9,6 +9,7 @@ pub mod data_source;
 pub mod data_type;
 pub mod domains;
 pub mod error;
+pub mod inputs;
 pub mod inventory;
 pub mod ledger;
 pub mod options;
