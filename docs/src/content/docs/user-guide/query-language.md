@@ -67,10 +67,11 @@ Queries saved in the ledger with the [`query` directive](/directives/5-query/) a
 - Choosing an entry puts its query in the editor and runs it.
 - A query that does not compile with the current version of the engine is still listed. It is marked **(invalid)** and shows the error. Saved queries are not checked when the ledger is loaded, so an invalid one never makes the ledger report an error.
 - The list is fetched again each time the menu opens, so queries added to the ledger after the page was opened appear without a page reload.
+- The query is a quoted string of the ledger file, so each backslash in it must be doubled: write `'\\d+'` to save the regular expression `\d+`. See [Escaping](/directives/5-query/#escaping).
 
 #### Exporting to CSV
 
-**Export CSV** sends the query in the editor to [`POST /api/query/csv`](#export-as-csv) and downloads the result as `query.csv`. The query does not need to be run first. Amounts, positions and inventories are split into one numeric column per currency, so the file opens cleanly in a spreadsheet. If the query has an error, the error is shown just as for a failed run.
+**Export CSV** sends the query in the editor to [`POST /api/query/csv`](#export-as-csv) and downloads the result as `query.csv`. The query does not need to be run first. Amounts, positions and inventories are split into one numeric column per currency, so the file opens cleanly in a spreadsheet. If the query has an error, the error is shown just as for a failed run. Read the [caution about formulas](#export-as-csv) before you open an export in a spreadsheet application.
 
 ### Over HTTP
 
@@ -804,7 +805,7 @@ A query that cannot be parsed, type-checked or run returns HTTP status 400. Unli
 - `line` and `column` give the position of the problem in the query text. Both start at 1.
 - `column` counts Unicode characters, not bytes, so a Chinese character or an accented letter counts as one column.
 - Errors include syntax errors, unknown columns or functions, arguments of the wrong type, invalid `GROUP BY` usage, invalid regular expressions, unsupported statements or clauses, and the [limits](#limits) below.
-- Some errors have no position, and `line` and `column` are then `null`: a query that is too long, a query that runs out of time, and a few errors found while rows are evaluated, such as an integer overflow inside `sum`.
+- Some errors have no position, and `line` and `column` are then `null`: a query that is too long, a query that runs out of time, a result that is too large, and a few errors found while rows are evaluated, such as an integer overflow inside `sum`.
 
 ### Limits
 
@@ -816,9 +817,13 @@ These limits protect the server from queries that would take too much memory or 
 | Nesting depth | 64 levels | `the query is nested too deeply (at most 64 levels)`, at the position where the limit is reached. |
 | Compiled size of one regular expression | 1 MiB | `invalid regular expression: Compiled regex exceeds size limit ...`, at the pattern. |
 | Execution time | 10 seconds | `the query was stopped because it ran longer than the 10s time limit`, without a position. |
+| Result size | 1,000,000 values by default | `the result is too large: ...`, without a position. |
 
 - Nesting counts parentheses, function calls, `IN` lists, `NOT` and unary minus that are placed inside each other. A long chain of `AND`, `OR`, `+` or `*`, such as `account = 'A' OR account = 'B' OR ...`, is not nested and can be as long as the length limit allows.
 - The execution time includes building the rows of the `postings` table and applying the period clauses. While a query runs, it holds a read lock on the ledger, and the time limit bounds how long that lock is held.
+- The result size counts each cell as one value, plus one for each position of an inventory, each element of a set and each 64 bytes of text. The rows that a query collects before `ORDER BY`, `DISTINCT` and `LIMIT` count too, and so do the groups of an aggregate query while they are built. A query that goes over the limit fails with an error that suggests narrowing it with `FROM` or `WHERE`, or adding a `LIMIT`.
+- Server operators can raise or lower the result size limit with the environment variable `ZHANG_QUERY_MAX_RESULT_VALUES`.
+- `LIMIT` keeps a result small, and so does the way the [running balance](#the-running-balance) is computed. `balance` is only built for the rows that end up in the result, unless the query sorts, groups or de-duplicates by it. `units(balance)` and `cost(balance)`, and so `JOURNAL ... AT units` and `AT cost`, are added up per currency without keeping the lots.
 - The same limits apply to [CSV export](#export-as-csv).
 
 ### Export as CSV
@@ -857,6 +862,10 @@ The file follows RFC 4180:
 - `NULL` is an empty field. Booleans are written `TRUE` and `FALSE`, dates `YYYY-MM-DD`, and sets as their elements, sorted and joined with `,`.
 - Numbers are exact. They keep all their digits and decimal places, and are never padded, rounded or written with an exponent.
 - A field that contains `,`, `"`, a carriage return or a line feed is put in double quotes, with each `"` doubled. A row with a single empty field is written as `""`, so that it is not a blank line.
+
+:::caution[Formulas in spreadsheets]
+Text is written as it is, without any protection against formulas, as in beanquery's CSV output. A text cell that begins with `=`, `+`, `-` or `@`, such as a payee or a narration, can be read as a formula when the file is opened in a spreadsheet application. Be careful with exports of ledgers whose text you did not write yourself, or import the columns as text.
+:::
 
 ### List saved queries
 
@@ -1068,16 +1077,14 @@ The roadmap in [#434](https://github.com/zhang-accounting/zhang/issues/434) sche
 - **Comments** start with `--`. beanquery's `;` line comments and `/* */` block comments are not supported. A single `;` is only allowed at the end of the query.
 - **Regular expressions** use Rust syntax, which has no look-around or back-references.
 - **Booking methods.** Accounts that use `STRICT`, `AVERAGE`, `AVERAGE_ONLY` or `NONE` are booked FIFO for now, and an ambiguous `STRICT` match is not an error. See [Lot booking](#lot-booking).
-- **Limits.** Queries are limited in length, nesting depth, regular-expression size and execution time. See [Limits](#limits).
+- **Limits.** Queries are limited in length, nesting depth, regular-expression size, execution time and result size. See [Limits](#limits).
 - **Errors carry a position.** Every query error reports the line and column where it was found, whenever it can be located.
 - **Exact decimals throughout.** Numbers are arbitrary-precision decimals, and amounts are never stored with a fixed number of decimal places.
 - **Column names of `BALANCES` and `JOURNAL`** are those of the equivalent `SELECT`: `sum(position)`, `sum(cost(position))` and `maxwidth(payee, 48)`. beanquery names them `SUM((position))`, `SUM(cost(position))` and `MAXWIDTH(payee, 48)`.
 - **The running balance.** `balance` cannot be used in `FROM` or `WHERE`, and it adds up exactly the rows that pass them. beanquery updates its balance each time it evaluates the column, so in a `WHERE` clause it would count the rows it tests rather than the rows it keeps.
 - **`account_sortkey`** of a name whose first component is not an account type returns a key that sorts after all the types. beanquery raises an error.
-- **`maxwidth`** treats only the ASCII digits `0` to `9` as digits when it decides whether a word can be broken after a hyphen. Python treats every Unicode digit as one, so the two can shorten text that mixes hyphens with other digits differently.
 - **Parameters.** The `JOURNAL` pattern and the `OPEN ON` and `CLOSE ON` dates can be [parameters](#parameters). beanquery only accepts literals there.
 - **The `FROM` expression filters after the period clauses.** This is what beanquery does. In BQL v2, the expression chose the transactions before `OPEN`, `CLOSE` and `CLEAR` were applied.
 - **Equity accounts.** An `account_previous_*` or `account_current_*` option whose value is not a valid account name is ignored, and the default account is used.
 - **The last entry of a period**, which dates the `T` transactions of `CLEAR` and the `C` transaction of a bare `CLOSE`, ignores Zhang's budget directives, which Beancount does not have.
-- **The narration of a conversion transaction** lists the inventory in Zhang's format, which differs from Beancount's in the details.
 - **CSV export keeps exact numbers.** `bean-query` pads numbers for alignment (`" 600.00"`), rounds numberified numbers to each currency's display precision (`360.03` instead of `360.03016`), and writes some numbers with an exponent (`1E+3`). Zhang does none of this.
