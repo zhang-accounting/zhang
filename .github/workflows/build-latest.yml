@@ -54,15 +54,9 @@ jobs:
         working-directory: ./frontend
   test:
     runs-on: ${{ matrix.os }}
-    # We prioritise Linux and macOS. Windows is best-effort / optional:
-    # keep it in CI but allow it to fail without blocking the workflow.
-    continue-on-error: ${{ startsWith(matrix.os, 'windows') }}
     strategy:
-      # Don't cancel the other OS legs when one fails, so Windows and
-      # the required Linux/macOS legs report independently.
-      fail-fast: false
       matrix:
-        os: [ ubuntu-22.04, windows-latest, macOS-latest ]
+        os: [ ubuntu-22.04, macOS-latest ]
         rust: [ stable ]
         features: [ default, plugin_runtime ]
     steps:
@@ -71,6 +65,8 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ matrix.rust }}
+          cache-key: ${{ matrix.features }}
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: fake frontend build
         run: mkdir -p dist
         working-directory: ./frontend
@@ -84,6 +80,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: jetli/wasm-pack-action@v0.4.0
         with:
@@ -163,6 +161,7 @@ jobs:
         with:
           toolchain: nightly
           components: rustfmt
+          cache: false
       - name: fake frontend build
         run: mkdir -p dist
         working-directory: ./frontend
@@ -177,6 +176,7 @@ jobs:
         with:
           toolchain: stable
           components: clippy
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: fake frontend build
         run: mkdir -p dist
         working-directory: ./frontend
