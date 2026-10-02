@@ -34,7 +34,7 @@ The `query` directive saves a named query in your ledger, the same way Beancount
 The query text is a quoted string, like any other string in the ledger file, so a backslash in it can start an escape sequence:
 
 - `\"` is a double quote and `\\` is a backslash. To use a double quote in the query, write `\"`, or use single quotes for the strings inside the query, as in the examples on this page.
-- `\n`, `\t`, `\r`, `\b`, `\f`, `\/` and `\uXXXX` are read as in JSON. The escapes that older versions of Zhang wrote, such as `\$`, `` \` `` and `\u{a0}`, are still read as the character they stand for.
+- `\n`, `\t`, `\r`, `\b`, `\f`, `\/` and `\uXXXX` are read as in JSON. The escapes that older versions of Zhang wrote are still read as the character they stand for: `\$`, `` \` ``, `\a`, `\v`, `\e` and `\u{...}`, such as `\u{a0}`.
 - A backslash followed by any other character is kept as written. So the regular expression `\d+` can be written as it is:
 
   ```zhang
@@ -43,7 +43,7 @@ The query text is a quoted string, like any other string in the ledger file, so 
 
 - Writing the backslash twice, as in `'\\d+'`, also works and reads the same. Write it twice when the backslash comes before one of the characters listed above. In a regular expression, `'\\b'` is a word boundary, but `'\b'` is read as a backspace character; `'\\$'` matches a dollar sign, but `'\$'` is read as `$`, the end of the text.
 
-Beancount drops a backslash that does not start an escape it knows, so it reads `'\d+'` as `'d+'`. If you also use the ledger with Beancount or Fava, write each backslash twice, as in `'\\d+'`. That form reads the same in both.
+Zhang reads Beancount files (`.bean`) with the same rules. Beancount itself drops a backslash that does not start an escape it knows, so it reads `'\d+'` as `'d+'`. It has no `\uXXXX`, `\a`, `\v` or `\e` escape either, so it reads `\u00e9` as `u00e9` where Zhang reads `é`. If you also use the ledger with Beancount or Fava, write each backslash twice, as in `'\\d+'`. That form reads the same in both.
 
 A malformed `\u` escape, such as `\uZZZZ`, is an error that stops the ledger from loading. The error gives the line and column of the escape.
 
