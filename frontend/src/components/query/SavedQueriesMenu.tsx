@@ -21,7 +21,7 @@ export default function SavedQueriesMenu({ onSelect }: Props) {
   const load = async () => {
     setState((prev) => (prev.status === 'loaded' ? prev : { status: 'loading' }));
     try {
-      setState({ status: 'loaded', queries: await retrieveSavedQueries() });
+      setState({ status: 'loaded', queries: (await retrieveSavedQueries({})).data.data });
     } catch {
       setState({ status: 'failed' });
     }
