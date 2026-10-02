@@ -2,7 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{BinaryHeap, HashSet};
 use std::sync::OnceLock;
 use std::time::{Duration as StdDuration, Instant};
 
@@ -13,14 +13,15 @@ use indexmap::IndexMap;
 use regex::Regex;
 use zhang_ast::amount::Amount;
 
-use crate::compiler::{build_regex, AggregateCall, ArithOp, CExpr, CmpOp, Plan, RegexPattern};
+use crate::compiler::{build_regex, AggregateCall, ArithOp, CExpr, CmpOp, LimitMode, Plan, RegexPattern};
 use crate::decimal;
 use crate::error::{LocatedError, QueryErrorKind, Span};
 use crate::functions::{AggregateKind, FunctionContext, ScalarFunction};
 use crate::params::Params;
 use crate::prices::PriceMap;
 use crate::projector::{borrowed_str, set_membership};
-use crate::table::{self, Dataset, Row};
+use crate::running::RunningState;
+use crate::table::{Dataset, Row};
 use crate::value::{Inventory, Position, Value};
 
 /// How many rows are scanned between two deadline checks.
@@ -61,8 +62,8 @@ pub(crate) struct Env<'e, 'a> {
     pub row: Option<&'e Row<'a>>,
     /// finished aggregate values of the current group
     pub aggregates: &'e [Value],
-    /// the running balance including the current row, when the plan reads it
-    pub balance: Option<&'e Inventory>,
+    /// the running totals including the current row, when the plan reads them
+    pub running: Option<&'e RunningState>,
     pub params: &'e Params,
     pub regexes: &'e RegexCache,
     /// set when an expression reads the execution context; folding then gives up
@@ -116,7 +117,7 @@ pub(crate) fn eval_constant(expr: &CExpr) -> Option<Value> {
         data: None,
         row: None,
         aggregates: &[],
-        balance: None,
+        running: None,
         params: &params,
         regexes: &regexes,
         impure: &impure,
@@ -142,8 +143,8 @@ impl CExpr {
                 }
                 _ => Err(LocatedError::eval(format!("column '{}' is not available here", def.name), None)),
             },
-            CExpr::RunningBalance => match env.balance {
-                Some(balance) => Ok(Value::Inventory(balance.clone())),
+            CExpr::Running(total) => match env.running {
+                Some(running) => Ok(Value::Inventory(running.value(*total))),
                 None => {
                     // never constant: folding gives up on it
                     env.impure.set(true);
@@ -407,6 +408,9 @@ enum Accumulator {
     SumDecimal(BigDecimal),
     SumInventory(Inventory),
     Pick(Option<Value>),
+    /// a deferred `first()` / `last()`: the ordinal (in the filtered rows) of the row whose
+    /// value it picks, evaluated by the replay
+    PickRow(Option<usize>),
 }
 
 impl Accumulator {
@@ -417,6 +421,15 @@ impl Accumulator {
             AggregateKind::SumDecimal => Accumulator::SumDecimal(BigDecimal::zero()),
             AggregateKind::SumInventory => Accumulator::SumInventory(Inventory::new()),
             AggregateKind::First | AggregateKind::Last | AggregateKind::Min | AggregateKind::Max => Accumulator::Pick(None),
+        }
+    }
+
+    /// Remember the row a deferred `first()` / `last()` picks.
+    fn pick_row(&mut self, call: &AggregateCall, ordinal: usize) {
+        if let Accumulator::PickRow(picked) = self {
+            if picked.is_none() || call.function.kind == AggregateKind::Last {
+                *picked = Some(ordinal);
+            }
         }
     }
 
@@ -464,6 +477,7 @@ impl Accumulator {
             Accumulator::Count(_) | Accumulator::SumInt(_) | Accumulator::SumDecimal(_) => 1,
             Accumulator::SumInventory(inventory) => inventory_weight(inventory),
             Accumulator::Pick(value) => value.as_ref().map_or(1, weight),
+            Accumulator::PickRow(_) => 1,
         }
     }
 
@@ -474,6 +488,7 @@ impl Accumulator {
             Accumulator::SumDecimal(it) => Value::Decimal(it),
             Accumulator::SumInventory(it) => Value::Inventory(it),
             Accumulator::Pick(it) => it.unwrap_or(Value::Null),
+            Accumulator::PickRow(_) => unreachable!("the replay resolves deferred aggregates"),
         }
     }
 }
@@ -582,26 +597,115 @@ fn row_weight(row: &[Value]) -> u64 {
     row.iter().map(weight).sum()
 }
 
-/// The running `balance`: the positions of the rows that passed the filter so far, in row
-/// order. Like beanquery's, it is accumulated before rows are grouped, sorted, de-duplicated
-/// or limited, so ORDER BY reorders rows without changing their balances.
-struct RunningBalance {
-    /// `None` when the plan does not read `balance`
-    inventory: Option<Inventory>,
+/// One output row while it is being built: its cells, and for a plan that defers targets
+/// the ordinal of its row in the filtered rows.
+struct Built {
+    cells: Vec<Value>,
+    ordinal: usize,
 }
 
-impl RunningBalance {
-    fn new(plan: &Plan) -> Self {
-        RunningBalance {
-            inventory: plan.running_balance.then(Inventory::new),
+/// Rows ranked by the ORDER BY, ties broken by arrival, as a stable sort orders them.
+struct Ranked<'p> {
+    row: Built,
+    arrival: usize,
+    order: &'p [(usize, bool)],
+}
+
+fn order_cmp(order: &[(usize, bool)], a: &[Value], b: &[Value]) -> Ordering {
+    for (idx, descending) in order {
+        let ordering = a[*idx].sort_cmp(&b[*idx]);
+        let ordering = if *descending { ordering.reverse() } else { ordering };
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+    }
+    Ordering::Equal
+}
+
+impl Ord for Ranked<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        order_cmp(self.order, &self.row.cells, &other.row.cells).then(self.arrival.cmp(&other.arrival))
+    }
+}
+
+impl PartialOrd for Ranked<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Ranked<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for Ranked<'_> {}
+
+/// Where the main pass of a non-aggregate query puts its rows.
+enum Collector<'p> {
+    All(Vec<Built>),
+    /// the first `k` rows of the ORDER BY, as a max-heap that drops its last row when full
+    TopK {
+        k: usize,
+        heap: BinaryHeap<Ranked<'p>>,
+        arrivals: usize,
+    },
+}
+
+impl<'p> Collector<'p> {
+    fn len(&self) -> usize {
+        match self {
+            Collector::All(rows) => rows.len(),
+            Collector::TopK { heap, .. } => heap.len(),
         }
     }
 
-    /// Add a row that passed the filter; returns the balance including it.
-    fn add(&mut self, row: &Row<'_>) -> Option<&Inventory> {
-        let inventory = self.inventory.as_mut()?;
-        inventory.add_owned_position(table::position(row));
-        Some(inventory)
+    fn push(&mut self, row: Built, order: &'p [(usize, bool)], budget: &mut Budget) -> Result<(), LocatedError> {
+        budget.charge(row_weight(&row.cells))?;
+        match self {
+            Collector::All(rows) => rows.push(row),
+            Collector::TopK { k, heap, arrivals } => {
+                heap.push(Ranked {
+                    row,
+                    arrival: *arrivals,
+                    order,
+                });
+                *arrivals += 1;
+                if heap.len() > *k {
+                    if let Some(dropped) = heap.pop() {
+                        budget.release(row_weight(&dropped.row.cells));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The rows, in ORDER BY order for a top-k.
+    fn into_rows(self) -> Vec<Built> {
+        match self {
+            Collector::All(rows) => rows,
+            Collector::TopK { heap, .. } => heap.into_sorted_vec().into_iter().map(|ranked| ranked.row).collect(),
+        }
+    }
+}
+
+/// The filtered rows of the main pass, in ledger order, kept for the replay.
+struct Filtered {
+    /// indexes into the dataset rows; only recorded when the plan replays
+    rows: Option<Vec<usize>>,
+    count: usize,
+}
+
+impl Filtered {
+    /// Record a row that passed the filter; returns its ordinal.
+    fn push(&mut self, idx: usize) -> usize {
+        if let Some(rows) = &mut self.rows {
+            rows.push(idx);
+        }
+        self.count += 1;
+        self.count - 1
     }
 }
 
@@ -611,76 +715,230 @@ pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline
     execute_within(plan, data, params, deadline, Budget::new(None))
 }
 
+/// The state shared by the passes of one execution.
+struct Execution<'x, 'a> {
+    plan: &'x Plan,
+    data: &'x Dataset<'a>,
+    base: Env<'x, 'a>,
+    deadline: Option<&'x Deadline>,
+}
+
+impl<'x, 'a> Execution<'x, 'a> {
+    /// Replay the filtered rows in ledger order up to the last of `needs` (ordinal, slot)
+    /// pairs, sorted by ordinal, calling `visit` at each with the row and the running totals.
+    fn replay(
+        &self, filtered: &[usize], needs: &[(usize, usize)], mut visit: impl FnMut(usize, &Env<'_, 'a>) -> Result<(), LocatedError>,
+    ) -> Result<(), LocatedError> {
+        let Some(&(last, _)) = needs.last() else {
+            return Ok(());
+        };
+        let mut running = RunningState::new(&self.plan.execution.running.totals);
+        let mut next = 0;
+        for (ordinal, idx) in filtered[..=last].iter().enumerate() {
+            Deadline::check(self.deadline, ordinal)?;
+            let row = &self.data.rows[*idx];
+            running.add(row);
+            let env = Env {
+                row: Some(row),
+                running: Some(&running),
+                ..self.base
+            };
+            while next < needs.len() && needs[next].0 == ordinal {
+                visit(needs[next].1, &env)?;
+                next += 1;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Run the plan within the `budget` and return the visible columns of the result rows.
+///
+/// The plan's [`crate::compiler::Execution`] says how: whether the main pass keeps the
+/// running totals, which targets and aggregates over them wait for a replay of the filtered
+/// rows (so that only the rows a query returns materialize a balance), and how LIMIT cuts
+/// the scan short.
 pub(crate) fn execute_within(
     plan: &Plan, data: &Dataset<'_>, params: &Params, deadline: Option<Deadline>, mut budget: Budget,
 ) -> Result<Vec<Vec<Value>>, LocatedError> {
     let regexes = RegexCache::default();
     let impure = Cell::new(false);
-    let mut running = RunningBalance::new(plan);
     let base = Env {
         data: Some(data),
         row: None,
         aggregates: &[],
-        balance: None,
+        running: None,
         params,
         regexes: &regexes,
         impure: &impure,
     };
-    let deadline = deadline.as_ref();
-    let mut rows: Vec<Vec<Value>> = vec![];
+    let execution = Execution {
+        plan,
+        data,
+        base,
+        deadline: deadline.as_ref(),
+    };
+    let strategy = &plan.execution;
+    let mut running = strategy.running.eager.then(|| RunningState::new(&strategy.running.totals));
+    let mut filtered = Filtered {
+        rows: strategy.running.replays().then(Vec::new),
+        count: 0,
+    };
 
-    match &plan.group_keys {
+    let mut rows = match &plan.group_keys {
         None => {
-            // without sorting or de-duplication LIMIT can stop the scan early
-            let early_limit = if plan.order.is_empty() && !plan.distinct { plan.limit } else { None };
+            let deferred = &strategy.running.deferred_targets;
+            let limit = plan.limit.map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
+            let stop_at = limit.filter(|_| strategy.limit == LimitMode::StopScan);
+            let mut collector = match limit {
+                Some(k) if strategy.limit == LimitMode::TopK => Collector::TopK {
+                    k,
+                    heap: BinaryHeap::new(),
+                    arrivals: 0,
+                },
+                _ => Collector::All(vec![]),
+            };
+            // DISTINCT without ORDER BY tells rows apart while scanning
+            let mut seen = (plan.distinct && strategy.limit == LimitMode::StopScan).then(HashSet::new);
             for (counter, row) in data.rows.iter().enumerate() {
-                Deadline::check(deadline, counter)?;
-                if early_limit.is_some_and(|limit| rows.len() as u64 >= limit) {
+                Deadline::check(execution.deadline, counter)?;
+                if stop_at.is_some_and(|limit| collector.len() >= limit) {
                     break;
                 }
                 let env = Env { row: Some(row), ..base };
                 if !passes(&plan.filter, &env)? {
                     continue;
                 }
+                let ordinal = filtered.push(counter);
+                if let Some(running) = &mut running {
+                    running.add(row);
+                }
                 let env = Env {
-                    balance: running.add(row),
+                    running: running.as_ref(),
                     ..env
                 };
-                let values = plan.targets.iter().map(|target| target.expr.eval(&env)).collect::<Result<Vec<_>, _>>()?;
-                budget.charge(row_weight(&values))?;
-                rows.push(values);
+                let mut cells = Vec::with_capacity(plan.targets.len());
+                for (idx, target) in plan.targets.iter().enumerate() {
+                    cells.push(if deferred.contains(&idx) { Value::Null } else { target.expr.eval(&env)? });
+                }
+                if let Some(seen) = &mut seen {
+                    if !seen.insert(cells[..plan.visible].to_vec()) {
+                        continue;
+                    }
+                }
+                collector.push(Built { cells, ordinal }, &plan.order, &mut budget)?;
             }
+            let ranked = matches!(collector, Collector::TopK { .. });
+            let mut rows = collector.into_rows();
+            if !plan.order.is_empty() && !ranked {
+                rows.sort_by(|a, b| order_cmp(&plan.order, &a.cells, &b.cells));
+            }
+            if !deferred.is_empty() {
+                // the rows are chosen: LIMIT applies now (no DISTINCT defers), then the
+                // replay evaluates the deferred targets of the rows that are left
+                if let Some(limit) = limit {
+                    rows.truncate(limit);
+                }
+                let mut needs = rows.iter().enumerate().map(|(slot, row)| (row.ordinal, slot)).collect::<Vec<_>>();
+                needs.sort_unstable();
+                let filtered_rows = filtered.rows.take().unwrap_or_default();
+                execution.replay(&filtered_rows, &needs, |slot, env| {
+                    for idx in deferred {
+                        let value = plan.targets[*idx].expr.eval(env)?;
+                        budget.change(weight(&rows[slot].cells[*idx]), weight(&value))?;
+                        rows[slot].cells[*idx] = value;
+                    }
+                    Ok(())
+                })?;
+            }
+            rows.into_iter().map(|row| row.cells).collect::<Vec<_>>()
         }
         Some(keys) => {
+            let deferred = &strategy.running.deferred_aggregates;
+            let first_groups = plan.limit.filter(|_| strategy.limit == LimitMode::FirstGroups);
             let mut groups: IndexMap<Vec<Value>, Vec<Accumulator>> = IndexMap::new();
             for (counter, row) in data.rows.iter().enumerate() {
-                Deadline::check(deadline, counter)?;
+                Deadline::check(execution.deadline, counter)?;
                 let env = Env { row: Some(row), ..base };
                 if !passes(&plan.filter, &env)? {
                     continue;
                 }
+                let ordinal = filtered.push(counter);
+                if let Some(running) = &mut running {
+                    running.add(row);
+                }
                 let env = Env {
-                    balance: running.add(row),
+                    running: running.as_ref(),
                     ..env
                 };
                 let key = keys.iter().map(|idx| plan.targets[*idx].expr.eval(&env)).collect::<Result<Vec<_>, _>>()?;
+                // LIMIT without ORDER BY keeps the first groups, so later ones are skipped
+                let full = first_groups.is_some_and(|limit| groups.len() as u64 >= limit);
                 let accumulators = match groups.entry(key) {
                     Entry::Occupied(entry) => entry.into_mut(),
+                    Entry::Vacant(_) if full => continue,
                     Entry::Vacant(entry) => {
-                        let accumulators = plan.aggregates.iter().map(Accumulator::new).collect::<Vec<_>>();
+                        let accumulators = plan
+                            .aggregates
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, call)| {
+                                if deferred.contains(&idx) {
+                                    Accumulator::PickRow(None)
+                                } else {
+                                    Accumulator::new(call)
+                                }
+                            })
+                            .collect::<Vec<_>>();
                         budget.charge(row_weight(entry.key()) + accumulators.iter().map(Accumulator::weight).sum::<u64>())?;
                         entry.insert(accumulators)
                     }
                 };
-                for (call, accumulator) in plan.aggregates.iter().zip(accumulators.iter_mut()) {
+                for (idx, (call, accumulator)) in plan.aggregates.iter().zip(accumulators.iter_mut()).enumerate() {
+                    if deferred.contains(&idx) {
+                        accumulator.pick_row(call, ordinal);
+                        continue;
+                    }
                     let before = accumulator.weight();
                     accumulator.update(call, &env)?;
                     budget.change(before, accumulator.weight())?;
                 }
             }
+            if !deferred.is_empty() {
+                // the replay evaluates every deferred first()/last() at the row it picks
+                let mut needs = vec![];
+                for (group, (_, accumulators)) in groups.iter().enumerate() {
+                    for (idx, accumulator) in accumulators.iter().enumerate() {
+                        if let Accumulator::PickRow(Some(ordinal)) = accumulator {
+                            needs.push((*ordinal, group * plan.aggregates.len() + idx));
+                        }
+                    }
+                }
+                needs.sort_unstable();
+                let filtered_rows = filtered.rows.take().unwrap_or_default();
+                execution.replay(&filtered_rows, &needs, |slot, env| {
+                    let (group, idx) = (slot / plan.aggregates.len(), slot % plan.aggregates.len());
+                    let value = match &plan.aggregates[idx].arg {
+                        Some(arg) => arg.eval(env)?,
+                        None => Value::Null,
+                    };
+                    budget.change(1, weight(&value))?;
+                    let (_, accumulators) = groups.get_index_mut(group).expect("a group");
+                    accumulators[idx] = Accumulator::Pick((!value.is_null()).then_some(value));
+                    Ok(())
+                })?;
+                // a group that never reached its deferred aggregate picks nothing
+                for (_, accumulators) in groups.iter_mut() {
+                    for accumulator in accumulators.iter_mut() {
+                        if let Accumulator::PickRow(None) = accumulator {
+                            *accumulator = Accumulator::Pick(None);
+                        }
+                    }
+                }
+            }
+            let mut rows = Vec::with_capacity(groups.len());
             for (counter, (key, accumulators)) in groups.into_iter().enumerate() {
-                Deadline::check(deadline, counter)?;
+                Deadline::check(execution.deadline, counter)?;
                 // the group becomes a row
                 budget.release(row_weight(&key) + accumulators.iter().map(Accumulator::weight).sum::<u64>());
                 let finished = accumulators.into_iter().map(Accumulator::finish).collect::<Vec<_>>();
@@ -695,26 +953,18 @@ pub(crate) fn execute_within(
                 budget.charge(row_weight(&out))?;
                 rows.push(out);
             }
-        }
-    }
-    Deadline::check(deadline, 0)?;
-
-    if !plan.order.is_empty() {
-        rows.sort_by(|a, b| {
-            for (idx, descending) in &plan.order {
-                let ordering = a[*idx].sort_cmp(&b[*idx]);
-                let ordering = if *descending { ordering.reverse() } else { ordering };
-                if ordering != Ordering::Equal {
-                    return ordering;
-                }
+            if !plan.order.is_empty() {
+                rows.sort_by(|a, b| order_cmp(&plan.order, a, b));
             }
-            Ordering::Equal
-        });
-    }
+            rows
+        }
+    };
+    Deadline::check(execution.deadline, 0)?;
+
     for row in rows.iter_mut() {
         row.truncate(plan.visible);
     }
-    if plan.distinct {
+    if plan.distinct && strategy.limit != LimitMode::StopScan {
         let mut seen = HashSet::with_capacity(rows.len());
         rows.retain(|row| seen.insert(row.clone()));
     }

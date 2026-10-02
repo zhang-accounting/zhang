@@ -65,8 +65,8 @@ fn a_journal_of_open_lots_stops_at_the_limit() {
     too_large("JOURNAL", 10_000);
     too_large("JOURNAL 'Broker'", 10_000);
     too_large("SELECT date, balance WHERE account ~ 'Broker'", 10_000);
-    // sorting needs every row first
-    too_large("SELECT date, balance WHERE account ~ 'Broker' ORDER BY date DESC LIMIT 3", 10_000);
+    // sorting on the balance needs every balance first
+    too_large("SELECT date, balance WHERE account ~ 'Broker' ORDER BY balance DESC", 10_000);
     // text counts too: str(balance) is as large as the balance
     too_large("SELECT str(balance) WHERE account ~ 'Broker'", 10_000);
     // so do the groups of an aggregate query while they are built
@@ -81,6 +81,9 @@ fn small_results_stay_within_the_limit() {
         "JOURNAL 'Broker' AT cost",
         "JOURNAL 'Broker' AT units",
         "SELECT date, balance WHERE account ~ 'Broker' LIMIT 3",
+        // only the rows ORDER BY and LIMIT keep build a balance
+        "SELECT date, balance WHERE account ~ 'Broker' ORDER BY date DESC LIMIT 3",
+        "SELECT date, balance WHERE account ~ 'Broker' ORDER BY balance DESC LIMIT 3",
         "SELECT account, last(balance) GROUP BY account",
         "BALANCES",
         "SELECT count(*), sum(position)",

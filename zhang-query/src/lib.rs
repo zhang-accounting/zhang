@@ -46,6 +46,8 @@
 mod ast;
 mod compiler;
 pub mod decimal;
+#[cfg(test)]
+mod equivalence_tests;
 pub mod error;
 mod executor;
 pub mod export;
@@ -56,6 +58,7 @@ mod parser;
 mod period;
 pub mod prices;
 mod projector;
+mod running;
 mod statements;
 pub mod table;
 pub mod value;
@@ -104,7 +107,24 @@ impl Query {
     pub fn compile_with_params(query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
         let select = parser::parse(query)?;
         let plan = compiler::compile(query, &select, params).map_err(|err| err.resolve(query))?;
-        let plan = optimizer::optimize(plan).map_err(|err| err.resolve(query))?;
+        let mut plan = optimizer::optimize(plan).map_err(|err| err.resolve(query))?;
+        projector::plan_running(&mut plan);
+        let projection = projector::project(&plan);
+        Ok(Query {
+            source: query.to_owned(),
+            plan,
+            projection,
+        })
+    }
+
+    /// Compile without the execution decisions of the optimizer and the projector: every
+    /// expression is evaluated for every row and LIMIT applies to the sorted rows. Tests
+    /// compare it with [`Query::compile`], which must return the same results.
+    #[cfg(test)]
+    pub(crate) fn compile_naive(query: &str) -> Result<Query, QueryError> {
+        let select = parser::parse(query)?;
+        let plan = compiler::compile(query, &select, &ParamTypes::default()).map_err(|err| err.resolve(query))?;
+        let plan = optimizer::optimize_naive(plan).map_err(|err| err.resolve(query))?;
         let projection = projector::project(&plan);
         Ok(Query {
             source: query.to_owned(),

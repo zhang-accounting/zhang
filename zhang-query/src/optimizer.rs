@@ -18,8 +18,15 @@
 //!    `balance` is state of the execution and is never folded.
 //! 5. [`precompile_regex`]: a match against a constant pattern compiles the regular
 //!    expression once; invalid patterns are compile errors at the pattern.
+//!
+//! Then [`plan_execution`] decides about the plan as a whole:
+//!
+//! 6. [`limit_mode`]: how LIMIT cuts the work short. Without ORDER BY a scan stops once it has
+//!    LIMIT rows (telling DISTINCT rows apart while scanning) and an aggregate query only
+//!    aggregates its first LIMIT groups; with ORDER BY (and no DISTINCT) the scan keeps the
+//!    top LIMIT rows instead of sorting them all.
 
-use crate::compiler::{build_regex, CExpr, Plan, RegexPattern};
+use crate::compiler::{build_regex, CExpr, LimitMode, Plan, RegexPattern};
 use crate::error::LocatedError;
 use crate::executor::eval_constant;
 use crate::value::Value;
@@ -28,8 +35,36 @@ use crate::value::Value;
 /// row) and are therefore never folded, even with constant arguments.
 const NOT_FOLDABLE: &[&str] = &["today", "meta", "entry_meta", "any_meta", "convert", "value", "getprice"];
 
-/// Optimize a compiled plan.
-pub(crate) fn optimize(mut plan: Plan) -> Result<Plan, LocatedError> {
+/// Optimize a compiled plan: rewrite its expressions, then [`plan_execution`].
+pub(crate) fn optimize(plan: Plan) -> Result<Plan, LocatedError> {
+    let mut plan = optimize_expressions(plan)?;
+    plan_execution(&mut plan);
+    Ok(plan)
+}
+
+/// Only the expression rules, leaving the naive execution the compiler chose: the reference
+/// the decisions of [`plan_execution`] are tested against.
+#[cfg(test)]
+pub(crate) fn optimize_naive(plan: Plan) -> Result<Plan, LocatedError> {
+    optimize_expressions(plan)
+}
+
+/// The decisions about the plan as a whole: [`limit_mode`].
+pub(crate) fn plan_execution(plan: &mut Plan) {
+    plan.execution.limit = limit_mode(plan);
+}
+
+/// How LIMIT can cut the work short (see the module docs).
+pub(crate) fn limit_mode(plan: &Plan) -> LimitMode {
+    match (&plan.group_keys, plan.order.is_empty(), plan.distinct, plan.limit.is_some()) {
+        (None, true, _, _) => LimitMode::StopScan,
+        (None, false, false, true) => LimitMode::TopK,
+        (Some(_), true, false, true) => LimitMode::FirstGroups,
+        _ => LimitMode::AfterSort,
+    }
+}
+
+fn optimize_expressions(mut plan: Plan) -> Result<Plan, LocatedError> {
     plan.filter = merge_filters(std::mem::take(&mut plan.filters)).map(optimize_expr).transpose()?;
     if matches!(plan.filter, Some(CExpr::Const(Value::Bool(true)))) {
         // a filter that always holds is no filter
@@ -152,7 +187,7 @@ pub(crate) fn simplify_logic(expr: CExpr) -> CExpr {
 /// Evaluate a node whose operands are all constants once, at compile time.
 pub(crate) fn fold_constants(expr: CExpr) -> CExpr {
     let foldable = match &expr {
-        CExpr::Const(_) | CExpr::Column(_) | CExpr::RunningBalance | CExpr::Param(_) | CExpr::Aggregate(_) => false,
+        CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_) => false,
         CExpr::Scalar { function, .. } if NOT_FOLDABLE.contains(&function.name) => false,
         node => node.children().iter().all(|child| matches!(child, CExpr::Const(_))),
     };
@@ -200,7 +235,7 @@ pub(crate) fn precompile_regex(expr: CExpr) -> Result<CExpr, LocatedError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compiler::{ArithOp, ArithStep};
+    use crate::compiler::{ArithOp, ArithStep, Running};
     use crate::error::{QueryErrorKind, Span};
     use crate::functions::SCALAR_FUNCTIONS;
     use crate::table::column;
@@ -331,9 +366,12 @@ mod tests {
         // nodes reading a column are not constant
         assert_eq!(show(&fold_constants(is_null(col("payee")))), "(payee IS NULL)");
         // nor is the running balance, which changes from row to row
-        assert_eq!(show(&fold_constants(CExpr::RunningBalance)), "balance");
-        assert_eq!(show(&fold_constants(is_null(CExpr::RunningBalance))), "(balance IS NULL)");
-        assert_eq!(show(&optimize_expr(scalar("units", vec![CExpr::RunningBalance])).unwrap()), "units(balance)");
+        assert_eq!(show(&fold_constants(CExpr::Running(Running::Balance))), "balance");
+        assert_eq!(show(&fold_constants(is_null(CExpr::Running(Running::Balance)))), "(balance IS NULL)");
+        assert_eq!(
+            show(&optimize_expr(scalar("units", vec![CExpr::Running(Running::Balance)])).unwrap()),
+            "units(balance)"
+        );
         // failures are left for execution, which reports them with a position
         let overflow = chain(CExpr::Const(Value::Int(i64::MAX)), vec![(ArithOp::Add, CExpr::Const(Value::Int(1)))]);
         assert!(matches!(fold_constants(overflow), CExpr::Arith { .. }));
