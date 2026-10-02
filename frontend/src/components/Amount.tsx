@@ -1,45 +1,78 @@
 import BigNumber from 'bignumber.js';
+import { useAtomValue } from 'jotai';
+import { selectAtom } from 'jotai/utils';
+import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { cn } from '@/lib/utils';
 import { loadable_unwrap } from '../states';
 import { commoditiesAtom } from '../states/commodity';
-import { selectAtom } from 'jotai/utils';
-import { useAtomValue } from 'jotai';
-import { useMemo } from 'react';
 
 interface Props {
   amount: string | number | BigNumber;
   currency: string;
+  /** Flip the sign before displaying (e.g. income / liabilities are stored as negative numbers). */
   negative?: boolean;
+  /** Replace every digit with `*`. */
   mask?: boolean;
+  /**
+   * Short notation (`¥444.7K`, `¥44.5万`) for |value| >= 10,000 (smaller values are shown in full: `¥18.01`, not `¥18`);
+   * the full value is kept in the `title` attribute.
+   */
+  compact?: boolean;
+  /** Colour by sign: positive → `text-positive`, negative → `text-negative`, zero → unchanged. */
+  tone?: boolean;
+  /** Prefix positive values with `+`. */
+  signed?: boolean;
+  /** Number only: no commodity prefix / suffix / name (dense lists where the currency is implied, e.g. sidebar accounts). */
+  plain?: boolean;
   className?: string;
 }
 
-export default function Amount({ amount, currency, negative, mask, className }: Props) {
+/** Semantic colour for a signed amount. Only use it for money moving in / out, never for decoration. */
+function amountToneClass(value: BigNumber.Value) {
+  const number = new BigNumber(value);
+  if (number.isNaN() || number.isZero()) return '';
+  return number.isPositive() ? 'text-positive' : 'text-negative';
+}
+
+/** Below this, compact notation would only drop precision without saving space. */
+const COMPACT_THRESHOLD = 10_000;
+
+/** Locale-aware compact number (`444.7K`, `44.5万`). */
+function formatCompactNumber(value: BigNumber.Value, locale?: string) {
+  const number = new BigNumber(value).toNumber();
+  return new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(number);
+}
+
+/** Money with the commodity's prefix / suffix / precision. Always tabular figures. */
+export default function Amount({ amount, currency, negative, mask, compact, tone, signed, plain, className }: Props) {
+  const { i18n } = useTranslation();
   const commodity = useAtomValue(useMemo(() => selectAtom(commoditiesAtom, (val) => loadable_unwrap(val, undefined, (val) => val[currency])), [currency]));
 
   const flag = negative || false ? -1 : 1;
-  const shouldMask = mask || false;
-  const shouldDisplayCurrencyName = !commodity?.prefix && !commodity?.suffix;
+  const shouldDisplayCurrencyName = !plain && !commodity?.prefix && !commodity?.suffix;
+  const prefix = plain ? undefined : commodity?.prefix;
+  const suffix = plain ? undefined : commodity?.suffix;
 
-  let parsedValue: BigNumber;
-  if (typeof amount === 'string') {
-    parsedValue = new BigNumber(amount);
-  } else if (typeof amount === 'number') {
-    parsedValue = new BigNumber(amount);
-  } else {
-    parsedValue = amount;
-  }
-
+  const parsedValue = BigNumber.isBigNumber(amount) ? amount : new BigNumber(amount);
   const value = parsedValue.multipliedBy(flag);
   const isNegative = !value.isZero() && value.isNegative();
-  const displayedValue = value.abs().toFormat(commodity?.precision ?? 2);
-  const maskedValue = shouldMask ? displayedValue.replace(/\d/g, '*') : displayedValue;
+  const fullValue = value.abs().toFormat(commodity?.precision ?? 2);
+  const useCompact = compact && value.abs().gte(COMPACT_THRESHOLD);
+  const displayedValue = useCompact ? formatCompactNumber(value.abs(), i18n.language) : fullValue;
+  const maskedValue = mask ? displayedValue.replace(/\d/g, '*') : displayedValue;
+  const sign = isNegative ? '-' : signed && !value.isZero() ? '+' : '';
+  const title = useCompact && !mask ? `${sign}${prefix ?? ''}${fullValue}${suffix ?? ''}${shouldDisplayCurrencyName ? ` ${currency}` : ''}` : undefined;
+
   return (
-    <span className={`inline-flex gap-0.5 ${className}`}>
-      {isNegative && <span className="font-feature-settings-tnum">-</span>}
-      <span className="font-feature-settings-tnum">{commodity?.prefix}</span>
-      <span className="font-feature-settings-tnum">{maskedValue}</span>
-      {commodity?.suffix && <span className="font-feature-settings-tnum">{commodity?.suffix}</span>}
-      {shouldDisplayCurrencyName && <span className="font-feature-settings-tnum">{currency}</span>}
+    <span className={cn('inline-flex items-baseline gap-1 whitespace-nowrap tabular-nums', tone && amountToneClass(value), className)} title={title}>
+      <span>
+        {sign}
+        {prefix}
+        {maskedValue}
+        {suffix}
+      </span>
+      {shouldDisplayCurrencyName && <span className="text-[0.8em] font-normal opacity-70">{currency}</span>}
     </span>
   );
 }

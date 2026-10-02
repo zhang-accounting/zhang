@@ -58,7 +58,7 @@ const PHASE2_FEATURES_LANDED: bool = true;
 /// over beanquery's tables). While it is `false`, every fixture with `"phase": 3` is reported as
 /// `PENDING-PHASE3` and cannot fail the test. Flip it to `true` once the Phase 3 features have
 /// landed; then delete the gate.
-const PHASE3_FEATURES_LANDED: bool = false;
+const PHASE3_FEATURES_LANDED: bool = true;
 
 /// Whether the fixtures of a phase are still pending (non-fatal), see the gates above.
 fn phase_pending(phase: u64) -> bool {

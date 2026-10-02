@@ -12,12 +12,25 @@ import CodeMirror, {
   ViewPlugin,
   ViewUpdate,
 } from '@uiw/react-codemirror';
+import { useTheme } from 'next-themes';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
 
 // Lightweight BQL highlighting built on the view package only, since no CodeMirror language package is installed.
-// Groups: string, date, number, `#table`, keyword, function name.
-const TOKEN_REGEXP =
-  /("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|\b(\d{4}-\d{2}-\d{2})\b|\b(\d+(?:\.\d+)?)\b|(?<![\w#])(#[a-z_][a-z0-9_]*)|\b(select|distinct|from|where|group|by|order|asc|desc|limit|as|and|or|not|in|is|null|true|false|open|close|on|clear|balances|journal|at|pivot|having)\b|\b([a-z_][a-z0-9_]*)(?=\s*\()/gi;
+const KEYWORDS =
+  'select|distinct|from|where|group|by|order|asc|desc|limit|as|and|or|not|in|is|null|true|false|open|close|on|clear|balances|journal|at|pivot|having';
+// one capture group per token kind, in this order: string, date, number, `#table`, keyword, function name
+const TOKEN_REGEXP = new RegExp(
+  [
+    /("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)/.source,
+    /\b(\d{4}-\d{2}-\d{2})\b/.source,
+    /\b(\d+(?:\.\d+)?)\b/.source,
+    /(?<![\w#])(#[a-z_][a-z0-9_]*)/.source,
+    `\\b(${KEYWORDS})\\b`,
+    /\b([a-z_][a-z0-9_]*)(?=\s*\()/.source,
+  ].join('|'),
+  'gi',
+);
 
 const tokenMarks = {
   string: Decoration.mark({ class: 'cm-bql-string' }),
@@ -80,18 +93,23 @@ const errorField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field),
 });
 
+/**
+ * Syntax colours from the chart palette, pulled towards `--foreground` so they read as text (>= 5:1 on the card in light and
+ * dark; amber needs the larger share). The tokens switch with `.dark`, so one rule covers both themes.
+ */
+const syntaxColor = (chart: number, share = 80) => `color-mix(in oklch, var(--chart-${chart}) ${share}%, var(--foreground))`;
+
 const queryEditorTheme = EditorView.baseTheme({
-  '&': { fontSize: '13px' },
-  '.cm-content': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
+  '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.6' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-bql-keyword': { color: '#7c3aed', fontWeight: '600' },
-  '.cm-bql-function': { color: '#0369a1' },
-  '.cm-bql-table': { color: '#0f766e', fontWeight: '600' },
-  '.cm-bql-string': { color: '#047857' },
-  '.cm-bql-number': { color: '#1d4ed8' },
-  '.cm-bql-date': { color: '#b45309' },
-  '.cm-query-error-line': { backgroundColor: 'rgba(220, 38, 38, 0.08)' },
-  '.cm-query-error': { textDecoration: 'underline wavy #dc2626', textDecorationSkipInk: 'none' },
+  '.cm-bql-keyword': { color: syntaxColor(5), fontWeight: '600' },
+  '.cm-bql-function': { color: syntaxColor(3) },
+  '.cm-bql-table': { color: syntaxColor(3), fontWeight: '600' },
+  '.cm-bql-string': { color: syntaxColor(1) },
+  '.cm-bql-number': { color: syntaxColor(2) },
+  '.cm-bql-date': { color: syntaxColor(4, 60) },
+  '.cm-query-error-line': { backgroundColor: 'color-mix(in oklch, var(--destructive) 12%, transparent)' },
+  '.cm-query-error': { textDecoration: 'underline wavy var(--destructive)', textDecorationSkipInk: 'none' },
 });
 
 interface Props {
@@ -100,10 +118,18 @@ interface Props {
   onRun: () => void;
   error: QueryError | null;
   placeholder?: string;
+  /** Accessible name of the editable area. */
+  label?: string;
   onCreateEditor?: (view: EditorView) => void;
+  className?: string;
 }
 
-export default function QueryEditor({ value, onChange, onRun, error, placeholder, onCreateEditor }: Props) {
+/**
+ * BQL editor (CodeMirror): Cmd/Ctrl+Enter runs, the server's error position is underlined. Font size comes from the
+ * container (`text-base md:text-sm`: 16px on phones so iOS does not zoom on focus).
+ */
+export default function QueryEditor({ value, onChange, onRun, error, placeholder, label, onCreateEditor, className }: Props) {
+  const { resolvedTheme } = useTheme();
   const [view, setView] = useState<EditorView | null>(null);
   const onRunRef = useRef(onRun);
   onRunRef.current = onRun;
@@ -125,8 +151,9 @@ export default function QueryEditor({ value, onChange, onRun, error, placeholder
       errorField,
       queryEditorTheme,
       EditorView.lineWrapping,
+      EditorView.contentAttributes.of(label ? { 'aria-label': label } : {}),
     ],
-    [],
+    [label],
   );
 
   useEffect(() => {
@@ -141,6 +168,13 @@ export default function QueryEditor({ value, onChange, onRun, error, placeholder
       onChange={onChange}
       extensions={extensions}
       placeholder={placeholder}
+      theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+      className={cn(
+        '[&_.cm-editor]:bg-transparent! [&_.cm-placeholder]:text-muted-foreground!',
+        '[&_.cm-gutters]:border-r! [&_.cm-gutters]:border-border! [&_.cm-gutters]:bg-transparent! [&_.cm-gutters]:text-muted-foreground!',
+        '[&_.cm-activeLine]:bg-muted/40! [&_.cm-activeLineGutter]:bg-muted!',
+        className,
+      )}
       minHeight="120px"
       maxHeight="45vh"
       basicSetup={{ foldGutter: false, autocompletion: false }}

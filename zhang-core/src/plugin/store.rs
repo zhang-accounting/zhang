@@ -5,17 +5,14 @@ use std::str::FromStr;
 use extism::convert::Json as WasmJson;
 #[cfg(feature = "plugin_runtime")]
 use extism::{Manifest, Plugin as WasmPlugin, Wasm};
-use itertools::Itertools;
-use log::info;
+use log::{info, warn};
 use sha256::digest;
 use zhang_ast::{Directive, Plugin, Spanned};
 
 use crate::domains::schemas::OptionDomain;
+use crate::plugin::capabilities::PluginDeclaration;
 use crate::plugin::PluginType;
 use crate::{ZhangError, ZhangResult};
-
-/// meta key on a `plugin` directive granting it HTTP access to the given hosts
-const ALLOWED_HOSTS_KEY: &str = "allowed_hosts";
 
 #[derive(Default)]
 pub struct PluginStore {
@@ -47,38 +44,17 @@ impl PluginStore {
             .call::<(), WasmJson<String>>("version", ())
             .map_err(|e| ZhangError::CustomError(format!("Failed to call 'version': {}", e)))?
             .0;
-        let plugin_types = plugin
-            .call::<(), WasmJson<Vec<PluginType>>>("supported_type", ())
+        let declared_types = plugin
+            .call::<(), WasmJson<Vec<serde_json::Value>>>("supported_type", ())
             .map_err(|e| ZhangError::CustomError(format!("Failed to call 'supported_type': {}", e)))?
             .0;
-
-        // the plugin's own declaration carries its configuration:
-        //   plugin "fx-rate.wasm"
-        //     allowed_hosts: "api.frankfurter.dev"
-        //     base_currency: "USD"
-        // `allowed_hosts` grants network access to those hosts only (no entry = no network),
-        // every meta entry is handed to the plugin as its config.
-        let allowed_hosts = _plugin
-            .meta
-            .get_all(ALLOWED_HOSTS_KEY)
-            .into_iter()
-            .map(|it| it.as_str().to_owned())
-            .collect_vec();
-        let config = _plugin
-            .meta
-            .clone()
-            .get_flatten()
-            .into_iter()
-            .filter(|(key, _)| key != ALLOWED_HOSTS_KEY)
-            .map(|(key, value)| (key, value.to_plain_string()))
-            .collect_vec();
+        let plugin_types = known_plugin_types(&name, declared_types)?;
 
         let registered_plugin = RegisteredPlugin {
             name,
             version,
             module_bytes,
-            allowed_hosts,
-            config,
+            declaration: PluginDeclaration::parse(_plugin),
         };
         if plugin_types.contains(&PluginType::Processor) {
             self.processors.push(registered_plugin.clone())
@@ -111,33 +87,46 @@ impl PluginStore {
     }
 }
 
+/// the plugin types this host knows among the ones a plugin declares.
+/// An unknown type (from a newer zhang, say) is dropped with a warning, so the plugin still loads.
+fn known_plugin_types(plugin_name: &str, declared: Vec<serde_json::Value>) -> ZhangResult<Vec<PluginType>> {
+    let mut known = vec![];
+    for value in declared {
+        let plugin_type = serde_json::from_value::<PluginType>(value.clone())
+            .map_err(|e| ZhangError::CustomError(format!("plugin {plugin_name} declares an invalid plugin type {value}: {e}")))?;
+        match plugin_type {
+            PluginType::Unknown => warn!("plugin {plugin_name} declares the plugin type {value}, which this version of zhang does not know; ignoring it"),
+            plugin_type => known.push(plugin_type),
+        }
+    }
+    Ok(known)
+}
+
 #[derive(Clone)]
 pub struct RegisteredPlugin {
     pub name: String,
     pub version: String,
     /// the wasm module, kept in memory so executions don't re-read the cache file
     module_bytes: Vec<u8>,
-    /// hosts this plugin may reach over HTTP; empty means no network access
-    allowed_hosts: Vec<String>,
-    /// the plugin's own configuration, taken from its directive's meta
-    config: Vec<(String, String)>,
+    /// the capabilities and config declared by the plugin's directive
+    declaration: PluginDeclaration,
 }
 
 impl RegisteredPlugin {
-    pub fn load_as_plugin(&self, options: &[OptionDomain]) -> ZhangResult<WasmPlugin> {
-        info!("loading plugin {} {}", self.name, self.version);
-        // the ledger's options, then the plugin's own config (the latter wins on conflict)
-        let config = options
-            .iter()
-            .map(|it| (it.key.clone(), it.value.clone()))
-            .chain(self.config.iter().cloned())
-            .collect_vec();
+    fn manifest(&self, options: &[OptionDomain]) -> Manifest {
+        // the host sets no reserved `zhang.*` config yet
+        let config = self.declaration.config_with(options, []);
         let wasm = Wasm::data(self.module_bytes.clone());
-        let manifest = Manifest::new([wasm])
+        Manifest::new([wasm])
             .with_config(config.into_iter())
             // no declared host means the plugin gets no network access at all
-            .with_allowed_hosts(self.allowed_hosts.iter().cloned());
-        let plugin = WasmPlugin::new(manifest, [], true).map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
+            .with_allowed_hosts(self.declaration.capabilities.allowed_hosts.iter().cloned())
+    }
+
+    pub fn load_as_plugin(&self, options: &[OptionDomain]) -> ZhangResult<WasmPlugin> {
+        info!("loading plugin {} {}", self.name, self.version);
+        let plugin =
+            WasmPlugin::new(self.manifest(options), [], true).map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
 
         Ok(plugin)
     }
@@ -163,5 +152,98 @@ impl RegisteredPlugin {
             ret.extend(mapped);
         }
         Ok(ret)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::BTreeMap;
+
+    use serde_json::json;
+    use zhang_ast::{Meta, Plugin, ZhangString};
+
+    use crate::domains::schemas::OptionDomain;
+    use crate::plugin::capabilities::PluginDeclaration;
+    use crate::plugin::store::{known_plugin_types, RegisteredPlugin};
+    use crate::plugin::PluginType;
+
+    #[test]
+    fn should_hand_the_plugin_options_and_meta_without_allowed_hosts() {
+        let meta: Meta = [
+            ("allowed_hosts", "api.frankfurter.dev"),
+            ("base_currency", "USD"),
+            ("allowed_hosts", "api.example.com"),
+            ("operating_currency", "EUR"),
+            ("tag", "first"),
+            ("tag", "second"),
+            ("zhang.mine", "kept"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), ZhangString::quote(value)))
+        .collect();
+        let directive = Plugin {
+            module: ZhangString::quote("fx-rate.wasm"),
+            value: vec![ZhangString::quote("positional")],
+            meta,
+        };
+        let options = [("operating_currency", "CNY"), ("timezone", "UTC")].map(|(key, value)| OptionDomain {
+            key: key.to_owned(),
+            value: value.to_owned(),
+        });
+        let plugin = RegisteredPlugin {
+            name: "fx-rate".to_owned(),
+            version: "0.1.0".to_owned(),
+            module_bytes: vec![],
+            declaration: PluginDeclaration::parse(&directive),
+        };
+
+        let manifest = plugin.manifest(&options);
+
+        let expected: BTreeMap<String, String> = [
+            ("base_currency", "USD"),
+            ("operating_currency", "EUR"),
+            ("tag", "second"),
+            ("timezone", "UTC"),
+            ("zhang.mine", "kept"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .collect();
+        assert_eq!(manifest.config, expected);
+        assert_eq!(
+            manifest.allowed_hosts,
+            Some(vec!["api.frankfurter.dev".to_owned(), "api.example.com".to_owned()])
+        );
+    }
+
+    #[test]
+    fn should_deny_network_without_allowed_hosts() {
+        let directive = Plugin {
+            module: ZhangString::quote("offline.wasm"),
+            value: vec![],
+            meta: Meta::default(),
+        };
+        let plugin = RegisteredPlugin {
+            name: "offline".to_owned(),
+            version: "0.1.0".to_owned(),
+            module_bytes: vec![],
+            declaration: PluginDeclaration::parse(&directive),
+        };
+
+        assert_eq!(plugin.manifest(&[]).allowed_hosts, Some(vec![]));
+    }
+
+    #[test]
+    fn should_ignore_unknown_plugin_types() {
+        let declared = vec![json!("Teleporter"), json!("Processor"), json!("Router"), json!("Mapper")];
+
+        let known = known_plugin_types("future", declared).unwrap();
+
+        assert_eq!(known, vec![PluginType::Processor, PluginType::Router, PluginType::Mapper]);
+    }
+
+    #[test]
+    fn should_reject_a_plugin_type_that_is_not_a_name() {
+        assert!(known_plugin_types("broken", vec![json!(42)]).is_err());
     }
 }

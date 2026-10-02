@@ -5,10 +5,22 @@
     <link rel="icon"  href="/favicon.ico" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-    <link rel="apple-touch-icon" href="/logo.jpg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Browser UI colour = --background (light: #f9fafa, dark: #111312); App.tsx follows the chosen theme. -->
+    <meta name="theme-color" content="#f9fafa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111312" media="(prefers-color-scheme: dark)" />
     <title>Zhang accounting</title>
+    <script>
+      // Apply the persisted next-themes choice before first paint to avoid a light flash in dark mode.
+      try {
+        var theme = localStorage.getItem('theme') || 'system';
+        var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('dark', dark);
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

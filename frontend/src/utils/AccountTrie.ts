@@ -10,6 +10,7 @@ export default class AccountTrie {
   amount: MultiCommodityAmount = new MultiCommodityAmount();
 
   insert(account: AccountListItem) {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- walking the trie from the root node
     let node: AccountTrie = this;
     let word: string = '';
     for (const ch of account.name.split(':')) {

@@ -26,8 +26,10 @@
 //! language reference. Its columns appear in `GET /api/query/schema` automatically.
 
 mod accounts;
+mod budgets;
 mod directives;
 mod entries;
+mod errors;
 mod postings;
 mod prices;
 
@@ -119,6 +121,8 @@ static TABLES: &[&Table] = &[
     &directives::DOCUMENTS,
     &accounts::ACCOUNTS,
     &directives::COMMODITIES,
+    &budgets::BUDGETS,
+    &errors::ERRORS,
 ];
 
 /// Every table a query can read, `postings` first.
@@ -235,6 +239,10 @@ pub(crate) enum Record<'a> {
         open: Option<&'a Spanned<Directive>>,
         close: Option<&'a Spanned<Directive>>,
     },
+    /// one month of a budget
+    Budget(budgets::BudgetMonth<'a>),
+    /// a ledger error
+    Error(errors::LedgerError<'a>),
 }
 
 impl<'a> Record<'a> {
@@ -244,12 +252,18 @@ impl<'a> Record<'a> {
         match self {
             Record::Directive(directive) | Record::Balance { directive, .. } => directive_meta(&directive.data),
             Record::Account { open, close, .. } => open.or(*close).and_then(|directive| directive_meta(&directive.data)),
+            Record::Budget(month) => month.metadata(),
+            // an error's details are not directive metadata (see `meta`)
+            Record::Error(_) => None,
         }
     }
 
-    /// Metadata `key` of the row, as a string.
+    /// Metadata `key` of the row, as a string; for an error, what zhang records about it.
     fn meta(&self, key: &str) -> Option<String> {
-        self.metadata().and_then(|meta| meta.get_one(key)).map(|value| value.as_str().to_owned())
+        match self {
+            Record::Error(error) => error.meta(key),
+            _ => self.metadata().and_then(|meta| meta.get_one(key)).map(|value| value.as_str().to_owned()),
+        }
     }
 }
 

@@ -1,119 +1,117 @@
-import { format } from 'date-fns';
-import Amount from '../Amount';
-import DashLine from '../DashedLine';
-import Section from '../Section';
-import DocumentPreview from './DocumentPreview';
-import AccountDocumentUpload from '../AccountDocumentUpload';
-import { ImageLightBox } from '../ImageLightBox';
+import { useSetAtom } from 'jotai';
 import { useState } from 'react';
-import { Badge } from '@/components/ui/badge.tsx';
+import { useTranslation } from 'react-i18next';
 import { JournalTransactionItem } from '@/api/types';
+import { useDateFormat } from '@/components/layout/use-date-format';
+import { Badge } from '@/components/ui/badge';
+import { journalFetcher } from '@/states/journals';
+import { calculate } from '../../utils/trx-calculator';
+import AccountDocumentUpload from '../AccountDocumentUpload';
+import Amount from '../Amount';
+import PayeeNarration from '../basic/PayeeNarration';
+import { ImageLightBox } from '../ImageLightBox';
+import { JournalStatusBadge, JournalTypeBadge } from '../journalLines/JournalBits';
+import DocumentPreview from './DocumentPreview';
+import { PostingRow, PreviewHeader, PreviewList, PreviewRow, PreviewSection } from './PreviewParts';
 
 interface Props {
   data: JournalTransactionItem;
 }
 
-export default function TransactionPreview(props: Props) {
+export default function TransactionPreview({ data }: Props) {
+  const { t } = useTranslation();
+  const fmt = useDateFormat();
+  const refreshJournals = useSetAtom(journalFetcher);
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
+  const summary = Array.from(calculate(data).values());
+  const metas = (data.metas ?? []).filter((meta) => meta.key !== 'document');
+  const documents = (data.metas ?? []).filter((meta) => meta.key === 'document');
+  const tags = data.tags ?? [];
+  const links = data.links ?? [];
 
   return (
-    <div className="overflow-y-auto">
-      <Section title="Transaction Info">
-        <DashLine>
-          <p className="line-clamp-1">Datetime</p>
-          <p className="line-clamp-1">{format(new Date(props.data.datetime), 'yyyy-MM-dd HH:mm:ss')}</p>
-        </DashLine>
-
-        <DashLine>
-          <p className="line-clamp-1">Type</p>
-          <p className="line-clamp-1">Transaction</p>
-        </DashLine>
-        <DashLine>
-          <p className="line-clamp-1">Check Status</p>
-          <p className="line-clamp-1">{props.data.is_balanced ? <Badge variant="outline">Pass</Badge> : <Badge color={'red'}>UNBALANCED</Badge>}</p>
-        </DashLine>
-        <DashLine>
-          <p className="line-clamp-1">Payee</p>
-          <p className="line-clamp-1">{props.data.payee}</p>
-        </DashLine>
-        <DashLine>
-          <p className="line-clamp-1">Narration</p>
-          <p className="line-clamp-1">{props.data.narration}</p>
-        </DashLine>
-
-        {(props.data.links || []).length > 0 && (
-          <DashLine>
-            <p className="line-clamp-1">Links</p>
-            <p className="line-clamp-1">
-              <div className="flex items-center gap-2">
-                {(props.data.links || []).map((link) => (
-                  <Badge key={link} variant="outline">
-                    {link}
-                  </Badge>
-                ))}
-              </div>
-            </p>
-          </DashLine>
-        )}
-
-        {(props.data.tags || []).length > 0 && (
-          <DashLine>
-            <p className="line-clamp-1">Tags</p>
-            <p className="line-clamp-1">
-              <div className="flex items-center gap-2">
-                {(props.data.tags || []).map((tag) => (
-                  <Badge key={tag} variant="outline">
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
-            </p>
-          </DashLine>
-        )}
-      </Section>
-      <div className="mx-1 my-4">
-        <Section title="Postings">
+    <div className="flex flex-col gap-5 pt-4 pb-2 md:pt-0">
+      <PreviewHeader
+        badges={
           <>
-            {props.data.postings.map((posting, idx) => (
-              <DashLine key={idx}>
-                <p className="line-clamp-1">{posting.account}</p>
-                <div className={'flex flex-col items-end'}>
-                  <Amount amount={posting.inferred_unit.number} currency={posting.inferred_unit.commodity} />
-                  <div className={'text-sm text-gray-500'}>
-                    Balance: <Amount amount={posting.account_after.number} currency={posting.account_after.commodity} />
-                  </div>
-                </div>
-              </DashLine>
-            ))}
+            <JournalTypeBadge type="Transaction" />
+            <JournalStatusBadge data={data} />
+            {data.flag && data.flag !== '*' && data.flag !== '!' && <Badge variant="outline">{data.flag}</Badge>}
           </>
-        </Section>
-      </div>
-
-      {(props.data.metas ?? []).length > 0 && (
-        <Section title="Metas">
-          {(props.data.metas ?? [])
-            .filter((meta) => meta.key !== 'document')
-            .map((meta, idx) => (
-              <DashLine key={idx}>
-                <p className="line-clamp-1">{meta.key}</p>
-                <p className="line-clamp-1">{meta.value}</p>
-              </DashLine>
-            ))}
-        </Section>
-      )}
-      <div className="mx-1 my-4">
-        <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
-        <Section title={`${(props.data.metas ?? []).filter((meta) => meta.key === 'document').length} Documents`}>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-            {(props.data.metas ?? [])
-              .filter((meta) => meta.key === 'document')
-              .map((meta, idx) => (
-                <DocumentPreview onClick={() => setLightboxSrc(meta.value)} key={idx} uri={meta.value} filename={meta.value} />
+        }
+        amount={
+          summary.length > 0 && (
+            <span className="flex flex-col gap-0.5">
+              {summary.map((each) => (
+                <Amount key={each.commodity} tone signed amount={each.number} currency={each.commodity} />
               ))}
-            <AccountDocumentUpload id={props.data.id} type="transaction" />
-          </div>
-        </Section>
-      </div>
+            </span>
+          )
+        }
+        title={<PayeeNarration payee={data.payee} narration={data.narration} className="whitespace-normal" />}
+        meta={fmt.weekdayDate(new Date(data.datetime)) + ' · ' + fmt.format(new Date(data.datetime), 'HH:mm:ss')}
+      />
+
+      <PreviewSection title={t('ledger.preview.postings')}>
+        <PreviewList>
+          {data.postings.map((posting, idx) => (
+            <PostingRow
+              key={idx}
+              account={posting.account}
+              amount={<Amount amount={posting.inferred_unit.number} currency={posting.inferred_unit.commodity} />}
+              balance={
+                <>
+                  {t('ledger.preview.balance_after')} <Amount amount={posting.account_after.number} currency={posting.account_after.commodity} />
+                </>
+              }
+            />
+          ))}
+        </PreviewList>
+      </PreviewSection>
+
+      {(tags.length > 0 || links.length > 0 || metas.length > 0) && (
+        <PreviewSection title={t('ledger.preview.details')}>
+          <PreviewList>
+            {links.length > 0 && (
+              <PreviewRow label={t('ledger.preview.links')}>
+                <span className="inline-flex flex-wrap justify-end gap-1">
+                  {links.map((link) => (
+                    <Badge key={link} variant="secondary">
+                      ^{link}
+                    </Badge>
+                  ))}
+                </span>
+              </PreviewRow>
+            )}
+            {tags.length > 0 && (
+              <PreviewRow label={t('ledger.preview.tags')}>
+                <span className="inline-flex flex-wrap justify-end gap-1">
+                  {tags.map((tag) => (
+                    <Badge key={tag} variant="secondary">
+                      #{tag}
+                    </Badge>
+                  ))}
+                </span>
+              </PreviewRow>
+            )}
+            {metas.map((meta, idx) => (
+              <PreviewRow key={idx} label={meta.key}>
+                {meta.value}
+              </PreviewRow>
+            ))}
+          </PreviewList>
+        </PreviewSection>
+      )}
+
+      <PreviewSection title={t('ledger.preview.documents', { count: documents.length })}>
+        <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {documents.map((meta, idx) => (
+            <DocumentPreview onClick={() => setLightboxSrc(meta.value)} key={idx} uri={meta.value} filename={meta.value} />
+          ))}
+          <AccountDocumentUpload id={data.id} type="transaction" onUploaded={() => refreshJournals()} />
+        </div>
+      </PreviewSection>
     </div>
   );
 }

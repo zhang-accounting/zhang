@@ -23,7 +23,12 @@ export default tseslint.config(
         'warn',
         { allowConstantExport: true },
       ],
-      'max-len': ['error', { code: 140, tabWidth: 2}],
+      'max-len': ['error', { code: 160, tabWidth: 2 }],
     },
+  },
+  {
+    // CLI-owned shadcn components and the generated OpenAPI schema (`pnpm run api`)
+    files: ['src/components/ui/**', 'src/api/schemas.ts'],
+    rules: { 'max-len': 'off' },
   },
 )

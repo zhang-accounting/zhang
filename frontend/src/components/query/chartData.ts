@@ -176,7 +176,8 @@ export function defaultCurrency(currencies: string[], operatingCurrency?: string
 
 // ---- treemap ----
 
-export interface TreemapDatum {
+// A type alias, not an interface: recharts 3 types treemap data with an index signature, which interfaces do not satisfy.
+export type TreemapDatum = {
   /** the last account component, shown as the cell label */
   name: string;
   /** the full account name */
@@ -187,7 +188,7 @@ export interface TreemapDatum {
   signed?: string;
   negative?: boolean;
   children?: TreemapDatum[];
-}
+};
 
 interface AccountTrie {
   name: string;
@@ -307,8 +308,8 @@ export function buildLine(points: ChartPoint[], currency: string): LineDatum[] {
 
 // ---- multi-series charts (PIVOT BY results) ----
 
-/** The most series a chart draws, one per categorical colour. Further value columns are left to the table. */
-export const MAX_SERIES = 8;
+/** The most series a chart draws, one per categorical chart colour (chart-1..5). Further value columns are left to the table. */
+export const MAX_SERIES = 5;
 
 export interface Series {
   /** the value column name, e.g. a pivot value such as `2024` */

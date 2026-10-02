@@ -1,2 +1,6 @@
 [files]
 extend-exclude = ["integration-tests/*", "CHANGELOG.md", "zhang-query/tests/golden/*", "zhang-query/tests/conformance/cases/*", "zhang-query/tests/tables/oracle.json"]
+
+[default]
+# the name of an integration-test fixture directory, which tests refer to
+extend-ignore-re = ["budget-sytem-syntax-and-category"]

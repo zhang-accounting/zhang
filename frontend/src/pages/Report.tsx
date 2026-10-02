@@ -1,187 +1,262 @@
-import { retrieveStatisticByAccountType, retrieveStatisticGraph, retrieveStatisticSummary } from '@/api/requests.ts';
-import StatisticBox from '@/components/StatisticBox.tsx';
-import { Button } from '@/components/ui/button.tsx';
-import { Calendar } from '@/components/ui/calendar.tsx';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.tsx';
-import { REPORT_LINK } from '@/layout/Sidebar.tsx';
-import { cn } from '@/lib/utils.ts';
-import { useDocumentTitle } from '@mantine/hooks';
-import { CalendarIcon } from '@radix-ui/react-icons';
-import { format } from 'date-fns';
-import { useAtomValue, useSetAtom } from 'jotai/index';
-import { useEffect, useState } from 'react';
-import { DateRange } from 'react-day-picker';
+import BigNumber from 'bignumber.js';
+import { useAtomValue, useSetAtom } from 'jotai';
+import { ArrowDownLeft, ArrowUpRight, CircleAlert, Hash, Landmark, ReceiptText } from 'lucide-react';
+import { OpReturnType } from 'openapi-typescript-fetch';
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
+import { retrieveStatisticByAccountType, retrieveStatisticGraph, retrieveStatisticSummary } from '@/api/requests';
+import { operations } from '@/api/schemas';
+import { EmptyState, PageHeader, PageShell, RefreshingLabel, ResponsiveList } from '@/components/layout';
+import { DateRangePicker, DateRangePreset, DateRangeValue } from '@/components/layout/DateRangePicker';
+import { useDateFormat } from '@/components/layout/use-date-format';
+import { activityAnchor, monthOf, useRecentJournals } from '@/components/layout/use-ledger-activity';
+import StatisticBox from '@/components/StatisticBox';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useDocumentTitle } from '@/hooks/use-document-title';
+import { REPORT_LINK } from '@/layout/nav-links';
+import { cn } from '@/lib/utils';
 import Amount from '../components/Amount';
-import ReportGraph from '../components/ReportGraph';
-import Section from '../components/Section';
 import PayeeNarration from '../components/basic/PayeeNarration';
+import { intervalForRange, useGraphRows } from '@/components/layout/chart-utils';
+import { BalanceTrendChart, CashFlowChart } from '../components/ReportGraph';
+import Section from '../components/Section';
 import { breadcrumbAtom, titleAtom } from '../states/basic';
 
+type AccountTypeStatistic = OpReturnType<operations['get_statistic_rank_detail_by_account_type']>['data'];
+type TopTransaction = AccountTypeStatistic['top_transactions'][number];
+
 export default function Report() {
-  const [value, setValue] = useState<DateRange | undefined>({
-    from: new Date(new Date().getFullYear(), new Date().getMonth(), 1, 0, 0, 1),
-    to: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59),
-  });
-
-  const [dateRange, setDateRange] = useState<[Date, Date]>([
-    new Date(new Date().getFullYear(), new Date().getMonth(), 1, 0, 0, 1),
-    new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59),
-  ]);
-
+  const { t } = useTranslation();
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
-
   const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`Report - ${ledgerTitle}`);
-
-  useEffect(() => {
-    if (value?.from !== undefined && value?.to !== undefined) {
-      setDateRange([value.from, value.to]);
-    }
-  }, [value]);
+  useDocumentTitle(`${t('NAV_REPORT')} - ${ledgerTitle}`);
 
   useEffect(() => {
     setBreadcrumb([REPORT_LINK]);
-  }, []);
+  }, [setBreadcrumb]);
 
-  const {
-    value: data,
-    error,
-    loading,
-  } = useAsync(async () => {
-    const res = await retrieveStatisticSummary({ from: dateRange[0]!.toISOString(), to: dateRange[1]!.toISOString() });
-    return res.data.data;
-  }, []);
+  // Default to the month of the latest activity (the current month for a ledger that is kept up to date).
+  const recent = useRecentJournals(1);
+  const latest = recent.records[0];
+  const defaultRange = useMemo(() => monthOf(activityAnchor(latest).anchor), [latest]);
+  const [picked, setPicked] = useState<DateRangeValue | undefined>(undefined);
+  const range = picked ?? defaultRange;
+  const ready = picked !== undefined || !recent.loading;
+  const deps = [ready, range.from.getTime(), range.to.getTime()];
+  const params = { from: range.from.toISOString(), to: range.to.toISOString() };
+  const interval = intervalForRange(range.from, range.to);
 
-  const { value: graph_data } = useAsync(async () => {
-    const res = await retrieveStatisticGraph({ from: dateRange[0]!.toISOString(), to: dateRange[1]!.toISOString(), interval: 'Day' });
-    return res.data.data;
-  }, []);
+  const summary = useAsync(async () => (ready ? (await retrieveStatisticSummary(params)).data.data : undefined), deps);
+  const graph = useAsync(async () => (ready ? (await retrieveStatisticGraph({ ...params, interval })).data.data : undefined), deps);
+  const income = useAsync(async () => (ready ? (await retrieveStatisticByAccountType({ ...params, account_type: 'Income' })).data.data : undefined), deps);
+  const expenses = useAsync(async () => (ready ? (await retrieveStatisticByAccountType({ ...params, account_type: 'Expenses' })).data.data : undefined), deps);
+  const { rows, commodity } = useGraphRows(graph.value, interval);
 
-  const { value: income_data } = useAsync(async () => {
-    const res = await retrieveStatisticByAccountType({ account_type: 'Income', from: dateRange[0]!.toISOString(), to: dateRange[1]!.toISOString() });
-    return res.data.data;
-  }, []);
+  const latestPreset: DateRangePreset[] =
+    latest && activityAnchor(latest).stale
+      ? [{ key: 'latest_activity', label: t('ledger.range.latest_activity'), range: monthOf(new Date(latest.datetime)) }]
+      : [];
 
-  const { value: expenses_data } = useAsync(async () => {
-    const res = await retrieveStatisticByAccountType({ account_type: 'Expenses', from: dateRange[0]!.toISOString(), to: dateRange[1]!.toISOString() });
-    return res.data.data;
-  }, []);
-
-  if (error) return <div>failed to load</div>;
-  if (loading || !data) return <>loading</>;
+  const summaryLoading = !summary.value && !summary.error;
+  const data = summary.value;
+  const graphLoading = !graph.value && !graph.error;
+  // A new range keeps showing the previous numbers until every request is back: dim them and say so.
+  const refreshing = [summary, graph, income, expenses].some((state) => state.loading && state.value !== undefined);
 
   return (
-    <>
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-4 mb-4">
-          <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">Report</h1>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button id="date" variant={'outline'} className={cn('w-[300px] justify-start text-left font-normal', !value && 'text-muted-foreground')}>
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {value?.from ? (
-                  value.to ? (
-                    <>
-                      {format(value.from, 'LLL dd, y')} - {format(value.to, 'LLL dd, y')}
-                    </>
-                  ) : (
-                    format(value.from, 'LLL dd, y')
-                  )
-                ) : (
-                  <span>Pick a date</span>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar initialFocus mode="range" defaultMonth={value?.from} selected={value} onSelect={setValue} numberOfMonths={2} />
-            </PopoverContent>
-          </Popover>
+    <PageShell>
+      <PageHeader
+        title={t('NAV_REPORT')}
+        description={refreshing ? <RefreshingLabel /> : t('ledger.report.description')}
+        actions={<DateRangePicker value={range} onChange={setPicked} extraPresets={latestPreset} />}
+      />
+
+      <div aria-busy={refreshing} className={cn('flex flex-col gap-4 transition-opacity md:gap-6', refreshing && 'opacity-60')}>
+        {summary.error ? (
+          <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(summary.error)} />
+        ) : (
+          <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
+            <StatisticBox
+              text="ASSET_BALANCE"
+              icon={Landmark}
+              loading={summaryLoading}
+              amount={data?.balance.calculated.number ?? '0'}
+              currency={data?.balance.calculated.commodity ?? ''}
+              hint={t('ledger.report.at_end')}
+            />
+            <StatisticBox
+              text="ledger.chart.income"
+              icon={ArrowDownLeft}
+              loading={summaryLoading}
+              amount={data?.income.calculated.number ?? '0'}
+              currency={data?.income.calculated.commodity ?? ''}
+              negative
+              hint={t('ledger.report.in_period')}
+            />
+            <StatisticBox
+              text="ledger.chart.expenses"
+              icon={ArrowUpRight}
+              loading={summaryLoading}
+              amount={data?.expense.calculated.number ?? '0'}
+              currency={data?.expense.calculated.commodity ?? ''}
+              hint={t('ledger.report.in_period')}
+            />
+            <StatisticBox
+              text="ledger.report.transaction_count"
+              icon={Hash}
+              loading={summaryLoading}
+              amount={(data?.transaction_number ?? 0).toLocaleString()}
+              hint={<NetFlow income={data?.income.calculated.number} expense={data?.expense.calculated.number} commodity={data?.income.calculated.commodity} />}
+            />
+          </div>
+        )}
+
+        <div className="grid gap-4 md:gap-6 xl:grid-cols-2">
+          <Section title={t('ledger.chart.net_worth')} description={t(`ledger.report.interval_${interval}`)}>
+            {graphLoading ? <Skeleton className="h-56 w-full md:h-64" /> : <BalanceTrendChart rows={rows} commodity={commodity} className="h-56 md:h-64" />}
+          </Section>
+          <Section title={t('ledger.chart.income_expenses')} description={t(`ledger.report.interval_${interval}`)}>
+            {graphLoading ? <Skeleton className="h-56 w-full md:h-64" /> : <CashFlowChart rows={rows} commodity={commodity} className="h-56 md:h-64" />}
+          </Section>
         </div>
 
-        <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4`}>
-          <StatisticBox
-            text={'ASSET_BALANCE'}
-            amount={data.balance.calculated.number}
-            currency={data.balance.calculated.commodity}
-            hint={'include assets and liabilities'}
-          />
-          <StatisticBox text={'INCOME'} amount={data.income.calculated.number} currency={data.income.calculated.commodity} negative />
-          <StatisticBox text={'EXPENSE'} amount={data.expense.calculated.number} currency={data.expense.calculated.commodity} negative />
-          <StatisticBox text={'TRANSACTION_COUNT'} amount={data.transaction_number.toString()} />
+        <div className="grid gap-4 md:gap-6 xl:grid-cols-2">
+          <Breakdown title={t('ledger.report.expense_breakdown')} data={expenses.value} loading={!expenses.value && !expenses.error} />
+          <Breakdown title={t('ledger.report.income_breakdown')} data={income.value} loading={!income.value && !income.error} negative />
         </div>
 
-        <Section title="Graph">
-          <ReportGraph data={graph_data} height={20}></ReportGraph>
-        </Section>
-
-        <Card className="mt-2 rounded-sm ">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 ">
-            <CardTitle>Top 10 Incomes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Account</TableHead>
-                  <TableHead style={{}}>Payee & Narration</TableHead>
-                  <TableHead>Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {income_data?.top_transactions.map((journal) => (
-                  <TableRow>
-                    <TableCell>{journal.datetime}</TableCell>
-                    <TableCell>{journal.account}</TableCell>
-                    <TableCell>
-                      <PayeeNarration payee={journal.payee} narration={journal.narration} />
-                    </TableCell>
-                    <TableCell>
-                      <Amount amount={journal.inferred_unit.number} currency={journal.inferred_unit.commodity} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card className="mt-2 rounded-sm ">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 ">
-            <CardTitle>Top 10 Expenses</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Account</TableHead>
-                  <TableHead style={{}}>Payee & Narration</TableHead>
-                  <TableHead>Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <tbody>
-                {expenses_data?.top_transactions.map((journal) => (
-                  // <JournalLine key={idx} data={journal} />
-                  <TableRow>
-                    <TableCell>{journal.datetime}</TableCell>
-                    <TableCell>{journal.account}</TableCell>
-                    <TableCell>
-                      {journal.payee} {journal.narration}
-                    </TableCell>
-                    <TableCell>
-                      <Amount amount={journal.inferred_unit.number} currency={journal.inferred_unit.commodity} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </tbody>
-            </Table>
-          </CardContent>
-        </Card>
+        <TopTransactions title={t('ledger.report.top_expenses')} data={expenses.value} loading={!expenses.value && !expenses.error} />
+        <TopTransactions title={t('ledger.report.top_incomes')} data={income.value} loading={!income.value && !income.error} negative />
       </div>
-    </>
+    </PageShell>
+  );
+}
+
+function NetFlow({ income, expense, commodity }: { income?: string; expense?: string; commodity?: string }) {
+  const { t } = useTranslation();
+  if (income === undefined || expense === undefined || !commodity) return null;
+  // Income is stored negative: net = -(income) - expense.
+  const net = new BigNumber(income).negated().minus(expense);
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      {t('ledger.report.net')} <Amount tone signed amount={net} currency={commodity} />
+    </span>
+  );
+}
+
+/**
+ * Totals per account as horizontal bars (largest first), sized relative to the largest account. Bars use the cash-flow
+ * chart colours: income (`negative`, stored as negative numbers) chart-1, expenses chart-2.
+ */
+function Breakdown({ title, data, loading, negative }: { title: string; data?: AccountTypeStatistic; loading: boolean; negative?: boolean }) {
+  const { t } = useTranslation();
+  const items = useMemo(() => {
+    const rows = (data?.detail ?? []).map((it) => ({
+      account: it.account,
+      commodity: it.amount.calculated.commodity,
+      value: new BigNumber(it.amount.calculated.number).multipliedBy(negative ? -1 : 1),
+    }));
+    return rows.filter((it) => !it.value.isZero()).sort((a, b) => b.value.comparedTo(a.value) ?? 0);
+  }, [data, negative]);
+  const total = items.reduce((sum, it) => sum.plus(it.value), new BigNumber(0));
+  const largest = items[0]?.value.abs() ?? new BigNumber(1);
+
+  return (
+    <Section
+      title={title}
+      rightSection={total.isZero() ? undefined : <Amount className="text-sm font-semibold" amount={total} currency={items[0]?.commodity ?? ''} />}
+    >
+      {loading ? (
+        <div className="flex flex-col gap-3">
+          {[80, 60, 45, 30].map((width) => (
+            <Skeleton key={width} className="h-8" style={{ width: `${width}%` }} />
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <EmptyState icon={ReceiptText} title={t('ledger.report.no_entries')} className="py-8" />
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {items.map((it) => {
+            const share = total.isZero() ? 0 : it.value.dividedBy(total).multipliedBy(100).toNumber();
+            return (
+              <li key={it.account} className="flex flex-col gap-1">
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="min-w-0 truncate" title={it.account}>
+                    {it.account}
+                  </span>
+                  <span className="flex shrink-0 items-baseline gap-2">
+                    <Amount amount={it.value} currency={it.commodity} />
+                    <span className="w-10 text-right text-xs text-muted-foreground tabular-nums">{Math.round(share)}%</span>
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className={cn('h-full rounded-full', negative ? 'bg-chart-1' : 'bg-chart-2')}
+                    style={{ width: `${Math.max(2, it.value.abs().dividedBy(largest).multipliedBy(100).toNumber())}%` }}
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Section>
+  );
+}
+
+function TopTransactions({ title, data, loading, negative }: { title: string; data?: AccountTypeStatistic; loading: boolean; negative?: boolean }) {
+  const { t } = useTranslation();
+  const fmt = useDateFormat();
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-sm font-medium">{title}</h2>
+      <ResponsiveList<TopTransaction>
+        items={data?.top_transactions ?? []}
+        loading={loading}
+        getKey={(item, index) => `${item.trx_id}-${item.account}-${index}`}
+        empty={<EmptyState icon={ReceiptText} title={t('ledger.report.no_entries')} className="py-8" />}
+        columns={[
+          {
+            key: 'date',
+            header: t('ledger.account.col_date'),
+            className: 'w-32 pl-4 text-muted-foreground tabular-nums',
+            cell: (item) => fmt.date(new Date(item.datetime)),
+          },
+          {
+            key: 'account',
+            header: t('ledger.report.col_account'),
+            // Sized by its content (the description column takes the rest); only very long names truncate.
+            cell: (item) => (
+              <span className="block max-w-md truncate" title={item.account}>
+                {item.account}
+              </span>
+            ),
+          },
+          {
+            key: 'payee',
+            header: t('ledger.journals.col_description'),
+            className: 'max-w-0 w-full',
+            cell: (item) => <PayeeNarration payee={item.payee} narration={item.narration} />,
+          },
+          {
+            key: 'amount',
+            header: t('ledger.journals.col_amount'),
+            className: 'pr-4 text-right font-medium',
+            cell: (item) => <Amount amount={item.inferred_unit.number} negative={negative} currency={item.inferred_unit.commodity} />,
+          },
+        ]}
+        renderCard={(item) => (
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate text-sm font-medium">{item.narration || item.payee || '—'}</span>
+              <span className="truncate text-xs text-muted-foreground">{item.account}</span>
+              <span className="text-xs text-muted-foreground tabular-nums">{fmt.date(new Date(item.datetime))}</span>
+            </div>
+            <Amount className="shrink-0 text-sm font-semibold" amount={item.inferred_unit.number} negative={negative} currency={item.inferred_unit.commodity} />
+          </div>
+        )}
+      />
+    </section>
   );
 }

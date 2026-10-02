@@ -22,7 +22,8 @@ export const QUERY_EXAMPLES: QueryExample[] = [
     // an inventory can't be compared with a number, so HAVING sums the numbers of the costs
     title: 'query.example.categories_over_1000',
     query:
-      "SELECT root(account, 2) AS category, sum(cost(position)) AS total WHERE account ~ '^Expenses' GROUP BY 1 HAVING sum(number(cost(position))) > 1000 ORDER BY total DESC",
+      "SELECT root(account, 2) AS category, sum(cost(position)) AS total WHERE account ~ '^Expenses' " +
+      'GROUP BY 1 HAVING sum(number(cost(position))) > 1000 ORDER BY total DESC',
   },
   {
     title: 'query.example.postings_with_tag',
@@ -31,7 +32,8 @@ export const QUERY_EXAMPLES: QueryExample[] = [
   {
     title: 'query.example.holdings',
     query:
-      'SELECT account, units(sum(position)) AS qty, cost(sum(position)) AS book, convert(units(sum(position)), "USD") AS market WHERE account ~ "^Assets" GROUP BY account ORDER BY account',
+      'SELECT account, units(sum(position)) AS qty, cost(sum(position)) AS book, convert(units(sum(position)), "USD") AS market ' +
+      'WHERE account ~ "^Assets" GROUP BY account ORDER BY account',
   },
   {
     title: 'query.example.income_statement',

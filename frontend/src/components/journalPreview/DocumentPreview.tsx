@@ -1,30 +1,42 @@
 import { Buffer } from 'buffer';
+import { FileText } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { isDocumentAnImage } from '../../utils/documents';
+
 interface Props {
   uri: string;
   filename: string;
   onClick: (path: string) => void;
+  className?: string;
 }
 
-export default function DocumentPreview(props: Props) {
-  const canPreview = isDocumentAnImage(props.filename);
+const documentUrl = (path: string) => `/api/documents/${Buffer.from(path).toString('base64')}`;
 
+/** Square document tile: image thumbnail (opens the lightbox) or a file card that opens the document in a new tab. */
+export default function DocumentPreview({ filename, onClick, className }: Props) {
+  const name = filename.split('/').pop() ?? filename;
+  const tileClass = cn(
+    'group relative flex aspect-square overflow-hidden rounded-lg border bg-muted/30 outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
+    className,
+  );
+
+  if (isDocumentAnImage(filename)) {
+    return (
+      <button type="button" className={tileClass} onClick={() => onClick(filename)} title={name}>
+        <img className="size-full object-cover transition-transform group-hover:scale-[1.02]" alt={name} src={documentUrl(filename)} loading="lazy" />
+      </button>
+    );
+  }
   return (
-    <div
-      className="relative overflow-hidden rounded-md after:content-[''] after:block after:pb-[100%]"
-      onClick={canPreview ? () => props.onClick(props.filename) : undefined}
+    <a
+      className={cn(tileClass, 'flex-col items-center justify-center gap-2 p-3 text-center hover:bg-muted/60')}
+      href={documentUrl(filename)}
+      target="_blank"
+      rel="noreferrer"
+      title={name}
     >
-      {canPreview ? (
-        <img
-          className="absolute top-0 left-0 right-0 bottom-0 w-full h-full object-cover hover:cursor-pointer"
-          alt={props.filename}
-          src={canPreview ? `/api/documents/${Buffer.from(props.filename).toString('base64')}` : ''}
-        />
-      ) : (
-        <div className="absolute top-0 left-0 right-0 bottom-0 w-full h-full bg-gray-100 flex items-center justify-center text-center hover:cursor-pointer">
-          This document cannot be previewed
-        </div>
-      )}
-    </div>
+      <FileText className="size-6 text-muted-foreground" aria-hidden />
+      <span className="line-clamp-2 text-xs break-all">{name}</span>
+    </a>
   );
 }

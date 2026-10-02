@@ -203,7 +203,9 @@ fn the_schema_describes_every_table() {
             "events",
             "documents",
             "accounts",
-            "commodities"
+            "commodities",
+            "budgets",
+            "errors"
         ]
     );
     for table in &schema.tables {

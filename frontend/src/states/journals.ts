@@ -30,5 +30,21 @@ export const groupedJournalsAtom = atom((get) => {
   });
 });
 
+/**
+ * Re-reads one journal (e.g. after a document upload added a `document` meta). There is no "get by id" endpoint, so this
+ * searches by the payee / narration (substring match) and pages through the results until the id turns up.
+ */
+export async function refetchJournal(target: JournalItem): Promise<JournalItem | undefined> {
+  const keyword = target.payee || target.narration || '';
+  for (let page = 1; page <= 20; page++) {
+    const { data } = (await findJournals({ page, keyword, tags: [], links: [], size: 100 })).data;
+    const found = data.records.find((record) => record.id === target.id);
+    if (found) return found;
+    if (page >= data.total_page) return undefined;
+  }
+  return undefined;
+}
+
+/** Journal shown in `TransactionPreviewModal`; cleared when the modal unmounts or the route changes. */
 export const previewJournalAtom = atom<JournalItem | undefined>(undefined);
 export const editTransactionAtom = atom<JournalTransactionItem | undefined>(undefined);
