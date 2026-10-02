@@ -17,13 +17,6 @@ export function journalStatus(data: JournalItem): 'ok' | 'warning' | 'error' {
   return 'ok';
 }
 
-/** `Assets:Bank → Expenses:Food` (accounts losing value → accounts gaining value). */
-export function accountsFlow(data: JournalTransactionItem) {
-  const from = data.postings.filter((it) => new BigNumber(it.inferred_unit.number).isNegative()).map((it) => it.account);
-  const to = data.postings.filter((it) => !new BigNumber(it.inferred_unit.number).isNegative()).map((it) => it.account);
-  return [from.join(', '), to.join(', ')].filter((it) => it.length > 0).join(' → ');
-}
-
 export function hasDocuments(data: JournalTransactionItem) {
   return data.metas.some((meta) => meta.key === 'document');
 }

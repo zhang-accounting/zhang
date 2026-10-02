@@ -11,8 +11,9 @@ function sidebarDefaultOpen() {
 }
 
 /**
- * Application frame. >= md: collapsible sidebar + sticky top bar. < md: top bar + bottom tab bar with a "More" sheet.
- * Children (routes) render inside a centred max-w-7xl column; bottom padding clears the mobile tab bar.
+ * Application frame. >= md: collapsible sidebar, no top bar (pages show their breadcrumb trail in `PageHeader`). < md: top bar
+ * (otter / back + title + "+") and a bottom tab bar with a "More" sheet. Routes render inside a centred max-w-7xl column; bottom
+ * padding clears the mobile tab bar.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -21,7 +22,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <SidebarInset className="min-w-0">
         <TopBar />
         <div className="flex-1 overflow-x-clip">
-          <div className="mx-auto w-full max-w-7xl px-4 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))] md:px-6 md:py-6">{children}</div>
+          <div className="mx-auto w-full max-w-7xl px-4 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))] md:px-7 md:pt-5 md:pb-10">{children}</div>
         </div>
       </SidebarInset>
       <MobileTabBar />

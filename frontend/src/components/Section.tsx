@@ -10,15 +10,17 @@ interface Props {
   children: React.ReactNode;
   /** Let the content run edge to edge (lists, tables); the header gets a bottom border instead. */
   noPadding?: boolean;
+  /** Border under the header; defaults to `noPadding`. */
+  divider?: boolean;
   className?: string;
   contentClassName?: string;
 }
 
 /** Titled card used to group page content (charts, lists, key/value blocks). */
-export default function Section({ children, title, description, rightSection, noPadding, className, contentClassName }: Props) {
+export default function Section({ children, title, description, rightSection, noPadding, divider = noPadding, className, contentClassName }: Props) {
   return (
     <Card className={cn('gap-0 py-0', className)}>
-      <div className={cn('flex min-h-12 items-center justify-between gap-3 px-4 py-3', noPadding && 'border-b')}>
+      <div className={cn('flex min-h-12 items-center justify-between gap-3 px-4 py-3', divider && 'border-b')}>
         <div className="flex min-w-0 flex-col gap-0.5">
           <h2 className="truncate text-sm font-medium">{title}</h2>
           {description && <p className="text-xs text-muted-foreground">{description}</p>}

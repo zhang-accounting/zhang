@@ -27,8 +27,8 @@ const TILE_CLASS = cn(
   'text-center text-xs font-medium transition-colors outline-none active:bg-muted focus-visible:ring-2 focus-visible:ring-ring',
 );
 const BAR_CLASS = cn(
-  'fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] md:hidden',
-  'backdrop-blur supports-backdrop-filter:bg-background/80',
+  'fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 pb-[env(safe-area-inset-bottom)] md:hidden',
+  'backdrop-blur supports-backdrop-filter:bg-card/80',
 );
 const UPGRADE_BUTTON_CLASS = cn(buttonVariants({ variant: 'outline' }), 'h-10');
 const BADGE_CLASS = 'absolute -top-1 -right-2 min-w-4 rounded-full bg-destructive px-1 text-[10px] leading-4 text-background';
@@ -154,7 +154,7 @@ export function MobileTabBar() {
                   <link.icon className="size-5" />
                   {link === DASHBOARD_LINK && errorsCount > 0 && <span className={BADGE_CLASS}>{errorsCount}</span>}
                 </span>
-                <span className="max-w-full truncate px-1">{t(link.label)}</span>
+                <span className="max-w-full truncate px-1">{t(link.shortLabel ?? link.label)}</span>
               </Link>
             </li>
           );

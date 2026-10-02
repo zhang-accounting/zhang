@@ -8,7 +8,7 @@
   "SAVE": "Save",
   "REFRESH": "Refresh",
   "NEW_TRANSACTION_PAYEE_CREATE": "Create",
-  "NAV_DASHBOARD": "Dashboard",
+  "NAV_DASHBOARD": "Overview",
   "NAV_HOME": "Home",
   "NAV_JOURNALS": "Journals",
   "NAV_ACCOUNTS": "Accounts",
@@ -22,7 +22,7 @@
   "NAV_BUDGETS": "Budget",
   "NAV_QUERY": "Query",
   "TXN_EDIT_PREVIEW": "Preview",
-  "NEW_TRANSACTION_BUTTON": "New Transaction",
+  "NEW_TRANSACTION_BUTTON": "New transaction",
   "NEW_TRANSACTION_DIALOG_TITLE": "Create new transaction",
   "NEW_TRANSACTION_DIALOG_DESCRIPTION": "Create a new transaction to record your financial activities.",
   "NEW_TRANSACTION_CANCEL": "Cancel",
@@ -52,14 +52,14 @@
     "TransactionExplicitPostingHaveMultipleCommodity": "Explicit postings of the transaction use multiple commodities",
     "NoEnoughCommodityLot": "Not enough commodity lots to book this posting",
     "BudgetDoesNotExist": "Budget does not exist",
-    "ParseInvalidMeta": "Invalid meta value",
+    "ParseInvalidMeta": "Directive has an invalid meta value",
     "UnsupportedBookingMethod": "Booking method is not supported yet, the account uses the default booking method",
     "AmbiguousLotMatch": "Reduction matches several lots, which is ambiguous under the STRICT booking method"
   },
   "ACCOUNT_FILTER_PLACEHOLDER": "filter by keyword...",
   "ACCOUNT_FILTER_CLOSE_BUTTON_ARIA": "clean account filter keyword",
   "ERROR_BOX_WHY": "Why is it a problem?",
-  "LEDGER_IS_HEALTHY": "Ledger is healthy",
+  "LEDGER_IS_HEALTHY": "Ledger is healthy, no errors",
   "accounts": {
     "hide_closed_accounts": "Hide closed accounts"
   },
@@ -382,7 +382,15 @@
       "recent_activity": "Recent activity",
       "view_all": "View all",
       "errors_one": "{{count}} error",
-      "errors_other": "{{count}} errors"
+      "errors_other": "{{count}} errors",
+      "month_budgets": "This month's budgets",
+      "budget_used": "Used {{percent}}",
+      "budget_left": "Left",
+      "budget_over_by": "Over by",
+      "budget_over": "Over",
+      "budget_empty": "No budgets for this month.",
+      "budget_docs": "How to set up budgets",
+      "errors_description": "Problems found while reading the ledger files. Select one to see the source."
     },
     "journals": {
       "description_one": "{{count}} entry in the ledger",
@@ -411,7 +419,11 @@
       "actions": "Actions",
       "edit": "Edit",
       "preview": "Preview",
-      "filter_by": "Filter journals by {{value}}"
+      "filter_by": "Filter journals by {{value}}",
+      "balance_check_title": "Balance check",
+      "balance_pad_title": "Balance pad",
+      "flow_to": "to",
+      "flow_from": "from"
     },
     "pagination": {
       "label": "Pagination",
@@ -569,5 +581,15 @@
   "SHELL_RELOAD_FAILED": "Ledger reload failed",
   "SHELL_SERVER_CONNECTED": "Reconnected to the server",
   "SHELL_SERVER_OFFLINE": "Server offline",
-  "SHELL_SERVER_OFFLINE_DESCRIPTION": "Cannot reach the ledger server; retrying in the background."
+  "SHELL_SERVER_OFFLINE_DESCRIPTION": "Cannot reach the ledger server; retrying in the background.",
+  "NAV_REPORT_SHORT": "Report",
+  "NAV_BALANCE_SHEET": "Balance sheet",
+  "SHELL_BREADCRUMB": "Breadcrumb",
+  "SIDEBAR_ACCOUNTS": "Accounts",
+  "SIDEBAR_ACCOUNTS_ALL": "All accounts",
+  "SIDEBAR_ACCOUNTS_ASSETS": "Assets",
+  "SIDEBAR_ACCOUNTS_LIABILITIES": "Liabilities",
+  "SIDEBAR_ACCOUNTS_SEARCH": "Search accounts",
+  "SIDEBAR_ACCOUNTS_FILTER": "Filter accounts",
+  "SIDEBAR_ACCOUNTS_NO_MATCH": "No matching accounts"
 }

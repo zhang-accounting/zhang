@@ -23,6 +23,8 @@ interface Props {
   tone?: boolean;
   /** Prefix positive values with `+`. */
   signed?: boolean;
+  /** Number only: no commodity prefix / suffix / name (dense lists where the currency is implied, e.g. sidebar accounts). */
+  plain?: boolean;
   className?: string;
 }
 
@@ -43,12 +45,14 @@ function formatCompactNumber(value: BigNumber.Value, locale?: string) {
 }
 
 /** Money with the commodity's prefix / suffix / precision. Always tabular figures. */
-export default function Amount({ amount, currency, negative, mask, compact, tone, signed, className }: Props) {
+export default function Amount({ amount, currency, negative, mask, compact, tone, signed, plain, className }: Props) {
   const { i18n } = useTranslation();
   const commodity = useAtomValue(useMemo(() => selectAtom(commoditiesAtom, (val) => loadable_unwrap(val, undefined, (val) => val[currency])), [currency]));
 
   const flag = negative || false ? -1 : 1;
-  const shouldDisplayCurrencyName = !commodity?.prefix && !commodity?.suffix;
+  const shouldDisplayCurrencyName = !plain && !commodity?.prefix && !commodity?.suffix;
+  const prefix = plain ? undefined : commodity?.prefix;
+  const suffix = plain ? undefined : commodity?.suffix;
 
   const parsedValue = BigNumber.isBigNumber(amount) ? amount : new BigNumber(amount);
   const value = parsedValue.multipliedBy(flag);
@@ -58,18 +62,15 @@ export default function Amount({ amount, currency, negative, mask, compact, tone
   const displayedValue = useCompact ? formatCompactNumber(value.abs(), i18n.language) : fullValue;
   const maskedValue = mask ? displayedValue.replace(/\d/g, '*') : displayedValue;
   const sign = isNegative ? '-' : signed && !value.isZero() ? '+' : '';
-  const title =
-    useCompact && !mask
-      ? `${sign}${commodity?.prefix ?? ''}${fullValue}${commodity?.suffix ?? ''}${shouldDisplayCurrencyName ? ` ${currency}` : ''}`
-      : undefined;
+  const title = useCompact && !mask ? `${sign}${prefix ?? ''}${fullValue}${suffix ?? ''}${shouldDisplayCurrencyName ? ` ${currency}` : ''}` : undefined;
 
   return (
     <span className={cn('inline-flex items-baseline gap-1 whitespace-nowrap tabular-nums', tone && amountToneClass(value), className)} title={title}>
       <span>
         {sign}
-        {commodity?.prefix}
+        {prefix}
         {maskedValue}
-        {commodity?.suffix}
+        {suffix}
       </span>
       {shouldDisplayCurrencyName && <span className="text-[0.8em] font-normal opacity-70">{currency}</span>}
     </span>

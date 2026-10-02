@@ -28,7 +28,7 @@ export default function StatisticBar({ from, to, periodLabel, className }: Props
   const isLoading = loading || (!data && !error);
 
   return (
-    <div className={cn('grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4', className)}>
+    <div className={cn('grid grid-cols-2 gap-2.5 md:gap-3 lg:grid-cols-4', className)}>
       <StatisticBox
         text="ASSET_BALANCE"
         icon={Landmark}
@@ -53,6 +53,7 @@ export default function StatisticBar({ from, to, periodLabel, className }: Props
         amount={data?.income.calculated.number ?? '0'}
         currency={data?.income.calculated.commodity ?? ''}
         negative
+        tone="positive"
         hint={periodLabel}
       />
       <StatisticBox
@@ -61,6 +62,7 @@ export default function StatisticBar({ from, to, periodLabel, className }: Props
         loading={isLoading}
         amount={data?.expense.calculated.number ?? '0'}
         currency={data?.expense.calculated.commodity ?? ''}
+        tone="negative"
         hint={t('ledger.home.transactions', { count: data?.transaction_number ?? 0 })}
       />
     </div>

@@ -6,20 +6,20 @@ import { DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/d
 import { useLanguage } from '@/hooks/use-language';
 import { LANGUAGES } from '@/lib/languages';
 
-/** Icon dropdown (desktop top bar) to switch the UI language. */
-export function LanguageSwitch() {
+/** Icon dropdown (desktop sidebar footer) to switch the UI language. */
+export function LanguageSwitch({ className, side }: { className?: string; side?: 'top' | 'bottom' | 'right' }) {
   const { t } = useTranslation();
   const [lang, setLang] = useLanguage();
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label={t('SHELL_LANGUAGE')} />}>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className={className} aria-label={t('SHELL_LANGUAGE')} title={t('SHELL_LANGUAGE')} />}>
         <Languages />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-36">
+      <DropdownMenuContent side={side} align={side === 'right' ? 'end' : 'start'} className="w-36">
         <DropdownMenuRadioGroup value={lang} onValueChange={(value) => setLang(String(value))}>
           {LANGUAGES.map((language) => (
-            <DropdownMenuRadioItem key={language.value} value={language.value}>
+            <DropdownMenuRadioItem key={language.value} value={language.value} closeOnClick>
               {language.label}
             </DropdownMenuRadioItem>
           ))}

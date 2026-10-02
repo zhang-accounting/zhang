@@ -1,5 +1,5 @@
 import { useSetAtom } from 'jotai';
-import { BadgeCheck, Files, type LucideIcon, ReceiptText, Scale } from 'lucide-react';
+import { Files } from 'lucide-react';
 import * as React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -10,12 +10,6 @@ import { journalKeywordAtom, journalLinksAtom, journalPageAtom, journalTagsAtom 
 import { hasDocuments, journalStatus } from './journal-utils';
 
 type JournalType = JournalItem['type'];
-
-const TYPE_ICON: Record<JournalType, LucideIcon> = {
-  Transaction: ReceiptText,
-  BalancePad: Scale,
-  BalanceCheck: BadgeCheck,
-};
 
 const TYPE_LABEL: Record<JournalType, string> = {
   Transaction: 'ledger.journal.type_transaction',
@@ -29,24 +23,6 @@ export function JournalTypeBadge({ type, className }: { type: JournalType; class
     <Badge variant="outline" className={cn('font-normal text-muted-foreground', className)}>
       {t(TYPE_LABEL[type])}
     </Badge>
-  );
-}
-
-/** Round icon tile used by the mobile rows; tinted when the journal has a problem. */
-export function JournalTypeIcon({ type, status = 'ok', className }: { type: JournalType; status?: 'ok' | 'warning' | 'error'; className?: string }) {
-  const Icon = TYPE_ICON[type];
-  return (
-    <span
-      className={cn(
-        'flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground',
-        status === 'error' && 'bg-destructive/10 text-destructive',
-        status === 'warning' && 'bg-warning/10 text-warning',
-        className,
-      )}
-      aria-hidden
-    >
-      <Icon className="size-4" />
-    </span>
   );
 }
 

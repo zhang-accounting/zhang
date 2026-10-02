@@ -1,19 +1,17 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { CircleAlert, NotebookText, RefreshCw, Search, X } from 'lucide-react';
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { parseISO } from 'date-fns';
-import MobileViewJournalLine from '@/components/journalLines/mobileView/MobileViewJournalLine';
-import TableViewJournalLine from '@/components/journalLines/tableView/TableViewJournalLine';
-import { EmptyState, PageHeader, PageShell, useIsMobile } from '@/components/layout';
+import { JournalRow } from '@/components/journalLines/JournalRow';
+import { EmptyState, PageHeader, PageShell } from '@/components/layout';
 import { PagePagination } from '@/components/layout/PagePagination';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { TransactionEditModal } from '@/components/modals/TransactionEditModal';
 import { TransactionPreviewModal } from '@/components/modals/TransactionPreviewModal';
-import { JournalCardsSkeleton, JournalListSkeleton } from '@/components/skeletons/journalListSkeleton';
+import { JournalDaysSkeleton } from '@/components/skeletons/journalListSkeleton';
 import { Button } from '@/components/ui/button';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDebouncedValue } from '@/hooks/use-debounced';
 import { cn } from '@/lib/utils';
 import { useDocumentTitle } from '@/hooks/use-document-title';
@@ -35,7 +33,6 @@ function Journals() {
   const [journalLinks, setJournalLinks] = useAtom(journalLinksAtom);
   const refreshJournals = useSetAtom(journalFetcher);
   const journalItems = useAtomValue(journalAtom);
-  const isMobile = useIsMobile();
 
   const data = journalItems.state === 'hasData' ? journalItems.data : undefined;
   const hasFilters = filter.trim() !== '' || journalTags.length > 0 || journalLinks.length > 0;
@@ -79,7 +76,7 @@ function Journals() {
       />
     );
   } else if (journalItems.state === 'loading') {
-    content = isMobile ? <JournalCardsSkeleton /> : <JournalTable loading />;
+    content = <JournalDaysSkeleton />;
   } else if ((data?.records.length ?? 0) === 0) {
     content = (
       <EmptyState
@@ -96,7 +93,7 @@ function Journals() {
       />
     );
   } else {
-    content = isMobile ? <JournalCards /> : <JournalTable />;
+    content = <JournalDays />;
   }
 
   return (
@@ -199,72 +196,43 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
   );
 }
 
-function useDayLabel() {
+/** Day heading parts: `Sep 16` + `Sat` (`9月16日` + `周六`); the year is added for dates outside the current year. */
+function useDayHeading() {
   const fmt = useDateFormat();
-  return (date: string) => fmt.weekdayDate(parseISO(date));
-}
-
-function JournalTable({ loading = false }: { loading?: boolean }) {
-  const { t } = useTranslation();
-  const groupedRecords = useAtomValue(groupedJournalsAtom);
-  const dayLabel = useDayLabel();
-  return (
-    <div className="overflow-hidden rounded-xl border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            <TableHead className="w-16 pl-4 text-xs text-muted-foreground">{t('ledger.journals.col_time')}</TableHead>
-            <TableHead className="w-24 text-xs text-muted-foreground">{t('ledger.journals.col_type')}</TableHead>
-            <TableHead className="text-xs text-muted-foreground">{t('ledger.journals.col_description')}</TableHead>
-            <TableHead className="text-right text-xs text-muted-foreground">{t('ledger.journals.col_amount')}</TableHead>
-            <TableHead className="w-12 pr-2">
-              <span className="sr-only">{t('ledger.journal.actions')}</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {loading ? (
-            <JournalListSkeleton />
-          ) : (
-            Object.keys(groupedRecords).map((date) => (
-              <Fragment key={date}>
-                <TableRow className="bg-muted/40 hover:bg-muted/40">
-                  <TableCell colSpan={5} className="py-1.5 pl-4 text-xs font-medium text-muted-foreground">
-                    {dayLabel(date)}
-                  </TableCell>
-                </TableRow>
-                {groupedRecords[date].map((journal) => (
-                  <TableViewJournalLine key={journal.id} data={journal} />
-                ))}
-              </Fragment>
-            ))
-          )}
-        </TableBody>
-      </Table>
-    </div>
-  );
+  const thisYear = new Date().getFullYear();
+  return (date: string) => {
+    const day = parseISO(date);
+    return { day: day.getFullYear() === thisYear ? fmt.day(day) : fmt.date(day), weekday: fmt.format(day, 'EEE') };
+  };
 }
 
 const DAY_HEADING = cn(
-  'sticky top-14 z-10 -mx-4 px-4 py-1 text-xs font-medium text-muted-foreground',
-  'bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80',
+  'sticky top-14 z-10 -mx-4 flex items-baseline gap-1.5 px-4 py-1 text-sm font-semibold md:static md:mx-0 md:px-0 md:py-0',
+  'bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80 md:bg-transparent md:backdrop-blur-none',
 );
 
-function JournalCards() {
+/** Journals grouped by day (多少记账 style): a heading per day, then one bordered card of `JournalRow`s. */
+function JournalDays() {
   const groupedRecords = useAtomValue(groupedJournalsAtom);
-  const dayLabel = useDayLabel();
+  const heading = useDayHeading();
   return (
-    <div className="flex flex-col gap-4">
-      {Object.keys(groupedRecords).map((date) => (
-        <section key={date} className="flex flex-col gap-2">
-          <h2 className={DAY_HEADING}>{dayLabel(date)}</h2>
-          <div className="divide-y overflow-hidden rounded-xl border bg-card">
-            {groupedRecords[date].map((journal) => (
-              <MobileViewJournalLine key={journal.id} data={journal} />
-            ))}
-          </div>
-        </section>
-      ))}
+    <div className="flex flex-col gap-5">
+      {Object.keys(groupedRecords).map((date) => {
+        const { day, weekday } = heading(date);
+        return (
+          <section key={date} className="flex flex-col gap-2">
+            <h2 className={DAY_HEADING}>
+              {day}
+              <span className="text-xs font-normal text-muted-foreground">{weekday}</span>
+            </h2>
+            <div className="divide-y overflow-hidden rounded-lg border bg-card">
+              {groupedRecords[date].map((journal) => (
+                <JournalRow key={journal.id} data={journal} />
+              ))}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

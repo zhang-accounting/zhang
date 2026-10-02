@@ -45,6 +45,8 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
   --color-foreground: var(--foreground);
+  --color-foreground-2: var(--foreground-2);
+  --color-track: var(--track);
   --color-background: var(--background);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
@@ -56,35 +58,38 @@
 }
 
 /*
- * Turquoise otter palette: Radix Sage neutrals + the logo turquoise (public/otter-512.png).
- * `primary` (#04ccb1) is a FILL colour only (primary buttons, sidebar-primary, checked switches, progress): it is ~2:1 on the
- * light surfaces, so text, icons and thin lines that should look "brand" use `link` instead. Money and charts have their own
- * tokens: `positive` / `negative` for signed amounts, `chart-1` (teal: income and single series) and `chart-2` (caramel:
- * expenses) first, then `chart-3..5` (blue, amber, plum). `warning` is the amber status colour (flagged, unsaved).
+ * Turquoise otter palette on Radix Sage neutrals (logo: public/otter-512.png). Natural, mostly white / grey surfaces; the brand
+ * colour shows up as the active-nav tint (`sidebar-accent`) and as fills. `primary` (#04ccb1) is a FILL colour only (primary
+ * buttons, the new-transaction button, checked switches, progress): it is ~2:1 on the light surfaces, so text, icons and thin
+ * lines that should look "brand" use `link`. `foreground-2` is secondary body text (nav items, account rows, chips), `track` the
+ * empty part of progress bars. Money and charts: `positive` / `negative` for signed amounts, `chart-1` (teal: income and single
+ * series) and `chart-2` (caramel: expenses), then `chart-3..5`. `warning` is the amber status colour (flagged, unsaved).
  */
 :root {
-  --background: #fbfdfc;
+  --background: #f9fafa;
   --foreground: #1a211e;
+  --foreground-2: #3c4441;
   --card: #ffffff;
   --card-foreground: var(--foreground);
   --popover: #ffffff;
   --popover-foreground: var(--foreground);
   --primary: #04ccb1;
   --primary-foreground: #0d3d38;
-  --link: #008573;
+  --link: #00826f;
   --secondary: #eef1f0;
   --secondary-foreground: var(--foreground);
   --muted: #eef1f0;
   --muted-foreground: #5f6563;
-  --accent: #eef1f0;
+  --accent: #e9ecea;
   --accent-foreground: #1a211e;
   --positive: #218358;
   --negative: #ce2c31;
   --warning: #ab6400;
   --destructive: var(--negative);
-  --border: #dfe2e0;
+  --border: #e3e6e5;
   --input: #d7dad9;
   --ring: #53b9ab;
+  --track: #eceeed;
   --chart-1: #009782;
   --chart-2: #b1632f;
   --chart-3: #2769b7;
@@ -92,51 +97,53 @@
   --chart-5: #ac4278;
   /* Data-dense UI: crisp corners (sm 2.4px, md 3.2px, lg 4px, xl 5.6px, 2xl 7.2px). */
   --radius: 0.25rem;
-  --sidebar: #fbfdfc;
+  --sidebar: #f2f4f3;
   --sidebar-foreground: #1a211e;
   --sidebar-primary: #04ccb1;
   --sidebar-primary-foreground: #0d3d38;
-  --sidebar-accent: #e6e9e8;
-  --sidebar-accent-foreground: #1a211e;
-  --sidebar-border: #dfe2e0;
+  --sidebar-accent: #dcf6f0;
+  --sidebar-accent-foreground: #0d3d38;
+  --sidebar-border: #e3e6e5;
   --sidebar-ring: #53b9ab;
 }
 
 .dark {
-  --background: #101211;
+  --background: #111312;
   --foreground: #eceeed;
-  --card: #171918;
+  --foreground-2: #c9cfcd;
+  --card: #191b1a;
   --card-foreground: var(--foreground);
-  --popover: #171918;
+  --popover: #191b1a;
   --popover-foreground: var(--foreground);
   --primary: #04ccb1;
   --primary-foreground: #0d3d38;
   --link: #0bd8b6;
-  --secondary: #202221;
+  --secondary: #242827;
   --secondary-foreground: var(--foreground);
-  --muted: #202221;
-  --muted-foreground: #adb5b2;
-  --accent: #202221;
+  --muted: #242827;
+  --muted-foreground: #8e9894;
+  --accent: #1f2221;
   --accent-foreground: #eceeed;
   --positive: #3dd68c;
   --negative: #ff9592;
   --warning: #ffca16;
   --destructive: var(--negative);
-  --border: #2e3130;
+  --border: #2b2f2d;
   --input: #373b39;
   --ring: #207e73;
+  --track: #262928;
   --chart-1: #04aa94;
   --chart-2: #c57542;
   --chart-3: #4682cc;
   --chart-4: #bb881a;
   --chart-5: #bd5889;
-  --sidebar: #101211;
+  --sidebar: #151716;
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: #04ccb1;
   --sidebar-primary-foreground: #0d3d38;
-  --sidebar-accent: #272a29;
-  --sidebar-accent-foreground: var(--foreground);
-  --sidebar-border: #2e3130;
+  --sidebar-accent: #0d2d2a;
+  --sidebar-accent-foreground: #adf0dd;
+  --sidebar-border: #2b2f2d;
   --sidebar-ring: var(--ring);
 }
 

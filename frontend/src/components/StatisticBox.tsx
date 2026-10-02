@@ -18,6 +18,8 @@ interface Props {
   /** Secondary line under the value. */
   hint?: React.ReactNode;
   icon?: LucideIcon;
+  /** Colour the value as money coming in (`positive`) or going out (`negative`). */
+  tone?: 'positive' | 'negative';
   /** Short notation; defaults to `true` on mobile, where cards sit two per row. */
   compact?: boolean;
   loading?: boolean;
@@ -25,21 +27,27 @@ interface Props {
 }
 
 /** KPI tile: label, one big tabular number and an optional hint. */
-export default function StatisticBox({ text, amount, currency, negative, hint, icon: Icon, compact, loading, className }: Props) {
+export default function StatisticBox({ text, amount, currency, negative, hint, icon: Icon, tone, compact, loading, className }: Props) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const useCompact = compact ?? isMobile;
 
   return (
-    <Card size="sm" className={cn('min-w-0 gap-1.5 px-3 md:gap-2 md:px-4 md:py-4', className)}>
-      <div className="flex items-center justify-between gap-2 text-xs font-medium text-muted-foreground md:text-sm">
+    <Card size="sm" className={cn('min-w-0 gap-1 px-3 md:px-3.5 md:py-3', className)}>
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground md:text-[13px]">
         <span className="truncate">{t(text)}</span>
         {Icon && <Icon className="size-4 shrink-0" aria-hidden />}
       </div>
       {loading ? (
         <Skeleton className="h-7 w-3/4 md:h-8" />
       ) : (
-        <div className="truncate text-lg leading-tight font-semibold tracking-tight tabular-nums md:text-2xl">
+        <div
+          className={cn(
+            'truncate text-lg leading-tight font-normal tabular-nums md:text-xl',
+            tone === 'positive' && 'text-positive',
+            tone === 'negative' && 'text-negative',
+          )}
+        >
           {currency ? <Amount amount={amount} negative={negative} currency={currency} compact={useCompact} /> : amount}
         </div>
       )}

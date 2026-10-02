@@ -6,21 +6,21 @@ import { THEMES } from './themes';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu';
 
-/** Icon dropdown (desktop top bar) to pick light / dark / system theme via next-themes. */
-export function ThemeToggle() {
+/** Icon dropdown (desktop sidebar footer) to pick light / dark / system theme via next-themes. */
+export function ThemeToggle({ className, side }: { className?: string; side?: 'top' | 'bottom' | 'right' }) {
   const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label={t('SHELL_THEME')} />}>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className={className} aria-label={t('SHELL_THEME')} title={t('SHELL_THEME')} />}>
         <Sun className="scale-100 rotate-0 transition-[scale,rotate] motion-reduce:transition-none dark:scale-0 dark:-rotate-90" />
         <Moon className="absolute scale-0 rotate-90 transition-[scale,rotate] motion-reduce:transition-none dark:scale-100 dark:rotate-0" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
+      <DropdownMenuContent side={side} align={side === 'right' ? 'end' : 'start'} className="w-40">
         <DropdownMenuRadioGroup value={theme ?? 'system'} onValueChange={(value) => setTheme(String(value))}>
           {THEMES.map((item) => (
-            <DropdownMenuRadioItem key={item.value} value={item.value}>
+            <DropdownMenuRadioItem key={item.value} value={item.value} closeOnClick>
               <item.icon />
               {t(item.label)}
             </DropdownMenuRadioItem>

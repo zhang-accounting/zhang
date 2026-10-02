@@ -8,13 +8,13 @@
   "SAVE": "保存",
   "REFRESH": "刷新",
   "NEW_TRANSACTION_PAYEE_CREATE": "新增",
-  "NAV_DASHBOARD": "仪表台",
+  "NAV_DASHBOARD": "总览",
   "NAV_HOME": "主页",
   "NAV_JOURNALS": "流水",
   "NAV_ACCOUNTS": "账户",
   "NAV_COMMODITIES": "货币",
   "NAV_DOCUMENTS": "文档",
-  "NAV_REPORT": "报表",
+  "NAV_REPORT": "统计报表",
   "NAV_LIABILITY": "负债",
   "NAV_RAW_EDITING": "编辑",
   "NAV_TOOLS": "工具",
@@ -38,16 +38,16 @@
     "TransactionExplicitPostingHaveMultipleCommodity": "交易的显式记录使用了多种货币",
     "NoEnoughCommodityLot": "没有足够的货币批次用于记账",
     "BudgetDoesNotExist": "预算不存在",
-    "ParseInvalidMeta": "无效的元数据",
+    "ParseInvalidMeta": "指令中存在无效的 meta 值",
     "UnsupportedBookingMethod": "暂不支持该预订方法，账户改用默认的预订方法",
     "AmbiguousLotMatch": "STRICT 预订方法下，减仓匹配到多个批次，无法确定减哪一个"
   },
   "ERROR_BOX_WHY": "为什么出错?",
-  "LEDGER_IS_HEALTHY": "不可思议，账本一点错都没有",
+  "LEDGER_IS_HEALTHY": "账本健康，没有错误",
   "accounts": {
     "hide_closed_accounts": "隐藏已关闭账户"
   },
-  "NEW_TRANSACTION_BUTTON": "新增交易",
+  "NEW_TRANSACTION_BUTTON": "新建交易",
   "NEW_TRANSACTION_DIALOG_TITLE": "新增交易",
   "NEW_TRANSACTION_DIALOG_DESCRIPTION": "新增交易以记录您的财务活动。",
   "NEW_TRANSACTION_CANCEL": "取消",
@@ -358,16 +358,24 @@
     "home": {
       "description": "最近 30 天概览（{{range}}）",
       "description_stale": "近期没有记录：显示截至最新一笔记录的 30 天（{{range}}）",
-      "open_report": "查看报表",
+      "open_report": "打开报表",
       "last_30_days": "最近 30 天",
       "net_worth_hint": "资产与负债合计",
       "liability_hint": "未偿余额",
       "transactions_other": "{{count}} 笔交易",
       "net_worth_description": "资产与负债的每日余额",
       "cash_flow_description": "横线以上为收入，以下为支出",
-      "recent_activity": "最近记录",
+      "recent_activity": "最近交易",
       "view_all": "查看全部",
-      "errors_other": "{{count}} 个错误"
+      "errors_other": "{{count}} 个错误",
+      "month_budgets": "本月预算",
+      "budget_used": "已用 {{percent}}",
+      "budget_left": "剩余",
+      "budget_over_by": "超支",
+      "budget_over": "超支",
+      "budget_empty": "本月还没有预算。",
+      "budget_docs": "了解如何设置预算",
+      "errors_description": "读取账本文件时发现的问题，点击查看对应的源文件内容。"
     },
     "journals": {
       "description_other": "账本中共 {{count}} 条记录",
@@ -395,7 +403,11 @@
       "actions": "操作",
       "edit": "编辑",
       "preview": "详情",
-      "filter_by": "按 {{value}} 筛选流水"
+      "filter_by": "按 {{value}} 筛选流水",
+      "balance_check_title": "余额断言",
+      "balance_pad_title": "余额填充",
+      "flow_to": "流向",
+      "flow_from": "来自"
     },
     "pagination": {
       "label": "分页",
@@ -549,5 +561,15 @@
   "SHELL_RELOAD_FAILED": "账本重新加载失败",
   "SHELL_SERVER_CONNECTED": "已重新连接到服务器",
   "SHELL_SERVER_OFFLINE": "服务器离线",
-  "SHELL_SERVER_OFFLINE_DESCRIPTION": "无法连接账本服务器，正在后台重试。"
+  "SHELL_SERVER_OFFLINE_DESCRIPTION": "无法连接账本服务器，正在后台重试。",
+  "NAV_REPORT_SHORT": "报表",
+  "NAV_BALANCE_SHEET": "资产负债",
+  "SHELL_BREADCRUMB": "当前位置",
+  "SIDEBAR_ACCOUNTS": "账户",
+  "SIDEBAR_ACCOUNTS_ALL": "全部账户",
+  "SIDEBAR_ACCOUNTS_ASSETS": "资产",
+  "SIDEBAR_ACCOUNTS_LIABILITIES": "负债",
+  "SIDEBAR_ACCOUNTS_SEARCH": "搜索账户",
+  "SIDEBAR_ACCOUNTS_FILTER": "筛选账户",
+  "SIDEBAR_ACCOUNTS_NO_MATCH": "没有匹配的账户"
 }
