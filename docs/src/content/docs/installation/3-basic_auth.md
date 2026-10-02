@@ -13,13 +13,13 @@ There are two ways to enable basic authentication:
 **Using the `auth` command-line parameter**:
 
 ```
-docker run --name zhang kilerd/zhang:snapshot --auth admin:admin888
+docker run --name zhang kilerd/zhang:latest --auth admin:admin888
 ```
 
 **Setting the `ZHANG_AUTH` environment variable**
 
 ```
-docker run --name zhang -e "ZHANG_AUTH=admin:admin888" kilerd/zhang:snapshot
+docker run --name zhang -e "ZHANG_AUTH=admin:admin888" kilerd/zhang:latest
 ```
 
 > Note: **Command-line parameters** have priority over environment variables. If both are provided, the command-line parameter will be used.
