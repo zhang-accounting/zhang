@@ -91,6 +91,7 @@
     "plugins_description": "服务器加载的插件。",
     "no_plugins_title": "没有插件",
     "no_plugins_description": "此账本没有加载任何插件。",
+    "open_plugin": "打开",
     "api_docs": "API 文档",
     "api_docs_description": "服务器提供 HTTP API 的 OpenAPI 描述。",
     "passkeys": "通行密钥",

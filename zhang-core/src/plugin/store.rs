@@ -12,8 +12,9 @@ use zhang_ast::{Directive, Plugin, SpanInfo, Spanned};
 
 use crate::domains::schemas::OptionDomain;
 use crate::pipeline::StageContext;
-use crate::plugin::capabilities::PluginDeclaration;
+use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration};
 use crate::plugin::host::PluginHost;
+use crate::plugin::router::unavailable_host_functions;
 use crate::plugin::PluginType;
 use crate::{ZhangError, ZhangResult};
 
@@ -40,10 +41,11 @@ impl PluginStore {
         let timeout = declaration.capabilities.timeout;
         let manifest = Manifest::new([wasm]).with_timeout(timeout);
 
-        // a plugin importing a host function cannot be instantiated without it
+        // a plugin importing a host function cannot be instantiated without it, so the router host
+        // functions are linked too, answering that they are unavailable
         let host = PluginHost::new(_plugin.module.as_str(), span.clone());
-        let mut plugin =
-            WasmPlugin::new(manifest, host.functions(), true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
+        let functions = host.functions().into_iter().chain(unavailable_host_functions());
+        let mut plugin = WasmPlugin::new(manifest, functions, true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
         let name = plugin
             .call::<(), WasmJson<String>>("name", ())
             .map_err(|e| call_error(&plugin_name, "name", timeout, e))?
@@ -76,7 +78,7 @@ impl PluginStore {
             self.mappers.push(registered_plugin.clone())
         }
         if plugin_types.contains(&PluginType::Router) {
-            self.routers.push(registered_plugin.clone())
+            self.add_router(registered_plugin.clone())
         }
         self.ordered.push((registered_plugin, plugin_types));
 
@@ -140,7 +142,13 @@ pub struct RegisteredPlugin {
 }
 
 impl RegisteredPlugin {
-    fn manifest(&self, options: &[OptionDomain]) -> Manifest {
+    /// what the plugin's directive grants it
+    pub fn capabilities(&self) -> &PluginCapabilities {
+        &self.declaration.capabilities
+    }
+
+    /// the manifest of every instance of the plugin, whatever it runs as: config, allowed hosts and timeout
+    pub(super) fn manifest(&self, options: &[OptionDomain]) -> Manifest {
         let config = self.declaration.config_with(options, self.declaration.host_config());
         let wasm = Wasm::data(self.module_bytes.clone());
         Manifest::new([wasm])
@@ -155,10 +163,12 @@ impl RegisteredPlugin {
         PluginHost::new(self.name.clone(), self.span.clone())
     }
 
-    /// a new instance of the plugin, with the host functions of `host` linked in
+    /// a new instance of the plugin, with the host functions of `host` linked in, and the router host
+    /// functions answering that they are unavailable
     pub fn load_as_plugin(&self, options: &[OptionDomain], host: &PluginHost) -> ZhangResult<WasmPlugin> {
         info!("loading plugin {} {}", self.name, self.version);
-        let plugin = WasmPlugin::new(self.manifest(options), host.functions(), true)
+        let functions = host.functions().into_iter().chain(unavailable_host_functions());
+        let plugin = WasmPlugin::new(self.manifest(options), functions, true)
             .map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
 
         Ok(plugin)

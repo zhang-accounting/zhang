@@ -20,6 +20,8 @@ use zhang_ast::{Directive, SpanInfo};
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
+use zhang_core::plugin::http::PluginRequest;
+use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost};
 use zhang_core::plugin::PluginType;
 use zhang_core::ZhangResult;
 
@@ -315,4 +317,139 @@ fn plugin_without_the_error_import_is_unaffected() {
     let dir = ledger_dir(&["echo.wat"]);
     let ledger = load(&dir, &format!("option \"features.plugin\" \"true\"\n{}{LEDGER}", plugin(&dir, "echo.wat")));
     assert_eq!(errors(&ledger), vec![]);
+}
+
+#[test]
+fn plugin_declaring_router_and_processor_runs_as_both() {
+    let dir = ledger_dir(&["router_processor.wat"]);
+    let ledger = load(
+        &dir,
+        &format!("option \"features.plugin\" \"true\"\n{}{LEDGER}", plugin(&dir, "router_processor.wat")),
+    );
+
+    assert_eq!(
+        registered(&ledger),
+        vec![("router-processor".to_owned(), vec![PluginType::Router, PluginType::Processor])]
+    );
+    assert!(ledger.plugins.router("router-processor").is_some(), "it serves its route");
+    // the processor still runs: it drops the whole stream
+    assert_eq!(store_summary(&ledger), (vec![], vec![], vec![]));
+}
+
+/// a router host answering every query with `{"echo": <bql>}`, or with a failure for `FAIL`
+struct FakeHost;
+
+impl RouterHost for FakeHost {
+    fn query(&self, bql: &str) -> Result<serde_json::Value, QueryFailure> {
+        if bql == "FAIL" {
+            return Err(QueryFailure {
+                message: "no".to_owned(),
+                line: Some(1),
+                column: Some(2),
+            });
+        }
+        Ok(json!({ "echo": bql }))
+    }
+}
+
+/// a ledger declaring the given router fixtures, with plugins on
+fn router_ledger(fixtures: &[&str]) -> (TempDir, Ledger) {
+    let dir = ledger_dir(fixtures);
+    let plugins = fixtures.iter().map(|fixture| plugin(&dir, fixture)).collect::<String>();
+    let ledger = load(
+        &dir,
+        &format!("option \"features.plugin\" \"true\"\noption \"title\" \"Home\"\n{plugins}{LEDGER}"),
+    );
+    (dir, ledger)
+}
+
+fn call(ledger: &Ledger, name: &str, request: &PluginRequest) -> Result<http::Response<Vec<u8>>, RouterError> {
+    let plugin = ledger.plugins.router(name).unwrap_or_else(|| panic!("{name} should be a router"));
+    plugin.execute_as_router(request, ledger, Arc::new(FakeHost))
+}
+
+#[test]
+fn router_answers_with_its_response() {
+    let (_dir, ledger) = router_ledger(&["router.wat"]);
+    let request = PluginRequest::new(
+        "POST",
+        "/sub/path",
+        vec![("k".to_owned(), "v1".to_owned()), ("k".to_owned(), "v2".to_owned())],
+        vec![("X-Custom".to_owned(), "yes".to_owned())],
+        b"{\"amount\": \"10 \\\"CNY\\\"\"}".to_vec(),
+    );
+
+    let response = call(&ledger, "router-echo", &request).unwrap();
+
+    assert_eq!(response.status(), 201);
+    assert_eq!(response.headers()["x-echo"], "router");
+    assert_eq!(response.headers()["content-type"], "application/json");
+    let echoed: PluginRequest = serde_json::from_slice(response.body()).unwrap();
+    assert_eq!(echoed, request);
+}
+
+#[test]
+fn router_reads_the_ledger_through_host_functions_only_while_routing() {
+    // loading proves the processor got an `Err` from both host functions: it traps otherwise
+    let (_dir, ledger) = router_ledger(&["router_query.wat"]);
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the processor passed the stream through");
+
+    let response = call(&ledger, "router-query", &PluginRequest::new("GET", "/", vec![], vec![], vec![])).unwrap();
+
+    assert_eq!(response.status(), 200, "the default status");
+    let body: serde_json::Value = serde_json::from_slice(response.body()).unwrap();
+    assert_eq!(
+        body,
+        json!([
+            {"Ok": {"echo": "SELECT account, sum(position) AS balance GROUP BY account ORDER BY account"}},
+            {"Ok": {"title": "Home", "operating_currency": "CNY", "timezone": ledger.options.timezone.name()}},
+        ])
+    );
+    // what it reported with `zhang_emit_error` during the request is only logged
+    assert_eq!(errors(&ledger), vec![]);
+}
+
+#[test]
+fn looping_router_stops_at_its_timeout() {
+    let dir = ledger_dir(&["router_loop.wat"]);
+    let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"500ms\"\n", plugin(&dir, "router_loop.wat"))));
+    let started = Instant::now();
+
+    let result = call(&ledger, "router-loop", &PluginRequest::new("GET", "/", vec![], vec![], vec![]));
+
+    assert_eq!(result.unwrap_err(), RouterError::Timeout);
+    let elapsed = started.elapsed();
+    assert!(elapsed < Duration::from_secs(10), "the call took {elapsed:?}, not about half a second");
+}
+
+#[test]
+fn router_failures_are_errors_not_panics() {
+    let (_dir, ledger) = router_ledger(&["router_no_export.wat", "router_malformed.wat", "router_trap.wat"]);
+    let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+
+    assert_eq!(call(&ledger, "router-no-export", &request).unwrap_err(), RouterError::NoRouterExport);
+    assert!(matches!(
+        call(&ledger, "router-malformed", &request).unwrap_err(),
+        RouterError::BadResponse(message) if message.starts_with("expected ident")
+    ));
+    assert!(matches!(
+        call(&ledger, "router-trap", &request).unwrap_err(),
+        RouterError::Failed(message) if message.contains("unreachable")
+    ));
+}
+
+#[test]
+fn the_first_declared_router_serves_a_shared_name() {
+    let dir = ledger_dir(&["router.wat"]);
+    let module = dir.path().join("router.wat");
+    let content = format!(
+        "option \"features.plugin\" \"true\"\nplugin \"{module}\"\n  allowed_hosts: \"first.example\"\nplugin \"{module}\"\n  allowed_hosts: \"second.example\"\n{LEDGER}",
+        module = module.display()
+    );
+    let ledger = load(&dir, &content);
+
+    assert_eq!(ledger.plugins.routers.len(), 2);
+    let router = ledger.plugins.router("router-echo").unwrap();
+    assert_eq!(router.capabilities().allowed_hosts, vec!["first.example".to_owned()]);
+    assert!(ledger.plugins.router("router").is_none());
 }
