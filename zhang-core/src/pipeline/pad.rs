@@ -27,14 +27,23 @@ impl ProcessStage for PadStage {
     }
 
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let mut balances = UnitBalances::default();
+        let mut balances = UnitBalances::for_stage(ctx);
         let mut accounts = AccountStates::default();
         let mut ret = Vec::with_capacity(directives.len());
 
         for directive in directives {
             let padding = match &directive.data {
-                Directive::Open(_) | Directive::Close(_) => {
+                Directive::Open(open) => {
                     accounts.apply(&directive.data);
+                    balances.apply_open(open);
+                    None
+                }
+                Directive::Close(_) => {
+                    accounts.apply(&directive.data);
+                    None
+                }
+                Directive::Commodity(commodity) => {
+                    balances.apply_commodity(commodity, ctx.options);
                     None
                 }
                 Directive::Transaction(txn) => {

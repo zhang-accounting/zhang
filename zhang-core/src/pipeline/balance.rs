@@ -9,43 +9,93 @@
 
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
+use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, Zero};
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, Directive, Transaction};
+use zhang_ast::{Account, Commodity, Directive, Open, Rounding, Transaction};
 
-use crate::inventory::TransactionInference;
+use super::StageContext;
+use crate::booking::{BookOutcome, Booker};
+use crate::constants::{DEFAULT_BOOKING_METHOD, KEY_DEFAULT_BOOKING_METHOD, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
+use crate::domains::schemas::{CommodityDomain, OptionDomain};
+use crate::inventory::BookingMethod;
+use crate::process::commodity::commodity_precision;
+
+/// an option's value; an invalid one aborts the load in the store fold
+fn option_value<T: FromStr>(options: &[OptionDomain], key: &str) -> Option<T> {
+    options.iter().find(|option| option.key == key).and_then(|option| option.value.parse().ok())
+}
+
+/// the ledger's default booking method, as the options handler resolved it into `options`
+pub fn default_booking_method(options: &[OptionDomain]) -> BookingMethod {
+    let fallback = DEFAULT_BOOKING_METHOD.parse().expect("the default booking method is valid");
+    options
+        .iter()
+        .find(|option| option.key == KEY_DEFAULT_BOOKING_METHOD)
+        .map(|option| BookingMethod::resolve(&option.value, fallback).0)
+        .unwrap_or(fallback)
+}
 
 /// running per-account, per-commodity unit sums of the transactions folded so far.
 ///
 /// Balances are per *exact* account (not its subtree) — what a balance directive
 /// asserts in zhang.
-#[derive(Default)]
 pub struct UnitBalances {
     /// account name -> commodity -> units
     balances: HashMap<String, HashMap<String, BigDecimal>>,
+    /// books every transaction like the store fold, so an implicit posting gets the amount the
+    /// fold gives it, interpolated from the lots its transaction books against. Its errors are
+    /// the fold's to report
+    booker: Booker,
 }
 
 impl UnitBalances {
-    /// book a transaction the way the store fold does: transactions the fold
-    /// rejects (see [`TransactionInference::validation_inventory`]) are skipped,
-    /// every other posting adds its units, or for an implicit posting the amount
-    /// inferred from the other postings
-    pub fn apply_transaction(&mut self, txn: &Transaction) {
-        if txn.validation_inventory().is_err() {
-            return;
+    /// `commodities` are those defined before the stream starts (by the options)
+    pub fn new(default_booking_method: BookingMethod, commodities: &[CommodityDomain]) -> Self {
+        let mut booker = Booker::new(default_booking_method);
+        for commodity in commodities {
+            booker.define_commodity(&commodity.name, commodity.precision, commodity.rounding);
         }
-        let units: Result<Vec<Amount>, ErrorKind> = txn
-            .txn_postings()
-            .iter()
-            .map(|posting| posting.units().map(Ok).unwrap_or_else(|| posting.infer_trade_amount()))
-            .collect();
-        // amounts the fold cannot infer abort the whole load there; nothing to book here
-        let Ok(units) = units else {
+        Self {
+            balances: HashMap::new(),
+            booker,
+        }
+    }
+
+    /// the balances of a stage, set up from its context
+    pub fn for_stage(ctx: &StageContext) -> Self {
+        Self::new(default_booking_method(ctx.options), &ctx.commodities)
+    }
+
+    /// fold an `open`: its booking method decides which lots later reductions book against
+    pub fn apply_open(&mut self, open: &Open) {
+        let _reported_by_the_fold = self.booker.apply_open(open);
+    }
+
+    /// fold a `commodity`: implicit postings in it are rounded at its precision, as the store fold
+    /// defines it from the same options
+    pub fn apply_commodity(&mut self, commodity: &Commodity, options: &[OptionDomain]) {
+        let default_precision = option_value::<i32>(options, KEY_DEFAULT_COMMODITY_PRECISION);
+        let default_rounding = option_value::<Rounding>(options, KEY_DEFAULT_ROUNDING);
+        // an invalid `rounding` meta aborts the load in the store fold; nothing to define here
+        if let Ok((precision, rounding)) = commodity_precision(commodity, default_precision, default_rounding) {
+            self.booker.define_commodity(&commodity.currency, precision, rounding);
+        }
+    }
+
+    /// book a transaction the way the store fold does: transactions the fold
+    /// rejects (their implicit posting cannot be interpolated) are skipped,
+    /// every other posting adds its units, or for an implicit posting the amount
+    /// interpolated from the other postings
+    pub fn apply_transaction(&mut self, txn: &Transaction) {
+        // a rejected transaction does not reach the store, and a balance-check one
+        // (flag `C`) the fold cannot book aborts the whole load there; nothing to book here
+        let BookOutcome::Booked(booked) = self.booker.book(txn) else {
             return;
         };
-        for (posting, amount) in txn.postings.iter().zip(units) {
+        for (posting, amount) in txn.postings.iter().zip(booked.units) {
             self.add(&posting.account, &amount);
         }
     }
@@ -139,6 +189,7 @@ mod test {
     use super::{exceeds_tolerance, AccountStates, UnitBalances};
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
+    use crate::inventory::BookingMethod;
 
     fn parse(content: &str) -> Vec<Directive> {
         ZhangDataType {}
@@ -154,10 +205,12 @@ mod test {
     }
 
     fn fold(content: &str) -> UnitBalances {
-        let mut balances = UnitBalances::default();
+        let mut balances = UnitBalances::new(BookingMethod::Fifo, &[]);
         for directive in parse(content) {
-            if let Directive::Transaction(txn) = directive {
-                balances.apply_transaction(&txn);
+            match directive {
+                Directive::Open(open) => balances.apply_open(&open),
+                Directive::Transaction(txn) => balances.apply_transaction(&txn),
+                _ => {}
             }
         }
         balances
@@ -189,8 +242,9 @@ mod test {
               Assets:A
               Assets:B
               Equity:Open 10 CNY
-            2023-01-02 * "nothing to infer from"
+            2023-01-02 * "nothing to infer from: balanced in two commodities"
               Assets:A 0 CNY
+              Assets:A 0 USD
               Assets:B
             2023-01-03 * "explicit postings in multiple commodities"
               Assets:A 5 CNY

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ops::{Add, AddAssign, Mul};
+use std::ops::{Add, Mul};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
@@ -11,9 +11,9 @@ use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Flag, SpanInfo, Transaction};
 
+use crate::booking::BookOutcome;
 use crate::constants::TXN_ID;
 use crate::domains::schemas::MetaType;
-use crate::inventory::TransactionInference;
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::store::DocumentType;
@@ -22,36 +22,37 @@ use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
 impl DirectiveProcess for Transaction {
-    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        let mut operations = ledger.operations();
-        let id = Uuid::from_span(span);
-        let txn_error = operations.check_transaction(self)?;
-        if let Some(txn_error) = txn_error {
-            let meta = HashMap::of(TXN_ID, id.to_string());
-            match txn_error {
-                e @ (ErrorKind::TransactionHasMultipleImplicitPosting
-                | ErrorKind::TransactionCannotInferTradeAmount
-                | ErrorKind::TransactionExplicitPostingHaveMultipleCommodity) => {
-                    operations.new_error(e, span, meta)?;
-                    return Ok(false);
-                }
-                ErrorKind::UnbalancedTransaction => {
-                    // double check in process method
-                }
-                e => {
-                    operations.new_error(e, span, meta)?;
-                }
-            }
-        }
-
-        Ok(true)
-    }
-
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        let mut operations = ledger.operations();
-
         let id = Uuid::from_span(span);
-        let txn_error = operations.check_transaction(self)?;
+        let txn_meta = || HashMap::of(TXN_ID, id.to_string());
+        // balance-check transactions (flag `C`) are exempt from validation
+        let exempt = self.flag == Some(Flag::BalanceCheck);
+
+        // booking first: the lots decide the weights the implicit posting is interpolated from (E4)
+        let booked = match ledger.booker_mut().book(self) {
+            BookOutcome::Booked(booked) => booked,
+            // nothing to book an exempt transaction's implicit posting with: the load fails
+            BookOutcome::Unbookable { kind, .. } if exempt => return Err(ZhangError::ProcessError { span: span.clone(), kind }),
+            // the transaction is rejected: it never reaches the store, nor its lots
+            BookOutcome::Unbookable { kind, errors } => {
+                let mut operations = ledger.operations();
+                for error in errors {
+                    operations.new_error(error.kind, span, error.metas)?;
+                }
+                operations.new_error(kind, span, txn_meta())?;
+                return Ok(());
+            }
+        };
+
+        let mut operations = ledger.operations();
+        let balance_error = if exempt {
+            None
+        } else {
+            operations.check_transaction_balance(&booked.residual)?
+        };
+        if balance_error == Some(ErrorKind::CommodityDoesNotDefine) {
+            operations.new_error(ErrorKind::CommodityDoesNotDefine, span, txn_meta())?;
+        }
 
         let sequence = ledger.trx_counter.fetch_add(1, Ordering::Relaxed);
         operations.insert_transaction(
@@ -66,18 +67,9 @@ impl DirectiveProcess for Transaction {
             span,
         )?;
 
-        let mut balance_checker = BigDecimal::zero();
-        trace!("new balance checker starting with {}", balance_checker);
-
-        for (posting_idx, txn_posting) in self.txn_postings().into_iter().enumerate() {
-            let inferred_amount = txn_posting.units().unwrap_or(
-                txn_posting
-                    .infer_trade_amount()
-                    .map_err(|kind| ZhangError::ProcessError { span: span.clone(), kind })?,
-            );
-
+        for (posting_idx, (posting, inferred_amount)) in self.postings.iter().zip(booked.units).enumerate() {
             let option = operations.account_target_day_balance(
-                txn_posting.posting.account.name(),
+                posting.account.name(),
                 self.date.to_timezone_datetime(&ledger.options.timezone),
                 &inferred_amount.commodity,
             )?;
@@ -90,33 +82,27 @@ impl DirectiveProcess for Transaction {
             operations.insert_transaction_posting(
                 &id,
                 posting_idx,
-                txn_posting.posting.account.name(),
-                txn_posting.posting.units.clone(),
-                txn_posting.posting.cost.clone(),
+                posting.account.name(),
+                posting.units.clone(),
+                posting.cost.clone(),
                 inferred_amount.clone(),
                 Amount::new(previous.number, previous.commodity.clone()),
                 Amount::new(after_number, previous.commodity),
             )?;
 
             // budget related
-            let budgets_name = operations.get_account_budget(txn_posting.posting.account.name())?;
+            let budgets_name = operations.get_account_budget(posting.account.name())?;
             for budget in budgets_name {
-                let budget_activity_amount = inferred_amount.mul(BigDecimal::from(txn_posting.posting.account.get_account_sign()));
+                let budget_activity_amount = inferred_amount.mul(BigDecimal::from(posting.account.get_account_sign()));
                 operations.budget_add_activity(budget, self.date.to_timezone_datetime(&ledger.options.timezone), budget_activity_amount)?;
             }
-
-            // booking: augment or reduce the account's lots
-            let amount = txn_posting.units().unwrap_or(inferred_amount);
-            let booking = ledger.booker_mut().book_posting(&txn_posting, &amount);
-            for error in booking.errors {
-                operations.new_error(error.kind, span, error.metas)?;
-            }
-            balance_checker.add_assign(booking.weight);
-            trace!("balance checker current value is {}", balance_checker);
         }
-        trace!("final balance checker current value is {}, txn_error is {:?}", balance_checker, txn_error);
-        if txn_error == Some(ErrorKind::UnbalancedTransaction) && !balance_checker.is_zero() {
-            operations.new_error(ErrorKind::UnbalancedTransaction, span, HashMap::of(TXN_ID, id.to_string()))?;
+        for error in booked.errors {
+            operations.new_error(error.kind, span, error.metas)?;
+        }
+        trace!("residual of transaction {}: {:?}", id, booked.residual);
+        if balance_error == Some(ErrorKind::UnbalancedTransaction) {
+            operations.new_error(ErrorKind::UnbalancedTransaction, span, txn_meta())?;
         }
 
         // extract documents from meta

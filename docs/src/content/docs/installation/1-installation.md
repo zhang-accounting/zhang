@@ -43,7 +43,6 @@ If you encounter any issues during installation or while verifying the server, c
 
 Zhang Accounting offers different versions of its Docker images to cater to various needs:
 
-- `kilerd/zhang:snapshot`: Linked to the latest codebase, including untested features.
 - `kilerd/zhang:latest`: The latest stable version.
 - `kilerd/zhang:0.1`: A specific stable version.
 

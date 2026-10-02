@@ -298,9 +298,10 @@ fn per_unit_price<'a>(price: &'a SingleTotalPrice, units: &Amount) -> Option<Cow
 ///   is matched against the open lots: the given fields (cost number and currency, date,
 ///   label) are criteria and the missing ones are wildcards, so `{100 USD}` reduces lots
 ///   bought at 100 USD on any date and `{}` reduces any lot. Matching lots are consumed FIFO,
-///   or LIFO when the account (or the ledger default) uses the LIFO booking method, and a
-///   reduction that spans several lots is split into one row per lot, each carrying the
-///   lot's cost.
+///   oldest acquisition date first, or LIFO, newest first, when the account (or the ledger
+///   default) uses the LIFO booking method; lots of the same date go in the order they were
+///   opened, reversed for LIFO. A reduction that spans several lots is split into one row per
+///   lot, each carrying the lot's cost.
 /// - Any other posting at cost, and the part of a reduction no lot covers, is an
 ///   *augmentation*: it opens (or adds to) the lot of its cost, dated by its transaction
 ///   when the spec has no date. A spec without a cost number cannot open a lot, so that
@@ -345,7 +346,10 @@ fn book<'a>(drafts: Vec<Draft<'a>>, ledger: &Ledger, store: &Store, keep_cost: b
         let reducing = !remaining.is_zero() && account_lots.iter().any(|(_, number)| number.is_positive() != remaining.is_positive());
         if reducing {
             let lifo = matches!(account_methods.get(draft.account).copied().unwrap_or(default_method), BookingMethod::Lifo);
+            // oldest acquisition date first, lots of the same date in insertion order (a stable
+            // sort); LIFO is the exact reverse, like zhang-core's booking
             let mut order = (0..account_lots.len()).collect::<Vec<_>>();
+            order.sort_by_key(|&idx| account_lots[idx].0.date);
             if lifo {
                 order.reverse();
             }
