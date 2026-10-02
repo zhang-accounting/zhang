@@ -5,13 +5,22 @@
 //! every account itself. It never reads or writes the [`Store`](crate::store::Store) and needs no
 //! timezone: the store fold publishes [`Booker::into_lots`] as `Store.commodity_lots` at its end.
 //!
-//! This is the booking the store fold used to do inline, moved as is. Its known quirks (E1-E10 in
+//! This is the booking the store fold used to do inline, moved as is. Its known quirks (E2-E10 in
 //! the design, pinned by `tests/booking.rs`) are kept on purpose; fixing them is left to separate,
 //! behavior-changing PRs.
+//!
+//! Booking methods (E1, E7):
+//! - `FIFO` and `LIFO` take the matching lots in lot (creation) order, from the front or the back.
+//! - `STRICT` follows beancount's `booking_method_STRICT`: a reduction must match a single lot, or
+//!   reduce every lot it matches in full. Any other reduction matching several lots is reported as
+//!   [`ErrorKind::AmbiguousLotMatch`] and still booked, like FIFO among the matching lots, so the
+//!   ledger keeps its numbers. Augmentations book like FIFO.
+//! - `NONE`, `AVERAGE` and `AVERAGE_ONLY` are not implemented. An account using one, or an invalid
+//!   value, gets an error at its `open` ([`Booker::apply_open`]) and books with the ledger's default
+//!   method.
 
 use std::collections::HashMap;
 use std::ops::{Add, AddAssign, Mul, Neg};
-use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, One, Signed, Zero};
 use chrono::NaiveDate;
@@ -31,9 +40,9 @@ const BOOKING_METHOD_META: &str = "booking_method";
 pub(crate) struct Booker {
     /// the `default_booking_method` option
     default_method: BookingMethod,
-    /// the `booking_method` meta of each account, folded from `open`s in stream order. An invalid
-    /// value stays an error until a posting on the account needs it (E7)
-    methods: HashMap<String, Result<BookingMethod, ErrorKind>>,
+    /// the booking method of each account with a `booking_method` meta, folded from `open`s in
+    /// stream order. An invalid or unsupported value resolves to `default_method` (E1, E7)
+    methods: HashMap<String, BookingMethod>,
     /// lots per account. Insertion order is the order FIFO/LIFO pick lots in (E10)
     lots: HashMap<String, Vec<CommodityLotRecord>>,
 }
@@ -66,31 +75,41 @@ impl Booker {
 
     /// fold an `open`: its `booking_method` meta, if any, becomes the account's booking method.
     /// Like the account meta in the store, a later `open` of the account overrides the value, and
-    /// an `open` without the meta keeps it
-    pub(crate) fn apply_open(&mut self, open: &Open) {
-        if let Some(value) = open.meta.get_all(BOOKING_METHOD_META).last() {
-            self.methods.insert(open.account.name().to_owned(), BookingMethod::from_str(value.as_str()));
-        }
+    /// an `open` without the meta keeps it.
+    ///
+    /// A value that is not a booking method (`ParseInvalidMeta`, E7) or a method booking does not
+    /// implement (`UnsupportedBookingMethod`, E1) makes the account book with the default method;
+    /// the error, with metas `account_name` and `booking_method`, is for the `open` to report
+    pub(crate) fn apply_open(&mut self, open: &Open) -> Option<BookingError> {
+        let value = open.meta.get_all(BOOKING_METHOD_META).last()?.as_str().to_owned();
+        let account = open.account.name().to_owned();
+        let (method, error) = BookingMethod::resolve(&value, self.default_method);
+        self.methods.insert(account.clone(), method);
+        error.map(|kind| BookingError {
+            kind,
+            metas: HashMap::of2("account_name", account, BOOKING_METHOD_META, value),
+        })
     }
 
     /// book one posting of a transaction against the lots of its account. `units` are the
     /// posting's units, or its interpolated amount when it was written without units.
-    ///
-    /// - `Err(kind)`: the account's `booking_method` meta is invalid; the load aborts (E7)
-    /// - panics on a cost posting when the booking method is not FIFO or LIFO (E1)
-    pub(crate) fn book_posting(&mut self, txn_posting: &TxnPosting<'_>, units: &Amount) -> Result<PostingBooking, ErrorKind> {
+    pub(crate) fn book_posting(&mut self, txn_posting: &TxnPosting<'_>, units: &Amount) -> PostingBooking {
         let account = txn_posting.account_name();
         let lot_meta = txn_posting.lot_meta();
-        let booking_method = self.booking_method(&account)?;
+        let booking_method = self.booking_method(&account);
+        let txn_date = txn_posting.txn.date.naive_date();
 
         let mut weight = BigDecimal::zero();
         let mut errors = vec![];
 
         // handle implicit posting cost
         if let Some(cost) = lot_meta.cost {
+            if booking_method == BookingMethod::Strict {
+                errors.extend(self.ambiguous_reduction(&account, units, &cost, txn_date));
+            }
             let mut accr_amount = units.number.clone();
             loop {
-                let target_lot_record = self.lot_by_meta(&account, &units.commodity, &cost, txn_posting.txn.date.naive_date(), booking_method);
+                let target_lot_record = self.lot_by_meta(&account, &units.commodity, &cost, txn_date, booking_method);
                 let calculated = (&target_lot_record.amount).add(&accr_amount);
                 if !calculated.is_negative() {
                     // the calculated amount is positive, means it is normal case
@@ -136,7 +155,7 @@ impl Booker {
             weight.add_assign(&units.number);
         }
 
-        Ok(PostingBooking { weight, errors })
+        PostingBooking { weight, errors }
     }
 
     /// the lots of every account the fold booked a posting on, in lot order
@@ -144,11 +163,39 @@ impl Booker {
         self.lots
     }
 
-    fn booking_method(&self, account_name: &str) -> Result<BookingMethod, ErrorKind> {
-        match self.methods.get(account_name) {
-            Some(method) => method.clone(),
-            None => Ok(self.default_method),
+    fn booking_method(&self, account_name: &str) -> BookingMethod {
+        self.methods.get(account_name).copied().unwrap_or(self.default_method)
+    }
+
+    /// STRICT, as beancount's `booking_method_STRICT`: a reduction matching several lots must
+    /// reduce all of them in full. Otherwise the match is ambiguous and this is the error to
+    /// report, with metas `account_name`, `transaction_amount` (the units) and `matched_lots`.
+    /// The lots a posting reduces are the matching lots holding the opposite sign: an augmentation
+    /// matches none of them
+    fn ambiguous_reduction(&self, account_name: &str, units: &Amount, lot_meta: &PostingCost, txn_date: NaiveDate) -> Option<BookingError> {
+        let lots = self.lots.get(account_name)?;
+        let reduced = matching_lots(lots, &units.commodity, lot_meta, txn_date)
+            .filter(|lot| (lot.amount.is_positive() && units.number.is_negative()) || (lot.amount.is_negative() && units.number.is_positive()))
+            .collect_vec();
+        if reduced.len() < 2 {
+            return None;
         }
+        let total: BigDecimal = reduced.iter().map(|lot| &lot.amount).sum();
+        if (total + &units.number).is_zero() {
+            // beancount's exception: a reduction of every matching lot in full is not ambiguous
+            return None;
+        }
+        Some(BookingError {
+            kind: ErrorKind::AmbiguousLotMatch,
+            metas: HashMap::of3(
+                "account_name",
+                account_name,
+                "transaction_amount",
+                units.number.to_string(),
+                "matched_lots",
+                reduced.iter().map(|lot| describe_lot(lot)).join(", "),
+            ),
+        })
     }
 
     fn default_lot(&mut self, account_name: &str, currency: &str) -> CommodityLotRecord {
@@ -184,43 +231,15 @@ impl Booker {
     ) -> CommodityLotRecord {
         let entry = self.lots.entry(account_name.to_owned()).or_default();
 
-        let mut option = entry
-            .iter()
-            // match commodity
-            .filter(|lot| lot.commodity.eq(currency))
-            // match cost, works with empty cost
-            .filter(|it| {
-                if lot_meta.base.is_some() {
-                    it.cost.eq(&lot_meta.base)
-                } else {
-                    it.cost.is_some()
+        let lot_record = {
+            let mut option = matching_lots(entry, currency, lot_meta, txn_date);
+            match booking_method {
+                BookingMethod::Lifo => option.next_back().cloned(),
+                // FIFO, and STRICT once `ambiguous_reduction` has checked the match. NONE, AVERAGE
+                // and AVERAGE_ONLY never get here: they resolve to the default method at the `open`
+                BookingMethod::Fifo | BookingMethod::Strict | BookingMethod::Average | BookingMethod::AverageOnly | BookingMethod::None => {
+                    option.next().cloned()
                 }
-            })
-            // match cost date
-            .filter(|it| {
-                if lot_meta.base.is_some() {
-                    // if cost date in lot meta is defined, use txn date
-                    it.acquisition_date.eq(&lot_meta.date.as_ref().map(|it| it.naive_date()).or(Some(txn_date)))
-                } else {
-                    // if cost  in meta is null, return all lots
-                    true
-                }
-            });
-
-        let lot_record = match booking_method {
-            BookingMethod::Fifo => option.next().cloned(),
-            BookingMethod::Lifo => option.next_back().cloned(),
-            BookingMethod::Average => {
-                unimplemented!()
-            }
-            BookingMethod::AverageOnly => {
-                unimplemented!()
-            }
-            BookingMethod::Strict => {
-                unimplemented!()
-            }
-            BookingMethod::None => {
-                unimplemented!()
             }
         };
         if let Some(record) = lot_record {
@@ -261,5 +280,42 @@ impl Booker {
                 lot.amount = amount.clone();
             }
         }
+    }
+}
+
+/// the lots a cost posting books against, in lot order: the same commodity and, for `{c}`, the cost
+/// `c` and the cost's date or else the transaction's date (E5); `{}` matches every lot held at cost
+fn matching_lots<'a>(
+    lots: &'a [CommodityLotRecord], currency: &'a str, lot_meta: &'a PostingCost, txn_date: NaiveDate,
+) -> impl DoubleEndedIterator<Item = &'a CommodityLotRecord> + 'a {
+    lots.iter()
+        // match commodity
+        .filter(move |lot| lot.commodity.eq(currency))
+        // match cost, works with empty cost
+        .filter(move |it| {
+            if lot_meta.base.is_some() {
+                it.cost.eq(&lot_meta.base)
+            } else {
+                it.cost.is_some()
+            }
+        })
+        // match cost date
+        .filter(move |it| {
+            if lot_meta.base.is_some() {
+                // if cost date in lot meta is defined, use txn date
+                it.acquisition_date.eq(&lot_meta.date.as_ref().map(|it| it.naive_date()).or(Some(txn_date)))
+            } else {
+                // if cost  in meta is null, return all lots
+                true
+            }
+        })
+}
+
+/// a lot as `units {cost, acquisition date}`, for error metas
+fn describe_lot(lot: &CommodityLotRecord) -> String {
+    match (&lot.cost, &lot.acquisition_date) {
+        (Some(cost), Some(date)) => format!("{} {} {{{cost}, {date}}}", lot.amount, lot.commodity),
+        (Some(cost), None) => format!("{} {} {{{cost}}}", lot.amount, lot.commodity),
+        (None, _) => format!("{} {}", lot.amount, lot.commodity),
     }
 }

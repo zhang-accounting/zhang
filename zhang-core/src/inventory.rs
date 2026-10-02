@@ -44,6 +44,26 @@ impl FromStr for BookingMethod {
     }
 }
 
+impl BookingMethod {
+    /// whether booking implements the method. `NONE`, `AVERAGE` and `AVERAGE_ONLY` parse but are
+    /// not implemented
+    pub fn is_supported(self) -> bool {
+        matches!(self, BookingMethod::Strict | BookingMethod::Fifo | BookingMethod::Lifo)
+    }
+
+    /// resolve a written booking method (an account's `booking_method` meta or the
+    /// `default_booking_method` option). A value that is not a booking method
+    /// ([`ErrorKind::ParseInvalidMeta`]) or a method booking does not implement
+    /// ([`ErrorKind::UnsupportedBookingMethod`]) resolves to `fallback`, with the error to report
+    pub fn resolve(value: &str, fallback: BookingMethod) -> (BookingMethod, Option<ErrorKind>) {
+        match BookingMethod::from_str(value) {
+            Ok(method) if method.is_supported() => (method, None),
+            Ok(_) => (fallback, Some(ErrorKind::UnsupportedBookingMethod)),
+            Err(kind) => (fallback, Some(kind)),
+        }
+    }
+}
+
 /// retrieve the lot meta info from posting
 #[derive(Debug)]
 pub struct LotMeta {

@@ -18,7 +18,8 @@ description: 关于在张记账中使用账户指令的全面指南。
 `open` 指令用于启动一个账户，指定它处理的商品。以下是您可以通过元配置指定的额外细节：
 
 - `alias`：为显示目的分配更具描述性的名称。
-- `booking_method`：指定用于处理复杂投资场景的方法。选项包括 `STRICT`, `FIFO`, `LIFO`, `AVERAGE`, `AVERAGE_ONLY`, `NONE`。
+- `booking_method`：指定用于处理复杂投资场景的方法。支持 `STRICT`, `FIFO`, `LIFO`。`AVERAGE`, `AVERAGE_ONLY`, `NONE` 暂未实现：使用它们（或填写无效的值）会在该 `open` 指令上报错，账户改用账本默认的预订方法（`default_booking_method`，默认 `FIFO`），账本仍可正常加载。
+  - `STRICT`：Beancount 的默认方法。减仓必须只匹配一个批次，或一次性减掉所有匹配批次的全部数量；否则报告 `AmbiguousLotMatch` 错误，并在匹配批次中按 `FIFO` 记账。
 
 #### 预订方法
 

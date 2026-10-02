@@ -4,6 +4,7 @@
 //! changes only what it means to change. A `current_behavior_eN_*` test pins quirk EN of the
 //! design and is expected to flip in the PR that fixes EN.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use indoc::{formatdoc, indoc};
@@ -11,7 +12,7 @@ use zhang_core::ast::error::ErrorKind;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_core::{ZhangError, ZhangResult};
+use zhang_core::ZhangResult;
 
 const HEADER: &str = indoc! {r#"
     1970-01-01 commodity USD
@@ -48,6 +49,23 @@ fn errors(ledger: &Ledger) -> Vec<(ErrorKind, Option<String>)> {
         .collect()
 }
 
+/// reported errors in store order, with the first line of their span and all their metas
+fn error_details(ledger: &Ledger) -> Vec<(ErrorKind, String, BTreeMap<String, String>)> {
+    let store = ledger.store.read().unwrap();
+    store
+        .errors
+        .iter()
+        .map(|it| {
+            let span = it.span.as_ref().and_then(|span| span.content.lines().next()).unwrap_or_default();
+            (it.error_type.clone(), span.to_owned(), it.metas.clone().into_iter().collect())
+        })
+        .collect()
+}
+
+fn metas<const N: usize>(pairs: [(&str, &str); N]) -> BTreeMap<String, String> {
+    pairs.into_iter().map(|(key, value)| (key.to_owned(), value.to_owned())).collect()
+}
+
 /// lots of one account in store order, as `units {cost, acquisition date}`
 fn lots(ledger: &Ledger, account: &str) -> Vec<String> {
     let store = ledger.store.read().unwrap();
@@ -72,42 +90,224 @@ fn inferred(ledger: &Ledger, sequence: i32) -> Vec<String> {
         .collect()
 }
 
-fn load_with_booking_method(method: &str) -> ZhangResult<Ledger> {
-    try_load(&formatdoc! {r#"
+/// two cost lots of `Assets:S`, bought on consecutive days
+const TWO_LOTS: &str = indoc! {r#"
+    2024-05-16 * "buy"
+      Assets:S 10 USD { 10 CNY }
+      Income:I -100 CNY
+    2024-05-17 * "buy"
+      Assets:S 10 USD { 11 CNY }
+      Income:I -110 CNY
+"#};
+
+/// `Assets:S` opened with `booking_method: "{method}"`, holding [`TWO_LOTS`], then `sales` on 2024-05-18
+fn load_two_lots(method: &str, sales: &str) -> Ledger {
+    load(&formatdoc! {r#"
         1970-01-01 open Assets:S
           booking_method: "{method}"
-        2024-05-16 * "buy"
-          Assets:S 10 USD {{ 10 CNY }}
-          Income:I -100 CNY
+        {TWO_LOTS}
+        2024-05-18 * "sell"
+        {sales}
     "#})
 }
 
 #[test]
-#[should_panic(expected = "not implemented")]
-fn current_behavior_e1_strict_booking_panics() {
-    // current behavior (booking-split design E1, #423); expected to change in the E1 fix PR
-    let _ = load_with_booking_method("STRICT");
+fn e1_unsupported_booking_method_reports_error_and_falls_back() {
+    // booking-split design E1, #423: these methods are not implemented. The `open` reports it once,
+    // and the account books with the ledger's default method (LIFO here) instead of panicking
+    for method in ["NONE", "AVERAGE", "AVERAGE_ONLY"] {
+        let ledger = load(&formatdoc! {r#"
+            option "default_booking_method" "LIFO"
+            1970-01-01 open Assets:S
+              booking_method: "{method}"
+            {TWO_LOTS}
+            2024-05-18 * "sell"
+              Assets:S -5 USD {{}}
+              Income:I
+        "#});
+        assert_eq!(
+            error_details(&ledger),
+            vec![(
+                ErrorKind::UnsupportedBookingMethod,
+                "1970-01-01 open Assets:S".to_owned(),
+                metas([("account_name", "Assets:S"), ("booking_method", method)])
+            )],
+            "{method}"
+        );
+        assert_eq!(
+            lots(&ledger, "Assets:S"),
+            vec!["10 USD {10 CNY, 2024-05-16}", "5 USD {11 CNY, 2024-05-17}"],
+            "{method}"
+        );
+    }
 }
 
 #[test]
-#[should_panic(expected = "not implemented")]
-fn current_behavior_e1_average_booking_panics() {
-    // current behavior (booking-split design E1, #423); expected to change in the E1 fix PR
-    let _ = load_with_booking_method("AVERAGE");
+fn e7_invalid_booking_method_reports_error_and_falls_back() {
+    // booking-split design E7, #423: the load no longer aborts. The `open` reports the invalid meta,
+    // and the account books with the ledger's default method (FIFO)
+    let ledger = load(&formatdoc! {r#"
+        1970-01-01 open Assets:S
+          booking_method: "NON_EXIST"
+        {TWO_LOTS}
+        2024-05-18 * "sell"
+          Assets:S -5 USD {{}}
+          Income:I
+        2024-05-18 * "plain"
+          Assets:S 10 CNY
+          Income:I -10 CNY
+    "#});
+    assert_eq!(
+        error_details(&ledger),
+        vec![(
+            ErrorKind::ParseInvalidMeta,
+            "1970-01-01 open Assets:S".to_owned(),
+            metas([("account_name", "Assets:S"), ("booking_method", "NON_EXIST")])
+        )]
+    );
+    assert_eq!(
+        lots(&ledger, "Assets:S"),
+        vec!["5 USD {10 CNY, 2024-05-16}", "10 USD {11 CNY, 2024-05-17}", "10 CNY"]
+    );
 }
 
 #[test]
-#[should_panic(expected = "not implemented")]
-fn current_behavior_e1_average_only_booking_panics() {
-    // current behavior (booking-split design E1, #423); expected to change in the E1 fix PR
-    let _ = load_with_booking_method("AVERAGE_ONLY");
+fn invalid_or_unsupported_default_booking_method_option_reports_error_and_falls_back_to_fifo() {
+    for (value, kind) in [("NON_EXIST", ErrorKind::ParseInvalidMeta), ("AVERAGE", ErrorKind::UnsupportedBookingMethod)] {
+        let ledger = load(&formatdoc! {r#"
+            option "default_booking_method" "{value}"
+            1970-01-01 open Assets:S
+            {TWO_LOTS}
+            2024-05-18 * "sell"
+              Assets:S -5 USD {{}}
+              Income:I
+        "#});
+        assert_eq!(
+            error_details(&ledger),
+            vec![(
+                kind,
+                format!(r#"option "default_booking_method" "{value}""#),
+                metas([("booking_method", value)])
+            )],
+            "{value}"
+        );
+        assert_eq!(
+            lots(&ledger, "Assets:S"),
+            vec!["5 USD {10 CNY, 2024-05-16}", "10 USD {11 CNY, 2024-05-17}"],
+            "{value}"
+        );
+        assert_eq!(ledger.store.read().unwrap().options["default_booking_method"], "FIFO", "{value}");
+    }
 }
 
 #[test]
-#[should_panic(expected = "not implemented")]
-fn current_behavior_e1_none_booking_panics() {
-    // current behavior (booking-split design E1, #423); expected to change in the E1 fix PR
-    let _ = load_with_booking_method("NONE");
+fn strict_reduction_matching_one_lot_reduces_it() {
+    let ledger = load_two_lots("STRICT", "  Assets:S -5 USD { 10 CNY, 2024-05-16 }\n  Income:I");
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["5 USD {10 CNY, 2024-05-16}", "10 USD {11 CNY, 2024-05-17}"]);
+}
+
+#[test]
+fn strict_empty_cost_reduction_with_a_single_cost_lot_reduces_it() {
+    let ledger = load(&formatdoc! {r#"
+        1970-01-01 open Assets:A
+          booking_method: "STRICT"
+        {BUY_10_AT_10}
+        2024-05-18 * "sell"
+          Assets:A -5 USD {{}}
+          Income:I
+    "#});
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["5 USD {10 CNY, 2024-05-16}"]);
+}
+
+#[test]
+fn strict_ambiguous_reduction_reports_error_and_books_like_fifo() {
+    let ledger = load_two_lots("STRICT", "  Assets:S -5 USD {}\n  Income:I");
+    assert_eq!(
+        error_details(&ledger),
+        vec![(
+            ErrorKind::AmbiguousLotMatch,
+            r#"2024-05-18 * "sell""#.to_owned(),
+            metas([
+                ("account_name", "Assets:S"),
+                ("matched_lots", "10 USD {10 CNY, 2024-05-16}, 10 USD {11 CNY, 2024-05-17}"),
+                ("transaction_amount", "-5"),
+            ])
+        )]
+    );
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["5 USD {10 CNY, 2024-05-16}", "10 USD {11 CNY, 2024-05-17}"]);
+}
+
+#[test]
+fn strict_reduction_of_every_matching_lot_in_full_is_not_ambiguous() {
+    // beancount's exception to STRICT: the total of all matching lots
+    let ledger = load_two_lots("STRICT", "  Assets:S -20 USD {}\n  Income:I");
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:S"), Vec::<String>::new());
+}
+
+#[test]
+fn strict_insufficient_single_match_reports_no_enough_lot() {
+    let ledger = load(&formatdoc! {r#"
+        1970-01-01 open Assets:A
+          booking_method: "STRICT"
+        {BUY_10_AT_10}
+        2024-05-16 * "sell more than held"
+          Assets:A -15 USD {{ 10 CNY }}
+          Income:I 150 CNY
+    "#});
+    assert_eq!(errors(&ledger), vec![(ErrorKind::NoEnoughCommodityLot, Some("-15".to_owned()))]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["-5 USD {10 CNY, 2024-05-16}"]);
+}
+
+#[test]
+fn strict_reduction_beyond_several_matches_is_ambiguous_and_insufficient() {
+    // like beancount, more than the total of several matching lots is ambiguous; booking it like
+    // FIFO then runs out of lots
+    let ledger = load_two_lots("STRICT", "  Assets:S -25 USD {}\n  Income:I");
+    assert_eq!(
+        errors(&ledger),
+        vec![
+            (ErrorKind::AmbiguousLotMatch, Some("-25".to_owned())),
+            (ErrorKind::NoEnoughCommodityLot, Some("-25".to_owned())),
+        ]
+    );
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["-5 USD"]);
+}
+
+#[test]
+fn strict_augmentation_is_never_ambiguous() {
+    // an augmentation books like FIFO; `{}` still merges into the first cost lot (E6)
+    let ledger = load_two_lots("STRICT", "  Assets:S 3 USD {}\n  Income:I -30 CNY");
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["13 USD {10 CNY, 2024-05-16}", "10 USD {11 CNY, 2024-05-17}"]);
+}
+
+#[test]
+fn strict_as_default_booking_method() {
+    let ledger = load(&formatdoc! {r#"
+        option "default_booking_method" "STRICT"
+        1970-01-01 open Assets:S
+        {TWO_LOTS}
+        2024-05-18 * "sell"
+          Assets:S -5 USD {{}}
+          Income:I
+    "#});
+    assert_eq!(errors(&ledger), vec![(ErrorKind::AmbiguousLotMatch, Some("-5".to_owned()))]);
+    assert_eq!(ledger.store.read().unwrap().options["default_booking_method"], "STRICT");
+}
+
+#[test]
+fn fifo_and_lifo_reductions_matching_several_lots_are_not_errors() {
+    for (method, expected) in [
+        ("FIFO", ["5 USD {10 CNY, 2024-05-16}", "10 USD {11 CNY, 2024-05-17}"]),
+        ("LIFO", ["10 USD {10 CNY, 2024-05-16}", "5 USD {11 CNY, 2024-05-17}"]),
+    ] {
+        let ledger = load_two_lots(method, "  Assets:S -5 USD {}\n  Income:I");
+        assert_eq!(errors(&ledger), vec![], "{method}");
+        assert_eq!(lots(&ledger, "Assets:S"), expected, "{method}");
+    }
 }
 
 #[test]
@@ -180,25 +380,6 @@ fn current_behavior_e6_empty_cost_augmentation_merges_into_the_first_cost_lot() 
     ));
     assert_eq!(errors(&ledger), vec![]);
     assert_eq!(lots(&ledger, "Assets:A"), vec!["13 USD {10 CNY, 2024-05-16}"]);
-}
-
-#[test]
-fn current_behavior_e7_invalid_booking_method_aborts_the_load() {
-    // current behavior (booking-split design E7, #423); expected to change in the E7 fix PR
-    let result = try_load(indoc! {r#"
-        1970-01-01 open Assets:X
-          booking_method: "NON_EXIST"
-        2024-05-16 * "plain"
-          Assets:X 10 CNY
-          Income:I -10 CNY
-    "#});
-    assert!(matches!(
-        result,
-        Err(ZhangError::ProcessError {
-            kind: ErrorKind::ParseInvalidMeta,
-            ..
-        })
-    ));
 }
 
 #[test]

@@ -16,6 +16,7 @@ use crate::constants::*;
 use crate::domains::Operations;
 use crate::features::Features;
 use crate::inventory::BookingMethod;
+use crate::utils::hashmap::HashMapOfExt;
 use crate::{ZhangError, ZhangResult};
 
 #[derive(Debug)]
@@ -134,7 +135,14 @@ impl InMemoryOptions {
                     }
                 },
                 BuiltinOption::DefaultBookingMethod => {
-                    self.default_booking_method = BookingMethod::from_str(&value).map_err(|_| ZhangError::InvalidOptionValue)?
+                    // an invalid or unsupported method is reported and leaves the default method as
+                    // it was (FIFO unless set before), like the `booking_method` account meta
+                    let (method, error) = BookingMethod::resolve(&value, self.default_booking_method);
+                    self.default_booking_method = method;
+                    if let Some(kind) = error {
+                        operation.new_error(kind, span, HashMap::of("booking_method", value.clone()))?;
+                        return Ok(method.to_string());
+                    }
                 }
                 BuiltinOption::DirectiveOutputPath => {
                     let mut env = Environment::new();
