@@ -1,0 +1,20 @@
+1970-01-01 commodity USD
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Income:I
+
+2024-05-10 * "augmentation, implicit cash"
+  Assets:A 10 USD { 10 CNY }
+  Income:I
+
+2024-05-17 * "augmentation with a cost date"
+  Assets:A 10 USD { 11 CNY, 2024-05-15 }
+  Income:I -110 CNY
+
+2024-05-18 * "augmentation with a total cost"
+  Assets:A 10 USD {{ 105 CNY }}
+  Income:I -105 CNY
+
+2024-05-19 * "reduction across two lots"
+  Assets:A -15 USD {}
+  Income:I 155 CNY
