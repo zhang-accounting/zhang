@@ -1,0 +1,12 @@
+{
+  "name": "error_journal_non_string",
+  "query": "JOURNAL 42",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": "The JOURNAL account pattern must be a string literal."
+}

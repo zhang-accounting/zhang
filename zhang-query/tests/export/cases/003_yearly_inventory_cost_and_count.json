@@ -1,0 +1,6 @@
+{
+  "name": "yearly_inventory_cost_and_count",
+  "query": "SELECT year, account, sum(position) AS balance, sum(cost(position)) AS cost, count(*) AS postings WHERE account ~ '^Assets:US:Vanguard' GROUP BY year, account ORDER BY year, account",
+  "notes": "three currencies with equal counts: ties are ordered by currency name descending",
+  "csv": "year,account,balance (VBMPX),balance (USD),balance (RGAGX),cost (USD),postings\r\n2015,Assets:US:Vanguard:Cash,,-0.03,,   -0.03,90\r\n2015,Assets:US:Vanguard:RGAGX,,,196.821,16199.99,30\r\n2015,Assets:US:Vanguard:VBMPX,74.956,,,10800.06,30\r\n2016,Assets:US:Vanguard:Cash,, 0.09,,    0.09,90\r\n2016,Assets:US:Vanguard:RGAGX,,,197.929,16199.64,30\r\n2016,Assets:US:Vanguard:VBMPX,61.676,,,10800.25,30\r\n2017,Assets:US:Vanguard:Cash,,-0.08,,   -0.08,96\r\n2017,Assets:US:Vanguard:RGAGX,,,202.998,16650.04,32\r\n2017,Assets:US:Vanguard:VBMPX,56.810,,,11100.05,32\r\n"
+}

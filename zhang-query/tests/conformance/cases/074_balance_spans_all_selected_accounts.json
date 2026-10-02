@@ -1,0 +1,23 @@
+{
+  "name": "balance_spans_all_selected_accounts",
+  "query": "SELECT date, account, position, balance WHERE account ~ '^Expenses:Food:(Coffee|Alcohol)$' AND year = 2016 AND month = 4 ORDER BY date",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "account", "type": "str"},
+    {"name": "position", "type": "position"},
+    {"name": "balance", "type": "inventory"}
+  ],
+  "rows": [
+    ["2016-04-12", "Expenses:Food:Coffee", {"units": {"number": "5.94", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "5.94", "currency": "USD"}, "cost": null}]}],
+    ["2016-04-13", "Expenses:Food:Alcohol", {"units": {"number": "8.14", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "14.08", "currency": "USD"}, "cost": null}]}],
+    ["2016-04-15", "Expenses:Food:Alcohol", {"units": {"number": "9.42", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "23.50", "currency": "USD"}, "cost": null}]}],
+    ["2016-04-16", "Expenses:Food:Alcohol", {"units": {"number": "8.57", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "32.07", "currency": "USD"}, "cost": null}]}],
+    ["2016-04-18", "Expenses:Food:Alcohol", {"units": {"number": "8.76", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "40.83", "currency": "USD"}, "cost": null}]}],
+    ["2016-04-19", "Expenses:Food:Coffee", {"units": {"number": "5.23", "currency": "USD"}, "cost": null}, {"positions": [{"units": {"number": "46.06", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "One running balance over all selected rows, across accounts."
+}

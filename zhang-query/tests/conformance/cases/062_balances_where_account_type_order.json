@@ -1,0 +1,21 @@
+{
+  "name": "balances_where_account_type_order",
+  "query": "BALANCES WHERE account ~ 'Vacation|Opening|Slate|Fees'",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "SUM((position))", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:Hoogle:Vacation", {"positions": [{"units": {"number": "-13", "currency": "VACHR"}, "cost": null}]}],
+    ["Liabilities:US:Chase:Slate", {"positions": [{"units": {"number": "-2703.29", "currency": "USD"}, "cost": null}]}],
+    ["Equity:Opening-Balances", {"positions": [{"units": {"number": "-3490.52", "currency": "USD"}, "cost": null}]}],
+    ["Income:US:Hoogle:Vacation", {"positions": [{"units": {"number": "-355", "currency": "VACHR"}, "cost": null}]}],
+    ["Expenses:Financial:Fees", {"positions": [{"units": {"number": "132.00", "currency": "USD"}, "cost": null}]}],
+    ["Expenses:Vacation", {"positions": [{"units": {"number": "368", "currency": "VACHR"}, "cost": null}]}]
+  ],
+  "notes": "The account_sortkey order is not alphabetical: Liabilities comes before Equity, and Income before Expenses."
+}

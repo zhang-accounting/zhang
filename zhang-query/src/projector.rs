@@ -101,7 +101,7 @@ fn bit(column: &ColumnDef) -> u64 {
     1 << index
 }
 
-/// `[account, position] (2 of 22 columns)`
+/// `[account, position] (2 of 23 columns)`
 impl fmt::Display for Projection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let names = self.names();
@@ -317,11 +317,11 @@ option "operating_currency" "USD"
         assert_eq!(projection.names(), vec!["payee", "position", "price", "tags"]);
         assert!(projection.keeps_cost() && projection.keeps_price());
         assert!(projection.contains(column("tags").unwrap()) && !projection.contains(column("account").unwrap()));
-        assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 22 columns)");
+        assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 23 columns)");
 
         let projection = Query::compile("SELECT count(*), sum(number) WHERE account ~ 'Food'").unwrap().projection;
         assert!(!projection.keeps_cost() && !projection.keeps_price());
-        assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 22 columns)");
+        assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 23 columns)");
         assert_eq!(Projection::all().names().len(), COLUMNS.len());
     }
 
@@ -341,6 +341,7 @@ option "operating_currency" "USD"
                 data: Some(&data),
                 row: Some(row),
                 aggregates: &[],
+                balance: None,
                 params: &params,
                 regexes: &regexes,
                 impure: &impure,

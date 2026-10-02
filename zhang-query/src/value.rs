@@ -243,6 +243,12 @@ impl Inventory {
         })
     }
 
+    /// The units currency and number of every lot, in the order of
+    /// [`Inventory::positions`], without copying them.
+    pub(crate) fn lot_units(&self) -> impl Iterator<Item = (&str, &BigDecimal)> + '_ {
+        self.lots.iter().map(|((currency, _), number)| (currency.as_str(), number))
+    }
+
     /// Reduce every position to an amount with `f` and sum the results into a new
     /// inventory without costs (beancount's `Inventory.reduce`).
     pub fn reduce(&self, mut f: impl FnMut(&Position) -> Amount) -> Inventory {

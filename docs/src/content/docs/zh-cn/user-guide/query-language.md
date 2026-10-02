@@ -705,7 +705,6 @@ GROUP BY type
 - **`HAVING` 和 `PIVOT BY`。**
 - **其他表：**只有 `postings` 表，没有 entries、prices、accounts、commodities、documents 或 balances 等表。
 - **累计余额 `balance` 列**，以及 beanquery 的 `posting_flag`、`filename`、`lineno`、`location`、`meta`、`entry`、`accounts` 和 `type` 列。
-- **`query` 指令：**尚不能列出或执行保存在账本中的查询（`2024-01-01 query "name" "SELECT ..."`）。
 - **`BETWEEN` 和 `%` 运算符**，以及 beanquery 的带引号标识符。
 - **本页未列出的函数**，例如 `round`、`safediv`、`account_sortkey`、`has_account`、`open_date`、`close_date`、`open_meta`、`currency_meta`、`grep`、`subst`、`upper`、`lower`、`joinstr`、`findfirst`，类型转换函数 `int`、`decimal` 和 `date`，以及 `date_*` 系列函数。调用它们会报错。
 

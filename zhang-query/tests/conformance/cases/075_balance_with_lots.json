@@ -1,0 +1,26 @@
+{
+  "name": "balance_with_lots",
+  "query": "SELECT date, units(position) AS units, cost(position) AS cost, balance WHERE account = 'Assets:US:ETrade:VHT' ORDER BY date",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "units", "type": "amount"},
+    {"name": "cost", "type": "amount"},
+    {"name": "balance", "type": "inventory"}
+  ],
+  "rows": [
+    ["2015-09-15", {"number": "9", "currency": "VHT"}, {"number": "1025.19", "currency": "USD"}, {"positions": [{"units": {"number": "9", "currency": "VHT"}, "cost": {"number": "113.91", "currency": "USD", "date": "2015-09-15", "label": null}}]}],
+    ["2015-11-13", {"number": "18", "currency": "VHT"}, {"number": "2019.78", "currency": "USD"}, {"positions": [{"units": {"number": "18", "currency": "VHT"}, "cost": {"number": "112.21", "currency": "USD", "date": "2015-11-13", "label": null}}, {"units": {"number": "9", "currency": "VHT"}, "cost": {"number": "113.91", "currency": "USD", "date": "2015-09-15", "label": null}}]}],
+    ["2016-04-29", {"number": "-18", "currency": "VHT"}, {"number": "-2019.78", "currency": "USD"}, {"positions": [{"units": {"number": "9", "currency": "VHT"}, "cost": {"number": "113.91", "currency": "USD", "date": "2015-09-15", "label": null}}]}],
+    ["2016-05-05", {"number": "4", "currency": "VHT"}, {"number": "472.12", "currency": "USD"}, {"positions": [{"units": {"number": "9", "currency": "VHT"}, "cost": {"number": "113.91", "currency": "USD", "date": "2015-09-15", "label": null}}, {"units": {"number": "4", "currency": "VHT"}, "cost": {"number": "118.03", "currency": "USD", "date": "2016-05-05", "label": null}}]}],
+    ["2016-07-25", {"number": "-4", "currency": "VHT"}, {"number": "-472.12", "currency": "USD"}, {"positions": [{"units": {"number": "9", "currency": "VHT"}, "cost": {"number": "113.91", "currency": "USD", "date": "2015-09-15", "label": null}}]}],
+    ["2016-08-13", {"number": "20", "currency": "VHT"}, {"number": "2397.00", "currency": "USD"}, {"positions": [{"units": {"number": "9", "currency": "VHT"}, "cost": {"number": "113.91", "currency": "USD", "date": "2015-09-15", "label": null}}, {"units": {"number": "20", "currency": "VHT"}, "cost": {"number": "119.85", "currency": "USD", "date": "2016-08-13", "label": null}}]}],
+    ["2016-09-23", {"number": "10", "currency": "VHT"}, {"number": "1191.70", "currency": "USD"}, {"positions": [{"units": {"number": "9", "currency": "VHT"}, "cost": {"number": "113.91", "currency": "USD", "date": "2015-09-15", "label": null}}, {"units": {"number": "10", "currency": "VHT"}, "cost": {"number": "119.17", "currency": "USD", "date": "2016-09-23", "label": null}}, {"units": {"number": "20", "currency": "VHT"}, "cost": {"number": "119.85", "currency": "USD", "date": "2016-08-13", "label": null}}]}],
+    ["2017-03-19", {"number": "6", "currency": "VHT"}, {"number": "693.30", "currency": "USD"}, {"positions": [{"units": {"number": "9", "currency": "VHT"}, "cost": {"number": "113.91", "currency": "USD", "date": "2015-09-15", "label": null}}, {"units": {"number": "6", "currency": "VHT"}, "cost": {"number": "115.55", "currency": "USD", "date": "2017-03-19", "label": null}}, {"units": {"number": "10", "currency": "VHT"}, "cost": {"number": "119.17", "currency": "USD", "date": "2016-09-23", "label": null}}, {"units": {"number": "20", "currency": "VHT"}, "cost": {"number": "119.85", "currency": "USD", "date": "2016-08-13", "label": null}}]}],
+    ["2017-08-27", {"number": "19", "currency": "VHT"}, {"number": "2514.08", "currency": "USD"}, {"positions": [{"units": {"number": "9", "currency": "VHT"}, "cost": {"number": "113.91", "currency": "USD", "date": "2015-09-15", "label": null}}, {"units": {"number": "6", "currency": "VHT"}, "cost": {"number": "115.55", "currency": "USD", "date": "2017-03-19", "label": null}}, {"units": {"number": "10", "currency": "VHT"}, "cost": {"number": "119.17", "currency": "USD", "date": "2016-09-23", "label": null}}, {"units": {"number": "20", "currency": "VHT"}, "cost": {"number": "119.85", "currency": "USD", "date": "2016-08-13", "label": null}}, {"units": {"number": "19", "currency": "VHT"}, "cost": {"number": "132.32", "currency": "USD", "date": "2017-08-27", "label": null}}]}]
+  ],
+  "notes": "The running inventory keeps lots: a reduction removes units from the lot it was booked against. Depends on booking."
+}

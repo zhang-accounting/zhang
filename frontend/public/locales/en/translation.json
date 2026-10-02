@@ -79,7 +79,10 @@
       "spending_by_payee": "Spending by payee",
       "postings_with_tag": "Postings with a tag",
       "holdings": "Holdings at cost and market",
-      "recent_postings": "Recent postings"
+      "recent_postings": "Recent postings",
+      "income_statement": "Income statement for 2016",
+      "balances": "Balances at the end of 2016",
+      "journal": "Journal of an account"
     },
     "reference": "Reference",
     "reference_description": "Columns and functions available in queries. Click one to insert it into the editor.",
@@ -98,6 +101,26 @@
     "show_all": "Show all",
     "error_title": "Query error",
     "error_position": "Line {{line}}, column {{column}}",
-    "error_line": "Line {{line}}"
+    "error_line": "Line {{line}}",
+    "export_csv": "Export CSV",
+    "exporting_csv": "Exporting...",
+    "show_chart": "Chart",
+    "saved": "Saved",
+    "saved_loading": "Loading saved queries...",
+    "saved_load_failed": "Failed to load the saved queries.",
+    "saved_empty": "No saved queries in this ledger.",
+    "saved_empty_hint": "Save one with a query directive, for example:",
+    "saved_invalid": "(invalid)",
+    "chart": {
+      "treemap": "Treemap by account",
+      "bar": "Bar chart",
+      "line": "Over time",
+      "currency": "Currency",
+      "positive": "Positive",
+      "negative": "Negative",
+      "treemap_absolute": "Cell area shows the absolute value.",
+      "bars_truncated": "Showing the first {{shown}} of {{total}} bars.",
+      "nothing_to_plot": "Nothing to plot."
+    }
   }
 }

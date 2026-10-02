@@ -705,7 +705,6 @@ Income is negative in the ledger. `possign` flips the sign of each income postin
 - **`HAVING` and `PIVOT BY`.**
 - **Other tables:** only `postings` exists. There are no entries, prices, accounts, commodities, documents or balances tables.
 - **The running `balance` column**, and the beanquery columns `posting_flag`, `filename`, `lineno`, `location`, `meta`, `entry`, `accounts` and `type`.
-- **The `query` directive:** queries saved in the ledger (`2024-01-01 query "name" "SELECT ..."`) are not listed or run yet.
 - **Operators `BETWEEN` and `%`**, and beanquery's quoted identifiers.
 - **Functions not listed on this page**, such as `round`, `safediv`, `account_sortkey`, `has_account`, `open_date`, `close_date`, `open_meta`, `currency_meta`, `grep`, `subst`, `upper`, `lower`, `joinstr`, `findfirst`, the conversion functions `int`, `decimal` and `date`, and the `date_*` functions. Calling one is an error.
 

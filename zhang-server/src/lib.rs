@@ -117,8 +117,10 @@ impl GotchaApp for ServerApp {
             .get("/api/budgets/:budget_name/interval/:year/:month", get_budget_interval_detail)
             .get("/api/plugins", routes::plugin::plugin_list)
             .post("/api/query", routes::query::run_query)
+            .post("/api/query/csv", routes::query::run_query_csv)
             .get("/api/query/schema", routes::query::get_query_schema)
-            .layer(CorsLayer::permissive())
+            .get("/api/query/saved", routes::query::get_saved_queries)
+            .layer(CorsLayer::permissive().expose_headers(cors_expose_headers()))
             .layer(DefaultBodyLimit::disable())
             .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */));
 
@@ -145,6 +147,13 @@ impl GotchaApp for ServerApp {
             reload_sender: SharedReloadSender(self.reload_sender.clone()),
         })
     }
+}
+
+/// `Access-Control-Expose-Headers` for cross-origin clients such as the frontend dev server:
+/// `*` exposes every response header where the wildcard is honoured, and `Content-Disposition`
+/// is also listed by name so the `POST /api/query/csv` filename stays readable where it is not.
+fn cors_expose_headers() -> [axum::http::HeaderName; 2] {
+    [axum::http::HeaderName::from_static("*"), axum::http::header::CONTENT_DISPOSITION]
 }
 
 fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Result<Event>>)> {

@@ -1,5 +1,5 @@
 import { FetchReturnType, OpReturnType } from 'openapi-typescript-fetch';
-import type { retrieveQuerySchema } from './requests';
+import type { retrieveQuerySchema, retrieveSavedQueries } from './requests';
 import { operations } from './schemas';
 
 export type JournalItem = OpReturnType<operations['get_journals']>['data']['records'][number];
@@ -55,3 +55,4 @@ export interface QueryError {
   column: number | null;
 }
 export type QuerySchema = FetchReturnType<typeof retrieveQuerySchema>['data'];
+export type SavedQuery = FetchReturnType<typeof retrieveSavedQueries>['data'][number];

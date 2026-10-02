@@ -155,7 +155,11 @@ pub struct Event {
     pub meta: Meta,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+/// A named query stored in the ledger: `2024-01-01 query "name" "SELECT ..."`.
+///
+/// The query text is kept verbatim; it is neither parsed nor validated when the
+/// ledger is loaded.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Query {
     pub date: Date,
 

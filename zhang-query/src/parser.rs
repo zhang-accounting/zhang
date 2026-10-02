@@ -3,11 +3,15 @@
 //! Grammar (keywords are case-insensitive):
 //!
 //! ```text
-//! query      := SELECT [DISTINCT] targets [FROM from] [WHERE expr]
-//!               [GROUP BY item, ...] [ORDER BY item [ASC|DESC], ...] [LIMIT int] [;]
-//! targets    := '*' | expr [AS name], ...
-//! from       := [expr] [OPEN ON date] [CLOSE [ON date]] [CLEAR]   (at least one part)
+//! query      := (select | balances | journal) [;]
+//! select     := SELECT [DISTINCT] targets [from] [where]
+//!               [GROUP BY item, ...] [ORDER BY item [ASC|DESC], ...] [LIMIT int]
+//! balances   := BALANCES [AT name] [from] [where]
+//! journal    := JOURNAL ['regex' | $n | :name] [AT name] [from]
+//! from       := FROM [expr] [OPEN ON date] [CLOSE [ON date]] [CLEAR]   (at least one part)
 //! date       := 2024-01-31 | $n | :name
+//! where      := WHERE expr
+//! targets    := '*' | expr [AS name], ...
 //! expr       := or
 //! or         := and (OR and)*
 //! and        := not (AND not)*
@@ -23,6 +27,9 @@
 //! ```
 //!
 //! `--` starts a comment that runs to the end of the line.
+//!
+//! `BALANCES` and `JOURNAL` are shorthands that [`crate::statements`] desugars into a
+//! [`Select`], so every later stage only ever sees SELECT.
 
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -37,6 +44,7 @@ use nom::{Err as NomErr, IResult};
 use crate::ast::{ArithOp, BinaryOp, Expr, ExprKind, FromClause, InTarget, Literal, LogicalOp, OrderItem, Period, Select, Target, Targets, UnaryOp};
 use crate::error::{QueryError, QueryErrorKind, Span};
 use crate::params::ParamRef;
+use crate::statements::{self, AtFunction};
 
 #[derive(Debug, Clone)]
 pub(crate) struct PError<'a> {
@@ -200,7 +208,7 @@ pub(crate) fn parse(src: &str) -> Result<Select, QueryError> {
         ));
     }
     let parser = Parser { src, depth: Cell::new(0) };
-    match parser.select(src) {
+    match parser.statement(src) {
         Ok((_, select)) => Ok(select),
         Err(NomErr::Error(err)) | Err(NomErr::Failure(err)) => {
             let message = if err.message.is_empty() {
@@ -219,39 +227,43 @@ impl<'s> Parser<'s> {
         self.src.len() - i.len()
     }
 
-    fn select(&self, i: &'s str) -> PResult<'s, Select> {
+    /// A whole query: one statement, an optional `;`, then the end of the input.
+    fn statement(&self, i: &'s str) -> PResult<'s, Select> {
         let i = skip_ws(i);
-        let i = match keyword("select")(i) {
-            Ok((rest, _)) => rest,
-            Err(_) => {
-                for statement in ["balances", "journal", "print"] {
-                    if is_keyword(i, statement) {
-                        return failure(i, format!("{} statements are not supported yet; only SELECT is", statement.to_uppercase()));
-                    }
-                }
-                return failure(i, format!("expected SELECT, found {}", found(i)));
-            }
+        let start = self.offset(i);
+        let keyword_span = |rest: &str| Span::new(start, self.offset(rest));
+        let (i, select) = if let Ok((rest, _)) = keyword("select")(i) {
+            self.select(rest)?
+        } else if let Ok((rest, _)) = keyword("balances")(i) {
+            self.balances(rest, keyword_span(rest))?
+        } else if let Ok((rest, _)) = keyword("journal")(i) {
+            self.journal(rest, keyword_span(rest))?
+        } else if is_keyword(i, "print") {
+            return failure(i, "PRINT statements are not supported yet; only SELECT, BALANCES and JOURNAL are");
+        } else {
+            return failure(i, format!("expected SELECT, BALANCES or JOURNAL, found {}", found(i)));
         };
+        let i = match symbol(";")(i) {
+            Ok((rest, _)) => rest,
+            Err(_) => i,
+        };
+        let i = skip_ws(i);
+        if !i.is_empty() {
+            return failure(i, format!("unexpected {}", found(i)));
+        }
+        Ok((i, select))
+    }
+
+    /// A SELECT, after the keyword.
+    fn select(&self, i: &'s str) -> PResult<'s, Select> {
         let (i, distinct) = match keyword("distinct")(i) {
             Ok((rest, _)) => (rest, true),
             Err(_) => (i, false),
         };
         let (i, targets) = cut(self.targets(i))?;
 
-        let (i, from, period) = match keyword("from")(i) {
-            Ok((rest, _)) => {
-                let (rest, FromClause { expr, period }) = cut(self.parse_from_clause(rest))?;
-                (rest, expr, period)
-            }
-            Err(_) => (i, None, None),
-        };
-        let (i, where_clause) = match keyword("where")(i) {
-            Ok((rest, _)) => {
-                let (rest, expr) = cut(self.expr(rest))?;
-                (rest, Some(expr))
-            }
-            Err(_) => (i, None),
-        };
+        let (i, FromClause { expr: from, period }) = self.parse_from(i)?;
+        let (i, where_clause) = self.parse_where(i)?;
         let (i, group_by) = match keyword("group")(i) {
             Ok((rest, _)) => {
                 let (rest, _) = cut(keyword("by")(rest))?;
@@ -291,14 +303,6 @@ impl<'s> Parser<'s> {
             }
             Err(_) => (i, None),
         };
-        let i = match symbol(";")(i) {
-            Ok((rest, _)) => rest,
-            Err(_) => i,
-        };
-        let i = skip_ws(i);
-        if !i.is_empty() {
-            return failure(i, format!("unexpected {}", found(i)));
-        }
         Ok((
             i,
             Select {
@@ -314,11 +318,15 @@ impl<'s> Parser<'s> {
         ))
     }
 
-    /// The FROM clause after the FROM keyword: `[expr] [OPEN ON date] [CLOSE [ON date]] [CLEAR]`,
-    /// with at least one part. The modifiers come in this order, each at most once, as in
-    /// beanquery; `open`, `close` and `clear` are not columns, so they cannot start the expression.
-    pub(crate) fn parse_from_clause(&self, i: &'s str) -> PResult<'s, FromClause> {
+    /// `[FROM [expr] [OPEN ON date] [CLOSE [ON date]] [CLEAR]]`, shared by SELECT, BALANCES and
+    /// JOURNAL. A FROM clause has at least one part. The modifiers come in this order, each at
+    /// most once, as in beanquery; `open`, `close` and `clear` are not columns, so they cannot
+    /// start the expression.
+    fn parse_from(&self, i: &'s str) -> PResult<'s, FromClause> {
         const MODIFIERS: [&str; 3] = ["open", "close", "clear"];
+        let Ok((i, _)) = keyword("from")(i) else {
+            return Ok((i, FromClause { expr: None, period: None }));
+        };
         let table = skip_ws(i);
         if table.starts_with('#') || (is_keyword(table, "postings") && !skip_ws(&table["postings".len()..]).starts_with(['=', '!', '<', '>', '~'])) {
             return failure(
@@ -379,6 +387,87 @@ impl<'s> Parser<'s> {
             ExprKind::Literal(Literal::Date(_)) | ExprKind::Param(_) => Ok((rest, date)),
             _ => failure(i, expected()),
         }
+    }
+
+    /// `[WHERE expr]`, shared by SELECT and BALANCES.
+    fn parse_where(&self, i: &'s str) -> PResult<'s, Option<Expr>> {
+        let Ok((rest, _)) = keyword("where")(i) else {
+            return Ok((i, None));
+        };
+        let (rest, expr) = cut(self.expr(rest))?;
+        Ok((rest, Some(expr)))
+    }
+
+    /// `BALANCES [AT name] [from] [WHERE expr]`, after the keyword.
+    fn balances(&self, i: &'s str, keyword: Span) -> PResult<'s, Select> {
+        let (i, at) = self.at_clause(i)?;
+        let (i, FromClause { expr: from, period }) = self.parse_from(i)?;
+        let (i, where_clause) = self.parse_where(i)?;
+        // the FROM clause is passed through as SELECT parses it
+        Ok((
+            i,
+            Select {
+                from,
+                period,
+                ..statements::balances(keyword, at, where_clause)
+            },
+        ))
+    }
+
+    /// `JOURNAL ['regex' | $n | :name] [AT name] [from]`, after the keyword. As in
+    /// beanquery there is no WHERE clause; FROM filters the postings.
+    fn journal(&self, i: &'s str, keyword: Span) -> PResult<'s, Select> {
+        let trimmed = skip_ws(i);
+        let start = self.offset(trimmed);
+        let (i, account) = match trimmed.chars().next() {
+            Some(quote @ ('\'' | '"')) => {
+                let (rest, pattern) = self.string_literal(trimmed, quote, start)?;
+                (rest, Some(pattern))
+            }
+            Some('$' | ':') => {
+                let (rest, pattern) = self.parameter(trimmed, start)?;
+                (rest, Some(pattern))
+            }
+            _ => (i, None),
+        };
+        let (i, at) = self.at_clause(i)?;
+        let (i, FromClause { expr: from, period }) = self.parse_from(i)?;
+        if is_keyword(i, "where") {
+            return failure(skip_ws(i), "JOURNAL has no WHERE clause; filter the postings with FROM <expression>");
+        }
+        Ok((
+            i,
+            Select {
+                from,
+                period,
+                ..statements::journal(keyword, account, at)
+            },
+        ))
+    }
+
+    /// `[AT name]`: the function applied to the positions and balances of BALANCES and
+    /// JOURNAL, e.g. `AT cost`.
+    fn at_clause(&self, i: &'s str) -> PResult<'s, Option<AtFunction>> {
+        let Ok((rest, _)) = keyword("at")(i) else {
+            return Ok((i, None));
+        };
+        let rest = skip_ws(rest);
+        let expected = || format!("expected a function name after AT, e.g. AT cost, found {}", found(rest));
+        let Ok((after, name)) = raw_identifier(rest) else {
+            return failure(rest, expected());
+        };
+        let name = name.to_ascii_lowercase();
+        if RESERVED.contains(&name.as_str()) {
+            return failure(rest, expected());
+        }
+        let start = self.offset(rest);
+        Ok((
+            after,
+            Some(AtFunction {
+                name,
+                span: Span::new(start, self.offset(after)),
+            }),
+        ))
     }
 
     fn targets(&self, i: &'s str) -> PResult<'s, Targets> {
@@ -1017,6 +1106,14 @@ mod tests {
 
         // no modifiers: no period
         assert!(parse_ok("SELECT * FROM year = 2016").period.is_none());
+
+        // BALANCES and JOURNAL share the FROM clause
+        let balances = parse_ok("BALANCES AT cost FROM year = 2016 OPEN ON 2016-01-01 CLOSE CLEAR WHERE TRUE");
+        assert!(balances.from.is_some() && balances.where_clause.is_some());
+        assert_eq!(balances.period.unwrap().close, Some(None));
+        let journal = parse_ok("JOURNAL 'Assets' FROM CLOSE ON 2017-01-01");
+        assert!(journal.from.is_none());
+        assert_eq!(journal.period.unwrap().close.unwrap().unwrap().kind, date(2017, 1, 1));
     }
 
     fn parse_err(src: &str) -> QueryError {
@@ -1041,7 +1138,7 @@ mod tests {
         assert_eq!(err.column, Some(16));
         assert!(err.message.contains("unexpected 'account'"));
 
-        let err = parse_err("BALANCES");
+        let err = parse_err("PRINT");
         assert!(err.message.contains("not supported"));
         let err = parse_err("SELECT * FROM CLEAR OPEN ON 2024-01-01");
         assert_eq!(err.column, Some(21), "{}", err);
@@ -1061,5 +1158,86 @@ mod tests {
         assert!(err.message.contains("LIMIT"));
         let err = parse_err("SELECT sum(position");
         assert!(err.message.contains("')'"), "{}", err.message);
+    }
+
+    /// The target names (aliases) of a parsed statement.
+    fn target_names(select: &Select) -> Vec<String> {
+        let Targets::List(targets) = &select.targets else { panic!() };
+        targets.iter().map(|it| it.alias.clone().unwrap_or_default()).collect()
+    }
+
+    #[test]
+    fn parses_balances() {
+        let select = parse_ok("balances at Cost from year = 2016 where account ~ 'Assets';");
+        assert_eq!(target_names(&select), ["account", "sum(cost(position))"]);
+        assert!(select.from.is_some() && select.where_clause.is_some());
+        assert_eq!(select.group_by.as_ref().map(Vec::len), Some(2));
+        assert_eq!(select.order_by.as_ref().map(Vec::len), Some(1));
+        // the AT function call spans the function name
+        let src = "BALANCES AT units";
+        let Targets::List(targets) = parse_ok(src).targets else { panic!() };
+        let ExprKind::Call { name, args, .. } = &targets[1].expr.kind else { panic!() };
+        assert_eq!(name, "sum");
+        assert!(matches!(&args[0].kind, ExprKind::Call { name, .. } if name == "units"));
+        assert_eq!(&src[args[0].span.start..args[0].span.end], "units");
+
+        let plain = parse_ok("BALANCES");
+        assert_eq!(target_names(&plain), ["account", "sum(position)"]);
+        assert!(plain.from.is_none() && plain.where_clause.is_none());
+    }
+
+    #[test]
+    fn parses_journal() {
+        let select = parse_ok("JOURNAL 'Assets:Bank' AT value FROM year = 2016");
+        assert_eq!(
+            target_names(&select),
+            [
+                "date",
+                "flag",
+                "maxwidth(payee, 48)",
+                "maxwidth(narration, 80)",
+                "account",
+                "value(position)",
+                "value(balance)"
+            ]
+        );
+        assert!(select.from.is_some());
+        let ExprKind::Binary(BinaryOp::Match, account, pattern) = select.where_clause.unwrap().kind else {
+            panic!()
+        };
+        assert_eq!(account.kind, ExprKind::Column("account".into()));
+        assert_eq!(pattern.kind, ExprKind::Literal(Literal::Str("Assets:Bank".into())));
+
+        let select = parse_ok("journal \"Cash\"");
+        assert_eq!(target_names(&select)[5..], ["position", "balance"]);
+        assert!(select.from.is_none() && select.group_by.is_none() && select.order_by.is_none());
+        let select = parse_ok("JOURNAL :account");
+        let ExprKind::Binary(_, _, pattern) = select.where_clause.unwrap().kind else {
+            panic!()
+        };
+        assert_eq!(pattern.kind, ExprKind::Param(ParamRef::Named("account".into())));
+        // no account: no filter
+        assert!(parse_ok("JOURNAL FROM year = 2016").where_clause.is_none());
+    }
+
+    #[test]
+    fn statement_syntax_errors() {
+        for (src, column, message) in [
+            ("BALANCES AT", 12, "expected a function name after AT"),
+            ("BALANCES AT 1", 13, "expected a function name after AT"),
+            ("JOURNAL AT FROM year = 2016", 12, "expected a function name after AT"),
+            ("JOURNAL 'x' WHERE TRUE", 13, "JOURNAL has no WHERE clause"),
+            ("JOURNAL 'x' 'y'", 13, "unexpected"),
+            ("BALANCES WHERE", 15, "end of query"),
+            ("BALANCES GROUP BY account", 10, "unexpected 'GROUP'"),
+            ("BALANCES FROM CLEAR CLOSE", 21, "in this order"),
+            ("JOURNAL 'x' FROM OPEN 2016-01-01", 23, "expected ON after OPEN"),
+            ("JOURNAL 'unterminated", 9, "unterminated string literal"),
+            ("SELECTS *", 1, "expected SELECT, BALANCES or JOURNAL, found 'SELECTS'"),
+        ] {
+            let err = parse_err(src);
+            assert_eq!((err.line, err.column), (Some(1), Some(column)), "{}: {}", src, err);
+            assert!(err.message.contains(message), "{}: {}", src, err.message);
+        }
     }
 }

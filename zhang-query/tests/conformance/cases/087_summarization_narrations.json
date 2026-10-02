@@ -1,0 +1,23 @@
+{
+  "name": "summarization_narrations",
+  "query": "SELECT date, flag, payee, narration, account, position FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 CLEAR WHERE flag IN ('S', 'T') AND narration ~ 'Coffee|Checking' ORDER BY flag, account",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "payee", "type": "str"},
+    {"name": "narration", "type": "str"},
+    {"name": "account", "type": "str"},
+    {"name": "position", "type": "position"}
+  ],
+  "rows": [
+    ["2015-12-31", "S", null, "Opening balance for 'Assets:US:BofA:Checking' (Summarization)", "Assets:US:BofA:Checking", {"units": {"number": "8029.87", "currency": "USD"}, "cost": null}],
+    ["2015-12-31", "S", null, "Opening balance for 'Assets:US:BofA:Checking' (Summarization)", "Equity:Opening-Balances", {"units": {"number": "-8029.87", "currency": "USD"}, "cost": null}],
+    ["2016-12-31", "T", null, "Transfer balance for 'Expenses:Food:Coffee' (Transfer balance)", "Equity:Earnings:Current", {"units": {"number": "29.96", "currency": "USD"}, "cost": null}],
+    ["2016-12-31", "T", null, "Transfer balance for 'Expenses:Food:Coffee' (Transfer balance)", "Expenses:Food:Coffee", {"units": {"number": "-29.96", "currency": "USD"}, "cost": null}]
+  ],
+  "notes": "Narrations of the synthetic transactions: \"Opening balance for '<account>' (Summarization)\" and \"Transfer balance for '<account>' (Transfer balance)\". The counterpart posting (Equity:Opening-Balances, Equity:Earnings:Current) has the narration of the account it balances. Payee is NULL."
+}

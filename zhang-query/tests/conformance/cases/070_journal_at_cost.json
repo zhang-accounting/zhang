@@ -1,0 +1,28 @@
+{
+  "name": "journal_at_cost",
+  "query": "JOURNAL 'GLD' AT cost",
+  "phase": 2,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "flag", "type": "str"},
+    {"name": "MAXWIDTH(payee, 48)", "type": "str"},
+    {"name": "MAXWIDTH(narration, 80)", "type": "str"},
+    {"name": "account", "type": "str"},
+    {"name": "cost(position)", "type": "amount"},
+    {"name": "cost(balance)", "type": "inventory"}
+  ],
+  "rows": [
+    ["2015-09-15", "*", null, "Buy shares of GLD", "Assets:US:ETrade:GLD", {"number": "985.30", "currency": "USD"}, {"positions": [{"units": {"number": "985.30", "currency": "USD"}, "cost": null}]}],
+    ["2015-11-13", "*", null, "Buy shares of GLD", "Assets:US:ETrade:GLD", {"number": "2090.00", "currency": "USD"}, {"positions": [{"units": {"number": "3075.30", "currency": "USD"}, "cost": null}]}],
+    ["2015-11-18", "*", null, "Sell shares of GLD", "Assets:US:ETrade:GLD", {"number": "-985.30", "currency": "USD"}, {"positions": [{"units": {"number": "2090.00", "currency": "USD"}, "cost": null}]}],
+    ["2016-05-05", "*", null, "Buy shares of GLD", "Assets:US:ETrade:GLD", {"number": "411.56", "currency": "USD"}, {"positions": [{"units": {"number": "2501.56", "currency": "USD"}, "cost": null}]}],
+    ["2016-09-23", "*", null, "Buy shares of GLD", "Assets:US:ETrade:GLD", {"number": "1156.90", "currency": "USD"}, {"positions": [{"units": {"number": "3658.46", "currency": "USD"}, "cost": null}]}],
+    ["2017-02-15", "*", null, "Sell shares of GLD", "Assets:US:ETrade:GLD", {"number": "-2090.00", "currency": "USD"}, {"positions": [{"units": {"number": "1568.46", "currency": "USD"}, "cost": null}]}],
+    ["2017-03-19", "*", null, "Buy shares of GLD", "Assets:US:ETrade:GLD", {"number": "557.98", "currency": "USD"}, {"positions": [{"units": {"number": "2126.44", "currency": "USD"}, "cost": null}]}],
+    ["2017-08-27", "*", null, "Buy shares of GLD", "Assets:US:ETrade:GLD", {"number": "2433.36", "currency": "USD"}, {"positions": [{"units": {"number": "4559.80", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "AT cost applies cost() to both the position and the running balance: cost(position) is an amount and cost(balance) an inventory. The sells reduce lots booked by the ledger."
+}

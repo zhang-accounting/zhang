@@ -1,0 +1,6 @@
+{
+  "name": "holdings_units_cost_and_market_value",
+  "query": "SELECT account, units(sum(position)) AS units, cost(sum(position)) AS cost, value(sum(position)) AS market WHERE account ~ '^Assets:US' GROUP BY account ORDER BY account",
+  "notes": "Assets:US:Federal:PreTax401k sums to an empty inventory, so all its split cells are empty; market depends on the price map",
+  "csv": "account,units (USD),units (VHT),units (VEA),units (VBMPX),units (VACHR),units (RGAGX),units (ITOT),units (GLD),cost (USD),cost (VACHR),market (USD),market (VACHR)\r\nAssets:US:BofA:Checking,2754.06,,,,,,,, 2754.06,, 2754.06,\r\nAssets:US:ETrade:Cash, 855.83,,,,,,,,  855.83,,  855.83,\r\nAssets:US:ETrade:GLD,,,,,,,,17, 4559.80,, 5217.47,\r\nAssets:US:ETrade:ITOT,,,,,,,104,, 6828.88,, 8312.72,\r\nAssets:US:ETrade:VEA,,,36,,,,,, 4959.50,, 5179.32,\r\nAssets:US:ETrade:VHT,,64,,,,,,, 7821.27,, 8382.08,\r\nAssets:US:Federal:PreTax401k,,,,,,,,,,,,\r\nAssets:US:Hoogle:Vacation,,,,,-13,,,,,-13,,-13\r\nAssets:US:Vanguard:Cash,  -0.02,,,,,,,,   -0.02,,   -0.02,\r\nAssets:US:Vanguard:RGAGX,,,,,,597.748,,,49049.67,,48471.39,\r\nAssets:US:Vanguard:VBMPX,,,,193.442,,,,,32700.35,,41179.93,\r\n"
+}

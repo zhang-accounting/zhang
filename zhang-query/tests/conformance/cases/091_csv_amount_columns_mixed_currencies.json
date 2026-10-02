@@ -1,0 +1,32 @@
+{
+  "name": "csv_amount_columns_mixed_currencies",
+  "query": "SELECT account, units(position) AS units, weight WHERE date = 2017-01-12 AND payee = 'Hoogle' ORDER BY account",
+  "phase": 2,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "csv",
+  "columns": [],
+  "rows": [],
+  "csv": [
+    "account,units (USD),units (VACHR),units (IRAUSD),weight (USD),weight (VACHR),weight (IRAUSD)",
+    "Assets:US:BofA:Checking, 1350.60,,, 1350.60,,",
+    "Assets:US:Federal:PreTax401k,,,-1200.00,,,-1200.00",
+    "Assets:US:Hoogle:Vacation,, 5,,, 5,",
+    "Assets:US:Vanguard:Cash, 1200.00,,, 1200.00,,",
+    "Expenses:Health:Dental:Insurance,    2.90,,,    2.90,,",
+    "Expenses:Health:Life:GroupTermLife,   24.32,,,   24.32,,",
+    "Expenses:Health:Medical:Insurance,   27.38,,,   27.38,,",
+    "Expenses:Health:Vision:Insurance,   42.30,,,   42.30,,",
+    "Expenses:Taxes:Y2017:US:CityNYC,  174.92,,,  174.92,,",
+    "Expenses:Taxes:Y2017:US:Federal, 1062.92,,, 1062.92,,",
+    "Expenses:Taxes:Y2017:US:Federal:PreTax401k,,, 1200.00,,, 1200.00",
+    "Expenses:Taxes:Y2017:US:Medicare,  106.62,,,  106.62,,",
+    "Expenses:Taxes:Y2017:US:SDI,    1.12,,,    1.12,,",
+    "Expenses:Taxes:Y2017:US:SocSec,  281.54,,,  281.54,,",
+    "Expenses:Taxes:Y2017:US:State,  365.08,,,  365.08,,",
+    "Income:US:Hoogle:GroupTermLife,  -24.32,,,  -24.32,,",
+    "Income:US:Hoogle:Salary,-4615.38,,,-4615.38,,",
+    "Income:US:Hoogle:Vacation,,-5,,,-5,"
+  ],
+  "notes": "Amount columns split per currency like inventories: USD (13 rows), then VACHR and IRAUSD (2 rows each, name descending)."
+}
