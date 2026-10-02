@@ -61,23 +61,37 @@ pub(crate) struct Dataset<'a> {
     store_meta: OnceCell<HashMap<&'a str, Vec<(&'a str, &'a str)>>>,
 }
 
-/// The cost specification of a posting before lot booking.
-enum CostSpec {
-    None,
-    Known(Cost),
-    /// `{}` or a spec without a cost number: resolved against the open lots
-    Incomplete {
-        date: Option<NaiveDate>,
-        label: Option<String>,
-    },
+/// The cost specification (`{...}`) of a posting before lot booking.
+///
+/// As in beancount, what a spec means depends on the side of the posting (see [`book`]): on
+/// a reduction its given fields are criteria matched against the open lots and the missing
+/// ones are wildcards; on an augmentation it describes the new lot.
+struct CostSpec {
+    /// per-unit cost; `None` for `{}` and for specs with only a date or a label
+    per_unit: Option<Amount>,
+    date: Option<NaiveDate>,
+    label: Option<String>,
+}
+
+impl CostSpec {
+    /// Whether the open lot `lot` satisfies this spec as a reduction criterion.
+    fn matches(&self, lot: &Cost) -> bool {
+        self.per_unit
+            .as_ref()
+            .is_none_or(|cost| cost.number == lot.number && cost.commodity == lot.currency)
+            && self.date.is_none_or(|date| lot.date == Some(date))
+            && self.label.as_ref().is_none_or(|label| lot.label.as_ref() == Some(label))
+    }
 }
 
 struct Draft<'a> {
     entry: usize,
     posting_index: usize,
+    /// date of the transaction
+    date: NaiveDate,
     account: &'a str,
     units: &'a Amount,
-    cost: CostSpec,
+    cost: Option<CostSpec>,
     price: Option<Cow<'a, Amount>>,
 }
 
@@ -96,7 +110,6 @@ impl<'a> Dataset<'a> {
 
         let mut entries = Vec::with_capacity(transactions.len());
         let mut drafts = Vec::with_capacity(store.postings.len());
-        let mut needs_booking = false;
         for txn in transactions {
             let date = txn.datetime.date_naive();
             let parsed = directives
@@ -119,22 +132,19 @@ impl<'a> Dataset<'a> {
                 let units = &posting.inferred_amount;
                 let parsed_posting = parsed.and_then(|it| it.postings.get(posting_index));
                 let cost = match parsed_posting {
-                    Some(parsed_posting) => cost_spec(parsed_posting.cost.as_ref(), units, date),
-                    None => match &posting.cost {
-                        Some(cost) => CostSpec::Known(Cost {
-                            number: cost.number.clone(),
-                            currency: cost.commodity.clone(),
-                            date: Some(date),
-                            label: None,
-                        }),
-                        None => CostSpec::None,
-                    },
+                    Some(parsed_posting) => parsed_posting.cost.as_ref().map(|cost| cost_spec(cost, units)),
+                    // without the parsed directive only the cost number kept by the store is known
+                    None => posting.cost.as_ref().map(|cost| CostSpec {
+                        per_unit: Some(cost.clone()),
+                        date: None,
+                        label: None,
+                    }),
                 };
-                needs_booking |= matches!(cost, CostSpec::Incomplete { .. });
                 let price = parsed_posting.and_then(|it| it.price.as_ref()).and_then(|price| per_unit_price(price, units));
                 drafts.push(Draft {
                     entry: entry_idx,
                     posting_index,
+                    date,
                     account: posting.account.name(),
                     units,
                     cost,
@@ -143,24 +153,7 @@ impl<'a> Dataset<'a> {
             }
         }
 
-        let rows = if needs_booking {
-            book(drafts, ledger, store)
-        } else {
-            drafts
-                .into_iter()
-                .map(|draft| Row {
-                    entry: draft.entry,
-                    posting_index: draft.posting_index,
-                    account: draft.account,
-                    units: Cow::Borrowed(draft.units),
-                    cost: match draft.cost {
-                        CostSpec::Known(cost) => Some(cost),
-                        _ => None,
-                    },
-                    price: draft.price,
-                })
-                .collect()
-        };
+        let rows = book(drafts, ledger, store);
 
         Dataset {
             entries,
@@ -216,31 +209,19 @@ impl<'a> Dataset<'a> {
     }
 }
 
-fn cost_spec(cost: Option<&PostingCost>, units: &Amount, txn_date: NaiveDate) -> CostSpec {
-    let Some(cost) = cost else {
-        return CostSpec::None;
-    };
-    let date = cost.date.as_ref().map(|it| it.naive_date());
-    match &cost.base {
-        Some(base) => {
-            let number = if cost.total {
-                decimal::div(&base.number, &units.number.abs()).unwrap_or_else(|| base.number.clone())
-            } else {
-                base.number.clone()
-            };
-            CostSpec::Known(Cost {
-                number,
-                currency: base.commodity.clone(),
-                // like zhang's lot booking (and beancount's augmentations), a lot without an
-                // explicit date is dated by its transaction
-                date: date.or(Some(txn_date)),
-                label: cost.label.clone(),
-            })
-        }
-        None => CostSpec::Incomplete {
-            date,
-            label: cost.label.clone(),
-        },
+fn cost_spec(cost: &PostingCost, units: &Amount) -> CostSpec {
+    let per_unit = cost.base.as_ref().map(|base| {
+        let number = if cost.total {
+            decimal::div(&base.number, &units.number.abs()).unwrap_or_else(|| base.number.clone())
+        } else {
+            base.number.clone()
+        };
+        Amount::new(number, base.commodity.clone())
+    });
+    CostSpec {
+        per_unit,
+        date: cost.date.as_ref().map(|it| it.naive_date()),
+        label: cost.label.clone(),
     }
 }
 
@@ -253,10 +234,24 @@ fn per_unit_price<'a>(price: &'a SingleTotalPrice, units: &Amount) -> Option<Cow
     }
 }
 
-/// Resolve `{}`-style reductions against the lots opened by earlier postings of the same
-/// account and currency, splitting a reduction that spans several lots into one row per
-/// lot (as beancount's booking does). Lots are consumed FIFO, or LIFO when the account
-/// (or the ledger default) uses the LIFO booking method.
+/// Book the postings held at cost against the lots opened by earlier postings of the same
+/// account and currency, as beancount's booking does.
+///
+/// - A posting at cost whose sign is opposite to an open lot is a *reduction*. Its cost spec
+///   is matched against the open lots: the given fields (cost number and currency, date,
+///   label) are criteria and the missing ones are wildcards, so `{100 USD}` reduces lots
+///   bought at 100 USD on any date and `{}` reduces any lot. Matching lots are consumed FIFO,
+///   or LIFO when the account (or the ledger default) uses the LIFO booking method, and a
+///   reduction that spans several lots is split into one row per lot, each carrying the
+///   lot's cost.
+/// - Any other posting at cost, and the part of a reduction no lot covers, is an
+///   *augmentation*: it opens (or adds to) the lot of its cost, dated by its transaction
+///   when the spec has no date. A spec without a cost number cannot open a lot, so that
+///   part keeps no cost.
+///
+/// zhang-core's lot store implements only the FIFO and LIFO methods (it panics on the others
+/// for any posting at cost), so every method other than LIFO books FIFO here, and beancount's
+/// STRICT "ambiguous match" errors have no counterpart.
 fn book<'a>(drafts: Vec<Draft<'a>>, ledger: &Ledger, store: &Store) -> Vec<Row<'a>> {
     let mut account_methods: HashMap<&str, BookingMethod> = HashMap::new();
     for meta in &store.metas {
@@ -271,85 +266,86 @@ fn book<'a>(drafts: Vec<Draft<'a>>, ledger: &Ledger, store: &Store) -> Vec<Row<'
     let mut lots: HashMap<(&str, &str), Vec<(Cost, BigDecimal)>> = HashMap::new();
     let mut rows = Vec::with_capacity(drafts.len());
     for draft in drafts {
-        let key = (draft.account, draft.units.commodity.as_str());
-        match draft.cost {
-            CostSpec::None => rows.push(Row {
+        let Some(spec) = draft.cost else {
+            rows.push(Row {
                 entry: draft.entry,
                 posting_index: draft.posting_index,
                 account: draft.account,
                 units: Cow::Borrowed(draft.units),
                 cost: None,
                 price: draft.price,
-            }),
-            CostSpec::Known(cost) => {
-                let account_lots = lots.entry(key).or_default();
-                match account_lots.iter_mut().find(|(lot, _)| *lot == cost) {
-                    Some((_, number)) => *number += &draft.units.number,
-                    None => account_lots.push((cost.clone(), draft.units.number.clone())),
+            });
+            continue;
+        };
+        let account_lots = lots.entry((draft.account, draft.units.commodity.as_str())).or_default();
+        let mut remaining = draft.units.number.clone();
+
+        // a reduction, like beancount's `Inventory.is_reduced_by`
+        let reducing = !remaining.is_zero() && account_lots.iter().any(|(_, number)| number.is_positive() != remaining.is_positive());
+        if reducing {
+            let lifo = matches!(account_methods.get(draft.account).copied().unwrap_or(default_method), BookingMethod::Lifo);
+            let mut order = (0..account_lots.len()).collect::<Vec<_>>();
+            if lifo {
+                order.reverse();
+            }
+            for idx in order {
+                if remaining.is_zero() {
+                    break;
                 }
-                account_lots.retain(|(_, number)| !number.is_zero());
+                let (lot, number) = &mut account_lots[idx];
+                if number.is_positive() == remaining.is_positive() || !spec.matches(lot) {
+                    continue;
+                }
+                let take = if remaining.abs() >= number.abs() {
+                    -number.clone()
+                } else {
+                    remaining.clone()
+                };
+                *number += &take;
+                remaining -= &take;
                 rows.push(Row {
                     entry: draft.entry,
                     posting_index: draft.posting_index,
                     account: draft.account,
-                    units: Cow::Borrowed(draft.units),
-                    cost: Some(cost),
-                    price: draft.price,
+                    units: Cow::Owned(Amount::new(take, draft.units.commodity.clone())),
+                    cost: Some(lot.clone()),
+                    price: draft.price.clone(),
                 });
             }
-            CostSpec::Incomplete { date, label } => {
-                let lifo = matches!(account_methods.get(draft.account).copied().unwrap_or(default_method), BookingMethod::Lifo);
-                let account_lots = lots.entry(key).or_default();
-                let mut remaining = draft.units.number.clone();
-                let mut order = (0..account_lots.len()).collect::<Vec<_>>();
-                if lifo {
-                    order.reverse();
-                }
-                for idx in order {
-                    if remaining.is_zero() {
-                        break;
-                    }
-                    let (lot, number) = &mut account_lots[idx];
-                    let matches_spec = number.is_positive() != remaining.is_positive()
-                        && date.map(|date| lot.date == Some(date)).unwrap_or(true)
-                        && label.as_ref().map(|label| lot.label.as_ref() == Some(label)).unwrap_or(true);
-                    if !matches_spec {
-                        continue;
-                    }
-                    let take = if remaining.abs() >= number.abs() {
-                        -number.clone()
-                    } else {
-                        remaining.clone()
-                    };
-                    *number += &take;
-                    remaining -= &take;
-                    rows.push(Row {
-                        entry: draft.entry,
-                        posting_index: draft.posting_index,
-                        account: draft.account,
-                        units: Cow::Owned(Amount::new(take, draft.units.commodity.clone())),
-                        cost: Some(lot.clone()),
-                        price: draft.price.clone(),
-                    });
-                }
-                account_lots.retain(|(_, number)| !number.is_zero());
-                if !remaining.is_zero() {
-                    let units = if remaining == draft.units.number {
-                        Cow::Borrowed(draft.units)
-                    } else {
-                        Cow::Owned(Amount::new(remaining, draft.units.commodity.clone()))
-                    };
-                    rows.push(Row {
-                        entry: draft.entry,
-                        posting_index: draft.posting_index,
-                        account: draft.account,
-                        units,
-                        cost: None,
-                        price: draft.price,
-                    });
-                }
-            }
+            account_lots.retain(|(_, number)| !number.is_zero());
         }
+        if remaining.is_zero() {
+            continue;
+        }
+
+        // an augmentation (or the rest of a reduction no lot covers)
+        let cost = spec.per_unit.map(|per_unit| {
+            let cost = Cost {
+                number: per_unit.number,
+                currency: per_unit.commodity,
+                date: Some(spec.date.unwrap_or(draft.date)),
+                label: spec.label,
+            };
+            match account_lots.iter_mut().find(|(lot, _)| *lot == cost) {
+                Some((_, number)) => *number += &remaining,
+                None => account_lots.push((cost.clone(), remaining.clone())),
+            }
+            account_lots.retain(|(_, number)| !number.is_zero());
+            cost
+        });
+        let units = if remaining == draft.units.number {
+            Cow::Borrowed(draft.units)
+        } else {
+            Cow::Owned(Amount::new(remaining, draft.units.commodity.clone()))
+        };
+        rows.push(Row {
+            entry: draft.entry,
+            posting_index: draft.posting_index,
+            account: draft.account,
+            units,
+            cost,
+            price: draft.price,
+        });
     }
     rows
 }
