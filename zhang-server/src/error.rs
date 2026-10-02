@@ -25,6 +25,10 @@ pub enum ServerError {
 
     #[error("bad request")]
     BadRequest,
+
+    /// a query failed to parse, compile or run; answered with HTTP 400 and its source position
+    #[error("query error: {0}")]
+    QueryError(#[from] zhang_query::QueryError),
 }
 
 impl From<InvalidAccountError> for ServerError {
@@ -35,6 +39,15 @@ impl From<InvalidAccountError> for ServerError {
 
 impl IntoResponse for ServerError {
     fn into_response(self) -> Response {
+        if let ServerError::QueryError(error) = self {
+            // the query error body is exactly `{message, line, column}`
+            let payload = json!({
+                "message": error.message,
+                "line": error.line,
+                "column": error.column,
+            });
+            return (StatusCode::BAD_REQUEST, Json(payload)).into_response();
+        }
         let payload = json!({
             "message": format!("{}", self),
             "origin": "with_rejection"

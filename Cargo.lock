@@ -6307,6 +6307,7 @@ dependencies = [
  "uuid",
  "zhang-ast",
  "zhang-core",
+ "zhang-query",
 ]
 
 [[package]]
