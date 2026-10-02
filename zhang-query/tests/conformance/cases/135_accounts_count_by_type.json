@@ -1,0 +1,20 @@
+{
+  "name": "accounts_count_by_type",
+  "query": "SELECT root(account, 1) AS type, count(*) AS n FROM #accounts GROUP BY 1 ORDER BY 1",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "type", "type": "str"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    ["Assets", 13],
+    ["Equity", 1],
+    ["Expenses", 37],
+    ["Income", 7],
+    ["Liabilities", 2]
+  ],
+  "notes": "The 60 opened accounts, including parent accounts that have their own open directive (Assets:US:BofA)."
+}

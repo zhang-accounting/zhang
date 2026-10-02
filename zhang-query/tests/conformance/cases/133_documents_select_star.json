@@ -1,0 +1,18 @@
+{
+  "name": "documents_select_star",
+  "query": "SELECT * FROM #documents ORDER BY date",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "strict_names": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "account", "type": "str"},
+    {"name": "filename", "type": "str"},
+    {"name": "tags", "type": "set"},
+    {"name": "links", "type": "set"}
+  ],
+  "rows": [],
+  "notes": "The ledger has no document directives, so only the columns are pinned: SELECT * expands to date, account, filename, tags, links."
+}

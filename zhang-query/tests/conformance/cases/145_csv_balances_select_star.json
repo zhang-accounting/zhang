@@ -1,0 +1,18 @@
+{
+  "name": "csv_balances_select_star",
+  "query": "SELECT * FROM #balances WHERE account ~ 'Slate' AND year(date) = 2017 ORDER BY date LIMIT 4",
+  "phase": 3,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "csv",
+  "columns": [],
+  "rows": [],
+  "csv": [
+    "date,account,amount (USD),tolerance",
+    "2017-01-15,Liabilities:US:Chase:Slate,-1395.60,",
+    "2017-02-10,Liabilities:US:Chase:Slate,-1893.28,",
+    "2017-03-04,Liabilities:US:Chase:Slate,-1916.17,",
+    "2017-03-30,Liabilities:US:Chase:Slate,-1757.40,"
+  ],
+  "notes": "SELECT * over #balances in CSV: tolerance is a decimal column of empty cells, and discrepancy is an amount column that is NULL on every row, so numberify drops it (no CSV column)."
+}

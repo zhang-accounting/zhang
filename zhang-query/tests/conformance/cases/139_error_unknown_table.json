@@ -1,0 +1,12 @@
+{
+  "name": "error_unknown_table",
+  "query": "SELECT * FROM #nosuch",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "An unknown table is a compile error ('table \"nosuch\" does not exist'). Table names are case-sensitive: #Prices is unknown too."
+}

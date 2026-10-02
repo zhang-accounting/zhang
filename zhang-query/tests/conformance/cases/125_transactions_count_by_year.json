@@ -1,0 +1,19 @@
+{
+  "name": "transactions_count_by_year",
+  "query": "SELECT year(date) AS y, count(*) AS n, count(payee) AS with_payee FROM #transactions GROUP BY 1 ORDER BY 1",
+  "phase": 3,
+  "kind": "ledger-dependent",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "y", "type": "int"},
+    {"name": "n", "type": "int"},
+    {"name": "with_payee", "type": "int"}
+  ],
+  "rows": [
+    [2015, 368, 278],
+    [2016, 393, 293],
+    [2017, 283, 187]
+  ],
+  "notes": "year is not a column of #transactions, so the query uses year(date). Also sensitive to zhang's synthetic balance-check transactions: beanquery has no such transactions (a balance directive is a balance entry), so they must not appear as transactions."
+}

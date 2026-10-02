@@ -1,0 +1,12 @@
+{
+  "name": "error_having_target_alias",
+  "query": "SELECT account, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY account HAVING n > 100",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "HAVING is compiled against the table's columns, not against the target names, so it cannot use the alias n: 'column \"n\" not found in table \"postings\"'. Repeat the aggregate instead."
+}

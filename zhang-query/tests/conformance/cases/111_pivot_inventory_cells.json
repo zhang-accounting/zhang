@@ -1,0 +1,20 @@
+{
+  "name": "pivot_inventory_cells",
+  "query": "SELECT year, root(account, 1) AS type, sum(position) AS total WHERE account ~ '^(Income|Expenses)' GROUP BY 1, 2 PIVOT BY 1, 2",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "strict_names": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "year/type", "type": "int"},
+    {"name": "Expenses", "type": "inventory"},
+    {"name": "Income", "type": "inventory"}
+  ],
+  "rows": [
+    [2015, {"positions": [{"units": {"number": "18000.00", "currency": "IRAUSD"}, "cost": null}, {"units": {"number": "95282.85", "currency": "USD"}, "cost": null}, {"units": {"number": "72", "currency": "VACHR"}, "cost": null}]}, {"positions": [{"units": {"number": "-18000", "currency": "IRAUSD"}, "cost": null}, {"units": {"number": "-134381.10", "currency": "USD"}, "cost": null}, {"units": {"number": "-135", "currency": "VACHR"}, "cost": null}]}],
+    [2016, {"positions": [{"units": {"number": "18000.00", "currency": "IRAUSD"}, "cost": null}, {"units": {"number": "94182.42", "currency": "USD"}, "cost": null}, {"units": {"number": "168", "currency": "VACHR"}, "cost": null}]}, {"positions": [{"units": {"number": "-18000", "currency": "IRAUSD"}, "cost": null}, {"units": {"number": "-129974.58", "currency": "USD"}, "cost": null}, {"units": {"number": "-130", "currency": "VACHR"}, "cost": null}]}],
+    [2017, {"positions": [{"units": {"number": "18500.00", "currency": "IRAUSD"}, "cost": null}, {"units": {"number": "65143.78", "currency": "USD"}, "cost": null}, {"units": {"number": "128", "currency": "VACHR"}, "cost": null}]}, {"positions": [{"units": {"number": "-18500", "currency": "IRAUSD"}, "cost": null}, {"units": {"number": "-93588.90", "currency": "USD"}, "cost": null}, {"units": {"number": "-90", "currency": "VACHR"}, "cost": null}]}]
+  ],
+  "notes": "PIVOT BY takes target indexes too. The cells keep the type of the pivoted target, here multi-currency inventories (USD, VACHR, IRAUSD)."
+}

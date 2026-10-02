@@ -1,0 +1,17 @@
+{
+  "name": "having_on_hidden_aggregate",
+  "query": "SELECT account WHERE account ~ '^Expenses:(Home|Food)' GROUP BY account HAVING sum(number) > 3000 ORDER BY account",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"}
+  ],
+  "rows": [
+    ["Expenses:Food:Groceries"],
+    ["Expenses:Food:Restaurant"],
+    ["Expenses:Home:Rent"]
+  ],
+  "notes": "The HAVING aggregate does not have to be selected: it is computed per group like a hidden target and is not part of the output."
+}
