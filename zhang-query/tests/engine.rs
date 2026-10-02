@@ -592,6 +592,7 @@ fn executions_stop_at_their_deadline() {
     let options = zhang_query::ExecuteOptions {
         today: Some(today()),
         timeout: Some(std::time::Duration::ZERO),
+        ..Default::default()
     };
     let err = compiled.execute_with_options(ledger(), &Params::new(), &options).unwrap_err();
     assert_eq!(err.kind, QueryErrorKind::Timeout);
@@ -601,6 +602,7 @@ fn executions_stop_at_their_deadline() {
     let options = zhang_query::ExecuteOptions {
         today: Some(today()),
         timeout: Some(std::time::Duration::from_secs(60)),
+        ..Default::default()
     };
     assert_eq!(compiled.execute_with_options(ledger(), &Params::new(), &options).unwrap().rows.len(), 7);
 }

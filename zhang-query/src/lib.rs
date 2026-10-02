@@ -142,7 +142,7 @@ impl Query {
     }
 
     /// Execute against a ledger, with `today()` read from the system clock in the ledger's
-    /// timezone and the [`DEFAULT_TIMEOUT`].
+    /// timezone, the [`DEFAULT_TIMEOUT`] and the [`DEFAULT_MAX_RESULT_VALUES`].
     ///
     /// This reads the system clock; on targets without one (e.g. `wasm32-unknown-unknown`)
     /// use [`Query::execute_at`].
@@ -153,12 +153,13 @@ impl Query {
             &ExecuteOptions {
                 today: None,
                 timeout: Some(DEFAULT_TIMEOUT),
+                max_result_values: Some(DEFAULT_MAX_RESULT_VALUES),
             },
         )
     }
 
-    /// Execute against a ledger with a fixed date for `today()` and no time limit. It never
-    /// reads the clock.
+    /// Execute against a ledger with a fixed date for `today()`, no time limit and the
+    /// [`DEFAULT_MAX_RESULT_VALUES`]. It never reads the clock.
     pub fn execute_at(&self, ledger: &Ledger, params: &Params, today: NaiveDate) -> Result<QueryResult, QueryError> {
         self.execute_with_options(
             ledger,
@@ -166,6 +167,7 @@ impl Query {
             &ExecuteOptions {
                 today: Some(today),
                 timeout: None,
+                max_result_values: Some(DEFAULT_MAX_RESULT_VALUES),
             },
         )
     }
@@ -210,7 +212,8 @@ impl Query {
                 period.apply(data, ledger, &equity)
             }
         };
-        let rows = executor::execute(&self.plan, &data, params, deadline).map_err(|err| err.resolve(&self.source))?;
+        let budget = executor::Budget::new(options.max_result_values);
+        let rows = executor::execute_within(&self.plan, &data, params, deadline, budget).map_err(|err| err.resolve(&self.source))?;
         Ok(QueryResult { columns: self.columns(), rows })
     }
 }
@@ -218,8 +221,18 @@ impl Query {
 /// The time limit [`Query::execute`] applies.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// The result size [`Query::execute`], [`Query::execute_at`] and [`ExecuteOptions::default`]
+/// allow, in values: every cell is one value, and every position of a position or inventory
+/// cell, element of a set and 64 bytes of text one more (see
+/// [`ExecuteOptions::max_result_values`]).
+///
+/// Two million values is about ten times the largest result of the fava demo ledger (its
+/// whole `JOURNAL`: 3,209 rows whose running balances hold 178,576 positions, about 210,000
+/// values), and bounds a result to roughly 800 MB in memory and 250 MB of JSON.
+pub const DEFAULT_MAX_RESULT_VALUES: u64 = 2_000_000;
+
 /// Options of one execution.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecuteOptions {
     /// the date returned by `today()`; `None` reads the system clock in the ledger's timezone
     pub today: Option<NaiveDate>,
@@ -227,6 +240,23 @@ pub struct ExecuteOptions {
     /// (checked every few hundred rows); `None` for no limit. A limit reads the monotonic
     /// clock, so leave it `None` on targets without one.
     pub timeout: Option<Duration>,
+    /// stop with a [`QueryErrorKind::TooLarge`] error as soon as the execution would hold more
+    /// than this many values of its result: one per cell, plus one per position of a position
+    /// or inventory, per element of a set and per 64 bytes of text. It covers the rows before
+    /// ORDER BY, DISTINCT and LIMIT apply (a LIMIT without ORDER BY stops early) and the
+    /// groups of an aggregate query while they are built. `None` for no limit.
+    pub max_result_values: Option<u64>,
+}
+
+/// No time limit, today from the clock, and the [`DEFAULT_MAX_RESULT_VALUES`].
+impl Default for ExecuteOptions {
+    fn default() -> Self {
+        ExecuteOptions {
+            today: None,
+            timeout: None,
+            max_result_values: Some(DEFAULT_MAX_RESULT_VALUES),
+        }
+    }
 }
 
 /// Compile and execute a query without parameters.

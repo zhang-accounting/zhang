@@ -129,6 +129,7 @@ fn error_class(kind: QueryErrorKind) -> &'static str {
         QueryErrorKind::Compile => "compile",
         QueryErrorKind::Eval => "runtime",
         QueryErrorKind::Timeout => "timeout",
+        QueryErrorKind::TooLarge => "too_large",
     }
 }
 

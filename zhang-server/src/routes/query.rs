@@ -13,13 +13,25 @@ use crate::{ApiResult, ServerResult};
 /// How long one query may run before it is stopped with a 400.
 const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How large a result may grow, in values, before the query is stopped with a 400: the
+/// engine's default, which also bounds the size of the JSON and CSV encodings.
+const QUERY_MAX_RESULT_VALUES: u64 = zhang_query::DEFAULT_MAX_RESULT_VALUES;
+
 /// Run a BQL-compatible query over the ledger.
 ///
 /// Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
 #[api(group = "query")]
 pub async fn run_query(ledger: State<SharedLedger>, Json(payload): Json<QueryRequest>) -> QueryApiResult<QueryResultEntity> {
-    let result = execute(ledger.0 .0.clone(), payload.query).await;
-    QueryApiResult(result.and_then(|result| ResponseWrapper::json(result.into())))
+    QueryApiResult(run(ledger.0 .0.clone(), payload.query, QUERY_MAX_RESULT_VALUES).await)
+}
+
+async fn run(
+    ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::Ledger>>, text: String, max_result_values: u64,
+) -> ServerResult<ResponseWrapper<QueryResultEntity>> {
+    let result = execute(ledger, text, max_result_values).await?;
+    // converting the cells is CPU-bound too, so it stays off the async workers
+    let entity = tokio::task::spawn_blocking(move || QueryResultEntity::from(result)).await?;
+    ResponseWrapper::json(entity)
 }
 
 /// Run a BQL-compatible query and download the result as CSV (`query.csv`).
@@ -33,14 +45,14 @@ pub async fn run_query_csv(ledger: State<SharedLedger>, Json(payload): Json<Quer
 }
 
 async fn export_csv(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::Ledger>>, text: String) -> ServerResult<String> {
-    let result = execute(ledger, text).await?;
+    let result = execute(ledger, text, QUERY_MAX_RESULT_VALUES).await?;
     // the read lock is released by now; rendering is CPU-bound, so it stays off the async workers
     Ok(tokio::task::spawn_blocking(move || zhang_query::export::to_csv(&result)).await?)
 }
 
-/// Compile and run a query off the async workers, under the ledger read lock and the time
-/// limit. The query length is capped by the parser.
-async fn execute(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::Ledger>>, text: String) -> ServerResult<QueryResult> {
+/// Compile and run a query off the async workers, under the ledger read lock, the time
+/// limit and the result size limit. The query length is capped by the parser.
+async fn execute(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::Ledger>>, text: String, max_result_values: u64) -> ServerResult<QueryResult> {
     // compiling needs no ledger; run it, and the CPU-bound execution, off the async workers
     let query = tokio::task::spawn_blocking(move || Query::compile(&text)).await??;
     // an owned guard moves into the blocking task; the time limit bounds how long it is held
@@ -49,6 +61,7 @@ async fn execute(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::
         let options = ExecuteOptions {
             today: None,
             timeout: Some(QUERY_TIMEOUT),
+            max_result_values: Some(max_result_values),
         };
         query.execute_with_options(&ledger, &Params::new(), &options)
     })
@@ -240,5 +253,62 @@ mod csv_test {
         assert_eq!(responses["200"]["headers"]["Content-Disposition"]["required"], true);
         let error = &responses["400"]["content"]["application/json"]["schema"];
         assert_eq!(error["required"], json!(["message", "line", "column"]));
+    }
+}
+
+#[cfg(test)]
+mod result_limit_test {
+    use std::sync::Arc;
+
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    use serde_json::json;
+    use tokio::sync::RwLock;
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::ledger::Ledger;
+
+    use super::{run, QUERY_MAX_RESULT_VALUES};
+
+    async fn ledger() -> Arc<RwLock<Ledger>> {
+        let mut content = String::from("1970-01-01 open Assets:Broker\n1970-01-01 open Assets:Cash\n");
+        for day in 1..=28 {
+            content.push_str(&format!(
+                "\n2024-02-{day:02} * \"buy\"\n  Assets:Broker 1 STK {{{day}.00 USD}}\n  Assets:Cash -{day}.00 USD\n"
+            ));
+        }
+        let dir = std::env::temp_dir().join(format!("zhang-query-limit-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("main.zhang"), content).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::async_load(dir.clone(), "main.zhang".to_owned(), source).await.expect("load ledger");
+        std::fs::remove_dir_all(dir).ok();
+        Arc::new(RwLock::new(ledger))
+    }
+
+    #[tokio::test]
+    async fn results_over_the_limit_are_a_query_400() {
+        let ledger = ledger().await;
+        let response = run(ledger.clone(), "JOURNAL".to_owned(), 100).await.into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            body,
+            json!({
+                "message": "the result is too large: it would hold more than 100 values (cells, plus the positions of inventories); \
+                            narrow the query with FROM or WHERE, or add a LIMIT",
+                "line": null,
+                "column": null,
+            })
+        );
+
+        // the server's own limit is the engine default, which this result is far below
+        assert_eq!(QUERY_MAX_RESULT_VALUES, zhang_query::DEFAULT_MAX_RESULT_VALUES);
+        let response = run(ledger, "JOURNAL".to_owned(), QUERY_MAX_RESULT_VALUES).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["data"]["rows"].as_array().unwrap().len(), 56);
     }
 }

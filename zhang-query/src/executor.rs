@@ -8,6 +8,7 @@ use std::time::{Duration as StdDuration, Instant};
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Duration, NaiveDate};
+use indexmap::map::Entry;
 use indexmap::IndexMap;
 use regex::Regex;
 use zhang_ast::amount::Amount;
@@ -457,6 +458,15 @@ impl Accumulator {
         Ok(())
     }
 
+    /// What the accumulator holds, in [`Budget`] values.
+    fn weight(&self) -> u64 {
+        match self {
+            Accumulator::Count(_) | Accumulator::SumInt(_) | Accumulator::SumDecimal(_) => 1,
+            Accumulator::SumInventory(inventory) => inventory_weight(inventory),
+            Accumulator::Pick(value) => value.as_ref().map_or(1, weight),
+        }
+    }
+
     fn finish(self) -> Value {
         match self {
             Accumulator::Count(it) => Value::Int(it),
@@ -502,6 +512,76 @@ impl Deadline {
     }
 }
 
+/// How much of its result one execution may hold, counted in values (see [`weight`]):
+/// produced rows, including the hidden ORDER BY / GROUP BY targets, the keys and
+/// accumulators of the groups while they are being built, and the finished rows.
+///
+/// A result grows with rows × columns, but a cell can be as large as an inventory, and the
+/// running `balance` holds every open lot: `JOURNAL` over a ledger with thousands of open
+/// lots would build rows × lots positions. The budget stops such an execution early, with a
+/// [`QueryErrorKind::TooLarge`] error, before it holds that much memory.
+pub(crate) struct Budget {
+    limit: Option<u64>,
+    used: u64,
+}
+
+impl Budget {
+    pub fn new(limit: Option<u64>) -> Self {
+        Budget { limit, used: 0 }
+    }
+
+    fn charge(&mut self, weight: u64) -> Result<(), LocatedError> {
+        self.used = self.used.saturating_add(weight);
+        match self.limit {
+            Some(limit) if self.used > limit => Err(LocatedError {
+                kind: QueryErrorKind::TooLarge,
+                message: format!(
+                    "the result is too large: it would hold more than {} values (cells, plus the positions of inventories); \
+                     narrow the query with FROM or WHERE, or add a LIMIT",
+                    limit
+                ),
+                span: None,
+            }),
+            _ => Ok(()),
+        }
+    }
+
+    fn release(&mut self, weight: u64) {
+        self.used = self.used.saturating_sub(weight);
+    }
+
+    /// Account for something that held `before` values and now holds `after`.
+    fn change(&mut self, before: u64, after: u64) -> Result<(), LocatedError> {
+        if after >= before {
+            self.charge(after - before)
+        } else {
+            self.release(before - after);
+            Ok(())
+        }
+    }
+}
+
+/// The size of a value in [`Budget`] values: one per value, plus one per position of a
+/// position or inventory, per element of a set and per 64 bytes of text, so that a budget
+/// bounds the memory, and the encoded size, of a result.
+pub(crate) fn weight(value: &Value) -> u64 {
+    match value {
+        Value::Str(text) => 1 + text.len() as u64 / 64,
+        Value::Set(set) => 1 + set.len() as u64,
+        Value::Position(_) => 2,
+        Value::Inventory(inventory) => inventory_weight(inventory),
+        _ => 1,
+    }
+}
+
+fn inventory_weight(inventory: &Inventory) -> u64 {
+    1 + inventory.len() as u64
+}
+
+fn row_weight(row: &[Value]) -> u64 {
+    row.iter().map(weight).sum()
+}
+
 /// The running `balance`: the positions of the rows that passed the filter so far, in row
 /// order. Like beanquery's, it is accumulated before rows are grouped, sorted, de-duplicated
 /// or limited, so ORDER BY reorders rows without changing their balances.
@@ -525,8 +605,16 @@ impl RunningBalance {
     }
 }
 
-/// Run the plan and return the visible columns of the result rows.
+/// Run the plan and return the visible columns of the result rows, without a [`Budget`].
+#[cfg(test)]
 pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline: Option<Deadline>) -> Result<Vec<Vec<Value>>, LocatedError> {
+    execute_within(plan, data, params, deadline, Budget::new(None))
+}
+
+/// Run the plan within the `budget` and return the visible columns of the result rows.
+pub(crate) fn execute_within(
+    plan: &Plan, data: &Dataset<'_>, params: &Params, deadline: Option<Deadline>, mut budget: Budget,
+) -> Result<Vec<Vec<Value>>, LocatedError> {
     let regexes = RegexCache::default();
     let impure = Cell::new(false);
     let mut running = RunningBalance::new(plan);
@@ -559,7 +647,9 @@ pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline
                     balance: running.add(row),
                     ..env
                 };
-                rows.push(plan.targets.iter().map(|target| target.expr.eval(&env)).collect::<Result<Vec<_>, _>>()?);
+                let values = plan.targets.iter().map(|target| target.expr.eval(&env)).collect::<Result<Vec<_>, _>>()?;
+                budget.charge(row_weight(&values))?;
+                rows.push(values);
             }
         }
         Some(keys) => {
@@ -575,13 +665,24 @@ pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline
                     ..env
                 };
                 let key = keys.iter().map(|idx| plan.targets[*idx].expr.eval(&env)).collect::<Result<Vec<_>, _>>()?;
-                let accumulators = groups.entry(key).or_insert_with(|| plan.aggregates.iter().map(Accumulator::new).collect());
+                let accumulators = match groups.entry(key) {
+                    Entry::Occupied(entry) => entry.into_mut(),
+                    Entry::Vacant(entry) => {
+                        let accumulators = plan.aggregates.iter().map(Accumulator::new).collect::<Vec<_>>();
+                        budget.charge(row_weight(entry.key()) + accumulators.iter().map(Accumulator::weight).sum::<u64>())?;
+                        entry.insert(accumulators)
+                    }
+                };
                 for (call, accumulator) in plan.aggregates.iter().zip(accumulators.iter_mut()) {
+                    let before = accumulator.weight();
                     accumulator.update(call, &env)?;
+                    budget.change(before, accumulator.weight())?;
                 }
             }
             for (counter, (key, accumulators)) in groups.into_iter().enumerate() {
                 Deadline::check(deadline, counter)?;
+                // the group becomes a row
+                budget.release(row_weight(&key) + accumulators.iter().map(Accumulator::weight).sum::<u64>());
                 let finished = accumulators.into_iter().map(Accumulator::finish).collect::<Vec<_>>();
                 let env = Env { aggregates: &finished, ..base };
                 let mut out = Vec::with_capacity(plan.targets.len());
@@ -591,6 +692,7 @@ pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline
                         None => out.push(target.expr.eval(&env)?),
                     }
                 }
+                budget.charge(row_weight(&out))?;
                 rows.push(out);
             }
         }
