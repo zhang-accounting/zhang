@@ -5,7 +5,13 @@
 
 export interface paths {
   '/api/accounts': {
-    /** Get Account List */
+    /**
+     * Get Account List
+     * @description Every account with an `open` or `close` directive or with postings, by name: its own balance, valued in the
+     * operating currency at today's prices, and the balance of the account with its sub-accounts.
+     *
+     * Built-in queries `accounts` and `account_balances`.
+     */
     get: operations['get_account_list'];
   };
   '/api/accounts/batch-balances': {
@@ -13,23 +19,46 @@ export interface paths {
     post: operations['create_batch_account_balances'];
   };
   '/api/accounts/{account_name}': {
-    /** Get Account Info */
+    /**
+     * Get Account Info
+     * @description An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
+     * account with its sub-accounts, which its page shows.
+     *
+     * Built-in queries `account_subtree` and `account_subtree_balances`.
+     */
     get: operations['get_account_info'];
   };
   '/api/accounts/{account_name}/balances': {
-    /** Get Account Balance Data */
+    /**
+     * Get Account Balance Data
+     * @description The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
+     *
+     * Built-in query `account_balance_history`.
+     */
     get: operations['get_account_balance_data'];
     /** Create Account Balance */
     post: operations['create_account_balance'];
   };
   '/api/accounts/{account_name}/documents': {
-    /** Get Account Documents */
+    /**
+     * Get Account Documents
+     * @description The document directives of the account and its sub-accounts, in ledger order.
+     *
+     * Built-in query `account_documents`.
+     */
     get: operations['get_account_documents'];
     /** Upload Account Document */
     post: operations['upload_account_document'];
   };
   '/api/accounts/{account_name}/journals': {
-    /** Get Account Journals */
+    /**
+     * Get Account Journals
+     * @description The journal of the account and its sub-accounts, newest first: a row per posting, with the account it posts
+     * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
+     * assertion on the account, with the balance it was checked against.
+     *
+     * Built-in queries `account_journal` and `account_balance_assertions`.
+     */
     get: operations['get_account_journals'];
   };
   '/api/auth/login': {
@@ -240,7 +269,13 @@ export type $defs = Record<string, never>;
 export type external = Record<string, never>;
 
 export interface operations {
-  /** Get Account List */
+  /**
+   * Get Account List
+   * @description Every account with an `open` or `close` directive or with postings, by name: its own balance, valued in the
+   * operating currency at today's prices, and the balance of the account with its sub-accounts.
+   *
+   * Built-in queries `accounts` and `account_balances`.
+   */
   get_account_list: {
     responses: {
       /** @description default return */
@@ -311,7 +346,13 @@ export interface operations {
       };
     };
   };
-  /** Get Account Info */
+  /**
+   * Get Account Info
+   * @description An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
+   * account with its sub-accounts, which its page shows.
+   *
+   * Built-in queries `account_subtree` and `account_subtree_balances`.
+   */
   get_account_info: {
     parameters: {
       path: {
@@ -327,6 +368,16 @@ export interface operations {
               alias?: string | null;
               /** @description the account's own balance, that of its own postings */
               amount: {
+                calculated: {
+                  commodity: string;
+                  number: string;
+                };
+                detail: {
+                  [key: string]: string;
+                };
+              };
+              /** @description the balance of the account and all its sub-accounts, valued like `amount`: the total of the account's page */
+              amount_with_sub_accounts: {
                 calculated: {
                   commodity: string;
                   number: string;
@@ -356,7 +407,12 @@ export interface operations {
       };
     };
   };
-  /** Get Account Balance Data */
+  /**
+   * Get Account Balance Data
+   * @description The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
+   *
+   * Built-in query `account_balance_history`.
+   */
   get_account_balance_data: {
     parameters: {
       path: {
@@ -421,7 +477,12 @@ export interface operations {
       };
     };
   };
-  /** Get Account Documents */
+  /**
+   * Get Account Documents
+   * @description The document directives of the account and its sub-accounts, in ledger order.
+   *
+   * Built-in query `account_documents`.
+   */
   get_account_documents: {
     parameters: {
       path: {
@@ -467,7 +528,14 @@ export interface operations {
       };
     };
   };
-  /** Get Account Journals */
+  /**
+   * Get Account Journals
+   * @description The journal of the account and its sub-accounts, newest first: a row per posting, with the account it posts
+   * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
+   * assertion on the account, with the balance it was checked against.
+   *
+   * Built-in queries `account_journal` and `account_balance_assertions`.
+   */
   get_account_journals: {
     parameters: {
       path: {
@@ -480,8 +548,15 @@ export interface operations {
         content: {
           'application/json': {
             data: {
+              /**
+               * @description the account of the posting, in an account's journal the account itself or one of its sub-accounts; the
+               * asserted account for a balance assertion
+               */
               account: string;
-              /** @description the account's own balance after the row, that of its own postings, on every row */
+              /**
+               * @description the balance after the row, in the row's currency: in an account's journal, the running balance of the account
+               * and its sub-accounts, and for a balance assertion the balance it was checked against
+               */
               account_after: {
                 commodity: string;
                 number: string;
@@ -511,6 +586,7 @@ export interface operations {
               passed?: boolean | null;
               payee?: string | null;
               timestamp: number;
+              /** @description the id of the transaction; for a balance assertion, its id */
               trx_id: string;
             }[];
           };
@@ -925,8 +1001,15 @@ export interface operations {
                   type: 'BudgetEvent';
                 }
               | {
+                  /**
+                   * @description the account of the posting, in an account's journal the account itself or one of its sub-accounts; the
+                   * asserted account for a balance assertion
+                   */
                   account: string;
-                  /** @description the account's own balance after the row, that of its own postings, on every row */
+                  /**
+                   * @description the balance after the row, in the row's currency: in an account's journal, the running balance of the account
+                   * and its sub-accounts, and for a balance assertion the balance it was checked against
+                   */
                   account_after: {
                     commodity: string;
                     number: string;
@@ -956,6 +1039,7 @@ export interface operations {
                   passed?: boolean | null;
                   payee?: string | null;
                   timestamp: number;
+                  /** @description the id of the transaction; for a balance assertion, its id */
                   trx_id: string;
                   /** @enum {string} */
                   type: 'Posting';
@@ -1796,8 +1880,15 @@ export interface operations {
               /** Format: date-time */
               to: string;
               top_transactions: {
+                /**
+                 * @description the account of the posting, in an account's journal the account itself or one of its sub-accounts; the
+                 * asserted account for a balance assertion
+                 */
                 account: string;
-                /** @description the account's own balance after the row, that of its own postings, on every row */
+                /**
+                 * @description the balance after the row, in the row's currency: in an account's journal, the running balance of the account
+                 * and its sub-accounts, and for a balance assertion the balance it was checked against
+                 */
                 account_after: {
                   commodity: string;
                   number: string;
@@ -1827,6 +1918,7 @@ export interface operations {
                 passed?: boolean | null;
                 payee?: string | null;
                 timestamp: number;
+                /** @description the id of the transaction; for a balance assertion, its id */
                 trx_id: string;
               }[];
             };
