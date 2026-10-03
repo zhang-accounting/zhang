@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
+use chrono_tz::Tz;
 #[cfg(feature = "plugin_runtime")]
 use extism::convert::Json as WasmJson;
 #[cfg(feature = "plugin_runtime")]
@@ -10,6 +11,7 @@ use log::{info, warn};
 use sha256::digest;
 use zhang_ast::{Directive, Plugin, SpanInfo, Spanned};
 
+use crate::clock::LoadClock;
 use crate::domains::schemas::OptionDomain;
 use crate::pipeline::StageContext;
 use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration};
@@ -28,8 +30,9 @@ pub struct PluginStore {
 }
 
 impl PluginStore {
-    /// register the plugin `_plugin` declares, as parsed into `declaration`; `span` is the directive's span
-    pub fn insert_plugin(&mut self, _plugin: &Plugin, declaration: PluginDeclaration, span: &SpanInfo) -> ZhangResult<()> {
+    /// register the plugin `_plugin` declares, as parsed into `declaration`; `span` is the directive's span.
+    /// `clock` is the clock of the load, which the plugin reads in the ledger timezone `timezone`
+    pub fn insert_plugin(&mut self, _plugin: &Plugin, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz) -> ZhangResult<()> {
         let plugin_name = _plugin.module.as_str().to_string();
         let plugin_hash = digest(&plugin_name);
         let plugin_cache_file = PathBuf::from_str(".cache/plugins")
@@ -43,7 +46,7 @@ impl PluginStore {
 
         // a plugin importing a host function cannot be instantiated without it, so the router host
         // functions are linked too, answering that they are unavailable
-        let host = PluginHost::new(_plugin.module.as_str(), span.clone());
+        let host = PluginHost::registering(_plugin.module.as_str(), span.clone(), clock.clone(), timezone);
         let functions = host.functions().into_iter().chain(unavailable_host_functions());
         let mut plugin = WasmPlugin::new(manifest, functions, true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
         let name = plugin
@@ -64,12 +67,14 @@ impl PluginStore {
             warn!("plugin {name} reported {ignored_errors} error(s) while registering; only its processor and mapper can report errors");
         }
 
+        let occurrence = self.occurrences(&declaration.directive.module);
         let registered_plugin = RegisteredPlugin {
             name,
             version,
             module_bytes,
             declaration,
             span: span.clone(),
+            occurrence,
         };
         if plugin_types.contains(&PluginType::Processor) {
             self.processors.push(registered_plugin.clone())
@@ -83,6 +88,11 @@ impl PluginStore {
         self.ordered.push((registered_plugin, plugin_types));
 
         Ok(())
+    }
+
+    /// how many plugins registered so far declare `module`, as written
+    fn occurrences(&self, module: &str) -> usize {
+        self.ordered.iter().filter(|(plugin, _)| plugin.declaration.directive.module == module).count()
     }
 
     /// build the pipeline stages in plugin declaration order.
@@ -139,6 +149,8 @@ pub struct RegisteredPlugin {
     declaration: PluginDeclaration,
     /// the span of the plugin's directive, where the errors it reports go unless they carry a span
     span: SpanInfo,
+    /// how many plugins registered before this one declare the same module; it makes their seeds differ
+    occurrence: usize,
 }
 
 impl RegisteredPlugin {
@@ -149,7 +161,7 @@ impl RegisteredPlugin {
 
     /// the manifest of every instance of the plugin, whatever it runs as: config, allowed hosts and timeout
     pub(super) fn manifest(&self, options: &[OptionDomain]) -> Manifest {
-        let config = self.declaration.config_with(options, self.declaration.host_config());
+        let config = self.declaration.config_with(options, self.declaration.host_config(self.occurrence));
         let wasm = Wasm::data(self.module_bytes.clone());
         Manifest::new([wasm])
             .with_config(config.into_iter())
@@ -158,9 +170,15 @@ impl RegisteredPlugin {
             .with_timeout(self.declaration.capabilities.timeout)
     }
 
-    /// the host side of a new instance of this plugin
-    pub fn host(&self) -> PluginHost {
-        PluginHost::new(self.name.clone(), self.span.clone())
+    /// the host side of a new instance of this plugin, running as a stage with the context `ctx`
+    pub fn host(&self, ctx: &StageContext) -> PluginHost {
+        PluginHost::new(self.name.clone(), self.span.clone(), ctx.clock().clone(), ctx.timezone())
+    }
+
+    /// the host side of a new instance of this plugin handling an HTTP request as a router: `zhang_now`
+    /// reads `clock` afresh for the request and records nothing (see [`PluginHost::routing`])
+    pub fn routing_host(&self, clock: LoadClock, timezone: Tz) -> PluginHost {
+        PluginHost::routing(self.name.clone(), self.span.clone(), clock, timezone)
     }
 
     /// a new instance of the plugin, with the host functions of `host` linked in, and the router host
@@ -176,7 +194,7 @@ impl RegisteredPlugin {
 
     /// run the plugin's processor over the whole stream; the errors it reports go to `ctx`
     pub fn execute_as_processor(&self, directive: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let host = self.host();
+        let host = self.host(ctx);
         let mut plugin = self.load_as_plugin(ctx.options, &host)?;
         let ret = plugin
             .call::<WasmJson<Vec<Spanned<Directive>>>, WasmJson<Vec<Spanned<Directive>>>>("processor", WasmJson(directive))
@@ -189,7 +207,7 @@ impl RegisteredPlugin {
     /// map every directive through the plugin, reusing a single instance for the whole stream;
     /// the errors it reports go to `ctx`
     pub fn execute_as_mapper(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let host = self.host();
+        let host = self.host(ctx);
         let mut plugin = self.load_as_plugin(ctx.options, &host)?;
         let mut ret = vec![];
         for directive in directives {
@@ -214,12 +232,17 @@ mod test {
 
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::PluginDeclaration;
-    use crate::plugin::store::{call_error, known_plugin_types, RegisteredPlugin};
+    use crate::plugin::store::{call_error, known_plugin_types, PluginStore, RegisteredPlugin};
     use crate::plugin::PluginType;
 
     fn registered_with_meta(meta: &[(&str, &str)]) -> RegisteredPlugin {
+        registered_as("slow.wasm", meta, 0)
+    }
+
+    /// a plugin of `module` with `meta`, the `occurrence`-th of its module
+    fn registered_as(module: &str, meta: &[(&str, &str)], occurrence: usize) -> RegisteredPlugin {
         let directive = Plugin {
-            module: ZhangString::quote("slow.wasm"),
+            module: ZhangString::quote(module),
             value: vec![],
             meta: meta.iter().map(|(key, value)| (key.to_string(), ZhangString::quote(*value))).collect(),
         };
@@ -229,7 +252,35 @@ mod test {
             module_bytes: vec![],
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
+            occurrence,
         }
+    }
+
+    #[test]
+    fn should_count_only_earlier_plugins_of_the_same_module() {
+        let mut store = PluginStore::default();
+        assert_eq!(store.occurrences("fx-rate.wasm"), 0);
+
+        store.ordered.push((registered_as("other.wasm", &[], 0), vec![PluginType::Processor]));
+        assert_eq!(store.occurrences("fx-rate.wasm"), 0, "a plugin of another module changes nothing");
+
+        store
+            .ordered
+            .push((registered_as("fx-rate.wasm", &[("seed", "ids")], 0), vec![PluginType::Mapper]));
+        store.ordered.push((registered_as("other.wasm", &[], 1), vec![]));
+        assert_eq!(store.occurrences("fx-rate.wasm"), 1);
+        assert_eq!(store.occurrences("other.wasm"), 2);
+        assert_eq!(store.occurrences("./fx-rate.wasm"), 0, "the module as written");
+    }
+
+    #[test]
+    fn should_hand_each_occurrence_of_a_module_its_own_stable_seed() {
+        let seed = |occurrence: usize, meta: &[(&str, &str)]| registered_as("fx-rate.wasm", meta, occurrence).manifest(&[]).config["zhang.seed"].clone();
+
+        assert_eq!(seed(0, &[]), "1811957226761548848");
+        assert_eq!(seed(0, &[]), seed(0, &[]));
+        assert_eq!(seed(1, &[]), "14470161454731210553");
+        assert_eq!(seed(0, &[("seed", "ids")]), "3501562816358462189");
     }
 
     #[test]
@@ -261,6 +312,7 @@ mod test {
             module_bytes: vec![],
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
+            occurrence: 0,
         };
 
         let manifest = plugin.manifest(&options);
@@ -278,6 +330,7 @@ mod test {
                 "zhang.plugin",
                 r#"{"module":"fx-rate.wasm","args":["positional"],"meta":{"allowed_hosts":["api.frankfurter.dev","api.example.com"],"base_currency":["USD"],"operating_currency":["EUR"],"tag":["first","second"],"zhang.mine":["kept"]}}"#,
             ),
+            ("zhang.seed", "1811957226761548848"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value.to_owned()))
@@ -302,6 +355,7 @@ mod test {
             module_bytes: vec![],
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
+            occurrence: 0,
         };
 
         assert_eq!(plugin.manifest(&[]).allowed_hosts, Some(vec![]));

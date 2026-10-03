@@ -9,6 +9,8 @@
 //!
 //! A stage that reads anything besides the stream (a file, the current date)
 //! records it with [`StageContext::add_input`], so the ledger knows when it is stale.
+//! [`StageContext::now`] gives the current time of the load and records the date as
+//! an input itself.
 //!
 //! Built-in stages ([`builtin_stages`]) run after the user's plugin stages:
 //! [`ActiveAccountsStage`], which only reports references to inactive accounts,
@@ -24,12 +26,15 @@ use std::collections::HashMap;
 
 pub use active_accounts::ActiveAccountsStage;
 pub use balance_check::BalanceCheckStage;
+use chrono::DateTime;
+use chrono_tz::Tz;
 use indexmap::IndexSet;
 use log::debug;
 pub use pad::PadStage;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, SpanInfo, Spanned};
 
+use crate::clock::{Clock, LoadClock};
 use crate::domains::schemas::{CommodityDomain, OptionDomain};
 use crate::inputs::ExtraInput;
 use crate::ledger::Ledger;
@@ -52,15 +57,22 @@ pub struct StageContext<'a> {
     pub commodities: Vec<CommodityDomain>,
     errors: Vec<StageError>,
     inputs: IndexSet<ExtraInput>,
+    /// the clock of the load, read on first use
+    clock: LoadClock,
+    /// the ledger timezone, which [`StageContext::now`] gives the time in
+    timezone: Tz,
 }
 
 impl<'a> StageContext<'a> {
+    /// a context on the system clock, in UTC
     pub fn new(options: &'a [OptionDomain]) -> Self {
         Self {
             options,
             commodities: vec![],
             errors: vec![],
             inputs: IndexSet::new(),
+            clock: LoadClock::new(Clock::System),
+            timezone: Tz::UTC,
         }
     }
 
@@ -68,6 +80,32 @@ impl<'a> StageContext<'a> {
     pub fn with_commodities(mut self, commodities: Vec<CommodityDomain>) -> Self {
         self.commodities = commodities;
         self
+    }
+
+    /// the context reading the time from `clock`, the clock of the load, in the ledger timezone `timezone`
+    pub fn with_clock(mut self, clock: LoadClock, timezone: Tz) -> Self {
+        self.clock = clock;
+        self.timezone = timezone;
+        self
+    }
+
+    /// the current time of the load, in the ledger timezone. The first call of the load reads the clock, and every
+    /// later call returns the same instant, from any stage, so all stages agree on "today". It records
+    /// [`ExtraInput::Clock`]: the output of the load now depends on the date
+    pub fn now(&mut self) -> DateTime<Tz> {
+        self.add_input(ExtraInput::Clock);
+        self.clock.now().with_timezone(&self.timezone)
+    }
+
+    /// the clock of the load, for a stage that hands it on, such as to a WASM plugin's host functions. Reading it
+    /// records nothing: a stage doing so records [`ExtraInput::Clock`] itself
+    pub fn clock(&self) -> &LoadClock {
+        &self.clock
+    }
+
+    /// the ledger timezone
+    pub fn timezone(&self) -> Tz {
+        self.timezone
     }
 
     /// report a problem without aborting the pipeline
@@ -125,10 +163,13 @@ pub fn run_pipeline(stages: &[Box<dyn ProcessStage>], mut directives: Vec<Spanne
 pub(crate) mod test {
     use std::collections::HashMap;
 
+    use chrono::{DateTime, Utc};
+    use chrono_tz::Tz;
     use zhang_ast::error::ErrorKind;
     use zhang_ast::{Comment, Directive, SpanInfo, Spanned};
 
     use super::{builtin_stages, run_pipeline, ProcessStage, StageContext};
+    use crate::clock::{Clock, LoadClock};
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
     use crate::inputs::ExtraInput;
@@ -204,6 +245,55 @@ pub(crate) mod test {
         assert_eq!(ctx.inputs().iter().cloned().collect::<Vec<_>>(), vec![receipt, ExtraInput::Clock, documents]);
     }
 
+    /// appends a comment holding the time `ctx.now()` gives
+    struct NowStage;
+    impl ProcessStage for NowStage {
+        fn name(&self) -> &str {
+            "now"
+        }
+        fn process(&self, mut directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
+            let content = ctx.now().to_rfc3339();
+            directives.push(Spanned::new(Directive::Comment(Comment { content }), span()));
+            Ok(directives)
+        }
+    }
+
+    fn comments(directives: &[Spanned<Directive>]) -> Vec<&str> {
+        directives
+            .iter()
+            .filter_map(|it| match &it.data {
+                Directive::Comment(c) => Some(c.content.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn should_give_every_stage_the_same_time_in_the_ledger_timezone_and_record_the_date() {
+        let fixed = "2024-03-15T16:30:00Z".parse::<DateTime<Utc>>().unwrap();
+        let clock = LoadClock::new(Clock::Fixed(fixed));
+        let stages: Vec<Box<dyn ProcessStage>> = vec![Box::new(NowStage), Box::new(AppendCommentStage("between")), Box::new(NowStage)];
+        let mut ctx = StageContext::new(&[]).with_clock(clock.clone(), Tz::Asia__Shanghai);
+
+        let out = run_pipeline(&stages, vec![], &mut ctx).unwrap();
+
+        assert_eq!(comments(&out), vec!["2024-03-16T00:30:00+08:00", "between", "2024-03-16T00:30:00+08:00"]);
+        assert_eq!(ctx.inputs().iter().cloned().collect::<Vec<_>>(), vec![ExtraInput::Clock]);
+        assert_eq!(clock.reading(), Some(fixed));
+    }
+
+    #[test]
+    fn should_not_read_the_clock_or_record_the_date_when_no_stage_asks() {
+        let clock = LoadClock::new(Clock::System);
+        let stages: Vec<Box<dyn ProcessStage>> = vec![Box::new(AppendCommentStage("only"))];
+        let mut ctx = StageContext::new(&[]).with_clock(clock.clone(), Tz::UTC);
+
+        run_pipeline(&stages, vec![], &mut ctx).unwrap();
+
+        assert!(ctx.inputs().is_empty());
+        assert_eq!(clock.reading(), None);
+    }
+
     #[test]
     fn should_run_stages_in_order_and_collect_errors() {
         let stages: Vec<Box<dyn ProcessStage>> = vec![
@@ -215,14 +305,7 @@ pub(crate) mod test {
 
         let out = run_pipeline(&stages, vec![], &mut ctx).unwrap();
 
-        let comments: Vec<&str> = out
-            .iter()
-            .filter_map(|it| match &it.data {
-                Directive::Comment(c) => Some(c.content.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(comments, vec!["first", "second"]);
+        assert_eq!(comments(&out), vec!["first", "second"]);
 
         let errors = ctx.into_errors();
         assert_eq!(errors.len(), 1);

@@ -4,12 +4,15 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicI32;
 use std::sync::{Arc, RwLock};
 
+use chrono::DateTime;
+use chrono_tz::Tz;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use log::{error, info};
 use zhang_ast::{Directive, Flag, Options, Plugin, SpanInfo, Spanned};
 
 use crate::booking::Booker;
+use crate::clock::{Clock, LoadClock};
 use crate::data_source::DataSource;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
@@ -47,6 +50,9 @@ pub struct Ledger {
     /// the (account, budget) pairs whose undefined budget the store fold already reported
     pub(crate) reported_undefined_budgets: HashSet<(String, String)>,
 
+    /// the clock of this load, read at most once, on first use; a reload starts a new reading of the same [`Clock`]
+    pub(crate) clock: LoadClock,
+
     #[cfg(feature = "plugin_runtime")]
     pub plugins: crate::plugin::store::PluginStore,
 }
@@ -56,6 +62,10 @@ pub struct LedgerProcessContext {
     pub entry: (PathBuf, String),
     pub visited_files: Vec<PathBuf>,
     pub data_source: Arc<dyn DataSource>,
+    /// where the load reads the current time from, if anything asks for it (a plugin calling `zhang_now`).
+    /// Nothing reads [`Clock::System`] unless something asks, so it is the right choice even on targets without
+    /// a system clock, as long as they run no plugins. The `zhang-query` counterpart is `execute`/`execute_at`
+    pub clock: Clock,
 }
 
 struct SplitDirectives {
@@ -127,6 +137,7 @@ impl Ledger {
             entry: (entry, endpoint),
             visited_files: load_result.visited_files,
             data_source,
+            clock: Clock::System,
         })
     }
     pub async fn async_load(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
@@ -137,6 +148,7 @@ impl Ledger {
             entry: (entry, endpoint),
             visited_files: load_result.visited_files,
             data_source,
+            clock: Clock::System,
         })
         .await
     }
@@ -154,6 +166,7 @@ impl Ledger {
             trx_counter: AtomicI32::new(1),
             booker: None,
             reported_undefined_budgets: HashSet::new(),
+            clock: LoadClock::new(context.clock),
             #[cfg(feature = "plugin_runtime")]
             plugins: crate::plugin::store::PluginStore::default(),
         };
@@ -210,6 +223,7 @@ impl Ledger {
             entry: (entry.clone(), endpoint.clone()),
             visited_files: transform_result.visited_files,
             data_source: self.data_source.clone(),
+            clock: self.clock.clock(),
         })?;
         *self = reload_ledger;
         Ok(())
@@ -223,6 +237,7 @@ impl Ledger {
             entry: (entry.clone(), endpoint.clone()),
             visited_files: transform_result.visited_files,
             data_source: self.data_source.clone(),
+            clock: self.clock.clock(),
         })
         .await?;
         *self = reload_ledger;
@@ -235,6 +250,18 @@ impl Ledger {
             store: self.store.clone(),
             timezone,
         }
+    }
+
+    /// the clock this ledger was loaded with; a reload reads the same clock again
+    pub fn clock(&self) -> Clock {
+        self.clock.clock()
+    }
+
+    /// the current time the load used, in the ledger timezone; `None` when nothing asked for it, and the load never
+    /// read the clock. The load depends on the date only when [`Ledger::extra_inputs`] holds
+    /// [`ExtraInput::Clock`]: a plugin reading the time while it registers is not recorded
+    pub fn clock_reading(&self) -> Option<DateTime<Tz>> {
+        self.clock.reading().map(|it| it.with_timezone(&self.options.timezone))
     }
 }
 
@@ -367,7 +394,9 @@ impl Ledger {
         let stages = self.build_stages();
         let options = self.operations().options()?;
         let commodities = self.operations().read().commodities.values().cloned().collect_vec();
-        let mut ctx = StageContext::new(&options).with_commodities(commodities);
+        let mut ctx = StageContext::new(&options)
+            .with_commodities(commodities)
+            .with_clock(self.clock.clone(), self.options.timezone);
         let directives = run_pipeline(&stages, directives, &mut ctx)?;
 
         self.extra_inputs.extend(ctx.inputs().iter().cloned());
@@ -1544,6 +1573,60 @@ mod test {
                 );
                 assert_eq!(ledger.visited_files, vec![root.join("main.zhang")]);
             }
+        }
+    }
+
+    mod clock {
+        use std::sync::Arc;
+
+        use indoc::indoc;
+        use tempfile::tempdir;
+
+        use crate::clock::Clock;
+        use crate::data_source::{DataSource, LocalFileSystemDataSource};
+        use crate::data_type::text::ZhangDataType;
+        use crate::inputs::ExtraInput;
+        use crate::ledger::test::load_from_temp_str;
+        use crate::ledger::{Ledger, LedgerProcessContext};
+
+        const LEDGER: &str = indoc! {r#"
+            1970-01-01 open Assets:Cash
+            1970-01-01 open Equity:Open
+            2024-01-01 * "lunch"
+              Assets:Cash -10 CNY
+              Equity:Open
+        "#};
+
+        #[test]
+        fn should_not_read_the_clock_when_nothing_asks_for_the_time() {
+            let ledger = load_from_temp_str(LEDGER);
+
+            assert_eq!(ledger.clock(), Clock::System);
+            assert_eq!(ledger.clock_reading(), None);
+            assert!(!ledger.extra_inputs.contains(&ExtraInput::Clock));
+        }
+
+        #[test]
+        fn should_reload_with_the_same_clock() {
+            let root = tempdir().unwrap().into_path().canonicalize().unwrap();
+            std::fs::write(root.join("main.zhang"), LEDGER).unwrap();
+            let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+            let loaded = source.load(root.to_string_lossy().to_string(), "main.zhang".to_owned()).unwrap();
+            let fixed = "2024-03-15T16:30:00Z".parse().unwrap();
+            let mut ledger = Ledger::process(LedgerProcessContext {
+                directives: loaded.directives,
+                entry: (root, "main.zhang".to_owned()),
+                visited_files: loaded.visited_files,
+                data_source: source,
+                clock: Clock::Fixed(fixed),
+            })
+            .unwrap();
+
+            ledger.reload().unwrap();
+
+            assert_eq!(ledger.clock(), Clock::Fixed(fixed));
+            assert_eq!(ledger.clock_reading(), None, "nothing asked for the time on reload either");
+            assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
         }
     }
 

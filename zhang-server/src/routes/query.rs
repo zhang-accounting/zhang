@@ -135,6 +135,7 @@ mod saved_query_test {
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
     use serde_json::json;
+    use zhang_core::clock::Clock;
     use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::data_type::DataType;
@@ -150,6 +151,7 @@ mod saved_query_test {
             entry: (PathBuf::from("."), "main.zhang".to_owned()),
             visited_files: vec![],
             data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
+            clock: Clock::System,
         })
         .unwrap();
         SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger)))

@@ -12,6 +12,7 @@
 //!   name), `message` and the plugin's own `metas`. A payload that cannot be read is reported the same
 //!   way, with a message saying it is invalid. While a router plugin handles a request there is no
 //!   error list, so the problem is logged as a warning instead (see [`crate::plugin::router`]).
+//! - `zhang_now() -> i64`: the current time of the load (see [`NOW`]).
 //!
 //! Every plugin instance gets its own [`PluginHost`]. It keeps what the host functions collect while
 //! the instance runs, until the stage running the plugin hands it to the pipeline.
@@ -20,13 +21,17 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use chrono::{DateTime, SecondsFormat};
+use chrono_tz::Tz;
 use extism::convert::MemoryHandle;
 use extism::{CurrentPlugin, Function, UserData, Val, EXTISM_USER_MODULE, PTR};
 use log::warn;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use zhang_ast::error::ErrorKind;
 use zhang_ast::SpanInfo;
 
+use crate::clock::LoadClock;
+use crate::inputs::ExtraInput;
 use crate::pipeline::{StageContext, StageError};
 
 /// name of the host function a plugin reports a problem with
@@ -194,23 +199,48 @@ struct HostState {
 /// the host side of one plugin instance: the host functions to link into it and what they collected
 pub struct PluginHost {
     state: Arc<Mutex<HostState>>,
+    clock: Arc<Mutex<ClockState>>,
 }
 
 impl PluginHost {
-    pub fn new(plugin: impl Into<String>, directive_span: SpanInfo) -> Self {
+    /// the host of an instance running as a stage: `clock` is the clock of the load, in the ledger timezone
+    /// `timezone`, and every `zhang_now` call is recorded
+    pub fn new(plugin: impl Into<String>, directive_span: SpanInfo, clock: LoadClock, timezone: Tz) -> Self {
+        Self::with_clock_state(plugin.into(), directive_span, ClockState::new(clock, timezone, true))
+    }
+
+    /// the host of an instance registering the plugin (`name`, `version`, `supported_type`): `zhang_now` returns
+    /// the time of the load as for a stage, but records nothing, since what a plugin answers there is not ledger
+    /// content
+    pub fn registering(plugin: impl Into<String>, directive_span: SpanInfo, clock: LoadClock, timezone: Tz) -> Self {
+        Self::with_clock_state(plugin.into(), directive_span, ClockState::new(clock, timezone, false))
+    }
+
+    /// the host of an instance handling an HTTP request as a router plugin. A request is not a load:
+    /// `zhang_now` reads the ledger's clock afresh for each request (so a report page shows the
+    /// current date even when the ledger was loaded days ago) and records nothing.
+    pub fn routing(plugin: impl Into<String>, directive_span: SpanInfo, clock: LoadClock, timezone: Tz) -> Self {
+        Self::with_clock_state(plugin.into(), directive_span, ClockState::new(clock, timezone, false))
+    }
+
+    fn with_clock_state(plugin: String, directive_span: SpanInfo, clock: ClockState) -> Self {
         let state = HostState {
-            plugin: plugin.into(),
+            plugin,
             directive_span,
             errors: vec![],
         };
         Self {
             state: Arc::new(Mutex::new(state)),
+            clock: Arc::new(Mutex::new(clock)),
         }
     }
 
     /// every host function zhang offers, bound to this host
     pub fn functions(&self) -> Vec<Function> {
-        vec![Function::new(EMIT_ERROR, [PTR], [], UserData::Rust(self.state.clone()), emit_error).with_namespace(EXTISM_USER_MODULE)]
+        vec![
+            Function::new(EMIT_ERROR, [PTR], [], UserData::Rust(self.state.clone()), emit_error).with_namespace(EXTISM_USER_MODULE),
+            self.now_function(),
+        ]
     }
 
     /// take the errors the plugin reported so far
@@ -218,10 +248,13 @@ impl PluginHost {
         std::mem::take(&mut self.state.lock().unwrap_or_else(PoisonError::into_inner).errors)
     }
 
-    /// hand the errors the plugin reported so far to the pipeline
+    /// hand what the plugin reported and read so far to the pipeline: its errors, and the date if it read the time
     pub fn forward_to(&self, ctx: &mut StageContext) {
         for error in self.take_errors() {
             ctx.emit_error(error.kind, error.span, error.metas);
+        }
+        if self.take_clock_read() {
+            ctx.add_input(ExtraInput::Clock);
         }
     }
 }
@@ -292,6 +325,104 @@ fn well_formed_span(plugin: &str, span: serde_json::Value) -> Option<SpanInfo> {
             warn!("plugin {plugin} reported an error on a span that is not well-formed ({e}); using its directive's span");
             None
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// `zhang_now`: the current time of the load
+// ---------------------------------------------------------------------------------------------------------------
+
+/// name of the host function a plugin reads the current time with.
+///
+/// `zhang_now() -> i64` returns the offset of a kernel memory block holding the JSON
+///
+/// ```json
+/// {"Ok": {"now": "2024-03-16T00:30:00+08:00", "today": "2024-03-16", "timezone": "Asia/Shanghai"}}
+/// ```
+///
+/// - `now`: the current time of the load as RFC 3339, with the offset of the ledger timezone
+/// - `today`: the date of `now` in the ledger timezone, `YYYY-MM-DD`
+/// - `timezone`: the ledger timezone, an IANA name
+///
+/// The host reads its clock once per load, on the first call from any plugin, so every call of a load returns the
+/// same value and all plugins agree on "today". A call from a processor or mapper makes the ledger depend on the
+/// date ([`ExtraInput::Clock`]), so a server reloads it when the date changes; a call while the plugin registers
+/// (`name`, `version`, `supported_type`) does not. Like every zhang host function that returns a value, the result
+/// is `{"Ok": value}` or `{"Err": {"kind": "...", "message": "..."}}`; `zhang_now` has no error today, but a plugin
+/// should still handle `Err`.
+///
+/// A plugin targeting WASI can also read the host's real clock, and OS entropy, through WASI: extism links them in,
+/// and a host function cannot intercept them. Reproducible plugins read the time with `zhang_now` only, and derive
+/// randomness from the `zhang.seed` config ([`plugin_seed`](crate::plugin::capabilities::plugin_seed)).
+pub const NOW: &str = "zhang_now";
+
+/// what `zhang_now` returns inside `Ok`. This shape is part of plugin ABI v1: fields may be added, never removed
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct NowPayload {
+    now: String,
+    today: String,
+    timezone: String,
+}
+
+/// a host function result that cannot fail
+#[derive(Serialize)]
+enum HostOk<T> {
+    Ok(T),
+}
+
+/// the state `zhang_now` of one plugin instance keeps
+struct ClockState {
+    /// the clock of the load
+    clock: LoadClock,
+    /// the ledger timezone
+    timezone: Tz,
+    /// whether a call is recorded as reading the date; not while the plugin registers
+    record: bool,
+    /// whether the plugin read the time since its reads were last taken
+    read: bool,
+}
+
+impl ClockState {
+    fn new(clock: LoadClock, timezone: Tz, record: bool) -> Self {
+        Self {
+            clock,
+            timezone,
+            record,
+            read: false,
+        }
+    }
+}
+
+impl PluginHost {
+    /// `zhang_now`, bound to this host
+    fn now_function(&self) -> Function {
+        Function::new(NOW, [], [PTR], UserData::Rust(self.clock.clone()), zhang_now).with_namespace(EXTISM_USER_MODULE)
+    }
+
+    /// whether the plugin read the time since the last call; a host that is registering the plugin never records it
+    fn take_clock_read(&self) -> bool {
+        std::mem::take(&mut self.clock.lock().unwrap_or_else(PoisonError::into_inner).read)
+    }
+}
+
+/// `zhang_now()`: the current time of the load, read from its clock on the first call
+fn zhang_now(plugin: &mut CurrentPlugin, _inputs: &[Val], outputs: &mut [Val], state: UserData<ClockState>) -> Result<(), extism::Error> {
+    let now = {
+        let state = state.get()?;
+        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.read |= state.record;
+        state.clock.now().with_timezone(&state.timezone)
+    };
+    let payload = serde_json::to_string(&HostOk::Ok(now_payload(&now)))?;
+    plugin.memory_set_val(&mut outputs[0], payload.as_str())
+}
+
+/// what `zhang_now` returns for the time `now`, in the ledger timezone
+fn now_payload(now: &DateTime<Tz>) -> NowPayload {
+    NowPayload {
+        now: now.to_rfc3339_opts(SecondsFormat::AutoSi, false),
+        today: now.date_naive().format("%Y-%m-%d").to_string(),
+        timezone: now.timezone().name().to_owned(),
     }
 }
 
@@ -458,5 +589,40 @@ mod test {
             error.metas["message"],
             "the plugin called zhang_emit_error with an invalid payload: it is not a memory block"
         );
+    }
+
+    mod now {
+        use chrono::{DateTime, Utc};
+        use chrono_tz::Tz;
+
+        use super::super::{now_payload, HostOk, NowPayload};
+
+        fn payload(rfc3339: &str, timezone: Tz) -> NowPayload {
+            now_payload(&rfc3339.parse::<DateTime<Utc>>().unwrap().with_timezone(&timezone))
+        }
+
+        #[test]
+        fn should_give_the_time_date_and_name_of_the_ledger_timezone() {
+            assert_eq!(
+                payload("2024-03-15T16:30:00Z", Tz::Asia__Shanghai),
+                NowPayload {
+                    now: "2024-03-16T00:30:00+08:00".to_owned(),
+                    today: "2024-03-16".to_owned(),
+                    timezone: "Asia/Shanghai".to_owned(),
+                }
+            );
+            assert_eq!(payload("2024-03-15T16:30:00.250Z", Tz::UTC).now, "2024-03-15T16:30:00.250+00:00");
+            assert_eq!(payload("2024-03-15T03:00:00Z", Tz::America__New_York).today, "2024-03-14");
+        }
+
+        #[test]
+        fn should_wrap_the_payload_in_ok() {
+            let json = serde_json::to_string(&HostOk::Ok(payload("2024-03-15T16:30:00Z", Tz::Europe__Berlin))).unwrap();
+
+            assert_eq!(
+                json,
+                r#"{"Ok":{"now":"2024-03-15T17:30:00+01:00","today":"2024-03-15","timezone":"Europe/Berlin"}}"#
+            );
+        }
     }
 }
