@@ -425,6 +425,21 @@ fn diff(path: &str, old: &Value, new: &Value, out: &mut Vec<(String, Value, Valu
     }
 }
 
+/// Items keyed by what identifies them, the n-th of identical keys (such as two balance lines alike) numbered
+/// apart, so that no item hides another.
+fn keyed(items: &[Value], key: impl Fn(&Value) -> String) -> Vec<(String, &Value)> {
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    items
+        .iter()
+        .map(|item| {
+            let key = key(item);
+            let nth = seen.entry(key.clone()).or_default();
+            *nth += 1;
+            (if *nth == 1 { key } else { format!("{} #{}", key, nth) }, item)
+        })
+        .collect()
+}
+
 /// What identifies a journal item across both implementations: a transaction its id, a balance
 /// assertion (whose id changes) its date, account and asserted amount.
 fn journal_key(record: &Value) -> String {
@@ -465,8 +480,43 @@ fn repeated_metadata(old: &Value, new: &Value) -> bool {
     new.windows(2).all(|it| it[0].0 <= it[1].0) && old.iter().all(|it| new.contains(it)) && keys(&old) == keys(&new) && new.len() >= old.len()
 }
 
+/// Whether the per-unit cost of the `index`-th posting of `new_record` is what the old journal's cost
+/// means: a written `{{total}}` divided by the units (within the 28 significant digits of the
+/// division), or, where the old journal had none (a reduction written `{}`), the cost of a lot an earlier
+/// posting of the account opened, in `everything` (the new journal, newest first).
+fn per_unit_cost_holds(index: usize, old_record: &Value, new_record: &Value, everything: &[Value]) -> bool {
+    let (old_posting, new_posting) = (&old_record["postings"][index], &new_record["postings"][index]);
+    let units = number(&new_posting["inferred_unit"]["number"]);
+    let (old_cost, new_cost) = (&old_posting["cost"], &new_posting["cost"]);
+    match (old_cost.is_null(), new_cost.is_null()) {
+        (false, false) => {
+            let (Some(units), Some(total), Some(per_unit)) = (units, number(&old_cost["number"]), number(&new_cost["number"])) else {
+                return false;
+            };
+            let error = (per_unit * units.abs() - &total).abs();
+            old_cost["commodity"] == new_cost["commodity"]
+                && error * bigdecimal::BigDecimal::from(10i64.pow(15)) * bigdecimal::BigDecimal::from(10i64.pow(11)) <= total.abs()
+        }
+        (true, false) => {
+            let Some(units) = units else { return false };
+            let account = &new_posting["account"];
+            let commodity = &new_posting["inferred_unit"]["commodity"];
+            let position = everything.iter().position(|it| it["id"] == new_record["id"]).unwrap_or(everything.len());
+            everything[position..].iter().skip(1).any(|earlier| {
+                earlier["postings"].as_array().into_iter().flatten().any(|posting| {
+                    posting["account"] == *account
+                        && posting["inferred_unit"]["commodity"] == *commodity
+                        && posting["cost"] == *new_cost
+                        && number(&posting["inferred_unit"]["number"]).is_some_and(|opened| opened.sign() != units.sign())
+                })
+            })
+        }
+        _ => false,
+    }
+}
+
 /// The reason of a difference within a journal item, `path` relative to the item.
-fn journal_field_reason(path: &str, old_record: &Value, old: &Value, new: &Value) -> Option<Reason> {
+fn journal_field_reason(path: &str, old_record: &Value, new_record: &Value, old: &Value, new: &Value, everything: &[Value]) -> Option<Reason> {
     let field = path.rsplit('.').next().unwrap_or_default();
     if path == "sequence" {
         return Some(Reason::Sequence);
@@ -483,25 +533,17 @@ fn journal_field_reason(path: &str, old_record: &Value, old: &Value, new: &Value
         }
     }
     if path.starts_with("postings[") && path.contains(".cost") {
-        let posting = &old_record["postings"][path["postings[".len()..].split(']').next().unwrap().parse::<usize>().unwrap()];
-        let units = number(&posting["inferred_unit"]["number"]).map(|it| it.abs());
-        let old_cost = &posting["cost"];
-        if old_cost.is_null() {
-            return Some(Reason::PerUnitCost);
-        }
-        if let (Some(units), Some(total)) = (units, number(&old_cost["number"])) {
-            if field == "number" && number(new).map(|it| it * units) == Some(total) {
-                return Some(Reason::PerUnitCost);
-            }
-        }
+        let index = path["postings[".len()..].split(']').next().unwrap().parse::<usize>().unwrap();
+        return per_unit_cost_holds(index, old_record, new_record, everything).then_some(Reason::PerUnitCost);
     }
     None
 }
 
 fn compare_journal(report: &mut Report, ledger: &str, search: &Search, old: &[Value], new: &[Value], everything: &[Value]) {
     let call = search.to_string();
-    let old_keys: BTreeMap<String, &Value> = old.iter().map(|it| (journal_key(it), it)).collect();
-    let new_keys: BTreeMap<String, &Value> = new.iter().map(|it| (journal_key(it), it)).collect();
+    let (old_keyed, new_keyed) = (keyed(old, journal_key), keyed(new, journal_key));
+    let old_keys: BTreeMap<String, &Value> = old_keyed.iter().cloned().collect();
+    let new_keys: BTreeMap<String, &Value> = new_keyed.iter().cloned().collect();
     for (key, record) in &new_keys {
         if old_keys.contains_key(key) {
             continue;
@@ -524,11 +566,15 @@ fn compare_journal(report: &mut Report, ledger: &str, search: &Search, old: &[Va
     for key in old_keys.keys().filter(|key| !new_keys.contains_key(*key)) {
         report.add("/api/journals", ledger, &call, None, format!("only old: {}", key));
     }
-    fn common<'a>(records: &'a [Value], other: &BTreeMap<String, &Value>) -> Vec<&'a Value> {
-        records.iter().filter(|it| other.contains_key(&journal_key(it))).collect()
-    }
-    let (old_common, new_common) = (common(old, &new_keys), common(new, &old_keys));
-    let order = |records: &[&Value]| records.iter().map(|it| journal_key(it)).collect::<Vec<_>>();
+    let common = |records: &[(String, &Value)], other: &BTreeMap<String, &Value>| {
+        records
+            .iter()
+            .filter(|(key, _)| other.contains_key(key))
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>()
+    };
+    let (old_common, new_common) = (common(&old_keyed, &new_keys), common(&new_keyed, &old_keys));
+    let order = |keys: &[String]| keys.to_vec();
     if order(&old_common) != order(&new_common) {
         let reason = None;
         let first = order(&old_common)
@@ -557,7 +603,7 @@ fn compare_journal(report: &mut Report, ledger: &str, search: &Search, old: &[Va
             let reason = if path == "metas" || path.starts_with("metas[") {
                 repeated_metadata(&old_record["metas"], &new_record["metas"]).then_some(Reason::RepeatedMetadata)
             } else {
-                journal_field_reason(&path, old_record, &old_value, &new_value)
+                journal_field_reason(&path, old_record, new_record, &old_value, &new_value, everything)
             };
             report.add(
                 "/api/journals",
@@ -673,8 +719,8 @@ async fn compare_documents(report: &mut Report, fixture: &Fixture, ledger: &Shar
     let items = |value: &Value| value["data"].as_array().cloned().unwrap_or_default();
     let (old, new) = (items(&old), items(&new));
     let key = |it: &Value| format!("{} {} {}", it["datetime"], it["path"], it["trx_id"]);
-    let old_keys: BTreeMap<String, &Value> = old.iter().map(|it| (key(it), it)).collect();
-    let new_keys: BTreeMap<String, &Value> = new.iter().map(|it| (key(it), it)).collect();
+    let old_keys: BTreeMap<String, &Value> = keyed(&old, key).into_iter().collect();
+    let new_keys: BTreeMap<String, &Value> = keyed(&new, key).into_iter().collect();
     for key in old_keys.keys().filter(|it| !new_keys.contains_key(*it)) {
         report.add("/api/documents", name, "", None, format!("only old: {}", key));
     }
@@ -714,13 +760,23 @@ async fn errors_page(implementation: Implementation, ledger: &SharedLedger, page
     }
 }
 
+/// Every error, page after page of the largest size.
+async fn all_errors(implementation: Implementation, ledger: &SharedLedger) -> Vec<Value> {
+    let mut items = vec![];
+    for page in 1.. {
+        let response = errors_page(implementation, ledger, page, 1000).await;
+        items.extend(response["data"]["records"].as_array().cloned().unwrap_or_default());
+        if u64::from(page) >= response["data"]["total_page"].as_u64().unwrap_or(0) {
+            break;
+        }
+    }
+    items
+}
+
 async fn compare_errors(report: &mut Report, fixture: &Fixture, ledger: &SharedLedger) {
     let name = fixture.name.as_str();
-    let old = errors_page(Implementation::Old, ledger, 1, 10000).await;
-    let new = errors_page(Implementation::New, ledger, 1, 10000).await;
+    let (old_items, new_items) = (all_errors(Implementation::Old, ledger).await, all_errors(Implementation::New, ledger).await);
     report.compared += 1;
-    let items = |value: &Value| value["data"]["records"].as_array().cloned().unwrap_or_default();
-    let (old_items, new_items) = (items(&old), items(&new));
     let key = |it: &Value| format!("{} {} {} {}", it["id"], it["error_type"], it["span"]["start"], it["metas"]);
     let collect = |items: &[Value]| {
         let mut keyed: BTreeMap<String, Vec<Value>> = BTreeMap::new();
@@ -756,7 +812,10 @@ async fn compare_errors(report: &mut Report, fixture: &Fixture, ledger: &SharedL
         report.add("/api/errors", name, "", None, format!("only new: {}", key));
     }
     if old_items.iter().map(key).collect::<Vec<_>>() != new_items.iter().map(key).collect::<Vec<_>>() {
-        report.add("/api/errors", name, "", Some(Reason::ErrorOrder), "order".to_owned());
+        // the new order is by file (an error without one first), then by position in the file
+        let position = |it: &Value| (it["span"]["filename"].as_str().map(str::to_owned), it["span"]["start"].as_u64());
+        let by_position = new_items.windows(2).all(|pair| position(&pair[0]) <= position(&pair[1]));
+        report.add("/api/errors", name, "", by_position.then_some(Reason::ErrorOrder), "order".to_owned());
     }
     // the pages count the same
     for (page, size) in [(1, 10), (2, 10), (3, 1)] {
