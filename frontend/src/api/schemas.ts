@@ -10,7 +10,7 @@ export interface paths {
      * @description Every account with an `open` or `close` directive or with postings, by name: its own balance, valued in the
      * operating currency at today's prices, and the balance of the account with its sub-accounts.
      *
-     * Built-in queries `accounts` and `account_balances`.
+     * Built-in queries `accounts.list` and `accounts.balances`.
      */
     get: operations['get_account_list'];
   };
@@ -24,7 +24,7 @@ export interface paths {
      * @description An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
      * account with its sub-accounts, which its page shows.
      *
-     * Built-in queries `account_subtree` and `account_subtree_balances`.
+     * Built-in queries `accounts.subtree` and `accounts.subtree_balances`.
      */
     get: operations['get_account_info'];
   };
@@ -33,7 +33,7 @@ export interface paths {
      * Get Account Balance Data
      * @description The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
      *
-     * Built-in query `account_balance_history`.
+     * Built-in query `accounts.balance_history`.
      */
     get: operations['get_account_balance_data'];
     /** Create Account Balance */
@@ -44,7 +44,7 @@ export interface paths {
      * Get Account Documents
      * @description The document directives of the account and its sub-accounts, in ledger order.
      *
-     * Built-in query `account_documents`.
+     * Built-in query `accounts.documents`.
      */
     get: operations['get_account_documents'];
     /** Upload Account Document */
@@ -57,7 +57,12 @@ export interface paths {
      * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
      * assertion on the account, with the balance it was checked against.
      *
-     * Built-in queries `account_journal` and `account_balance_assertions`.
+     * With `page` and `size` (from 1; `size` 100 by default), one page of the rows, and the number of rows of all
+     * the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to return at
+     * once is a 400 that asks for pages.
+     *
+     * Built-in queries `accounts.journal` (`accounts.journal_rows` and `accounts.journal_page` for a page) and
+     * `accounts.balance_assertions`.
      */
     get: operations['get_account_journals'];
   };
@@ -297,7 +302,7 @@ export interface operations {
    * @description Every account with an `open` or `close` directive or with postings, by name: its own balance, valued in the
    * operating currency at today's prices, and the balance of the account with its sub-accounts.
    *
-   * Built-in queries `accounts` and `account_balances`.
+   * Built-in queries `accounts.list` and `accounts.balances`.
    */
   get_account_list: {
     responses: {
@@ -374,7 +379,7 @@ export interface operations {
    * @description An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
    * account with its sub-accounts, which its page shows.
    *
-   * Built-in queries `account_subtree` and `account_subtree_balances`.
+   * Built-in queries `accounts.subtree` and `accounts.subtree_balances`.
    */
   get_account_info: {
     parameters: {
@@ -434,7 +439,7 @@ export interface operations {
    * Get Account Balance Data
    * @description The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
    *
-   * Built-in query `account_balance_history`.
+   * Built-in query `accounts.balance_history`.
    */
   get_account_balance_data: {
     parameters: {
@@ -504,7 +509,7 @@ export interface operations {
    * Get Account Documents
    * @description The document directives of the account and its sub-accounts, in ledger order.
    *
-   * Built-in query `account_documents`.
+   * Built-in query `accounts.documents`.
    */
   get_account_documents: {
     parameters: {
@@ -557,10 +562,27 @@ export interface operations {
    * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
    * assertion on the account, with the balance it was checked against.
    *
-   * Built-in queries `account_journal` and `account_balance_assertions`.
+   * With `page` and `size` (from 1; `size` 100 by default), one page of the rows, and the number of rows of all
+   * the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to return at
+   * once is a 400 that asks for pages.
+   *
+   * Built-in queries `accounts.journal` (`accounts.journal_rows` and `accounts.journal_page` for a page) and
+   * `accounts.balance_assertions`.
    */
   get_account_journals: {
     parameters: {
+      query: {
+        /**
+         * @description The page of an account's journal to return: `size` rows of page `page`, counting from 1. Without
+         * either, the whole journal.
+         */
+        page: number | null;
+        /**
+         * @description The page of an account's journal to return: `size` rows of page `page`, counting from 1. Without
+         * either, the whole journal.
+         */
+        size: number | null;
+      };
       path: {
         account_name: string;
       };
@@ -568,6 +590,10 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          /** @description the number of rows of all the pages; only sent for a page */
+          'X-Total-Count'?: number;
+        };
         content: {
           'application/json': {
             data: {

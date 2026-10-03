@@ -6,6 +6,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useAsync } from 'react-use';
 import { retrieveAccountBalance, retrieveAccountDocuments, retrieveAccountInfo, retrieveAccountJournals } from '@/api/requests';
 import { EmptyState, PageHeader, PageShell, ResponsiveList } from '@/components/layout';
+import { PagePagination } from '@/components/layout/PagePagination';
 import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { Badge } from '@/components/ui/badge';
@@ -194,11 +195,26 @@ function SingleAccount() {
 
 export default SingleAccount;
 
+/** Rows of a page of the journal, as on the Journals page. */
+const JOURNAL_PAGE_SIZE = 100;
+
 function AccountJournals({ accountName, reloadKey }: { accountName: string; reloadKey: number }) {
   const { t } = useTranslation();
   const fmt = useDateFormat();
-  const journals = useAsync(async () => (await retrieveAccountJournals({ account_name: accountName })).data.data, [accountName, reloadKey]);
-  type Row = NonNullable<typeof journals.value>[number];
+  const [page, setPage] = useState(1);
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => setPage(1), [accountName]);
+  const journals = useAsync(async () => {
+    const response = await retrieveAccountJournals({ account_name: accountName, page, size: JOURNAL_PAGE_SIZE });
+    // the number of rows of all the pages
+    const total = Number(response.headers.get('X-Total-Count') ?? response.data.data.length);
+    return { rows: response.data.data, totalPages: Math.ceil(total / JOURNAL_PAGE_SIZE) };
+  }, [accountName, reloadKey, page]);
+  type Row = NonNullable<typeof journals.value>['rows'][number];
+  const onPage = (next: number) => {
+    setPage(next);
+    list.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
 
   // The journal is that of the account and its sub-accounts: the balance column is their running balance, and the rows
   // of a sub-account name it. A balance assertion adds nothing: its row shows the amount it asserted instead, red when
@@ -225,17 +241,17 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
         {item.account.slice(prefix.length)}
       </span>
     );
-  const hasSubAccountRows = (journals.value ?? []).some((item) => item.account.startsWith(prefix));
+  const hasSubAccountRows = (journals.value?.rows ?? []).some((item) => item.account.startsWith(prefix));
 
   if (journals.error) return <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(journals.error)} />;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div ref={list} className="flex scroll-mt-4 flex-col gap-2">
       <div className="flex justify-end">
         <OpenInExplore name="accounts.journal" params={{ account: accountName }} />
       </div>
       <ResponsiveList<Row>
-        items={journals.value ?? []}
+        items={journals.value?.rows ?? []}
         loading={journals.loading}
         getKey={(item, index) => `${item.trx_id}-${index}`}
         empty={<EmptyState icon={NotebookText} title={t('ledger.account.no_journals')} description={t('ledger.account.no_journals_description')} />}
@@ -299,6 +315,7 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
           </div>
         )}
       />
+      {journals.value && <PagePagination page={page} totalPages={journals.value.totalPages} onPageChange={onPage} />}
     </div>
   );
 }

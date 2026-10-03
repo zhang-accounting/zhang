@@ -10,6 +10,7 @@ import { sumByCommodity } from '@/components/budget/budget-utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { accountAtom } from '@/states/account';
+import { subtreeTotals } from '@/utils/subtree-totals';
 
 const GROUPS = [
   { type: 'Assets', label: 'SIDEBAR_ACCOUNTS_ASSETS' },
@@ -47,8 +48,8 @@ function TotalAmount({ amounts }: { amounts: ReturnType<typeof totals> }) {
 
 /**
  * Desktop sidebar "Accounts" section (Actual Budget style): net total, then Assets / Liabilities with their subtotals and every
- * open account with its balance in the operating currency. Rows link to the account page; the current one is tinted. A search
- * button toggles an inline filter. Expenses / Income are not listed.
+ * open account with its balance in the operating currency, with its sub-accounts as its page shows it. Rows link to the account
+ * page; the current one is tinted. A search button toggles an inline filter. Expenses / Income are not listed.
  */
 export function SidebarAccounts({ className }: { className?: string }) {
   const { t } = useTranslation();
@@ -68,6 +69,8 @@ export function SidebarAccounts({ className }: { className?: string }) {
     });
   }, [accounts, query]);
   const filtering = query.trim() !== '';
+  // the subtotals add up the accounts' own balances; a row shows the account with its sub-accounts
+  const withSubAccounts = useMemo(() => subtreeTotals(accounts.state === 'hasData' ? accounts.data : []), [accounts]);
 
   const toggleSearch = () => {
     if (searching) {
@@ -137,7 +140,7 @@ export function SidebarAccounts({ className }: { className?: string }) {
                   </Link>
                   {group.shown.map((account) => {
                     const short = account.name.split(':').slice(1).join(':') || account.name;
-                    const balance = new BigNumber(account.amount.calculated.number);
+                    const balance = withSubAccounts.get(account.name) ?? new BigNumber(account.amount.calculated.number);
                     const active = account.name === activeAccount;
                     return (
                       <Link
