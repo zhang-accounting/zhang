@@ -16,6 +16,15 @@ Cells are written the way ``zhang_query::Value`` displays them, so the Rust side
 Only these types occur: the queries never select a raw ``interval`` value, whose rendering
 beanquery leaves to Python (``relativedelta(months=+1)``).
 
+Accepted deviations
+-------------------
+
+Where the lead ruled that zhang deliberately differs from beanquery, the case still records
+beanquery's output, and carries an ``accepted_deviation`` field with the reason. The rows zhang
+must return instead are in ``ACCEPTED_DEVIATIONS`` of ``server_features.rs``, the mechanism of
+the conformance suite (``zhang-query/tests/conformance.rs``). The Rust test checks that the two
+lists name the same cases and that beanquery's rows still differ from the accepted ones.
+
 Oracle version used: beancount 3.2.3, beanquery 0.2.0 (Python 3.9, ``/tmp/bqvenv``).
 
 Usage::
@@ -39,8 +48,23 @@ LEDGER = os.path.join(HERE, "main.zhang")
 ORACLE = os.path.join(HERE, "oracle.json")
 
 
-def case(area, name, query, notes=""):
-    return dict(area=area, name=name, query=query, notes=notes)
+def case(area, name, query, notes="", accepted_deviation=None):
+    spec = dict(area=area, name=name, query=query, notes=notes)
+    if accepted_deviation is not None:
+        spec["accepted_deviation"] = accepted_deviation
+    return spec
+
+
+# Reasons of the accepted deviations, as the lead ruled them (see "Accepted deviations" above).
+DATE_BIN_BOUNDARY = (
+    "zhang buckets correctly: a date exactly on a month or year bin boundary starts that bin, so "
+    "date_bin('1 month', 2000-02-01, 2000-01-01) is 2000-02-01. beanquery 0.2.0 puts it into the "
+    "previous bin (2000-01-01), because its loop stops when the next boundary is >= the date; dates "
+    "inside a bin, before the origin and day strides are not affected.")
+INTERVAL_WEEKS = (
+    "zhang extension: interval('<n> week[s]') is 7 x n days. beanquery 0.2.0 returns NULL for weeks: "
+    "its regular expression only lets day, month and year through, although interval() has a branch "
+    "for weeks.")
 
 
 # Every query is ordered, so the rows are compared as a sequence. `SELECT DISTINCT date, ...`
@@ -114,15 +138,27 @@ CASES = [
     case("interval", "interval_parsing",
          "SELECT DISTINCT interval('1 day') IS NULL, interval('3 days') IS NULL, interval('+3 days') IS NULL, "
          "interval('-3 days') IS NULL, interval('1  month') IS NULL, interval('2 years') IS NULL, "
-         "interval('1 week') IS NULL, interval('1 Month') IS NULL, interval(' 1 day') IS NULL, "
+         "interval('1 Month') IS NULL, interval(' 1 day') IS NULL, "
          "interval('1day') IS NULL, interval('one day') IS NULL, interval('1.5 days') IS NULL "
          "WHERE account = 'Assets:Wallet'",
-         notes="beanquery 0.2.0 accepts '<signed int> <day|month|year>[s]' only, case-sensitively: "
-               "'1 week' is NULL even though its interval() has a branch for weeks (the regular "
-               "expression never lets it through)."),
+         notes="beanquery 0.2.0 accepts '<signed int> <day|month|year>[s]', case-sensitively. Weeks are "
+               "in interval_weeks, a zhang extension."),
     case("interval", "interval_null_propagates",
-         "SELECT DISTINCT date, date + interval('1 week'), date - interval('bogus') ORDER BY date",
+         "SELECT DISTINCT date, date + interval('1 hour'), date - interval('bogus') ORDER BY date",
          notes="An interval that does not parse is NULL, and so is a date plus NULL."),
+
+    # --- interval weeks: an accepted deviation ---------------------------------------------
+    case("interval_weeks", "interval_weeks_are_seven_days",
+         "SELECT DISTINCT date, date + interval('1 week'), date - interval('2 weeks'), "
+         "date + interval('-1 week'), interval('+3 weeks') + date ORDER BY date",
+         notes="beanquery: NULL in every interval column.",
+         accepted_deviation=INTERVAL_WEEKS),
+    case("interval_weeks", "interval_week_parsing",
+         "SELECT DISTINCT interval('1 week') IS NULL, interval('2 weeks') IS NULL, interval('-1 week') IS NULL, "
+         "interval('+2 weeks') IS NULL, interval('1 weeks') IS NULL, interval('2 week') IS NULL, "
+         "interval('1 Week') IS NULL, interval('1week') IS NULL WHERE account = 'Assets:Wallet'",
+         notes="beanquery: TRUE (NULL) for every week.",
+         accepted_deviation=INTERVAL_WEEKS),
 
     # --- date_bin ---------------------------------------------------------------------------
     case("date_bin", "date_bin_days",
@@ -144,14 +180,29 @@ CASES = [
          "ORDER BY date",
          notes="A negative stride is NULL (beanquery: 'FIXME: this should raise'). A zero stride is not "
                "here: beanquery 0.2.0 raises ZeroDivisionError for it."),
+
+    # --- date_bin on bin boundaries: an accepted deviation ----------------------------------
     case("date_bin_boundary", "date_bin_month_boundaries",
-         "SELECT DISTINCT date, date_bin('1 month', date, 2000-01-01), date_bin('1 year', date, 2000-01-01), "
-         "date_bin('1 month', date, 2020-01-31) ORDER BY date",
-         notes="BEANQUERY QUIRK, flagged for the lead: with a month or year stride a date exactly on a "
-               "later bin boundary falls into the previous bin (date_bin('1 month', 2000-02-01, "
-               "2000-01-01) is 2000-01-01 in beanquery 0.2.0; the loop stops when the next boundary is "
-               ">= the date). With an origin on the 31st, the boundaries drift (2020-01-31, 2020-02-29, "
-               "2020-03-29, ...) because each step adds one month to the previous boundary."),
+         "SELECT DISTINCT date, date_bin('1 month', date, 2000-01-01), date_bin(interval('1 month'), date, 2000-01-01), "
+         "date_bin('3 months', date, 2000-01-01), date_bin('1 year', date, 2000-01-01) ORDER BY date",
+         notes="Origin on the first of a month: many posting dates (2001-01-01, 2020-01-01, 2020-03-01, "
+               "2023-01-01, 2024-01-01) are bin boundaries.",
+         accepted_deviation=DATE_BIN_BOUNDARY),
+    case("date_bin_boundary", "date_bin_boundary_examples",
+         "SELECT DISTINCT date_bin('1 month', 2000-02-01, 2000-01-01), date_bin(interval('1 month'), 2000-03-01, 2000-01-01), "
+         "date_bin('1 month', 2000-01-01, 2000-01-01), date_bin('1 month', 2000-01-31, 2000-01-01), "
+         "date_bin('2 months', 2000-03-01, 2000-01-01), date_bin('2 months', 2000-02-29, 2000-01-01), "
+         "date_bin('1 year', 2001-01-01, 2000-01-01), date_bin('1 year', 2000-12-31, 2000-01-01), "
+         "date_bin('1 month', 1999-12-01, 2000-01-01) WHERE account = 'Assets:Wallet'",
+         notes="The examples of the ruling, a date on the origin, the last day of a bin, and a "
+               "boundary before the origin (correct in beanquery too).",
+         accepted_deviation=DATE_BIN_BOUNDARY),
+    case("date_bin_boundary", "date_bin_month_end_origin",
+         "SELECT DISTINCT date, date_bin('1 month', date, 2020-01-31) ORDER BY date",
+         notes="With an origin on the 31st the boundaries drift (2020-01-31, 2020-02-29, 2020-03-29, ...) "
+               "because each step adds one month to the previous boundary; 2020-02-29 and 2021-02-28 are "
+               "boundaries.",
+         accepted_deviation=DATE_BIN_BOUNDARY),
 
     # --- open_date, close_date, open_meta, commodity_meta ------------------------------------
     case("directive_meta", "open_and_close_dates_of_each_account",

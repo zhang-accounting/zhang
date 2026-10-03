@@ -15,6 +15,10 @@
 //!   0.2.0 over `server_features/oracle/main.zhang`. Regenerate with
 //!   `/tmp/bqvenv/bin/python zhang-query/tests/server_features/oracle/generate.py` and check
 //!   with `generate.py --check`.
+//!   Where the lead ruled that zhang deliberately differs from beanquery (a date on a
+//!   `date_bin` month or year boundary starts that bin; `interval` accepts weeks), the oracle
+//!   keeps beanquery's rows, generate.py marks the case `accepted_deviation`, and
+//!   `ACCEPTED_DEVIATIONS` below holds the rows zhang must return, as in `conformance.rs`.
 //! - **zhang extensions**: derived by hand from the small ledgers under `server_features/`;
 //!   every expected value is explained next to it, so a reviewer can re-derive it from the
 //!   ledger text.
@@ -2064,6 +2068,8 @@ struct OracleCase {
     query: String,
     columns: Vec<String>,
     rows: Vec<Vec<String>>,
+    /// the reason of an accepted deviation, when generate.py marks the case as one
+    accepted_deviation: Option<String>,
 }
 
 fn oracle_cases() -> Vec<OracleCase> {
@@ -2086,17 +2092,174 @@ fn oracle_cases() -> Vec<OracleCase> {
             query: case["query"].as_str().unwrap().to_owned(),
             columns: strings(&case["columns"]),
             rows: case["rows"].as_array().unwrap().iter().map(strings).collect(),
+            accepted_deviation: case.get("accepted_deviation").map(|it| it.as_str().expect("reason").to_owned()),
         })
         .collect()
 }
 
+/// A deliberate difference from beanquery, as the lead ruled it; the mechanism of
+/// `ACCEPTED_DEVIATIONS` in `conformance.rs`. The oracle keeps beanquery's rows, and generate.py
+/// marks the case with the same reason; zhang must return `rows` instead.
+struct Deviation {
+    /// the oracle case
+    case: &'static str,
+    reason: &'static str,
+    /// the rows zhang returns, cells as `Value::to_string()` writes them
+    rows: &'static [&'static [&'static str]],
+}
+
+const DATE_BIN_BOUNDARY: &str = "zhang buckets correctly: a date exactly on a month or year bin boundary starts that bin \
+                                 (date_bin('1 month', 2000-02-01, 2000-01-01) is 2000-02-01); beanquery 0.2.0 puts it into \
+                                 the previous bin";
+const INTERVAL_WEEKS: &str = "zhang extension: interval('<n> week[s]') is 7 x n days; beanquery 0.2.0 returns NULL for weeks";
+
+const ACCEPTED_DEVIATIONS: &[Deviation] = &[
+    // With the origin on the first of a month, a monthly bin is the date's month, a quarterly bin
+    // its calendar quarter and a yearly bin its year, also before the origin: the bins of
+    // date_trunc('month'), date_trunc('quarter') and date_trunc('year'). beanquery differs on
+    // the dates that are themselves a boundary: 2001-01-01, 2020-01-01, 2023-01-01, 2024-01-01
+    // in every column, and 2020-03-01 in the monthly ones (beanquery: the previous bin).
+    Deviation {
+        case: "date_bin_month_boundaries",
+        reason: DATE_BIN_BOUNDARY,
+        rows: &[
+            &["1969-12-31", "1969-12-01", "1969-12-01", "1969-10-01", "1969-01-01"],
+            &["1999-12-31", "1999-12-01", "1999-12-01", "1999-10-01", "1999-01-01"],
+            &["2000-01-01", "2000-01-01", "2000-01-01", "2000-01-01", "2000-01-01"],
+            &["2000-02-29", "2000-02-01", "2000-02-01", "2000-01-01", "2000-01-01"],
+            &["2001-01-01", "2001-01-01", "2001-01-01", "2001-01-01", "2001-01-01"],
+            &["2020-01-01", "2020-01-01", "2020-01-01", "2020-01-01", "2020-01-01"],
+            &["2020-01-31", "2020-01-01", "2020-01-01", "2020-01-01", "2020-01-01"],
+            &["2020-02-29", "2020-02-01", "2020-02-01", "2020-01-01", "2020-01-01"],
+            &["2020-03-01", "2020-03-01", "2020-03-01", "2020-01-01", "2020-01-01"],
+            &["2020-12-31", "2020-12-01", "2020-12-01", "2020-10-01", "2020-01-01"],
+            &["2021-01-03", "2021-01-01", "2021-01-01", "2021-01-01", "2021-01-01"],
+            &["2021-02-28", "2021-02-01", "2021-02-01", "2021-01-01", "2021-01-01"],
+            &["2021-03-31", "2021-03-01", "2021-03-01", "2021-01-01", "2021-01-01"],
+            &["2023-01-01", "2023-01-01", "2023-01-01", "2023-01-01", "2023-01-01"],
+            &["2024-01-01", "2024-01-01", "2024-01-01", "2024-01-01", "2024-01-01"],
+            &["2024-02-29", "2024-02-01", "2024-02-01", "2024-01-01", "2024-01-01"],
+            &["2024-05-31", "2024-05-01", "2024-05-01", "2024-04-01", "2024-01-01"],
+            &["2024-12-30", "2024-12-01", "2024-12-01", "2024-10-01", "2024-01-01"],
+            &["2024-12-31", "2024-12-01", "2024-12-01", "2024-10-01", "2024-01-01"],
+        ],
+    },
+    // The examples of the ruling, origin 2000-01-01: 2000-02-01 and 2000-03-01 start their
+    // monthly bins (beanquery: 2000-01-01, 2000-02-01); the origin is its own bin; 2000-01-31 is
+    // the last day of January's bin; with two-month bins 2000-03-01 starts one (beanquery:
+    // 2000-01-01) while 2000-02-29 ends the first; 2001-01-01 starts a yearly bin (beanquery:
+    // 2000-01-01) while 2000-12-31 ends the first; 1999-12-01, a boundary before the origin,
+    // starts its bin (as in beanquery).
+    Deviation {
+        case: "date_bin_boundary_examples",
+        reason: DATE_BIN_BOUNDARY,
+        rows: &[&[
+            "2000-02-01",
+            "2000-03-01",
+            "2000-01-01",
+            "2000-01-01",
+            "2000-03-01",
+            "2000-01-01",
+            "2001-01-01",
+            "2000-01-01",
+            "1999-12-01",
+        ]],
+    },
+    // READING (kept from beanquery, the ruling does not change it): with an origin on the 31st,
+    // the boundaries are built by adding one month to the previous boundary, so they drift:
+    // 2020-01-31, 2020-02-29, 2020-03-29, ..., 2020-12-29, 2021-01-29, 2021-02-28, 2021-03-28,
+    // then the 28th; before the origin 2019-12-31, 2019-11-30, ... down to the 28th. The ruling
+    // moves the two posting dates that are boundaries, 2020-02-29 and 2021-02-28, into the bins
+    // they start (beanquery: 2020-01-31 and 2021-01-29); the other rows are beanquery's.
+    Deviation {
+        case: "date_bin_month_end_origin",
+        reason: DATE_BIN_BOUNDARY,
+        rows: &[
+            &["1969-12-31", "1969-12-28"],
+            &["1999-12-31", "1999-12-28"],
+            &["2000-01-01", "1999-12-28"],
+            &["2000-02-29", "2000-02-28"],
+            &["2001-01-01", "2000-12-28"],
+            &["2020-01-01", "2019-12-31"],
+            &["2020-01-31", "2020-01-31"],
+            &["2020-02-29", "2020-02-29"],
+            &["2020-03-01", "2020-02-29"],
+            &["2020-12-31", "2020-12-29"],
+            &["2021-01-03", "2020-12-29"],
+            &["2021-02-28", "2021-02-28"],
+            &["2021-03-31", "2021-03-28"],
+            &["2023-01-01", "2022-12-28"],
+            &["2024-01-01", "2023-12-28"],
+            &["2024-02-29", "2024-02-28"],
+            &["2024-05-31", "2024-05-28"],
+            &["2024-12-30", "2024-12-28"],
+            &["2024-12-31", "2024-12-28"],
+        ],
+    },
+    // date + 7 days, date - 14 days, date - 7 days, date + 21 days (beanquery: NULL), across
+    // month, year and leap-day ends: 1969-12-31 + 7 = 1970-01-07, 2000-02-29 + 7 = 2000-03-07,
+    // 2021-02-28 + 7 = 2021-03-07, 2024-12-30 + 7 = 2025-01-06.
+    Deviation {
+        case: "interval_weeks_are_seven_days",
+        reason: INTERVAL_WEEKS,
+        rows: &[
+            &["1969-12-31", "1970-01-07", "1969-12-17", "1969-12-24", "1970-01-21"],
+            &["1999-12-31", "2000-01-07", "1999-12-17", "1999-12-24", "2000-01-21"],
+            &["2000-01-01", "2000-01-08", "1999-12-18", "1999-12-25", "2000-01-22"],
+            &["2000-02-29", "2000-03-07", "2000-02-15", "2000-02-22", "2000-03-21"],
+            &["2001-01-01", "2001-01-08", "2000-12-18", "2000-12-25", "2001-01-22"],
+            &["2020-01-01", "2020-01-08", "2019-12-18", "2019-12-25", "2020-01-22"],
+            &["2020-01-31", "2020-02-07", "2020-01-17", "2020-01-24", "2020-02-21"],
+            &["2020-02-29", "2020-03-07", "2020-02-15", "2020-02-22", "2020-03-21"],
+            &["2020-03-01", "2020-03-08", "2020-02-16", "2020-02-23", "2020-03-22"],
+            &["2020-12-31", "2021-01-07", "2020-12-17", "2020-12-24", "2021-01-21"],
+            &["2021-01-03", "2021-01-10", "2020-12-20", "2020-12-27", "2021-01-24"],
+            &["2021-02-28", "2021-03-07", "2021-02-14", "2021-02-21", "2021-03-21"],
+            &["2021-03-31", "2021-04-07", "2021-03-17", "2021-03-24", "2021-04-21"],
+            &["2023-01-01", "2023-01-08", "2022-12-18", "2022-12-25", "2023-01-22"],
+            &["2024-01-01", "2024-01-08", "2023-12-18", "2023-12-25", "2024-01-22"],
+            &["2024-02-29", "2024-03-07", "2024-02-15", "2024-02-22", "2024-03-21"],
+            &["2024-05-31", "2024-06-07", "2024-05-17", "2024-05-24", "2024-06-21"],
+            &["2024-12-30", "2025-01-06", "2024-12-16", "2024-12-23", "2025-01-20"],
+            &["2024-12-31", "2025-01-07", "2024-12-17", "2024-12-24", "2025-01-21"],
+        ],
+    },
+    // '1 week', '2 weeks', '-1 week', '+2 weeks', '1 weeks' and '2 week' parse (beanquery: NULL).
+    // READING: weeks follow the grammar beanquery has for days, months and years (a signed
+    // integer, whitespace, the unit with an optional plural s, case-sensitive), so '1 Week' and
+    // '1week' are NULL like '1 Month' and '1day'.
+    Deviation {
+        case: "interval_week_parsing",
+        reason: INTERVAL_WEEKS,
+        rows: &[&["FALSE", "FALSE", "FALSE", "FALSE", "FALSE", "FALSE", "TRUE", "TRUE"]],
+    },
+];
+
+fn deviation(case: &str) -> Option<&'static Deviation> {
+    ACCEPTED_DEVIATIONS.iter().find(|it| it.case == case)
+}
+
 /// Run every oracle case of `area` with zhang over the same ledger, and compare the column
-/// types and the rows (as text, in order) with beanquery's.
+/// types with beanquery's and the rows (as text, in order) with beanquery's, or with the
+/// accepted rows of an [`ACCEPTED_DEVIATIONS`] entry. The accepted rows must still differ from
+/// beanquery's: an entry beanquery agrees with is stale.
 fn check_oracle(area: &str) {
     let cases = oracle_cases().into_iter().filter(|case| case.area == area).collect::<Vec<_>>();
     assert!(!cases.is_empty(), "no oracle case of {}", area);
     let mut failures = vec![];
     for case in &cases {
+        let (expected, source) = match deviation(&case.name) {
+            Some(deviation) => {
+                let accepted = deviation
+                    .rows
+                    .iter()
+                    .map(|row| row.iter().map(|cell| (*cell).to_owned()).collect::<Vec<_>>())
+                    .collect::<Vec<_>>();
+                assert_ne!(accepted, case.rows, "{}: beanquery agrees with the accepted deviation; remove it", case.name);
+                (accepted, "accepted")
+            }
+            None => (case.rows.clone(), "beanquery"),
+        };
         let outcome = Query::compile(&case.query).and_then(|query| query.execute_with_options(oracle_ledger(), &Params::new(), &options()));
         match outcome {
             Err(err) => failures.push(format!("{}: {:?} {}\n    {}", case.name, err.kind, err.message, case.query)),
@@ -2110,13 +2273,13 @@ fn check_oracle(area: &str) {
                     .iter()
                     .map(|row| row.iter().map(Value::to_string).collect::<Vec<_>>())
                     .collect::<Vec<_>>();
-                if rows != case.rows {
+                if rows != expected {
                     let first = rows
                         .iter()
-                        .zip(&case.rows)
+                        .zip(&expected)
                         .position(|(a, b)| a != b)
-                        .map(|index| format!("row {}: zhang {:?}, beanquery {:?}", index, rows[index], case.rows[index]))
-                        .unwrap_or_else(|| format!("{} rows, beanquery {}", rows.len(), case.rows.len()));
+                        .map(|index| format!("row {}: zhang {:?}, {} {:?}", index, rows[index], source, expected[index]))
+                        .unwrap_or_else(|| format!("{} rows, {} {}", rows.len(), source, expected.len()));
                     failures.push(format!("{}: {}\n    {}", case.name, first, case.query));
                 }
             }
@@ -2124,7 +2287,7 @@ fn check_oracle(area: &str) {
     }
     assert!(
         failures.is_empty(),
-        "{} of {} {} cases differ from beanquery 0.2.0:\n  {}",
+        "{} of {} {} cases differ from beanquery 0.2.0 or its accepted deviations:\n  {}",
         failures.len(),
         cases.len(),
         area,
@@ -2162,15 +2325,22 @@ fn l_oracle_interval_and_date_arithmetic() {
     check_oracle("interval");
 }
 
+/// `interval('<n> week[s]')` is 7 × n days, a zhang extension (accepted deviation: beanquery
+/// returns NULL).
+#[test]
+fn l_oracle_interval_weeks() {
+    check_oracle("interval_weeks");
+}
+
 #[test]
 fn l_oracle_date_bin() {
     check_oracle("date_bin");
 }
 
-/// FLAGGED FOR THE LEAD: beanquery 0.2.0 puts a date that falls exactly on a later month or
-/// year bin boundary into the previous bin (`date_bin('1 month', 2000-02-01, 2000-01-01)` is
-/// 2000-01-01), the kind of off-by-one the report graph must not have. The spec says to
-/// follow beanquery exactly, so this test does; `date_trunc` buckets months correctly.
+/// Accepted deviation, as the lead ruled: a date exactly on a month or year bin boundary starts
+/// that bin (`date_bin('1 month', 2000-02-01, 2000-01-01)` is 2000-02-01). beanquery 0.2.0 puts
+/// it into the previous bin, the kind of off-by-one the report graph must not have; the oracle
+/// keeps beanquery's rows and `ACCEPTED_DEVIATIONS` has zhang's.
 #[test]
 fn l_oracle_date_bin_month_boundaries() {
     check_oracle("date_bin_boundary");
@@ -2182,7 +2352,8 @@ fn l_oracle_open_and_commodity_directive_functions() {
 }
 
 /// The oracle file is the one generate.py writes: every case has rows, and their widths
-/// match the column lists.
+/// match the column lists. The cases generate.py marks as accepted deviations are exactly those
+/// of [`ACCEPTED_DEVIATIONS`], with the same shape of rows.
 #[test]
 fn l_oracle_fixture_is_well_formed() {
     let cases = oracle_cases();
@@ -2194,7 +2365,84 @@ fn l_oracle_fixture_is_well_formed() {
         for row in &case.rows {
             assert_eq!(row.len(), case.columns.len(), "{}", case.name);
         }
+        match (deviation(&case.name), &case.accepted_deviation) {
+            (Some(deviation), Some(reason)) => {
+                assert!(!reason.is_empty() && !deviation.reason.is_empty(), "{}: no reason", case.name);
+                assert_eq!(deviation.rows.len(), case.rows.len(), "{}: accepted rows", case.name);
+                for row in deviation.rows {
+                    assert_eq!(row.len(), case.columns.len(), "{}: accepted row {:?}", case.name, row);
+                }
+            }
+            (None, None) => {}
+            (Some(_), None) => panic!("{} is in ACCEPTED_DEVIATIONS but generate.py does not mark it", case.name),
+            (None, Some(_)) => panic!("generate.py marks {} as an accepted deviation, ACCEPTED_DEVIATIONS lacks it", case.name),
+        }
     }
+    for deviation in ACCEPTED_DEVIATIONS {
+        assert!(names.contains(deviation.case), "ACCEPTED_DEVIATIONS refers to unknown case {}", deviation.case);
+    }
+}
+
+/// A zhang extension of the ruling on weeks: `date_bin(interval('1 week'), date, origin)` puts
+/// a date into the 7-day bin anchored at the origin, whatever weekday the origin is, the same
+/// bins as `date_bin('7 days', ...)` (checked against beanquery in date_bin_days).
+///
+/// - Origin 2024-01-01 (a Monday): 2024-01-07 (Sunday) is in the first bin, 2024-01-01;
+///   2024-01-08 is exactly one week later and starts the next bin; 2023-12-31 is before the
+///   origin, in the bin of 2023-12-25; 2024-02-29 is 59 days later, 8 whole weeks (56 days) and
+///   3 days, in the bin of 2024-01-01 + 56 days = 2024-02-26.
+/// - Origin 2024-01-03 (a Wednesday): 2024-01-09 is in the bin of 2024-01-03, 2024-01-10 starts
+///   the next one, 2024-01-02 is in the bin of 2023-12-27.
+/// - Two weeks from 2024-01-01: 2024-01-14 is in the first bin, 2024-01-15 starts the second,
+///   2023-12-31 is in the bin of 2023-12-18.
+#[test]
+fn l_date_bin_buckets_by_interval_weeks() {
+    assert_eq!(
+        query(
+            oracle_ledger(),
+            "SELECT date_bin(interval('1 week'), 2024-01-07, 2024-01-01), date_bin(interval('1 week'), 2024-01-08, 2024-01-01), \
+             date_bin(interval('1 week'), 2023-12-31, 2024-01-01), date_bin(interval('1 week'), 2024-02-29, 2024-01-01), \
+             date_bin(interval('1 week'), 2024-01-09, 2024-01-03), date_bin(interval('1 week'), 2024-01-10, 2024-01-03), \
+             date_bin(interval('1 week'), 2024-01-02, 2024-01-03), \
+             date_bin(interval('2 weeks'), 2024-01-14, 2024-01-01), date_bin(interval('2 weeks'), 2024-01-15, 2024-01-01), \
+             date_bin(interval('2 weeks'), 2023-12-31, 2024-01-01) \
+             FROM #postings WHERE account = 'Assets:Wallet' LIMIT 1"
+        ),
+        rows(&[&[
+            "2024-01-01",
+            "2024-01-08",
+            "2023-12-25",
+            "2024-02-26",
+            "2024-01-03",
+            "2024-01-10",
+            "2023-12-27",
+            "2024-01-01",
+            "2024-01-15",
+            "2023-12-18",
+        ]])
+    );
+    // the same bins as 7 and 14 days, on every posting date, before and after the origins; the
+    // string form of the stride parses weeks too
+    assert_eq!(
+        query(
+            oracle_ledger(),
+            "SELECT DISTINCT date_bin(interval('1 week'), date, 2020-01-06) = date_bin('7 days', date, 2020-01-06), \
+             date_bin('1 week', date, 2021-03-03) = date_bin('7 days', date, 2021-03-03), \
+             date_bin(interval('2 weeks'), date, 2024-01-01) = date_bin('14 days', date, 2024-01-01)"
+        ),
+        rows(&[&["TRUE", "TRUE", "TRUE"]])
+    );
+    // a weekly report: the journal ledger's transactions of 2024-01-15 to 2024-01-21 are in the
+    // week of Monday 2024-01-15 (Groceries, Bread, Morning coffee, Movie night, Move to savings,
+    // Card payment); December salary (2023-12-31, a Sunday) is in the week of 2023-12-25
+    assert_eq!(
+        query(
+            journal(),
+            "SELECT date_bin(interval('1 week'), date, 2024-01-01) AS week, count(*) FROM #transactions \
+             WHERE date < 2024-02-01 GROUP BY week ORDER BY week"
+        ),
+        rows(&[&["2023-12-25", "1"], &["2024-01-15", "6"]])
+    );
 }
 
 /// beanquery rejects an untyped NULL argument of these functions at compile time ("no function
@@ -2224,7 +2472,8 @@ fn l_date_and_directive_functions_return_null_for_null_arguments() {
 }
 
 /// beanquery 0.2.0 raises ZeroDivisionError for a zero day stride, so there is no oracle.
-/// READING: zhang returns NULL, as for a negative stride, or a clean error; never a panic.
+/// Ruled: zhang returns NULL, as for a negative stride, or a clean error; never a panic. The
+/// same holds for a zero or negative week stride.
 #[test]
 fn l_date_bin_with_a_zero_stride_does_not_panic() {
     // date_bin exists: 2024-01-10 in weeks from Monday 2024-01-01 is 2024-01-08
@@ -2236,6 +2485,8 @@ fn l_date_bin_with_a_zero_stride_does_not_panic() {
         "SELECT date_bin('0 days', date, 2024-01-01) FROM #postings LIMIT 1",
         "SELECT date_bin('0 months', date, 2024-01-01) FROM #postings LIMIT 1",
         "SELECT date_bin(interval('0 years'), date, 2024-01-01) FROM #postings LIMIT 1",
+        "SELECT date_bin(interval('0 weeks'), date, 2024-01-01) FROM #postings LIMIT 1",
+        "SELECT date_bin('-1 week', date, 2024-01-01) FROM #postings LIMIT 1",
     ] {
         match try_query(oracle_ledger(), sql, &Params::new()) {
             Ok(result) => assert_eq!(cells(&result), rows(&[&["NULL"]]), "{}", sql),
