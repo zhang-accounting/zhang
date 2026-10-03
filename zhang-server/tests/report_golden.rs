@@ -1365,22 +1365,168 @@ fn every_bucket_is_valued_at_its_last_day_in_the_range() {
     for (name, ledger) in all_ledgers() {
         for (range, interval) in bucket_ranges(&name, &ledger) {
             let graph = report::graph(&ledger, &range, &interval).unwrap();
-            let label = format!("{} {}..{} {:?}", name, range.from, range.to, interval);
-            let expected: BTreeSet<NaiveDate> = std::iter::successors(Some(range.from), |day| day.succ_opt().filter(|next| *next <= range.to))
-                .map(|day| bucket_of(day, &interval).0)
-                .collect();
-            assert_eq!(graph.balances.keys().copied().collect::<BTreeSet<_>>(), expected, "{}: buckets", label);
-            for start in expected {
-                let last = bucket_of(start, &interval).1.min(range.to);
-                let net_worth = engine_figure(&ledger, &[AccountType::Assets, AccountType::Liabilities], None, day_one(), last, last);
-                assert_eq!(Fig::of(&graph.balances[&start]), net_worth, "{}: net worth of {}", label, start);
-                for account_type in TYPES {
-                    let change = graph.changes.get(&start).and_then(|it| it.get(&account_type)).map(Fig::of).unwrap_or_default();
-                    let expected = engine_figure(&ledger, &[account_type], None, start.max(range.from), last, last);
-                    assert_eq!(change, expected, "{}: {} of {}", label, account_type, start);
-                }
+            check_buckets(
+                &format!("{} {}..{} {:?}", name, range.from, range.to, interval),
+                &ledger,
+                &range,
+                &interval,
+                &graph,
+            );
+        }
+    }
+}
+
+/// Every bucket of `graph` is one of the range, its net worth that of a query for its last day
+/// in the range alone, and what each account type changed by in it valued at that day.
+fn check_buckets(label: &str, ledger: &Ledger, range: &LedgerDateRange, interval: &StatisticInterval, graph: &zhang_server::response::StatisticGraphEntity) {
+    let expected: BTreeSet<NaiveDate> = std::iter::successors(Some(range.from), |day| day.succ_opt().filter(|next| *next <= range.to))
+        .map(|day| bucket_of(day, interval).0)
+        .collect();
+    assert_eq!(graph.balances.keys().copied().collect::<BTreeSet<_>>(), expected, "{}: buckets", label);
+    for start in expected {
+        let last = bucket_of(start, interval).1.min(range.to);
+        let net_worth = engine_figure(ledger, &[AccountType::Assets, AccountType::Liabilities], None, day_one(), last, last);
+        assert_eq!(Fig::of(&graph.balances[&start]), net_worth, "{}: net worth of {}", label, start);
+        for account_type in TYPES {
+            let change = graph.changes.get(&start).and_then(|it| it.get(&account_type)).map(Fig::of).unwrap_or_default();
+            let expected = engine_figure(ledger, &[account_type], None, start.max(range.from), last, last);
+            assert_eq!(change, expected, "{}: {} of {}", label, account_type, start);
+        }
+    }
+}
+
+/// A ledger, loaded from its text the way the server loads a ledger.
+fn ledger_of(name: &str, text: &str) -> Ledger {
+    let dir = std::env::temp_dir().join(format!("zhang-report-{}-{}", name, uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("main.zhang"), text).unwrap();
+    let case = Case {
+        name: name.to_owned(),
+        dir: dir.clone(),
+        main: "main.zhang",
+    };
+    let ledger = load(&case, None).unwrap();
+    std::fs::remove_dir_all(dir).ok();
+    ledger
+}
+
+/// Ten years of investing: ten funds bought every month, each lot at its own cost (1,200 open
+/// lots by the end), with a price of every fund every month, a salary every month and a coffee
+/// every day.
+fn invest_ledger() -> String {
+    let mut text = String::from("option \"operating_currency\" \"USD\"\noption \"timezone\" \"UTC\"\n1970-01-01 commodity USD\n");
+    text.push_str("1970-01-01 open Assets:Cash\n1970-01-01 open Assets:Broker\n1970-01-01 open Equity:Opening\n1970-01-01 open Expenses:Food\n1970-01-01 open Income:Salary\n");
+    for fund in 0..10 {
+        text.push_str(&format!("1970-01-01 commodity FUND{}\n", fund));
+    }
+    text.push_str("\n2015-01-01 * \"Opening\" \"cash\"\n  Assets:Cash 10000 USD\n  Equity:Opening\n");
+    let mut day = d("2015-01-01");
+    while day <= d("2024-12-31") {
+        if day.day() == 1 {
+            text.push_str(&format!("\n{} * \"Employer\" \"salary\"\n  Assets:Cash 5000 USD\n  Income:Salary\n", day));
+            let month = (day.year() - 2015) * 12 + day.month() as i32;
+            for fund in 0..10 {
+                let price = 100 + fund + (month * 7 + fund * 3) % 50;
+                text.push_str(&format!(
+                    "\n{day} * \"Broker\" \"monthly buy FUND{fund}\"\n  Assets:Broker 1 FUND{fund} {{{price} USD}}\n  Assets:Cash -{price} USD\n{day} price FUND{fund} {price} USD\n"
+                ));
             }
         }
+        text.push_str(&format!("\n{} * \"Cafe\" \"coffee\"\n  Expenses:Food 4.50 USD\n  Assets:Cash\n", day));
+        day = day.succ_opt().unwrap();
+    }
+    text
+}
+
+/// Fifteen years in seventy currencies: a wallet opened with all of them, each priced in dollars,
+/// spending one unit of another currency every day.
+fn fx_ledger() -> String {
+    let mut text = String::from("option \"operating_currency\" \"USD\"\noption \"timezone\" \"UTC\"\n1970-01-01 commodity USD\n");
+    text.push_str("1970-01-01 open Assets:Wallet\n1970-01-01 open Equity:Opening\n1970-01-01 open Expenses:Food\n");
+    for currency in 0..70 {
+        text.push_str(&format!("1970-01-01 commodity X{:02}\n", currency));
+    }
+    text.push_str("\n2010-01-01 * \"Opening\" \"wallets\"\n");
+    for currency in 0..70 {
+        text.push_str(&format!("  Assets:Wallet 100000 X{c:02}\n  Equity:Opening -100000 X{c:02}\n", c = currency));
+    }
+    for currency in 0..70 {
+        text.push_str(&format!("2010-01-01 price X{:02} 1.5 USD\n", currency));
+    }
+    let mut day = d("2010-01-02");
+    let mut index = 0;
+    while day <= d("2024-12-31") {
+        text.push_str(&format!(
+            "\n{} * \"Shop\" \"spend\"\n  Expenses:Food 1 X{:02}\n  Assets:Wallet\n",
+            day,
+            index % 70
+        ));
+        if index % 30 == 0 {
+            text.push_str(&format!("{} price X{:02} {}.{:02} USD\n", day, index % 70, 1 + index % 3, index % 100));
+        }
+        index += 1;
+        day = day.succ_opt().unwrap();
+    }
+    text
+}
+
+/// Ledgers with a long history, of many lots and of many currencies: a month by day is graphed
+/// right, and costs what the month holds, not what the history before it holds.
+#[test]
+fn a_graph_costs_what_its_range_holds() {
+    use zhang_server::report::{graph_rows, GraphLimits};
+    let december = LedgerDateRange {
+        from: d("2024-12-01"),
+        to: d("2024-12-31"),
+    };
+    let last_day = LedgerDateRange {
+        from: d("2024-12-31"),
+        to: d("2024-12-31"),
+    };
+    let decade = LedgerDateRange {
+        from: d("2015-01-01"),
+        to: d("2024-12-31"),
+    };
+    for (name, ledger, month_values) in [
+        // every point holds 1,200 lots and ten funds
+        ("invest", ledger_of("invest", &invest_ledger()), 100_000),
+        // every point holds seventy currencies
+        ("fx", ledger_of("fx", &fx_ledger()), 20_000),
+    ] {
+        for interval in [StatisticInterval::Day, StatisticInterval::Week, StatisticInterval::Month] {
+            let graph = report::graph(&ledger, &december, &interval).unwrap_or_else(|error| panic!("{} {:?}: {}", name, interval, error));
+            check_buckets(&format!("{} December {:?}", name, interval), &ledger, &december, &interval, &graph);
+        }
+        let within = |max_values| GraphLimits {
+            max_points: 50_000,
+            max_values,
+            timeout: None,
+        };
+        let graph = graph_rows(&ledger, &december, &StatisticInterval::Day, within(month_values)).and_then(|rows| rows.build());
+        assert_eq!(
+            graph.map(|it| it.balances.len()).ok(),
+            Some(31),
+            "{}: December by day within {} values",
+            name,
+            month_values
+        );
+        let graph = graph_rows(&ledger, &last_day, &StatisticInterval::Day, within(month_values / 10)).and_then(|rows| rows.build());
+        assert_eq!(
+            graph.map(|it| it.balances.len()).ok(),
+            Some(1),
+            "{}: one day within {} values",
+            name,
+            month_values / 10
+        );
+        // ten years by day hold a hundred times more, and are a 400 in the graph's terms
+        let error = graph_rows(&ledger, &decade, &StatisticInterval::Day, within(month_values))
+            .and_then(|rows| rows.build())
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("has too many points or currencies"), "{}: {}", name, error);
+        // by month they fit
+        let graph = graph_rows(&ledger, &decade, &StatisticInterval::Month, within(month_values * 5)).and_then(|rows| rows.build());
+        assert_eq!(graph.map(|it| it.balances.len()).ok(), Some(120), "{}: ten years by month", name);
     }
 }
 
@@ -1483,6 +1629,18 @@ async fn bad_report_requests_are_bad_requests() {
         message.contains("would have 3652059 points") && message.contains("ask for weeks or months"),
         "{}",
         message
+    );
+
+    // chrono's first date is outside the ledger's calendar
+    let request = StatisticGraphRequest {
+        from: "-262143-01-01".to_owned(),
+        to: "-262143-01-10".to_owned(),
+        interval: StatisticInterval::Week,
+    };
+    let (status, message) = answer(get_statistic_graph(State(ledger.clone()), UrlQuery(request)).await.into_response()).await;
+    assert_eq!(
+        (status, message.as_str()),
+        (400, "a report covers the years 1 to 9999, not -262143-01-01 to -262143-01-10")
     );
 
     // by month the same range is fine

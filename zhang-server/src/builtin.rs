@@ -274,11 +274,19 @@ mod test {
                     ty
                 );
             }
+            // the counts of LIMIT and OFFSET and the dates of OPEN ON and CLOSE ON take no NULL:
+            // the engine rejects one at the parameter, so they keep a value
+            let words = builtin.bql.split_whitespace().collect::<Vec<_>>();
+            let required = |name: &str| {
+                words
+                    .windows(2)
+                    .any(|it| ["LIMIT", "OFFSET", "ON"].contains(&it[0].to_uppercase().as_str()) && it[1] == format!(":{}", name))
+            };
             for null in [false, true] {
                 let values = builtin
                     .params
                     .iter()
-                    .map(|(name, ty)| (name.to_string(), (!null).then(|| sample(*ty))))
+                    .map(|(name, ty)| (name.to_string(), (!null || required(name)).then(|| sample(*ty))))
                     .collect::<HashMap<_, _>>();
                 let params = json_params(builtin, values).unwrap();
                 let written = text(builtin, &params).unwrap_or_else(|err| panic!("{}: {}", builtin.name, err));

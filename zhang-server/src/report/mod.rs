@@ -23,9 +23,9 @@ use zhang_ast::amount::CalculatedAmount;
 use zhang_ast::AccountType;
 use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::ledger::Ledger;
-use zhang_query::{DataType, Inventory, Params, PriceMap, Value};
+use zhang_query::{DataType, ExecuteOptions, Inventory, Params, PriceMap, QueryErrorKind, QueryResult, Value};
 
-use crate::builtin::{calculated_amount, execute, BuiltinQuery, LedgerDateRange};
+use crate::builtin::{calculated_amount, compiled, execute, BuiltinQuery, LedgerDateRange};
 use crate::error::ServerError;
 use crate::request::StatisticInterval;
 use crate::response::{ReportRankItemEntity, StatisticGraphEntity, StatisticRankEntity, StatisticSummaryEntity};
@@ -75,12 +75,12 @@ WHERE flag != 'P' AND date >= :from AND date <= :to",
 /// The net worth at the end of every bucket of the graph that has postings.
 pub const NET_WORTH_TREND: BuiltinQuery = BuiltinQuery {
     name: "report.net_worth_trend",
-    description: "The net worth at the end of every day, week or month (:interval) from :from to :to that has postings, valued in :currency at the prices of its last day in the range.",
+    description: "The net worth at the end of every day, week or month (:interval) from :from to :to that has postings, valued in :currency at the prices of its last day in the range, after the opening balance on the day before :from.",
     bql: "SELECT date_bin(:interval, date, 2001-01-01) AS bucket, last(balance) AS balance, units(last(balance)) AS units,
   convert(last(balance), :currency, least(max(date_bin(:interval, date, 2001-01-01)) + interval(:interval) - 1, :to)) AS value
+FROM OPEN ON :from
 WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to
 GROUP BY bucket
-HAVING max(date) >= :from
 ORDER BY bucket",
     params: &[
         ("from", DataType::Date),
@@ -144,6 +144,7 @@ LIMIT 10",
 /// `GET /api/statistic/summary`: the net worth and the liabilities at the end of the range,
 /// and its income, expenses and number of transactions.
 pub fn summary(ledger: &Ledger, range: &LedgerDateRange) -> ServerResult<StatisticSummaryEntity> {
+    check_calendar(range)?;
     let currency = ledger.options.operating_currency.as_str();
     let at_end = Params::new().bind("to", range.to).bind("currency", currency);
     let net_worth = single(run(ledger, &NET_WORTH, at_end.clone())?);
@@ -165,9 +166,15 @@ pub fn summary(ledger: &Ledger, range: &LedgerDateRange) -> ServerResult<Statist
     })
 }
 
+/// The most points a graph has: about 137 years of days. A longer range by day is a 400 that
+/// suggests weeks or months; no chart draws that many points.
+pub const MAX_GRAPH_POINTS: u64 = 50_000;
+
 /// The limits of building a graph, by default those of every query the server runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GraphLimits {
+    /// at most this many points, checked before any query runs
+    pub max_points: u64,
     /// at most this many values in the graph's points and changes: two per point or change
     /// (its day and its amount) and one per currency of its units
     pub max_values: u64,
@@ -176,18 +183,15 @@ pub struct GraphLimits {
 }
 
 impl GraphLimits {
-    /// The limits of `POST /api/query`: its result size limit and its time limit.
+    /// [`MAX_GRAPH_POINTS`], and the limits of `POST /api/query`: its result size limit and its
+    /// time limit.
     pub fn server() -> GraphLimits {
         let options = execute_options(max_result_values());
         GraphLimits {
+            max_points: MAX_GRAPH_POINTS,
             max_values: options.max_result_values.unwrap_or(u64::MAX),
             timeout: options.timeout,
         }
-    }
-
-    /// The most points a graph may have: every point is at least two values.
-    pub fn max_points(&self) -> u64 {
-        self.max_values / POINT_VALUES
     }
 }
 
@@ -208,9 +212,8 @@ pub struct GraphRows {
     range: LedgerDateRange,
     interval: StatisticInterval,
     currency: String,
-    /// the balance at the end of the day before the range
-    opening: Inventory,
-    /// the closing balance (with its lots) and figure of every bucket with postings in the range
+    /// the closing balance (with its lots) and figure of every bucket of `report.net_worth_trend`:
+    /// the buckets with postings in the range, and the bucket of the opening balance
     closing: BTreeMap<NaiveDate, (Inventory, Figure)>,
     changes: HashMap<NaiveDate, HashMap<AccountType, CalculatedAmount>>,
     prices: Arc<PriceMap>,
@@ -218,39 +221,40 @@ pub struct GraphRows {
     started: Instant,
 }
 
-/// Run the graph's queries: `report.net_worth_trend`, `report.net_worth` of the day before the
-/// range and `report.changes`. A range with more buckets than the limits allow points is a 400 before
-/// any query runs.
+/// Run the graph's queries, `report.net_worth_trend` and `report.changes`, whose cost grows with
+/// the range, not with the ledger's history. A range with more points than the limits allow,
+/// or outside the years 1 to 9999, is a 400 before any query runs; a range whose queries go
+/// over the result size limit or the time limit is a 400 in the graph's terms.
 pub fn graph_rows(ledger: &Ledger, range: &LedgerDateRange, interval: &StatisticInterval, limits: GraphLimits) -> ServerResult<GraphRows> {
     let started = Instant::now();
+    check_calendar(range)?;
     let points = bucket_count(range, interval);
-    if points > limits.max_points() {
+    if points > limits.max_points {
         return Err(ServerError::InvalidInput(format!(
-            "the graph from {} to {} by {} would have {} points, and the server returns at most {} (half of the result size limit, ZHANG_QUERY_MAX_RESULT_VALUES); ask for weeks or months, or a shorter range",
+            "the graph from {} to {} by {} would have {} points, more than the {} a graph may have; ask for weeks or months, or a shorter range",
             range.from,
             range.to,
             unit(interval),
             points,
-            limits.max_points()
+            limits.max_points
         )));
     }
     let currency = ledger.options.operating_currency.clone();
     let params = range.bind(Params::new().bind("interval", stride(interval)).bind("currency", currency.as_str()));
+    let graph_error = |error: ServerError| match error {
+        ServerError::QueryError(error) if error.kind == QueryErrorKind::TooLarge => too_large(range, interval, limits.max_values),
+        ServerError::QueryError(error) if error.kind == QueryErrorKind::Timeout => too_slow(range, interval, limits.timeout),
+        other => other,
+    };
 
     let mut closing = BTreeMap::new();
-    for mut row in run(ledger, &NET_WORTH_TREND, params.clone())? {
+    for mut row in run_within(ledger, &NET_WORTH_TREND, params.clone(), &limits, started).map_err(graph_error)? {
         if let Value::Date(bucket) = row.take("bucket") {
             closing.insert(bucket, (inventory(row.take("balance")), Figure::of(row.take("units"), row.take("value"))));
         }
     }
-    let mut opening = Inventory::new();
-    if let Some(day_before) = range.from.pred_opt() {
-        for mut row in run(ledger, &NET_WORTH, Params::new().bind("to", day_before).bind("currency", currency.as_str()))? {
-            opening = inventory(row.take("balance"));
-        }
-    }
     let mut changes: HashMap<NaiveDate, HashMap<AccountType, CalculatedAmount>> = HashMap::new();
-    for mut row in run(ledger, &CHANGES, params)? {
+    for mut row in run_within(ledger, &CHANGES, params, &limits, started).map_err(graph_error)? {
         let (Value::Date(bucket), Value::Str(account_type)) = (row.take("bucket"), row.take("type")) else {
             continue;
         };
@@ -264,7 +268,6 @@ pub fn graph_rows(ledger: &Ledger, range: &LedgerDateRange, interval: &Statistic
         range: *range,
         interval: *interval,
         currency,
-        opening,
         closing,
         changes,
         prices: PriceMap::cached(ledger),
@@ -273,10 +276,45 @@ pub fn graph_rows(ledger: &Ledger, range: &LedgerDateRange, interval: &Statistic
     })
 }
 
+/// The 400 of a graph whose points and currencies hold more values than the result size limit.
+fn too_large(range: &LedgerDateRange, interval: &StatisticInterval, max_values: u64) -> ServerError {
+    ServerError::InvalidInput(format!(
+        "the graph from {} to {} by {} has too many points or currencies: it would hold more than the {} values of the result size limit (ZHANG_QUERY_MAX_RESULT_VALUES); ask for weeks or months, or a shorter range",
+        range.from,
+        range.to,
+        unit(interval),
+        max_values
+    ))
+}
+
+/// The 400 of a graph that takes longer than the time limit.
+fn too_slow(range: &LedgerDateRange, interval: &StatisticInterval, timeout: Option<Duration>) -> ServerError {
+    ServerError::InvalidInput(format!(
+        "the graph from {} to {} by {} was stopped because it took longer than the {}s time limit; ask for weeks or months, or a shorter range",
+        range.from,
+        range.to,
+        unit(interval),
+        timeout.unwrap_or_default().as_secs()
+    ))
+}
+
+/// A report covers the years 1 to 9999, the calendar of the ledger; another range is a 400.
+fn check_calendar(range: &LedgerDateRange) -> ServerResult<()> {
+    let calendar = 1..=9999;
+    if calendar.contains(&range.from.year()) && calendar.contains(&range.to.year()) {
+        Ok(())
+    } else {
+        Err(ServerError::InvalidInput(format!(
+            "a report covers the years 1 to 9999, not {} to {}",
+            range.from, range.to
+        )))
+    }
+}
+
 impl GraphRows {
     /// The graph: a point for every bucket of the range. A bucket with postings is the row of
     /// `report.net_worth_trend`. A bucket without postings has the balance of the bucket before
-    /// (or the balance before the range), valued at its own last day in the range with the
+    /// (or the opening balance of the range), valued at its own last day in the range with the
     /// ledger's prices, as `report.net_worth` of that day values it; it has no changes.
     ///
     /// TODO(#479): the carrying over is the one part of the report outside the engine, since
@@ -289,38 +327,24 @@ impl GraphRows {
             range,
             interval,
             currency,
-            opening,
             closing,
             changes,
             prices,
             limits,
             started,
         } = self;
-        let too_slow = || {
-            ServerError::InvalidInput(format!(
-                "the graph from {} to {} by {} was stopped because it took longer than the {}s time limit; ask for weeks or months, or a shorter range",
-                range.from,
-                range.to,
-                unit(&interval),
-                limits.timeout.unwrap_or_default().as_secs()
-            ))
-        };
-        let too_large = || {
-            ServerError::InvalidInput(format!(
-                "the graph from {} to {} by {} holds more than the {} values of the result size limit (ZHANG_QUERY_MAX_RESULT_VALUES); ask for weeks or months, or a shorter range",
-                range.from,
-                range.to,
-                unit(&interval),
-                limits.max_values
-            ))
-        };
+        let too_slow = || too_slow(&range, &interval, limits.timeout);
+        let too_large = || too_large(&range, &interval, limits.max_values);
         let late = || limits.timeout.is_some_and(|timeout| started.elapsed() > timeout);
         let mut values: u64 = changes.values().flat_map(HashMap::values).map(amount_values).sum();
         if values > limits.max_values {
             return Err(too_large());
         }
 
-        let mut carried = opening;
+        // the balance before the range: the bucket of the day before it, when that is an earlier
+        // bucket (otherwise the first bucket starts with it)
+        let first = bucket_start(range.from, &interval);
+        let mut carried = closing.range(..first).next_back().map(|(_, (balance, _))| balance.clone()).unwrap_or_default();
         let mut balances = HashMap::new();
         for (index, bucket) in Buckets::of(&range, &interval).enumerate() {
             // the queries may have used up the time already: check before the first bucket too
@@ -369,6 +393,7 @@ fn unit(interval: &StatisticInterval) -> &'static str {
 /// `GET /api/statistic/{account_type}`: what every account of the type changed by in the
 /// range, and its ten largest postings.
 pub fn rank(ledger: &Ledger, account_type: AccountType, range: &LedgerDateRange) -> ServerResult<StatisticRankEntity> {
+    check_calendar(range)?;
     let currency = ledger.options.operating_currency.as_str();
     let params = range.bind(Params::new().bind("type", account_type.to_string()).bind("currency", currency));
 
@@ -431,7 +456,9 @@ pub fn stride(interval: &StatisticInterval) -> &'static str {
 fn bucket_start(date: NaiveDate, interval: &StatisticInterval) -> NaiveDate {
     match interval {
         StatisticInterval::Day => date,
-        StatisticInterval::Week => date - Days::new(u64::from(date.weekday().num_days_from_monday())),
+        StatisticInterval::Week => date
+            .checked_sub_days(Days::new(u64::from(date.weekday().num_days_from_monday())))
+            .unwrap_or(date),
         StatisticInterval::Month => date.with_day(1).unwrap_or(date),
     }
 }
@@ -523,16 +550,32 @@ pub fn last_instant(date: NaiveDate, timezone: &Tz) -> DateTime<Utc> {
 
 /// The rows of one of the report's queries, their cells taken by column name.
 fn run(ledger: &Ledger, query: &BuiltinQuery, params: Params) -> ServerResult<Vec<Row>> {
-    let result = execute(ledger, query.name, &params, false)?;
+    Ok(rows(execute(ledger, query.name, &params, false)?))
+}
+
+/// [`run`] within the limits of a graph: its result size limit, and what is left of its time
+/// limit since it `started`.
+fn run_within(ledger: &Ledger, query: &BuiltinQuery, params: Params, limits: &GraphLimits, started: Instant) -> ServerResult<Vec<Row>> {
+    let options = ExecuteOptions {
+        today: None,
+        timeout: limits.timeout.map(|timeout| timeout.saturating_sub(started.elapsed())),
+        max_result_values: Some(limits.max_values),
+        count_total: false,
+    };
+    Ok(rows(compiled(query.name)?.execute_with_options(ledger, &params, &options)?))
+}
+
+/// The rows of a result, their cells taken by column name.
+fn rows(result: QueryResult) -> Vec<Row> {
     let columns: HashMap<String, usize> = result.columns.iter().enumerate().map(|(index, column)| (column.name.clone(), index)).collect();
-    Ok(result
+    result
         .rows
         .into_iter()
         .map(|cells| Row {
             columns: columns.clone(),
             cells,
         })
-        .collect())
+        .collect()
 }
 
 /// A row of a query result.
@@ -668,27 +711,63 @@ option "operating_currency" "CNY"
   Equity:Opening -1000 JPY
 "#;
 
+    /// No limits but those given.
+    fn limits(max_points: u64, max_values: u64, timeout: Option<Duration>) -> GraphLimits {
+        GraphLimits {
+            max_points,
+            max_values,
+            timeout,
+        }
+    }
+
     #[test]
     fn a_graph_with_more_points_than_the_limit_is_refused_before_its_queries() {
         let ledger = ledger(LEDGER);
-        let limits = GraphLimits { max_values: 20, timeout: None };
-        // 11 days are 22 values at least, over the limit of 20; 10 days are 20, within it
-        let error = graph_rows(&ledger, &range("2024-01-01", "2024-01-11"), &StatisticInterval::Day, limits)
+        let ten = limits(10, u64::MAX, None);
+        let error = graph_rows(&ledger, &range("2024-01-01", "2024-01-11"), &StatisticInterval::Day, ten)
             .err()
             .unwrap();
         assert_eq!(
             error.to_string(),
-            "the graph from 2024-01-01 to 2024-01-11 by day would have 11 points, and the server returns at most 10 (half of the result size limit, ZHANG_QUERY_MAX_RESULT_VALUES); ask for weeks or months, or a shorter range"
+            "the graph from 2024-01-01 to 2024-01-11 by day would have 11 points, more than the 10 a graph may have; ask for weeks or months, or a shorter range"
         );
         assert!(matches!(error, crate::error::ServerError::InvalidInput(_)));
-        assert!(graph_rows(&ledger, &range("2024-01-01", "2024-01-10"), &StatisticInterval::Day, limits).is_ok());
+        assert!(graph_rows(&ledger, &range("2024-01-01", "2024-01-10"), &StatisticInterval::Day, ten).is_ok());
         // the same range by week or month fits
-        assert!(graph_rows(&ledger, &range("2024-01-01", "2024-01-11"), &StatisticInterval::Week, limits).is_ok());
-        // a whole calendar by day, as the reviewer asked for, is refused with the server's limits
+        assert!(graph_rows(&ledger, &range("2024-01-01", "2024-01-11"), &StatisticInterval::Week, ten).is_ok());
+        // the server's cap is 50,000 points, about 137 years of days
+        assert_eq!(GraphLimits::server().max_points, 50_000);
+        let error = graph_rows(&ledger, &range("1888-01-01", "2024-12-31"), &StatisticInterval::Day, GraphLimits::server())
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("would have 50039 points, more than the 50000"), "{}", error);
+        assert!(graph_rows(&ledger, &range("1900-01-01", "2024-12-31"), &StatisticInterval::Day, GraphLimits::server()).is_ok());
         let error = graph_rows(&ledger, &range("0001-01-01", "9999-12-31"), &StatisticInterval::Day, GraphLimits::server())
             .err()
             .unwrap();
-        assert!(error.to_string().contains("would have 3652059 points"), "{}", error);
+        assert!(error.to_string().contains("would have 3652059 points, more than the 50000"), "{}", error);
+    }
+
+    #[test]
+    fn a_range_outside_the_calendar_is_refused() {
+        let ledger = ledger(LEDGER);
+        // chrono's first date: its week would start before it
+        let error = graph_rows(
+            &ledger,
+            &range("-262143-01-01", "-262143-01-10"),
+            &StatisticInterval::Week,
+            GraphLimits::server(),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.to_string(), "a report covers the years 1 to 9999, not -262143-01-01 to -262143-01-10");
+        assert!(matches!(error, crate::error::ServerError::InvalidInput(_)));
+        let error = super::summary(&ledger, &range("2024-01-01", "+10000-01-01")).err().unwrap();
+        assert_eq!(error.to_string(), "a report covers the years 1 to 9999, not 2024-01-01 to +10000-01-01");
+        assert!(super::rank(&ledger, zhang_ast::AccountType::Expenses, &range("0000-12-31", "2024-01-01")).is_err());
+        // the first and the last day of the calendar are fine
+        assert!(graph_rows(&ledger, &range("0001-01-01", "0001-01-10"), &StatisticInterval::Week, GraphLimits::server()).is_ok());
+        assert!(graph_rows(&ledger, &range("9999-12-20", "9999-12-31"), &StatisticInterval::Month, GraphLimits::server()).is_ok());
     }
 
     #[test]
@@ -696,33 +775,40 @@ option "operating_currency" "CNY"
         let ledger = ledger(LEDGER);
         // every point holds three currencies, 5 values, and so do the two changes of January 1
         // (Assets and Equity): 4 x 5 + 2 x 5 = 30 values; the carried points count too
-        let limits = |max_values| GraphLimits { max_values, timeout: None };
-        let rows = graph_rows(&ledger, &range("2024-01-01", "2024-01-04"), &StatisticInterval::Day, limits(30)).unwrap();
+        let rows = graph_rows(&ledger, &range("2024-01-01", "2024-01-04"), &StatisticInterval::Day, limits(u64::MAX, 30, None)).unwrap();
         assert_eq!(rows.build().unwrap().balances.len(), 4);
-        let rows = graph_rows(&ledger, &range("2024-01-01", "2024-01-04"), &StatisticInterval::Day, limits(29)).unwrap();
+        let rows = graph_rows(&ledger, &range("2024-01-01", "2024-01-04"), &StatisticInterval::Day, limits(u64::MAX, 29, None)).unwrap();
         assert_eq!(
             rows.build().err().unwrap().to_string(),
-            "the graph from 2024-01-01 to 2024-01-04 by day holds more than the 29 values of the result size limit (ZHANG_QUERY_MAX_RESULT_VALUES); ask for weeks or months, or a shorter range"
+            "the graph from 2024-01-01 to 2024-01-04 by day has too many points or currencies: it would hold more than the 29 values of the result size limit (ZHANG_QUERY_MAX_RESULT_VALUES); ask for weeks or months, or a shorter range"
         );
     }
 
     #[test]
     fn building_the_graph_stops_at_the_time_limit() {
         let ledger = ledger(LEDGER);
-        let limits = GraphLimits {
-            max_values: u64::MAX,
-            timeout: Some(Duration::ZERO),
-        };
-        let rows = graph_rows(&ledger, &range("2024-01-01", "2026-12-31"), &StatisticInterval::Day, limits).unwrap();
-        assert_eq!(
-            rows.build().err().unwrap().to_string(),
-            "the graph from 2024-01-01 to 2026-12-31 by day was stopped because it took longer than the 0s time limit; ask for weeks or months, or a shorter range"
-        );
-        let limits = GraphLimits {
-            max_values: u64::MAX,
-            timeout: Some(Duration::from_secs(60)),
-        };
-        let rows = graph_rows(&ledger, &range("2024-01-01", "2026-12-31"), &StatisticInterval::Day, limits).unwrap();
+        let expired = limits(u64::MAX, u64::MAX, Some(Duration::ZERO));
+        let message = "the graph from 2024-01-01 to 2026-12-31 by day was stopped because it took longer than the 0s time limit; ask for weeks or months, or a shorter range";
+        // the queries stop at the limit
+        let error = graph_rows(&ledger, &range("2024-01-01", "2026-12-31"), &StatisticInterval::Day, expired)
+            .err()
+            .unwrap();
+        assert_eq!(error.to_string(), message);
+        // and so does the loop over the buckets, once the queries are done
+        let mut rows = graph_rows(&ledger, &range("2024-01-01", "2026-12-31"), &StatisticInterval::Day, GraphLimits::server()).unwrap();
+        rows.limits = expired;
+        assert_eq!(rows.build().err().unwrap().to_string(), message);
+        // checked at the first bucket, so a graph of a few buckets stops too
+        let mut rows = graph_rows(&ledger, &range("2024-01-01", "2024-01-03"), &StatisticInterval::Day, GraphLimits::server()).unwrap();
+        rows.limits = expired;
+        assert!(rows.build().is_err());
+        let rows = graph_rows(
+            &ledger,
+            &range("2024-01-01", "2026-12-31"),
+            &StatisticInterval::Day,
+            limits(u64::MAX, u64::MAX, Some(Duration::from_secs(60))),
+        )
+        .unwrap();
         assert_eq!(rows.build().unwrap().balances.len(), 1096);
     }
 

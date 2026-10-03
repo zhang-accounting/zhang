@@ -130,12 +130,12 @@ ORDER BY seq
 **报表**页和首页（`GET /api/statistic/summary`、`/api/statistic/graph` 和 `/api/statistic/{account_type}`）。范围是两个账本日期 `from` 和 `to`，含首尾两天；这些接口也接受时间点，表示该时间点在账本时区中所在的那一天。`currency` 是账本的运营货币。
 
 - **估值。**汇总和排行按 `to` 当天的价格估值。图表的每个点按它自己最后一天的价格估值，最后一个点按 `to` 的价格估值。价格可以反向使用；按成本持有、自身没有价格的持仓通过成本货币估值（见 [`convert`](/zh-cn/user-guide/query-language/#估值函数)）。任何价格都换算不了的金额保留原货币，不计入以运营货币表示的合计。
-- **图表**每天、每周（周一到周日）或每月一个点，以它的第一天命名，因此第一周（月）和最后一周（月）可能超出范围；报表页面用范围的第一天标注第一个点。范围内没有分录的点沿用前一个点的净资产，最前面的点沿用 `from` 前一天的 `report.net_worth`，并按它自己最后一天的价格估值（见 `report.net_worth_trend`）。
-- **限制。**这些数字遵守所有查询的[限制](/zh-cn/user-guide/query-language/#限制)。图表的点数最多为结果大小限制（`ZHANG_QUERY_MAX_RESULT_VALUES`）的一半，默认即 500,000 个；它的点（每种货币一个值）也计入这个限制。按日请求更长的范围会得到 HTTP 400，请改为按周或按月。
+- **图表**每天、每周（周一到周日）或每月一个点，以它的第一天命名，因此第一周（月）和最后一周（月）可能超出范围；报表页面用范围的第一天标注第一个点。范围内没有分录的点沿用前一个点的净资产，最前面的点沿用 `from` 前一天的净资产，并按它自己最后一天的价格估值（见 `report.net_worth_trend`）。
+- **限制。**图表最多 50,000 个点，约合 137 年的每日数据；按日请求更长的范围会得到 HTTP 400，请改为按周或按月。这些数字也遵守所有查询的[限制](/zh-cn/user-guide/query-language/#限制)：图表的点（每种货币一个值）计入结果大小限制（`ZHANG_QUERY_MAX_RESULT_VALUES`），超出它或超出时间限制的图表同样得到 HTTP 400。图表的开销随所请求的范围增长，而不随范围之前的账本历史增长。
 
 #### `report.net_worth`
 
-`to` 当天结束时的净资产（资产与负债的余额），按当天的价格以 `currency` 估值，即汇总中的余额。图表用它求 `from` 前一天的余额，作为起点；`balance` 保留批次，以便在其他日期估值。
+`to` 当天结束时的净资产（资产与负债的余额），按当天的价格以 `currency` 估值，即汇总中的余额。`balance` 保留批次。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
@@ -195,9 +195,9 @@ WHERE flag != 'P' AND date >= :from AND date <= :to
 
 #### `report.net_worth_trend`
 
-范围内每个有分录的日、周或月结束时的净资产（资产与负债的余额），按它在范围内最后一天的价格以 `currency` 估值。`interval` 为 `'1 day'`、`'1 week'` 或 `'1 month'`：[`date_bin`](/zh-cn/user-guide/query-language/#日期函数) 从 2001-01-01（既是周一，又是月初）开始划分的区间，就是日历上的日、从周一开始的周和月，每个区间以它的第一天命名。[`least`](/zh-cn/user-guide/query-language/#比较函数) 让最后一个区间的估值日期不超出范围。`balance` 保留批次，用于给没有分录的点估值。
+范围内每个有分录的日、周或月结束时的净资产（资产与负债的余额），按它在范围内最后一天的价格以 `currency` 估值。[`OPEN ON :from`](/zh-cn/user-guide/query-language/#会计期间) 把 `from` 之前的一切逐批次替换为前一天的期初余额，因此累计的 `balance` 从期初余额开始，查询只对范围内的日期以及前一天所在的区间分组。`interval` 为 `'1 day'`、`'1 week'` 或 `'1 month'`：[`date_bin`](/zh-cn/user-guide/query-language/#日期函数) 从 2001-01-01（既是周一，又是月初）开始划分的区间，就是日历上的日、从周一开始的周和月，每个区间以它的第一天命名。[`least`](/zh-cn/user-guide/query-language/#比较函数) 让最后一个区间的估值日期不超出范围。`balance` 保留批次，用于给没有分录的点估值。
 
-这个查询只列出有分录的日、周或月，因此**打开查询**显示的行比图表的点少。图表把没有分录的日、周或月补上它之前的最后一个余额（来自这个查询，或来自 `from` 前一天的 `report.net_worth`），并按它自己在范围内的最后一天估值，与当天的 `report.net_worth` 的估值相同。查询语言目前还不能列出没有分录的日期。
+这个查询只列出有分录的日、周或月，因此**打开查询**显示的行比图表的点少。图表把没有分录的日、周或月补上它之前的最后一个余额（包括期初余额），并按它自己在范围内的最后一天估值，与当天的 `report.net_worth` 的估值相同。查询语言目前还不能列出没有分录的日期。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
@@ -209,9 +209,9 @@ WHERE flag != 'P' AND date >= :from AND date <= :to
 ```sql
 SELECT date_bin(:interval, date, 2001-01-01) AS bucket, last(balance) AS balance, units(last(balance)) AS units,
   convert(last(balance), :currency, least(max(date_bin(:interval, date, 2001-01-01)) + interval(:interval) - 1, :to)) AS value
+FROM OPEN ON :from
 WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to
 GROUP BY bucket
-HAVING max(date) >= :from
 ORDER BY bucket
 ```
 
