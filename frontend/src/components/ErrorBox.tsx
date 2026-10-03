@@ -45,7 +45,8 @@ export default function ErrorBox() {
     );
   }
 
-  const errorTitle = (error: LedgerError) => t(`ERROR.${error.error_type}`, { defaultValue: error.error_type });
+  // a title can show the error's metas, e.g. `{{meta.message}}` for the problem a plugin describes
+  const errorTitle = (error: LedgerError) => t(`ERROR.${error.error_type}`, { defaultValue: error.error_type, meta: error.metas });
 
   const toggleError = (error: LedgerError) => {
     setSelectError(error);
@@ -121,9 +122,10 @@ export default function ErrorBox() {
       ) : (
         <div className="flex flex-col gap-3">
           <ItemGroup className="gap-1">
-            {records.map((error) => (
+            {/* errors on one span share an id (a plugin reports all of its errors without a span on its directive) */}
+            {records.map((error, index) => (
               <Item
-                key={error.id}
+                key={`${error.id}-${index}`}
                 size="sm"
                 render={<button type="button" />}
                 className="min-h-12 cursor-pointer flex-nowrap text-left hover:bg-muted/60 active:bg-muted"

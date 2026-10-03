@@ -80,7 +80,7 @@ impl DirectiveProcess for Plugin {
                 for error in &declaration.errors {
                     operations.new_error(error.kind.clone(), span, error.metas.clone())?;
                 }
-                ledger.plugins.insert_plugin(self, declaration)?;
+                ledger.plugins.insert_plugin(self, declaration, span)?;
                 // a rebuilt local module makes the ledger stale
                 if let Some(input) = crate::inputs::ExtraInput::plugin_module(&ledger.entry.0, self.module.as_str()) {
                     ledger.extra_inputs.insert(input);

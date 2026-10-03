@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use zhang_ast::{Directive, Spanned};
 
 pub mod capabilities;
+pub mod host;
 pub mod http;
 pub mod stage;
 pub mod store;

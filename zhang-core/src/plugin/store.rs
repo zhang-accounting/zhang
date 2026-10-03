@@ -8,10 +8,12 @@ use extism::convert::Json as WasmJson;
 use extism::{Manifest, Plugin as WasmPlugin, Wasm};
 use log::{info, warn};
 use sha256::digest;
-use zhang_ast::{Directive, Plugin, Spanned};
+use zhang_ast::{Directive, Plugin, SpanInfo, Spanned};
 
 use crate::domains::schemas::OptionDomain;
+use crate::pipeline::StageContext;
 use crate::plugin::capabilities::PluginDeclaration;
+use crate::plugin::host::PluginHost;
 use crate::plugin::PluginType;
 use crate::{ZhangError, ZhangResult};
 
@@ -25,8 +27,8 @@ pub struct PluginStore {
 }
 
 impl PluginStore {
-    /// register the plugin `_plugin` declares, as parsed into `declaration`
-    pub fn insert_plugin(&mut self, _plugin: &Plugin, declaration: PluginDeclaration) -> ZhangResult<()> {
+    /// register the plugin `_plugin` declares, as parsed into `declaration`; `span` is the directive's span
+    pub fn insert_plugin(&mut self, _plugin: &Plugin, declaration: PluginDeclaration, span: &SpanInfo) -> ZhangResult<()> {
         let plugin_name = _plugin.module.as_str().to_string();
         let plugin_hash = digest(&plugin_name);
         let plugin_cache_file = PathBuf::from_str(".cache/plugins")
@@ -38,7 +40,10 @@ impl PluginStore {
         let timeout = declaration.capabilities.timeout;
         let manifest = Manifest::new([wasm]).with_timeout(timeout);
 
-        let mut plugin = WasmPlugin::new(manifest, [], true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
+        // a plugin importing a host function cannot be instantiated without it
+        let host = PluginHost::new(_plugin.module.as_str(), span.clone());
+        let mut plugin =
+            WasmPlugin::new(manifest, host.functions(), true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
         let name = plugin
             .call::<(), WasmJson<String>>("name", ())
             .map_err(|e| call_error(&plugin_name, "name", timeout, e))?
@@ -52,12 +57,17 @@ impl PluginStore {
             .map_err(|e| call_error(&plugin_name, "supported_type", timeout, e))?
             .0;
         let plugin_types = known_plugin_types(&name, declared_types)?;
+        let ignored_errors = host.take_errors().len();
+        if ignored_errors > 0 {
+            warn!("plugin {name} reported {ignored_errors} error(s) while registering; only its processor and mapper can report errors");
+        }
 
         let registered_plugin = RegisteredPlugin {
             name,
             version,
             module_bytes,
             declaration,
+            span: span.clone(),
         };
         if plugin_types.contains(&PluginType::Processor) {
             self.processors.push(registered_plugin.clone())
@@ -125,6 +135,8 @@ pub struct RegisteredPlugin {
     module_bytes: Vec<u8>,
     /// the capabilities and config declared by the plugin's directive
     declaration: PluginDeclaration,
+    /// the span of the plugin's directive, where the errors it reports go unless they carry a span
+    span: SpanInfo,
 }
 
 impl RegisteredPlugin {
@@ -138,26 +150,37 @@ impl RegisteredPlugin {
             .with_timeout(self.declaration.capabilities.timeout)
     }
 
-    pub fn load_as_plugin(&self, options: &[OptionDomain]) -> ZhangResult<WasmPlugin> {
+    /// the host side of a new instance of this plugin
+    pub fn host(&self) -> PluginHost {
+        PluginHost::new(self.name.clone(), self.span.clone())
+    }
+
+    /// a new instance of the plugin, with the host functions of `host` linked in
+    pub fn load_as_plugin(&self, options: &[OptionDomain], host: &PluginHost) -> ZhangResult<WasmPlugin> {
         info!("loading plugin {} {}", self.name, self.version);
-        let plugin =
-            WasmPlugin::new(self.manifest(options), [], true).map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
+        let plugin = WasmPlugin::new(self.manifest(options), host.functions(), true)
+            .map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
 
         Ok(plugin)
     }
 
-    pub fn execute_as_processor(&self, directive: Vec<Spanned<Directive>>, options: &[OptionDomain]) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let mut plugin = self.load_as_plugin(options)?;
+    /// run the plugin's processor over the whole stream; the errors it reports go to `ctx`
+    pub fn execute_as_processor(&self, directive: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
+        let host = self.host();
+        let mut plugin = self.load_as_plugin(ctx.options, &host)?;
         let ret = plugin
             .call::<WasmJson<Vec<Spanned<Directive>>>, WasmJson<Vec<Spanned<Directive>>>>("processor", WasmJson(directive))
             .map_err(|e| call_error(&self.name, "processor", self.declaration.capabilities.timeout, e))?
             .0;
+        host.forward_to(ctx);
         Ok(ret)
     }
 
-    /// map every directive through the plugin, reusing a single instance for the whole stream
-    pub fn execute_as_mapper(&self, directives: Vec<Spanned<Directive>>, options: &[OptionDomain]) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let mut plugin = self.load_as_plugin(options)?;
+    /// map every directive through the plugin, reusing a single instance for the whole stream;
+    /// the errors it reports go to `ctx`
+    pub fn execute_as_mapper(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
+        let host = self.host();
+        let mut plugin = self.load_as_plugin(ctx.options, &host)?;
         let mut ret = vec![];
         for directive in directives {
             let mapped = plugin
@@ -166,6 +189,7 @@ impl RegisteredPlugin {
                 .0;
             ret.extend(mapped);
         }
+        host.forward_to(ctx);
         Ok(ret)
     }
 }
@@ -176,7 +200,7 @@ mod test {
     use std::time::Duration;
 
     use serde_json::json;
-    use zhang_ast::{Meta, Plugin, ZhangString};
+    use zhang_ast::{Meta, Plugin, SpanInfo, ZhangString};
 
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::PluginDeclaration;
@@ -194,6 +218,7 @@ mod test {
             version: "0.1.0".to_owned(),
             module_bytes: vec![],
             declaration: PluginDeclaration::parse(&directive),
+            span: SpanInfo::default(),
         }
     }
 
@@ -225,6 +250,7 @@ mod test {
             version: "0.1.0".to_owned(),
             module_bytes: vec![],
             declaration: PluginDeclaration::parse(&directive),
+            span: SpanInfo::default(),
         };
 
         let manifest = plugin.manifest(&options);
@@ -265,6 +291,7 @@ mod test {
             version: "0.1.0".to_owned(),
             module_bytes: vec![],
             declaration: PluginDeclaration::parse(&directive),
+            span: SpanInfo::default(),
         };
 
         assert_eq!(plugin.manifest(&[]).allowed_hosts, Some(vec![]));
