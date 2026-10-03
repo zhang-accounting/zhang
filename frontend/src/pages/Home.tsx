@@ -10,6 +10,7 @@ import { JournalRow } from '@/components/journalLines/JournalRow';
 import { EmptyState, PageHeader, PageShell, useIsMobile } from '@/components/layout';
 import { useGraphRows } from '@/components/layout/chart-utils';
 import { formatRange, useDateFormat } from '@/components/layout/use-date-format';
+import { ledgerDates } from '@/components/layout/ledger-dates';
 import { activityAnchor, trailingMonth, useRecentJournals } from '@/components/layout/use-ledger-activity';
 import { TransactionEditModal } from '@/components/modals/TransactionEditModal';
 import { TransactionPreviewModal } from '@/components/modals/TransactionPreviewModal';
@@ -88,11 +89,12 @@ function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latest?.datetime]);
 
+  const dates = ledgerDates(range);
   const graph = useAsync(async () => {
     if (!ready) return undefined;
-    const res = await retrieveStatisticGraph({ from: range.from.toISOString(), to: range.to.toISOString(), interval: 'Day' });
+    const res = await retrieveStatisticGraph({ ...dates, interval: 'Day' });
     return res.data.data;
-  }, [ready, range.from.getTime(), range.to.getTime()]);
+  }, [ready, dates.from, dates.to]);
   const { rows, commodity } = useGraphRows(graph.value, 'Day');
   const graphLoading = !ready || graph.loading || (!graph.value && !graph.error);
 

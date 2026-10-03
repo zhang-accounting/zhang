@@ -2,6 +2,7 @@ import { ArrowDownLeft, ArrowUpRight, CreditCard, Landmark } from 'lucide-react'
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
 import { retrieveStatisticSummary } from '@/api/requests';
+import { ledgerDates } from '@/components/layout/ledger-dates';
 import { cn } from '@/lib/utils';
 import StatisticBox from './StatisticBox';
 
@@ -16,14 +17,15 @@ interface Props {
 /** Dashboard KPIs for a period: 2 columns on mobile, 4 from lg. */
 export default function StatisticBar({ from, to, periodLabel, className }: Props) {
   const { t } = useTranslation();
+  const dates = ledgerDates({ from, to });
   const {
     value: data,
     loading,
     error,
   } = useAsync(async () => {
-    const res = await retrieveStatisticSummary({ from: from.toISOString(), to: to.toISOString() });
+    const res = await retrieveStatisticSummary(dates);
     return res.data.data;
-  }, [from.getTime(), to.getTime()]);
+  }, [dates.from, dates.to]);
 
   const isLoading = loading || (!data && !error);
 

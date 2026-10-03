@@ -10,6 +10,7 @@ import { operations } from '@/api/schemas';
 import { EmptyState, PageHeader, PageShell, RefreshingLabel, ResponsiveList } from '@/components/layout';
 import { DateRangePicker, DateRangePreset, DateRangeValue } from '@/components/layout/DateRangePicker';
 import { useDateFormat } from '@/components/layout/use-date-format';
+import { ledgerDates } from '@/components/layout/ledger-dates';
 import { activityAnchor, monthOf, useRecentJournals } from '@/components/layout/use-ledger-activity';
 import StatisticBox from '@/components/StatisticBox';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -43,8 +44,8 @@ export default function Report() {
   const [picked, setPicked] = useState<DateRangeValue | undefined>(undefined);
   const range = picked ?? defaultRange;
   const ready = picked !== undefined || !recent.loading;
-  const deps = [ready, range.from.getTime(), range.to.getTime()];
-  const params = { from: range.from.toISOString(), to: range.to.toISOString() };
+  const params = ledgerDates(range);
+  const deps = [ready, params.from, params.to];
   const interval = intervalForRange(range.from, range.to);
 
   const summary = useAsync(async () => (ready ? (await retrieveStatisticSummary(params)).data.data : undefined), deps);
