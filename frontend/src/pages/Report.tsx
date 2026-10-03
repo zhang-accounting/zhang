@@ -93,7 +93,7 @@ export default function Report() {
               amount={data?.balance.calculated.number ?? '0'}
               currency={data?.balance.calculated.commodity ?? ''}
               hint={t('ledger.report.at_end')}
-              action={openQuery('report.balances', { to: params.to })}
+              action={openQuery('report.net_worth', { to: params.to })}
             />
             <StatisticBox
               text="ledger.chart.income"
@@ -129,7 +129,7 @@ export default function Report() {
           <Section
             title={t('ledger.chart.net_worth')}
             description={t(`ledger.report.interval_${interval}`)}
-            rightSection={openQuery('report.net_worth', { ...rangeOnly, interval: intervalStride(interval) })}
+            rightSection={openQuery('report.net_worth_trend', { ...rangeOnly, interval: intervalStride(interval) })}
           >
             {graphLoading ? <Skeleton className="h-56 w-full md:h-64" /> : <BalanceTrendChart rows={rows} commodity={commodity} className="h-56 md:h-64" />}
           </Section>

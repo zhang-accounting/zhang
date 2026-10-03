@@ -6,6 +6,7 @@ import * as React from 'react';
 import { useTranslation } from 'react-i18next';
 import { operations } from '@/api/schemas';
 import { AccountType } from '@/api/types';
+import { labelDay } from './graph-buckets';
 import { spansYears, useDateFormat } from './use-date-format';
 
 export type StatisticGraphResponse = OpReturnType<operations['get_statistic_graph']>['data'];
@@ -23,7 +24,7 @@ export interface GraphRow {
   expense: number;
 }
 
-/** The `:interval` of the graph's built-in queries (`report.net_worth`, `report.changes`) for a bucket size. */
+/** The `:interval` of the graph's built-in queries (`report.net_worth_trend`, `report.changes`) for a bucket size. */
 export function intervalStride(interval: GraphInterval): string {
   return { Day: '1 day', Week: '1 week', Month: '1 month' }[interval];
 }
@@ -46,8 +47,10 @@ export function useGraphRows(data: StatisticGraphResponse | undefined, interval:
     // Day / week ticks (`Sep 16`) need the year when the range crosses a year boundary.
     const multiYear = spansYears(dates.map((date) => parseISO(date)));
     const dayLabel = (day: Date) => (multiYear ? fmt.date(day) : fmt.day(day));
+    // the first week or month can start before the range: it is labelled by the range's first day
+    const rangeStart = parseISO(data.from);
     const rows = dates.map((date) => {
-      const day = parseISO(date);
+      const day = labelDay(parseISO(date), rangeStart);
       const changes = data.changes[date];
       return {
         key: date,

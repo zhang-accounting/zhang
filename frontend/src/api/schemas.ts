@@ -232,8 +232,8 @@ export interface paths {
     /**
      * Get Statistic Graph
      * @description The net worth at the end of every day, week or month of the range, and what each account
-     * type changed by in it, keyed by the bucket's first day (built-in queries `report.net_worth`
-     * and `report.changes`).
+     * type changed by in it, keyed by the bucket's first day (built-in queries
+     * `report.net_worth_trend`, `report.net_worth` and `report.changes`).
      *
      * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
      */
@@ -243,8 +243,8 @@ export interface paths {
     /**
      * Get Statistic Summary
      * @description The net worth and the liabilities at the end of the range, and the income, the expenses and
-     * the number of transactions of the range (built-in queries `report.balances`, `report.flows`
-     * and `report.transaction_count`).
+     * the number of transactions of the range (built-in queries `report.net_worth`,
+     * `report.liabilities`, `report.flows` and `report.transaction_count`).
      *
      * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
      */
@@ -1787,8 +1787,8 @@ export interface operations {
   /**
    * Get Statistic Graph
    * @description The net worth at the end of every day, week or month of the range, and what each account
-   * type changed by in it, keyed by the bucket's first day (built-in queries `report.net_worth`
-   * and `report.changes`).
+   * type changed by in it, keyed by the bucket's first day (built-in queries
+   * `report.net_worth_trend`, `report.net_worth` and `report.changes`).
    *
    * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
    */
@@ -1843,8 +1843,8 @@ export interface operations {
   /**
    * Get Statistic Summary
    * @description The net worth and the liabilities at the end of the range, and the income, the expenses and
-   * the number of transactions of the range (built-in queries `report.balances`, `report.flows`
-   * and `report.transaction_count`).
+   * the number of transactions of the range (built-in queries `report.net_worth`,
+   * `report.liabilities`, `report.flows` and `report.transaction_count`).
    *
    * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
    */

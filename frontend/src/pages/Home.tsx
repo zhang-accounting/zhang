@@ -159,7 +159,7 @@ function Home() {
           rightSection={
             <>
               {chartHint(t('ledger.home.net_worth_description'))}
-              {openQuery('report.net_worth')}
+              {openQuery('report.net_worth_trend')}
             </>
           }
         >

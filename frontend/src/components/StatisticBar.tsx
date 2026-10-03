@@ -45,7 +45,7 @@ export default function StatisticBar({ from, to, periodLabel, className }: Props
         amount={data?.balance.calculated.number ?? '0'}
         currency={data?.balance.calculated.commodity ?? ''}
         hint={error ? t('ledger.common.load_failed') : t('ledger.home.net_worth_hint')}
-        action={openQuery('report.balances', { to: dates.to })}
+        action={openQuery('report.net_worth', { to: dates.to })}
       />
       <StatisticBox
         text="LIABILITY"
@@ -55,7 +55,7 @@ export default function StatisticBar({ from, to, periodLabel, className }: Props
         currency={data?.liability.calculated.commodity ?? ''}
         negative
         hint={t('ledger.home.liability_hint')}
-        action={openQuery('report.balances', { to: dates.to })}
+        action={openQuery('report.liabilities', { to: dates.to })}
       />
       <StatisticBox
         text="ledger.chart.income"
