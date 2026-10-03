@@ -3,12 +3,14 @@ import { CircleAlert, NotebookText, RefreshCw, Search, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { parseISO } from 'date-fns';
+import { journalQueryParams } from '@/components/journalLines/journal-utils';
 import { JournalRow } from '@/components/journalLines/JournalRow';
 import { EmptyState, PageHeader, PageShell } from '@/components/layout';
 import { PagePagination } from '@/components/layout/PagePagination';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { TransactionEditModal } from '@/components/modals/TransactionEditModal';
 import { TransactionPreviewModal } from '@/components/modals/TransactionPreviewModal';
+import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { JournalDaysSkeleton } from '@/components/skeletons/journalListSkeleton';
 import { Button } from '@/components/ui/button';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
@@ -103,6 +105,7 @@ function Journals() {
       <PageHeader
         title={t('NAV_JOURNALS')}
         description={data ? t('ledger.journals.description', { count: data.total_count }) : t('ledger.journals.description_loading')}
+        actions={<OpenInExplore name="journals.page" params={journalQueryParams(journalPage, keyword, journalTags, journalLinks)} />}
       />
 
       <div className="flex flex-col gap-2">

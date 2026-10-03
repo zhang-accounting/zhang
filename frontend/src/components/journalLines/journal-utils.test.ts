@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { JournalBalanceCheckItem, MetaEntry } from '@/api/types';
-import { isBalanceCheckPassed, journalStatus, transactionDocuments } from './journal-utils.ts';
+import { isBalanceCheckPassed, journalQueryParams, journalStatus, transactionDocuments } from './journal-utils.ts';
 
 const doc = (value: string): MetaEntry => ({ key: 'document', value });
 const meta = (key: string, value: string): MetaEntry => ({ key, value });
@@ -75,4 +75,15 @@ test('a failing balance check is an error', () => {
   const data = check('165', '200', false);
   assert.equal(isBalanceCheckPassed(data), false);
   assert.equal(journalStatus(data), 'error');
+});
+
+test('journalQueryParams binds what the page filters by, and nothing for an empty filter', () => {
+  assert.deepEqual(journalQueryParams(1, '', [], []), { keyword: null, tags: null, links: null, size: 100, offset: 0 });
+  assert.deepEqual(journalQueryParams(3, 'Cafe', ['food'], ['trip']), {
+    keyword: 'Cafe',
+    tags: ['food'],
+    links: ['trip'],
+    size: 100,
+    offset: 200,
+  });
 });
