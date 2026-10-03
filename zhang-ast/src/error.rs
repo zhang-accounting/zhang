@@ -12,6 +12,8 @@ pub enum ErrorKind {
     TransactionExplicitPostingHaveMultipleCommodity,
 
     AccountBalanceCheckError,
+    /// a `pad` that pads nothing: no later balance assertion of its account needs it
+    UnusedPad,
     AccountDoesNotExist,
     AccountClosed,
 

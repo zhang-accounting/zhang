@@ -281,6 +281,10 @@ impl Ledger {
     ///   pad stage inserting one right after its directive can therefore rely on it
     ///   staying there. Hand-written `P` transactions are balance entries too. A
     ///   balance check materializes into nothing: it changes no balance
+    /// - a `pad` is no balance entry: like beancount, which sorts a day's balances
+    ///   before its pads, a balance on the day of a `pad` comes before it. The
+    ///   padding transaction of a `pad`, dated on it, comes after the balance
+    ///   entries of that day, as the pad stage appends it to the stream
     pub(crate) fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
         fn rank(directive: &Directive) -> u8 {
             match directive {
@@ -342,7 +346,8 @@ impl Ledger {
                 Directive::Close(close) => close.handler(self, &directive.span)?,
                 Directive::Commodity(commodity) => commodity.handler(self, &directive.span)?,
                 Directive::Transaction(trx) => trx.handler(self, &directive.span)?,
-                // the pad stage materialized it into a transaction
+                // the pad stage materialized these into their padding transactions
+                Directive::Pad(_) => {}
                 Directive::BalancePad(_) => {}
                 // books nothing: the check is kept for the journal
                 Directive::BalanceCheck(check) => {

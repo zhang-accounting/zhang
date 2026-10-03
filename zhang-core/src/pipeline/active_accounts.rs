@@ -25,8 +25,9 @@ use crate::ZhangResult;
 ///
 /// It runs before [`PadStage`](crate::pipeline::PadStage) and
 /// [`BalanceCheckStage`](crate::pipeline::BalanceCheckStage): those report the accounts of their
-/// own directives, and the `P`/`C` transactions they synthesize from them do not exist yet here, so
-/// nothing is reported twice. Hand-written `P`/`C` transactions are checked like any other.
+/// own directives (`pad`, `balance` and `balance ... with pad`), and the `P` transactions the pad
+/// stage synthesizes from them do not exist yet here, so nothing is reported twice. Hand-written
+/// `P` transactions are checked like any other.
 pub struct ActiveAccountsStage;
 
 impl ProcessStage for ActiveAccountsStage {

@@ -1069,6 +1069,7 @@ export interface operations {
                   | 'TransactionHasMultipleImplicitPosting'
                   | 'TransactionExplicitPostingHaveMultipleCommodity'
                   | 'AccountBalanceCheckError'
+                  | 'UnusedPad'
                   | 'AccountDoesNotExist'
                   | 'AccountClosed'
                   | 'CommodityDoesNotDefine'

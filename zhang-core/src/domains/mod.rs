@@ -189,6 +189,17 @@ impl Operations {
         Ok(())
     }
 
+    /// `id`, or if a transaction has it already, the first id derived from it that none has. Transactions a
+    /// stage synthesized can share a span, which ids are derived from: the padding transactions of a `pad`
+    /// serving several currencies
+    pub(crate) fn unused_transaction_id(&self, id: Uuid) -> Uuid {
+        let store = self.read();
+        (0..)
+            .map(|n| if n == 0 { id } else { Uuid::from_txn_posting(&id, n) })
+            .find(|candidate| !store.transactions.contains_key(candidate))
+            .expect("an id is free")
+    }
+
     /// record a checked `balance` assertion
     pub(crate) fn insert_balance_assertion(&mut self, assertion: BalanceAssertionDomain) -> ZhangResult<()> {
         let mut store = self.write();

@@ -7,7 +7,7 @@ use strum::{Display, EnumString};
 
 use crate::account::Account;
 use crate::amount::Amount;
-use crate::data::{Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Plugin, Price, Query, Transaction};
+use crate::data::{Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Pad, Plugin, Price, Query, Transaction};
 use crate::error::ErrorKind;
 use crate::{BalanceCheck, BalancePad, Budget, BudgetAdd, BudgetClose, BudgetTransfer, Meta};
 
@@ -19,6 +19,7 @@ pub enum DirectiveType {
     Transaction,
     BalancePad,
     BalanceCheck,
+    Pad,
     Note,
     Document,
     Price,
@@ -44,6 +45,7 @@ pub enum Directive {
     Transaction(Transaction),
     BalancePad(BalancePad),
     BalanceCheck(BalanceCheck),
+    Pad(Pad),
     Note(Note),
     Document(Document),
     Price(Price),
@@ -70,6 +72,7 @@ impl Directive {
             Directive::Transaction(txn) => Some(txn.date.naive_datetime()),
             Directive::BalanceCheck(check) => Some(check.date.naive_datetime()),
             Directive::BalancePad(pad) => Some(pad.date.naive_datetime()),
+            Directive::Pad(pad) => Some(pad.date.naive_datetime()),
             Directive::Note(note) => Some(note.date.naive_datetime()),
             Directive::Document(document) => Some(document.date.naive_datetime()),
             Directive::Price(price) => Some(price.date.naive_datetime()),
@@ -105,6 +108,7 @@ impl Directive {
             Directive::Comment(_) => DirectiveType::Comment,
             Directive::BalancePad(_) => DirectiveType::BalancePad,
             Directive::BalanceCheck(_) => DirectiveType::BalanceCheck,
+            Directive::Pad(_) => DirectiveType::Pad,
             Directive::Budget(_) => DirectiveType::Budget,
             Directive::BudgetAdd(_) => DirectiveType::BudgetAdd,
             Directive::BudgetTransfer(_) => DirectiveType::BudgetTransfer,
@@ -120,6 +124,7 @@ impl Directive {
             Directive::Transaction(ref mut directive) => directive.meta = meta,
             Directive::BalancePad(ref mut directive) => directive.meta = meta,
             Directive::BalanceCheck(ref mut directive) => directive.meta = meta,
+            Directive::Pad(ref mut directive) => directive.meta = meta,
             Directive::Note(ref mut directive) => directive.meta = meta,
             Directive::Document(ref mut directive) => directive.meta = meta,
             Directive::Price(ref mut directive) => directive.meta = meta,
@@ -147,6 +152,7 @@ impl Directive {
             Directive::Transaction(directive) => Some(&mut directive.meta),
             Directive::BalancePad(directive) => Some(&mut directive.meta),
             Directive::BalanceCheck(directive) => Some(&mut directive.meta),
+            Directive::Pad(directive) => Some(&mut directive.meta),
             Directive::Note(directive) => Some(&mut directive.meta),
             Directive::Document(directive) => Some(&mut directive.meta),
             Directive::Price(directive) => Some(&mut directive.meta),

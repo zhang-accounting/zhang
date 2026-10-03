@@ -256,6 +256,18 @@ impl ZhangDataTypeExportable for BalanceCheck {
         append_meta_as(meta, line.join(" "), style)
     }
 }
+impl ZhangDataTypeExportable for Pad {
+    type Output = String;
+    fn export_as(self, style: QuoteStyle) -> String {
+        let line = [
+            self.date.export_as(style),
+            "pad".to_string(),
+            self.account.export_as(style),
+            self.pad.export_as(style),
+        ];
+        append_meta_as(self.meta, line.join(" "), style)
+    }
+}
 
 /// The `#tag` and `^link` words of a note or document, each sorted by name (the AST
 /// keeps them in sets).
@@ -420,6 +432,7 @@ impl ZhangDataTypeExportable for Directive {
             Directive::Transaction(txn) => txn.export_as(style),
             Directive::BalancePad(pad) => pad.export_as(style),
             Directive::BalanceCheck(check) => check.export_as(style),
+            Directive::Pad(pad) => pad.export_as(style),
             Directive::Note(note) => note.export_as(style),
             Directive::Document(document) => document.export_as(style),
             Directive::Price(price) => price.export_as(style),
@@ -501,6 +514,12 @@ mod test {
             "balance pad",
             indoc! {r#"
             1970-01-01 balance Assets:hello 10 CNY with pad Income:Salary
+        "#}
+        );
+        assert_parse!(
+            "pad",
+            indoc! {r#"
+            1970-01-01 pad Assets:hello Equity:Opening-Balances
         "#}
         );
     }

@@ -286,6 +286,45 @@ async fn an_assertion_on_a_parent_account_is_checked_against_its_sub_accounts_to
 }
 
 #[tokio::test]
+async fn the_padding_of_a_pad_is_listed_on_the_date_of_the_pad() {
+    let scratch = Scratch::new(
+        r#"option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Equity:Open
+1970-01-01 open Expenses:Food
+2024-01-01 pad Assets:Bank Equity:Open
+2024-01-10 * "Shop" "lunch"
+  Assets:Bank -30 CNY
+  Expenses:Food
+2024-02-01 balance Assets:Bank 70 CNY
+"#,
+    );
+    let journals = scratch.journals(None, None, None, None).await;
+    let records = journals["records"].as_array().unwrap();
+    let described = records
+        .iter()
+        .map(|it| (it["type"].as_str().unwrap().to_owned(), it["datetime"].as_str().unwrap().to_owned()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        described,
+        vec![
+            ("BalanceCheck".to_owned(), "2024-02-01T00:00:00".to_owned()),
+            ("Transaction".to_owned(), "2024-01-10T00:00:00".to_owned()),
+            ("BalancePad".to_owned(), "2024-01-01T00:00:00".to_owned()),
+        ]
+    );
+    let pad = &records[2];
+    assert_eq!(number(&pad["postings"][0]["inferred_unit"]["number"]), decimal("100"));
+    assert_eq!(records[0]["passed"], true);
+
+    // the running balance includes the padding from the date of the pad
+    let rows = scratch.account_journals("Assets:Bank").await;
+    let balances = rows.iter().map(|row| number(&row["account_after"]["number"])).collect::<Vec<_>>();
+    assert_eq!(balances, vec![decimal("70"), decimal("70"), decimal("100")]);
+}
+
+#[tokio::test]
 async fn a_c_flagged_transaction_is_an_ordinary_transaction() {
     let scratch = Scratch::new(
         r#"option "operating_currency" "CNY"

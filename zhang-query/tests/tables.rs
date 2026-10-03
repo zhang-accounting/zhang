@@ -414,6 +414,36 @@ fn a_balance_discrepancy_is_measured_from_the_postings() {
 }
 
 #[test]
+fn a_pad_is_an_entry_and_its_padding_a_transaction_on_its_date() {
+    let ledger = common::load_text(
+        "1970-01-01 open Assets:Bank\n1970-01-01 open Assets:Cash\n1970-01-01 open Equity:Opening\n\
+         2024-01-01 pad Assets:Bank Equity:Opening\n\
+         2024-01-01 pad Assets:Cash Equity:Opening\n\
+         2024-02-01 balance Assets:Bank 100 CNY\n",
+    );
+    let query = |sql: &str| -> Vec<Vec<String>> {
+        let result = Query::compile(sql)
+            .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
+            .unwrap_or_else(|err| panic!("{}: {}", sql, err));
+        result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
+    };
+    assert_eq!(
+        query("SELECT date, type, flag, accounts FROM #entries WHERE type IN ('pad', 'transaction', 'balance')"),
+        rows(&[
+            &["2024-01-01", "transaction", "P", "Assets:Bank, Equity:Opening"],
+            &["2024-01-01", "pad", "NULL", "Assets:Bank, Equity:Opening"],
+            &["2024-01-01", "pad", "NULL", "Assets:Cash, Equity:Opening"],
+            &["2024-02-01", "balance", "NULL", "Assets:Bank"],
+        ])
+    );
+    // the pad of Assets:Cash serves no assertion
+    assert_eq!(
+        query("SELECT kind, account, message FROM #errors"),
+        rows(&[&["UnusedPad", "Assets:Cash", "Pad is not used by any later balance assertion of its account"]])
+    );
+}
+
+#[test]
 fn notes_documents_and_commodities() {
     assert_eq!(
         on_directives("SELECT * FROM #notes"),
