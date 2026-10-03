@@ -10,6 +10,7 @@
 //! - [`clock`] gives the date of the load and deterministic randomness;
 //! - [`fs`] reads the ledger files the plugin's `allowed_paths` grant;
 //! - [`errors`] reports problems in the ledger's error list;
+//! - [`prices`] gives exchange rates from the stream's `price` directives, as zhang computes them;
 //! - [`router`] serves HTTP requests and queries the ledger.
 //!
 //! ```no_run
@@ -55,8 +56,8 @@
 //!
 //! A plugin only imports the host functions it calls, and a plugin importing one fails to load on a zhang that
 //! does not have it. Everything here needs a zhang with plugin ABI v1 (the release after 0.2.0) except
-//! [`plugin!`] with a processor or mapper and the flat config keys ([`Config::get`](config::Config::get)),
-//! which work since 0.2.0.
+//! [`plugin!`] with a processor or mapper, the flat config keys ([`Config::get`](config::Config::get)) and
+//! [`prices`], which work since 0.2.0.
 
 mod abi;
 pub mod clock;
@@ -65,6 +66,7 @@ pub mod custom;
 mod error;
 pub mod errors;
 pub mod fs;
+pub mod prices;
 pub mod router;
 
 pub use bigdecimal;
@@ -88,6 +90,7 @@ pub const ABI_VERSION: u32 = 1;
 /// The common imports of a plugin.
 pub mod prelude {
     pub use crate::config::{Config, Source, Values};
+    pub use crate::prices::PriceMap;
     pub use crate::router::{Request, Response};
     pub use crate::{clock, custom, errors, fs, plugin, router, Directive, Error, HostError, HostErrorKind, Meta, SpanInfo, Spanned, Stream};
 }
