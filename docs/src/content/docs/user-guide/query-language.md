@@ -241,7 +241,7 @@ HAVING sum(number) > 1000
 - `LIMIT 0` returns no rows, and an offset past the end returns no rows either.
 - A parameter must be bound to an integer. A negative or `NULL` value, or an offset and limit whose sum does not fit in 64 bits, is an error at the parameter, never a silently different window.
 - Without `ORDER BY`, the rows come in ledger order, so a page is stable as long as the ledger does not change.
-- Pages are cheap: without `ORDER BY` the query stops once it has the rows it keeps, and with `ORDER BY` it keeps only the first `OFFSET + LIMIT` rows while it scans instead of sorting them all.
+- Pages are cheap: without `ORDER BY` the query only counts the rows before `OFFSET`, without building them, and stops once it has the rows it keeps, so a page holds its own rows only; with `ORDER BY` it keeps only the first `OFFSET + LIMIT` rows while it scans instead of sorting them all.
 
 A query can also ask for the total number of rows before `LIMIT` and `OFFSET`, for example to show the number of pages: the `count_total` option of the Rust API, and of [`POST /api/query`](#run-a-query). Rows past the window are only counted, not built.
 
