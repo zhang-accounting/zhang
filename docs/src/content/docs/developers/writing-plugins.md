@@ -104,7 +104,7 @@ What a plugin sees:
 - **Transactions as written, before booking.** A posting written without an amount has no amount yet, and costs are not matched to lots. A later version of Zhang will offer plugins a booked view as well; this guide will say so when it lands.
 - The `balance` directives themselves, but not the padding transactions (flag `P`) the pad stage creates: it runs after the plugins.
 
-**Why plugins run before pad and balance check.** In Zhang, `balance … with pad` is a single assert-and-fill directive. Running plugins first means a pad is sized after every transaction a plugin adds, so the account always ends at the amount you wrote. Beancount runs `pad` before plugins and re-checks `balance` after them; Zhang has no second check, so if pad ran first, a transaction a plugin adds to a padded account would silently move the balance. For a working beancount ledger the padded amount is the same either way. Only a plugin that inspects the padding transactions themselves notices the difference, and it still sees the `balance` directive.
+**Why plugins run before pad and balance check.** In Zhang, `balance … with pad` is a single assert-and-fill directive. Running plugins first means a pad is sized after every transaction a plugin adds, so the account always ends at the amount you wrote. Beancount runs `pad` before plugins and checks `balance` after them, so there a transaction a plugin adds to a padded account makes the assertion fail. For a working beancount ledger the padded amount is the same either way. Only a plugin that inspects the padding transactions themselves notices the difference, and it still sees the `balance` directive.
 
 ## Quickstart with the Rust SDK
 

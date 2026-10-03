@@ -122,5 +122,5 @@ When the ledger cannot be loaded at startup, for example because of a syntax err
 ## Next steps
 
 - [Your First Ledger](/getting-started/first-ledger/) writes a small ledger and tours the web UI.
-- [Launching with beancount data](/getting-started/from-beancount/) explains how to serve an existing beancount ledger.
+- [Coming from Beancount](/getting-started/from-beancount/) explains how to serve an existing beancount ledger.
 - [Authentication](/deployment/authentication/) protects an instance that others can reach.

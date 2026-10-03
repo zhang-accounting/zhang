@@ -1,12 +1,26 @@
 ---
 title: Router Plugins
 description: How a WASM plugin serves its own HTTP endpoints under /api/plugins/{name}, the request and response JSON it exchanges with Zhang, and the zhang_query host function it reads the ledger with.
+sidebar:
+  order: 8
 ---
 
-A plugin that declares the `Router` type answers HTTP requests itself, so it can serve a custom report page, a chart's data or a small API next to Zhang's own. Like every plugin it is a WebAssembly module built with [Extism](https://extism.org/), and plugins must be enabled with `option "features.plugin" "true"`.
+A plugin that declares the `Router` type answers HTTP requests itself, so it can serve a custom report page, a chart's data or a small API next to Zhang's own. Like every plugin it is a WebAssembly module built with [Extism](https://extism.org/). Router plugins can read the ledger but not change it.
+
+## Use a router plugin
+
+Enable plugins and declare the router plugin like any other, as [Using Plugins](/guides/plugins/) describes:
+
+```zhang
+option "features.plugin" "true"
+
+plugin "plugins/report.wasm"
+```
+
+The **Settings** page lists it with an **Open** link to its pages. The rest of this page is for plugin authors: how requests reach the plugin and what it answers.
 
 :::note[Writing plugins]
-Router plugins can read the ledger but not change it. [Writing Plugins](/developer-guides/plugins/) covers every plugin type, the `plugin` directive and its capabilities, and the Rust SDK, whose `router` module wraps everything on this page.
+[Writing Plugins](/developers/writing-plugins/) covers every plugin type, the `plugin` directive and its capabilities, and the Rust SDK, whose `router` module wraps everything on this page.
 :::
 
 ## Route
@@ -16,7 +30,7 @@ A router plugin serves `/api/plugins/{name}` and every path below it, for any HT
 - `/api/plugins/report` and `/api/plugins/report/` reach the plugin with the path `/`.
 - `/api/plugins/report/by-month?year=2024` reaches it with the path `/by-month` and the query `{"year": ["2024"]}`.
 
-The routes sit behind the same [authentication](/installation/3-authentication/) as the rest of the API: with sign-in enabled, a request needs a session (or the Basic header a script sends), whatever its method. When two router plugins have the same name, the first one declared serves the route and Zhang logs a warning.
+The routes sit behind the same [authentication](/deployment/authentication/) as the rest of the API: with sign-in enabled, a request needs a session (or the Basic header a script sends), whatever its method. When two router plugins have the same name, the first one declared serves the route and Zhang logs a warning.
 
 ## The `router` export
 
@@ -57,10 +71,10 @@ Its output is the response as JSON. Every field is optional:
 
 A router plugin reads the ledger through host functions in the `extism:host/user` namespace. Each one returns JSON, either `{"Ok": value}` or `{"Err": {"kind": "...", "message": "..."}}`, and reports problems as values instead of failing the plugin.
 
-- `zhang_query(bql)` runs a read-only [query](/user-guide/query-language/) and returns what `POST /api/query` returns in `data`: `{"columns": [{"name", "type"}], "rows": [[...]]}`. It has the same time and result size limits. A query that fails gives the kind `query`, with `message`, `line` and `column`.
-- `zhang_ledger_info()` returns `{"title": "...", "operating_currency": "CNY", "timezone": "Asia/Shanghai"}`.
+- `zhang_query(bql)` runs a read-only [query](/reference/query-language/) and returns what `POST /api/query` returns in `data`: `{"columns": [{"name", "type"}], "rows": [[...]]}`. It has the same time and result size limits. A query that fails gives the kind `query`, with `message`, `line` and `column`.
+- `zhang_ledger_info()` returns `{"title": "...", "operating_currency": "CNY", "timezone": "Asia/Shanghai"}`, with a `title` of `null` when the ledger sets no `title` option.
 
-In Rust with the plain Extism PDK (the [Rust SDK](/developer-guides/plugins/#router-plugins) wraps this as `router::query`):
+In Rust with the plain Extism PDK (the [Rust SDK](/developers/writing-plugins/#router-plugins) wraps this as `router::query`):
 
 ```rust
 use extism_pdk::*;
@@ -87,7 +101,7 @@ These functions answer only while `router` runs. A plugin that is also a `Proces
 
 ## Isolation and errors
 
-Every request runs in a fresh instance of the plugin, so nothing is kept between requests. The plugin gets the same config, `allowed_hosts` and `timeout` as its processor: a request running longer than 60 seconds, or the `timeout` meta of its `plugin` directive, is stopped. While it runs the ledger does not reload.
+Every request runs in a fresh instance of the plugin, so nothing is kept between requests. The plugin gets the same config, `allowed_hosts` and `timeout` as its processor: a request running longer than 60 seconds, or the `timeout` meta of its `plugin` directive, is stopped. It cannot read files, whatever its `allowed_paths`: `zhang_read_file` and `zhang_list_dir` answer `denied` in a router. While it runs the ledger does not reload.
 
 When the plugin cannot answer, Zhang responds with JSON `{"message": "..."}` and logs the details:
 
