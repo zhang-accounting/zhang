@@ -8,13 +8,15 @@
 //! table computes each column when it is read, and its builder may skip work that only
 //! unprojected columns need. For the `postings` table:
 //!
-//! - Lot booking always runs over every posting held at cost: the lot a posting reduces
-//!   depends on all earlier postings, and how a reduction splits across lots decides the
-//!   rows themselves (their number and units), so even `SELECT count(*)` needs it. Only
-//!   whether the booked rows *carry* the cost of their lot depends on the projection
-//!   (`position`, `cost_*`, `weight`).
-//! - The price annotation (`price`, `weight`) is derived from the parsed directive (a
-//!   division for `@@` totals) only when projected.
+//! - Lot booking runs over every posting held at cost: the lot a posting reduces depends on
+//!   all earlier postings, and how a reduction splits across lots decides the rows themselves
+//!   (their number and units), so even `SELECT count(*)` needs it. It runs once per loaded
+//!   ledger, whatever the projection, and its rows are kept with the ledger
+//!   ([`crate::table::LedgerCache`]). Only whether an execution's rows *carry* the cost of
+//!   their lot depends on the projection (`position`, `cost_*`, `weight`), and so does the
+//!   price annotation (`price`, `weight`).
+//! - The balance of the posting's account after it (`account_balance`) is only summed when
+//!   projected.
 //! - Transaction columns (`id`, `flag`, `payee`, `narration`, `description`, `tags`,
 //!   `links`, `other_accounts`) are never copied up front: a row points at the stored
 //!   transaction and a column reads it when it is evaluated.
@@ -142,7 +144,7 @@ fn total_function(expr: &CExpr) -> bool {
 
 /// Whether evaluating the expression can never fail, so evaluating it for fewer rows
 /// changes nothing but the work done.
-fn infallible(expr: &CExpr) -> bool {
+pub(crate) fn infallible(expr: &CExpr) -> bool {
     let node = match expr {
         CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) | CExpr::Target(_) => true,
         CExpr::Not(_) | CExpr::And(_) | CExpr::Or(_) | CExpr::Compare { .. } | CExpr::InSet { .. } | CExpr::InList { .. } | CExpr::IsNull { .. } => true,
@@ -193,6 +195,7 @@ impl Projection {
             projection.columns |= projection.bit(column);
             projection.reads.cost |= column.reads.cost;
             projection.reads.price |= column.reads.price;
+            projection.reads.account_balance |= column.reads.account_balance;
         }
         projection
     }
@@ -230,6 +233,11 @@ impl Projection {
     /// Whether rows keep the price annotation of their posting.
     pub fn keeps_price(&self) -> bool {
         self.reads.price
+    }
+
+    /// Whether rows carry the running balance of their account.
+    pub fn keeps_account_balance(&self) -> bool {
+        self.reads.account_balance
     }
 
     /// The projected column names, in name order (like [`Plan::referenced_columns`]).
@@ -297,7 +305,7 @@ mod tests {
     use super::*;
     use crate::executor::{execute, Budget, RegexCache};
     use crate::params::Params;
-    use crate::table::{column, Dataset, Limits, Record, COLUMNS};
+    use crate::table::{column, Dataset, Limits, Record, Scope, COLUMNS};
     use crate::Query;
 
     fn load(dir: PathBuf) -> Ledger {
@@ -446,6 +454,7 @@ option "operating_currency" "USD"
             &store,
             today,
             projection.unwrap_or(query.projection),
+            &Scope::All,
             &mut Limits::new(None, &mut budget),
         )
         .unwrap();
@@ -486,6 +495,7 @@ option "operating_currency" "USD"
                 &store,
                 today,
                 Query::compile(sql).unwrap().projection,
+                &Scope::All,
                 &mut Limits::new(None, &mut budget),
             )
             .unwrap();
@@ -535,11 +545,11 @@ option "operating_currency" "USD"
         assert_eq!(projection.names(), vec!["payee", "position", "price", "tags"]);
         assert!(projection.keeps_cost() && projection.keeps_price());
         assert!(projection.contains(column("tags").unwrap()) && !projection.contains(column("account").unwrap()));
-        assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 24 columns)");
+        assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 31 columns)");
 
         let projection = Query::compile("SELECT count(*), sum(number) WHERE account ~ 'Food'").unwrap().projection;
         assert!(!projection.keeps_cost() && !projection.keeps_price());
-        assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 24 columns)");
+        assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 31 columns)");
         assert_eq!(Projection::all().names().len(), COLUMNS.len());
     }
 
@@ -581,6 +591,6 @@ option "operating_currency" "USD"
                 };
             }
         }
-        assert_eq!(checked, data.rows.len() * 9);
+        assert_eq!(checked, data.rows.len() * 10);
     }
 }

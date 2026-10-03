@@ -186,10 +186,10 @@ impl RunningState {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
     use std::str::FromStr;
 
     use super::*;
+    use crate::table::MaybeOwned;
     use crate::value::Cost;
 
     fn row(number: &str, currency: &str, cost: Option<&str>) -> Row<'static> {
@@ -197,14 +197,17 @@ mod tests {
             entry: 0,
             posting_index: 0,
             account: "Assets:Broker",
-            units: Cow::Owned(Amount::new(BigDecimal::from_str(number).unwrap(), currency)),
-            cost: cost.map(|cost| Cost {
-                number: BigDecimal::from_str(cost).unwrap(),
-                currency: "USD".to_owned(),
-                date: None,
-                label: None,
+            units: MaybeOwned::owned(Amount::new(BigDecimal::from_str(number).unwrap(), currency)),
+            cost: cost.map(|cost| {
+                MaybeOwned::owned(Cost {
+                    number: BigDecimal::from_str(cost).unwrap(),
+                    currency: "USD".to_owned(),
+                    date: None,
+                    label: None,
+                })
             }),
             price: None,
+            account_balance: None,
         }
     }
 

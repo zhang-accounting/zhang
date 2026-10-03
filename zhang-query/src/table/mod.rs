@@ -10,7 +10,9 @@
 //! There are three kinds of row sources:
 //!
 //! - [`Rows::Postings`]: the `postings` table ([`postings`]), the default when a query names
-//!   no table. Its rows are booked postings ([`Row`]) built for the query's projection.
+//!   no table. Its rows are booked postings ([`Row`]), assembled for the query's projection
+//!   from the rows booked once per loaded ledger ([`LedgerCache`]), and only those of the
+//!   accounts the query is scoped to ([`Scope`]).
 //! - [`Rows::Records`]: every other table. A builder walks the ledger once and returns one
 //!   [`Record`] per row, which only borrows the ledger and the store; its columns are computed
 //!   when an expression reads them. A builder may skip work that only unprojected columns
@@ -31,6 +33,7 @@
 
 mod accounts;
 mod budgets;
+mod cache;
 mod directives;
 mod entries;
 mod errors;
@@ -48,8 +51,9 @@ use zhang_ast::{Directive, Meta, Spanned};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
+pub(crate) use self::cache::LedgerCache;
 pub use self::postings::COLUMNS;
-pub(crate) use self::postings::{position, Entry, Row, BALANCE_COLUMN};
+pub(crate) use self::postings::{position, Entry, MaybeOwned, Row, Scope, BALANCE_COLUMN};
 use crate::error::LocatedError;
 use crate::executor::{Budget, Deadline};
 use crate::prices::PriceMap;
@@ -98,7 +102,7 @@ impl Table {
 
 /// How a table produces its rows.
 pub(crate) enum Rows {
-    /// booked postings (see [`Dataset::new`])
+    /// booked postings (see [`Dataset::postings`])
     Postings,
     /// one [`Record`] per row, built for a projection
     Records(RecordSource),
@@ -231,21 +235,32 @@ pub(crate) enum Get {
     Record(fn(&Dataset<'_>, &Record<'_>) -> Value),
 }
 
-/// The parts of a booked row that only some columns read (see [`Row::cost`], [`Row::price`]).
+/// The parts of a booked row that only some columns read (see [`Row::cost`], [`Row::price`],
+/// [`Row::account_balance`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Reads {
     /// the cost of the posting's lot
     pub cost: bool,
     /// the price annotation of the posting
     pub price: bool,
+    /// the running balance of the posting's account (which sums positions, so also the cost)
+    pub account_balance: bool,
 }
 
 impl Reads {
     /// only the posting and its transaction (and every column of a record table)
-    pub(crate) const POSTING: Reads = Reads { cost: false, price: false };
-    pub(crate) const COST: Reads = Reads { cost: true, price: false };
-    pub(crate) const PRICE: Reads = Reads { cost: false, price: true };
-    pub(crate) const COST_AND_PRICE: Reads = Reads { cost: true, price: true };
+    pub(crate) const POSTING: Reads = Reads {
+        cost: false,
+        price: false,
+        account_balance: false,
+    };
+    pub(crate) const COST: Reads = Reads { cost: true, ..Reads::POSTING };
+    pub(crate) const PRICE: Reads = Reads { price: true, ..Reads::POSTING };
+    pub(crate) const COST_AND_PRICE: Reads = Reads { price: true, ..Reads::COST };
+    pub(crate) const ACCOUNT_BALANCE: Reads = Reads {
+        account_balance: true,
+        ..Reads::COST
+    };
 }
 
 /// In-place access to a column, for predicates that only inspect the value.
@@ -264,6 +279,11 @@ pub(crate) enum Borrow {
 pub(crate) enum Record<'a> {
     /// a dated directive of the processed ledger
     Directive(&'a Spanned<Directive>),
+    /// a row of `#entries` or `#transactions`: a directive with its place in the ledger
+    Entry {
+        directive: &'a Spanned<Directive>,
+        info: &'a cache::EntryInfo,
+    },
     /// a balance assertion (`balance`, or `balance ... with pad`) and, when the projection
     /// reads it, the true balance of its account at the assertion
     Balance {
@@ -291,7 +311,7 @@ impl<'a> Record<'a> {
     /// record table (an account reads the metadata of its `open`, else of its `close`).
     fn metadata(&self) -> Option<&'a Meta> {
         match self {
-            Record::Directive(directive) | Record::Balance { directive, .. } => directive_meta(&directive.data),
+            Record::Directive(directive) | Record::Balance { directive, .. } | Record::Entry { directive, .. } => directive_meta(&directive.data),
             Record::Account { open, close, .. } => open.or(*close).and_then(|directive| directive_meta(&directive.data)),
             Record::Document(document) => Some(document.metadata()),
             Record::Budget(month) => month.metadata(),
@@ -388,16 +408,22 @@ pub(crate) struct Dataset<'a> {
     pub records: Vec<Record<'a>>,
     pub today: NaiveDate,
     pub projection: Projection,
+    ledger: &'a Ledger,
     store: &'a Store,
-    prices: OnceCell<PriceMap>,
+    /// what every query of the ledger shares (see [`LedgerCache`])
+    cache: &'a LedgerCache,
     store_meta: OnceCell<HashMap<&'a str, Vec<(&'a str, &'a str)>>>,
 }
 
 impl<'a> Dataset<'a> {
-    /// The rows of the projection's table; generated rows count against `limits`.
-    pub fn build(ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection, limits: &mut Limits<'_>) -> Result<Self, LocatedError> {
+    /// The rows of the projection's table (of the `postings` table, those in `scope`);
+    /// generated rows count against `limits`.
+    pub fn build(
+        ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection, scope: &Scope, limits: &mut Limits<'_>,
+    ) -> Result<Self, LocatedError> {
+        let cache = LedgerCache::of(ledger, store);
         let records = match projection.table().rows {
-            Rows::Postings => return Ok(Dataset::new(ledger, store, today, projection)),
+            Rows::Postings => return Ok(Dataset::postings(ledger, store, cache, today, projection, scope)),
             Rows::Records(source) => source(ledger, store, projection),
             Rows::Generated(source) => source(ledger, store, projection, limits)?,
         };
@@ -408,8 +434,9 @@ impl<'a> Dataset<'a> {
             records,
             today,
             projection,
+            ledger,
             store,
-            prices: OnceCell::new(),
+            cache,
             store_meta: OnceCell::new(),
         })
     }
@@ -435,8 +462,19 @@ impl<'a> Dataset<'a> {
         (0..self.len()).map(|idx| self.row(idx))
     }
 
+    /// The ledger's price map, built once per loaded ledger.
     pub fn prices(&self) -> &PriceMap {
-        self.prices.get_or_init(|| PriceMap::from_prices(&self.store.prices))
+        self.cache.prices(self.store)
+    }
+
+    /// The `#entries` / `#transactions` rows of the ledger.
+    pub(crate) fn entry_table(&self) -> &'a cache::Entries {
+        self.cache.entries(self.ledger, self.store)
+    }
+
+    /// The `id` of the `#entries` row `seq`.
+    pub(crate) fn entry_id(&self, seq: u32) -> &'a str {
+        self.cache.entry_id(self.ledger, self.entry_table(), seq)
     }
 
     /// What `meta(key)` reads at `row`: the posting's metadata, or a record's own metadata.

@@ -14,9 +14,9 @@ use crate::ast::{self, BinaryOp, Expr, ExprKind, InTarget, Literal, LogicalOp, S
 use crate::error::{LocatedError, Span};
 use crate::functions::aggregates::{is_aggregate, resolve_aggregate};
 use crate::functions::{resolve_scalar, AggregateFunction, ScalarFunction};
-use crate::params::{ParamRef, ParamTypes};
+use crate::params::{ParamRef, ParamTypes, Params};
 use crate::period::{Period, PeriodDate};
-use crate::table::{self, ColumnDef, Table, BALANCE_COLUMN, POSTINGS};
+use crate::table::{self, ColumnDef, Scope, Table, BALANCE_COLUMN, POSTINGS};
 use crate::value::{DataType, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,6 +188,81 @@ impl RunningPlan {
     }
 }
 
+/// The accounts whose rows of the `postings` table an execution reads: the plan's filter can
+/// only hold for their rows (see [`crate::optimizer::account_scope`]), so the others are never
+/// built. The filter still applies to the rows of these accounts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AccountScope {
+    /// the union of these accounts
+    pub accounts: Vec<ScopedAccount>,
+}
+
+/// Accounts of an [`AccountScope`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ScopedAccount {
+    /// the accounts a value names (`account = x`, `account IN (x, ...)`, `account IN :set`)
+    Named(ScopeValue),
+    /// the accounts a value names, with their sub-accounts (`under(account, x)`)
+    Under(ScopeValue),
+}
+
+/// The value that names the accounts of a [`ScopedAccount`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ScopeValue {
+    /// a constant: a string, a set of strings, or NULL (no account)
+    Const(Value),
+    /// a string or set parameter, read when the query executes
+    Param(ParamRef),
+}
+
+impl AccountScope {
+    /// The rows of one execution, with the parameters bound.
+    pub fn resolve(&self, params: &Params) -> Scope {
+        let mut exact = BTreeSet::new();
+        let mut subtrees = vec![];
+        for account in &self.accounts {
+            let (value, under) = match account {
+                ScopedAccount::Named(value) => (value, false),
+                ScopedAccount::Under(value) => (value, true),
+            };
+            let value = match value {
+                ScopeValue::Const(value) => Some(value),
+                ScopeValue::Param(param) => params.get(param),
+            };
+            match value {
+                Some(Value::Str(name)) if under => subtrees.push(name.clone()),
+                Some(Value::Str(name)) => {
+                    exact.insert(name.clone());
+                }
+                Some(Value::Set(names)) if !under => exact.extend(names.iter().cloned()),
+                // NULL names no account: the filter holds for no row
+                _ => {}
+            }
+        }
+        Scope::Accounts { exact, subtrees }
+    }
+}
+
+/// `'Assets:Bank', :accounts, under 'Expenses'`
+impl fmt::Display for AccountScope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (idx, account) in self.accounts.iter().enumerate() {
+            if idx > 0 {
+                f.write_str(", ")?;
+            }
+            let (value, under) = match account {
+                ScopedAccount::Named(value) => (value, ""),
+                ScopedAccount::Under(value) => (value, "under "),
+            };
+            match value {
+                ScopeValue::Const(value) => write!(f, "{}{}", under, CExpr::Const(value.clone()))?,
+                ScopeValue::Param(param) => write!(f, "{}{}", under, param)?,
+            }
+        }
+        Ok(())
+    }
+}
+
 /// The execution strategy chosen for a plan. [`Execution::naive`] evaluates every expression
 /// for every row and applies LIMIT to the sorted rows (stopping early only without ORDER BY
 /// and DISTINCT), which is what the optimizer and projector decisions must agree with.
@@ -197,6 +272,8 @@ pub(crate) struct Execution {
     pub limit: LimitMode,
     /// the linear functions of `balance` the optimizer turned into running sums
     pub rewrites: Vec<Running>,
+    /// the accounts the rows are limited to; `None` reads every row
+    pub scope: Option<AccountScope>,
 }
 
 impl Execution {
@@ -214,6 +291,7 @@ impl Execution {
                 LimitMode::AfterSort
             },
             rewrites: vec![],
+            scope: None,
         }
     }
 }
@@ -1394,6 +1472,9 @@ impl fmt::Display for Plan {
         }
         for rewrite in &self.execution.rewrites {
             writeln!(f, "rewrite: {} -> running {}", rewrite.expression(), rewrite.name())?;
+        }
+        if let Some(scope) = &self.execution.scope {
+            writeln!(f, "scan: the rows of the accounts {}", scope)?;
         }
         let running = &self.execution.running;
         if running.used() {

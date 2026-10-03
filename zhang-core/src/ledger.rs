@@ -14,6 +14,7 @@ use zhang_ast::{Directive, Flag, Options, Plugin, SpanInfo, Spanned};
 use crate::booking::Booker;
 use crate::clock::{Clock, LoadClock};
 use crate::data_source::DataSource;
+use crate::derived::Derived;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::inputs::ExtraInput;
@@ -52,6 +53,10 @@ pub struct Ledger {
 
     /// the clock of this load, read at most once, on first use; a reload starts a new reading of the same [`Clock`]
     pub(crate) clock: LoadClock,
+
+    /// what readers compute from this ledger once and keep with it, such as the query engine's booked postings; a
+    /// reload replaces the ledger, and starts this empty
+    pub derived: Derived,
 
     #[cfg(feature = "plugin_runtime")]
     pub plugins: crate::plugin::store::PluginStore,
@@ -167,6 +172,7 @@ impl Ledger {
             booker: None,
             reported_undefined_budgets: HashSet::new(),
             clock: LoadClock::new(context.clock),
+            derived: Derived::default(),
             #[cfg(feature = "plugin_runtime")]
             plugins: crate::plugin::store::PluginStore::default(),
         };

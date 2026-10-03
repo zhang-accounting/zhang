@@ -84,9 +84,8 @@ use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
 use super::directives::{date_of, fold_order};
-use super::{ledger_file, position, ColumnDef, Dataset, Limits, Record, Rows, Table, POSTINGS};
+use super::{ledger_file, position, ColumnDef, Dataset, LedgerCache, Limits, Record, Rows, Scope, Table, POSTINGS};
 use crate::error::{LocatedError, QueryErrorKind};
-use crate::functions::scalars::valuation;
 use crate::prices::PriceMap;
 use crate::projector::Projection;
 use crate::value::{DataType, Position, Value};
@@ -274,7 +273,7 @@ fn in_commodity(position: &Position, commodity: &str, prices: &PriceMap, date: N
     if position.units.commodity == commodity {
         return Some(position.units.number.clone());
     }
-    let converted = valuation::convert_position(position, commodity, prices, Some(date));
+    let converted = position.convert(commodity, prices, Some(date));
     (converted.commodity == commodity).then_some(converted.number)
 }
 
@@ -283,7 +282,7 @@ fn in_commodity(position: &Position, commodity: &str, prices: &PriceMap, date: N
 fn booked_postings<'a>(ledger: &'a Ledger, store: &'a Store) -> Dataset<'a> {
     let projection = Projection::of_columns(&POSTINGS, POSTINGS.column("position").into_iter());
     // `today` is only read by `today()`, which nothing evaluates on these rows
-    Dataset::new(ledger, store, NaiveDate::MIN, projection)
+    Dataset::postings(ledger, store, LedgerCache::of(ledger, store), NaiveDate::MIN, projection, &Scope::All)
 }
 
 /// The activity of every budget per month (`(budget, first day of the month)`): the booked
