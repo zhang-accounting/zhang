@@ -1,5 +1,70 @@
 {
+  "cross_file": {
+    "accepted_deviation": null,
+    "assertions": [
+      {
+        "account": "Assets:Bank",
+        "amount": {
+          "currency": "CNY",
+          "number": "1000"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "1000"
+        },
+        "date": "2024-01-05",
+        "passed": true
+      },
+      {
+        "account": "Assets:Cash",
+        "amount": {
+          "currency": "CNY",
+          "number": "20"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "20"
+        },
+        "date": "2024-01-06",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:Bank": {
+        "CNY": "1000"
+      },
+      "Assets:Cash": {
+        "CNY": "20"
+      },
+      "Equity:Open": {
+        "CNY": "-1020"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:Bank",
+        "date": "2024-01-01",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "1000"
+        }
+      },
+      {
+        "account": "Assets:Cash",
+        "date": "2024-01-02",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "20"
+        }
+      }
+    ],
+    "unused_pads": []
+  },
   "failing_assertion": {
+    "accepted_deviation": null,
     "assertions": [
       {
         "account": "Assets:A",
@@ -56,15 +121,81 @@
     "pads": [
       {
         "account": "Assets:A",
+        "date": "2024-01-02",
         "from": "Equity:Open",
         "units": {
           "currency": "CNY",
           "number": "335"
         }
       }
+    ],
+    "unused_pads": []
+  },
+  "inferred_tolerance": {
+    "accepted_deviation": "zhang never infers a tolerance: an assertion without `~` must match exactly, and a pad brings the account to exactly the asserted amount. Beancount tolerates one unit of the last decimal place of the asserted amount, and pads nothing within it",
+    "assertions": [
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "50.00"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "50.004"
+        },
+        "date": "2024-01-02",
+        "passed": true
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "50.004"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "50.004"
+        },
+        "date": "2024-01-03",
+        "passed": true
+      },
+      {
+        "account": "Assets:B",
+        "amount": {
+          "currency": "CNY",
+          "number": "100.00"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "99.995"
+        },
+        "date": "2024-01-03",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:A": {
+        "CNY": "50.004"
+      },
+      "Assets:B": {
+        "CNY": "99.995"
+      },
+      "Equity:Open": {
+        "CNY": "-149.999"
+      }
+    },
+    "errors": [],
+    "pads": [],
+    "unused_pads": [
+      {
+        "account": "Assets:B",
+        "date": "2024-01-02"
+      }
     ]
   },
   "multi_currency": {
+    "accepted_deviation": null,
     "assertions": [
       {
         "account": "Assets:Wallet",
@@ -136,6 +267,7 @@
     "pads": [
       {
         "account": "Assets:Wallet",
+        "date": "2024-01-01",
         "from": "Equity:Open",
         "units": {
           "currency": "CNY",
@@ -144,15 +276,73 @@
       },
       {
         "account": "Assets:Wallet",
+        "date": "2024-01-01",
         "from": "Equity:Open",
         "units": {
           "currency": "USD",
           "number": "50"
         }
       }
-    ]
+    ],
+    "unused_pads": []
+  },
+  "pad_date": {
+    "accepted_deviation": null,
+    "assertions": [
+      {
+        "account": "Equity:Open",
+        "amount": {
+          "currency": "CNY",
+          "number": "-100"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "-100"
+        },
+        "date": "2024-01-15",
+        "passed": true
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "70"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "70"
+        },
+        "date": "2024-01-20",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:A": {
+        "CNY": "70"
+      },
+      "Equity:Open": {
+        "CNY": "-100"
+      },
+      "Expenses:Food": {
+        "CNY": "30"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:A",
+        "date": "2024-01-01",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "100"
+        }
+      }
+    ],
+    "unused_pads": []
   },
   "pad_on_parent": {
+    "accepted_deviation": null,
     "assertions": [
       {
         "account": "Assets:Bank",
@@ -212,15 +402,18 @@
     "pads": [
       {
         "account": "Assets:Bank",
+        "date": "2024-01-01",
         "from": "Equity:Open",
         "units": {
           "currency": "CNY",
           "number": "40"
         }
       }
-    ]
+    ],
+    "unused_pads": []
   },
   "pad_then_failing_assertion": {
+    "accepted_deviation": null,
     "assertions": [
       {
         "account": "Assets:A",
@@ -277,15 +470,52 @@
     "pads": [
       {
         "account": "Assets:A",
+        "date": "2024-01-01",
         "from": "Equity:Open",
         "units": {
           "currency": "CNY",
           "number": "100"
         }
       }
+    ],
+    "unused_pads": []
+  },
+  "pad_within_tolerance": {
+    "accepted_deviation": "a pad brings the account to exactly the asserted amount: zhang pads the difference even within an explicit `~` tolerance, where beancount pads nothing and reports the pad unused",
+    "assertions": [
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "100.00"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "99.98"
+        },
+        "date": "2024-01-03",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:A": {
+        "CNY": "99.98"
+      },
+      "Equity:Open": {
+        "CNY": "-99.98"
+      }
+    },
+    "errors": [],
+    "pads": [],
+    "unused_pads": [
+      {
+        "account": "Assets:A",
+        "date": "2024-01-02"
+      }
     ]
   },
   "parent_account": {
+    "accepted_deviation": null,
     "assertions": [
       {
         "account": "Assets:Bank",
@@ -342,9 +572,11 @@
       }
     },
     "errors": [],
-    "pads": []
+    "pads": [],
+    "unused_pads": []
   },
   "parent_children_only": {
+    "accepted_deviation": null,
     "assertions": [
       {
         "account": "Assets:Bank",
@@ -401,9 +633,11 @@
       }
     },
     "errors": [],
-    "pads": []
+    "pads": [],
+    "unused_pads": []
   },
   "same_day_pad": {
+    "accepted_deviation": null,
     "assertions": [
       {
         "account": "Assets:A",
@@ -457,15 +691,18 @@
     "pads": [
       {
         "account": "Assets:A",
+        "date": "2017-12-01",
         "from": "Equity:Open",
         "units": {
           "currency": "CNY",
           "number": "0.10"
         }
       }
-    ]
+    ],
+    "unused_pads": []
   },
   "tolerance": {
+    "accepted_deviation": null,
     "assertions": [
       {
         "account": "Assets:A",
@@ -529,9 +766,11 @@
       }
     },
     "errors": [],
-    "pads": []
+    "pads": [],
+    "unused_pads": []
   },
   "two_pads": {
+    "accepted_deviation": null,
     "assertions": [
       {
         "account": "Assets:Cash",
@@ -604,6 +843,7 @@
     "pads": [
       {
         "account": "Assets:Bank",
+        "date": "2024-01-01",
         "from": "Equity:Open",
         "units": {
           "currency": "CNY",
@@ -612,6 +852,7 @@
       },
       {
         "account": "Assets:Cash",
+        "date": "2024-01-02",
         "from": "Equity:Open",
         "units": {
           "currency": "CNY",
@@ -620,11 +861,81 @@
       },
       {
         "account": "Assets:Bank",
+        "date": "2024-01-08",
         "from": "Equity:Open",
         "units": {
           "currency": "CNY",
           "number": "560"
         }
+      }
+    ],
+    "unused_pads": []
+  },
+  "unused_pad": {
+    "accepted_deviation": null,
+    "assertions": [
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "10"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "10"
+        },
+        "date": "2024-01-04",
+        "passed": true
+      },
+      {
+        "account": "Assets:C",
+        "amount": {
+          "currency": "CNY",
+          "number": "5"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "5"
+        },
+        "date": "2024-01-04",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:A": {
+        "CNY": "10"
+      },
+      "Assets:C": {
+        "CNY": "5"
+      },
+      "Equity:Open": {
+        "CNY": "-15"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:C",
+        "date": "2024-01-03",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "5"
+        }
+      }
+    ],
+    "unused_pads": [
+      {
+        "account": "Assets:A",
+        "date": "2024-01-02"
+      },
+      {
+        "account": "Assets:B",
+        "date": "2024-01-02"
+      },
+      {
+        "account": "Assets:C",
+        "date": "2024-01-02"
       }
     ]
   }

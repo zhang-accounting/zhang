@@ -1,4 +1,3 @@
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use itertools::{Either, Itertools};
@@ -8,7 +7,7 @@ use zhang_core::data_type::DataType;
 use zhang_core::utils::string_::QuoteStyle;
 use zhang_core::{ZhangError, ZhangResult};
 
-use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
+use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective};
 use crate::parser::{parse, parse_time};
 
 #[allow(clippy::upper_case_acronyms)]
@@ -20,52 +19,6 @@ pub mod directives;
 #[derive(Clone, Default)]
 pub struct Beancount {}
 
-/// a directive of a beancount file, before its pads are paired with the balances they serve
-enum Item {
-    Directive(Spanned<Directive>),
-    Pad(PadDirective),
-    Balance(Spanned<BalanceDirective>),
-}
-
-/// The pad account serving each balance of `items` (by index), paired as beancount's `pad` plugin pairs them.
-///
-/// The pads and balances are taken in beancount's order: by date, a day's balances before its pads (a balance
-/// on the day of a pad is checked before it), then in file order. A pad serves the first balance of its account
-/// in each currency after it, until the account's next pad. The `balance ... with pad` a served balance becomes
-/// brings the account to the asserted amount from its balance there, as beancount's padding transaction does.
-fn pads_serving_balances(items: &[Item]) -> HashMap<usize, Account> {
-    let mut order = items
-        .iter()
-        .enumerate()
-        .filter_map(|(index, item)| match item {
-            Item::Balance(balance) => Some((balance.data.date.naive_date(), 0, index)),
-            Item::Pad(pad) => Some((pad.date.naive_date(), 1, index)),
-            Item::Directive(_) => None,
-        })
-        .collect_vec();
-    order.sort();
-
-    // account -> (the account it pads from, the currencies it served already)
-    let mut active: HashMap<&str, (&Account, HashSet<&str>)> = HashMap::new();
-    let mut served = HashMap::new();
-    for (_, _, index) in order {
-        match &items[index] {
-            Item::Pad(pad) => {
-                active.insert(pad.account.name(), (&pad.pad, HashSet::new()));
-            }
-            Item::Balance(balance) => {
-                if let Some((pad_account, currencies)) = active.get_mut(balance.data.account.name()) {
-                    if currencies.insert(balance.data.amount.commodity.as_str()) {
-                        served.insert(index, (*pad_account).clone());
-                    }
-                }
-            }
-            Item::Directive(_) => {}
-        }
-    }
-    served
-}
-
 impl DataType for Beancount {
     type Carrier = String;
 
@@ -76,7 +29,7 @@ impl DataType for Beancount {
             msg: it.to_string(),
         })?;
 
-        let mut items = vec![];
+        let mut ret = vec![];
         let mut tags_stack: Vec<String> = vec![];
         let mut meta_stack: Vec<(String, ZhangString)> = vec![];
 
@@ -98,7 +51,7 @@ impl DataType for Beancount {
                             trx.tags.insert(tag.to_owned());
                         }
                     }
-                    items.push(Item::Directive(Spanned { span, data: zhang_directive }));
+                    ret.push(Spanned { span, data: zhang_directive });
                 }
                 Either::Right(beancount_directive) => match beancount_directive {
                     BeancountOnlyDirective::PushTag(tag) => tags_stack.push(tag),
@@ -109,41 +62,21 @@ impl DataType for Beancount {
                             meta_stack.remove(pos);
                         }
                     }
-                    BeancountOnlyDirective::Pad(pad) => items.push(Item::Pad(pad)),
-                    BeancountOnlyDirective::Balance(balance) => items.push(Item::Balance(Spanned { span, data: balance })),
-                },
-            }
-        }
-
-        let served = pads_serving_balances(&items);
-        let ret = items
-            .into_iter()
-            .enumerate()
-            .filter_map(|(index, item)| match item {
-                Item::Directive(directive) => Some(directive),
-                // a pad becomes the `balance ... with pad` of the balance it serves
-                Item::Pad(_) => None,
-                Item::Balance(Spanned { span, data: balance }) => Some(Spanned {
-                    span,
-                    data: match served.get(&index) {
-                        Some(pad_account) => Directive::BalancePad(BalancePad {
-                            date: balance.date,
-                            account: balance.account,
-                            amount: balance.amount,
-                            pad: pad_account.clone(),
-                            meta: balance.meta,
-                        }),
-                        None => Directive::BalanceCheck(BalanceCheck {
+                    // a `pad` is a directive of its own: the pad stage pairs it with the balances it serves, across
+                    // the files of the ledger
+                    BeancountOnlyDirective::Balance(balance) => ret.push(Spanned {
+                        span,
+                        data: Directive::BalanceCheck(BalanceCheck {
                             date: balance.date,
                             account: balance.account,
                             amount: balance.amount,
                             tolerance: balance.tolerance,
                             meta: balance.meta,
                         }),
-                    },
-                }),
-            })
-            .collect();
+                    }),
+                },
+            }
+        }
         Ok(ret)
     }
 
@@ -165,7 +98,7 @@ impl DataType for Beancount {
             Directive::BalancePad(pad) => {
                 let balance_date = pad.date.naive_date();
                 let pad_date = balance_date.pred_opt().unwrap_or(balance_date);
-                let pad_directive = PadDirective {
+                let pad_directive = Pad {
                     date: Date::Date(pad_date),
                     account: pad.account.clone(),
                     pad: pad.pad,
@@ -179,7 +112,7 @@ impl DataType for Beancount {
 
                     meta: pad.meta,
                 };
-                [pad_directive.bc_to_string(), balance_directive.bc_to_string()].join("\n")
+                [pad_directive.export_as(STYLE), balance_directive.bc_to_string()].join("\n")
             }
             Directive::Budget(budget) => Directive::Custom(Custom {
                 date: budget.date,
@@ -261,19 +194,6 @@ impl BeancountOnlyExportable for BalanceDirective {
     }
 }
 
-impl BeancountOnlyExportable for PadDirective {
-    fn bc_to_string(self) -> String {
-        let line = [
-            ZhangDataTypeExportable::export(self.date),
-            "pad".to_string(),
-            ZhangDataTypeExportable::export(self.account),
-            ZhangDataTypeExportable::export(self.pad),
-        ]
-        .join(" ");
-        append_meta_as(self.meta, line, QuoteStyle::Beancount)
-    }
-}
-
 macro_rules! convert_to_datetime {
     ($directive: expr) => {
         if let Date::Datetime(datetime) = $directive.date {
@@ -298,6 +218,7 @@ fn convert_datetime_to_date(directive: Spanned<Directive>) -> Spanned<Directive>
         Directive::Transaction(mut directive) => Directive::Transaction(convert_to_datetime!(directive)),
         Directive::BalanceCheck(mut directive) => Directive::BalanceCheck(convert_to_datetime!(directive)),
         Directive::BalancePad(mut directive) => Directive::BalancePad(convert_to_datetime!(directive)),
+        Directive::Pad(mut directive) => Directive::Pad(convert_to_datetime!(directive)),
         Directive::Note(mut directive) => Directive::Note(convert_to_datetime!(directive)),
         Directive::Document(mut directive) => Directive::Document(convert_to_datetime!(directive)),
         Directive::Price(mut directive) => Directive::Price(convert_to_datetime!(directive)),
@@ -328,6 +249,7 @@ impl Beancount {
                 Directive::Transaction(directive) => extract_time!(directive),
                 Directive::BalanceCheck(balance_check) => extract_time!(balance_check),
                 Directive::BalancePad(balance_pad) => extract_time!(balance_pad),
+                Directive::Pad(directive) => extract_time!(directive),
                 Directive::Note(directive) => extract_time!(directive),
                 Directive::Document(directive) => extract_time!(directive),
                 Directive::Price(directive) => extract_time!(directive),
@@ -337,7 +259,6 @@ impl Beancount {
                 _ => {}
             },
             Either::Right(beancount_onyly_directive) => match beancount_onyly_directive {
-                BeancountOnlyDirective::Pad(directive) => extract_time!(directive),
                 BeancountOnlyDirective::Balance(directive) => extract_time!(directive),
                 _ => {}
             },
@@ -353,7 +274,7 @@ mod test {
     use chrono::NaiveDate;
     use indoc::indoc;
     use zhang_ast::amount::Amount;
-    use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Meta, Open, SpanInfo, Spanned};
+    use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Meta, Open, Pad, SpanInfo, Spanned};
     use zhang_core::data_type::DataType;
 
     use crate::directives::BeancountOnlyDirective;
@@ -477,19 +398,29 @@ mod test {
     }
 
     #[test]
-    fn should_transform_to_non_given_pad_directive() {
+    fn should_transform_a_pad_into_a_pad_directive() {
         let beancount_data_type = Beancount::default();
-        let directives = beancount_data_type
+        let mut directives = beancount_data_type
             .transform(
                 indoc! {r#"
                 1970-01-01 pad Assets:BankAccount Equity:Open-Balances
+                  time: "08:00:00"
             "#}
                 .to_string(),
                 None,
             )
             .unwrap();
 
-        assert_eq!(directives.len(), 0);
+        assert_eq!(directives.len(), 1);
+        assert_eq!(
+            directives.pop().unwrap().data,
+            Directive::Pad(Pad {
+                date: Date::Datetime(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap().and_hms_opt(8, 0, 0).unwrap()),
+                account: Account::from_str("Assets:BankAccount").unwrap(),
+                pad: Account::from_str("Equity:Open-Balances").unwrap(),
+                meta: Default::default(),
+            })
+        );
     }
 
     #[test]
@@ -522,9 +453,9 @@ mod test {
     }
 
     #[test]
-    fn should_transform_to_balance_pad_directive_given_pad_and_balance_directive() {
-        let beancount_data_type = Beancount::default();
-        let mut directives = beancount_data_type
+    fn should_keep_a_pad_and_the_balance_it_serves_apart() {
+        // the pad stage pairs them, across the files of the ledger
+        let directives = Beancount::default()
             .transform(
                 indoc! {r#"
                 1970-01-01 pad Assets:BankAccount Equity:Open-Balances
@@ -534,92 +465,21 @@ mod test {
                 None,
             )
             .unwrap();
-
-        assert_eq!(directives.len(), 1);
-
-        let balance_pad_directive = directives.pop().unwrap().data;
-
-        assert_eq!(
-            balance_pad_directive,
-            Directive::BalancePad(BalancePad {
-                date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()),
-                account: Account::from_str("Assets:BankAccount").unwrap(),
-                amount: Amount::new(BigDecimal::from(100i32), "CNY"),
-                pad: Account::from_str("Equity:Open-Balances").unwrap(),
-                meta: Default::default(),
-            })
-        );
-    }
-
-    /// `(kind, account, currency)` of the balances a ledger turns into: `pad` for a `balance ... with pad`
-    fn balances(content: &str) -> Vec<(&'static str, String, String)> {
-        Beancount::default()
-            .transform(content.to_string(), None)
-            .unwrap()
-            .into_iter()
-            .filter_map(|directive| match directive.data {
-                Directive::BalancePad(pad) => Some(("pad", pad.account.content, pad.amount.commodity)),
-                Directive::BalanceCheck(check) => Some(("check", check.account.content, check.amount.commodity)),
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn balance(kind: &'static str, account: &str, currency: &str) -> (&'static str, String, String) {
-        (kind, account.to_owned(), currency.to_owned())
+        let kinds = directives.iter().map(|it| it.data.directive_type().to_string()).collect::<Vec<_>>();
+        assert_eq!(kinds, vec!["Pad", "BalanceCheck"]);
     }
 
     #[test]
-    fn should_pad_the_next_balance_of_the_account_in_each_currency() {
-        let balances = balances(indoc! {r#"
-            2024-01-01 pad Assets:Wallet Equity:Open
-            2024-01-02 balance Assets:Wallet 300 CNY
-            2024-01-02 balance Assets:Wallet 150 USD
-            2024-01-02 balance Assets:Other 1 CNY
-            2024-01-03 balance Assets:Wallet 300 CNY
-        "#});
-        assert_eq!(
-            balances,
-            vec![
-                balance("pad", "Assets:Wallet", "CNY"),
-                balance("pad", "Assets:Wallet", "USD"),
-                balance("check", "Assets:Other", "CNY"),
-                balance("check", "Assets:Wallet", "CNY"),
-            ]
-        );
-    }
-
-    #[test]
-    fn should_not_pad_a_balance_on_the_day_of_the_pad() {
-        // beancount orders a day's balances before its pads
-        let balances = balances(indoc! {r#"
-            2017-12-01 pad Assets:A Equity:Open
-            2017-12-01 balance Assets:A 0.10 CNY
-            2017-12-02 balance Assets:A 0.10 CNY
-        "#});
-        assert_eq!(balances, vec![balance("check", "Assets:A", "CNY"), balance("pad", "Assets:A", "CNY")]);
-    }
-
-    #[test]
-    fn should_pair_pads_by_date_and_account_whatever_their_place_in_the_file() {
-        let balances = balances(indoc! {r#"
-            2024-01-06 balance Assets:Bank 1000 CNY
-            2024-01-01 pad Assets:Bank Equity:Open
-            2024-01-02 pad Assets:Cash Equity:Open
-            2024-01-05 balance Assets:Cash 20 CNY
-            2024-01-08 balance Assets:Bank 900 CNY
-            2024-01-08 pad Assets:Bank Equity:Open
-            2024-01-10 balance Assets:Bank 1500 CNY
-        "#});
-        assert_eq!(
-            balances,
-            vec![
-                balance("pad", "Assets:Bank", "CNY"),
-                balance("pad", "Assets:Cash", "CNY"),
-                balance("check", "Assets:Bank", "CNY"),
-                balance("pad", "Assets:Bank", "CNY"),
-            ]
-        );
+    fn should_export_a_pad() {
+        let pad = Directive::Pad(Pad {
+            date: Date::Datetime(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap().and_hms_opt(8, 0, 0).unwrap()),
+            account: Account::from_str("Assets:BankAccount").unwrap(),
+            pad: Account::from_str("Equity:Open-Balances").unwrap(),
+            meta: Default::default(),
+        });
+        let exported = Beancount {}.export(Spanned::new(pad.clone(), SpanInfo::default()));
+        assert_eq!(exported, "1970-01-01 pad Assets:BankAccount Equity:Open-Balances\n  time: \"08:00:00\"");
+        assert_eq!(Beancount::default().transform(exported, None).unwrap().pop().unwrap().data, pad);
     }
 
     #[test]

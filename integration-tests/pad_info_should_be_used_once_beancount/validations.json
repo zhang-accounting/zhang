@@ -12,15 +12,48 @@
       ],
       [
         "$.data.balance_assertions.length()",
-        1
+        2
       ],
       [
         "$.data.balance_assertions[?(@.sequence==2)].passed",
         true
       ],
       [
-        "$.data.balance_assertions[?(@.sequence==2)].balance.number",
+        "$.data.balance_assertions[?(@.sequence==3)].passed",
+        true
+      ],
+      [
+        "$.data.balance_assertions[?(@.sequence==3)].balance.number",
         "0.10"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals",
+    "validations": [
+      [
+        "$.data.records.length()",
+        3
+      ],
+      [
+        "$.data.records[2].type",
+        "BalancePad"
+      ],
+      [
+        "$.data.records[2].datetime",
+        "2017-11-30T00:00:00"
+      ],
+      [
+        "$.data.records[1].type",
+        "BalanceCheck"
+      ],
+      [
+        "$.data.records[1].datetime",
+        "2017-12-01T00:00:00"
+      ],
+      [
+        "$.data.records[0].datetime",
+        "2017-12-02T00:00:00"
       ]
     ]
   }
