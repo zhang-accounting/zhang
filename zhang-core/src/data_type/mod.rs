@@ -65,6 +65,19 @@ fn normalized(path: &Path) -> Vec<String> {
     parts
 }
 
+/// `DataType` is the protocol to describe how the raw data be transformed into standard directives and vice versa.
+/// `Carrier` is the type of raw data, it can be plain text, bytes, or even sql.
+pub trait DataType
+where
+    Self: Send + Sync,
+{
+    type Carrier;
+
+    fn transform(&self, raw_data: Self::Carrier, source: Option<String>) -> ZhangResult<Vec<Spanned<Directive>>>;
+
+    fn export(&self, directive: Spanned<Directive>) -> Self::Carrier;
+}
+
 #[cfg(test)]
 mod document_path_test {
     use std::path::Path;
@@ -86,17 +99,4 @@ mod document_path_test {
         assert_eq!(document_path_in_ledger("./a/../b.pdf", Path::new("data/x.bean")), "data/b.pdf");
         assert_eq!(document_path_in_ledger("../../../b.pdf", Path::new("data/x.bean")), "../../b.pdf");
     }
-}
-
-/// `DataType` is the protocol to describe how the raw data be transformed into standard directives and vice versa.
-/// `Carrier` is the type of raw data, it can be plain text, bytes, or even sql.
-pub trait DataType
-where
-    Self: Send + Sync,
-{
-    type Carrier;
-
-    fn transform(&self, raw_data: Self::Carrier, source: Option<String>) -> ZhangResult<Vec<Spanned<Directive>>>;
-
-    fn export(&self, directive: Spanned<Directive>) -> Self::Carrier;
 }
