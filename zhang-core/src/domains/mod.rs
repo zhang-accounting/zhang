@@ -189,23 +189,28 @@ impl Operations {
         Ok(())
     }
 
-    /// `id`, or if a transaction or one of its postings has it already, the first id derived from it
-    /// ([`FromSpan::derived`]) that none has. Directives a stage synthesized can share a span, which ids are derived
-    /// from: the padding transactions of a `pad` serving several currencies, and a `balance ... with pad`, whose
-    /// check is kept, and its padding transaction. A derived id lives apart from posting ids, so only the postings
-    /// of the transaction with `id` itself could share one
+    /// `id`, or if a transaction, one of its postings or a balance assertion has it already, the first id derived
+    /// from it ([`FromSpan::derived`]) that none has. Directives can share a span, which ids are derived from: the
+    /// padding transactions of a `pad` serving several currencies, a `balance ... with pad`, whose check is kept, and
+    /// its padding transaction, and the directives a plugin emits for one of the ledger. A derived id lives apart from
+    /// posting ids, so only the postings of the transaction with `id` itself could share one
     pub(crate) fn unused_id(&self, id: Uuid) -> Uuid {
         let store = self.read();
         let postings = store.transactions.get(&id).map(|txn| txn.postings.as_slice()).unwrap_or_default();
         (0..)
             .map(|n| if n == 0 { id } else { Uuid::derived(&id, n) })
-            .find(|candidate| !store.transactions.contains_key(candidate) && postings.iter().all(|posting| posting.id != *candidate))
+            .find(|candidate| {
+                !store.transactions.contains_key(candidate)
+                    && !store.balance_assertion_ids.contains(candidate)
+                    && postings.iter().all(|posting| posting.id != *candidate)
+            })
             .expect("an id is free")
     }
 
     /// record a checked `balance` assertion
     pub(crate) fn insert_balance_assertion(&mut self, assertion: BalanceAssertionDomain) -> ZhangResult<()> {
         let mut store = self.write();
+        store.balance_assertion_ids.insert(assertion.id);
         store.balance_assertions.push(assertion);
         Ok(())
     }

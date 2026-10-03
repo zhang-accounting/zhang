@@ -24,6 +24,9 @@ pub struct Store {
     /// the `balance` assertions, in ledger order. They are not transactions and have no postings:
     /// an assertion changes no balance
     pub balance_assertions: Vec<BalanceAssertionDomain>,
+    /// the ids of [`Store::balance_assertions`], which an id given to a transaction or an assertion avoids
+    #[serde(skip)]
+    pub(crate) balance_assertion_ids: HashSet<Uuid>,
 
     pub prices: Vec<PriceDomain>,
 

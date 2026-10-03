@@ -564,6 +564,33 @@ mod test {
         Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap()
     }
 
+    #[test]
+    fn assertions_sharing_a_span_get_distinct_ids() {
+        // a plugin may emit several balances for one of the ledger: they share its span, which ids are derived from
+        let mut directives = test_parse_zhang("1970-01-01 open Assets:A\n2024-01-02 balance Assets:A 0 CNY\n");
+        let mut copy = directives.iter().find(|it| matches!(it.data, Directive::BalanceCheck(_))).unwrap().clone();
+        if let Directive::BalanceCheck(check) = &mut copy.data {
+            check.date = zhang_ast::Date::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 3).unwrap());
+        }
+        directives.push(copy);
+        let ledger = Ledger::process(super::LedgerProcessContext {
+            directives,
+            entry: (tempdir().unwrap().into_path(), "main.zhang".to_owned()),
+            visited_files: vec![],
+            data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
+            clock: crate::clock::Clock::System,
+        })
+        .unwrap();
+        let store = ledger.store.read().unwrap();
+        let ids = store.balance_assertions.iter().map(|it| it.id).collect::<Vec<_>>();
+        assert_eq!(ids.len(), 2);
+        assert_ne!(ids[0], ids[1]);
+        // and none is the id of a transaction or a posting
+        assert!(ids
+            .iter()
+            .all(|id| !store.transactions.contains_key(id) && store.postings.iter().all(|posting| posting.id != *id)));
+    }
+
     mod write_back {
         use indoc::indoc;
         use zhang_ast::{Comment, Directive, Spanned};
