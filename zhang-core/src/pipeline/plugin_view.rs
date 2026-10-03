@@ -1017,4 +1017,39 @@ mod test {
         // each balance is paired about once: no time quadratic in the pads
         assert!(elapsed < std::time::Duration::from_secs(5), "{elapsed:?}");
     }
+
+    #[test]
+    fn a_balance_a_plugin_adds_at_the_place_of_a_served_one_is_told_apart_by_what_it_says() {
+        // a plain 90 CNY balance at the place of the served 100 CNY one, before it: the pad serves the 100 only
+        let plugin = plugin(|stream| {
+            stream
+                .into_iter()
+                .flat_map(|it| match &it.data {
+                    Directive::BalancePad(pad) if pad.amount.commodity == "CNY" => {
+                        let mut amount = pad.amount.clone();
+                        amount.number = 90.into();
+                        let added = Directive::BalanceCheck(BalanceCheck {
+                            date: pad.date.clone(),
+                            account: pad.account.clone(),
+                            amount,
+                            tolerance: None,
+                            meta: Default::default(),
+                        });
+                        vec![Spanned::new(added, it.span.clone()), it]
+                    }
+                    _ => vec![it],
+                })
+                .collect()
+        });
+        let (out, errors) = run(plugin, TWO_CURRENCIES);
+        assert_eq!(
+            paddings(&out),
+            vec![
+                "2024-01-01 Assets:Bank 100 CNY from Equity:Open",
+                "2024-01-01 Assets:Bank 20 USD from Equity:Open"
+            ]
+        );
+        // the 90 is checked as it is, against the 100 padded
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+    }
 }
