@@ -137,6 +137,8 @@ from_clause = #table | [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
 
 Before any posting is read, Zhang checks the query and simplifies it. Parts that involve only constants, such as `'^Expenses:' + 'Food'`, are computed once at that point. Functions that depend on the ledger or on the current date (`today`, `convert`, `value`, `getprice` and the metadata functions) are not. As a result, an invalid regular expression in a constant pattern is reported immediately, with its position, even if no posting would ever be matched against it.
 
+Zhang books the postings of a ledger once, for the first query that reads them, and keeps them, together with the ledger's prices, until the ledger is reloaded. A query without [period clauses](#accounting-periods) whose `FROM` or `WHERE` can only hold for some accounts reads only the postings of those accounts: `account = 'Assets:Bank'`, `account = :account`, `account IN ('Assets:Bank', 'Assets:Cash')` and `account IN :accounts`, alone, combined with `OR`, or as one of the conditions joined by `AND`. This only makes such queries faster: the results, including the [running balance](#the-running-balance), are the same.
+
 ### SELECT
 
 The targets are the expressions to compute for each row, separated by commas.
@@ -572,7 +574,7 @@ Two booking cases are still handled differently by Zhang's ledger processing tha
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `date` | `date` | Date of the transaction. The time of day, if any, is dropped. |
+| `date` | `date` | Date of the transaction. The time of day, if any, is dropped; it is in `time`. |
 | `year` | `int` | Year of `date`. |
 | `month` | `int` | Month of `date`, from 1 to 12. |
 | `day` | `int` | Day of the month of `date`, from 1 to 31. |
@@ -596,6 +598,13 @@ Two booking cases are still handled differently by Zhang's ledger processing tha
 | `other_accounts` | `set` | Accounts of the other postings in the same transaction. |
 | `meta` | `str` | Metadata of the posting as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` if it has none. The transaction's own metadata is read with `entry_meta()`. |
 | `balance` | `inventory` | The [running balance](#the-running-balance): the sum of the positions of the rows up to and including this one. It cannot be used in `FROM` or `WHERE`. |
+| `time` | `str` | Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`. A transaction written without a time is at `00:00:00`. Zhang extension. |
+| `timestamp` | `int` | Unix time of the transaction's date and time, in seconds. Zhang extension. |
+| `seq` | `int` | Position of the transaction in [`#entries`](#entries), counting from 0. All postings of a transaction share it, so `ORDER BY seq DESC` lists the newest transactions first, in a stable order. `NULL` for the [synthetic transactions](#synthetic-transactions) of the period clauses. Zhang extension. |
+| `posting_index` | `int` | Position of the posting in its transaction as written, counting from 0. When [booking](#lot-booking) splits a posting into one row per lot, the rows share it. Zhang extension. |
+| `account_balance` | `inventory` | The [account balance](#the-account-balance): the balance of the posting's account right after this posting. Zhang extension. |
+| `balanced` | `bool` | `FALSE` if Zhang found that the transaction does not balance (an `UnbalancedTransaction` error), otherwise `TRUE`. Zhang extension. |
+| `errors` | `set` | The kinds of the errors Zhang recorded for the transaction, named as in the `kind` column of [`#errors`](#errors), such as `UnbalancedTransaction` or `AccountDoesNotExist`. Empty if there are none. Zhang extension. |
 
 ### The running balance
 
@@ -616,6 +625,23 @@ LIMIT 10
 ```
 
 This returns the ten most recent postings to the account, each with the balance after it. The first row shows the current balance.
+
+### The account balance
+
+The `account_balance` column is the balance of the posting's own account right after the posting. Like `balance`, it is an inventory that keeps lots. Unlike `balance`, it does not depend on the query:
+
+- It adds up every posting of the account, in ledger order, whatever `FROM`, `WHERE` and `LIMIT` choose. A query that shows only some postings of an account still shows the account's real balance after each of them.
+- It is one balance per account, so a query over several accounts shows each posting with the balance of its own account.
+- With the [period clauses](#accounting-periods), it adds up the postings they produce, starting from the opening balance that `OPEN ON` adds.
+- Unlike `balance`, it can be used in `WHERE`.
+
+```sql
+SELECT date, payee, position, account_balance
+WHERE account = 'Assets:Bank:Checking' AND year = 2024
+ORDER BY seq DESC
+```
+
+This lists the account's postings of 2024, newest first, each with the account's balance after it, including everything posted before 2024.
 
 ## Other tables
 
@@ -660,6 +686,8 @@ ORDER BY currency
 | `tags`, `links` | `set` | Tags and links of a transaction, note or document. `NULL` for other directives. |
 | `meta` | `str` | Metadata of the directive. |
 | `accounts` | `set` | The accounts the directive refers to: the posting accounts of a transaction, the account of an `open`, `close`, `balance`, `note` or `document`, and the pad account of `balance ... with pad`. Empty for other directives. |
+| `seq` | `int` | Position of the directive in `#entries`, counting from 0: its row number in ledger order. `ORDER BY seq DESC` lists the newest entries first. Zhang extension. |
+| `time`, `timestamp` | `str`, `int` | Time of day of the directive in the ledger's timezone (`HH:MM:SS`, `00:00:00` when it has none) and the Unix time of its date and time, in seconds. Zhang extension. |
 
 ### #transactions
 
@@ -672,6 +700,9 @@ ORDER BY currency
 | `tags`, `links` | `set` | Tags and links. |
 | `accounts` | `set` | Accounts of the postings. |
 | `meta` | `str` | Metadata of the transaction. |
+| `id` | `str` | Zhang's identifier of the transaction: the `id` of its postings and of its row in `#entries`. Zhang extension. |
+| `seq`, `time`, `timestamp` | `int`, `str`, `int` | As in `postings`: the position of the transaction in `#entries`, its time of day and its Unix time. Zhang extension. |
+| `balanced`, `errors` | `bool`, `set` | As in `postings`: whether the transaction balances, and the kinds of the errors recorded for it. Zhang extension. |
 
 ### #prices, #balances, #notes, #events, #documents and #commodities
 

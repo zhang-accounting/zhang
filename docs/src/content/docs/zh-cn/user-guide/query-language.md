@@ -137,6 +137,8 @@ from_clause = #table | [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
 
 在读取任何分录之前，张记账会先检查并简化查询。只包含常量的部分（例如 `'^Expenses:' + 'Food'`）在这时就计算一次。依赖账本或当前日期的函数（`today`、`convert`、`value`、`getprice` 和元数据函数）不会被提前计算。因此，常量模式中无效的正则表达式会立即报错并给出位置，即使没有任何分录会与它匹配。
 
+张记账只在第一个读取分录的查询中对账本的分录做一次批次记账，并把结果连同账本的价格一起保留，直到账本重新加载。如果查询没有[会计期间子句](#会计期间)，且其 `FROM` 或 `WHERE` 只可能对某些账户成立，查询就只读取这些账户的分录：`account = 'Assets:Bank'`、`account = :account`、`account IN ('Assets:Bank', 'Assets:Cash')` 和 `account IN :accounts`，可以单独使用、用 `OR` 组合，或作为用 `AND` 连接的条件之一。这只会让这类查询更快，结果（包括[累计余额](#累计余额)）完全相同。
+
 ### SELECT
 
 目标（target）是要为每一行计算的表达式，用逗号分隔。
@@ -572,7 +574,7 @@ WHERE payee IN ('Amazon')
 
 | 列 | 类型 | 说明 |
 |----|------|------|
-| `date` | `date` | 交易日期。如果交易带有时间，时间部分会被舍去。 |
+| `date` | `date` | 交易日期。如果交易带有时间，时间部分会被舍去，可以从 `time` 读取。 |
 | `year` | `int` | `date` 的年份。 |
 | `month` | `int` | `date` 的月份，1 到 12。 |
 | `day` | `int` | `date` 在当月的日，1 到 31。 |
@@ -596,6 +598,13 @@ WHERE payee IN ('Amazon')
 | `other_accounts` | `set` | 同一交易中其他分录的账户。 |
 | `meta` | `str` | 分录的元数据文本：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。交易自己的元数据用 `entry_meta()` 读取。 |
 | `balance` | `inventory` | [累计余额](#累计余额)：截至并包括本行的各行持仓之和。不能用在 `FROM` 或 `WHERE` 中。 |
+| `time` | `str` | 交易在账本时区中的时刻，格式为 `HH:MM:SS`。没有写时间的交易为 `00:00:00`。张记账扩展。 |
+| `timestamp` | `int` | 交易日期和时间的 Unix 时间，单位为秒。张记账扩展。 |
+| `seq` | `int` | 交易在 [`#entries`](#entries) 中的位置，从 0 开始。同一交易的所有分录共享这个值，所以 `ORDER BY seq DESC` 以稳定的顺序把最新的交易排在最前。会计期间子句的[合成交易](#合成交易)为 `NULL`。张记账扩展。 |
+| `posting_index` | `int` | 分录在其交易中按书写顺序的位置，从 0 开始。[批次记账](#批次记账)把一条分录拆成每个批次一行时，这些行共享这个值。张记账扩展。 |
+| `account_balance` | `inventory` | [账户余额](#账户余额)：本条分录之后该分录所属账户的余额。张记账扩展。 |
+| `balanced` | `bool` | 张记账发现交易不平衡（`UnbalancedTransaction` 错误）时为 `FALSE`，否则为 `TRUE`。张记账扩展。 |
+| `errors` | `set` | 张记账为该交易记录的错误种类，名称与 [`#errors`](#错误表) 的 `kind` 列相同，例如 `UnbalancedTransaction` 或 `AccountDoesNotExist`。没有错误时为空集合。张记账扩展。 |
 
 ### 累计余额
 
@@ -616,6 +625,23 @@ LIMIT 10
 ```
 
 这个查询返回该账户最近的十条分录，每条都带有记账之后的余额。第一行显示的就是当前余额。
+
+### 账户余额
+
+`account_balance` 列是本条分录之后，分录所属账户的余额。它和 `balance` 一样是保留批次的库存，但与 `balance` 不同，它不受查询的影响：
+
+- 它按账本顺序累加该账户的所有分录，不论 `FROM`、`WHERE` 和 `LIMIT` 选择了哪些行。即使查询只显示账户的部分分录，每条分录显示的仍是账户真实的余额。
+- 每个账户各有一个余额，所以涉及多个账户的查询中，每条分录显示的是它自己账户的余额。
+- 使用[会计期间子句](#会计期间)时，它累加这些子句产生的分录，从 `OPEN ON` 加入的期初余额开始。
+- 与 `balance` 不同，它可以用在 `WHERE` 中。
+
+```sql
+SELECT date, payee, position, account_balance
+WHERE account = 'Assets:Bank:Checking' AND year = 2024
+ORDER BY seq DESC
+```
+
+这个查询按从新到旧列出该账户 2024 年的分录，每条都带有之后的账户余额，其中包括 2024 年之前记入的所有金额。
 
 ## 其他表
 
@@ -660,6 +686,8 @@ ORDER BY currency
 | `tags`、`links` | `set` | 交易、note 或 document 的标签和链接；其他指令为 `NULL`。 |
 | `meta` | `str` | 指令的元数据。 |
 | `accounts` | `set` | 指令涉及的账户：交易的各分录账户，`open`、`close`、`balance`、`note` 或 `document` 的账户，以及 `balance ... with pad` 的补齐账户。其他指令为空集合。 |
+| `seq` | `int` | 指令在 `#entries` 中的位置，从 0 开始，即它按账本顺序的行号。`ORDER BY seq DESC` 把最新的记录排在最前。张记账扩展。 |
+| `time`、`timestamp` | `str`、`int` | 指令在账本时区中的时刻（`HH:MM:SS`，没有时间时为 `00:00:00`），以及其日期和时间的 Unix 时间，单位为秒。张记账扩展。 |
 
 ### #transactions
 
@@ -672,6 +700,9 @@ ORDER BY currency
 | `tags`、`links` | `set` | 标签和链接。 |
 | `accounts` | `set` | 各分录的账户。 |
 | `meta` | `str` | 交易的元数据。 |
+| `id` | `str` | 张记账为交易生成的标识符：与其分录的 `id` 以及它在 `#entries` 中那一行的 `id` 相同。张记账扩展。 |
+| `seq`、`time`、`timestamp` | `int`、`str`、`int` | 与 `postings` 中相同：交易在 `#entries` 中的位置、交易的时刻和 Unix 时间。张记账扩展。 |
+| `balanced`、`errors` | `bool`、`set` | 与 `postings` 中相同：交易是否平衡，以及为它记录的错误种类。张记账扩展。 |
 
 ### #prices、#balances、#notes、#events、#documents 和 #commodities
 
