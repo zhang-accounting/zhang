@@ -101,7 +101,7 @@ SELECT [DISTINCT] target [, target ...] | *
   [GROUP BY group_key [, group_key ...] [HAVING expression]]
   [ORDER BY order_key [ASC | DESC] [, order_key [ASC | DESC] ...]]
   [PIVOT BY pivot_key, pivot_key]
-  [LIMIT count]
+  [LIMIT count [OFFSET count]]
   [;]
 
 BALANCES [AT function] [FROM from_clause] [WHERE expression] [;]
@@ -113,13 +113,14 @@ group_key   = expression | target name | target number
 order_key   = expression | target name | target number
 pivot_key   = target name | target number
 from_clause = #table | [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
+count       = integer | parameter
 ```
 
 - A query is a single statement: a `SELECT`, or one of the shorthands [`BALANCES` and `JOURNAL`](#balances-and-journal). `PRINT` is not supported.
 - The clauses must appear in the order shown. All of them except the first keyword are optional, and a single trailing `;` is allowed.
 - Keywords, column names and function names are all case-insensitive: `SELECT account`, `select ACCOUNT` and `Select Account` are the same query. [Table names](#other-tables) are case-sensitive, as in beanquery.
 - A field of a structured column is read with a dot, without spaces: `open.date` in [`#accounts`](#accounts).
-- Names consist of ASCII letters, digits and underscores, and cannot start with a digit. The words `SELECT`, `DISTINCT`, `FROM`, `WHERE`, `GROUP`, `BY`, `ORDER`, `ASC`, `DESC`, `LIMIT`, `AS`, `AND`, `OR`, `NOT`, `IN`, `IS`, `NULL`, `TRUE`, `FALSE`, `HAVING` and `PIVOT` are reserved and cannot be used as column names.
+- Names consist of ASCII letters, digits and underscores, and cannot start with a digit. The words `SELECT`, `DISTINCT`, `FROM`, `WHERE`, `GROUP`, `BY`, `ORDER`, `ASC`, `DESC`, `LIMIT`, `OFFSET`, `AS`, `AND`, `OR`, `NOT`, `IN`, `IS`, `NULL`, `TRUE`, `FALSE`, `HAVING` and `PIVOT` are reserved and cannot be used as column names.
 - Spaces and line breaks between tokens are not significant, so a query can span several lines.
 - `--` starts a comment that runs to the end of the line.
 
@@ -132,10 +133,10 @@ from_clause = #table | [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
 5. `HAVING` drops the groups that do not satisfy its condition.
 6. `ORDER BY` sorts the rows.
 7. `DISTINCT` removes duplicate rows, keeping the first of each.
-8. `LIMIT` keeps the first rows and drops the rest.
+8. `OFFSET` skips the first rows, and `LIMIT` keeps the next ones and drops the rest.
 9. `PIVOT BY` turns the remaining rows into a table with one column per value of a target.
 
-Before any posting is read, Zhang checks the query and simplifies it. Parts that involve only constants, such as `'^Expenses:' + 'Food'`, are computed once at that point. Functions that depend on the ledger or on the current date (`today`, `convert`, `value`, `getprice` and the metadata functions) are not. As a result, an invalid regular expression in a constant pattern is reported immediately, with its position, even if no posting would ever be matched against it.
+Before any posting is read, Zhang checks the query and simplifies it. Parts that involve only constants, such as `'^Expenses:' + 'Food'`, are computed once at that point. Functions that depend on the ledger or on the current date (`today`, `convert`, `value`, `getprice`, the [directive functions](#account-and-commodity-directives) and the metadata functions) are not. As a result, an invalid regular expression in a constant pattern is reported immediately, with its position, even if no posting would ever be matched against it.
 
 ### SELECT
 
@@ -228,9 +229,18 @@ HAVING sum(number) > 1000
 - See [Ordering and comparison](#ordering-and-comparison) for how values of each type are ordered.
 - Without `ORDER BY`, a plain query returns postings in ledger order: by date and time, then in the order they appear in your files. An aggregate query returns its groups in the order in which their first posting appears in the ledger.
 
-### LIMIT
+### LIMIT and OFFSET
 
-`LIMIT n` keeps the first `n` rows, after sorting and `DISTINCT`. `n` must be a non-negative integer literal. `LIMIT 0` returns no rows.
+`LIMIT n` keeps the first `n` rows, after sorting and `DISTINCT`. `LIMIT n OFFSET m` skips the first `m` rows and then keeps the next `n`, which pages through a result: `ORDER BY date DESC LIMIT 50 OFFSET 100` is the third page of fifty.
+
+- `n` and `m` are non-negative integers, written as literals or given as [parameters](#parameters), such as `LIMIT :size OFFSET :offset`.
+- `OFFSET` is a Zhang extension and only follows a `LIMIT`. beanquery has `LIMIT` only.
+- `LIMIT 0` returns no rows, and an offset past the end returns no rows either.
+- A parameter must be bound to an integer. A negative or `NULL` value, or an offset and limit whose sum does not fit in 64 bits, is an error at the parameter, never a silently different window.
+- Without `ORDER BY`, the rows come in ledger order, so a page is stable as long as the ledger does not change.
+- Pages are cheap: without `ORDER BY` the query stops once it has the rows it keeps, and with `ORDER BY` it keeps only the first `OFFSET + LIMIT` rows while it scans instead of sorting them all.
+
+When Zhang runs a query from its own code it can also ask for the total number of rows before `LIMIT` and `OFFSET` (the `count_total` option of the Rust API), for example to show the number of pages. Rows past the window are only counted, not built.
 
 ### PIVOT BY
 
@@ -260,7 +270,9 @@ PIVOT BY category, year
 
 ### Parameters
 
-When Zhang runs a query from its own code, through the Rust API of the `zhang-query` crate, the query can contain parameters, `$1`, `$2`, ... or `:name`, wherever it would contain a value, and the values are bound separately. The pattern of `JOURNAL` and the dates of `OPEN ON` and `CLOSE ON` can be parameters too. The HTTP API does not bind parameters, so a query sent over HTTP that contains one fails with `parameter $1 is not bound`.
+When Zhang runs a query from its own code, through the Rust API of the `zhang-query` crate, the query can contain parameters, `$1`, `$2`, ... or `:name`, wherever it would contain a value, and the values are bound separately. The pattern of `JOURNAL`, the dates of `OPEN ON` and `CLOSE ON`, and the counts of `LIMIT` and `OFFSET` can be parameters too. The HTTP API does not bind parameters, so a query sent over HTTP that contains one fails with `parameter $1 is not bound`.
+
+A parameter is a constant of one execution: before the rows are read, every parameter is replaced by its value and the query is simplified again, exactly as if the value had been written in the query. A regular expression given as a parameter (`payee ~ :keyword`) is compiled once, a set given as a parameter (`account IN :accounts`) and a list of values (`IN ('a', 'b', :c)`) are looked up in a hash table, and the needle of [`icontains`](#search-functions) is lower-cased once, so a query with parameters is as fast as the same query written with literals. An invalid regular expression given as a parameter is reported, at the match, when a row is matched against it, as before.
 
 ## BALANCES and JOURNAL
 
@@ -469,6 +481,8 @@ From highest to lowest precedence:
 | `int` or `decimal` `+ - * /` `int` or `decimal` | `decimal` | |
 | `date` `+` `int`, `int` `+` `date`, `date` `-` `int` | `date` | Adds or subtracts days: `2024-01-31 + 1` is `2024-02-01`. |
 | `date` `-` `date` | `int` | Number of days between the dates. |
+| `date` `+ -` `interval`, `interval` `+` `date` | `date` | Moves by the months of the interval first, keeping the day of the month unless that month is shorter (then its last day), then by its days: `2024-01-31 + interval('1 month')` is `2024-02-29`. |
+| `interval` `+ -` `interval` | `interval` | `interval('1 year') + interval('-1 month')` is `11 months`. |
 | `str` `+` `str` | `str` | Concatenation. |
 | `amount` `*` number, number `*` `amount` | `amount` | `units(position) * 2`. |
 | `amount` `/` number | `amount` | |
@@ -595,6 +609,8 @@ Two booking cases are still handled differently by Zhang's ledger processing tha
 | `weight` | `amount` | Amount that the posting contributes to balancing its transaction: units times the per-unit cost if the posting is held at cost, otherwise units times the price if it has one, otherwise the units. |
 | `other_accounts` | `set` | Accounts of the other postings in the same transaction. |
 | `meta` | `str` | Metadata of the posting as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` if it has none. The transaction's own metadata is read with `entry_meta()`. |
+| `metas` | `metas` | Metadata of the posting as a list of `(key, value)` pairs, sorted by key, with every value of a repeated key in the order written. See [Structured metadata](#structured-metadata). |
+| `entry_metas` | `metas` | Metadata of the posting's transaction, in the same form. |
 | `balance` | `inventory` | The [running balance](#the-running-balance): the sum of the positions of the rows up to and including this one. It cannot be used in `FROM` or `WHERE`. |
 
 ### The running balance
@@ -645,7 +661,7 @@ ORDER BY currency
 
 - **Columns are per table.** A table has only the columns listed for it, and none of the `postings` columns. `year`, `month` and `day` exist only on `#entries` and `postings`; elsewhere use [`year(date)`](#date-functions) and the other date functions. All functions, aggregates, `GROUP BY`, `HAVING`, `ORDER BY`, `PIVOT BY`, `DISTINCT` and `LIMIT` work on every table.
 - **Row order.** Without `ORDER BY`, rows come in ledger order: by date, then the order in which beancount sorts the directives of one day (`open` first, then balance assertions, the other directives, `document` and `close` last), then the order of your files.
-- **Metadata.** Every directive table has a `meta` column, the directive's metadata as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` without metadata. `meta(key)`, `entry_meta(key)` and `any_meta(key)` read one key of the row's directive (in `#accounts`, of its `open` directive).
+- **Metadata.** Every directive table has a `meta` column, the directive's metadata as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` without metadata. `#entries` and `#transactions` also have `metas`, the same metadata as [structured pairs](#structured-metadata). `meta(key)`, `entry_meta(key)` and `any_meta(key)` read one key of the row's directive (in `#accounts`, of its `open` directive), and `meta_values(key)` and `entry_meta_values(key)` every value of it.
 - **Balance assertions are not transactions.** Zhang stores each balance assertion as a transaction with the flag `C`. Those never appear in `#transactions` or `#entries`, where an assertion is a `balance` entry. Transactions that Zhang rejected while loading the ledger are not rows either. The padding transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
 
 ### #entries
@@ -660,6 +676,7 @@ ORDER BY currency
 | `tags`, `links` | `set` | Tags and links of a transaction, note or document. `NULL` for other directives. |
 | `meta` | `str` | Metadata of the directive. |
 | `accounts` | `set` | The accounts the directive refers to: the posting accounts of a transaction, the account of an `open`, `close`, `balance`, `note` or `document`, and the pad account of `balance ... with pad`. Empty for other directives. |
+| `metas` | `metas` | Metadata of the directive as `(key, value)` pairs, see [Structured metadata](#structured-metadata). A Zhang extension, not part of `SELECT *`. |
 
 ### #transactions
 
@@ -672,6 +689,7 @@ ORDER BY currency
 | `tags`, `links` | `set` | Tags and links. |
 | `accounts` | `set` | Accounts of the postings. |
 | `meta` | `str` | Metadata of the transaction. |
+| `metas` | `metas` | Metadata of the transaction as `(key, value)` pairs, see [Structured metadata](#structured-metadata). A Zhang extension, not part of `SELECT *`. |
 
 ### #prices, #balances, #notes, #events, #documents and #commodities
 
@@ -834,6 +852,8 @@ WHERE file = 'data/2024.zhang'
 | `amount` | A decimal number with a currency. | `12.50 USD` |
 | `position` | Units (an amount) plus an optional cost lot. The lot has a per-unit cost number and currency, and optionally a date and a label. | `10 VTI {120.00 USD, 2024-01-02, "lot-a"}` |
 | `inventory` | A collection of positions in any number of currencies and lots. | `-30.00 USD, 10 VTI {120.00 USD}` |
+| `interval` | A calendar interval of months and days, made by [`interval()`](#date-functions), to add to a date or to bin dates by. | `1 year 2 months` |
+| `metas` | Metadata as an ordered list of `(key, value)` pairs, see [Structured metadata](#structured-metadata). A Zhang extension. | `invoice: a.pdf; invoice: b.pdf` |
 
 How positions combine into an inventory:
 
@@ -855,6 +875,10 @@ An `int` is converted to `decimal` when it is combined with a `decimal` or passe
 - `amount`: by currency first, then by number.
 - `position`: Beancount's position order. Positions in `USD`, `EUR`, `JPY`, `CAD`, `GBP`, `AUD`, `NZD` and `CHF` come first, in that order, and other currencies follow, shorter currency names first. Ties are broken by cost number, cost currency and then units.
 - `inventory`: by its positions, sorted in position order and compared one by one. An inventory that holds a single currency therefore sorts by its number, which is what `ORDER BY total DESC` relies on in the [spending by payee](#spending-by-payee) example.
+- `metas`: pair by pair, by key and then by value.
+- `interval`: intervals cannot be compared, not even with `=`, as in beanquery (`1 month` is neither more nor less than `30 days`). `ORDER BY` still accepts them and orders them by months, then days.
+
+`set`, `inventory` and `metas` values cannot be group keys.
 
 ## Functions
 
@@ -949,6 +973,23 @@ How prices are found:
 | `parent(str) -> str` | The account name without its last component. It is `''` for a top-level account. | `parent('Expenses:Food:Dining')` is `'Expenses:Food'` |
 | `leaf(str) -> str` | The last component of the account name. | `leaf('Expenses:Food:Dining')` is `'Dining'` |
 | `account_sortkey(str) -> str` | A key that sorts accounts by type, in the order `Assets`, `Liabilities`, `Equity`, `Income` and `Expenses`, and then by name. It is the type's position, from `0` to `4`, then `-` and the account name. A name whose first component is not exactly one of these types gets `5`, so it sorts after them. [`BALANCES`](#balances) sorts by this key. | `account_sortkey('Expenses:Food')` is `'4-Expenses:Food'` |
+| `under(str, str) -> bool` | Whether the account is the second argument or one of its sub-accounts: it equals it, or starts with it followed by `:`. A sibling whose name only starts the same way is not under it. A Zhang extension. | `under('Assets:Bank:Cash', 'Assets:Bank')` is `TRUE`, `under('Assets:Banking', 'Assets:Bank')` is `FALSE` |
+
+### Account and commodity directives
+
+These functions read the `open`, `close` and `commodity` directives of the ledger, as in beanquery, so they work on every table. An account's directives are its earliest `open` and its earliest `close`; a currency's is its last `commodity` directive. An unknown account or currency gives `NULL`.
+
+| Signature | Description |
+|-----------|-------------|
+| `open_date(str) -> date` | Date of the account's `open` directive, or `NULL` if it has none. |
+| `close_date(str) -> date` | Date of the account's `close` directive, or `NULL` while it is open. |
+| `open_meta(str, str) -> str` | A metadata value of the account's `open` directive, such as `open_meta(account, 'institution')`, or `NULL` if it is not set. |
+| `open_meta(str) -> metas` | All the metadata of the account's `open` directive, as [structured pairs](#structured-metadata). |
+| `commodity_meta(str, str) -> str` | A metadata value of the currency's `commodity` directive, such as `commodity_meta(currency, 'name')`. |
+| `commodity_meta(str) -> metas` | All the metadata of the currency's `commodity` directive. |
+| `currency_meta(str, str) -> str`, `currency_meta(str) -> metas` | The same as `commodity_meta`. |
+
+Metadata is not inherited: `open_meta('Assets:Bank:Checking', 'institution')` is `NULL` even if `Assets:Bank` has an `institution`. beanquery's one-argument forms return dictionaries that also hold `filename` and `lineno`; Zhang returns only the directive's own metadata.
 
 ### Date functions
 
@@ -961,8 +1002,31 @@ How prices are found:
 | `weekday(date) -> str` | Three-letter English name of the day of the week. | `weekday(2024-01-05)` is `'Fri'` |
 | `yearmonth(date) -> date` | First day of the date's month. | `yearmonth(2024-05-17)` is `2024-05-01` |
 | `today() -> date` | The current date in the ledger's timezone (the `timezone` option). | |
+| `date(int, int, int) -> date` | The date of a year, month and day, or `NULL` if there is no such day or the year is outside 1 to 9999. | `date(2024, 2, 29)` is `2024-02-29`, `date(2023, 2, 29)` is `NULL` |
+| `date(str) -> date` | The date written in the text as `YYYY-MM-DD`, where the month and the day may have one digit, or `NULL` if it is not one. | `date('2024-2-9')` is `2024-02-09` |
+| `date_add(date, int) -> date` | The date moved by a number of days, backwards for a negative number. | `date_add(2024-02-28, 1)` is `2024-02-29` |
+| `date_diff(date, date) -> int` | The number of days from the second date to the first. | `date_diff(2024-03-01, 2024-02-01)` is `29` |
+| `date_trunc(str, date) -> date` | The first day of the date's `week` (a Monday), `month`, `quarter`, `year`, `decade`, `century` (1901, 2001, ...) or `millennium` (1001, 2001, ...), or `NULL` for any other field. Fields are lower-case. | `date_trunc('month', 2024-05-17)` is `2024-05-01` |
+| `date_part(str, date) -> int` | A field of the date: `weekday` or `dow` (Monday is 0), `isoweekday` or `isodow` (Monday is 1), `week` (the ISO week), `month`, `quarter`, `year`, `isoyear` (the year of the ISO week), `decade`, `century`, `millennium` or `epoch` (seconds since 1970-01-01), or `NULL` for any other field. There is no `day` field; use `day(date)`. | `date_part('week', 2016-01-03)` is `53` |
+| `interval(str) -> interval` | An interval written as a number and a unit, `day`, `week`, `month` or `year` (or their plurals), with an optional sign, or `NULL` for any other text. | `interval('3 months')`, `interval('-1 year')` |
+| `date_bin(interval, date, date) -> date` | The start of the bin that holds the date among the bins of the interval laid from the origin (the third argument). See below. | `date_bin(interval('7 days'), date, 2024-01-01)` |
+| `date_bin(str, date, date) -> date` | The same, with the interval written as text. | `date_bin('1 month', date, 2024-01-01)` |
 
 The `year`, `month` and `day` columns are shortcuts: `year` is the same as `year(date)`.
+
+`date_trunc` buckets dates by calendar periods, and `date_bin` by any interval from any origin:
+
+```sql
+SELECT date_trunc('week', date) AS week, sum(position) AS spent
+WHERE account ~ '^Expenses:'
+GROUP BY week ORDER BY week
+```
+
+- The bins of `date_bin(stride, date, origin)` start at `origin + k × stride` for every whole number `k`, each computed from the origin, so the bins of `'1 month'` from `2024-01-31` start on `2024-02-29`, `2024-03-31`, `2024-04-30`, ... Dates before the origin fall in bins laid backwards from it.
+- A date exactly on a bin boundary starts that bin: `date_bin('1 month', 2024-02-01, 2024-01-01)` is `2024-02-01`.
+- A stride of zero or less, or a text that `interval()` cannot read, gives `NULL`.
+
+Intervals add to dates with `+` and `-`, see [Arithmetic](#arithmetic). Weeks are a Zhang extension: in beanquery, `interval('1 week')` is `NULL`.
 
 ### Metadata functions
 
@@ -971,8 +1035,10 @@ The `year`, `month` and `day` columns are shortcuts: `year` is the same as `year
 | `meta(str) -> str` | Value of a metadata key on the posting, or `NULL` if it is not set. |
 | `entry_meta(str) -> str` | Value of a metadata key on the transaction, or `NULL` if it is not set. |
 | `any_meta(str) -> str` | Value of a metadata key on the posting, falling back to the transaction, or `NULL` if neither has it. |
+| `meta_values(str) -> set` | Every value of a metadata key on the posting, as a set; empty if it is not set. A Zhang extension. |
+| `entry_meta_values(str) -> set` | Every value of a metadata key on the transaction, as a set. A Zhang extension. |
 
-Metadata values are always returned as text. When a key is repeated, its first value is returned. On the [other tables](#other-tables), all three read the metadata of the row's directive. On `#budgets` they read the metadata of the `budget` directive, and on `#errors` the details Zhang records about the error.
+Metadata values are always returned as text. When a key is repeated, `meta`, `entry_meta` and `any_meta` return its first value, and `meta_values` and `entry_meta_values` all of them: `'b.pdf' IN entry_meta_values('invoice')` finds a transaction with several `invoice` lines. On the [other tables](#other-tables), all three read the metadata of the row's directive. On `#budgets` they read the metadata of the `budget` directive, and on `#errors` the details Zhang records about the error.
 
 Which metadata lines of a transaction belong to a posting depends on the file format, see [Transactions](/directives/6-transaction/#which-lines-belong-to-a-posting). For example, with
 
@@ -985,6 +1051,25 @@ Which metadata lines of a transaction belong to a posting depends on the file fo
 ```
 
 the `Expenses:Food` posting has `meta('category')` `'food'`, `entry_meta('category')` `'meals'` and `any_meta('category')` `'food'`, and the `Assets:Cash` posting has `NULL`, `'meals'` and `'meals'`.
+
+### Structured metadata
+
+The `metas` columns and `open_meta(account)` hold metadata as a `metas` value: a list of `(key, value)` pairs, sorted by key, with every value of a repeated key kept in the order it is written. Values are text. Zhang does not keep the order of different keys, so they are sorted. `str(metas)` writes the pairs as `key: value` joined with `; `, the [HTTP API](#cell-encoding) sends them as a list of `{"key": ..., "value": ...}` objects, and [CSV export](#export-as-csv) writes them like `str`. `metas` is a Zhang extension; to filter on a key, use `meta`, `entry_meta`, `meta_values` or `entry_meta_values`.
+
+### Search functions
+
+Zhang extensions for keyword search. "Ignoring case" compares the texts after converting both to lower case (Unicode).
+
+| Signature | Description | Example |
+|-----------|-------------|---------|
+| `icontains(str, str) -> bool` | Whether the text contains the second argument, ignoring case. Unlike `~`, the needle is plain text, not a regular expression. | `icontains(payee, 'café')` |
+| `any_icontains(set, str) -> bool` | Whether an element of the set contains the text, ignoring case. | `any_icontains(tags, 'trip')` |
+| `intersects(set, set) -> bool` | Whether the two sets have an element in common. | `intersects(tags, :tags)` |
+
+```sql
+SELECT date, payee, narration, account, position
+WHERE icontains(payee, 'coffee') OR icontains(narration, 'coffee') OR any_icontains(tags, 'coffee')
+```
 
 ### String functions
 
@@ -1035,7 +1120,7 @@ A successful response has HTTP status 200:
 }
 ```
 
-- `columns` lists the result columns in order. Each has a `name` and a `type`, which is one of `null`, `bool`, `int`, `decimal`, `str`, `date`, `set`, `amount`, `position` and `inventory`.
+- `columns` lists the result columns in order. Each has a `name` and a `type`, which is one of `null`, `bool`, `int`, `decimal`, `str`, `date`, `set`, `amount`, `position`, `inventory`, `interval` and `metas`.
 - `rows` is a list of rows. Each row is a list with one cell per column, in the same order.
 
 ### Cell encoding
@@ -1052,6 +1137,8 @@ A successful response has HTTP status 200:
 | `amount` | object | `{"number": "12.50", "currency": "USD"}` |
 | `position` | object | `{"units": {"number": "10", "currency": "VTI"}, "cost": {"number": "120.00", "currency": "USD", "date": "2024-01-02", "label": null}}` |
 | `inventory` | object | `{"positions": [ ...positions... ]}` |
+| `interval` | string | `"1 year 2 months"` |
+| `metas` | array of objects, in order | `[{"key": "invoice", "value": "a.pdf"}, {"key": "invoice", "value": "b.pdf"}]` |
 
 - Decimal numbers, including the `number` fields of amounts and costs, are sent as strings so that no precision is lost. They never use exponent notation and keep their decimal places (`"12.50"`). Parse them with a decimal library rather than as floating point.
 - Integers are 64-bit and sent as JSON numbers. JavaScript reads JSON numbers as doubles, so an `int` cell beyond ±2^53 (9,007,199,254,740,992) loses precision in a JavaScript client. Counts and date parts never come close to that.
@@ -1127,7 +1214,7 @@ Assets:Broker:GLD,,17
 The file follows RFC 4180:
 
 - The first record holds the column names. Every record ends with CRLF, the last one included.
-- `NULL` is an empty field. Booleans are written `TRUE` and `FALSE`, dates `YYYY-MM-DD`, and sets as their elements, sorted and joined with `,`.
+- `NULL` is an empty field. Booleans are written `TRUE` and `FALSE`, dates `YYYY-MM-DD`, sets as their elements, sorted and joined with `,`, intervals like `1 year 2 months`, and `metas` as `key: value` pairs joined with `; `.
 - Numbers are exact. They keep all their digits and decimal places, and are never padded, rounded or written with an exponent.
 - A field that contains `,`, `"`, a carriage return or a line feed is put in double quotes, with each `"` doubled. A row with a single empty field is written as `""`, so that it is not a blank line.
 
@@ -1163,9 +1250,9 @@ Text is written as it is, without any protection against formulas, as in beanque
 }
 ```
 
-- `columns` has one entry per column, 24 in all, in the order of the [column table](#columns). The last one is the running `balance`.
+- `columns` has one entry per column, 26 in all, in the order of the [column table](#columns). The last one is the running `balance`.
 - `tables` has one entry per table, `postings` first, then the [other tables](#other-tables) in the order listed there, then `budgets` and `errors`. `name` has no `#`. The `postings` entry has the same columns as `columns`, and the attributes of a structured column are listed as columns named like `open.date`.
-- `functions` has one entry per overload, 66 in all: first the aggregate functions, then the scalar functions, including `account_sortkey` and `maxwidth`. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
+- `functions` has one entry per overload, 89 in all: first the aggregate functions, then the scalar functions, including `account_sortkey` and `maxwidth`. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
 
 ## Examples
 
@@ -1363,7 +1450,7 @@ One row per day with postings, with the account's balance at the end of the day.
 - **The beanquery columns** `posting_flag`, `filename`, `lineno`, `location`, `entry`, `accounts` and `type` of the postings table, and `lineno` of `#entries`: Zhang does not keep line numbers.
 - **Subscripts**, such as `meta['name']`. Use `meta('name')`.
 - **Operators `BETWEEN` and `%`**, and beanquery's quoted identifiers.
-- **Functions not listed on this page**, such as `round`, `safediv`, `has_account`, `open_date`, `close_date`, `open_meta`, `currency_meta`, `grep`, `subst`, `upper`, `lower`, `joinstr`, `findfirst`, the conversion functions `int`, `decimal` and `date`, and the `date_*` functions. Calling one is an error.
+- **Functions not listed on this page**, such as `round`, `safediv`, `has_account`, `grep`, `subst`, `upper`, `lower`, `joinstr`, `findfirst`, `parse_date` and the conversion functions `int`, `decimal` and `date(date)`. Calling one is an error.
 
 
 ### Behaving differently
@@ -1380,7 +1467,12 @@ One row per day with postings, with the account's balance at the end of the day.
 - **Column names of `BALANCES` and `JOURNAL`** are those of the equivalent `SELECT`: `sum(position)`, `sum(cost(position))` and `maxwidth(payee, 48)`. beanquery names them `SUM((position))`, `SUM(cost(position))` and `MAXWIDTH(payee, 48)`.
 - **The running balance.** `balance` cannot be used in `FROM` or `WHERE`, and it adds up exactly the rows that pass them. beanquery updates its balance each time it evaluates the column, so in a `WHERE` clause it would count the rows it tests rather than the rows it keeps.
 - **`account_sortkey`** of a name whose first component is not an account type returns a key that sorts after all the types. beanquery raises an error.
-- **Parameters.** The `JOURNAL` pattern and the `OPEN ON` and `CLOSE ON` dates can be [parameters](#parameters). beanquery only accepts literals there.
+- **`date_bin` lays its bins from the origin.** With a stride of months or years, beanquery adds each stride to the previous bin, so bins from a month end drift (`01-31`, `02-28`, `03-28`, ...), and it puts a date exactly on a bin boundary other than the origin into the previous bin: `date_bin('1 month', 2000-02-01, 2000-01-01)` is `2000-01-01` there. In Zhang the bins are `origin + k × stride` (`01-31`, `02-28`, `03-31`, ...) and a date on a boundary starts its bin (`2000-02-01`). A zero stride, or a stride text that `interval()` cannot read, is `NULL`; beanquery fails.
+- **`interval()` accepts weeks**, seven days each. beanquery returns `NULL` for them.
+- **`NULL` arguments.** A `NULL` literal is accepted wherever a value is, and a function given `NULL` returns `NULL`: `date_add(NULL, 1)` is `NULL`. beanquery types `NULL` apart and rejects such a call.
+- **Interval arithmetic.** `interval - interval` is an interval; beanquery declares it a date. `interval - date` is an error; beanquery accepts it and fails while running.
+- **`OFFSET`** is a Zhang extension; beanquery has only `LIMIT`.
+- **Parameters.** The `JOURNAL` pattern, the `OPEN ON` and `CLOSE ON` dates, and `LIMIT` and `OFFSET` can be [parameters](#parameters). beanquery only accepts literals there.
 - **The `FROM` expression filters after the period clauses.** This is what beanquery does. In BQL v2, the expression chose the transactions before `OPEN`, `CLOSE` and `CLEAR` were applied.
 - **Equity accounts.** An `account_previous_*` or `account_current_*` option whose value is not a valid account name is ignored, and the default account is used.
 - **The last entry of a period**, which dates the `T` transactions of `CLEAR` and the `C` transaction of a bare `CLOSE`, ignores Zhang's budget directives, which Beancount does not have.
@@ -1389,7 +1481,7 @@ One row per day with postings, with the account's balance at the end of the day.
 - **`PIVOT BY` with `NULL` values.** beanquery fails when the values of a pivot target mix `NULL` with others. Zhang sorts `NULL` first and names its column `NULL`.
 - **`PIVOT BY` without grouping** is an error in Zhang. beanquery fails while it runs such a query.
 - **CSV export of a pivot with missing cells.** beanquery fails to numberify the empty cells of a pivoted amount or inventory column. Zhang leaves them empty.
-- **Metadata is text.** beanquery's `meta` columns are dictionaries that also hold `filename` and `lineno`. In Zhang, `meta` is the text `key: "value", ...` of the directive's own metadata (of the posting's in the postings table), and `open.meta` and `close.meta` likewise.
+- **Metadata is text.** beanquery's `meta` columns are dictionaries that also hold `filename` and `lineno`. In Zhang, `meta` is the text `key: "value", ...` of the directive's own metadata (of the posting's in the postings table), and `open.meta` and `close.meta` likewise. The structured form is the Zhang `metas` type, see [Structured metadata](#structured-metadata).
 - **`open` and `close` of `#accounts` read as their date** when used without an attribute. In beanquery they are the whole directives.
 - **`entry_meta()` and `any_meta()` work on every table**, like `meta()`. beanquery only accepts them on the postings table.
 - **`#entries` holds Zhang's directives.** It has Zhang's budget directives, and a `balance ... with pad` is one `balance` entry followed by its padding transaction, where beancount has a `pad` and a `balance` entry. The `id` of an entry is Zhang's id, not beancount's hash.
