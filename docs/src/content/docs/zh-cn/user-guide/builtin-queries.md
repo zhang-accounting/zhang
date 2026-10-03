@@ -225,7 +225,7 @@ WHERE account IN :accounts AND yearmonth(date) = :month
 ORDER BY timestamp DESC
 ```
 
-商品的精度、前缀、后缀、舍入方式和分组来自它的 `commodity` 指令。账本持有多少该商品、持有在哪些批次中，以及它的价格，来自下面这些查询。持有量指资产（Assets）和负债（Liabilities）账户中的持有量。
+商品的精度、前缀、后缀、舍入方式和分组来自它的 `commodity` 指令。账本持有多少该商品、持有在哪些批次中，以及它的价格，来自下面这些查询。持有量指资产（Assets）和负债（Liabilities）账户中的持有量，这些账户用 [`under`](/zh-cn/user-guide/query-language/#账户函数) 选出，查询因此只读取它们的分录。
 
 #### `commodities.totals`
 
@@ -233,7 +233,7 @@ ORDER BY timestamp DESC
 
 ```sql
 SELECT currency, sum(number) AS total
-WHERE root(account, 1) IN ('Assets', 'Liabilities')
+WHERE under(account, 'Assets') OR under(account, 'Liabilities')
 GROUP BY currency
 HAVING sum(number) != 0
 ORDER BY currency
@@ -249,7 +249,7 @@ ORDER BY currency
 
 ```sql
 SELECT currency, sum(number) AS total
-WHERE currency = :commodity AND root(account, 1) IN ('Assets', 'Liabilities')
+WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
 GROUP BY currency
 HAVING sum(number) != 0
 ```
@@ -296,7 +296,7 @@ GROUP BY currency
 
 ```sql
 SELECT account, cost_date, cost_number, cost_currency, sum(number) AS units
-WHERE currency = :commodity AND root(account, 1) IN ('Assets', 'Liabilities')
+WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
 GROUP BY account, cost_date, cost_number, cost_currency
 HAVING sum(number) != 0
 ORDER BY account, cost_date, cost_number

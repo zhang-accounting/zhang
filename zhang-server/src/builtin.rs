@@ -140,7 +140,7 @@ pub static BUILTINS: &[BuiltinQuery] = &[
         name: "commodities.totals",
         description: "How many units of each commodity the Assets and Liabilities accounts hold, for the commodities they hold.",
         bql: "SELECT currency, sum(number) AS total \
-              WHERE root(account, 1) IN ('Assets', 'Liabilities') \
+              WHERE under(account, 'Assets') OR under(account, 'Liabilities') \
               GROUP BY currency \
               HAVING sum(number) != 0 \
               ORDER BY currency",
@@ -150,7 +150,7 @@ pub static BUILTINS: &[BuiltinQuery] = &[
         name: "commodities.total",
         description: "How many units of a commodity the Assets and Liabilities accounts hold; no row if they hold none.",
         bql: "SELECT currency, sum(number) AS total \
-              WHERE currency = :commodity AND root(account, 1) IN ('Assets', 'Liabilities') \
+              WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities')) \
               GROUP BY currency \
               HAVING sum(number) != 0",
         params: &[("commodity", DataType::Str)],
@@ -178,7 +178,7 @@ pub static BUILTINS: &[BuiltinQuery] = &[
         name: "commodities.lots",
         description: "The lots of a commodity the Assets and Liabilities accounts hold, by account, then oldest first.",
         bql: "SELECT account, cost_date, cost_number, cost_currency, sum(number) AS units \
-              WHERE currency = :commodity AND root(account, 1) IN ('Assets', 'Liabilities') \
+              WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities')) \
               GROUP BY account, cost_date, cost_number, cost_currency \
               HAVING sum(number) != 0 \
               ORDER BY account, cost_date, cost_number",

@@ -225,7 +225,7 @@ WHERE account IN :accounts AND yearmonth(date) = :month
 ORDER BY timestamp DESC
 ```
 
-What a commodity is (its precision, prefix, suffix, rounding and group) comes from its `commodity` directive. How much of it the ledger holds, in which lots, and its prices come from the queries below. Holdings are those of the Assets and Liabilities accounts.
+What a commodity is (its precision, prefix, suffix, rounding and group) comes from its `commodity` directive. How much of it the ledger holds, in which lots, and its prices come from the queries below. Holdings are those of the Assets and Liabilities accounts, chosen with [`under`](/user-guide/query-language/#account-functions) so that the query reads only their postings.
 
 #### `commodities.totals`
 
@@ -233,7 +233,7 @@ How many units of each commodity the Assets and Liabilities accounts hold, for t
 
 ```sql
 SELECT currency, sum(number) AS total
-WHERE root(account, 1) IN ('Assets', 'Liabilities')
+WHERE under(account, 'Assets') OR under(account, 'Liabilities')
 GROUP BY currency
 HAVING sum(number) != 0
 ORDER BY currency
@@ -249,7 +249,7 @@ How many units of one commodity the Assets and Liabilities accounts hold. No row
 
 ```sql
 SELECT currency, sum(number) AS total
-WHERE currency = :commodity AND root(account, 1) IN ('Assets', 'Liabilities')
+WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
 GROUP BY currency
 HAVING sum(number) != 0
 ```
@@ -296,7 +296,7 @@ The lots of a commodity that the Assets and Liabilities accounts hold: the units
 
 ```sql
 SELECT account, cost_date, cost_number, cost_currency, sum(number) AS units
-WHERE currency = :commodity AND root(account, 1) IN ('Assets', 'Liabilities')
+WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
 GROUP BY account, cost_date, cost_number, cost_currency
 HAVING sum(number) != 0
 ORDER BY account, cost_date, cost_number
