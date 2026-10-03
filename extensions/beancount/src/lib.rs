@@ -295,24 +295,6 @@ macro_rules! extract_time {
     }};
 }
 
-/// Older zhang wrote the `time` metadata of a transaction after its postings, where
-/// beancount reads it as metadata of the last posting. A transaction without a `time` of
-/// its own takes such a `time` back, so it keeps its time of day; any other metadata
-/// stays on the posting, as beancount reads it.
-fn lift_trailing_time(transaction: &mut Transaction) {
-    if transaction.meta.get_one("time").is_some() {
-        return;
-    }
-    let Some(posting) = transaction.postings.last_mut() else {
-        return;
-    };
-    if posting.meta.get_one("time").is_some_and(|time| parse_time(time.as_str()).is_ok()) {
-        if let Some(time) = posting.meta.pop_one("time") {
-            transaction.meta.insert("time".to_owned(), time);
-        }
-    }
-}
-
 impl Beancount {
     fn extract_time_from_meta(&self, directive: &mut BeancountDirective) {
         match directive {
@@ -320,10 +302,7 @@ impl Beancount {
                 Directive::Open(directive) => extract_time!(directive),
                 Directive::Close(directive) => extract_time!(directive),
                 Directive::Commodity(directive) => extract_time!(directive),
-                Directive::Transaction(directive) => {
-                    lift_trailing_time(directive);
-                    extract_time!(directive)
-                }
+                Directive::Transaction(directive) => extract_time!(directive),
                 Directive::BalanceCheck(balance_check) => extract_time!(balance_check),
                 Directive::BalancePad(balance_pad) => extract_time!(balance_pad),
                 Directive::Note(directive) => extract_time!(directive),

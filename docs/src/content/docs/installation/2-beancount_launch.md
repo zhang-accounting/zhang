@@ -36,7 +36,7 @@ Zhang reads the metadata of a transaction in a Beancount file the way Beancount 
 
 Older versions of Zhang wrote a transaction's metadata after its postings. Such a file now reads differently in Zhang: that metadata belongs to the last posting, which is how Fava has always read it. Two keys keep working as before:
 
-- `time`: when the transaction has no `time` of its own, a `time` on its last posting is still the transaction's time of day.
+- `time`: a `time` after the last posting, at the postings' indentation as older Zhang wrote it, is still the transaction's time of day, unless the transaction has a `time` of its own or another posting has one. A `time` indented deeper than its posting stays the posting's.
 - `document`: a document on a posting is a document of its transaction, so documents attached to a transaction stay attached.
 
 When Zhang writes a transaction, for example after you edit it in the web UI, it writes the transaction's metadata before the postings and each posting's metadata right under it, so the file reads the same in Zhang, Beancount and Fava. See [Transactions](/directives/6-transaction/#metadata).
