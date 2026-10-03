@@ -17,7 +17,7 @@ use crate::functions::aggregates::{is_aggregate, resolve_aggregate};
 use crate::functions::{resolve_scalar, AggregateFunction, AggregateKind, ScalarFunction};
 use crate::params::{ParamRef, ParamTypes, Params};
 use crate::period::{Period, PeriodDate};
-use crate::table::{self, ColumnDef, Scope, Table, BALANCE_COLUMN, POSTINGS};
+use crate::table::{self, ColumnDef, Scope, Table, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN, POSTINGS};
 use crate::value::{DataType, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,6 +257,13 @@ pub(crate) enum Running {
     Units,
     /// `cost(position)`, which sums to `cost(balance)`
     Cost,
+    /// the positions of every row of the current row's account, whatever the filter: the
+    /// `account_balance` column
+    AccountBalance,
+    /// `units(position)` per account, which sums to `units(account_balance)`
+    AccountUnits,
+    /// `cost(position)` per account, which sums to `cost(account_balance)`
+    AccountCost,
 }
 
 impl Running {
@@ -265,6 +272,9 @@ impl Running {
             Running::Balance => BALANCE_COLUMN,
             Running::Units => "units",
             Running::Cost => "cost",
+            Running::AccountBalance => ACCOUNT_BALANCE_COLUMN,
+            Running::AccountUnits => "account units",
+            Running::AccountCost => "account cost",
         }
     }
 
@@ -274,7 +284,24 @@ impl Running {
             Running::Balance => BALANCE_COLUMN,
             Running::Units => "units(balance)",
             Running::Cost => "cost(balance)",
+            Running::AccountBalance => ACCOUNT_BALANCE_COLUMN,
+            Running::AccountUnits => "units(account_balance)",
+            Running::AccountCost => "cost(account_balance)",
         }
+    }
+
+    /// The column the total reads.
+    pub fn column(&self) -> &'static str {
+        match self {
+            Running::Balance | Running::Units | Running::Cost => BALANCE_COLUMN,
+            Running::AccountBalance | Running::AccountUnits | Running::AccountCost => ACCOUNT_BALANCE_COLUMN,
+        }
+    }
+
+    /// Whether the total adds up the rows of every account separately, whatever the filter
+    /// (`account_balance`), rather than the rows the filter selects (`balance`).
+    pub fn per_account(&self) -> bool {
+        self.column() == ACCOUNT_BALANCE_COLUMN
     }
 }
 
@@ -293,10 +320,11 @@ pub(crate) enum LimitMode {
     FirstGroups,
 }
 
-/// How the running `balance` is materialized.
+/// How the running totals (`balance`, `account_balance`) are materialized.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct RunningPlan {
-    /// the main pass keeps the running state, because an expression it evaluates reads it
+    /// the main pass keeps the running state, because an expression it evaluates (the filter,
+    /// for the account balances) reads it
     pub eager: bool,
     /// visible targets of a non-aggregate query that the main pass leaves empty: once ORDER
     /// BY and LIMIT have chosen the rows, one replay over the filtered rows in ledger order
@@ -410,11 +438,15 @@ pub(crate) struct Execution {
 
 impl Execution {
     pub fn naive(plan: &Plan) -> Execution {
-        let running_balance = plan.table.is_postings() && plan.referenced_columns().contains(BALANCE_COLUMN);
+        let referenced = plan.referenced_columns();
+        let totals = [Running::Balance, Running::AccountBalance]
+            .into_iter()
+            .filter(|total| plan.table.is_postings() && referenced.contains(total.column()))
+            .collect::<Vec<_>>();
         Execution {
             running: RunningPlan {
-                eager: running_balance,
-                totals: if running_balance { vec![Running::Balance] } else { vec![] },
+                eager: !totals.is_empty(),
+                totals,
                 ..RunningPlan::default()
             },
             limit: if plan.group_keys.is_none() && plan.order.is_empty() && !plan.distinct {
@@ -1224,6 +1256,10 @@ fn column_ref(table: &'static Table, name: &str, span: Span, mode: Mode, info: &
             if info.bare_column.is_none() {
                 info.bare_column = Some((def.name.to_owned(), span));
             }
+            if table.is_postings() && def.name == ACCOUNT_BALANCE_COLUMN {
+                // a running total, which the filter may read: it does not depend on the filter
+                return Ok((CExpr::Running(Running::AccountBalance), def.ty));
+            }
             if !(table.is_postings() && def.name == BALANCE_COLUMN) {
                 return Ok((CExpr::Column(def), def.ty));
             }
@@ -1527,8 +1563,8 @@ impl CExpr {
             CExpr::Column(def) => {
                 columns.insert(def.name);
             }
-            CExpr::Running(_) => {
-                columns.insert(BALANCE_COLUMN);
+            CExpr::Running(total) => {
+                columns.insert(total.column());
             }
             _ => {}
         }
@@ -1784,7 +1820,9 @@ impl fmt::Display for Plan {
             for idx in &running.deferred_aggregates {
                 how.push(format!("deferred agg#{}", idx));
             }
-            writeln!(f, "balance: {}", how.join(", "))?;
+            let mut columns = running.totals.iter().map(Running::column).collect::<Vec<_>>();
+            columns.dedup();
+            writeln!(f, "{}: {}", columns.join(", "), how.join(", "))?;
         }
         Ok(())
     }

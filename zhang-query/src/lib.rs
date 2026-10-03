@@ -266,7 +266,7 @@ impl Query {
             }
             Some(period) => {
                 equity = period::EquityAccounts::from_options(&store.options);
-                let data = table::Dataset::booked(ledger, &store, cache, today, self.projection.with_cost(), &table::Scope::All);
+                let data = table::Dataset::postings(ledger, &store, cache, today, self.projection.with_cost(), &table::Scope::All);
                 period.apply(data, ledger, &equity)
             }
         };

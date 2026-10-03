@@ -324,9 +324,9 @@ struct Posting<'a> {
 }
 
 impl ResolvedPeriod {
-    /// Rewrite the rows of `data`, then give them their account balances when the projection
-    /// reads them (over the rewritten rows). Its rows must carry the cost of their lots
-    /// ([`crate::projector::Projection::with_cost`]).
+    /// Rewrite the rows of `data`. Its rows must carry the cost of their lots
+    /// ([`crate::projector::Projection::with_cost`]). The account balances are summed over the
+    /// rewritten rows, as the executor sums them over the rows of the table.
     pub fn apply<'a>(&self, mut data: Dataset<'a>, ledger: &'a Ledger, equity: &'a EquityAccounts) -> Dataset<'a> {
         let keep_price = data.projection.keeps_price();
         let rows = std::mem::take(&mut data.rows);
@@ -348,7 +348,6 @@ impl ResolvedPeriod {
             transform.clear(self.open, close_on);
         }
         data.rows = transform.rows;
-        data.add_account_balances();
         data
     }
 }
@@ -586,7 +585,6 @@ impl<'a> Transform<'_, 'a> {
                 units: MaybeOwned::owned(posting.units),
                 cost: posting.cost.map(MaybeOwned::owned),
                 price: posting.price.filter(|_| self.keep_price).map(MaybeOwned::owned),
-                account_balance: None,
             });
         }
         self.entries.push(Entry {

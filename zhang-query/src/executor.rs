@@ -171,11 +171,11 @@ impl CExpr {
                 _ => Err(LocatedError::eval(format!("column '{}' is not available here", def.name), None)),
             },
             CExpr::Running(total) => match env.running {
-                Some(running) => Ok(Value::Inventory(running.value(*total))),
+                Some(running) => Ok(Value::Inventory(running.value(*total, env.row))),
                 None => {
                     // never constant: folding gives up on it
                     env.impure.set(true);
-                    Err(LocatedError::eval("balance is not available here", None))
+                    Err(LocatedError::eval(format!("{} is not available here", total.column()), None))
                 }
             },
             CExpr::Param(param) => Ok(env.params.get(param).cloned().unwrap_or(Value::Null)),
@@ -852,8 +852,18 @@ impl<'x, 'a> Execution<'x, 'a> {
         };
         let mut running = RunningState::new(&self.plan.execution.running.totals);
         let mut next = 0;
+        // the rows of the table added to the account balances so far: every row up to the
+        // filtered one, whatever the filter
+        let mut observed = 0;
         for (ordinal, idx) in filtered[..=last].iter().enumerate() {
             Deadline::check(self.deadline, ordinal)?;
+            while running.observes() && observed <= *idx {
+                Deadline::check(self.deadline, observed)?;
+                if let RowRef::Posting(posting) = self.data.row(observed) {
+                    running.observe(posting);
+                }
+                observed += 1;
+            }
             let row = self.data.row(*idx);
             if let RowRef::Posting(posting) = row {
                 running.add(posting);
@@ -940,7 +950,14 @@ pub(crate) fn execute_within(
                 if full && !run.count_total {
                     break;
                 }
-                let env = Env { row: Some(row), ..base };
+                if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
+                    running.observe(posting);
+                }
+                let env = Env {
+                    row: Some(row),
+                    running: running.as_ref(),
+                    ..base
+                };
                 if !passes(&plan.filter, &env)? {
                     continue;
                 }
@@ -954,8 +971,9 @@ pub(crate) fn execute_within(
                     running.add(posting);
                 }
                 let env = Env {
+                    row: Some(row),
                     running: running.as_ref(),
-                    ..env
+                    ..base
                 };
                 let mut cells = Vec::with_capacity(plan.targets.len());
                 for (idx, target) in plan.targets.iter().enumerate() {
@@ -1022,7 +1040,14 @@ pub(crate) fn execute_within(
             let mut later_groups: HashSet<Vec<Value>> = HashSet::new();
             for (counter, row) in data.iter().enumerate() {
                 Deadline::check(execution.deadline, counter)?;
-                let env = Env { row: Some(row), ..base };
+                if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
+                    running.observe(posting);
+                }
+                let env = Env {
+                    row: Some(row),
+                    running: running.as_ref(),
+                    ..base
+                };
                 if !passes(&plan.filter, &env)? {
                     continue;
                 }
@@ -1031,8 +1056,9 @@ pub(crate) fn execute_within(
                     running.add(posting);
                 }
                 let env = Env {
+                    row: Some(row),
                     running: running.as_ref(),
-                    ..env
+                    ..base
                 };
                 let key = keys.iter().map(|idx| plan.targets[*idx].expr.eval(&env)).collect::<Result<Vec<_>, _>>()?;
                 // LIMIT without ORDER BY keeps the first groups, so later ones are skipped

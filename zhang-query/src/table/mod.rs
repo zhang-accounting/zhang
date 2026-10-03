@@ -54,7 +54,7 @@ use zhang_core::store::Store;
 
 pub(crate) use self::cache::LedgerCache;
 pub use self::postings::COLUMNS;
-pub(crate) use self::postings::{position, Entry, MaybeOwned, Row, Scope, BALANCE_COLUMN};
+pub(crate) use self::postings::{position, Entry, MaybeOwned, Row, Scope, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN};
 use crate::error::LocatedError;
 use crate::executor::{Budget, Deadline};
 use crate::functions::AccountDirectives;
@@ -237,32 +237,21 @@ pub(crate) enum Get {
     Record(fn(&Dataset<'_>, &Record<'_>) -> Value),
 }
 
-/// The parts of a booked row that only some columns read (see [`Row::cost`], [`Row::price`],
-/// [`Row::account_balance`]).
+/// The parts of a booked row that only some columns read (see [`Row::cost`], [`Row::price`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Reads {
     /// the cost of the posting's lot
     pub cost: bool,
     /// the price annotation of the posting
     pub price: bool,
-    /// the running balance of the posting's account (which sums positions, so also the cost)
-    pub account_balance: bool,
 }
 
 impl Reads {
     /// only the posting and its transaction (and every column of a record table)
-    pub(crate) const POSTING: Reads = Reads {
-        cost: false,
-        price: false,
-        account_balance: false,
-    };
-    pub(crate) const COST: Reads = Reads { cost: true, ..Reads::POSTING };
-    pub(crate) const PRICE: Reads = Reads { price: true, ..Reads::POSTING };
-    pub(crate) const COST_AND_PRICE: Reads = Reads { price: true, ..Reads::COST };
-    pub(crate) const ACCOUNT_BALANCE: Reads = Reads {
-        account_balance: true,
-        ..Reads::COST
-    };
+    pub(crate) const POSTING: Reads = Reads { cost: false, price: false };
+    pub(crate) const COST: Reads = Reads { cost: true, price: false };
+    pub(crate) const PRICE: Reads = Reads { cost: false, price: true };
+    pub(crate) const COST_AND_PRICE: Reads = Reads { cost: true, price: true };
 }
 
 /// In-place access to a column, for predicates that only inspect the value.

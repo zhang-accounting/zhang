@@ -90,9 +90,6 @@ pub(crate) struct Row<'a> {
     /// per-unit price annotation; only kept when the projection reads it
     /// ([`Projection::keeps_price`]), otherwise always `None`
     pub price: Option<MaybeOwned<'a, Amount>>,
-    /// the balance of the row's account right after it, over every row of the account; only
-    /// computed when the projection reads it ([`Projection::keeps_account_balance`])
-    pub account_balance: Option<Inventory>,
 }
 
 /// The rows of the `postings` table an execution needs: every row, or only the rows of some
@@ -222,14 +219,6 @@ impl<'a> Dataset<'a> {
     /// The rows of the `postings` table in `scope`, for `projection`, assembled from the booked
     /// rows of `cache` (the cache of `ledger`).
     pub fn postings(ledger: &'a Ledger, store: &'a Store, cache: &'a LedgerCache, today: NaiveDate, projection: Projection, scope: &Scope) -> Self {
-        let mut data = Dataset::booked(ledger, store, cache, today, projection, scope);
-        data.add_account_balances();
-        data
-    }
-
-    /// [`Dataset::postings`] without the account balances, for the period modifiers, which
-    /// rewrite the rows first.
-    pub(crate) fn booked(ledger: &'a Ledger, store: &'a Store, cache: &'a LedgerCache, today: NaiveDate, projection: Projection, scope: &Scope) -> Self {
         let postings = cache.postings(ledger, store);
         let table = cache.entries(ledger, store);
         let selected = scope.rows(postings);
@@ -293,7 +282,6 @@ impl<'a> Dataset<'a> {
                 units: MaybeOwned::Borrowed(&cached.units),
                 cost: lot.and_then(|lot| lot.cost.as_ref()).filter(|_| keep_cost).map(MaybeOwned::Borrowed),
                 price: lot.and_then(|lot| lot.price.as_ref()).filter(|_| keep_price).map(MaybeOwned::Borrowed),
-                account_balance: None,
             });
         }
 
@@ -308,21 +296,6 @@ impl<'a> Dataset<'a> {
             store,
             cache,
             store_meta: OnceCell::new(),
-        }
-    }
-
-    /// Give every row the balance of its account right after it, when the projection reads
-    /// `account_balance`. Each account adds up its own rows in ledger order, whatever the
-    /// query filters: every row of an account is here, as a [`Scope`] keeps all of them.
-    pub(crate) fn add_account_balances(&mut self) {
-        if !self.projection.keeps_account_balance() {
-            return;
-        }
-        let mut balances: HashMap<&'a str, Inventory> = HashMap::new();
-        for row in &mut self.rows {
-            let balance = balances.entry(row.account).or_default();
-            balance.add_owned_position(position(row));
-            row.account_balance = Some(balance.clone());
         }
     }
 
@@ -548,6 +521,11 @@ pub(super) fn book(drafts: Vec<Draft<'_>>, ledger: &Ledger, store: &Store) -> Ve
 /// [`crate::compiler::CExpr::Running`]); its [`ColumnDef::get`] is the row's own
 /// contribution.
 pub(crate) const BALANCE_COLUMN: &str = "balance";
+
+/// The `account_balance` column, a running sum per account the executor evaluates like
+/// [`BALANCE_COLUMN`] (see [`crate::running`]); its [`ColumnDef::get`] is the row's own
+/// contribution.
+pub(crate) const ACCOUNT_BALANCE_COLUMN: &str = "account_balance";
 
 /// The units and cost of a row, as the `position` column reads them.
 pub(crate) fn position(row: &Row<'_>) -> Position {
@@ -886,13 +864,13 @@ pub static COLUMNS: &[ColumnDef] = &[
         borrow: Borrow::No,
     },
     ColumnDef {
-        name: "account_balance",
+        name: ACCOUNT_BALANCE_COLUMN,
         ty: DataType::Inventory,
         description: "Balance of the posting's account right after this posting: the sum of every posting of the account in ledger \
                       order, whatever FROM, WHERE and LIMIT select (unlike balance); with OPEN, CLOSE or CLEAR, of the rows they \
                       produce. A zhang extension.",
-        get: Get::Posting(|_, row| Value::Inventory(row.account_balance.clone().unwrap_or_default())),
-        reads: Reads::ACCOUNT_BALANCE,
+        get: Get::Posting(|_, row| Value::Inventory(Inventory::from_iter([position(row)]))),
+        reads: Reads::COST,
         borrow: Borrow::No,
     },
     ColumnDef {

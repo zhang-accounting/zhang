@@ -6,11 +6,12 @@
 mod common;
 
 use std::collections::BTreeSet;
+use std::time::{Duration, Instant};
 
 use chrono::NaiveDate;
 use common::{fava_demo_ledger, load_text};
 use zhang_core::ledger::Ledger;
-use zhang_query::{DataType, Inventory, ParamTypes, Params, PriceMap, Query, Value};
+use zhang_query::{DataType, ExecuteOptions, Inventory, ParamTypes, Params, PriceMap, Query, QueryErrorKind, Value};
 
 /// A cafe lunch at 10:30 in Shanghai, an unbalanced transaction, one posting to an account
 /// that was never opened, two lots bought and partly sold, a pad and a failing balance check.
@@ -376,4 +377,93 @@ fn a_ledger_changed_after_its_first_query_is_an_error() {
         .execute_at(&ledger, &Params::new(), today())
         .unwrap_err();
     assert!(error.message.contains("the ledger changed"), "{}", error.message);
+}
+
+/// One account holding `lots` lots at distinct costs, one bought per day, paid from a cash
+/// account: every posting to the broker adds a lot to its balance.
+fn many_lots(lots: usize) -> String {
+    let mut ledger = String::from("1970-01-01 commodity USD\n1970-01-01 commodity STK\n1970-01-01 open Assets:Broker\n1970-01-01 open Assets:Cash\n");
+    let start = NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
+    for lot in 1..=lots {
+        let date = start + chrono::Duration::days(lot as i64);
+        ledger.push_str(&format!(
+            "\n{date} * \"buy {lot}\"\n  Assets:Broker 1 STK {{{lot}.01 USD}}\n  Assets:Cash -{lot}.01 USD\n"
+        ));
+    }
+    ledger
+}
+
+const LOTS: usize = 3000;
+
+fn lots_of(value: &Value) -> usize {
+    match value {
+        Value::Inventory(inventory) => inventory.len(),
+        other => panic!("not an inventory: {other:?}"),
+    }
+}
+
+/// `account_balance` only builds the balances of the rows a query keeps: with LIMIT, ORDER BY
+/// ... LIMIT, or a first()/last() per group, a balance of thousands of lots is copied once per
+/// kept row, not once per posting.
+#[test]
+fn projected_account_balances_are_built_for_the_kept_rows_only() {
+    let ledger = load_text(&many_lots(LOTS));
+    for (sql, lots) in [
+        ("SELECT date, account_balance LIMIT 1", 1),
+        ("SELECT date, account_balance ORDER BY date DESC LIMIT 1", LOTS),
+        ("SELECT date, account_balance WHERE account = 'Assets:Broker' ORDER BY seq DESC LIMIT 1", LOTS),
+        (
+            "SELECT date, units(account_balance), account_balance ORDER BY seq DESC LIMIT 1 OFFSET 2",
+            LOTS - 1,
+        ),
+        ("SELECT account, last(account_balance) GROUP BY account ORDER BY account", LOTS),
+    ] {
+        let query = Query::compile(sql).unwrap();
+        let plan = query.explain();
+        assert!(plan.contains("account_balance: deferred"), "{sql}\n{plan}");
+        let start = Instant::now();
+        let rows = query
+            .execute_at(&ledger, &Params::new(), today())
+            .unwrap_or_else(|err| panic!("{sql}: {err}"))
+            .rows;
+        // before the balances were deferred, each of these took seconds and gigabytes
+        assert!(start.elapsed() < Duration::from_secs(5), "{sql}: {:?}", start.elapsed());
+        assert_eq!(lots_of(rows[0].last().unwrap()), lots, "{sql}");
+    }
+}
+
+/// A query that holds a balance of many lots for many rows stops with "too large" as soon as
+/// the balances it holds exceed the result size limit, whether they are deferred or read
+/// while scanning (ORDER BY, DISTINCT), instead of copying one balance per posting first.
+#[test]
+fn account_balances_of_many_lots_fail_fast_when_too_large() {
+    let ledger = load_text(&many_lots(LOTS));
+    let options = ExecuteOptions {
+        today: Some(today()),
+        timeout: Some(Duration::from_secs(60)),
+        // the rows up to about the 600th already hold more values than this
+        max_result_values: Some(200_000),
+        count_total: false,
+    };
+    for sql in [
+        "SELECT date, account_balance",
+        "SELECT date, account_balance WHERE account = 'Assets:Broker' ORDER BY seq DESC",
+        "SELECT date, account_balance ORDER BY account_balance",
+        "SELECT DISTINCT account_balance",
+    ] {
+        let start = Instant::now();
+        let error = Query::compile(sql)
+            .unwrap()
+            .execute_with_options(&ledger, &Params::new(), &options)
+            .map(|result| result.rows.len())
+            .unwrap_err();
+        assert_eq!(error.kind, QueryErrorKind::TooLarge, "{sql}: {}", error.message);
+        assert!(start.elapsed() < Duration::from_secs(20), "{sql}: {:?}", start.elapsed());
+    }
+    // a filter reads the balance of every posting without holding them
+    let count = Query::compile("SELECT count(*) WHERE number(only('STK', units(account_balance))) > 2990")
+        .unwrap()
+        .execute_with_options(&ledger, &Params::new(), &options)
+        .unwrap();
+    assert_eq!(count.rows, vec![vec![Value::Int(10)]]);
 }

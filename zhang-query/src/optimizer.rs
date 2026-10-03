@@ -31,18 +31,20 @@
 //! [`optimize_naive`] skips rules 6 and 7 and binding, so tests can check that they never
 //! change a result.
 //!
-//! Then [`plan_execution`] makes two decisions about the plan as a whole:
+//! Then [`plan_execution`] makes decisions about the plan as a whole:
 //!
 //! 8. [`rewrite_linear_balance`]: `units(balance)` and `cost(balance)` are linear in the
 //!    positions, so they become running sums of `units(position)` / `cost(position)` per
 //!    currency ([`Running::Units`], [`Running::Cost`]), which cost O(currencies) per row
-//!    instead of O(open lots). `value()` and `convert()` price by date and are not linear.
+//!    instead of O(open lots). `value()` and `convert()` price by date and are not linear. The
+//!    same goes for `units(account_balance)` and `cost(account_balance)`, summed per account
+//!    ([`Running::AccountUnits`], [`Running::AccountCost`]).
 //! 9. [`limit_mode`]: how LIMIT cuts the work short. Without ORDER BY a scan stops once it has
 //!    LIMIT rows (telling DISTINCT rows apart while scanning) and an aggregate query only
 //!    aggregates its first LIMIT groups (unless HAVING may drop some of them); with ORDER BY
 //!    (and no DISTINCT) the scan keeps the top LIMIT rows instead of sorting them all.
-//! 8. [`account_scope`]: when the filter of a `postings` query can only hold for the rows of
-//!    some accounts (`account = :account`), the execution only builds their rows.
+//! 10. [`account_scope`]: when the filter of a `postings` query can only hold for the rows of
+//!     some accounts (`account = :account`), the execution only builds their rows.
 //!
 //! The expression rules rewrite the HAVING condition like any other expression; one that
 //! folds to TRUE is dropped, like a filter.
@@ -195,6 +197,10 @@ pub(crate) fn plan_execution(plan: &mut Plan) {
             aggregate.arg = Some(rewrite_linear_balance(arg, &mut rewrites));
         }
     }
+    // the filter may read the account balances
+    if let Some(filter) = plan.filter.take() {
+        plan.filter = Some(rewrite_linear_balance(filter, &mut rewrites));
+    }
     rewrites.sort();
     rewrites.dedup();
     plan.execution.rewrites = rewrites;
@@ -296,19 +302,23 @@ fn scoped_accounts(expr: &CExpr) -> Option<Vec<ScopedAccount>> {
     }
 }
 
-/// `units(balance)` → [`Running::Units`] and `cost(balance)` → [`Running::Cost`], bottom-up,
-/// recording each rewrite.
+/// `units(balance)` → [`Running::Units`] and `cost(balance)` → [`Running::Cost`] (and the
+/// same per account for `account_balance`), bottom-up, recording each rewrite.
 pub(crate) fn rewrite_linear_balance(expr: CExpr, rewrites: &mut Vec<Running>) -> CExpr {
     let expr = expr
         .map_children(&mut |child| Ok::<_, std::convert::Infallible>(rewrite_linear_balance(child, rewrites)))
         .unwrap_or_else(|never| match never {});
     match expr {
         CExpr::Scalar { function, args, span }
-            if function.params == [ParamType::Exact(DataType::Inventory)] && matches!(args.as_slice(), [CExpr::Running(Running::Balance)]) =>
+            if function.params == [ParamType::Exact(DataType::Inventory)]
+                && matches!(args.as_slice(), [CExpr::Running(Running::Balance | Running::AccountBalance)]) =>
         {
-            let total = match function.name {
-                "units" => Running::Units,
-                "cost" => Running::Cost,
+            let per_account = matches!(args.as_slice(), [CExpr::Running(Running::AccountBalance)]);
+            let total = match (function.name, per_account) {
+                ("units", false) => Running::Units,
+                ("cost", false) => Running::Cost,
+                ("units", true) => Running::AccountUnits,
+                ("cost", true) => Running::AccountCost,
                 _ => return CExpr::Scalar { function, args, span },
             };
             rewrites.push(total);
