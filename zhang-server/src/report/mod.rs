@@ -32,15 +32,22 @@ use crate::response::{ReportRankItemEntity, StatisticGraphEntity, StatisticRankE
 use crate::routes::query::{execute_options, max_result_values};
 use crate::ServerResult;
 
-/// The balances of the asset and of the liability accounts at the end of a day. The summary's
-/// net worth is their sum, and the graph starts from them on the day before its range.
-pub const BALANCES: BuiltinQuery = BuiltinQuery {
-    name: "report.balances",
-    description: "The balances of the assets and of the liabilities at the end of :to, valued in :currency at the prices of that day.",
-    bql: "SELECT root(account, 1) AS type, sum(position) AS balance, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
-WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to
-GROUP BY type
-ORDER BY type",
+/// The net worth at the end of a day: the summary's balance, and the balance the graph starts
+/// from on the day before its range.
+pub const NET_WORTH: BuiltinQuery = BuiltinQuery {
+    name: "report.net_worth",
+    description: "The net worth, the balance of the assets and the liabilities, at the end of :to, valued in :currency at the prices of that day.",
+    bql: "SELECT sum(position) AS balance, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to",
+    params: &[("to", DataType::Date), ("currency", DataType::Str)],
+};
+
+/// The liabilities at the end of a day.
+pub const LIABILITIES: BuiltinQuery = BuiltinQuery {
+    name: "report.liabilities",
+    description: "The balance of the liabilities at the end of :to, valued in :currency at the prices of that day.",
+    bql: "SELECT units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE under(account, 'Liabilities') AND date <= :to",
     params: &[("to", DataType::Date), ("currency", DataType::Str)],
 };
 
@@ -66,8 +73,8 @@ WHERE flag != 'P' AND date >= :from AND date <= :to",
 };
 
 /// The net worth at the end of every bucket of the graph that has postings.
-pub const NET_WORTH: BuiltinQuery = BuiltinQuery {
-    name: "report.net_worth",
+pub const NET_WORTH_TREND: BuiltinQuery = BuiltinQuery {
+    name: "report.net_worth_trend",
     description: "The net worth at the end of every day, week or month (:interval) from :from to :to that has postings, valued in :currency at the prices of its last day in the range.",
     bql: "SELECT date_bin(:interval, date, 2001-01-01) AS bucket, last(balance) AS balance, units(last(balance)) AS units,
   convert(last(balance), :currency, least(max(date_bin(:interval, date, 2001-01-01)) + interval(:interval) - 1, :to)) AS value
@@ -138,13 +145,13 @@ LIMIT 10",
 /// and its income, expenses and number of transactions.
 pub fn summary(ledger: &Ledger, range: &LedgerDateRange) -> ServerResult<StatisticSummaryEntity> {
     let currency = ledger.options.operating_currency.as_str();
-    let balances = by_type(run(ledger, &BALANCES, Params::new().bind("to", range.to).bind("currency", currency))?);
+    let at_end = Params::new().bind("to", range.to).bind("currency", currency);
+    let net_worth = single(run(ledger, &NET_WORTH, at_end.clone())?);
+    let liabilities = single(run(ledger, &LIABILITIES, at_end)?);
     let flows = by_type(run(ledger, &FLOWS, range.bind(Params::new().bind("currency", currency)))?);
     let count = run(ledger, &TRANSACTION_COUNT, range.bind(Params::new()))?;
 
     let figure = |figures: &HashMap<String, Figure>, account_type: AccountType| figures.get(&account_type.to_string()).cloned().unwrap_or_default();
-    let liabilities = figure(&balances, AccountType::Liabilities);
-    let net_worth = figure(&balances, AccountType::Assets).plus(&liabilities);
     let timezone = &ledger.options.timezone;
     Ok(StatisticSummaryEntity {
         from: first_instant(range.from, timezone),
@@ -211,8 +218,8 @@ pub struct GraphRows {
     started: Instant,
 }
 
-/// Run the graph's queries: `report.net_worth`, `report.balances` of the day before the range
-/// and `report.changes`. A range with more buckets than the limits allow points is a 400 before
+/// Run the graph's queries: `report.net_worth_trend`, `report.net_worth` of the day before the
+/// range and `report.changes`. A range with more buckets than the limits allow points is a 400 before
 /// any query runs.
 pub fn graph_rows(ledger: &Ledger, range: &LedgerDateRange, interval: &StatisticInterval, limits: GraphLimits) -> ServerResult<GraphRows> {
     let started = Instant::now();
@@ -231,15 +238,15 @@ pub fn graph_rows(ledger: &Ledger, range: &LedgerDateRange, interval: &Statistic
     let params = range.bind(Params::new().bind("interval", stride(interval)).bind("currency", currency.as_str()));
 
     let mut closing = BTreeMap::new();
-    for mut row in run(ledger, &NET_WORTH, params.clone())? {
+    for mut row in run(ledger, &NET_WORTH_TREND, params.clone())? {
         if let Value::Date(bucket) = row.take("bucket") {
             closing.insert(bucket, (inventory(row.take("balance")), Figure::of(row.take("units"), row.take("value"))));
         }
     }
     let mut opening = Inventory::new();
     if let Some(day_before) = range.from.pred_opt() {
-        for mut row in run(ledger, &BALANCES, Params::new().bind("to", day_before).bind("currency", currency.as_str()))? {
-            opening.add_inventory(&inventory(row.take("balance")));
+        for mut row in run(ledger, &NET_WORTH, Params::new().bind("to", day_before).bind("currency", currency.as_str()))? {
+            opening = inventory(row.take("balance"));
         }
     }
     let mut changes: HashMap<NaiveDate, HashMap<AccountType, CalculatedAmount>> = HashMap::new();
@@ -268,9 +275,9 @@ pub fn graph_rows(ledger: &Ledger, range: &LedgerDateRange, interval: &Statistic
 
 impl GraphRows {
     /// The graph: a point for every bucket of the range. A bucket with postings is the row of
-    /// `report.net_worth`. A bucket without postings has the balance of the bucket before (or
-    /// the balance before the range), valued at its own last day in the range with the
-    /// ledger's prices, as `report.net_worth` would value it; it has no changes.
+    /// `report.net_worth_trend`. A bucket without postings has the balance of the bucket before
+    /// (or the balance before the range), valued at its own last day in the range with the
+    /// ledger's prices, as `report.net_worth` of that day values it; it has no changes.
     ///
     /// TODO(#479): the carrying over is the one part of the report outside the engine, since
     /// BQL has no series of dates to join the balances to, so "Open query" lists only the
@@ -410,7 +417,7 @@ fn top_posting(mut row: Row) -> Option<AccountJournalDomain> {
     })
 }
 
-/// The bin width of `report.net_worth` and `report.changes` for an interval.
+/// The bin width of `report.net_worth_trend` and `report.changes` for an interval.
 pub fn stride(interval: &StatisticInterval) -> &'static str {
     match interval {
         StatisticInterval::Day => "1 day",
@@ -559,16 +566,17 @@ impl Figure {
         }
     }
 
-    fn plus(&self, other: &Figure) -> Figure {
-        let mut sum = self.clone();
-        sum.units.add_inventory(&other.units);
-        sum.value.add_inventory(&other.value);
-        sum
-    }
-
     fn amount(&self, currency: &str) -> CalculatedAmount {
         calculated_amount(&self.units, &self.value, currency)
     }
+}
+
+/// The figure (`units`, `value`) of a query without groups; nothing when it matched no postings.
+fn single(rows: Vec<Row>) -> Figure {
+    rows.into_iter()
+        .next()
+        .map(|mut row| Figure::of(row.take("units"), row.take("value")))
+        .unwrap_or_default()
 }
 
 /// The figures of a query grouped by account type (`type`, `units`, `value`), by type.

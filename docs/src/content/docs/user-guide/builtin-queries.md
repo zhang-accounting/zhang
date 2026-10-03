@@ -130,22 +130,35 @@ ORDER BY seq
 The **Report** page and the dashboard (`GET /api/statistic/summary`, `/api/statistic/graph` and `/api/statistic/{account_type}`). Their range is two ledger dates, `from` and `to`, both included; the endpoints also accept an instant, which stands for its day in the ledger's timezone. `currency` is the ledger's operating currency.
 
 - **Valuation.** The summary and the rankings are valued at the prices of `to`. Each point of the graph is valued at the prices of its own last day, or of `to` for the last one. A price is used in either direction, and a holding at cost without a price of its own is valued through its cost currency (see [`convert`](/user-guide/query-language/#valuation-functions)). Amounts that no price converts keep their currency and are left out of the totals in the operating currency.
-- **The graph** has one point per day, per week (Monday to Sunday) or per month, named by its first day, so its first and last weeks or months may reach outside the range. A point without postings in the range has the net worth of the point before, or that of `report.balances` on the day before `from`, valued at its own last day.
+- **The graph** has one point per day, per week (Monday to Sunday) or per month, named by its first day, so its first and last weeks or months may reach outside the range; the Report page labels the first one by the first day of the range. A point without postings in the range has the net worth of the point before, or that of `report.net_worth` on the day before `from`, valued at its own last day (see `report.net_worth_trend`).
+- **Limits.** The figures obey the [limits](/user-guide/query-language/#limits) of every query. A graph can have at most half as many points as the result size limit (`ZHANG_QUERY_MAX_RESULT_VALUES`, so 500,000 by default), and its points, with a value per currency, count against that limit too. A longer range by day is answered with HTTP 400; ask for weeks or months instead.
 
-#### `report.balances`
+#### `report.net_worth`
 
-The balances of the assets and of the liabilities at the end of `to`, by account type, valued in `currency` at the prices of that day. The summary's net worth is their sum, and its liabilities the second row. The graph runs it for the day before `from`, as the balance it starts from.
+The net worth, the balance of the assets and the liabilities, at the end of `to`, valued in `currency` at the prices of that day: the summary's balance. The graph runs it for the day before `from`, as the balance it starts from; `balance` keeps the lots, to value it at other days.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
-| `to` | `date` | the day of the balances |
+| `to` | `date` | the day of the balance |
 | `currency` | `str` | the currency of the values |
 
 ```sql
-SELECT root(account, 1) AS type, sum(position) AS balance, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+SELECT sum(position) AS balance, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
 WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to
-GROUP BY type
-ORDER BY type
+```
+
+#### `report.liabilities`
+
+The balance of the liabilities at the end of `to`, valued in `currency` at the prices of that day. It is negative, as in the ledger.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `to` | `date` | the day of the balance |
+| `currency` | `str` | the currency of the values |
+
+```sql
+SELECT units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE under(account, 'Liabilities') AND date <= :to
 ```
 
 #### `report.flows`
@@ -180,9 +193,11 @@ FROM #transactions
 WHERE flag != 'P' AND date >= :from AND date <= :to
 ```
 
-#### `report.net_worth`
+#### `report.net_worth_trend`
 
 The net worth, the balance of the assets and the liabilities, at the end of every day, week or month of the range that has postings, valued in `currency` at the prices of its last day in the range. `interval` is `'1 day'`, `'1 week'` or `'1 month'`: the bins of [`date_bin`](/user-guide/query-language/#date-functions) from 2001-01-01, a Monday and the first of a month, are calendar days, weeks starting on Monday and months, each named by its first day. [`least`](/user-guide/query-language/#comparison-functions) keeps the last bin's valuation date within the range. `balance` keeps the lots, to value the points without postings.
+
+The query lists only the days, weeks or months with postings, so **Open query** shows fewer rows than the chart has points. The chart fills a day, week or month without postings with the last balance before it, from this query or from `report.net_worth` on the day before `from`, valued at its own last day in the range, as `report.net_worth` of that day values it. The query language cannot list days without postings yet.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
@@ -202,7 +217,7 @@ ORDER BY bucket
 
 #### `report.changes`
 
-What each account type changed by in every day, week or month of the range, valued in `currency` at the prices of its last day in the range: the bars of the income and expenses chart. The bins are those of `report.net_worth`; the first one only counts the postings from `from` on.
+What each account type changed by in every day, week or month of the range, valued in `currency` at the prices of its last day in the range: the bars of the income and expenses chart. The bins are those of `report.net_worth_trend`; the first one only counts the postings from `from` on.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
