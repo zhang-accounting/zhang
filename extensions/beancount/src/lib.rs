@@ -258,10 +258,11 @@ impl Beancount {
                 Directive::Query(directive) => extract_time!(directive),
                 _ => {}
             },
-            Either::Right(beancount_onyly_directive) => match beancount_onyly_directive {
-                BeancountOnlyDirective::Balance(directive) => extract_time!(directive),
-                _ => {}
-            },
+            Either::Right(beancount_only_directive) => {
+                if let BeancountOnlyDirective::Balance(directive) = beancount_only_directive {
+                    extract_time!(directive)
+                }
+            }
         }
     }
 }
