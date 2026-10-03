@@ -549,7 +549,7 @@ WHERE payee IN ('Amazon')
 
 默认的表是 `postings`。每笔交易的每条分录对应一行，交易的字段会重复出现在它的每条分录上。[其他表](#其他表)存放各种指令，[张记账特有的表](#张记账特有的表)存放预算和账本错误。
 
-- **包含：**所有交易（无论标记是什么），以及张记账为 `balance ... with pad ...` 指令生成的补齐交易。补齐交易的标记为 `P`，收款方为 `Balance Pad`，描述形如 `pad Assets:Bank to Equity:Opening`。带有[会计期间子句](#会计期间)的查询还会看到这些子句加入的[合成交易](#合成交易)。
+- **包含：**所有交易（无论标记是什么），以及张记账为 `pad` 和 `balance ... with pad ...` 指令生成的补齐交易。补齐交易的标记为 `P`，收款方为 `Balance Pad`，描述形如 `pad Assets:Bank to Equity:Opening`。带有[会计期间子句](#会计期间)的查询还会看到这些子句加入的[合成交易](#合成交易)。
 - **不包含：**余额断言，以及所有非交易指令，例如 `open`、`close`、`price`、`note`、`document` 和预算指令。
 - 没有写金额的分录，使用张记账在平衡交易时推断出的金额。
 - 按成本持有的分录会按[批次记账](#批次记账)中的规则与批次匹配。减少了多个批次的分录会产生多行。
@@ -646,20 +646,20 @@ ORDER BY currency
 - **每个表有自己的列。**一个表只有为它列出的列，没有 `postings` 的列。`year`、`month` 和 `day` 只存在于 `#entries` 和 `postings` 中，其他表请使用 [`year(date)`](#日期函数) 等日期函数。所有函数、聚合函数，以及 `GROUP BY`、`HAVING`、`ORDER BY`、`PIVOT BY`、`DISTINCT` 和 `LIMIT` 都可以用于每个表。
 - **行的顺序。**没有 `ORDER BY` 时，各行按账本顺序排列：先按日期，再按 beancount 对同一天指令的排序（`open` 最先，然后是余额断言、其他指令，`document` 和 `close` 最后），再按指令在文件中的顺序。
 - **元数据。**每个指令表都有一列 `meta`，以文本形式给出指令的元数据：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取该行指令的某个键（在 `#accounts` 中读取其 `open` 指令）。
-- **余额断言不是交易。**断言不记任何账；它在 `#entries` 中是一条 `balance` 记录，在 `#balances` 中是一行。加载账本时被张记账拒绝的交易也不会出现。`balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
+- **余额断言不是交易。**断言不记任何账；它在 `#entries` 中是一条 `balance` 记录，在 `#balances` 中是一行。加载账本时被张记账拒绝的交易也不会出现。`pad` 和 `balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
 
 ### #entries
 
 | 列 | 类型 | 说明 |
 |----|------|------|
 | `id` | `str` | 指令的唯一 ID。交易的 ID 就是交易本身的 ID，与其分录的 `id` 列相同。 |
-| `type` | `str` | 指令的种类，小写：`transaction`、`open`、`close`、`balance`、`price`、`note`、`document`、`event`、`commodity`、`custom` 或 `query`，以及张记账的 `budget`、`budget-add`、`budget-transfer` 和 `budget-close`。`balance ... with pad` 算作 `balance`。 |
+| `type` | `str` | 指令的种类，小写：`transaction`、`open`、`close`、`balance`、`price`、`note`、`document`、`event`、`commodity`、`custom`、`query` 或 `pad`，以及张记账的 `budget`、`budget-add`、`budget-transfer` 和 `budget-close`。`balance ... with pad` 算作 `balance`。 |
 | `filename` | `str` | 指令所在的账本文件。 |
 | `date`、`year`、`month`、`day` | `date`、`int` | 指令的日期及其各部分。 |
 | `flag`、`payee`、`narration`、`description` | `str` | 对交易而言与 `postings` 中的同名列相同；其他指令为 `NULL`。 |
 | `tags`、`links` | `set` | 交易、note 或 document 的标签和链接；其他指令为 `NULL`。 |
 | `meta` | `str` | 指令的元数据。 |
-| `accounts` | `set` | 指令涉及的账户：交易的各分录账户，`open`、`close`、`balance`、`note` 或 `document` 的账户，以及 `balance ... with pad` 的补齐账户。其他指令为空集合。 |
+| `accounts` | `set` | 指令涉及的账户：交易的各分录账户，`open`、`close`、`balance`、`note` 或 `document` 的账户，以及 `pad` 或 `balance ... with pad` 的被填充账户和填充账户。其他指令为空集合。 |
 
 ### #transactions
 
@@ -1392,6 +1392,6 @@ ORDER BY date
 - **元数据是文本。**beanquery 的 `meta` 列是字典，其中还有 `filename` 和 `lineno`。张记账的 `meta` 是指令自身元数据的文本 `key: "value", ...`（在 postings 表中是分录自己的元数据），`open.meta` 和 `close.meta` 也是如此。
 - **`#accounts` 的 `open` 和 `close` 不带字段时读作日期。**在 beanquery 中它们是整条指令。
 - **`entry_meta()` 和 `any_meta()` 与 `meta()` 一样可用于每个表。**beanquery 只在 postings 表上接受它们。
-- **`#entries` 包含张记账的指令。**其中有张记账的预算指令；`balance ... with pad` 是一条 `balance` 记录，后面跟着它的补齐交易，而 beancount 中是一条 `pad` 和一条 `balance` 记录。记录的 `id` 是张记账的 ID，不是 beancount 的哈希值。
+- **`#entries` 包含张记账的指令。**其中有张记账的预算指令；`balance ... with pad` 是一条 `balance` 记录，后面跟着它的补齐交易，而 beancount 中是一条 `pad` 和一条 `balance` 记录。`pad` 与 beancount 一样是一条 `pad` 记录。记录的 `id` 是张记账的 ID，不是 beancount 的哈希值。
 - **`discrepancy` 遵循张记账的余额检查。**与 beancount 一样，张记账从该账户及其子账户分录的合计计算差额，断言不会改变任何余额。没有 `~` 容差的断言必须精确相等，而 beancount 会根据断言金额的小数位数推断容差。
 - **CSV 导出保留精确的数字。**`bean-query` 会为对齐而在数字前补空格（`" 600.00"`），把 numberify 后的数字舍入到各货币的显示精度（`360.03` 而不是 `360.03016`），有些数字还会用指数写法（`1E+3`）。张记账都不会这样做。

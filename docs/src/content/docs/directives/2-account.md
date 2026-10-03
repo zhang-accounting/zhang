@@ -120,32 +120,51 @@ A `balance` directive asserts what an account holds in one commodity:
   postings before it. Transactions of the same day come after it, as in Beancount.
 - It covers the account and all its sub-accounts, as in Beancount: `balance Assets:Bank 100 CNY` passes when
   `Assets:Bank:Checking` holds 60 CNY and `Assets:Bank:Savings` holds 40 CNY.
-- It must match exactly, unless it gives a tolerance with `~`: `1520.00 ~ 0.01 CNY` passes for any balance from
-  1519.99 to 1520.01.
+- **It must match exactly.** `1520.00 CNY` passes only when the balance is exactly 1520 CNY. Only an explicit
+  tolerance written with `~` allows a difference: `1520.00 ~ 0.01 CNY` passes for any balance from 1519.99 to
+  1520.01. Zhang never infers a tolerance, from the decimals of the amount or from an option.
 - An assertion only checks. Passing or failing, it changes no balance: an account always holds the sum of its
   postings, and every balance, report and journal shows that sum. A failing assertion is reported as an
   [`AccountBalanceCheckError`](/user-guide/error-code/#accountbalancecheckerror).
 - The journal lists every assertion with the asserted amount, the balance it was checked against, and whether it
   passed.
 
+:::caution[Difference from Beancount]
+Beancount infers a tolerance for an assertion without `~` from the decimals of its amount: `balance ... 1520.00 CNY`
+passes there for any balance from 1519.99 to 1520.01 (one unit of the last decimal place, scaled by the
+`tolerance_multiplier` option). Zhang does not, so a Beancount ledger that passes `bean-check` only thanks to that
+inferred tolerance reports the assertion as failed in Zhang. To fix it, write the exact amount the account holds, or
+give the tolerance you accept explicitly with `~`.
+:::
+
 ### Pads
 
-To correct a balance on purpose, add `with pad` and the account to pad from:
+To correct a balance on purpose, pad the account from another one. A `pad` directive, as in Beancount, pads the
+account for its next balance assertions; a `balance ... with pad` pads its own assertion:
 
 ```zhang
-2024-01-01 balance Assets:Bank:Checking 1000.00 CNY with pad Equity:Opening-Balances
+2024-01-01 pad Assets:Bank:Checking Equity:Opening-Balances
+2024-02-01 balance Assets:Bank:Checking 1000.00 CNY
+
+2024-03-01 balance Assets:Bank:Savings 500.00 CNY with pad Equity:Opening-Balances
 ```
 
 Zhang adds a padding transaction (flag `P`) that moves the difference between the asserted amount and the
 account's balance there from the pad account, so the assertion holds. The difference is measured from the sum of
 the postings of the account and its sub-accounts: an earlier assertion, even a failing one, does not count. The
-padding goes to the asserted account itself, also when it is a parent account. An account already at the asserted
-amount gets no padding transaction.
+padding goes to the asserted account itself, also when it is a parent account. A pad brings the account to exactly
+the asserted amount: it pads even a difference within an explicit `~` tolerance, where Beancount pads nothing. An
+account already at the asserted amount gets no padding transaction.
 
-In a Beancount ledger, a `pad` directive serves the next `balance` of its account in each commodity, as in
-Beancount. A `balance` on the day of the `pad` comes before it and is not padded. The padding transaction is dated
-on the `balance` it serves, where Beancount dates it on the `pad`, and the `pad` and its `balance` must be in the
-same file.
+- A `pad` serves the next `balance` of its account in each commodity, until the next `pad` of that account, as in
+  Beancount. Only assertions on the padded account itself use it, not those on its sub-accounts.
+- Its padding transaction is dated on the `pad`, as in Beancount, so the balances between the `pad` and the
+  assertion include it.
+- A `balance` on the day of the `pad` comes before it, as Beancount orders a day, and is not padded.
+- The `pad` and the `balance` it serves may be in different files of the ledger.
+- A `pad` that pads nothing, because no later assertion of its account needs it, is reported as an
+  [`UnusedPad`](/user-guide/error-code/#unusedpad) error, as in Beancount.
+- A `balance ... with pad` pads its own assertion, dated on it, and is never reported unused.
 
 ## Best Practices
 

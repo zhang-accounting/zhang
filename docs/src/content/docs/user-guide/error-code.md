@@ -115,7 +115,26 @@ A failing balance check only reports this error: it changes no balance, and the 
 everywhere. The journal shows the check with the asserted amount and the actual balance.
 
 **Solution:** Verify and correct all transactions affecting the account to ensure the balance check aligns with the actual account balance.
-To correct the balance on purpose, use `balance ... with pad` (see [Pads](/directives/2-account/#pads)).
+Zhang never infers a tolerance: without an explicit `~ tolerance`, the balance must match the asserted amount exactly,
+also where Beancount would accept a small difference (see [Balance Assertions](/directives/2-account/#balance-assertions)).
+To correct the balance on purpose, use `pad` or `balance ... with pad` (see [Pads](/directives/2-account/#pads)).
+
+## UnusedPad
+
+A `pad` directive padded nothing: no later balance assertion of its account needed it. Beancount reports the same
+error ("Unused Pad entry"). A `pad` serves the next `balance` of its account in each commodity until the account's
+next `pad`; it is unused when every such assertion already holds, when no assertion of the account follows it, or
+when another `pad` of the account replaces it first.
+
+**Example of Error:**
+```zhang
+// Assets:Checking holds 100 USD
+2024-01-01 pad Assets:Checking Equity:Opening-Balances
+2024-01-02 balance Assets:Checking 100 USD
+```
+
+**Solution:** Remove the `pad`, or move it before the assertion it is meant to serve. A `balance` on the day of the
+`pad` comes before it and is not padded.
 
 ## AccountDoesNotExist
 

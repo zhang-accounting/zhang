@@ -549,7 +549,7 @@ A value is `NULL` when it is missing, for example the payee of a transaction tha
 
 The default table is `postings`. It has one row for every posting of every transaction, with the transaction's fields repeated on each of its postings. The [other tables](#other-tables) hold the directives, and the [Zhang-specific tables](#zhang-specific-tables) hold your budgets and the ledger's errors.
 
-- **Included:** all transactions whatever their flag, and the padding transactions that Zhang creates for `balance ... with pad ...` directives. These have the flag `P`, the payee `Balance Pad` and a narration such as `pad Assets:Bank to Equity:Opening`. A query with [period clauses](#accounting-periods) also sees the [synthetic transactions](#synthetic-transactions) they add.
+- **Included:** all transactions whatever their flag, and the padding transactions that Zhang creates for `pad` and `balance ... with pad ...` directives. These have the flag `P`, the payee `Balance Pad` and a narration such as `pad Assets:Bank to Equity:Opening`. A query with [period clauses](#accounting-periods) also sees the [synthetic transactions](#synthetic-transactions) they add.
 - **Not included:** balance assertions, and directives that are not transactions, such as `open`, `close`, `price`, `note`, `document` and budget directives.
 - A posting written without an amount has the amount that Zhang inferred for it when it balanced the transaction.
 - Postings held at cost are booked against lots, as described in [Lot booking](#lot-booking). A posting that reduces several lots produces one row per lot.
@@ -646,20 +646,20 @@ ORDER BY currency
 - **Columns are per table.** A table has only the columns listed for it, and none of the `postings` columns. `year`, `month` and `day` exist only on `#entries` and `postings`; elsewhere use [`year(date)`](#date-functions) and the other date functions. All functions, aggregates, `GROUP BY`, `HAVING`, `ORDER BY`, `PIVOT BY`, `DISTINCT` and `LIMIT` work on every table.
 - **Row order.** Without `ORDER BY`, rows come in ledger order: by date, then the order in which beancount sorts the directives of one day (`open` first, then balance assertions, the other directives, `document` and `close` last), then the order of your files.
 - **Metadata.** Every directive table has a `meta` column, the directive's metadata as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` without metadata. `meta(key)`, `entry_meta(key)` and `any_meta(key)` read one key of the row's directive (in `#accounts`, of its `open` directive).
-- **Balance assertions are not transactions.** An assertion books nothing; it is a `balance` entry in `#entries` and a row of `#balances`. Transactions that Zhang rejected while loading the ledger are not rows either. The padding transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
+- **Balance assertions are not transactions.** An assertion books nothing; it is a `balance` entry in `#entries` and a row of `#balances`. Transactions that Zhang rejected while loading the ledger are not rows either. The padding transactions of `pad` and `balance ... with pad` (flag `P`) are transactions, as in beancount.
 
 ### #entries
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | `str` | Unique id of the directive. For a transaction it is the transaction's id, the same as the `id` column of its postings. |
-| `type` | `str` | Kind of directive, lowercase: `transaction`, `open`, `close`, `balance`, `price`, `note`, `document`, `event`, `commodity`, `custom` or `query`, and Zhang's `budget`, `budget-add`, `budget-transfer` and `budget-close`. A `balance ... with pad` is a `balance`. |
+| `type` | `str` | Kind of directive, lowercase: `transaction`, `open`, `close`, `balance`, `price`, `note`, `document`, `event`, `commodity`, `custom`, `query` or `pad`, and Zhang's `budget`, `budget-add`, `budget-transfer` and `budget-close`. A `balance ... with pad` is a `balance`. |
 | `filename` | `str` | The ledger file that holds the directive. |
 | `date`, `year`, `month`, `day` | `date`, `int` | Date of the directive and its parts. |
 | `flag`, `payee`, `narration`, `description` | `str` | As in `postings`, for a transaction. `NULL` for other directives. |
 | `tags`, `links` | `set` | Tags and links of a transaction, note or document. `NULL` for other directives. |
 | `meta` | `str` | Metadata of the directive. |
-| `accounts` | `set` | The accounts the directive refers to: the posting accounts of a transaction, the account of an `open`, `close`, `balance`, `note` or `document`, and the pad account of `balance ... with pad`. Empty for other directives. |
+| `accounts` | `set` | The accounts the directive refers to: the posting accounts of a transaction, the account of an `open`, `close`, `balance`, `note` or `document`, and the padded and pad accounts of a `pad` or a `balance ... with pad`. Empty for other directives. |
 
 ### #transactions
 
@@ -1392,6 +1392,6 @@ One row per day with postings, with the account's balance at the end of the day.
 - **Metadata is text.** beanquery's `meta` columns are dictionaries that also hold `filename` and `lineno`. In Zhang, `meta` is the text `key: "value", ...` of the directive's own metadata (of the posting's in the postings table), and `open.meta` and `close.meta` likewise.
 - **`open` and `close` of `#accounts` read as their date** when used without an attribute. In beanquery they are the whole directives.
 - **`entry_meta()` and `any_meta()` work on every table**, like `meta()`. beanquery only accepts them on the postings table.
-- **`#entries` holds Zhang's directives.** It has Zhang's budget directives, and a `balance ... with pad` is one `balance` entry followed by its padding transaction, where beancount has a `pad` and a `balance` entry. The `id` of an entry is Zhang's id, not beancount's hash.
+- **`#entries` holds Zhang's directives.** It has Zhang's budget directives, and a `balance ... with pad` is one `balance` entry followed by its padding transaction, where beancount has a `pad` and a `balance` entry. A `pad` is a `pad` entry, as in beancount. The `id` of an entry is Zhang's id, not beancount's hash.
 - **`discrepancy` follows Zhang's balance checks.** Like beancount, Zhang measures it from the sum of the postings of the account and its sub-accounts, and an assertion moves no balance. An assertion without a `~` tolerance must match exactly, where beancount allows a tolerance inferred from the decimals of the asserted amount.
 - **CSV export keeps exact numbers.** `bean-query` pads numbers for alignment (`" 600.00"`), rounds numberified numbers to each currency's display precision (`360.03` instead of `360.03016`), and writes some numbers with an exponent (`1E+3`). Zhang does none of this.

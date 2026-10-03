@@ -34,17 +34,17 @@ option "default_rounding" "round_down"
   - `round_up`: Round up to the nearest decimal place
   - `round_half_up`: Round to the nearest decimal place, rounding up when exactly halfway
 
-### Default Balance Tolerance Precision
-
-Sets the precision for balance tolerance checks.
+### Default Balance Tolerance Precision (deprecated)
 
 ```beancount
 option "default_balance_tolerance_precision" "2"
 ```
 
-- **Default**: `2`
-- **Example**: `2` means 0.01 precision
-- **Usage**: Used to determine how precise balance checks should be
+- **Deprecated**: it has no effect on balance assertions. A balance assertion must match exactly unless it gives an
+  explicit tolerance with `~`; Zhang never infers a tolerance (see
+  [Balance Assertions](/directives/2-account/#balance-assertions)).
+- Its only remaining effect is the precision of the operating currency named by the `operating_currency` option, when
+  no `commodity` directive defines that commodity. Define the commodity with a `precision` instead.
 
 ### Default Commodity Precision
 
@@ -130,7 +130,6 @@ Here's an example of setting multiple options in your ledger file:
 ```beancount
 option "operating_currency" "USD"
 option "default_rounding" "round_half_up"
-option "default_balance_tolerance_precision" "2"
 option "default_commodity_precision" "2"
 option "default_booking_method" "FIFO"
 option "timezone" "America/New_York"
