@@ -15,8 +15,6 @@
 //!   ([`crate::table::LedgerCache`]). Only whether an execution's rows *carry* the cost of
 //!   their lot depends on the projection (`position`, `cost_*`, `weight`), and so does the
 //!   price annotation (`price`, `weight`).
-//! - The balance of the posting's account after it (`account_balance`) is only summed when
-//!   projected.
 //! - Transaction columns (`id`, `flag`, `payee`, `narration`, `description`, `tags`,
 //!   `links`, `other_accounts`) are never copied up front: a row points at the stored
 //!   transaction and a column reads it when it is evaluated.
@@ -33,6 +31,14 @@
 //! one replay of the filtered rows in ledger order evaluates them for those rows only. A
 //! `first()` / `last()` over it remembers the row it picks and is evaluated there. A plan that
 //! does not read `balance` keeps no running total at all.
+//!
+//! `account_balance`, the running balance of each posting's own account, is a running total
+//! too ([`Running::AccountBalance`]), materialized the same way: the scan only keeps the
+//! balances of the accounts (one inventory each) when the filter, ORDER BY, DISTINCT, a
+//! GROUP BY key or an aggregate reads it, and otherwise the replay sums the rows of every
+//! account up to the chosen rows, whatever the filter, and evaluates it for those rows only.
+//! A row's value is a snapshot of its account's inventory, so only the rows a query holds
+//! copy one, and the result budget counts them.
 
 use std::fmt;
 
@@ -62,6 +68,12 @@ impl Eq for Projection {}
 /// Decide how the plan materializes its running totals (see the module docs).
 pub(crate) fn plan_running(plan: &mut Plan) {
     let mut totals = vec![];
+    // the filter can read the account balances (not `balance`, which it decides)
+    let mut in_filter = vec![];
+    if let Some(filter) = &plan.filter {
+        collect_running(filter, &mut in_filter);
+    }
+    totals.extend(in_filter.iter().copied());
     for target in &plan.targets {
         collect_running(&target.expr, &mut totals);
     }
@@ -83,6 +95,7 @@ pub(crate) fn plan_running(plan: &mut Plan) {
     };
     let mut running = RunningPlan {
         totals,
+        eager: !in_filter.is_empty(),
         ..RunningPlan::default()
     };
     match &plan.group_keys {
@@ -100,7 +113,7 @@ pub(crate) fn plan_running(plan: &mut Plan) {
             }
         }
         Some(keys) => {
-            running.eager = keys.iter().any(|idx| reads_running(&plan.targets[*idx].expr));
+            running.eager |= keys.iter().any(|idx| reads_running(&plan.targets[*idx].expr));
             for (idx, aggregate) in plan.aggregates.iter().enumerate() {
                 match &aggregate.arg {
                     Some(arg) if reads_running(arg) => {
@@ -210,7 +223,6 @@ impl Projection {
             projection.columns |= projection.bit(column);
             projection.reads.cost |= column.reads.cost;
             projection.reads.price |= column.reads.price;
-            projection.reads.account_balance |= column.reads.account_balance;
         }
         projection
     }
@@ -248,11 +260,6 @@ impl Projection {
     /// Whether rows keep the price annotation of their posting.
     pub fn keeps_price(&self) -> bool {
         self.reads.price
-    }
-
-    /// Whether rows carry the running balance of their account.
-    pub fn keeps_account_balance(&self) -> bool {
-        self.reads.account_balance
     }
 
     /// The projected column names, in name order (like [`Plan::referenced_columns`]).

@@ -128,6 +128,17 @@ const QUERIES: &[&str] = &[
     "SELECT account, last(account_balance), last(balance), count(*) WHERE year >= 2016 AND account IN ('Assets:Short', 'Liabilities:US:Chase:Slate') GROUP BY account",
     "SELECT date, account_balance, balance FROM year = 2016 WHERE account = 'Assets:US:BofA:Checking' AND number > 0",
     "SELECT date, units(account_balance), cost(balance) WHERE 'Assets:Broker' = account AND number < 0 LIMIT 5",
+    // the account balances read while scanning (the filter, ORDER BY, DISTINCT, GROUP BY,
+    // aggregates) and deferred to the rows a query keeps, with their linear rewrites
+    "SELECT date, account, account_balance WHERE number(only('USD', units(account_balance))) < 0 LIMIT 10",
+    "SELECT date, account FROM number(only('USD', cost(account_balance))) > 0 WHERE account ~ 'Assets' LIMIT 12",
+    "SELECT account, account_balance ORDER BY account_balance DESC, date LIMIT 3",
+    "SELECT DISTINCT account, units(account_balance) WHERE account ~ 'Broker|Cash|Vanguard' LIMIT 20",
+    "SELECT account, sum(units(account_balance)), last(cost(account_balance)), first(account_balance), count(*) GROUP BY account",
+    "SELECT str(units(account_balance)) AS u, count(*) GROUP BY u ORDER BY count(*) DESC, u LIMIT 3",
+    "SELECT date, balance, account_balance, units(account_balance), cost(account_balance) WHERE account ~ 'Broker|Short|Checking' ORDER BY date DESC LIMIT 15",
+    "SELECT date, account, cost(account_balance), units(balance) FROM year >= 2016 LIMIT 40",
+    "SELECT account, last(units(account_balance)) GROUP BY account LIMIT 2",
     "SELECT count(*), sum(position) WHERE account = NULL",
     "JOURNAL 'Assets:Broker' AT cost",
     "SELECT account, account_balance, balanced, errors, time, timestamp, seq, posting_index FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 WHERE account ~ 'Assets' LIMIT 30",
@@ -384,6 +395,9 @@ fn running_sums_equal_the_functions_of_the_balance() {
                 "SELECT units(balance), cost(balance)",
                 "SELECT units(balance), cost(balance) WHERE account ~ 'Broker'",
                 "SELECT units(balance), cost(balance) WHERE account ~ 'Short|Cash'",
+                "SELECT account, units(account_balance), cost(account_balance)",
+                "SELECT units(account_balance), cost(account_balance), units(balance) WHERE account ~ 'Broker|Short' ORDER BY seq DESC LIMIT 30",
+                "SELECT count(*) WHERE number(only('STK', units(account_balance))) > 1",
             ],
         );
     }
@@ -413,6 +427,16 @@ fn explain_shows_the_decisions() {
     assert!(explain("SELECT DISTINCT account LIMIT 3").contains("limit: 3 (stops the scan)\n"));
     assert!(explain("SELECT DISTINCT account ORDER BY account LIMIT 3").contains("limit: 3\n"));
     assert!(explain("SELECT date, balance ORDER BY balance").contains("balance: running while scanning\n"));
+    // the account balances are deferred like the balance, and read while scanning by a filter
+    let deferred = explain("SELECT date, account_balance ORDER BY date DESC LIMIT 1");
+    assert!(deferred.contains("account_balance: deferred targets [1]\n"), "{deferred}");
+    let filter = explain("SELECT date WHERE number(only('USD', units(account_balance))) > 0");
+    assert!(
+        filter.contains("rewrite: units(account_balance) -> running account units\n") && filter.contains("account_balance: running while scanning\n"),
+        "{filter}"
+    );
+    let both = explain("SELECT balance, account_balance LIMIT 2");
+    assert!(both.contains("balance, account_balance: deferred targets [0, 1]\n"), "{both}");
     // value() prices by date: it is not rewritten
     let value = explain("JOURNAL AT value");
     assert!(!value.contains("rewrite:") && value.contains("balance: deferred targets [6]\n"), "{value}");
