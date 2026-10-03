@@ -1206,7 +1206,7 @@ pub(crate) fn execute_within(
             drop(later_groups);
             if !deferred.is_empty() {
                 // the groups that HAVING drops never get the values of their deferred aggregates
-                drop_before_replay(plan, &keys, deferred, &mut groups, &mut budget, &base)?;
+                drop_before_replay(plan, keys, deferred, &mut groups, &mut budget, &base)?;
             }
             if !deferred.is_empty() {
                 // the replay evaluates every deferred first()/last() at the row it picks
