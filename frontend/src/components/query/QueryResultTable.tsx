@@ -62,7 +62,8 @@ function QueryCellValue({ type, value }: { type: string; value: unknown }) {
         return (
           <div className="flex flex-col">
             {value.map((meta, index) => (
-              <span key={index}>
+              // a value may span several lines: keep its line breaks
+              <span key={index} className="whitespace-pre-wrap">
                 <span className="text-muted-foreground">{meta.key}:</span> {meta.value}
               </span>
             ))}
