@@ -97,6 +97,7 @@ impl Names {
         for posting in &store.postings {
             let amounts = [posting.unit.as_ref(), posting.cost.as_ref(), Some(&posting.inferred_amount)];
             names.commodities.extend(amounts.into_iter().flatten().map(|amount| amount.commodity.clone()));
+            names.meta_keys.extend(posting.metas.iter().map(|meta| meta.key.clone()));
         }
         for price in &store.prices {
             names.commodities.extend([price.commodity.clone(), price.target_commodity.clone()]);

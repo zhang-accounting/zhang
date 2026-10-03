@@ -16,7 +16,7 @@ use zhang_core::store::TransactionDomain;
 use zhang_core::utils::string_::{quote_as, QuoteStyle, StringExt};
 
 use super::Query;
-use crate::request::{CreateTransactionRequest, JournalRequest};
+use crate::request::{CreateTransactionRequest, JournalRequest, MetaRequest};
 use crate::response::{
     InfoForNewTransaction, JournalBalanceItemEntity, JournalItemEntity, JournalTransactionItemEntity, JournalTransactionPostingEntity, Pageable,
     ResponseWrapper,
@@ -143,15 +143,11 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) 
             cost: None,
             price: None,
             comment: None,
-            meta: Meta::default(),
+            meta: metas_from_request(posting.metas.unwrap_or_default(), &rules)?,
         });
     }
 
-    let mut metas = Meta::default();
-    for meta in payload.metas {
-        validate::meta_key(&meta.key, &rules)?;
-        metas.insert(meta.key, meta.value.to_quote());
-    }
+    let metas = metas_from_request(payload.metas, &rules)?;
     for tag in &payload.tags {
         validate::tag(tag, &rules)?;
     }
@@ -172,6 +168,17 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) 
         postings,
         meta: metas,
     }))
+}
+
+/// The metadata of a request, every key checked by [`validate::meta_key`]. Values are
+/// always written quoted.
+fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules) -> ServerResult<Meta> {
+    let mut meta = Meta::default();
+    for MetaRequest { key, value } in metas {
+        validate::meta_key(&key, rules)?;
+        meta.insert(key, value.to_quote());
+    }
+    Ok(meta)
 }
 
 #[api(group = "transaction")]
@@ -294,8 +301,8 @@ mod string_round_trip_test {
     use zhang_core::ledger::Ledger;
     use zhang_core::store::TransactionDomain;
 
-    use super::{create_new_transaction, update_single_transaction};
-    use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, FlagRequest, MetaRequest};
+    use super::{create_new_transaction, get_journals, update_single_transaction};
+    use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, FlagRequest, JournalRequest, MetaRequest};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::ReloadSender;
 
@@ -314,10 +321,12 @@ mod string_round_trip_test {
                 CreateTransactionPostingRequest {
                     account: "Assets:Cash".to_owned(),
                     unit: Some(Amount::new(BigDecimal::from_str("-5").unwrap(), "CNY")),
+                    metas: None,
                 },
                 CreateTransactionPostingRequest {
                     account: "Expenses:Food".to_owned(),
                     unit: Some(Amount::new(BigDecimal::from_str("5").unwrap(), "CNY")),
+                    metas: None,
                 },
             ],
             metas: vec![MetaRequest {
@@ -327,6 +336,30 @@ mod string_round_trip_test {
             tags: vec![],
             links: vec![],
         }
+    }
+
+    fn meta(key: &str, value: &str) -> MetaRequest {
+        MetaRequest {
+            key: key.to_owned(),
+            value: value.to_owned(),
+        }
+    }
+
+    /// The journal items of `ledger`, as the API returns them.
+    async fn journals(ledger: Ledger) -> serde_json::Value {
+        let (ledger, _) = states(ledger);
+        let params = JournalRequest {
+            page: None,
+            size: None,
+            keyword: None,
+            tags: None,
+            links: None,
+        };
+        let response = get_journals(ledger, crate::routes::Query(params)).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        body["data"]["records"].clone()
     }
 
     async fn load(dir: &FsPath) -> Ledger {
@@ -563,6 +596,16 @@ mod string_round_trip_test {
                     })
                 }),
             ),
+            (
+                "metadata key",
+                "Posting-Receipt",
+                Box::new(|it| it.postings[1].metas = Some(vec![meta("Posting-Receipt", "1")])),
+            ),
+            (
+                "metadata key",
+                "posting receipt",
+                Box::new(|it| it.postings[0].metas = Some(vec![meta("posting receipt", "1")])),
+            ),
             ("tag", "旅行", Box::new(|it| it.tags.push("旅行".to_owned()))),
             ("link", "a+b", Box::new(|it| it.links.push("a+b".to_owned()))),
             ("account", "Assets:银行", Box::new(|it| it.postings[0].account = "Assets:银行".to_owned())),
@@ -628,7 +671,7 @@ mod string_round_trip_test {
             dir.join("main.bean"),
             "include \"data/2024/1.zhang\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n\
              1970-01-01 open Expenses:Food\n1970-01-01 open Assets:银行\n\
-             2023-06-01 * \"Shop\" \"trip\" #旅行\n  Receipt: \"1\"\n  Assets:Cash -1 CNY\n  Expenses:Food 1 CNY\n",
+             2023-06-01 * \"Shop\" \"trip\" #旅行\n  Receipt: \"1\"\n  Assets:Cash -1 CNY\n    Lot: \"7\"\n  Expenses:Food 1 CNY\n",
         )
         .unwrap();
         // the local file system data source appends to existing `.zhang` files only
@@ -654,6 +697,21 @@ mod string_round_trip_test {
                         value: "2".to_owned(),
                     })
                 }),
+            ),
+            (
+                "used posting metadata key",
+                StatusCode::OK,
+                Box::new(|it| it.postings[0].metas = Some(vec![meta("Lot", "8")])),
+            ),
+            (
+                "used metadata key on a posting",
+                StatusCode::OK,
+                Box::new(|it| it.postings[1].metas = Some(vec![meta("Receipt", "3")])),
+            ),
+            (
+                "new posting metadata key",
+                StatusCode::BAD_REQUEST,
+                Box::new(|it| it.postings[0].metas = Some(vec![meta("Memo", "2")])),
             ),
             ("new tag", StatusCode::BAD_REQUEST, Box::new(|it| it.tags.push("出差".to_owned()))),
             (
@@ -684,6 +742,7 @@ mod string_round_trip_test {
             written.contains("Assets:银行") && written.contains("#旅行") && written.contains("Receipt: \"2\""),
             "{written}"
         );
+        assert!(written.contains("    Lot: \"8\"") && written.contains("    Receipt: \"3\""), "{written}");
         assert!(!written.contains("出差") && !written.contains("现金") && !written.contains("Memo"), "{written}");
 
         std::fs::remove_dir_all(dir).ok();
@@ -753,6 +812,89 @@ mod string_round_trip_test {
             keys(&reloaded, updated.id.to_string()),
             pairs(&[(";path", "b"), ("my key", "v"), ("note", "n"), ("receipt no", "1")])
         );
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn posting_metadata_is_created_updated_and_read_back() {
+        let (dir, data_file) = ledger_dir();
+
+        // create
+        let (ledger, reload) = states(load(&dir).await);
+        let mut create = request("coffee", "note");
+        create.postings[0].metas = Some(vec![meta("receipt", "r-1"), meta("my key", "say \"hi\"")]);
+        let response = create_new_transaction(ledger, reload, Json(create)).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let written = assert_written_text_round_trips(&data_file);
+        assert!(
+            written.contains("  note: \"note\"\n  Assets:Cash -5 CNY\n    \"my key\": \"say \\\"hi\\\"\"\n    receipt: \"r-1\"\n  Expenses:Food 5 CNY"),
+            "{written}"
+        );
+        let reloaded = load(&dir).await;
+        let (created, _) = transaction(&reloaded);
+        let items = journals(reloaded).await;
+        assert_eq!(items[0]["metas"], serde_json::json!([{"key": "note", "value": "note"}]));
+        assert_eq!(
+            items[0]["postings"][0]["metas"],
+            serde_json::json!([{"key": "my key", "value": "say \"hi\""}, {"key": "receipt", "value": "r-1"}])
+        );
+        assert_eq!(items[0]["postings"][1]["metas"], serde_json::json!([]));
+
+        // update: the client sends the posting metadata back, changed
+        let mut update = request("coffee", "note");
+        update.postings[0].metas = Some(vec![meta("receipt", "r-2")]);
+        update.postings[1].metas = Some(vec![meta("category", "lunch")]);
+        let (ledger, reload) = states(load(&dir).await);
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(update))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        assert_written_text_round_trips(&data_file);
+        let items = journals(load(&dir).await).await;
+        assert_eq!(items.as_array().unwrap().len(), 1);
+        assert_eq!(items[0]["metas"], serde_json::json!([{"key": "note", "value": "note"}]));
+        assert_eq!(items[0]["postings"][0]["metas"], serde_json::json!([{"key": "receipt", "value": "r-2"}]));
+        assert_eq!(items[0]["postings"][1]["metas"], serde_json::json!([{"key": "category", "value": "lunch"}]));
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn posting_metadata_reads_back_in_a_beancount_ledger() {
+        let dir = std::env::temp_dir().join(format!("zhang-beancount-posting-meta-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let main = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n\n\
+                    2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n  memo: \"after\"\n";
+        std::fs::write(dir.join("main.bean"), main).unwrap();
+        let load = || async {
+            let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+        };
+
+        // as in beancount, metadata after a posting is that posting's
+        let ledger = load().await;
+        let created = ledger.operations().read().transactions.values().next().cloned().unwrap();
+        let items = journals(ledger).await;
+        assert_eq!(items[0]["metas"], serde_json::json!([]));
+        assert_eq!(items[0]["postings"][1]["metas"], serde_json::json!([{"key": "memo", "value": "after"}]));
+
+        // an update writes it under its posting, where beancount reads it too
+        let mut update = request("coffee", "note");
+        update.metas = vec![];
+        update.postings[1].metas = Some(vec![meta("memo", "after")]);
+        let (ledger, reload) = states(load().await);
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(update))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let written = std::fs::read_to_string(dir.join("main.bean")).unwrap();
+        assert!(written.contains("  Expenses:Food 5 CNY\n    memo: \"after\""), "{written}");
+        let items = journals(load().await).await;
+        assert_eq!(items[0]["postings"][1]["metas"], serde_json::json!([{"key": "memo", "value": "after"}]));
 
         std::fs::remove_dir_all(dir).ok();
     }
