@@ -346,6 +346,11 @@ export interface operations {
                 };
                 /** Format: date */
                 date: string;
+                /**
+                 * @description the tolerance (`~`) it was written with, which the new balance does not keep: a balance from the balance tools
+                 * is exact. Null for an exact one
+                 */
+                tolerance?: string | null;
               }[];
             };
           };
@@ -475,6 +480,11 @@ export interface operations {
                 };
                 /** Format: date */
                 date: string;
+                /**
+                 * @description the tolerance (`~`) it was written with, which the new balance does not keep: a balance from the balance tools
+                 * is exact. Null for an exact one
+                 */
+                tolerance?: string | null;
               }[];
             };
           };
