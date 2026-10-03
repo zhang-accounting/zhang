@@ -646,7 +646,7 @@ ORDER BY currency
 - **每个表有自己的列。**一个表只有为它列出的列，没有 `postings` 的列。`year`、`month` 和 `day` 只存在于 `#entries` 和 `postings` 中，其他表请使用 [`year(date)`](#日期函数) 等日期函数。所有函数、聚合函数，以及 `GROUP BY`、`HAVING`、`ORDER BY`、`PIVOT BY`、`DISTINCT` 和 `LIMIT` 都可以用于每个表。
 - **行的顺序。**没有 `ORDER BY` 时，各行按账本顺序排列：先按日期，再按 beancount 对同一天指令的排序（`open` 最先，然后是余额断言、其他指令，`document` 和 `close` 最后），再按指令在文件中的顺序。
 - **元数据。**每个指令表都有一列 `meta`，以文本形式给出指令的元数据：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取该行指令的某个键（在 `#accounts` 中读取其 `open` 指令）。
-- **余额断言不是交易。**张记账把每条余额断言保存为一笔标记为 `C` 的交易。这些交易不会出现在 `#transactions` 和 `#entries` 中，断言在 `#entries` 中是一条 `balance` 记录。加载账本时被张记账拒绝的交易也不会出现。`balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
+- **余额断言不是交易。**断言不记任何账；它在 `#entries` 中是一条 `balance` 记录，在 `#balances` 中是一行。加载账本时被张记账拒绝的交易也不会出现。`balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
 
 ### #entries
 
@@ -1393,5 +1393,5 @@ ORDER BY date
 - **`#accounts` 的 `open` 和 `close` 不带字段时读作日期。**在 beanquery 中它们是整条指令。
 - **`entry_meta()` 和 `any_meta()` 与 `meta()` 一样可用于每个表。**beanquery 只在 postings 表上接受它们。
 - **`#entries` 包含张记账的指令。**其中有张记账的预算指令；`balance ... with pad` 是一条 `balance` 记录，后面跟着它的补齐交易，而 beancount 中是一条 `pad` 和一条 `balance` 记录。记录的 `id` 是张记账的 ID，不是 beancount 的哈希值。
-- **`discrepancy` 遵循张记账的余额检查。**每条余额断言之后，张记账都会把账户调整到断言的金额，因此断言的差额是相对于上一条断言计算的。beancount 在断言不成立或仅在容差内成立时，不会调整账户。
+- **`discrepancy` 遵循张记账的余额检查。**与 beancount 一样，张记账从分录的合计计算差额，断言不会改变任何余额。张记账检查账户自身的分录，而 beancount 包括子账户；没有 `~` 容差的断言必须精确相等，而 beancount 会根据断言金额的小数位数推断容差。
 - **CSV 导出保留精确的数字。**`bean-query` 会为对齐而在数字前补空格（`" 600.00"`），把 numberify 后的数字舍入到各货币的显示精度（`360.03` 而不是 `360.03016`），有些数字还会用指数写法（`1E+3`）。张记账都不会这样做。

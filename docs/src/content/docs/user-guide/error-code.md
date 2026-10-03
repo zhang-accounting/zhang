@@ -111,7 +111,11 @@ Indicates a failure in an account's balance check, possibly due to incorrect bal
 1970-01-01 balance Assets:Checking  100 USD
 ```
 
+A failing balance check only reports this error: it changes no balance, and the account keeps the sum of its postings
+everywhere. The journal shows the check with the asserted amount and the actual balance.
+
 **Solution:** Verify and correct all transactions affecting the account to ensure the balance check aligns with the actual account balance.
+To correct the balance on purpose, use `balance ... with pad` (see [Pads](/directives/2-account/#pads)).
 
 ## AccountDoesNotExist
 

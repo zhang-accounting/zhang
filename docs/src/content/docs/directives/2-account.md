@@ -105,6 +105,46 @@ For tracking money you spend.
 2023-01-01 open Expenses:Transportation:Gas USD
 ```
 
+## Balance Assertions and Pads
+
+### Balance Assertions
+
+A `balance` directive asserts what an account holds in one commodity:
+
+```zhang
+2024-01-31 balance Assets:Bank:Checking 1520.00 CNY
+2024-01-31 balance Assets:Bank:Checking 1520.00 ~ 0.01 CNY
+```
+
+- The assertion is checked at the start of its date (at its time, if it has one), against the sum of the account's
+  postings before it. Transactions of the same day come after it, as in Beancount.
+- It checks the postings of the account itself, not those of its sub-accounts.
+- It must match exactly, unless it gives a tolerance with `~`: `1520.00 ~ 0.01 CNY` passes for any balance from
+  1519.99 to 1520.01.
+- An assertion only checks. Passing or failing, it changes no balance: an account always holds the sum of its
+  postings, and every balance, report and journal shows that sum. A failing assertion is reported as an
+  [`AccountBalanceCheckError`](/user-guide/error-code/#accountbalancecheckerror).
+- The journal lists every assertion with the asserted amount, the balance it was checked against, and whether it
+  passed.
+
+### Pads
+
+To correct a balance on purpose, add `with pad` and the account to pad from:
+
+```zhang
+2024-01-01 balance Assets:Bank:Checking 1000.00 CNY with pad Equity:Opening-Balances
+```
+
+Zhang adds a padding transaction (flag `P`) that moves the difference between the asserted amount and the
+account's balance there from the pad account, so the assertion holds. The difference is measured from the sum of
+the postings: an earlier assertion, even a failing one, does not count. An account already at the asserted amount
+gets no padding transaction.
+
+In a Beancount ledger, a `pad` directive serves the next `balance` of its account in each commodity, as in
+Beancount. A `balance` on the day of the `pad` comes before it and is not padded. The padding transaction is dated
+on the `balance` it serves, where Beancount dates it on the `pad`, and the `pad` and its `balance` must be in the
+same file.
+
 ## Best Practices
 
 1. **Account Hierarchy**
