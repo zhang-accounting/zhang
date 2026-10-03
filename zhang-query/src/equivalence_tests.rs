@@ -245,3 +245,62 @@ fn plans_without_balance_keep_no_running_total() {
     }
     assert!(Query::compile("SELECT units(balance)").unwrap().plan.execution.running.used());
 }
+
+/// The data tables compute some columns only when a plan reads them (the true balance of
+/// `#balances`, the figures of `#budgets`): top-k, stopping the scan, first groups, DISTINCT
+/// and HAVING over them return what the naive plans return.
+#[test]
+fn decisions_keep_results_on_the_data_tables() {
+    const DATA_QUERIES: &[&str] = &[
+        "SELECT date, account, actual, passed, discrepancy FROM #balances ORDER BY date DESC LIMIT 5",
+        "SELECT account, count(*) FROM #balances WHERE NOT passed GROUP BY account LIMIT 1",
+        "SELECT DISTINCT passed FROM #balances LIMIT 1",
+        "SELECT account, last(actual) FROM #balances GROUP BY account HAVING count(*) > 1 ORDER BY account",
+        "SELECT * FROM #documents ORDER BY date DESC LIMIT 2",
+        "SELECT source, count(*) FROM #documents GROUP BY source LIMIT 1",
+        "SELECT DISTINCT transaction_id FROM #documents LIMIT 1",
+        "SELECT kind, id, span_start, span_end FROM #errors ORDER BY span_start DESC LIMIT 1",
+        "SELECT name, last(available), last(closed) FROM #budgets GROUP BY name LIMIT 1",
+        "SELECT date, name, activity FROM #budgets ORDER BY activity DESC LIMIT 2",
+        "SELECT DISTINCT name FROM #budgets WHERE number(available) < 0 LIMIT 1",
+        "SELECT name, sum(added) FROM #budgets GROUP BY name HAVING count(*) > 2",
+        "SELECT * FROM #budget_events ORDER BY timestamp DESC LIMIT 2",
+        "SELECT type, count(*) FROM #budget_events GROUP BY type LIMIT 2",
+    ];
+    let ledger = load_text(
+        r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 open Assets:Bank
+1970-01-01 open Equity:Open
+1970-01-01 open Expenses:Food
+  budget: food
+1970-01-01 open Expenses:Travel
+  budget: travel
+2024-01-01 price USD 7 CNY
+2024-01-01 budget food CNY
+2024-01-01 budget travel CNY
+2024-01-01 budget-add food 100 CNY
+2024-01-02 * "Shop" "lunch"
+  document: "a.pdf"
+  Expenses:Food 30 CNY
+    document: "b.pdf"
+  Assets:Bank
+2024-01-03 balance Assets:Bank -30 CNY
+2024-01-04 balance Assets:Bank -20 CNY
+2024-02-01 budget-transfer food travel 20 CNY
+2024-02-02 * "Airline" "flight"
+  Expenses:Travel 10 USD
+  Assets:Bank -70 CNY
+2024-02-03 document Assets:Bank "statement.pdf"
+2024-02-04 balance Assets:Bank 0 CNY with pad Equity:Open
+2024-03-01 budget-close travel
+2024-03-02 * "Shop" "unbalanced"
+  Expenses:Food 10 CNY
+  Assets:Bank -9 CNY
+"#,
+    );
+    assert_equivalent(&ledger, DATA_QUERIES);
+    assert_equivalent(&fava_demo_ledger(), &DATA_QUERIES[..4]);
+}

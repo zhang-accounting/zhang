@@ -2,19 +2,20 @@
 //! `#events`, `#documents` and `#commodities`, plus the helpers the directive tables share.
 //!
 //! Rows come in ledger order: by date, then as beancount orders the directives of a day
-//! ([`ledger_order`]).
+//! ([`ledger_order`]). `#documents` adds, after its directives, the documents that
+//! transactions and postings name in their metadata.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
+use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, NaiveDate};
 use zhang_ast::amount::Amount;
-use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, Directive, Flag, Spanned};
+use zhang_ast::{Account, Directive, Flag, Meta, Posting, SpanInfo, Spanned, Transaction};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::Store;
+use zhang_core::store::{Store, TransactionDomain};
 
-use super::{directive_meta, render_meta, ColumnDef, Record, Rows, Table};
+use super::{directive_meta, ledger_file, render_meta, ColumnDef, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
@@ -89,19 +90,47 @@ pub(super) fn year(date: NaiveDate) -> u32 {
     date.year() as u32
 }
 
+/// Whether two spans start at the same position of the same file.
+fn same_position(a: &SpanInfo, b: &SpanInfo) -> bool {
+    a.start == b.start && a.filename == b.filename
+}
+
+/// The directives of the processed ledger in the order the store folded them
+/// (`ledger.directives`: by date and time, balance entries first within one), each
+/// transaction with the transaction the store keeps for it; `None` for every other directive
+/// and for a transaction the store rejected.
+///
+/// The store numbers its transactions in the order it folds them (`sequence`), so walking
+/// both in that order pairs them by source position, without hashing ids or paths. The
+/// correcting transactions of balance assertions (flag `C`) and the padding transactions
+/// (flag `P`) are in the stream too, with the span of their assertion.
+pub(super) fn fold_order<'a>(ledger: &'a Ledger, store: &'a Store) -> impl Iterator<Item = (&'a Spanned<Directive>, Option<&'a TransactionDomain>)> {
+    let mut stored = store.transactions.values().collect::<Vec<_>>();
+    stored.sort_by_key(|txn| txn.sequence);
+    let mut stored = stored.into_iter().peekable();
+    ledger.directives.iter().map(move |directive| {
+        let txn = match directive.data {
+            Directive::Transaction(_) => stored.next_if(|txn| same_position(&txn.span, &directive.span)),
+            _ => None,
+        };
+        (directive, txn)
+    })
+}
+
 // ---------------------------------------------------------------------------------------
 // #balances
 
 pub(super) static BALANCES: Table = Table {
     name: "balances",
-    description: "One row per balance assertion (balance, and balance with pad), in ledger order.",
+    description: "One row per balance assertion (balance, and balance with pad), in ledger order, with the account's \
+                  true balance at the assertion and whether the assertion holds.",
     columns: BALANCE_COLUMNS,
     wildcard: &["date", "account", "amount", "tolerance", "discrepancy"],
     rows: Rows::Records(balance_rows),
 };
 
 /// The account, asserted amount and tolerance of a balance assertion.
-fn assertion(directive: &Directive) -> Option<(&Account, &Amount, Option<&bigdecimal::BigDecimal>)> {
+fn assertion(directive: &Directive) -> Option<(&Account, &Amount, Option<&BigDecimal>)> {
     match directive {
         Directive::BalanceCheck(check) => Some((&check.account, &check.amount, check.tolerance.as_ref())),
         Directive::BalancePad(pad) => Some((&pad.account, &pad.amount, None)),
@@ -109,56 +138,101 @@ fn assertion(directive: &Directive) -> Option<(&Account, &Amount, Option<&bigdec
     }
 }
 
-/// The balance assertions. Only when the projection reads `discrepancy` are the failed checks
-/// looked up: a check zhang reported as failed has a discrepancy of the balance minus the
-/// asserted amount, which is minus the correcting transaction (flag `C`) the check inserted
-/// right after itself. A `balance ... with pad` always holds.
+/// The balance assertions. Only when the projection reads `actual`, `passed` or
+/// `discrepancy` are the balances computed ([`actual_balances`]).
 fn balance_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
-    let wanted = BALANCES.column("discrepancy").is_some_and(|column| projection.contains(column));
-    // the correcting transaction of a check has the check's span
-    let mut corrections = HashMap::new();
-    if wanted {
-        let failed = store
-            .errors
-            .iter()
-            .filter(|error| error.error_type == ErrorKind::AccountBalanceCheckError)
-            .filter_map(|error| error.span.as_ref())
-            .map(|span| (span.filename.as_deref(), span.start))
-            .collect::<HashSet<_>>();
-        for directive in &ledger.directives {
-            let key = (directive.span.filename.as_deref(), directive.span.start);
-            if let Directive::Transaction(txn) = &directive.data {
-                if txn.flag == Some(Flag::BalanceCheck) && failed.contains(&key) {
-                    if let Some(distance) = txn.postings.first().and_then(|posting| posting.units.as_ref()) {
-                        corrections.insert(key, distance);
-                    }
-                }
-            }
-        }
-    }
-    let discrepancy_of = |check: &Spanned<Directive>| -> Option<Amount> {
-        corrections
-            .get(&(check.span.filename.as_deref(), check.span.start))
-            .map(|distance| -(*distance).clone())
-    };
+    let wanted = ["actual", "passed", "discrepancy"]
+        .into_iter()
+        .any(|name| BALANCES.column(name).is_some_and(|column| projection.contains(column)));
+    let mut actuals = if wanted { actual_balances(ledger, store) } else { HashMap::new() };
     ledger_order(ledger)
         .into_iter()
         .filter(|directive| assertion(&directive.data).is_some())
         .map(|directive| Record::Balance {
             directive,
-            discrepancy: if wanted && matches!(directive.data, Directive::BalanceCheck(_)) {
-                discrepancy_of(directive)
-            } else {
-                None
-            },
+            actual: actuals.remove(&std::ptr::from_ref(directive)),
         })
         .collect()
 }
 
-fn balance_field(record: &Record<'_>, get: impl Fn(&Account, &Amount, Option<&bigdecimal::BigDecimal>) -> Value) -> Value {
+/// The true balance of the account of every assertion, in the assertion's currency, keyed by
+/// the assertion: the units of every posting to that very account (not its sub-accounts, as
+/// zhang checks a balance) that the store folded before the assertion. The correcting
+/// transactions (flag `C`) zhang inserts after its checks are not postings, so a failed
+/// assertion does not move the balance. A `balance ... with pad` is checked after its own
+/// padding transaction (flag `P`), which follows it in the stream.
+fn actual_balances<'a>(ledger: &'a Ledger, store: &'a Store) -> HashMap<*const Spanned<Directive>, Amount> {
+    // only the asserted accounts are summed
+    let asserted = ledger
+        .directives
+        .iter()
+        .filter_map(|directive| assertion(&directive.data))
+        .map(|(account, _, _)| account.name())
+        .collect::<HashSet<_>>();
+    // (account, currency) -> units
+    let mut sums: HashMap<(&str, &str), BigDecimal> = HashMap::new();
+    let mut actuals = HashMap::new();
+    // a `balance ... with pad` waiting for its padding transaction
+    let mut pad: Option<&Spanned<Directive>> = None;
+    for (directive, txn) in fold_order(ledger, store) {
+        let padding = txn.is_some() && pad.is_some_and(|pad| same_position(&pad.span, &directive.span));
+        if !padding {
+            if let Some(pad) = pad.take() {
+                record_actual(&sums, &mut actuals, pad);
+            }
+        }
+        if let Some(txn) = txn.filter(|txn| txn.flag != Flag::BalanceCheck) {
+            for posting in txn.postings.iter().filter(|posting| asserted.contains(posting.account.name())) {
+                let units = &posting.inferred_amount;
+                *sums.entry((posting.account.name(), units.commodity.as_str())).or_insert_with(BigDecimal::zero) += &units.number;
+            }
+        }
+        if let Some(pad) = pad.take().filter(|_| padding) {
+            record_actual(&sums, &mut actuals, pad);
+        }
+        match directive.data {
+            Directive::BalanceCheck(_) => record_actual(&sums, &mut actuals, directive),
+            Directive::BalancePad(_) => pad = Some(directive),
+            _ => {}
+        }
+    }
+    if let Some(pad) = pad {
+        record_actual(&sums, &mut actuals, pad);
+    }
+    actuals
+}
+
+/// Record the balance `sums` give the account of the assertion `directive`.
+fn record_actual(sums: &HashMap<(&str, &str), BigDecimal>, actuals: &mut HashMap<*const Spanned<Directive>, Amount>, directive: &Spanned<Directive>) {
+    if let Some((account, amount, _)) = assertion(&directive.data) {
+        let units = sums.get(&(account.name(), amount.commodity.as_str())).cloned().unwrap_or_else(BigDecimal::zero);
+        actuals.insert(std::ptr::from_ref(directive), Amount::new(units, amount.commodity.clone()));
+    }
+}
+
+/// Whether an assertion holds: `|actual - asserted| <= tolerance`, without a tolerance
+/// exactly, as zhang's balance check decides it.
+fn holds(actual: &Amount, asserted: &Amount, tolerance: Option<&BigDecimal>) -> bool {
+    let distance = (&actual.number - &asserted.number).abs();
+    tolerance.map_or(distance.is_zero(), |tolerance| distance <= *tolerance)
+}
+
+fn balance_field(record: &Record<'_>, get: impl Fn(&Account, &Amount, Option<&BigDecimal>) -> Value) -> Value {
     directive(record)
         .and_then(|it| assertion(&it.data))
         .map_or(Value::Null, |(account, amount, tolerance)| get(account, amount, tolerance))
+}
+
+/// The asserted amount, tolerance and true balance of an assertion row, if computed.
+fn balance_check<'r>(record: &'r Record<'_>) -> Option<(&'r Amount, Option<&'r BigDecimal>, &'r Amount)> {
+    let Record::Balance {
+        directive,
+        actual: Some(actual),
+    } = record
+    else {
+        return None;
+    };
+    assertion(&directive.data).map(|(_, amount, tolerance)| (amount, tolerance, actual))
 }
 
 static BALANCE_COLUMNS: &[ColumnDef] = &[
@@ -181,18 +255,31 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "discrepancy",
         DataType::Amount,
-        "When the assertion fails, the balance minus the asserted amount; NULL when it holds.",
-        |_, record| match record {
-            Record::Balance {
-                discrepancy: Some(discrepancy),
-                ..
-            } => Value::Amount(discrepancy.clone()),
+        "When the assertion fails, the true balance minus the asserted amount (actual - amount); NULL when it holds.",
+        |_, record| match balance_check(record) {
+            Some((amount, tolerance, actual)) if !holds(actual, amount, tolerance) => {
+                Value::Amount(Amount::new(&actual.number - &amount.number, amount.commodity.clone()))
+            }
             _ => Value::Null,
         },
     ),
     ColumnDef::record("meta", DataType::Str, "Metadata of the assertion, as `key: \"value\"` pairs.", |_, record| {
         meta_value(record)
     }),
+    ColumnDef::record(
+        "actual",
+        DataType::Amount,
+        "The account's true balance in the asserted currency at the assertion: the units of every earlier posting to the \
+         account, not counting its sub-accounts; a balance with pad includes its padding (zhang extension).",
+        |_, record| balance_check(record).map_or(Value::Null, |(_, _, actual)| Value::Amount(actual.clone())),
+    ),
+    ColumnDef::record(
+        "passed",
+        DataType::Bool,
+        "Whether the assertion holds: actual is within the tolerance of the asserted amount, or equal to it without a \
+         tolerance (zhang extension).",
+        |_, record| balance_check(record).map_or(Value::Null, |(amount, tolerance, actual)| Value::Bool(holds(actual, amount, tolerance))),
+    ),
 ];
 
 // ---------------------------------------------------------------------------------------
@@ -268,27 +355,100 @@ static EVENT_COLUMNS: &[ColumnDef] = &[
 
 pub(super) static DOCUMENTS: Table = Table {
     name: "documents",
-    description: "One row per document directive, in ledger order.",
+    description: "One row per document directive, in ledger order, then one row per document a transaction or one of its \
+                  postings names in its `document` metadata, in ledger order.",
     columns: DOCUMENT_COLUMNS,
     wildcard: &["date", "account", "filename", "tags", "links"],
-    rows: Rows::Records(|ledger, _, _| directives_where(ledger, |it| matches!(it, Directive::Document(_)))),
+    rows: Rows::Records(document_rows),
 };
 
-fn document<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Document> {
-    match &directive(record)?.data {
-        Directive::Document(document) => Some(document),
+/// What holds a document of the `#documents` table.
+#[derive(Clone, Copy)]
+enum DocumentSource<'a> {
+    /// a `document` directive
+    Directive(&'a zhang_ast::Document),
+    /// a `document` metadata value of a transaction
+    Transaction(&'a Transaction),
+    /// a `document` metadata value of a posting of a transaction
+    Posting(&'a Transaction, &'a Posting),
+}
+
+/// A document: a row of the `#documents` table.
+pub(crate) struct DocumentRow<'a> {
+    /// the `document` directive, or the transaction whose metadata names the document
+    directive: &'a Spanned<Directive>,
+    source: DocumentSource<'a>,
+    /// the path as written in the ledger
+    filename: &'a str,
+    /// the path relative to the ledger's directory
+    path: &'a Path,
+    /// the transaction the store keeps, for a document named in metadata
+    transaction: Option<&'a TransactionDomain>,
+}
+
+impl<'a> DocumentRow<'a> {
+    /// The metadata of the document directive, or of the transaction or posting that names
+    /// the document.
+    pub(super) fn metadata(&self) -> &'a Meta {
+        match self.source {
+            DocumentSource::Directive(document) => &document.meta,
+            DocumentSource::Transaction(transaction) => &transaction.meta,
+            DocumentSource::Posting(_, posting) => &posting.meta,
+        }
+    }
+}
+
+/// The document directives in ledger order, then the `document` metadata values of the
+/// transactions the store keeps, in ledger order: a transaction's own first, then those of
+/// its postings in order. A repeated key gives one row per value.
+fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
+    let row = |directive, source, filename: &'a str, transaction| {
+        Record::Document(DocumentRow {
+            directive,
+            source,
+            filename,
+            path: ledger_file(ledger, Path::new(filename)),
+            transaction,
+        })
+    };
+    let mut rows = ledger_order(ledger)
+        .into_iter()
+        .filter_map(|directive| match &directive.data {
+            Directive::Document(document) => Some(row(directive, DocumentSource::Directive(document), document.filename.as_str(), None)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for (directive, stored) in fold_order(ledger, store) {
+        let (Directive::Transaction(transaction), Some(stored)) = (&directive.data, stored) else {
+            continue;
+        };
+        let holders = std::iter::once((DocumentSource::Transaction(transaction), &transaction.meta)).chain(
+            transaction
+                .postings
+                .iter()
+                .map(|posting| (DocumentSource::Posting(transaction, posting), &posting.meta)),
+        );
+        for (source, meta) in holders {
+            for filename in meta.get_all("document") {
+                rows.push(row(directive, source, filename.as_str(), Some(stored)));
+            }
+        }
+    }
+    rows
+}
+
+fn document<'r, 'a>(record: &'r Record<'a>) -> Option<&'r DocumentRow<'a>> {
+    match record {
+        Record::Document(document) => Some(document),
         _ => None,
     }
 }
 
 /// The path of a document, as beancount resolves it: a relative path is relative to the
-/// directory of the file that holds the directive.
-fn document_path(record: &Record<'_>) -> Value {
-    let (Some(document), Some(directive)) = (document(record), directive(record)) else {
-        return Value::Null;
-    };
-    let path = Path::new(document.filename.as_str());
-    let resolved = match directive.span.filename.as_deref().and_then(Path::parent) {
+/// directory of the file that declares it.
+fn document_path(document: &DocumentRow<'_>) -> Value {
+    let path = Path::new(document.filename);
+    let resolved = match document.directive.span.filename.as_deref().and_then(Path::parent) {
         Some(dir) if path.is_relative() => normalize(&dir.join(path)),
         _ => path.to_path_buf(),
     };
@@ -310,26 +470,93 @@ fn normalize(path: &Path) -> PathBuf {
     normalized
 }
 
+/// The tags or links of a document: those of its directive, or of the transaction that names it.
+fn document_marks(record: &Record<'_>, of_directive: fn(&zhang_ast::Document) -> Value, of_transaction: fn(&Transaction) -> Value) -> Value {
+    document(record).map_or(Value::Null, |document| match document.source {
+        DocumentSource::Directive(directive) => of_directive(directive),
+        DocumentSource::Transaction(transaction) | DocumentSource::Posting(transaction, _) => of_transaction(transaction),
+    })
+}
+
 static DOCUMENT_COLUMNS: &[ColumnDef] = &[
-    ColumnDef::record("date", DataType::Date, "Date of the document.", |_, record| date_value(record)),
-    ColumnDef::record("account", DataType::Str, "The account the document belongs to.", |_, record| {
-        str_value(document(record).map(|it| it.account.name()))
-    }),
+    ColumnDef::record(
+        "date",
+        DataType::Date,
+        "Date of the document directive, or of the transaction that names the document.",
+        |_, record| document(record).and_then(|it| date_of(&it.directive.data)).map_or(Value::Null, Value::Date),
+    ),
+    ColumnDef::record(
+        "account",
+        DataType::Str,
+        "The account the document belongs to: that of the directive, or of the posting that names it; NULL for a document of a transaction.",
+        |_, record| {
+            str_value(document(record).and_then(|it| match it.source {
+                DocumentSource::Directive(directive) => Some(directive.account.name()),
+                DocumentSource::Posting(_, posting) => Some(posting.account.name()),
+                DocumentSource::Transaction(_) => None,
+            }))
+        },
+    ),
     ColumnDef::record(
         "filename",
         DataType::Str,
         "Path of the document file; a relative path is resolved against the directory of the ledger file that declares it.",
-        |_, record| document_path(record),
+        |_, record| document(record).map_or(Value::Null, document_path),
     ),
-    ColumnDef::record("tags", DataType::Set, "Tags of the document.", |_, record| {
-        document(record).map_or(Value::Null, |it| set_value(it.tags.iter().flatten()))
-    }),
-    ColumnDef::record("links", DataType::Set, "Links of the document.", |_, record| {
-        document(record).map_or(Value::Null, |it| set_value(it.links.iter().flatten()))
-    }),
-    ColumnDef::record("meta", DataType::Str, "Metadata of the document, as `key: \"value\"` pairs.", |_, record| {
-        meta_value(record)
-    }),
+    ColumnDef::record(
+        "tags",
+        DataType::Set,
+        "Tags of the document directive, or of the transaction that names the document.",
+        |_, record| document_marks(record, |it| set_value(it.tags.iter().flatten()), |it| set_value(&it.tags)),
+    ),
+    ColumnDef::record(
+        "links",
+        DataType::Set,
+        "Links of the document directive, or of the transaction that names the document.",
+        |_, record| document_marks(record, |it| set_value(it.links.iter().flatten()), |it| set_value(&it.links)),
+    ),
+    ColumnDef::record(
+        "meta",
+        DataType::Str,
+        "Metadata of the document directive, or of the transaction or posting that names the document, as `key: \"value\"` pairs.",
+        |_, record| document(record).map_or(Value::Null, |it| render_meta(Some(it.metadata()))),
+    ),
+    ColumnDef::record(
+        "source",
+        DataType::Str,
+        "What declares the document: 'directive' for a document directive, 'transaction' or 'posting' for the document \
+         metadata of a transaction or of one of its postings (zhang extension).",
+        |_, record| {
+            document(record).map_or(Value::Null, |it| {
+                Value::Str(
+                    match it.source {
+                        DocumentSource::Directive(_) => "directive",
+                        DocumentSource::Transaction(_) => "transaction",
+                        DocumentSource::Posting(..) => "posting",
+                    }
+                    .to_owned(),
+                )
+            })
+        },
+    ),
+    ColumnDef::record(
+        "path",
+        DataType::Str,
+        "Path of the document as written, relative to the ledger's directory: the path the web UI downloads it with \
+         (zhang extension).",
+        |_, record| document(record).map_or(Value::Null, |it| Value::Str(it.path.to_string_lossy().into_owned())),
+    ),
+    ColumnDef::record(
+        "transaction_id",
+        DataType::Str,
+        "Id of the transaction whose metadata names the document, its id in the postings table; NULL for a document \
+         directive (zhang extension).",
+        |_, record| {
+            document(record)
+                .and_then(|it| it.transaction)
+                .map_or(Value::Null, |txn| Value::Str(txn.id.to_string()))
+        },
+    ),
 ];
 
 // ---------------------------------------------------------------------------------------

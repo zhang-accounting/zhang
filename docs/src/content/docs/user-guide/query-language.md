@@ -629,11 +629,11 @@ Besides `postings`, a query can read one of the tables below with `FROM #name`. 
 | `#balances` | balance assertion | `date, account, amount, tolerance, discrepancy` |
 | `#notes` | `note` directive | `date, account, comment, tags, links` |
 | `#events` | `event` directive | `date, type, description` |
-| `#documents` | `document` directive | `date, account, filename, tags, links` |
+| `#documents` | `document` directive, then `document` metadata of a transaction or posting | `date, account, filename, tags, links` |
 | `#accounts` | account with an `open` or `close` directive | `account, open, close` |
 | `#commodities` | `commodity` directive | `meta, date, name` |
 
-Zhang adds two tables of its own, `#budgets` and `#errors`, described in [Zhang-specific tables](#zhang-specific-tables).
+Zhang adds three tables of its own, `#budgets`, `#budget_events` and `#errors`, described in [Zhang-specific tables](#zhang-specific-tables).
 
 ```sql
 SELECT currency, last(amount) AS latest
@@ -647,6 +647,7 @@ ORDER BY currency
 - **Row order.** Without `ORDER BY`, rows come in ledger order: by date, then the order in which beancount sorts the directives of one day (`open` first, then balance assertions, the other directives, `document` and `close` last), then the order of your files.
 - **Metadata.** Every directive table has a `meta` column, the directive's metadata as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` without metadata. `meta(key)`, `entry_meta(key)` and `any_meta(key)` read one key of the row's directive (in `#accounts`, of its `open` directive).
 - **Balance assertions are not transactions.** Zhang stores each balance assertion as a transaction with the flag `C`. Those never appear in `#transactions` or `#entries`, where an assertion is a `balance` entry. Transactions that Zhang rejected while loading the ledger are not rows either. The padding transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
+- **Zhang extensions.** `#balances` and `#documents` have columns that beanquery does not have, marked *zhang extension* below. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery.
 
 ### #entries
 
@@ -684,20 +685,34 @@ ORDER BY currency
 | | `account` | `str` | The account whose balance is asserted. |
 | | `amount` | `amount` | The asserted balance. |
 | | `tolerance` | `decimal` | The explicit tolerance (`~ 0.01`), or `NULL`. |
-| | `discrepancy` | `amount` | If the assertion fails, the balance minus the asserted amount; `NULL` if it holds. A `balance ... with pad` always holds. |
+| | `discrepancy` | `amount` | If the assertion fails, `actual` minus the asserted amount; `NULL` if it holds. |
+| | `actual` | `amount` | *Zhang extension.* The true balance of the account in the asserted currency at the assertion: the units of every posting to that very account before it, not counting its sub-accounts, as Zhang checks a balance. A failed assertion does not change it. A `balance ... with pad` is checked after its padding transaction. |
+| | `passed` | `bool` | *Zhang extension.* Whether the assertion holds: `actual` is within the tolerance of the asserted amount, or equal to it when the assertion has no tolerance. |
 | `#notes` | `date`, `account` | `date`, `str` | Date and account of the note. |
 | | `comment` | `str` | The text of the note. |
 | | `tags`, `links` | `set` | Tags and links. |
 | `#events` | `date` | `date` | Date of the event. |
 | | `type` | `str` | The kind of event, such as `location`. |
 | | `description` | `str` | Its value, such as a city. |
-| `#documents` | `date`, `account` | `date`, `str` | Date and account of the document. |
+| `#documents` | `date`, `account` | `date`, `str` | Date and account of the document. For a document named in metadata, the date of the transaction, and the account of the posting, or `NULL` for a document of the transaction itself. |
 | | `filename` | `str` | Path of the file. A relative path is resolved against the directory of the ledger file that declares it, as in beancount. |
-| | `tags`, `links` | `set` | Tags and links. |
+| | `tags`, `links` | `set` | Tags and links of the `document` directive, or of the transaction that names the document. |
+| | `source` | `str` | *Zhang extension.* What declares the document: `'directive'` for a `document` directive, `'transaction'` or `'posting'` for the `document` metadata of a transaction or of one of its postings. |
+| | `path` | `str` | *Zhang extension.* Path of the file as written, relative to the ledger's directory: Zhang resolves document paths against the ledger's directory, and the web UI downloads the file with this path. An absolute path inside the directory is made relative to it. |
+| | `transaction_id` | `str` | *Zhang extension.* For a document named in metadata, the `id` of its transaction, as in the postings table. `NULL` for a `document` directive. |
 | `#commodities` | `date` | `date` | Date of the `commodity` directive. |
 | | `name` | `str` | The commodity, such as `USD`. |
 
-Each of these tables also has a `meta` column.
+Each of these tables also has a `meta` column. For a document named in metadata, `meta` and `meta(key)` read the metadata of the transaction or posting that names it.
+
+*Zhang extension.* Besides its `document` directives, `#documents` lists every document a transaction names in its metadata, as the documents page of the web UI does: after the directives, one row per value of a `document` metadata key of a transaction, then of each of its postings, in ledger order. A repeated key gives one row per value. The documents of rejected transactions are not listed.
+
+```sql
+SELECT date, account, path, transaction_id
+FROM #documents
+WHERE source != 'directive'
+ORDER BY date DESC
+```
 
 ### #accounts
 
@@ -725,15 +740,17 @@ An attribute of a missing directive is `NULL`. An unknown attribute, such as `op
 
 ## Zhang-specific tables
 
-Zhang has two tables of its own, for data that Beancount does not have: `#budgets`, the monthly figures of your [budgets](/directives/4-budget/), and `#errors`, the problems Zhang found in your ledger. They are read like the [other tables](#other-tables), with `FROM #budgets` and `FROM #errors`, and the same rules apply: a table has only its own columns, so `account` is not a column of `#budgets`, and every clause and function works on it. Unlike the directive tables, they have no `meta` column, and their rows come in the order given below for each table. `meta(key)`, `entry_meta(key)` and `any_meta(key)` all read the row's own metadata.
+Zhang has three tables of its own, for data that Beancount does not have: `#budgets`, the monthly figures of your [budgets](/directives/4-budget/), `#budget_events`, what your budget directives did, and `#errors`, the problems Zhang found in your ledger. They are read like the [other tables](#other-tables), with `FROM #budgets`, `FROM #budget_events` and `FROM #errors`, and the same rules apply: a table has only its own columns, so `account` is not a column of `#budgets`, and every clause and function works on it. Unlike the directive tables, they have no `meta` column, and their rows come in the order given below for each table. `meta(key)`, `entry_meta(key)` and `any_meta(key)` all read the row's own metadata.
 
 ### Budgets
 
 `#budgets` has one row per budget per month, with the figures the budget page of the web UI shows for that month.
 
-- A budget has a row for every month from the month of its `budget` directive through the later of two months: the month of the budget's last `budget-add`, `budget-transfer`, `budget-close` or spending, and the last month with a transaction in the ledger. A budget planned ahead with a `budget-add` in a future month therefore shows that month. Other directives, such as prices, events and notes, do not extend the months. Months without budget entries or spending have a row too, with the available amount carried over, as on the budget page. The rows only depend on the ledger, not on today's date: a later month is the budget's last row carried over, with nothing spent.
+- A budget has a row for every month from the month of its `budget` directive through the later of two months: the month of the budget's last `budget-add`, `budget-transfer` or `budget-close`, and the last month with a transaction in the ledger. A budget planned ahead with a `budget-add` in a future month therefore shows that month. Other directives, such as prices, events, notes and balance assertions, do not extend the months. Months without budget entries or spending have a row too, with the available amount carried over, as on the budget page. The rows only depend on the ledger, not on today's date: a later month is the budget's last row carried over, with nothing spent.
 - The months are generated rather than read from the ledger, so each one counts toward the [result size limit](#limits), even if `WHERE` drops it. If a transaction or a budget directive is dated far in the future by mistake, the query fails with a "too large" error instead of using up memory. The error names the budget with the longest series and the directive whose date ends it, such as `budget 'food' runs from 2024-01 until 2204-05 because of a transaction dated 2204-05-01 (main.zhang); check that date`. Fix the date to query the table again.
 - `assigned`, `activity` and `available` are the Assigned, Activity and Available columns of the budget page. `assigned` is what the month starts with, the amount still available at the end of the previous month, plus what the month's `budget-add` and `budget-transfer` directives put in (`added`). `activity` is what the budget's accounts spent in the month, and `available`, which is `assigned - activity`, carries over to the next month.
+- All amounts are in the budget's commodity. `activity` adds up the postings of the budget's accounts, each converted to the budget's commodity at the posting's date, as [`convert(position, currency, date)`](#valuation-functions) does with the prices of the ledger: `activity` is what `sum(convert(position, 'CNY', date))` gives over those postings. A `budget-add` or `budget-transfer` amount in another commodity is converted the same way at the directive's date. A posting or amount that no price converts is left out, instead of being added as a number of another commodity.
+- A budget exists from its `budget` directive on. A `budget-add`, `budget-transfer` or `budget-close` of a budget that does not exist yet has no effect, and postings before the budget's `budget` directive are not its spending; Zhang reports both as errors. A second `budget` directive of the same name is a duplicate and is ignored.
 - Because `assigned` includes the carry-over, adding it up over several months counts the same money more than once. Add up `added` instead to see how much was budgeted over a period.
 - A budget's accounts are the accounts whose `open` directive has a `budget` metadata entry naming it, such as `budget: food`. Their postings are the budget's activity.
 - `meta(key)` reads the metadata of the `budget` directive.
@@ -749,11 +766,11 @@ Zhang has two tables of its own, for data that Beancount does not have: `#budget
 | `year` | `int` | Year of the month. |
 | `month` | `int` | Month of the year, from 1 to 12. |
 | `assigned` | `amount` | Amount assigned to the budget for the month: the available amount carried over from the previous month plus `added`. |
-| `added` | `amount` | Amount the month's `budget-add` and `budget-transfer` directives put into the budget. A transfer out of the budget counts as negative. |
-| `activity` | `amount` | Amount the budget's accounts spent in the month. A refund counts as negative. |
+| `added` | `amount` | Amount the month's `budget-add` and `budget-transfer` directives put into the budget, converted to its commodity at their date. A transfer out of the budget counts as negative. |
+| `activity` | `amount` | Amount the budget's accounts spent in the month, each posting converted to the budget's commodity at its date. A refund counts as negative. |
 | `available` | `amount` | Amount left at the end of the month, `assigned - activity`. It carries over to the next month, and is negative when the budget is overspent. |
 | `accounts` | `set` | Accounts whose postings count as the budget's activity. |
-| `closed` | `bool` | Whether the budget was closed with `budget-close` in or before the month. |
+| `closed` | `bool` | Whether the budget was closed with `budget-close` in or before the month. It is `FALSE` in the months before. |
 
 What is left in each budget, grouped as on the budget page:
 
@@ -782,6 +799,42 @@ FROM #budgets
 WHERE number(available) < 0 AND NOT closed
 ```
 
+Each budget as it is now, in its last month:
+
+```sql
+SELECT name, last(available) AS available, last(closed) AS closed
+FROM #budgets
+GROUP BY name
+ORDER BY name
+```
+
+### Budget events
+
+`#budget_events` has one row per effect of a budget directive, in ledger order: what the budget page lists as the events of a month, plus the closes.
+
+- A `budget-add` is an `assign` of its amount. A `budget-transfer` is two rows: a `transfer_out` of the budget it takes from, with the amount negated, then a `transfer_in` of the budget it gives to. A `budget-close` is a `close`, without an amount.
+- Amounts are as written, in the directive's commodity; [`#budgets`](#budgets) converts them to the budget's commodity. A positive amount adds to the budget.
+- A directive without effect, because its budget does not exist yet, has no row.
+- `meta(key)` reads the metadata of the directive. `SELECT *` gives every column.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `name` | `str` | Name of the budget. |
+| `date` | `date` | Date of the directive. |
+| `time` | `str` | Time of day of the directive in the ledger's timezone, as `HH:MM:SS`; `00:00:00` for a directive without a time. |
+| `timestamp` | `int` | Unix time in seconds of the directive's date and time in the ledger's timezone. |
+| `type` | `str` | `'assign'`, `'transfer_out'`, `'transfer_in'` or `'close'`. |
+| `amount` | `amount` | Amount put into the budget: negative for a transfer out, `NULL` for a close. |
+
+What was put into each budget in 2024, as written:
+
+```sql
+SELECT name, sum(amount) AS added
+FROM #budget_events
+WHERE year(date) = 2024 AND type != 'close'
+GROUP BY name
+```
+
 ### Errors
 
 `#errors` has one row per ledger error: the problems the errors page of the web UI lists and `GET /api/errors` returns.
@@ -790,6 +843,7 @@ WHERE number(available) < 0 AND NOT closed
 - `file` is the file of the directive that caused the error, relative to the ledger's directory, as in the web UI's file list. `source` is the text of that directive. `line` and `column` are `NULL` for now, because Zhang does not record line numbers yet.
 - `date` is the date of the directive, or `NULL` for an undated one such as an `option`. `account` is the account the error is about, for errors that name one, such as `AccountDoesNotExist`, `AccountClosed` and `AccountBalanceCheckError`.
 - `meta(key)` reads the other details Zhang records about an error. For an error in a transaction, `meta('txn_id')` is the transaction's `id` in the postings table. Undefined budgets referenced by a posting have `meta('budget_name')`.
+- `id` is the id of the error in `GET /api/errors`, and `span_start` and `span_end` are where the directive that caused it starts and ends in its file, as byte offsets. The id is derived from the directive's position, so the errors of one directive share it, and an error in a transaction has the transaction's `id`.
 - Rows are ordered by file, then by position in the file. `SELECT *` is short for `SELECT file, date, kind, account, message`.
 
 | Column | Type | Description |
@@ -802,6 +856,9 @@ WHERE number(available) < 0 AND NOT closed
 | `date` | `date` | Date of the directive, or `NULL` for an undated directive. |
 | `account` | `str` | Account the error is about, or `NULL` if the error does not name one. |
 | `source` | `str` | Text of the directive that caused the error. |
+| `id` | `str` | Id of the error, the `id` of `GET /api/errors`. |
+| `span_start` | `int` | Byte offset in its file where the directive that caused the error starts, or `NULL` if unknown. |
+| `span_end` | `int` | Byte offset in its file where the directive that caused the error ends, or `NULL` if unknown. |
 
 How many errors of each kind there are:
 
@@ -972,7 +1029,7 @@ The `year`, `month` and `day` columns are shortcuts: `year` is the same as `year
 | `entry_meta(str) -> str` | Value of a metadata key on the transaction, or `NULL` if it is not set. |
 | `any_meta(str) -> str` | Value of a metadata key on the posting, falling back to the transaction, or `NULL` if neither has it. |
 
-Metadata values are always returned as text. When a key is repeated, its first value is returned. On the [other tables](#other-tables), all three read the metadata of the row's directive. On `#budgets` they read the metadata of the `budget` directive, and on `#errors` the details Zhang records about the error.
+Metadata values are always returned as text. When a key is repeated, its first value is returned. On the [other tables](#other-tables), all three read the metadata of the row's directive. On `#budgets` they read the metadata of the `budget` directive, on `#budget_events` that of the budget directive, and on `#errors` the details Zhang records about the error.
 
 Which metadata lines of a transaction belong to a posting depends on the file format, see [Transactions](/directives/6-transaction/#which-lines-belong-to-a-posting). For example, with
 
@@ -1393,5 +1450,6 @@ One row per day with postings, with the account's balance at the end of the day.
 - **`open` and `close` of `#accounts` read as their date** when used without an attribute. In beanquery they are the whole directives.
 - **`entry_meta()` and `any_meta()` work on every table**, like `meta()`. beanquery only accepts them on the postings table.
 - **`#entries` holds Zhang's directives.** It has Zhang's budget directives, and a `balance ... with pad` is one `balance` entry followed by its padding transaction, where beancount has a `pad` and a `balance` entry. The `id` of an entry is Zhang's id, not beancount's hash.
-- **`discrepancy` follows Zhang's balance checks.** After every balance assertion Zhang moves the account to the asserted amount, so the discrepancy of an assertion is measured from the previous one. beancount leaves the account where it was after an assertion that fails or is only met within its tolerance.
+- **A balance assertion checks the account itself.** `discrepancy`, `actual` and `passed` of `#balances` compare the asserted amount with the postings to that very account, as Zhang's balance check does. beancount adds up the account and its sub-accounts. As in beancount, the balance is the sum of the postings: an assertion that fails, or is only met within its tolerance, does not move it.
+- **`#documents` also lists the documents of transactions**, after the `document` directives: the values of the `document` metadata of transactions and postings, which beancount does not treat as documents.
 - **CSV export keeps exact numbers.** `bean-query` pads numbers for alignment (`" 600.00"`), rounds numberified numbers to each currency's display precision (`360.03` instead of `360.03016`), and writes some numbers with an exponent (`1E+3`). Zhang does none of this.

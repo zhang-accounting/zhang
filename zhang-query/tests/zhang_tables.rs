@@ -370,7 +370,7 @@ fn explain_and_projection_of_the_zhang_tables() {
          agg#0: count(*)\n\
          filter: (date >= 2024-01-01)\n\
          group by: [0]\n\
-         project: [date, kind] (2 of 8 columns)\n"
+         project: [date, kind] (2 of 11 columns)\n"
     );
     let compiled = Query::compile("SELECT name, sum(number(activity)) FROM #budgets WHERE 'Expenses:Food' IN accounts GROUP BY name").unwrap();
     assert_eq!(compiled.table(), "budgets");
@@ -479,6 +479,20 @@ fn the_schema_describes_the_zhang_tables() {
             ("date", DataType::Date),
             ("account", DataType::Str),
             ("source", DataType::Str),
+            ("id", DataType::Str),
+            ("span_start", DataType::Int),
+            ("span_end", DataType::Int),
+        ]
+    );
+    assert_eq!(
+        columns("budget_events"),
+        vec![
+            ("name", DataType::Str),
+            ("date", DataType::Date),
+            ("time", DataType::Str),
+            ("timestamp", DataType::Int),
+            ("type", DataType::Str),
+            ("amount", DataType::Amount),
         ]
     );
     let wildcard = |name: &str| {

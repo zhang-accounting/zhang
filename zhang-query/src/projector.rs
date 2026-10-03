@@ -182,7 +182,8 @@ impl Projection {
         Projection::of_columns(table, table.columns.iter())
     }
 
-    fn of_columns<'c>(table: &'static Table, columns: impl Iterator<Item = &'c ColumnDef>) -> Projection {
+    /// The `columns` of `table`.
+    pub(crate) fn of_columns<'c>(table: &'static Table, columns: impl Iterator<Item = &'c ColumnDef>) -> Projection {
         let mut projection = Projection {
             table,
             columns: 0,
@@ -474,11 +475,11 @@ option "operating_currency" "USD"
     }
 
     #[test]
-    fn balances_look_up_discrepancies_only_when_projected() {
+    fn balances_compute_the_true_balances_only_when_projected() {
         let ledger = load_text(&format!("{LEDGER}\n2024-04-03 balance Assets:Bank 1999.00 USD\n"));
         let store = ledger.store.read().unwrap();
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let discrepancies = |sql: &str| {
+        let actuals = |sql: &str| -> (usize, usize) {
             let mut budget = Budget::new(None);
             let data = Dataset::build(
                 &ledger,
@@ -488,13 +489,23 @@ option "operating_currency" "USD"
                 &mut Limits::new(None, &mut budget),
             )
             .unwrap();
-            data.records
+            let computed = data
+                .records
                 .iter()
-                .filter(|record| matches!(record, Record::Balance { discrepancy: Some(_), .. }))
-                .count()
+                .filter(|record| matches!(record, Record::Balance { actual: Some(_), .. }))
+                .count();
+            (computed, data.records.len())
         };
-        assert_eq!(discrepancies("SELECT date, amount FROM #balances"), 0);
-        assert_eq!(discrepancies("SELECT date FROM #balances WHERE discrepancy IS NOT NULL"), 1);
+        assert_eq!(actuals("SELECT date, amount FROM #balances").0, 0);
+        for sql in [
+            "SELECT date FROM #balances WHERE discrepancy IS NOT NULL",
+            "SELECT actual FROM #balances",
+            "SELECT count(*) FROM #balances WHERE passed",
+        ] {
+            let (computed, assertions) = actuals(sql);
+            assert!(assertions >= 2, "{sql}");
+            assert_eq!(computed, assertions, "{sql}");
+        }
     }
 
     #[test]

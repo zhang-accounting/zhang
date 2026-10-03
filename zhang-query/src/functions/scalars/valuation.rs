@@ -60,7 +60,7 @@ fn convert_units(units: &Amount, target: &str, via: Option<&str>, prices: &Price
 
 /// beancount `convert.convert_position`: convert the units, stepping through the cost
 /// currency when there is no direct rate.
-fn convert_position(position: &Position, target: &str, prices: &PriceMap, date: Option<NaiveDate>) -> Amount {
+pub(crate) fn convert_position(position: &Position, target: &str, prices: &PriceMap, date: Option<NaiveDate>) -> Amount {
     let via = position.cost.as_ref().map(|cost| cost.currency.as_str());
     convert_units(&position.units, target, via, prices, date)
 }

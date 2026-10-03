@@ -158,6 +158,7 @@ static TABLES: &[&Table] = &[
     &accounts::ACCOUNTS,
     &directives::COMMODITIES,
     &budgets::BUDGETS,
+    &budgets::BUDGET_EVENTS,
     &errors::ERRORS,
 ];
 
@@ -264,11 +265,13 @@ pub(crate) enum Record<'a> {
     /// a dated directive of the processed ledger
     Directive(&'a Spanned<Directive>),
     /// a balance assertion (`balance`, or `balance ... with pad`) and, when the projection
-    /// reads it, the difference its check found (the balance minus the asserted amount)
+    /// reads it, the true balance of its account at the assertion
     Balance {
         directive: &'a Spanned<Directive>,
-        discrepancy: Option<Amount>,
+        actual: Option<Amount>,
     },
+    /// a document: a `document` directive, or a `document` metadata value
+    Document(directives::DocumentRow<'a>),
     /// an account with its `open` and `close` directives (at least one of them)
     Account {
         name: &'a str,
@@ -277,6 +280,8 @@ pub(crate) enum Record<'a> {
     },
     /// one month of a budget
     Budget(budgets::BudgetMonth<'a>),
+    /// one effect of a budget directive
+    BudgetEvent(budgets::BudgetEvent<'a>),
     /// a ledger error
     Error(errors::LedgerError<'a>),
 }
@@ -288,7 +293,9 @@ impl<'a> Record<'a> {
         match self {
             Record::Directive(directive) | Record::Balance { directive, .. } => directive_meta(&directive.data),
             Record::Account { open, close, .. } => open.or(*close).and_then(|directive| directive_meta(&directive.data)),
+            Record::Document(document) => Some(document.metadata()),
             Record::Budget(month) => month.metadata(),
+            Record::BudgetEvent(event) => directive_meta(&event.directive.data),
             // an error's details are not directive metadata (see `meta`)
             Record::Error(_) => None,
         }

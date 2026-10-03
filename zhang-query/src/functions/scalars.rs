@@ -15,7 +15,7 @@ mod meta;
 mod strings;
 #[cfg(test)]
 mod testing;
-mod valuation;
+pub(crate) mod valuation;
 
 /// The scalar function registry: one entry per overload.
 pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[

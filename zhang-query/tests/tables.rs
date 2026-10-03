@@ -205,6 +205,7 @@ fn the_schema_describes_every_table() {
             "accounts",
             "commodities",
             "budgets",
+            "budget_events",
             "errors"
         ]
     );
