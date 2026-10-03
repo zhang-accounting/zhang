@@ -22,6 +22,9 @@
 //! - a `pad` that serves no balance is invisible to a plugin: it is put back as it was, and must
 //!   still serve none: where it would serve one, it is left out.
 //!
+//! A `pad` left out pads nothing, and is reported as [`ErrorKind::UnusedPad`], as the pad stage
+//! reports a `pad` put back that pads nothing.
+//!
 //! A `pad` put back serves only the balances it stood for ([`PadServes`], which the pad stage and
 //! the views of later plugins follow): any other balance the plugin returned, such as one it added
 //! or turned into a plain `balance`, is not padded by a `pad` the plugin could not see. So leaving a
@@ -34,6 +37,7 @@ use std::collections::{HashMap, HashSet};
 
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
+use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, BalanceCheck, BalancePad, Directive, Pad, SpanInfo, Spanned};
 
 use super::pad::{may_serve, place, PadPairing, PadServes, Place};
@@ -283,6 +287,16 @@ impl HiddenPads {
             }
         }
         ctx.pad_serves = Some(serves);
+        // a pad left out pads nothing: it is reported unused, as the pad stage reports a pad put back that pads nothing
+        for index in (0..count).filter(|index| !keep[*index]) {
+            if let Directive::Pad(pad) = &out[position_of[index]].data {
+                ctx.emit_error(
+                    ErrorKind::UnusedPad,
+                    out[position_of[index]].span.clone(),
+                    HashMap::from([("account_name".to_owned(), pad.account.name().to_owned())]),
+                );
+            }
+        }
         out.into_iter()
             .enumerate()
             .filter(|(position, _)| pad_of.get(position).is_none_or(|index| keep[*index]))
@@ -428,6 +442,12 @@ mod test {
 
     /// run the plugin through the view, then the built-in stages, as a load does
     fn run(plugin: &'static OldPlugin, content: &str) -> (Vec<Directive>, Vec<ErrorKind>) {
+        let (out, errors) = run_reporting(plugin, content);
+        (out, errors.into_iter().map(|(kind, _)| kind).collect())
+    }
+
+    /// [`run`], with the line of the directive each error is on
+    fn run_reporting(plugin: &'static OldPlugin, content: &str) -> (Vec<Directive>, Vec<(ErrorKind, String)>) {
         struct Shared(&'static OldPlugin);
         impl ProcessStage for Shared {
             fn name(&self) -> &str {
@@ -442,7 +462,7 @@ mod test {
             .collect();
         let mut ctx = StageContext::new(&[]);
         let out = run_pipeline(&stages, parse(content), &mut ctx).unwrap();
-        let errors = ctx.into_errors().into_iter().map(|it| it.kind).collect();
+        let errors = ctx.into_errors().into_iter().map(|it| (it.kind, it.span.content.trim().to_owned())).collect();
         (out.into_iter().map(|it| it.data).collect(), errors)
     }
 
@@ -740,7 +760,11 @@ mod test {
         // the CNY balance pads nothing and fails; the USD one, still `with pad`, pads itself, dated on it
         assert!(pads(&out).is_empty());
         assert_eq!(paddings(&out), vec!["2024-01-02 Assets:Bank 20 USD from Equity:Open"]);
-        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError, ErrorKind::AccountBalanceCheckError]);
+        // the pad left out pads nothing
+        assert_eq!(
+            errors,
+            vec![ErrorKind::UnusedPad, ErrorKind::AccountBalanceCheckError, ErrorKind::AccountBalanceCheckError]
+        );
     }
 
     #[test]
@@ -752,10 +776,10 @@ mod test {
                 .collect()
         });
         let (out, errors) = run(plugin, TWO_CURRENCIES);
-        // the pad does not move on to the next CNY balance, which fails
+        // the pad does not move on to the next CNY balance, which fails; left out, it pads nothing
         assert!(pads(&out).is_empty());
         assert_eq!(paddings(&out), vec!["2024-01-02 Assets:Bank 20 USD from Equity:Open"]);
-        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+        assert_eq!(errors, vec![ErrorKind::UnusedPad, ErrorKind::AccountBalanceCheckError]);
     }
 
     #[test]
@@ -777,7 +801,8 @@ mod test {
                 "2024-01-02 Assets:Bank 20 USD from Equity:Fx"
             ]
         );
-        assert!(errors.is_empty(), "{errors:?}");
+        // the pad itself pads nothing
+        assert_eq!(errors, vec![ErrorKind::UnusedPad]);
     }
 
     #[test]
@@ -887,16 +912,18 @@ mod test {
             stream.reverse();
             stream
         });
-        let (out, errors) = run(reversing, TWO_PADS_OF_A_DAY);
+        let (out, errors) = run_reporting(reversing, TWO_PADS_OF_A_DAY);
         assert_eq!(pads(&out), vec!["2024-01-03 Assets:Cash from Equity:Y"]);
         assert_eq!(paddings(&out), vec!["2024-01-03 Assets:Cash 51 CNY from Equity:Y"]);
-        assert!(errors.is_empty(), "{errors:?}");
+        // left out, it is still reported unused, as it is in the ledger
+        let unused = vec![(ErrorKind::UnusedPad, "2024-01-03 pad Assets:Cash Equity:X".to_owned())];
+        assert_eq!(errors, unused);
 
         // as it is, it stays unused
-        let (out, errors) = run(plugin(|stream| stream), TWO_PADS_OF_A_DAY);
+        let (out, errors) = run_reporting(plugin(|stream| stream), TWO_PADS_OF_A_DAY);
         assert_eq!(pads(&out).len(), 2);
         assert_eq!(paddings(&out), vec!["2024-01-03 Assets:Cash 51 CNY from Equity:Y"]);
-        assert_eq!(errors, vec![ErrorKind::UnusedPad]);
+        assert_eq!(errors, unused);
     }
 
     #[test]
@@ -927,9 +954,9 @@ mod test {
     }
 
     #[test]
-    fn a_plugin_dropping_every_served_balance_leaves_the_pad_out_unreported() {
+    fn a_plugin_dropping_every_served_balance_leaves_the_pad_out_reported_unused() {
         let plugin = plugin(|stream| stream.into_iter().filter(|it| !matches!(it.data, Directive::BalancePad(_))).collect());
-        let (out, errors) = run(
+        let (out, errors) = run_reporting(
             plugin,
             indoc! {r#"
                 1970-01-01 open Assets:Bank
@@ -938,10 +965,10 @@ mod test {
                 2024-01-02 balance Assets:Bank 100 CNY
             "#},
         );
-        // nothing is left for the pad: it is left out, and not reported unused, as the plugin saw no pad
+        // nothing is left for the pad: it is left out, and pads nothing
         assert!(pads(&out).is_empty());
         assert!(paddings(&out).is_empty());
-        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(errors, vec![(ErrorKind::UnusedPad, "2024-01-01 pad Assets:Bank Equity:Open".to_owned())]);
     }
 
     /// pads of one account, each serving one balance, in two commodities in turn
@@ -985,7 +1012,8 @@ mod test {
         assert_eq!(pads(&out).len(), 1999);
         assert_eq!(out.iter().filter(|it| matches!(it, Directive::BalancePad(_))).count(), 0);
         assert_eq!(paddings(&out), paddings(&plain)[..1999].to_vec());
-        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+        // the last pad, left out, pads nothing
+        assert_eq!(errors, vec![ErrorKind::UnusedPad, ErrorKind::AccountBalanceCheckError]);
         // each balance is paired about once: no time quadratic in the pads
         assert!(elapsed < std::time::Duration::from_secs(5), "{elapsed:?}");
     }

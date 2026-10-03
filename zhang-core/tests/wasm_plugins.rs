@@ -1331,19 +1331,22 @@ fn a_plugin_renaming_the_pad_account_renames_it_in_the_pad() {
 #[test]
 fn a_plugin_stripping_the_pad_of_the_served_balances_leaves_their_pad_out() {
     let (paddings, pads, errors) = load_served("strip", Edit::Replace("{\"BalancePad\":", "{\"BalanceCheck\":"));
-    // three plain balances of an account holding nothing; no pad left unused
+    // three plain balances of an account holding nothing; the pad left out pads nothing
     assert!(paddings.is_empty(), "{paddings:?}");
     assert!(pads.is_empty(), "{pads:?}");
-    assert_eq!(errors, vec!["AccountBalanceCheckError"; 3]);
+    assert_eq!(
+        errors,
+        vec!["UnusedPad", "AccountBalanceCheckError", "AccountBalanceCheckError", "AccountBalanceCheckError"]
+    );
 }
 
 #[test]
 fn a_plugin_dropping_the_served_balances_leaves_their_pad_out() {
     let (paddings, pads, errors) = load_served("drop", Edit::Drop("{\"BalancePad\":"));
-    // the pad does not move on to the later balance, which fails
+    // the pad does not move on to the later balance, which fails; left out, it pads nothing
     assert!(paddings.is_empty(), "{paddings:?}");
     assert!(pads.is_empty(), "{pads:?}");
-    assert_eq!(errors, vec!["AccountBalanceCheckError"]);
+    assert_eq!(errors, vec!["UnusedPad", "AccountBalanceCheckError"]);
 }
 
 #[test]

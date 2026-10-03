@@ -106,6 +106,8 @@ What a plugin sees:
   - a `pad` one of whose `balance … with pad`s the plugin dropped, turned into a plain `balance`, or gave another account or pad account than the others, is left out, and so is a `pad` that, put back, would serve other balances than the ones it stood for (when a plugin moves one to another date, or adds a balance of the account before one). Every `balance … with pad` the plugin returned then pads its own assertion, as a `balance … with pad` does;
   - a `pad` that serves no balance is invisible to a plugin, which cannot change or drop it. It is put back as it is, and must still serve none: put back where it would serve one, it is left out.
 
+  A `pad` left out pads nothing, and is reported as an [`UnusedPad`](/user-guide/error-code/#unusedpad) error, as a `pad` put back that pads nothing is.
+
   A `pad` put back serves only the balances it stood for. Any other `balance` the plugin returns, such as one it adds or one it turned into a plain `balance`, is not padded by a `pad` it could not see, and is checked as it is.
 
   Pads are not visible to plugins yet; exposing them is future ABI work.
