@@ -22,7 +22,7 @@ use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_server::request::JournalRequest;
-use zhang_server::routes::account::{get_account_info, get_account_journals};
+use zhang_server::routes::account::{get_account_info, get_account_journals, get_account_list};
 use zhang_server::routes::transaction::get_journals;
 use zhang_server::routes::Query as UrlQuery;
 use zhang_server::state::SharedLedger;
@@ -209,31 +209,51 @@ async fn assertions_take_part_in_paging_and_search_like_transactions() {
 async fn the_account_journal_shows_assertions_with_the_true_running_balance() {
     let scratch = Scratch::new(LEDGER);
     let rows = scratch.account_journals("Assets:Bank").await;
-    // (payee, change, balance after, asserted, passed), newest first
-    let described = rows
-        .iter()
-        .map(|row| {
-            (
-                row["payee"].as_str().unwrap().to_owned(),
-                number(&row["inferred_unit"]["number"]),
-                number(&row["account_after"]["number"]),
-                row["asserted"].get("number").map(number),
-                row["passed"].as_bool(),
-            )
-        })
-        .collect::<Vec<_>>();
+    // (payee, change, balance after, asserted, checked against, passed), newest first
+    let described = rows.iter().map(described_row).collect::<Vec<_>>();
     assert_eq!(
         described,
         vec![
-            ("Balance Check".to_owned(), decimal("0"), decimal("500"), Some(decimal("500")), Some(true)),
-            ("Balance Pad".to_owned(), decimal("345.004"), decimal("500"), None, None),
-            ("Balance Check".to_owned(), decimal("0"), decimal("154.996"), Some(decimal("155")), Some(true)),
-            ("Shop".to_owned(), decimal("-10.004"), decimal("154.996"), None, None),
+            row("Balance Check", "0", "500", Some(("500", "500", true))),
+            row("Balance Pad", "345.004", "500", None),
+            row("Balance Check", "0", "154.996", Some(("155", "154.996", true))),
+            row("Shop", "-10.004", "154.996", None),
             // fails, and changes nothing
-            ("Balance Check".to_owned(), decimal("0"), decimal("165"), Some(decimal("200")), Some(false)),
-            ("Employer".to_owned(), decimal("165"), decimal("165"), None, None),
+            row("Balance Check", "0", "165", Some(("200", "165", false))),
+            row("Employer", "165", "165", None),
         ]
     );
+}
+
+/// (payee, change, own balance after, (asserted, checked against, passed) of an assertion row)
+type DescribedRow = (String, BigDecimal, BigDecimal, Option<(BigDecimal, BigDecimal, bool)>);
+
+fn described_row(row: &Value) -> DescribedRow {
+    let assertion = (!row["asserted"].is_null()).then(|| {
+        (
+            number(&row["asserted"]["number"]),
+            number(&row["checked_balance"]["number"]),
+            row["passed"].as_bool().unwrap(),
+        )
+    });
+    if assertion.is_none() {
+        assert!(row["checked_balance"].is_null() && row["passed"].is_null(), "{row}");
+    }
+    (
+        row["payee"].as_str().unwrap().to_owned(),
+        number(&row["inferred_unit"]["number"]),
+        number(&row["account_after"]["number"]),
+        assertion,
+    )
+}
+
+fn row(payee: &str, change: &str, after: &str, assertion: Option<(&str, &str, bool)>) -> DescribedRow {
+    (
+        payee.to_owned(),
+        decimal(change),
+        decimal(after),
+        assertion.map(|(asserted, checked, passed)| (decimal(asserted), decimal(checked), passed)),
+    )
 }
 
 #[tokio::test]
@@ -263,24 +283,106 @@ async fn an_assertion_on_a_parent_account_is_checked_against_its_sub_accounts_to
     assert_eq!(pad["postings"][0]["account"], "Assets:Bank");
     assert_eq!(number(&pad["postings"][0]["inferred_unit"]["number"]), decimal("50"));
 
-    // the assertion row shows the balance it was checked against; the posting rows show the
-    // parent account's own postings
+    // every row's balance is the parent account's own; the assertion row shows the balance it was
+    // checked against, with the sub-accounts, apart
     let rows = scratch.account_journals("Assets:Bank").await;
-    let described = rows
-        .iter()
-        .map(|row| {
-            (
-                row["payee"].as_str().unwrap().to_owned(),
-                number(&row["account_after"]["number"]),
-                row["passed"].as_bool(),
-            )
-        })
-        .collect::<Vec<_>>();
     assert_eq!(
-        described,
+        rows.iter().map(described_row).collect::<Vec<_>>(),
+        vec![row("Balance Pad", "50", "50", None), row("Balance Check", "0", "0", Some(("100", "100", true))),]
+    );
+}
+
+/// a parent account with postings of its own, two sub-accounts and a sibling that is no sub-account
+const PARENT: &str = r#"option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Assets:Bank:Savings
+1970-01-01 open Assets:Banking
+1970-01-01 open Equity:Open
+2024-01-01 * "Self" "opening"
+  Assets:Bank 5 CNY
+  Assets:Bank:Checking 60 CNY
+  Assets:Bank:Savings 40 CNY
+  Assets:Bank:Savings 7 USD
+  Assets:Banking 1000 CNY
+  Equity:Open -1105 CNY
+  Equity:Open -7 USD
+2024-01-02 balance Assets:Bank:Checking 60 CNY
+2024-01-02 balance Assets:Banking 1000 CNY
+2024-01-03 balance Assets:Bank 105 CNY
+"#;
+
+#[tokio::test]
+async fn an_account_shows_the_balance_its_assertions_are_checked_against() {
+    let scratch = Scratch::new(PARENT);
+    let (status, info) = respond(get_account_info(scratch.state().await, UrlPath(("Assets:Bank".to_owned(),))).await).await;
+    assert_eq!(status, StatusCode::OK, "{info}");
+    // its own balance, and the balance with the sub-accounts, which a `balance` on it checks
+    assert_eq!(info["data"]["amount"]["detail"], json!({"CNY": "5"}));
+    assert_eq!(info["data"]["balance_with_sub_accounts"], json!({"CNY": "105", "USD": "7"}));
+    assert_eq!(info["data"]["has_sub_accounts"], true);
+
+    let (status, list) = respond(get_account_list(scratch.state().await).await).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let listed = |name: &str| list["data"].as_array().unwrap().iter().find(|it| it["name"] == name).unwrap().clone();
+    assert_eq!(listed("Assets:Bank")["balance_with_sub_accounts"], json!({"CNY": "105", "USD": "7"}));
+    assert_eq!(listed("Assets:Bank")["has_sub_accounts"], true);
+    // `Assets:Banking` is no sub-account of `Assets:Bank`, and has none
+    assert_eq!(listed("Assets:Banking")["balance_with_sub_accounts"], json!({"CNY": "1000"}));
+    assert_eq!(listed("Assets:Banking")["has_sub_accounts"], false);
+    assert_eq!(listed("Assets:Bank:Savings")["balance_with_sub_accounts"], json!({"CNY": "40", "USD": "7"}));
+}
+
+#[tokio::test]
+async fn the_account_journal_lists_the_assertions_on_the_account_itself_only() {
+    let scratch = Scratch::new(PARENT);
+    // not those on its sub-account or on `Assets:Banking`
+    let rows = scratch.account_journals("Assets:Bank").await;
+    assert_eq!(
+        rows.iter().map(described_row).collect::<Vec<_>>(),
+        vec![row("Balance Check", "0", "5", Some(("105", "105", true))), row("Self", "5", "5", None),]
+    );
+    let rows = scratch.account_journals("Assets:Bank:Checking").await;
+    assert_eq!(
+        rows.iter().map(described_row).collect::<Vec<_>>(),
+        vec![row("Balance Check", "0", "60", Some(("60", "60", true))), row("Self", "60", "60", None),]
+    );
+}
+
+#[tokio::test]
+async fn the_account_journal_keeps_the_order_of_a_day() {
+    // a day's balance entries come in ledger order before its transactions: two checks, a pad and its
+    // padding, and a check after it, then the day's transaction
+    let scratch = Scratch::new(
+        r#"option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Equity:Open
+1970-01-01 open Expenses:Food
+2024-01-01 * "Self" "opening"
+  Assets:Bank 100 CNY
+  Equity:Open
+2024-01-05 * "Shop" "lunch"
+  Assets:Bank -10 CNY
+  Expenses:Food
+2024-01-05 balance Assets:Bank 100 CNY
+2024-01-05 balance Assets:Bank 90 CNY
+2024-01-05 balance Assets:Bank 150 CNY with pad Equity:Open
+2024-01-05 balance Assets:Bank 150 CNY
+"#,
+    );
+    let rows = scratch.account_journals("Assets:Bank").await;
+    assert_eq!(
+        rows.iter().map(described_row).collect::<Vec<_>>(),
         vec![
-            ("Balance Pad".to_owned(), decimal("50"), None),
-            ("Balance Check".to_owned(), decimal("100"), Some(true)),
+            row("Shop", "-10", "140", None),
+            row("Balance Check", "0", "150", Some(("150", "150", true))),
+            row("Balance Pad", "50", "150", None),
+            row("Balance Check", "0", "100", Some(("90", "100", false))),
+            row("Balance Check", "0", "100", Some(("100", "100", true))),
+            row("Self", "100", "100", None),
         ]
     );
 }

@@ -98,7 +98,13 @@ pub struct AccountEntity {
     pub name: String,
     pub status: AccountStatus,
     pub alias: Option<String>,
+    /// the account's own balance, that of its own postings
     pub amount: CalculatedAmount,
+    /// the balance a balance assertion on the account is checked against, per currency: that of the account
+    /// and all its sub-accounts
+    pub balance_with_sub_accounts: HashMap<Currency, BigDecimal>,
+    /// whether the account has sub-accounts, whose balances `balance_with_sub_accounts` includes
+    pub has_sub_accounts: bool,
 }
 
 #[derive(Serialize, Schematic)]
@@ -354,7 +360,13 @@ pub struct AccountInfoEntity {
     pub name: String,
     pub status: AccountStatus,
     pub alias: Option<String>,
+    /// the account's own balance, that of its own postings
     pub amount: CalculatedAmount,
+    /// the balance a balance assertion on the account is checked against, per currency: that of the account
+    /// and all its sub-accounts
+    pub balance_with_sub_accounts: HashMap<Currency, BigDecimal>,
+    /// whether the account has sub-accounts, whose balances `balance_with_sub_accounts` includes
+    pub has_sub_accounts: bool,
 }
 
 #[derive(Serialize, Schematic)]
