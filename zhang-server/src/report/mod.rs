@@ -309,9 +309,6 @@ impl GraphRows {
         };
         let late = || limits.timeout.is_some_and(|timeout| started.elapsed() > timeout);
         let mut values: u64 = changes.values().flat_map(HashMap::values).map(amount_values).sum();
-        if late() {
-            return Err(too_slow());
-        }
         if values > limits.max_values {
             return Err(too_large());
         }
@@ -319,7 +316,8 @@ impl GraphRows {
         let mut carried = opening;
         let mut balances = HashMap::new();
         for (index, bucket) in Buckets::of(&range, &interval).enumerate() {
-            if index % 256 == 255 && late() {
+            // the queries may have used up the time already: check before the first bucket too
+            if index % 256 == 0 && late() {
                 return Err(too_slow());
             }
             let amount = match closing.get(&bucket) {
