@@ -5,7 +5,9 @@
 //! - a page size of 0 and a page beyond what an offset can count are 400s, and a page past the end
 //!   is empty instead of wrapping around;
 //! - a repeated metadata key keeps every value (decision 7);
-//! - a cost is per unit: a `{{total}}` cost is divided by the units, and `{}` shows the lot's cost;
+//! - a cost is per unit: a `{{total}}` cost is divided by the units, and `{}` shows the cost of the lots it
+//!   reduces when they share one;
+//! - a `balance ... with pad` stays after the paddings of its time, as zhang checks it (#485), on every page;
 //! - balance assertions are checked on the true balance and keep #485's `passed` and `tolerance`;
 //! - a keyword is plain text, never a regular expression;
 //! - payees exclude padding transactions and are sorted, as are the open accounts (decision 4);
@@ -169,7 +171,7 @@ fn amount(number: &str, commodity: &str) -> Value {
 }
 
 #[tokio::test]
-async fn the_journal_lists_transactions_and_assertions_newest_first_in_the_order_of_entries() {
+async fn the_journal_lists_transactions_and_assertions_newest_first_as_zhang_checks_them() {
     let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
     let ledger = scratch.ledger().await;
     let page = page(&ledger, None, None).await;
@@ -181,22 +183,25 @@ async fn the_journal_lists_transactions_and_assertions_newest_first_in_the_order
             "Transaction zz-shop (a) a.b",
             "BalanceCheck Balance Check Assets:Cash",
             "BalanceCheck Balance Check Assets:Cash",
-            // within a day, #entries lists the assertions first: the padding transaction is newer than its check
-            "BalancePad Balance Pad pad Assets:Cash to Equity:Open",
+            // the `balance ... with pad` is checked after its padding (#485)
             "BalanceCheck Balance Check Assets:Cash",
+            "BalancePad Balance Pad pad Assets:Cash to Equity:Open",
             "Transaction Broker sell",
             "Transaction Broker buy",
             "Transaction Cafe lunch",
         ]
     );
-    // `sequence` is the position in #entries, newest first
+    // `sequence` is the position in #entries, which lists the `balance ... with pad` before its padding for now
     let sequences = page["records"]
         .as_array()
         .unwrap()
         .iter()
         .map(|it| it["sequence"].as_i64().unwrap())
         .collect::<Vec<_>>();
-    assert!(sequences.windows(2).all(|it| it[0] > it[1]), "{sequences:?}");
+    let mut sorted = sequences.clone();
+    sorted.sort_by(|a, b| b.cmp(a));
+    sorted.swap(4, 5);
+    assert_eq!(sequences, sorted);
     assert_eq!(record(&page, "in another file")["is_balanced"], false);
     assert_eq!(record(&page, "a.b")["is_balanced"], true);
 }
@@ -261,6 +266,120 @@ async fn a_cost_is_the_per_unit_cost_of_the_lot() {
 }
 
 #[tokio::test]
+async fn a_reduction_across_lots_has_their_cost_only_when_they_share_it() {
+    let ledger_text = r#"option "operating_currency" "USD"
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Cash
+1970-01-01 open Income:Gains
+
+2024-01-01 * "Buy" "first lot"
+  Assets:Broker 10 AAPL {100 USD}
+  Assets:Cash -1000 USD
+
+2024-01-02 * "Buy" "second lot, another cost"
+  Assets:Broker 5 AAPL {120 USD}
+  Assets:Cash -600 USD
+
+2024-01-03 * "Buy" "third lot, the first cost"
+  Assets:Broker 5 AAPL {100 USD, 2024-01-03}
+  Assets:Cash -500 USD
+
+2024-01-04 * "Sell" "across the lots of 100 USD"
+  Assets:Broker -12 AAPL {100 USD}
+  Assets:Cash 1200 USD
+
+2024-01-05 * "Sell" "across the lots of 100 and 120 USD"
+  Assets:Broker -7 AAPL {}
+  Assets:Cash 820 USD
+  Income:Gains
+"#;
+    let scratch = Scratch::new(&[("main.zhang", ledger_text)]);
+    let ledger = scratch.ledger().await;
+    let page = page(&ledger, None, None).await;
+    // 10 + 2 of the two lots bought at 100 USD: one posting, their common cost
+    let same = &record(&page, "across the lots of 100 USD")["postings"][0];
+    assert_eq!(same["unit"], amount("-12", "AAPL"));
+    assert_eq!(same["inferred_unit"], amount("-12", "AAPL"));
+    assert_eq!(same["cost"], amount("100", "USD"));
+    assert_eq!(same["account_after"], amount("8", "AAPL"));
+    // first in, first out: the 5 bought at 120 USD on 01-02, then 2 of the 3 left at 100 USD: no single cost
+    let mixed = &record(&page, "across the lots of 100 and 120 USD")["postings"][0];
+    assert_eq!(mixed["unit"], amount("-7", "AAPL"));
+    assert_eq!(mixed["cost"], Value::Null);
+    assert_eq!(mixed["account_before"], amount("8", "AAPL"));
+    assert_eq!(mixed["account_after"], amount("1", "AAPL"));
+    assert_eq!(record(&page, "across the lots of 100 and 120 USD")["is_balanced"], true);
+}
+
+#[tokio::test]
+async fn a_balance_with_pad_follows_the_paddings_of_its_time_on_every_page() {
+    // a day with a balance, a balance with pad written before it, transactions before and after the pad's time,
+    // and a padding of another account at the same time
+    let ledger_text = r#"option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Assets:B
+1970-01-01 open Equity:Open
+1970-01-01 open Expenses:Food
+
+2024-01-05 08:00:00 * "Early" "before the pads"
+  Assets:A -1 CNY
+  Expenses:Food
+
+2024-01-05 12:00:00 balance Assets:A 100 CNY with pad Equity:Open
+2024-01-05 12:00:00 balance Assets:B 50 CNY with pad Equity:Open
+2024-01-05 balance Assets:B 0 CNY
+
+2024-01-05 12:00:00 * "Noon" "at the time of the pads"
+  Assets:A -2 CNY
+  Expenses:Food
+
+2024-01-05 18:00:00 * "Late" "after the pads"
+  Assets:A -3 CNY
+  Expenses:Food
+"#;
+    let scratch = Scratch::new(&[("main.zhang", ledger_text)]);
+    let ledger = scratch.ledger().await;
+    let all = page(&ledger, None, None).await;
+    let order = all["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| format!("{} {}", it["type"].as_str().unwrap(), it["datetime"].as_str().unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        order,
+        vec![
+            "Transaction 2024-01-05T18:00:00",
+            "Transaction 2024-01-05T12:00:00",
+            // both checks after both paddings of their time, as zhang checks them
+            "BalanceCheck 2024-01-05T12:00:00",
+            "BalanceCheck 2024-01-05T12:00:00",
+            "BalancePad 2024-01-05T12:00:00",
+            "BalancePad 2024-01-05T12:00:00",
+            "Transaction 2024-01-05T08:00:00",
+            // a balance is checked at the start of its day
+            "BalanceCheck 2024-01-05T00:00:00",
+        ]
+    );
+    let checks = all["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|it| it["type"] == "BalanceCheck")
+        .collect::<Vec<_>>();
+    assert!(checks.iter().all(|it| it["passed"] == true), "{checks:?}");
+    // pages of one row are windows of the same order
+    for (idx, expected) in all["records"].as_array().unwrap().iter().enumerate() {
+        let (status, body) = journals(&ledger, request(Some(idx as u32 + 1), Some(1), None, None)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(&body["data"]["records"][0], expected, "page {}", idx + 1);
+    }
+}
+
+#[tokio::test]
 async fn balance_assertions_and_pads_keep_their_shape() {
     let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
     let ledger = scratch.ledger().await;
@@ -316,16 +435,16 @@ async fn a_keyword_is_plain_text_that_matches_ignoring_case() {
             "Transaction Unbalanced in another file",
             "BalanceCheck Balance Check Assets:Cash",
             "BalanceCheck Balance Check Assets:Cash",
-            "BalancePad Balance Pad pad Assets:Cash to Equity:Open",
             "BalanceCheck Balance Check Assets:Cash",
+            "BalancePad Balance Pad pad Assets:Cash to Equity:Open",
         ]
     );
     // accounts: the padding transaction posts to Equity:Open, and the balance ... with pad names it
     assert_eq!(
         summary(&page(&ledger, Some("equity:open"), None).await),
         vec![
-            "BalancePad Balance Pad pad Assets:Cash to Equity:Open",
-            "BalanceCheck Balance Check Assets:Cash"
+            "BalanceCheck Balance Check Assets:Cash",
+            "BalancePad Balance Pad pad Assets:Cash to Equity:Open"
         ]
     );
     // a regular expression is text: `.` and `(` are themselves

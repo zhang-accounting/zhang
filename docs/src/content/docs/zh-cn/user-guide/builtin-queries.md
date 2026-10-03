@@ -159,17 +159,20 @@ WHERE (type = 'transaction'
             OR any_icontains(tags, :keyword) OR any_icontains(links, :keyword) OR any_icontains(accounts, :keyword)))
    OR (type = 'balance' AND :tags IS NULL AND :links IS NULL
        AND (:keyword IS NULL OR icontains('Balance Check', :keyword) OR any_icontains(accounts, :keyword)))
-ORDER BY seq DESC
+ORDER BY timestamp DESC,
+         type = 'transaction' AND flag != 'P' DESC,
+         type = 'balance' AND length(accounts) > 1 DESC,
+         seq DESC
 LIMIT :size OFFSET :offset
 ```
 
 - 页数按 `LIMIT` 和 `OFFSET` 之前的总行数计算。页大小为 0，或页码超出偏移量所能表示的范围时，返回 HTTP 400；超过最后一页的页码返回空页。
-- 行按 [`#entries`](/zh-cn/user-guide/query-language/#entries) 的顺序排列，最新的在前。同一天内 `#entries` 先列余额断言、再列交易，因此按最新在前排列时，`balance ... with pad` 排在它的补齐交易之后。
+- 行按张记账检查它们的顺序排列，最新的在前：先按时刻；同一时刻内依次是余额断言、补齐交易（标记为 `P`）、`balance ... with pad`（在同一时刻的补齐交易之后检查），然后是其他交易，各自按账本顺序。`balance ... with pad` 的 `accounts` 中有它的补齐来源账户。除 `balance ... with pad` 外，这就是 `#entries` 的顺序；`#entries` 目前把 `balance ... with pad` 列在它的补齐交易之前，等 `seq` 遵循张记账检查一天的顺序后，`ORDER BY` 将改为 `seq DESC`。
 - 标记为 `P` 的交易是补齐交易，页面显示为 `BalancePad` 条目。`balance` 行是 `BalanceCheck` 条目，由 `journals.balance_checks` 补全。
 
 #### `journals.postings`
 
-一些交易按书写的分录，按账本顺序排列：数量、数量是否由推算得出、第一个批次的单位成本，以及分录所在账户在该币种下记账前后的余额。
+一些交易按书写的分录，按账本顺序排列：数量、数量是否由推算得出、所记入批次的单位成本，以及分录所在账户在该币种下记账前后的余额。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
@@ -179,7 +182,9 @@ LIMIT :size OFFSET :offset
 SELECT id, posting_index, account, automatic, balanced,
        first(currency) AS currency,
        sum(number) AS number,
-       first(cost_number) AS cost_number, first(cost_currency) AS cost_currency,
+       count(*) AS lots, count(cost_number) AS lots_at_cost,
+       min(cost_number) AS cost_number, max(cost_number) AS max_cost_number,
+       min(cost_currency) AS cost_currency, max(cost_currency) AS max_cost_currency,
        number(last(only(currency, account_balance))) - sum(number) AS balance_before,
        number(last(only(currency, account_balance))) AS balance_after,
        first(metas) AS metas
@@ -187,7 +192,7 @@ WHERE id IN :ids
 GROUP BY id, posting_index, account, automatic, balanced
 ```
 
-- [批次记账](/zh-cn/user-guide/query-language/#批次记账)拆成多行的分录重新合为一行，数量相加。它的成本是所记入的第一个批次的单位成本，因此 10 个单位的 `{{1000 USD}}` 成本为 `100 USD`。
+- [批次记账](/zh-cn/user-guide/query-language/#批次记账)拆成多行的分录重新合为一行，数量相加。它的成本是所记入批次的单位成本，因此 10 个单位的 `{{1000 USD}}` 成本为 `100 USD`。减仓记入成本不同的多个批次时没有成本：此时 `cost_number` 与 `max_cost_number`（或两个币种）不同，或 `lots_at_cost` 小于 `lots`。
 - 书写时没有金额的分录（`automatic`）在流水中没有数量，只有推算出的数量。
 - `balance_before` 和 `balance_after` 是分录所在账户在该币种下记账前后的余额：[`account_balance`](/zh-cn/user-guide/query-language/#账户余额) 不受 `WHERE` 影响。
 

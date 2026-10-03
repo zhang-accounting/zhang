@@ -84,6 +84,11 @@ pub static BUILTINS: &[BuiltinQuery] = &[
     // ---- report: /api/statistic/* ----
     // ---- accounts: /api/accounts/* ----
     // ---- journals: /api/journals, /api/for-new-transaction, /api/documents, /api/errors ----
+    // TODO(#479): the ORDER BY of `journals.page` keeps the order zhang checks a day in (#485): by time, and within
+    // a time the balances, the paddings (flag `P`), the `balance ... with pad`s, which are checked after the paddings
+    // of their time, then the other transactions; `seq` keeps the order of each. A `balance` lists its account in
+    // `accounts`, and with pad its pad account too. Once `#entries.seq` follows zhang's processing order (the pad
+    // compat branch), this is `ORDER BY seq DESC`.
     BuiltinQuery {
         name: "journals.page",
         description: "One page of the journal, newest first: the transactions, padding transactions included, and the balance \
@@ -97,7 +102,10 @@ pub static BUILTINS: &[BuiltinQuery] = &[
                           OR any_icontains(tags, :keyword) OR any_icontains(links, :keyword) OR any_icontains(accounts, :keyword))) \
                  OR (type = 'balance' AND :tags IS NULL AND :links IS NULL \
                      AND (:keyword IS NULL OR icontains('Balance Check', :keyword) OR any_icontains(accounts, :keyword))) \
-              ORDER BY seq DESC \
+              ORDER BY timestamp DESC, \
+                       type = 'transaction' AND flag != 'P' DESC, \
+                       type = 'balance' AND length(accounts) > 1 DESC, \
+                       seq DESC \
               LIMIT :size OFFSET :offset",
         params: &[
             ("keyword", DataType::Str),
@@ -110,11 +118,13 @@ pub static BUILTINS: &[BuiltinQuery] = &[
     BuiltinQuery {
         name: "journals.postings",
         description: "The postings of some transactions as written, in ledger order, with their units, whether those were inferred, \
-                      the per-unit cost of their first lot and the balance of their account in their currency before and after them.",
+                      the per-unit costs of their lots and the balance of their account in their currency before and after them.",
         bql: "SELECT id, posting_index, account, automatic, balanced, \
                      first(currency) AS currency, \
                      sum(number) AS number, \
-                     first(cost_number) AS cost_number, first(cost_currency) AS cost_currency, \
+                     count(*) AS lots, count(cost_number) AS lots_at_cost, \
+                     min(cost_number) AS cost_number, max(cost_number) AS max_cost_number, \
+                     min(cost_currency) AS cost_currency, max(cost_currency) AS max_cost_currency, \
                      number(last(only(currency, account_balance))) - sum(number) AS balance_before, \
                      number(last(only(currency, account_balance))) AS balance_after, \
                      first(metas) AS metas \

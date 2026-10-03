@@ -228,8 +228,13 @@ impl PostingRow {
         let currency = string(columns.get(row, "currency"));
         let in_currency = |name| Amount::new(columns.get(row, name).as_decimal().unwrap_or_default(), currency.clone());
         let units = in_currency("number");
+        // the cost of its lots when they all have the same; none when booking split it across lots of different costs
+        let same = |min: &str, max: &str| columns.get(row, min) == columns.get(row, max);
+        let every_lot_at_cost = columns.get(row, "lots") == columns.get(row, "lots_at_cost");
         let cost = match (columns.get(row, "cost_number").as_decimal(), columns.get(row, "cost_currency").as_str()) {
-            (Some(number), Some(currency)) => Some(Amount::new(number, currency)),
+            (Some(number), Some(currency)) if every_lot_at_cost && same("cost_number", "max_cost_number") && same("cost_currency", "max_cost_currency") => {
+                Some(Amount::new(number, currency))
+            }
             _ => None,
         };
         PostingRow {

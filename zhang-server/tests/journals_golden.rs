@@ -327,14 +327,11 @@ enum Reason {
     AbsentNarration,
     /// decision 7: a repeated metadata key keeps every value; metadata is sorted by key, as posting metadata is (#471)
     RepeatedMetadata,
-    /// the cost is the per-unit cost of the posting's lot: a `{{total}}` cost is divided by the units, and a reduction
-    /// written `{}` shows the cost of the (first) lot it reduces
+    /// the cost is the per-unit cost of the posting's lots: a `{{total}}` cost is divided by the units, and a reduction
+    /// written `{}` shows the cost of the lots it reduces when they share one
     PerUnitCost,
     /// the same number, written with other decimals
     Scale,
-    /// within a day, `#entries` lists the balance assertions before the transactions (beancount's order of a day), so
-    /// a `balance ... with pad` comes before its padding transaction (newest first: after it)
-    DayOrder,
     /// a `balance ... with pad` names its pad account: `#entries.accounts` has it, so a keyword search finds the
     /// assertion by it
     PadAccountSearch,
@@ -445,26 +442,6 @@ fn journal_key(record: &Value) -> String {
     }
 }
 
-/// The items of a journal in the order of `#entries` within a day: the transactions of a day, in
-/// their order, then its balance assertions, sorted.
-fn day_order(records: &[&Value]) -> Vec<String> {
-    let mut keyed = records
-        .iter()
-        .map(|record| {
-            let day = record["datetime"].as_str().unwrap_or_default()[..10].to_owned();
-            let check = record["type"] == "BalanceCheck";
-            (day, check, journal_key(record))
-        })
-        .collect::<Vec<_>>();
-    // newest day first; within a day the transactions keep their order, the checks are sorted
-    keyed.sort_by(|a, b| {
-        b.0.cmp(&a.0)
-            .then(a.1.cmp(&b.1))
-            .then_with(|| if a.1 && b.1 { a.2.cmp(&b.2) } else { std::cmp::Ordering::Equal })
-    });
-    keyed.into_iter().map(|(_, _, key)| key).collect()
-}
-
 /// Whether the new metadata is the old with every value of a repeated key, sorted by key.
 fn repeated_metadata(old: &Value, new: &Value) -> bool {
     let pairs = |value: &Value| {
@@ -553,7 +530,7 @@ fn compare_journal(report: &mut Report, ledger: &str, search: &Search, old: &[Va
     let (old_common, new_common) = (common(old, &new_keys), common(new, &old_keys));
     let order = |records: &[&Value]| records.iter().map(|it| journal_key(it)).collect::<Vec<_>>();
     if order(&old_common) != order(&new_common) {
-        let reason = (day_order(&old_common) == day_order(&new_common)).then_some(Reason::DayOrder);
+        let reason = None;
         let first = order(&old_common)
             .into_iter()
             .zip(order(&new_common))

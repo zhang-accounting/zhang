@@ -159,17 +159,20 @@ WHERE (type = 'transaction'
             OR any_icontains(tags, :keyword) OR any_icontains(links, :keyword) OR any_icontains(accounts, :keyword)))
    OR (type = 'balance' AND :tags IS NULL AND :links IS NULL
        AND (:keyword IS NULL OR icontains('Balance Check', :keyword) OR any_icontains(accounts, :keyword)))
-ORDER BY seq DESC
+ORDER BY timestamp DESC,
+         type = 'transaction' AND flag != 'P' DESC,
+         type = 'balance' AND length(accounts) > 1 DESC,
+         seq DESC
 LIMIT :size OFFSET :offset
 ```
 
 - The page counts all its rows before `LIMIT` and `OFFSET` for its number of pages. A page size of 0, or a page beyond what an offset can count, is answered with HTTP 400; a page past the last one is empty.
-- Rows come in the order of [`#entries`](/user-guide/query-language/#entries), newest first. Within a day `#entries` lists the balance assertions before the transactions, so a `balance ... with pad` comes after its padding transaction, newest first.
+- Rows come newest first, in the order Zhang checks them: by time, and at one time the balance assertions, the padding transactions (flag `P`), the `balance ... with pad`s, which are checked after the paddings of their time, then the other transactions, each in ledger order. A `balance ... with pad` names its pad account in `accounts`. This is the order of `#entries` except for the `balance ... with pad`s, which `#entries` lists before their paddings for now; once `seq` follows the order Zhang checks a day in, the `ORDER BY` becomes `seq DESC`.
 - A transaction with the flag `P` is a padding transaction, which the page shows as a `BalancePad` item. A `balance` row is a `BalanceCheck` item, built from `journals.balance_checks`.
 
 #### `journals.postings`
 
-The postings of some transactions as written, in ledger order, with their units, whether those were inferred, the per-unit cost of their first lot and the balance of their account in their currency before and after them.
+The postings of some transactions as written, in ledger order, with their units, whether those were inferred, the per-unit costs of their lots and the balance of their account in their currency before and after them.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
@@ -179,7 +182,9 @@ The postings of some transactions as written, in ledger order, with their units,
 SELECT id, posting_index, account, automatic, balanced,
        first(currency) AS currency,
        sum(number) AS number,
-       first(cost_number) AS cost_number, first(cost_currency) AS cost_currency,
+       count(*) AS lots, count(cost_number) AS lots_at_cost,
+       min(cost_number) AS cost_number, max(cost_number) AS max_cost_number,
+       min(cost_currency) AS cost_currency, max(cost_currency) AS max_cost_currency,
        number(last(only(currency, account_balance))) - sum(number) AS balance_before,
        number(last(only(currency, account_balance))) AS balance_after,
        first(metas) AS metas
@@ -187,7 +192,7 @@ WHERE id IN :ids
 GROUP BY id, posting_index, account, automatic, balanced
 ```
 
-- A posting that [lot booking](/user-guide/query-language/#lot-booking) splits into several rows is one row again, its units added up. Its cost is that of the first lot it is booked against, per unit, so a `{{1000 USD}}` cost of 10 units is `100 USD`.
+- A posting that [lot booking](/user-guide/query-language/#lot-booking) splits into several rows is one row again, its units added up. Its cost is the per-unit cost of its lots, so a `{{1000 USD}}` cost of 10 units is `100 USD`. A reduction booked against lots of different costs has none: `cost_number` and `max_cost_number` (and the currencies) differ, or `lots_at_cost` is less than `lots`.
 - A posting written without an amount (`automatic`) has no units in the journal, only the inferred ones.
 - `balance_before` and `balance_after` are the balance of the posting's own account, in the posting's currency, around it: [`account_balance`](/user-guide/query-language/#the-account-balance) does not depend on `WHERE`.
 
