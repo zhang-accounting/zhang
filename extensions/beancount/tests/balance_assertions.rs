@@ -512,6 +512,17 @@ fn only_a_balance_whose_meaning_changed_is_reported_for_its_ignored_time() {
 }
 
 #[test]
+fn zhang_reads_a_document_relative_to_its_file() {
+    // beancount finds both (the oracle has no error): zhang names them by the same path within the ledger
+    let ledger = load("document_paths");
+    let store = ledger.store.read().unwrap();
+    assert!(store.errors.is_empty(), "{:?}", store.errors);
+    let paths = store.documents.iter().map(|it| it.path.clone()).collect::<Vec<_>>();
+    assert_eq!(paths, vec!["document_paths/attachments/statement.txt"; 2]);
+    assert!(dir().join(&paths[0]).is_file());
+}
+
+#[test]
 fn every_ledger_has_an_oracle() {
     let mut ledgers = std::fs::read_dir(dir())
         .unwrap()

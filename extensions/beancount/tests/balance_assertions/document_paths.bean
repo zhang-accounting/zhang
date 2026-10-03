@@ -1,0 +1,10 @@
+; A `document` names its file relative to the file it is written in, as beancount
+; reads it: the one in the included file names the same statement as the one here.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+
+2024-01-02 document Assets:Bank "document_paths/attachments/statement.txt"
+
+include "document_paths/data/2024.bean"

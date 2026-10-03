@@ -15,7 +15,7 @@ use opendal::services::{Fs, Github, Webdav, S3};
 use opendal::{EntryMode, ErrorKind, HttpTransporter, Operator};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
-use zhang_core::data_source::{DataSource, LoadResult, SourceEntry};
+use zhang_core::data_source::{written_into, DataSource, LoadResult, SourceEntry};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{is_beancount_endpoint, DataType};
@@ -406,6 +406,7 @@ impl OpendalDataSource {
         let content_buf = ledger.data_source.async_get(striped_endpoint.to_string_lossy().to_string()).await?;
         let content = String::from_utf8(content_buf)?;
 
+        let directive = written_into(ledger, directive, striped_endpoint);
         let appended_content = format!("{}\n{}\n", content, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
 
         ledger
@@ -703,6 +704,53 @@ mod test {
         let store = reloaded.store.read().unwrap();
         assert!(store.errors.is_empty(), "{:?}", store.errors);
         assert_eq!(store.transactions.len(), 2);
+    }
+
+    /// A `document` the server writes into a file of a beancount ledger names its file relative to that file, as
+    /// beancount reads it, and zhang reads it back by its path within the ledger. A zhang ledger keeps the path
+    /// within the ledger.
+    #[tokio::test]
+    async fn a_document_is_written_with_the_path_its_file_reads_it_by() {
+        for (main, written) in [
+            ("main.bean", "../../attachments/u1/a statement.pdf"),
+            ("main.zhang", "attachments/u1/a statement.pdf"),
+        ] {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join(main), OPENS).unwrap();
+            std::fs::create_dir_all(dir.path().join("attachments/u1")).unwrap();
+            std::fs::write(dir.path().join("attachments/u1/a statement.pdf"), "%PDF").unwrap();
+            let mut opts = ServerOpts {
+                path: dir.path().to_path_buf(),
+                endpoint: main.to_string(),
+                addr: "".to_string(),
+                port: 0,
+                auth: None,
+                passkey: None,
+                source: None,
+                no_report: true,
+            };
+            let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+            let ledger = Ledger::async_load(dir.path().to_path_buf(), main.to_string(), source.clone()).await.unwrap();
+            let document = zhang_parse("2024-01-15 document Assets:Cash \"attachments/u1/a statement.pdf\"\n", None)
+                .unwrap()
+                .remove(0)
+                .data;
+            ledger.data_source.async_append(&ledger, vec![document]).await.unwrap();
+
+            let ext = main.trim_start_matches("main.");
+            let data_file = std::fs::read_to_string(dir.path().join(format!("data/2024/01.{ext}"))).unwrap();
+            assert!(
+                data_file.contains(&format!("2024-01-15 document Assets:Cash \"{}\"", written)),
+                "{}: {}",
+                main,
+                data_file
+            );
+            let reloaded = Ledger::async_load(dir.path().to_path_buf(), main.to_string(), source).await.unwrap();
+            let store = reloaded.store.read().unwrap();
+            assert!(store.errors.is_empty(), "{}: {:?}", main, store.errors);
+            let paths = store.documents.iter().map(|it| it.path.as_str()).collect::<Vec<_>>();
+            assert_eq!(paths, vec!["attachments/u1/a statement.pdf"], "{}", main);
+        }
     }
 
     #[tokio::test]

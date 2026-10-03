@@ -419,6 +419,15 @@
     "pads_with_cost": [],
     "unused_pads": []
   },
+  "document_paths": {
+    "accepted_deviation": null,
+    "assertions": [],
+    "balances": {},
+    "errors": [],
+    "pads": [],
+    "pads_with_cost": [],
+    "unused_pads": []
+  },
   "failing_assertion": {
     "accepted_deviation": null,
     "assertions": [

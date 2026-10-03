@@ -5,7 +5,7 @@ use chrono::Datelike;
 use log::debug;
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 
-use crate::data_type::DataType;
+use crate::data_type::{document_path_in_file, is_beancount_endpoint, DataType};
 use crate::error::IoErrorIntoZhangError;
 use crate::ledger::Ledger;
 use crate::utils::has_path_visited;
@@ -99,6 +99,19 @@ where
     }
 }
 
+/// `directive` as it is written into `file`, a file of `ledger` named by its path within it. In a beancount ledger, the
+/// path of a `document`, within the ledger, is written relative to the directory of that file, as beancount reads it
+pub fn written_into(ledger: &Ledger, directive: Directive, file: &Path) -> Directive {
+    match directive {
+        Directive::Document(mut document) if is_beancount_endpoint(&ledger.entry.1) => {
+            let path = document.filename.clone().to_plain_string();
+            document.filename = ZhangString::QuoteString(document_path_in_file(&path, file));
+            Directive::Document(document)
+        }
+        directive => directive,
+    }
+}
+
 /// whether the directives at `spans` are still what the ledger loaded in `content`, the content of the file at `path`
 pub fn unchanged(path: &str, content: &str, spans: &[SpanInfo]) -> ZhangResult<()> {
     match spans.iter().all(|span| content.get(span.start..span.end) == Some(span.content.as_str())) {
@@ -176,6 +189,7 @@ impl LocalFileSystemDataSource {
             Err(e) => return Err(e),
         };
 
+        let directive = written_into(ledger, directive, endpoint.strip_prefix(entry).unwrap_or(&endpoint));
         let appended_content = format!("{}\n{}\n", content, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
 
         ledger

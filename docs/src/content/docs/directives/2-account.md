@@ -196,9 +196,9 @@ reads them as Zhang does, and nothing is padded but what you asked for, when you
 - "My balance now" is a `balance` dated tomorrow: the start of tomorrow is the end of today, after every transaction
   of today. A transaction you add later today is not in the amount you asserted, so it makes that balance fail, as in
   Beancount. Check the balance again: a new check of the account and commodity replaces that balance of tomorrow in
-  your file instead of adding a second one. Only its amount changes: its metadata, comment and tolerance stay as you
-  wrote them, and a balance you wrote more than once is changed everywhere. The UI tells you which balances it
-  replaced.
+  your file instead of adding a second one. It asserts exactly the new amount: a `~` tolerance it had goes, and its
+  metadata and comment stay as you wrote them. A balance you wrote more than once is changed everywhere. The UI tells
+  you which balances it replaced, with the amount and tolerance each had.
 - With a pad, the difference between your amount and what the account and its sub-accounts hold now is booked as a
   padding transaction (flag `P`) dated now, from the pad account, before the `balance`. Nothing is booked when there
   is no difference. A padding transaction booked earlier stays, and a new pad books the difference from it. The UI
@@ -219,7 +219,8 @@ In both ledgers, these are refused, as they could only be reported once written:
 
 A refused request writes nothing, and the UI shows why. A request also writes nothing when a file it would change in
 place was edited since Zhang loaded it, and Zhang has not reloaded it yet: it answers 409, and the ledger is reloaded,
-so trying again works.
+so trying again works. When the files cannot be loaded, say after saving a mistake in the file editor, every write
+but the file editor's answers 409 until you fix them there.
 
 Zhang differs from Beancount in how pads are sized and paired:
 
@@ -260,6 +261,11 @@ Zhang Accounting is fully compatible with Beancount's account directives. The sy
 ```beancount
 1970-01-01 open Assets:Card CNY "NONE"
 ```
+
+In a Beancount ledger, the path of a `document` is relative to the directory of the file it is written in, as
+Beancount reads it. The documents you upload are written so: one written into `data/2026/10.bean` names
+`../../attachments/…`. Earlier versions wrote the path from the ledger's directory into such files, which Beancount
+reports as missing and Zhang no longer finds: put `../../` before them.
 
 ## Examples
 
