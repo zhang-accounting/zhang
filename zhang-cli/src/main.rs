@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{Args, Parser};
@@ -121,12 +122,15 @@ pub struct ServerOpts {
 }
 
 impl Opts {
-    pub async fn run(self) {
+    /// run the command; `false` when it failed, so the process can exit with a non-zero code and
+    /// supervisors (systemd, Docker, Railway, ...) see the failure instead of a clean exit
+    pub async fn run(self) -> bool {
         match self {
             Opts::Parse(_parse_opts) => {
                 // let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");
                 // todo: fix parse
                 // Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, format.transformer()).expect("Cannot load ledger");
+                true
             }
             Opts::Export(_) => todo!(),
             Opts::Serve(mut opts) => {
@@ -150,10 +154,13 @@ impl Opts {
                     data_source: Arc::new(data_source),
                 })
                 .await;
+                // the initial load (and binding the port) can fail here; reload failures while
+                // serving keep the previous ledger and never reach this point
                 match result {
-                    Ok(_) => {}
+                    Ok(_) => true,
                     Err(e) => {
-                        error!("An error occur when serving zhang server: {}", e)
+                        error!("An error occur when serving zhang server: {}", e);
+                        false
                     }
                 }
             }
@@ -175,9 +182,18 @@ impl Opts {
                 .await
                 .unwrap();
                 match update_result {
-                    Ok(Status::UpToDate(version)) => info!("zhang is already up to dated with version {}", version),
-                    Ok(Status::Updated(version)) => info!("zhang is updated to version {}", version),
-                    Err(e) => error!("fail to update: {}", e),
+                    Ok(Status::UpToDate(version)) => {
+                        info!("zhang is already up to dated with version {}", version);
+                        true
+                    }
+                    Ok(Status::Updated(version)) => {
+                        info!("zhang is updated to version {}", version);
+                        true
+                    }
+                    Err(e) => {
+                        error!("fail to update: {}", e);
+                        false
+                    }
                 }
             }
         }
@@ -190,7 +206,7 @@ fn env_value(name: &str) -> Option<String> {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> ExitCode {
     // console_subscriber::init();
     let env = Env::new().filter("ZHANG_LOG").default_filter_or("RUST_LOG");
     env_logger::Builder::default().parse_env(env).init();
@@ -199,9 +215,15 @@ async fn main() {
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
             info!("receive ctrl+c, exit");
+            ExitCode::SUCCESS
         }
-        _ = opts.run() => {
-            println!("operation completed");
+        succeeded = opts.run() => {
+            if succeeded {
+                println!("operation completed");
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
         }
     }
 }
