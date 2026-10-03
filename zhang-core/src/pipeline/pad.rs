@@ -97,6 +97,7 @@ fn padding_transaction(pad: &BalancePad, distance: Amount) -> Transaction {
                 cost: None,
                 price: None,
                 comment: None,
+                meta: Default::default(),
             },
             Posting {
                 flag: None,
@@ -105,6 +106,7 @@ fn padding_transaction(pad: &BalancePad, distance: Amount) -> Transaction {
                 cost: None,
                 price: None,
                 comment: None,
+                meta: Default::default(),
             },
         ],
         meta: Default::default(),

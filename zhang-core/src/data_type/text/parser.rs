@@ -355,6 +355,7 @@ fn transaction_posting(i: &str) -> IResult<&str, Posting> {
         cost: None,
         price: None,
         comment: None,
+        meta: Meta::default(),
     };
     if let Some((amount, meta)) = unit {
         posting.units = amount;
@@ -366,16 +367,25 @@ fn transaction_posting(i: &str) -> IResult<&str, Posting> {
     Ok((i, posting))
 }
 
+/// One indented line inside a transaction.
 enum TransactionLine {
     Posting(Posting),
     Meta((String, ZhangString)),
+    /// a comment or a whitespace-only line
+    Other,
+}
+
+/// The width in columns of the leading whitespace `indent` of a line; a tab advances to
+/// the next multiple of four columns.
+fn indentation_width(indent: &str) -> usize {
+    indent.chars().fold(0, |width, c| if c == '\t' { (width / 4 + 1) * 4 } else { width + 1 })
 }
 
 /// A single indented line inside a transaction: a posting, a metadata pair, or an
-/// (ignored) comment / blank line.
-fn transaction_line(i: &str) -> IResult<&str, (Option<Posting>, Option<(String, ZhangString)>)> {
+/// (ignored) comment / blank line, with the width of its indentation.
+fn transaction_line(i: &str) -> IResult<&str, (usize, TransactionLine)> {
     let (i, _) = line_ending(i)?;
-    let (i, _) = space1(i)?;
+    let (i, indent) = space1(i)?;
     let (i, content) = opt(alt((
         map(transaction_posting, TransactionLine::Posting),
         map(key_value_line, TransactionLine::Meta),
@@ -383,22 +393,16 @@ fn transaction_line(i: &str) -> IResult<&str, (Option<Posting>, Option<(String, 
     let (i, _) = space0(i)?;
     let (i, comment) = opt(valuable_comment_body)(i)?;
 
-    let result = match content {
-        Some(TransactionLine::Posting(posting)) => {
-            let posting = match comment {
-                Some(comment) => posting.set_comment(comment),
-                None => posting,
-            };
-            (Some(posting), None)
-        }
-        Some(TransactionLine::Meta(meta)) => (None, Some(meta)),
-        None => (None, None),
+    let line = match (content, comment) {
+        (Some(TransactionLine::Posting(posting)), Some(comment)) => TransactionLine::Posting(posting.set_comment(comment)),
+        (Some(line), _) => line,
+        (None, _) => TransactionLine::Other,
     };
-    Ok((i, result))
+    Ok((i, (indentation_width(indent), line)))
 }
 
 /// `transaction_lines = transaction_line+`
-fn transaction_lines(i: &str) -> IResult<&str, Vec<(Option<Posting>, Option<(String, ZhangString)>)>> {
+fn transaction_lines(i: &str) -> IResult<&str, Vec<(usize, TransactionLine)>> {
     many1(transaction_line)(i)
 }
 
@@ -836,13 +840,21 @@ fn transaction(original: &str) -> IResult<&str, Directive> {
         postings: Vec::new(),
         meta: Meta::default(),
     };
-    for line in lines {
+    // A metadata line belongs to the posting before it only when it is indented deeper
+    // than that posting's line, and to the transaction otherwise, wherever it is: zhang
+    // wrote transaction metadata after the postings, at their indentation, until #457.
+    let mut posting_indent = None;
+    for (indent, line) in lines {
         match line {
-            (Some(posting), None) => transaction.postings.push(posting),
-            (None, Some((key, value))) => {
-                transaction.meta.insert(key, value);
+            TransactionLine::Posting(posting) => {
+                transaction.postings.push(posting);
+                posting_indent = Some(indent);
             }
-            _ => {}
+            TransactionLine::Meta((key, value)) => match (posting_indent, transaction.postings.last_mut()) {
+                (Some(posting_indent), Some(posting)) if indent > posting_indent => posting.meta.insert(key, value),
+                _ => transaction.meta.insert(key, value),
+            },
+            TransactionLine::Other => {}
         }
     }
     Ok((i, Directive::Transaction(transaction)))
@@ -1642,6 +1654,91 @@ mod test {
                 "#});
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(BigDecimal::from_str("-0.000000001").unwrap(), posting.units.unwrap().number);
+            }
+        }
+
+        /// A metadata line belongs to the posting before it only when it is indented
+        /// deeper than the posting line; otherwise it is the transaction's.
+        mod posting_metadata {
+            use zhang_ast::{Meta, Transaction, ZhangString};
+
+            use crate::data_type::text::parser::test::get_txn;
+
+            /// The metadata as sorted `key=value` pairs.
+            fn pairs(meta: &Meta) -> Vec<String> {
+                let mut pairs = meta
+                    .clone()
+                    .get_flatten()
+                    .into_iter()
+                    .map(|(k, v)| format!("{}={}", k, v.as_str()))
+                    .collect::<Vec<_>>();
+                pairs.sort();
+                pairs
+            }
+
+            fn posting_pairs(txn: &Transaction) -> Vec<Vec<String>> {
+                txn.postings.iter().map(|posting| pairs(&posting.meta)).collect()
+            }
+
+            #[test]
+            fn metadata_before_the_postings_is_the_transactions() {
+                let txn = get_txn("2024-01-02 * \"Cafe\"\n  memo: \"m\"\n    deep: \"d\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n");
+                assert_eq!(pairs(&txn.meta), vec!["deep=d", "memo=m"]);
+                assert_eq!(posting_pairs(&txn), vec![Vec::<String>::new(), vec![]]);
+            }
+
+            #[test]
+            fn metadata_indented_deeper_than_its_posting_is_the_postings() {
+                let txn = get_txn(
+                    "2024-01-02 * \"Cafe\"\n  Assets:Cash -5 CNY\n    receipt: \"r1\"\n    \"my key\": \"v\"\n  Expenses:Food 5 CNY\n   category: \"lunch\"\n",
+                );
+                assert!(pairs(&txn.meta).is_empty());
+                assert_eq!(posting_pairs(&txn), vec![vec!["my key=v", "receipt=r1"], vec!["category=lunch"]]);
+                assert_eq!(txn.postings[1].meta.get_one("category"), Some(&ZhangString::quote("lunch")));
+            }
+
+            #[test]
+            fn metadata_at_or_above_the_posting_indentation_is_the_transactions_wherever_it_is() {
+                // older zhang wrote transaction metadata after the postings, at their indentation
+                let txn =
+                    get_txn("2024-01-02 * \"Cafe\"\n    Assets:Cash -5 CNY\n    same: \"s\"\n  shallower: \"h\"\n    Expenses:Food 5 CNY\n    after: \"a\"\n");
+                assert_eq!(pairs(&txn.meta), vec!["after=a", "same=s", "shallower=h"]);
+                assert_eq!(posting_pairs(&txn), vec![Vec::<String>::new(), vec![]]);
+            }
+
+            #[test]
+            fn metadata_before_between_and_after_the_postings() {
+                let txn = get_txn(concat!(
+                    "2024-01-02 * \"Shop\" \"mixed\"\n",
+                    "  memo: \"before\"\n",
+                    "  ; a comment\n",
+                    "  Assets:Cash -10 CNY ; a posting comment\n",
+                    "    ; a comment between a posting and its metadata\n",
+                    "    receipt: \"r2\"\n",
+                    "  between: \"b\"\n",
+                    "      later: \"l\"\n",
+                    "  Expenses:Food 6 CNY\n",
+                    "  Expenses:Drinks 4 CNY\n",
+                    "    rate: 1.5\n",
+                    "    rate: 2\n",
+                    "  after: \"a\"\n",
+                ));
+                assert_eq!(pairs(&txn.meta), vec!["after=a", "between=b", "memo=before"]);
+                assert_eq!(posting_pairs(&txn), vec![vec!["later=l", "receipt=r2"], vec![], vec!["rate=1.5", "rate=2"]]);
+                assert_eq!(txn.postings[0].comment.as_deref(), Some("a posting comment"));
+                assert_eq!(txn.postings[2].meta.get_all("rate").len(), 2);
+            }
+
+            #[test]
+            fn a_tab_indents_to_the_next_multiple_of_four_columns() {
+                // a tab under a two-space posting is deeper, a tab under a four-space one is not
+                let txn = get_txn("2024-01-02 * \"Cafe\"\n  Assets:Cash -5 CNY\n\tdeeper: \"d\"\n    Expenses:Food 5 CNY\n\tsame: \"s\"\n");
+                assert_eq!(pairs(&txn.meta), vec!["same=s"]);
+                assert_eq!(posting_pairs(&txn), vec![vec!["deeper=d"], vec![]]);
+
+                let txn = get_txn("2024-01-02 * \"Cafe\"\n\tAssets:Cash -5 CNY\n\t\tdeeper: \"d\"\n\t  also: \"a\"\n    same: \"s\"\n");
+                assert_eq!(pairs(&txn.meta), vec!["same=s"]);
+                assert_eq!(posting_pairs(&txn), vec![vec!["also=a", "deeper=d"]]);
             }
         }
     }

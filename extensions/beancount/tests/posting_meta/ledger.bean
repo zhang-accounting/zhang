@@ -1,0 +1,51 @@
+; Where beancount attaches the metadata lines of a transaction: before the first
+; posting they are the transaction's, after a posting they are that posting's,
+; however they are indented. Checked against beancount 3.2.3 by generate.py.
+
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Cash
+2020-01-01 open Expenses:Food
+2020-01-01 open Expenses:Drinks
+2020-01-01 open Income:Salary
+
+2020-01-02 * "Cafe" "metadata before the postings"
+  memo: "paid in cash"
+  Assets:Cash  -5 USD
+  Expenses:Food  5 USD
+
+2020-01-03 * "Cafe" "metadata indented deeper than its posting"
+  Assets:Cash  -5 USD
+    receipt: "r-1"
+  Expenses:Food  5 USD
+    category: "lunch"
+
+2020-01-04 * "Cafe" "metadata at the indentation of the postings, after them"
+  Assets:Cash  -5 USD
+  Expenses:Food  5 USD
+  memo: "after"
+
+2020-01-05 * "Cafe" "metadata shallower than its posting, and indented with a tab"
+    Assets:Cash  -5 USD
+  shallow: "s"
+    Expenses:Food  5 USD
+	tabbed: "t"
+
+2020-01-06 * "Shop" "metadata before, between and after the postings, with comments"
+  memo: "trip"
+  ; a comment before the first posting
+  Assets:Cash  -10 USD
+    ; a comment between a posting and its metadata
+    receipt: "r-2"
+  Expenses:Food  6 USD
+  note: "6 for food"
+  Expenses:Drinks  4 USD ; a posting comment
+      deeper: "d"
+    rate: 1.5
+    day: 2020-01-06
+
+2020-01-07 * "Employer" "metadata on a posting without units"
+  Assets:Cash  100 USD
+    kind: "salary"
+  Income:Salary
+    source: "payroll"

@@ -18,7 +18,9 @@ use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType,
     OptionDomain, PriceDomain, QueryDomain, TransactionInfoDomain,
 };
-use crate::store::{BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, DocumentDomain, DocumentType, PostingDomain, Store, TransactionDomain};
+use crate::store::{
+    BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, DocumentDomain, DocumentType, PostingDomain, PostingMetaDomain, Store, TransactionDomain,
+};
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
@@ -154,7 +156,7 @@ impl Operations {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction_posting(
         &mut self, trx_id: &Uuid, posting_idx: usize, account_name: &str, unit: Option<Amount>, cost: Option<PostingCost>, inferred_amount: Amount,
-        previous_amount: Amount, after_amount: Amount,
+        previous_amount: Amount, after_amount: Amount, meta: Meta,
     ) -> ZhangResult<()> {
         let mut store = self.write();
 
@@ -174,6 +176,7 @@ impl Operations {
             inferred_amount,
             previous_amount,
             after_amount,
+            metas: PostingMetaDomain::of(meta),
         };
         store.postings.push(posting.clone());
         let txn_header = store

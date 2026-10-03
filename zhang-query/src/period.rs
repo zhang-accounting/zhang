@@ -576,6 +576,7 @@ impl<'a> Transform<'_, 'a> {
                 // running balances are not tracked for synthetic postings
                 previous_amount: Amount::zero(posting.units.commodity.clone()),
                 after_amount: Amount::zero(posting.units.commodity.clone()),
+                metas: vec![],
             });
             rows.push(Row {
                 entry,

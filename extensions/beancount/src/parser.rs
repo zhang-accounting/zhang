@@ -290,6 +290,7 @@ fn transaction_posting(i: &str) -> IResult<&str, Posting> {
         cost: None,
         price: None,
         comment: None,
+        meta: Meta::default(),
     };
     if let Some((amount, meta)) = unit {
         posting.units = amount;
@@ -301,12 +302,17 @@ fn transaction_posting(i: &str) -> IResult<&str, Posting> {
     Ok((i, posting))
 }
 
+/// One indented line inside a transaction.
 enum TransactionLine {
     Posting(Posting),
     Meta((String, ZhangString)),
+    /// a comment or a whitespace-only line
+    Other,
 }
 
-fn transaction_line(i: &str) -> IResult<&str, (Option<Posting>, Option<(String, ZhangString)>)> {
+/// A single indented line inside a transaction: a posting, a metadata pair, or an
+/// (ignored) comment / blank line.
+fn transaction_line(i: &str) -> IResult<&str, TransactionLine> {
     let (i, _) = line_ending(i)?;
     let (i, _) = space1(i)?;
     let (i, content) = opt(alt((
@@ -316,21 +322,15 @@ fn transaction_line(i: &str) -> IResult<&str, (Option<Posting>, Option<(String, 
     let (i, _) = space0(i)?;
     let (i, comment) = opt(valuable_comment_body)(i)?;
 
-    let result = match content {
-        Some(TransactionLine::Posting(posting)) => {
-            let posting = match comment {
-                Some(comment) => posting.set_comment(comment),
-                None => posting,
-            };
-            (Some(posting), None)
-        }
-        Some(TransactionLine::Meta(meta)) => (None, Some(meta)),
-        None => (None, None),
+    let line = match (content, comment) {
+        (Some(TransactionLine::Posting(posting)), Some(comment)) => TransactionLine::Posting(posting.set_comment(comment)),
+        (Some(line), _) => line,
+        (None, _) => TransactionLine::Other,
     };
-    Ok((i, result))
+    Ok((i, line))
 }
 
-fn transaction_lines(i: &str) -> IResult<&str, Vec<(Option<Posting>, Option<(String, ZhangString)>)>> {
+fn transaction_lines(i: &str) -> IResult<&str, Vec<TransactionLine>> {
     many1(transaction_line)(i)
 }
 
@@ -831,13 +831,16 @@ fn transaction(original: &str) -> IResult<&str, BeancountDirective> {
         postings: Vec::new(),
         meta: Meta::default(),
     };
+    // as in beancount, a metadata line before the first posting belongs to the
+    // transaction and one after a posting to that posting, however it is indented
     for line in lines {
         match line {
-            (Some(posting), None) => transaction.postings.push(posting),
-            (None, Some((key, value))) => {
-                transaction.meta.insert(key, value);
-            }
-            _ => {}
+            TransactionLine::Posting(posting) => transaction.postings.push(posting),
+            TransactionLine::Meta((key, value)) => match transaction.postings.last_mut() {
+                Some(posting) => posting.meta.insert(key, value),
+                None => transaction.meta.insert(key, value),
+            },
+            TransactionLine::Other => {}
         }
     }
     Ok((i, Either::Left(Directive::Transaction(transaction))))

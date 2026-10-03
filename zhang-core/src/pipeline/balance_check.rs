@@ -86,6 +86,7 @@ fn correcting_transaction(check: &BalanceCheck, distance: Amount) -> Transaction
             cost: None,
             price: None,
             comment: None,
+            meta: Default::default(),
         }],
         meta: Default::default(),
     }

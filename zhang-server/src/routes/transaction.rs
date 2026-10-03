@@ -143,6 +143,7 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) 
             cost: None,
             price: None,
             comment: None,
+            meta: Meta::default(),
         });
     }
 
