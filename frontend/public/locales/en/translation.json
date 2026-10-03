@@ -478,6 +478,7 @@
       "balance_amount": "Asserted balance",
       "accumulated_amount": "Accumulated balance",
       "distance": "Difference",
+      "tolerance": "Tolerance",
       "pad_info": "Balance pad",
       "balance_account": "Balanced account",
       "pad_account": "Pad account"

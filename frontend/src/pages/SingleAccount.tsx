@@ -179,6 +179,22 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
   const journals = useAsync(async () => (await retrieveAccountJournals({ account_name: accountName })).data.data, [accountName, reloadKey]);
   type Row = NonNullable<typeof journals.value>[number];
 
+  // A balance assertion adds nothing: its row shows the amount it asserted instead, red when it failed.
+  const change = (item: Row, className?: string) =>
+    item.asserted ? (
+      <span title={t('ledger.preview.balance_amount')} className={cn('text-muted-foreground', !item.passed && 'text-destructive', className)}>
+        = <Amount amount={item.asserted.number} currency={item.asserted.commodity} />
+      </span>
+    ) : (
+      <Amount className={className} tone signed amount={item.inferred_unit.number} currency={item.inferred_unit.commodity} />
+    );
+  const failed = (item: Row) =>
+    item.passed === false && (
+      <Badge variant="destructive" className="shrink-0">
+        {t('ledger.journal.check_failed')}
+      </Badge>
+    );
+
   if (journals.error) return <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(journals.error)} />;
 
   return (
@@ -198,13 +214,18 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
           key: 'payee',
           header: t('ledger.journals.col_description'),
           className: 'w-full max-w-0',
-          cell: (item) => <PayeeNarration payee={item.payee} narration={item.narration} />,
+          cell: (item) => (
+            <span className="flex min-w-0 items-center gap-2">
+              <PayeeNarration payee={item.payee} narration={item.narration} />
+              {failed(item)}
+            </span>
+          ),
         },
         {
           key: 'change',
           header: t('ledger.account.col_change'),
           className: 'text-right',
-          cell: (item) => <Amount tone signed amount={item.inferred_unit.number} currency={item.inferred_unit.commodity} />,
+          cell: (item) => change(item),
         },
         {
           key: 'after',
@@ -216,13 +237,16 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
       renderCard={(item) => (
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="truncate text-sm font-medium">{item.narration || item.payee || '—'}</span>
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-medium">{item.narration || item.payee || '—'}</span>
+              {failed(item)}
+            </span>
             <span className="truncate text-xs text-muted-foreground">
               {[item.narration ? item.payee : null, fmt.dateTime(new Date(item.datetime))].filter(Boolean).join(' · ')}
             </span>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-0.5 text-sm">
-            <Amount className="font-semibold" tone signed amount={item.inferred_unit.number} currency={item.inferred_unit.commodity} />
+            {change(item, 'font-semibold')}
             <Amount className="text-xs text-muted-foreground" amount={item.account_after.number} currency={item.account_after.commodity} />
           </div>
         </div>

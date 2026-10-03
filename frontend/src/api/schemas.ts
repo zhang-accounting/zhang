@@ -144,7 +144,11 @@ export interface paths {
     get: operations['get_basic_info'];
   };
   '/api/journals': {
-    /** Get Journals */
+    /**
+     * Get Journals
+     * @description The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
+     * among the transactions; it books nothing.
+     */
     get: operations['get_journals'];
   };
   '/api/options': {
@@ -457,17 +461,29 @@ export interface operations {
           'application/json': {
             data: {
               account: string;
+              /** @description the account's balance after the row */
               account_after: {
                 commodity: string;
                 number: string;
               };
+              /**
+               * @description for the row of a balance assertion: the asserted amount, which `account_after` was checked
+               * against. `None` for a posting
+               */
+              asserted?: {
+                commodity: string;
+                number: string;
+              } | null;
               /** Format: date-time */
               datetime: string;
+              /** @description what the row adds to the account; zero for a balance assertion, which changes no balance */
               inferred_unit: {
                 commodity: string;
                 number: string;
               };
               narration?: string | null;
+              /** @description for the row of a balance assertion: whether it held, within its tolerance. `None` for a posting */
+              passed?: boolean | null;
               payee?: string | null;
               timestamp: number;
               trx_id: string;
@@ -885,17 +901,29 @@ export interface operations {
                 }
               | {
                   account: string;
+                  /** @description the account's balance after the row */
                   account_after: {
                     commodity: string;
                     number: string;
                   };
+                  /**
+                   * @description for the row of a balance assertion: the asserted amount, which `account_after` was checked
+                   * against. `None` for a posting
+                   */
+                  asserted?: {
+                    commodity: string;
+                    number: string;
+                  } | null;
                   /** Format: date-time */
                   datetime: string;
+                  /** @description what the row adds to the account; zero for a balance assertion, which changes no balance */
                   inferred_unit: {
                     commodity: string;
                     number: string;
                   };
                   narration?: string | null;
+                  /** @description for the row of a balance assertion: whether it held, within its tolerance. `None` for a posting */
+                  passed?: boolean | null;
                   payee?: string | null;
                   timestamp: number;
                   trx_id: string;
@@ -1157,7 +1185,11 @@ export interface operations {
       };
     };
   };
-  /** Get Journals */
+  /**
+   * Get Journals
+   * @description The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
+   * among the transactions; it books nothing.
+   */
   get_journals: {
     parameters: {
       query: {
@@ -1229,8 +1261,16 @@ export interface operations {
                     datetime: string;
                     /** Format: uuid */
                     id: string;
+                    /** @description the account */
                     narration?: string | null;
+                    /** @description whether the balance is within the tolerance of the asserted amount */
+                    passed: boolean;
+                    /** @description `Balance Check` */
                     payee: string;
+                    /**
+                     * @description one entry describing the check, not a posting: `account_before` is the account's balance where the assertion
+                     * stands, `account_after` the asserted amount, and `unit` and `inferred_unit` the asserted amount minus the balance
+                     */
                     postings: {
                       account: string;
                       account_after: {
@@ -1260,6 +1300,8 @@ export interface operations {
                       } | null;
                     }[];
                     sequence: number;
+                    /** @description the explicit tolerance (`~`) of the assertion; none for an exact one */
+                    tolerance?: string | null;
                     /** @enum {string} */
                     type: 'BalanceCheck';
                     type_: string;
@@ -1718,17 +1760,29 @@ export interface operations {
               to: string;
               top_transactions: {
                 account: string;
+                /** @description the account's balance after the row */
                 account_after: {
                   commodity: string;
                   number: string;
                 };
+                /**
+                 * @description for the row of a balance assertion: the asserted amount, which `account_after` was checked
+                 * against. `None` for a posting
+                 */
+                asserted?: {
+                  commodity: string;
+                  number: string;
+                } | null;
                 /** Format: date-time */
                 datetime: string;
+                /** @description what the row adds to the account; zero for a balance assertion, which changes no balance */
                 inferred_unit: {
                   commodity: string;
                   number: string;
                 };
                 narration?: string | null;
+                /** @description for the row of a balance assertion: whether it held, within its tolerance. `None` for a posting */
+                passed?: boolean | null;
                 payee?: string | null;
                 timestamp: number;
                 trx_id: string;

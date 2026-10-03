@@ -460,6 +460,7 @@
       "balance_amount": "断言余额",
       "accumulated_amount": "累计余额",
       "distance": "差额",
+      "tolerance": "容差",
       "pad_info": "余额填充",
       "balance_account": "被平衡账户",
       "pad_account": "填充账户"
