@@ -133,6 +133,16 @@ ORDER BY seq
 
 账户页面显示该账户**及其子账户**，与账户树一致：它的流水、余额历史、合计和文档都涵盖整棵子树。`Assets:Bank` 的页面包含 `Assets:Bank:Checking` 的分录，流水中的每一行都注明分录所属的账户。余额用 [`convert`](/zh-cn/user-guide/query-language/#估值函数) 按今天的价格折算为运营货币，它会使用反向价格和持仓的成本货币。
 
+含子账户的余额由这些查询的行相加得到：账户列表和账户页面把一个账户及其下所有账户在 `accounts.balances` 或 `accounts.subtree_balances` 中的行相加，与网页界面的账户树一致。要自己查询一棵子树的合计，可以用 [`under`](/zh-cn/user-guide/query-language/#账户函数) 筛选：
+
+```sql
+SELECT currency, sum(number) AS units
+WHERE under(account, 'Assets:Bank')
+GROUP BY currency
+```
+
+账户页面的流水由 `accounts.journal` 和 `accounts.balance_assertions` 组合而成：断言显示在当天开始处、它的余额所包含的当天补齐之后，使它的余额等于所在位置的累计余额。
+
 #### `accounts.list`
 
 每个有 `open` 或 `close` 指令的账户，及其开户和销户日期、别名，按名称排序。它和 `accounts.balances` 一起组成账户列表：有分录但没有 `open` 指令的账户也会列出。

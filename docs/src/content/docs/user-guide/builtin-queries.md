@@ -133,6 +133,16 @@ No queries yet.
 
 An account page shows the account **and its sub-accounts**, as the account tree does: its journal, its balance history, its total and its documents cover the whole subtree. The page of `Assets:Bank` includes the postings of `Assets:Bank:Checking`, and its journal names the account of each posting. Balances are valued in the operating currency at today's prices with [`convert`](/user-guide/query-language/#valuation-functions), which uses inverse prices and the cost currency of a holding.
 
+The balances with sub-accounts add up rows of these queries: the account list and the account page add the rows of `accounts.balances` or `accounts.subtree_balances` of an account and of every account under it, as the account tree of the web UI does. To get the total of a subtree yourself, filter with [`under`](/user-guide/query-language/#account-functions):
+
+```sql
+SELECT currency, sum(number) AS units
+WHERE under(account, 'Assets:Bank')
+GROUP BY currency
+```
+
+The journal of an account page combines `accounts.journal` and `accounts.balance_assertions`: an assertion is shown at the start of its day, after the paddings of that day that its balance includes, so that its balance is the running balance where it stands.
+
 #### `accounts.list`
 
 Every account with an `open` or `close` directive, with its open and close dates and its alias, by name. With `accounts.balances`, it makes the account list: an account with postings but no `open` directive is listed too.

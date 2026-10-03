@@ -333,7 +333,10 @@ pub fn account_journals(ledger: &Ledger, account: &str) -> ServerResult<Vec<Acco
             .map_or_else(BigDecimal::zero, |row| row.journal.account_after.number.clone())
     };
     // each assertion with the row it stands before: among the paddings of its day, where the running
-    // balance is the balance it was checked against
+    // balance is the balance it was checked against.
+    // TODO(#479): once pads are standalone and their paddings follow them (the pad compat branch), merge the
+    // postings and `#balances` by `seq` alone, with `seq` following zhang's processing order, including where a
+    // `balance ... with pad` is checked, and drop this placement.
     let mut placed = checks
         .enumerate()
         .map(|(order, check)| {
