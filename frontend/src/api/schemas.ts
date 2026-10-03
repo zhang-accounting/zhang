@@ -1094,6 +1094,7 @@ export interface operations {
                   | 'TransactionExplicitPostingHaveMultipleCommodity'
                   | 'AccountBalanceCheckError'
                   | 'UnusedPad'
+                  | 'PadWithCost'
                   | 'AccountDoesNotExist'
                   | 'AccountClosed'
                   | 'CommodityDoesNotDefine'

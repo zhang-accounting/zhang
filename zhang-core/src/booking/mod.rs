@@ -383,6 +383,16 @@ impl Booker {
         PostingBooking { weight, errors }
     }
 
+    /// whether `account` or one of its sub-accounts holds `currency` at cost: a lot of it with a cost
+    pub(crate) fn holds_at_cost(&self, account: &str, currency: &str) -> bool {
+        let sub_accounts = format!("{account}:");
+        self.lots
+            .iter()
+            .filter(|(name, _)| name.as_str() == account || name.starts_with(&sub_accounts))
+            .flat_map(|(_, lots)| lots)
+            .any(|lot| lot.commodity == currency && lot.cost.is_some() && !lot.amount.is_zero())
+    }
+
     /// the lots of every account the fold booked a posting on, in lot order
     pub(crate) fn into_lots(self) -> HashMap<String, Vec<CommodityLotRecord>> {
         self.lots

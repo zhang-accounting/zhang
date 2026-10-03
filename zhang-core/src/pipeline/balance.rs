@@ -123,6 +123,11 @@ impl UnitBalances {
             .fold(BigDecimal::zero(), |sum, units| sum + units)
     }
 
+    /// whether the account or one of its sub-accounts holds `commodity` at cost, in a lot with a cost
+    pub fn holds_at_cost(&self, account: &Account, commodity: &str) -> bool {
+        self.booker.holds_at_cost(account.name(), commodity)
+    }
+
     /// [`UnitBalances::balance`] as an amount
     pub fn amount(&self, account: &Account, commodity: &str) -> Amount {
         Amount::new(self.balance(account, commodity), commodity)

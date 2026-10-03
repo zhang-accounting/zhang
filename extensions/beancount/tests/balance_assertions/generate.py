@@ -11,6 +11,8 @@ ledgers in this directory (a ledger may include files from a sub-directory).
 - ``assertions``: every ``balance`` directive in ledger order, with the balance beancount
   checked it against (the account and its sub-accounts) and whether it passed;
 - ``unused_pads``: the date and account of every ``pad`` beancount reports as unused;
+- ``pads_with_cost``: the date and account of every ``balance`` whose pad beancount reports as
+  padding a commodity held at cost;
 - ``errors``: the other errors beancount reports;
 - ``accepted_deviation``: why zhang deliberately differs from beancount on the ledger, or
   ``null`` when it agrees. Such a ledger is checked against zhang's own rules instead.
@@ -77,6 +79,15 @@ def case(path):
         for error in errors
         if isinstance(error, PadError) and error.message == "Unused Pad entry"
     ]
+    balances_at = {(entry.meta["filename"], entry.meta["lineno"]): entry for entry in entries if isinstance(entry, data.Balance)}
+    pads_with_cost = [
+        {"date": str(balance.date), "account": balance.account}
+        for balance in (
+            balances_at[(error.source["filename"], error.source["lineno"])]
+            for error in errors
+            if isinstance(error, PadError) and error.message.startswith("Attempt to pad an entry with cost")
+        )
+    ]
     other_errors = [error.message for error in errors if not isinstance(error, (BalanceError, PadError))]
 
     # running units per (account, currency), postings of the account alone
@@ -126,6 +137,7 @@ def case(path):
         "pads": pads,
         "assertions": assertions,
         "unused_pads": unused_pads,
+        "pads_with_cost": pads_with_cost,
         "errors": other_errors,
         "accepted_deviation": ACCEPTED_DEVIATIONS.get(name),
     }

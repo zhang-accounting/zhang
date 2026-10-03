@@ -1,7 +1,7 @@
 //! Balance assertions and pads, checked against Python beancount: for every ledger in
 //! `balance_assertions/`, zhang ends with the same balances, books the same pads on the same
 //! dates, finds the same assertions passing and failing against the same balances, and reports
-//! the same pads unused, as beancount 3.2.3 does (`balance_assertions/oracle.json`, written by
+//! the same pads unused or padding a commodity held at cost, as beancount 3.2.3 does (`balance_assertions/oracle.json`, written by
 //! `balance_assertions/generate.py`).
 //!
 //! A balance assertion never moves a balance: the balances are the sums of the postings, and a
@@ -63,8 +63,8 @@ type Pad = (String, String, (BigDecimal, String), String);
 /// (date, account, asserted amount, balance it was checked against, passed)
 type Assertion = (String, String, (BigDecimal, String), (BigDecimal, String), bool);
 
-/// (date, account) of a `pad` reported unused
-type UnusedPad = (String, String);
+/// (date, account) of a `pad` reported unused, or of a `balance` whose padding pads a commodity held at cost
+type Located = (String, String);
 
 #[derive(Debug, PartialEq)]
 struct Outcome {
@@ -74,7 +74,8 @@ struct Outcome {
     pads: Vec<Pad>,
     /// sorted: beancount orders the entries of a day by their line, whatever their file
     assertions: Vec<Assertion>,
-    unused_pads: Vec<UnusedPad>,
+    unused_pads: Vec<Located>,
+    pads_with_cost: Vec<Located>,
 }
 
 fn oracle(case: &Value) -> Outcome {
@@ -115,18 +116,22 @@ fn oracle(case: &Value) -> Outcome {
         })
         .collect::<Vec<_>>();
     assertions.sort();
-    let mut unused_pads = case["unused_pads"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|it| (text(&it["date"]), text(&it["account"])))
-        .collect::<Vec<_>>();
-    unused_pads.sort();
+    let located = |key: &str| {
+        let mut located = case[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|it| (text(&it["date"]), text(&it["account"])))
+            .collect::<Vec<_>>();
+        located.sort();
+        located
+    };
     Outcome {
         balances,
         pads,
         assertions,
-        unused_pads,
+        unused_pads: located("unused_pads"),
+        pads_with_cost: located("pads_with_cost"),
     }
 }
 
@@ -210,10 +215,34 @@ fn zhang(case: &str) -> Outcome {
         .collect::<Vec<_>>();
     unused_pads.sort();
 
+    // the `balance` a pad of a commodity held at cost serves, by the directive at the error's span
+    let mut pads_with_cost = store
+        .errors
+        .iter()
+        .filter(|error| error.error_type == ErrorKind::PadWithCost)
+        .map(|error| {
+            let balance = ledger
+                .directives
+                .iter()
+                .find_map(|directive| match &directive.data {
+                    Directive::BalanceCheck(check) if Some(&directive.span) == error.span.as_ref() => Some(check),
+                    _ => None,
+                })
+                .expect("a pad with cost error is on the balance it serves");
+            (balance.date.naive_date().to_string(), balance.account.name().to_owned())
+        })
+        .collect::<Vec<_>>();
+    pads_with_cost.sort();
+
     let other_errors = store
         .errors
         .iter()
-        .filter(|error| !matches!(error.error_type, ErrorKind::UnusedPad | ErrorKind::AccountBalanceCheckError))
+        .filter(|error| {
+            !matches!(
+                error.error_type,
+                ErrorKind::UnusedPad | ErrorKind::PadWithCost | ErrorKind::AccountBalanceCheckError
+            )
+        })
         .map(|error| error.error_type.clone())
         .collect::<Vec<_>>();
     assert!(other_errors.is_empty(), "{case}: {other_errors:?}");
@@ -233,6 +262,7 @@ fn zhang(case: &str) -> Outcome {
         pads,
         assertions,
         unused_pads,
+        pads_with_cost,
     }
 }
 

@@ -39,6 +39,7 @@
     },
     "errors": [],
     "pads": [],
+    "pads_with_cost": [],
     "unused_pads": [
       {
         "account": "Assets:Bank",
@@ -108,6 +109,7 @@
         }
       }
     ],
+    "pads_with_cost": [],
     "unused_pads": []
   },
   "failing_assertion": {
@@ -176,6 +178,7 @@
         }
       }
     ],
+    "pads_with_cost": [],
     "unused_pads": []
   },
   "inferred_tolerance": {
@@ -234,6 +237,7 @@
     },
     "errors": [],
     "pads": [],
+    "pads_with_cost": [],
     "unused_pads": [
       {
         "account": "Assets:B",
@@ -331,6 +335,7 @@
         }
       }
     ],
+    "pads_with_cost": [],
     "unused_pads": []
   },
   "nested_pads": {
@@ -395,6 +400,7 @@
         }
       }
     ],
+    "pads_with_cost": [],
     "unused_pads": []
   },
   "pad_date": {
@@ -450,6 +456,7 @@
         }
       }
     ],
+    "pads_with_cost": [],
     "unused_pads": []
   },
   "pad_on_parent": {
@@ -521,6 +528,7 @@
         }
       }
     ],
+    "pads_with_cost": [],
     "unused_pads": []
   },
   "pad_then_failing_assertion": {
@@ -589,6 +597,114 @@
         }
       }
     ],
+    "pads_with_cost": [],
+    "unused_pads": []
+  },
+  "pad_with_cost": {
+    "accepted_deviation": null,
+    "assertions": [
+      {
+        "account": "Assets:Broker:Stock",
+        "amount": {
+          "currency": "AAPL",
+          "number": "15"
+        },
+        "balance": {
+          "currency": "AAPL",
+          "number": "15"
+        },
+        "date": "2024-01-04",
+        "passed": true
+      },
+      {
+        "account": "Assets:Fund",
+        "amount": {
+          "currency": "VTI",
+          "number": "5"
+        },
+        "balance": {
+          "currency": "VTI",
+          "number": "5"
+        },
+        "date": "2024-01-04",
+        "passed": true
+      },
+      {
+        "account": "Assets:Broker:Cash",
+        "amount": {
+          "currency": "USD",
+          "number": "-900"
+        },
+        "balance": {
+          "currency": "USD",
+          "number": "-900"
+        },
+        "date": "2024-01-06",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:Broker:Cash": {
+        "USD": "-900"
+      },
+      "Assets:Broker:Stock": {
+        "AAPL": "15"
+      },
+      "Assets:Fund": {
+        "VTI": "2"
+      },
+      "Assets:Fund:Cash": {
+        "USD": "-150"
+      },
+      "Assets:Fund:Units": {
+        "VTI": "3"
+      },
+      "Equity:Open": {
+        "AAPL": "-5",
+        "USD": "-100",
+        "VTI": "-2"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:Broker:Stock",
+        "date": "2024-01-03",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "AAPL",
+          "number": "5"
+        }
+      },
+      {
+        "account": "Assets:Fund",
+        "date": "2024-01-03",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "VTI",
+          "number": "2"
+        }
+      },
+      {
+        "account": "Assets:Broker:Cash",
+        "date": "2024-01-05",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "USD",
+          "number": "100"
+        }
+      }
+    ],
+    "pads_with_cost": [
+      {
+        "account": "Assets:Broker:Stock",
+        "date": "2024-01-04"
+      },
+      {
+        "account": "Assets:Fund",
+        "date": "2024-01-04"
+      }
+    ],
     "unused_pads": []
   },
   "pad_within_tolerance": {
@@ -618,6 +734,7 @@
     },
     "errors": [],
     "pads": [],
+    "pads_with_cost": [],
     "unused_pads": [
       {
         "account": "Assets:A",
@@ -684,6 +801,7 @@
     },
     "errors": [],
     "pads": [],
+    "pads_with_cost": [],
     "unused_pads": []
   },
   "parent_children_only": {
@@ -745,6 +863,7 @@
     },
     "errors": [],
     "pads": [],
+    "pads_with_cost": [],
     "unused_pads": []
   },
   "same_day_pad": {
@@ -810,6 +929,7 @@
         }
       }
     ],
+    "pads_with_cost": [],
     "unused_pads": []
   },
   "tolerance": {
@@ -878,6 +998,7 @@
     },
     "errors": [],
     "pads": [],
+    "pads_with_cost": [],
     "unused_pads": []
   },
   "two_pads": {
@@ -980,6 +1101,7 @@
         }
       }
     ],
+    "pads_with_cost": [],
     "unused_pads": []
   },
   "unused_pad": {
@@ -1035,6 +1157,7 @@
         }
       }
     ],
+    "pads_with_cost": [],
     "unused_pads": [
       {
         "account": "Assets:A",

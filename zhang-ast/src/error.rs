@@ -14,6 +14,8 @@ pub enum ErrorKind {
     AccountBalanceCheckError,
     /// a `pad` that pads nothing: no later balance assertion of its account needs it
     UnusedPad,
+    /// a pad of a commodity its account holds at cost: the padding is booked without a cost
+    PadWithCost,
     AccountDoesNotExist,
     AccountClosed,
 

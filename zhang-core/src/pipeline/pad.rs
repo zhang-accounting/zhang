@@ -19,11 +19,15 @@ use crate::ZhangResult;
 /// the difference to the parent account itself. A pad brings the account to exactly the asserted
 /// amount: zhang infers no tolerance, and pads even within an explicit `~` tolerance.
 ///
-/// - A `pad` serves the next balance assertion of its account (the account itself, not a sub-account)
-///   in each currency, until the account's next `pad`, as beancount 3.2.3's `pad` plugin does. Its
+/// - A `pad` serves the next balance assertion of its account in each currency, until the account's
+///   next `pad`, like beancount 3.2.3's `pad` plugin, except that only an assertion on the account
+///   itself uses it (beancount also lets one on a sub-account use it up), and that it is sized from the
+///   balance with every padding before it (beancount leaves out the padding of other pads). Its
 ///   padding transaction is dated on the `pad`, so the balances between the `pad` and the assertion
 ///   include it. A `pad` that pads nothing — no later assertion of its account needs it — is reported
 ///   as [`ErrorKind::UnusedPad`].
+/// - Padding a commodity the account or a sub-account holds at cost is reported as
+///   [`ErrorKind::PadWithCost`] on the assertion, as in beancount: the padding is booked without a cost.
 /// - A `balance ... with pad` pads its own assertion: its padding transaction is dated on it and goes
 ///   right after it. A `pad` before it is served first.
 ///
@@ -92,15 +96,16 @@ impl ProcessStage for PadStage {
                     None
                 }
                 Directive::BalanceCheck(check) => {
-                    paddings.extend(serve(&mut active, &mut balances, &check.account, &check.amount));
+                    paddings.extend(serve(ctx, &mut active, &mut balances, &check.account, &check.amount, &directive.span));
                     None
                 }
                 Directive::BalancePad(pad) => {
                     report_account_errors(ctx, &accounts, &[&pad.account, &pad.pad], &directive.span);
-                    paddings.extend(serve(&mut active, &mut balances, &pad.account, &pad.amount));
+                    paddings.extend(serve(ctx, &mut active, &mut balances, &pad.account, &pad.amount, &directive.span));
                     // nothing to pad: no transaction (beancount does the same)
                     let distance = balances.distance(&pad.account, &pad.amount);
                     (!distance.number.is_zero()).then(|| {
+                        report_cost(ctx, &balances, &pad.account, &pad.amount.commodity, &directive.span);
                         let txn = padding_transaction(pad.date.clone(), &pad.account, &pad.pad, distance);
                         balances.apply_transaction(&txn);
                         Spanned::new(Directive::Transaction(txn), directive.span.clone())
@@ -121,9 +126,11 @@ impl ProcessStage for PadStage {
     }
 }
 
-/// serve an assertion of `account` with the `pad` waiting for it, if any: the first assertion of each currency
-/// after the `pad` gets the padding it needs. Returns the padding transaction
-fn serve(active: &mut HashMap<String, ActivePad>, balances: &mut UnitBalances, account: &Account, asserted: &Amount) -> Option<Spanned<Directive>> {
+/// serve the assertion at `span` of `account` with the `pad` waiting for it, if any: the first assertion of each
+/// currency after the `pad` gets the padding it needs. Returns the padding transaction
+fn serve(
+    ctx: &mut StageContext, active: &mut HashMap<String, ActivePad>, balances: &mut UnitBalances, account: &Account, asserted: &Amount, span: &SpanInfo,
+) -> Option<Spanned<Directive>> {
     let waiting = active.get_mut(account.name())?;
     if !waiting.served.insert(asserted.commodity.clone()) {
         return None;
@@ -132,6 +139,7 @@ fn serve(active: &mut HashMap<String, ActivePad>, balances: &mut UnitBalances, a
     if distance.number.is_zero() {
         return None;
     }
+    report_cost(ctx, balances, account, &asserted.commodity, span);
     waiting.used = true;
     let txn = padding_transaction(waiting.pad.date.clone(), &waiting.pad.account, &waiting.pad.pad, distance);
     balances.apply_transaction(&txn);
@@ -141,6 +149,21 @@ fn serve(active: &mut HashMap<String, ActivePad>, balances: &mut UnitBalances, a
 fn report_account_errors(ctx: &mut StageContext, accounts: &AccountStates, references: &[&Account], span: &SpanInfo) {
     for (kind, account) in accounts.errors(references) {
         ctx.emit_error(kind, span.clone(), HashMap::from([("account_name".to_owned(), account.name().to_owned())]));
+    }
+}
+
+/// padding a commodity the account or a sub-account holds at cost is an error on the assertion it serves, as in
+/// beancount: the padding is booked without a cost
+fn report_cost(ctx: &mut StageContext, balances: &UnitBalances, account: &Account, commodity: &str, span: &SpanInfo) {
+    if balances.holds_at_cost(account, commodity) {
+        ctx.emit_error(
+            ErrorKind::PadWithCost,
+            span.clone(),
+            HashMap::from([
+                ("account_name".to_owned(), account.name().to_owned()),
+                ("commodity".to_owned(), commodity.to_owned()),
+            ]),
+        );
     }
 }
 
@@ -440,6 +463,38 @@ mod test {
         // already at its amount; no later assertion; replaced by a later pad before any assertion
         assert_eq!(errors, vec![ErrorKind::UnusedPad, ErrorKind::UnusedPad, ErrorKind::UnusedPad]);
         assert_eq!(paddings(&directives), vec![padding("2023-01-03", "Assets:C", "5 CNY", "Equity:Open")]);
+    }
+
+    #[test]
+    fn should_report_padding_a_commodity_held_at_cost() {
+        let (directives, errors) = run_builtin_stages(indoc! {r#"
+            1970-01-01 open Assets:Broker
+            1970-01-01 open Assets:Broker:Stock
+            1970-01-01 open Assets:Broker:Cash
+            1970-01-01 open Assets:Other
+            1970-01-01 open Equity:Open
+            2024-01-02 * "buy"
+              Assets:Broker:Stock 10 AAPL {100 USD}
+              Assets:Broker:Cash -1000 USD
+            2024-01-03 pad Assets:Broker:Stock Equity:Open
+            2024-01-04 balance Assets:Broker:Stock 15 AAPL
+            2024-01-05 balance Assets:Broker 17 AAPL with pad Equity:Open
+            2024-01-06 pad Assets:Other Equity:Open
+            2024-01-07 balance Assets:Other 3 AAPL
+            2024-01-08 balance Assets:Broker:Cash -900 USD with pad Equity:Open
+        "#});
+        // the stock and its parent hold AAPL at cost; `Assets:Other` and the USD of the cash do not
+        assert_eq!(errors, vec![ErrorKind::PadWithCost, ErrorKind::PadWithCost]);
+        // the padding is still booked, without a cost
+        assert_eq!(
+            paddings(&directives),
+            vec![
+                padding("2024-01-03", "Assets:Broker:Stock", "5 AAPL", "Equity:Open"),
+                padding("2024-01-05", "Assets:Broker", "2 AAPL", "Equity:Open"),
+                padding("2024-01-06", "Assets:Other", "3 AAPL", "Equity:Open"),
+                padding("2024-01-08", "Assets:Broker:Cash", "100 USD", "Equity:Open"),
+            ]
+        );
     }
 
     #[test]
