@@ -13,7 +13,10 @@ import { Input } from './ui/input';
 import { Spinner } from './ui/spinner';
 
 interface Props {
+  /** The balance a `balance` on the account is checked against: with its sub-accounts. */
   currentAmount: string;
+  /** The account has sub-accounts, which `currentAmount` includes. */
+  includesSubAccounts?: boolean;
   commodity: string;
   accountName: string;
   /** Called after the balance directive was written. */
@@ -24,7 +27,7 @@ interface Props {
  * Balance assertion / pad form for one commodity of an account. Stacked on mobile, one row on desktop.
  * With a pad account it writes a `pad` + `balance`, otherwise a plain `balance` check.
  */
-export default function AccountBalanceCheckLine({ currentAmount, commodity, accountName, onSaved }: Props) {
+export default function AccountBalanceCheckLine({ currentAmount, includesSubAccounts, commodity, accountName, onSaved }: Props) {
   const { t } = useTranslation();
   const id = useId();
   const [amount, setAmount] = useState('');
@@ -59,7 +62,8 @@ export default function AccountBalanceCheckLine({ currentAmount, commodity, acco
       <div className="flex items-baseline justify-between gap-2 md:flex-col md:items-start md:gap-0.5">
         <span className="text-sm font-medium">{commodity}</span>
         <span className="text-xs text-muted-foreground">
-          {t('ledger.balance.current')} <Amount className="text-foreground" amount={currentAmount} currency={commodity} />
+          {includesSubAccounts ? t('ledger.balance.current_with_sub_accounts') : t('ledger.balance.current')}{' '}
+          <Amount className="text-foreground" amount={currentAmount} currency={commodity} />
         </span>
       </div>
       <Field className="gap-1.5">

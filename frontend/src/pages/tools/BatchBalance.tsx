@@ -31,8 +31,11 @@ import { breadcrumbAtom, titleAtom } from '@/states/basic';
 
 interface BalanceLineItem {
   commodity: string;
+  /** The balance a `balance` on the account is checked against: with its sub-accounts. */
   currentAmount: string;
   accountName: string;
+  /** The account has sub-accounts, which `currentAmount` includes. */
+  hasSubAccounts: boolean;
 
   balanceAmount: string;
   pad?: string;
@@ -63,10 +66,11 @@ export default function BatchBalance() {
             // stable order: the API returns accounts in arbitrary order, rows must not jump on reload
             return data
               .flatMap((account) =>
-                Object.entries(account.amount.detail).map(([commodity, value]) => ({
+                Object.entries(account.balance_with_sub_accounts).map(([commodity, value]) => ({
                   commodity: commodity,
                   currentAmount: value,
                   accountName: account.name,
+                  hasSubAccounts: account.has_sub_accounts,
                   balanceAmount: '',
                   pad: undefined,
                 })),
@@ -251,8 +255,9 @@ export default function BatchBalance() {
                     {account.commodity}
                   </Badge>
                 </div>
-                <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
+                <span className="flex shrink-0 flex-col items-end text-sm text-muted-foreground tabular-nums">
                   <Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity} />
+                  {account.hasSubAccounts && <span className="text-xs">{t('batch_balance.with_sub_accounts')}</span>}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -286,6 +291,7 @@ export default function BatchBalance() {
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     <Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity} />
+                    {account.hasSubAccounts && <div className="text-xs text-muted-foreground">{t('batch_balance.with_sub_accounts')}</div>}
                   </TableCell>
                   <TableCell>{padSelect(account, idx)}</TableCell>
                   <TableCell>

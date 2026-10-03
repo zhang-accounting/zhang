@@ -28,6 +28,7 @@ pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<Acco
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
 
+    let mut all_with_sub_accounts = operations.balances_with_sub_accounts()?;
     let mut ret = vec![];
     for account in operations.all_accounts()? {
         let account_domain = operations.account(&account)?.expect("cannot find account");
@@ -40,11 +41,14 @@ pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<Acco
             .calculate(Utc::now().with_timezone(timezone), &mut operations)?
             .persist_commodity(&ledger.options.operating_currency);
 
+        let with_sub_accounts = all_with_sub_accounts.remove(&account).unwrap_or_default();
         ret.push(AccountEntity {
             name: account,
             status: account_domain.status,
             alias: account_domain.alias,
             amount,
+            balance_with_sub_accounts: with_sub_accounts.balance.into_iter().collect(),
+            has_sub_accounts: with_sub_accounts.has_sub_accounts,
         });
     }
     ResponseWrapper::json(ret)
@@ -71,6 +75,7 @@ pub async fn get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>
         .calculate(Utc::now().with_timezone(timezone), &mut operations)?
         .persist_commodity(&ledger.options.operating_currency);
 
+    let with_sub_accounts = operations.balances_with_sub_accounts()?.remove(&account_info.name).unwrap_or_default();
     ResponseWrapper::json(AccountInfoEntity {
         date: account_info.date,
         r#type: account_info.r#type,
@@ -78,6 +83,8 @@ pub async fn get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>
         status: account_info.status,
         alias: account_info.alias,
         amount,
+        balance_with_sub_accounts: with_sub_accounts.balance.into_iter().collect(),
+        has_sub_accounts: with_sub_accounts.has_sub_accounts,
     })
 }
 

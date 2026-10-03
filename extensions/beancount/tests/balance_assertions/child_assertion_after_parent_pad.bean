@@ -1,0 +1,19 @@
+; Accepted deviation: a pad serves the assertions on its own account only. Beancount
+; also lets the assertion on the sub-account use up the pad of its parent, which then
+; pads nothing for the parent's own assertion: the pad is unused, and the parent's
+; assertion fails. Zhang pads the parent by 40, and both assertions hold.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Equity:Open
+1970-01-01 open Income:X
+
+2024-01-02 * "x" "salary"
+  Assets:Bank:Checking  60 CNY
+  Income:X
+
+2024-01-03 pad Assets:Bank Equity:Open
+2024-01-04 balance Assets:Bank:Checking  60 CNY
+2024-01-05 balance Assets:Bank  100 CNY

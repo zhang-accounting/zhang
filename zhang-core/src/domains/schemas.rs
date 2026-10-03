@@ -101,6 +101,15 @@ pub struct TransactionInfoDomain {
     pub span_end: usize,
 }
 
+/// the balance of an account with its sub-accounts, which a balance assertion on the account is checked against
+#[derive(Debug, Clone, Default)]
+pub struct BalanceWithSubAccounts {
+    /// per currency, the sum of the postings of the account and all its sub-accounts
+    pub balance: std::collections::BTreeMap<Currency, BigDecimal>,
+    /// whether the account has sub-accounts
+    pub has_sub_accounts: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "openapi", derive(Schematic))]
 pub struct AccountJournalDomain {
@@ -112,12 +121,13 @@ pub struct AccountJournalDomain {
     pub narration: Option<String>,
     /// what the row adds to the account; zero for a balance assertion, which changes no balance
     pub inferred_unit: Amount,
-    /// the account's balance after the row. For a balance assertion, the balance it was checked
-    /// against, which covers the account's sub-accounts too
+    /// the account's own balance after the row, that of its own postings, on every row
     pub account_after: Amount,
-    /// for the row of a balance assertion: the asserted amount, which `account_after` was checked
-    /// against; null for a posting
+    /// for the row of a balance assertion: the asserted amount; null for a posting
     pub asserted: Option<Amount>,
+    /// for the row of a balance assertion: the balance it was checked against, that of the account and
+    /// all its sub-accounts; null for a posting
+    pub checked_balance: Option<Amount>,
     /// for the row of a balance assertion: whether it held, within its tolerance; null for a posting
     pub passed: Option<bool>,
 }

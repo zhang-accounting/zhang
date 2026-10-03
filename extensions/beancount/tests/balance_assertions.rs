@@ -237,7 +237,7 @@ fn zhang(case: &str) -> Outcome {
 }
 
 /// the ledgers whose deviation from beancount the tests below check
-const DEVIATIONS: &[&str] = &["inferred_tolerance", "pad_within_tolerance"];
+const DEVIATIONS: &[&str] = &["child_assertion_after_parent_pad", "inferred_tolerance", "nested_pads", "pad_within_tolerance"];
 
 #[test]
 fn zhang_agrees_with_beancount_on_every_ledger_without_an_accepted_deviation() {
@@ -327,6 +327,68 @@ fn zhang_pads_exactly_within_an_explicit_tolerance() {
         vec![("2024-01-02".to_owned(), "Assets:A".to_owned(), cny("0.02"), "Equity:Open".to_owned())]
     );
     assert!(zhang.unused_pads.is_empty());
+}
+
+fn padding(date: &str, account: &str, units: &str) -> Pad {
+    (date.to_owned(), account.to_owned(), cny(units), "Equity:Open".to_owned())
+}
+
+#[test]
+fn a_pad_serves_the_assertions_on_its_own_account_only() {
+    let (beancount, reason) = deviation("child_assertion_after_parent_pad");
+    assert!(reason.contains("its own account only"), "{reason}");
+    // the assertion on the sub-account uses up the pad of the parent in beancount
+    assert_eq!(beancount.unused_pads, vec![("2024-01-03".to_owned(), "Assets:Bank".to_owned())]);
+    assert!(beancount.pads.is_empty());
+    assert_eq!(
+        beancount.assertions,
+        vec![
+            assertion("2024-01-04", "Assets:Bank:Checking", "60", "60", true),
+            assertion("2024-01-05", "Assets:Bank", "100", "60", false),
+        ]
+    );
+
+    let zhang = zhang("child_assertion_after_parent_pad");
+    assert_eq!(zhang.pads, vec![padding("2024-01-03", "Assets:Bank", "40")]);
+    assert!(zhang.unused_pads.is_empty());
+    assert_eq!(
+        zhang.assertions,
+        vec![
+            assertion("2024-01-04", "Assets:Bank:Checking", "60", "60", true),
+            assertion("2024-01-05", "Assets:Bank", "100", "100", true),
+        ]
+    );
+}
+
+#[test]
+fn a_pad_counts_the_padding_of_the_sub_accounts() {
+    let (beancount, reason) = deviation("nested_pads");
+    assert!(reason.contains("every padding before it"), "{reason}");
+    // beancount pads the parent by 60 where 40 are missing
+    assert_eq!(
+        beancount.pads,
+        vec![padding("2024-01-02", "Assets:Bank", "60"), padding("2024-01-02", "Assets:Bank:Checking", "60")]
+    );
+    assert_eq!(
+        beancount.assertions,
+        vec![
+            assertion("2024-01-03", "Assets:Bank", "100", "120", false),
+            assertion("2024-01-03", "Assets:Bank:Checking", "60", "60", true),
+        ]
+    );
+
+    let zhang = zhang("nested_pads");
+    assert_eq!(
+        zhang.pads,
+        vec![padding("2024-01-02", "Assets:Bank", "40"), padding("2024-01-02", "Assets:Bank:Checking", "60")]
+    );
+    assert_eq!(
+        zhang.assertions,
+        vec![
+            assertion("2024-01-03", "Assets:Bank", "100", "100", true),
+            assertion("2024-01-03", "Assets:Bank:Checking", "60", "60", true),
+        ]
+    );
 }
 
 #[test]

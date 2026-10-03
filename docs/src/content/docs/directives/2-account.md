@@ -156,8 +156,7 @@ padding goes to the asserted account itself, also when it is a parent account. A
 the asserted amount: it pads even a difference within an explicit `~` tolerance, where Beancount pads nothing. An
 account already at the asserted amount gets no padding transaction.
 
-- A `pad` serves the next `balance` of its account in each commodity, until the next `pad` of that account, as in
-  Beancount. Only assertions on the padded account itself use it, not those on its sub-accounts.
+- A `pad` serves the next `balance` of its own account in each commodity, until the next `pad` of that account.
 - Its padding transaction is dated on the `pad`, as in Beancount, so the balances between the `pad` and the
   assertion include it.
 - A `balance` on the day of the `pad` comes before it, as Beancount orders a day, and is not padded.
@@ -165,6 +164,15 @@ account already at the asserted amount gets no padding transaction.
 - A `pad` that pads nothing, because no later assertion of its account needs it, is reported as an
   [`UnusedPad`](/user-guide/error-code/#unusedpad) error, as in Beancount.
 - A `balance ... with pad` pads its own assertion, dated on it, and is never reported unused.
+
+Zhang differs from Beancount in how pads are sized and paired:
+
+- A pad brings the account to exactly the asserted amount, also within an explicit `~` tolerance, where Beancount
+  pads nothing (see above).
+- Only an assertion on the padded account itself uses the `pad`. Beancount also lets an assertion on a sub-account
+  use up the `pad` of its parent account, which then pads nothing for the parent's own assertion.
+- A pad is sized from the balance with every padding before it. Beancount sizes the pad of a parent account without
+  the padding of its sub-accounts, so the parent's assertion fails there by that padding.
 
 ## Best Practices
 

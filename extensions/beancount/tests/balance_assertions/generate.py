@@ -50,7 +50,15 @@ NO_INFERRED_TOLERANCE = (
 
 # the ledgers zhang deliberately checks differently, and why
 ACCEPTED_DEVIATIONS = {
+    "child_assertion_after_parent_pad": (
+        "a pad serves the assertions on its own account only: beancount also lets an assertion on a sub-account "
+        "use up the pad of its parent account, which then pads nothing for the parent's own assertion"
+    ),
     "inferred_tolerance": NO_INFERRED_TOLERANCE,
+    "nested_pads": (
+        "a pad is sized from the balance with every padding before it: beancount sizes the pad of a parent account "
+        "without the padding of its sub-accounts, and the parent's assertion then fails"
+    ),
     "pad_within_tolerance": (
         "a pad brings the account to exactly the asserted amount: zhang pads the difference even within an "
         "explicit `~` tolerance, where beancount pads nothing and reports the pad unused"
