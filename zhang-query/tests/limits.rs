@@ -158,10 +158,12 @@ fn having_drops_groups_before_they_hold_their_balance() {
     let result = run(kept, None).unwrap();
     assert_eq!(result.rows.len(), 3);
     let all = "SELECT date, last(balance) WHERE account ~ 'Broker' GROUP BY date";
+    // the 197 dropped groups hold about 600 values (a date, a pick and a max(date) each) until
+    // HAVING drops them; once released, the 3 kept balances of about 200 lots fit in 700, which
+    // the dropped groups' 600 would not leave room for
+    assert!(run(kept, Some(700)).is_ok(), "{}", run(kept, Some(700)).unwrap_err());
     let (kept, all) = (peak(kept), peak(all));
-    // every group holds its date, its pick and its max(date) until HAVING, then 3 balances of
-    // about 200 lots remain
-    assert!(kept < 2_000, "the kept groups held {} values", kept);
+    assert!(kept < 700, "the kept groups held {} values", kept);
     assert!(all > 20_000, "all the groups held {} values", all);
     // a HAVING that reads the deferred value itself still sees it
     let on_balance = "SELECT date, last(balance) WHERE account ~ 'Broker' GROUP BY date HAVING length(str(last(balance))) > 0";

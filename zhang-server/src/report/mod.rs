@@ -226,7 +226,12 @@ pub struct GraphRows {
 /// or outside the years 1 to 9999, is a 400 before any query runs; a range whose queries go
 /// over the result size limit or the time limit is a 400 in the graph's terms.
 pub fn graph_rows(ledger: &Ledger, range: &LedgerDateRange, interval: &StatisticInterval, limits: GraphLimits) -> ServerResult<GraphRows> {
-    let started = Instant::now();
+    graph_rows_since(ledger, range, interval, limits, Instant::now())
+}
+
+/// [`graph_rows`] for a graph that `started` building then: its queries share what is left of
+/// its time limit.
+fn graph_rows_since(ledger: &Ledger, range: &LedgerDateRange, interval: &StatisticInterval, limits: GraphLimits, started: Instant) -> ServerResult<GraphRows> {
     check_calendar(range)?;
     let points = bucket_count(range, interval);
     if points > limits.max_points {
@@ -798,6 +803,21 @@ option "operating_currency" "CNY"
         let mut rows = graph_rows(&ledger, &range("2024-01-01", "2026-12-31"), &StatisticInterval::Day, GraphLimits::server()).unwrap();
         rows.limits = expired;
         assert_eq!(rows.build().err().unwrap().to_string(), message);
+        // the queries share the time limit: once the graph has used it up, the next query stops
+        let long_ago = std::time::Instant::now() - Duration::from_secs(2);
+        let error = super::graph_rows_since(
+            &ledger,
+            &range("2024-01-01", "2024-01-03"),
+            &StatisticInterval::Day,
+            limits(u64::MAX, u64::MAX, Some(Duration::from_secs(1))),
+            long_ago,
+        )
+        .err()
+        .unwrap();
+        assert_eq!(
+            error.to_string(),
+            "the graph from 2024-01-01 to 2024-01-03 by day was stopped because it took longer than the 1s time limit; ask for weeks or months, or a shorter range"
+        );
         // checked at the first bucket, so a graph of a few buckets stops too
         let mut rows = graph_rows(&ledger, &range("2024-01-01", "2024-01-03"), &StatisticInterval::Day, GraphLimits::server()).unwrap();
         rows.limits = expired;
