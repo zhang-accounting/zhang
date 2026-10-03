@@ -365,6 +365,7 @@ impl OpendalDataSource {
                     month_str => date.format("%m").to_string(),
                     day => date.day(),
                     day_str => date.format("%d").to_string(),
+                    ext => Path::new(main_file_endpoint).extension().and_then(|it| it.to_str()).unwrap_or("zhang"),
                 })
                 .map_err(|_e| ZhangError::InvalidOptionValue)?;
             let path = PathBuf::from(save_path);
@@ -511,15 +512,20 @@ impl OpendalDataSource {
 #[cfg(test)]
 mod test {
     use std::path::Path;
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
     use opendal::services::Memory;
     use opendal::Operator;
+    use tempfile::tempdir;
     use zhang_core::data_source::{DataSource, SourceEntry};
+    use zhang_core::data_type::text::parser::parse as zhang_parse;
     use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::ledger::Ledger;
     use zhang_core::ZhangError;
 
     use super::{BlockingError, OpendalDataSource, PLUGIN_FILE_TIMEOUT};
+    use crate::{FileSystem, ServerOpts};
 
     /// a remote-like source holding `files`
     async fn source(files: &[&str]) -> OpendalDataSource {
@@ -590,5 +596,74 @@ mod test {
         assert!(matches!(result, Err(BlockingError::TimedOut(_))), "{:?}", result);
         assert!(started.elapsed() < Duration::from_secs(10), "gave up after {:?}", started.elapsed());
         assert_eq!(PLUGIN_FILE_TIMEOUT, Duration::from_secs(30));
+    }
+
+    const OPENS: &str = "1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n";
+
+    /// Loads the ledger whose main file is `main`, appends a transaction dated 2024-01-15 the way the
+    /// server does, and returns the reloaded ledger.
+    async fn append_coffee(dir: &Path, main: &str) -> Ledger {
+        let mut opts = ServerOpts {
+            path: dir.to_path_buf(),
+            endpoint: main.to_string(),
+            addr: "".to_string(),
+            port: 0,
+            auth: None,
+            passkey: None,
+            source: None,
+            no_report: true,
+        };
+        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        let ledger = Ledger::async_load(dir.to_path_buf(), main.to_string(), source.clone())
+            .await
+            .expect("load ledger");
+        let coffee = zhang_parse("2024-01-15 * \"Shop\" \"Coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n", None)
+            .expect("parse transaction")
+            .remove(0)
+            .data;
+        ledger.data_source.async_append(&ledger, vec![coffee]).await.expect("append transaction");
+        Ledger::async_load(dir.to_path_buf(), main.to_string(), source).await.expect("reload ledger")
+    }
+
+    fn assert_coffee_written_to(dir: &Path, main: &str, ledger: &Ledger, data_file: &str) {
+        let written = std::fs::read_to_string(dir.join(data_file)).expect("data file is written");
+        assert!(written.contains("Coffee"), "{}", written);
+        let main_content = std::fs::read_to_string(dir.join(main)).unwrap();
+        assert!(main_content.contains(&format!("include \"{}\"", data_file)), "{}", main_content);
+        let store = ledger.store.read().unwrap();
+        assert!(store.errors.is_empty(), "{:?}", store.errors);
+        assert_eq!(store.transactions.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_beancount_ledger_writes_new_directives_to_bean_files() {
+        for main in ["main.bean", "main.beancount", "main.bc"] {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join(main), OPENS).unwrap();
+            let ledger = append_coffee(dir.path(), main).await;
+            let ext = main.trim_start_matches("main.");
+            assert_coffee_written_to(dir.path(), main, &ledger, &format!("data/2024/01.{ext}"));
+            assert!(!dir.path().join("data/2024/01.zhang").exists(), "{}", main);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_zhang_ledger_still_writes_new_directives_to_zhang_files() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("main.zhang"), OPENS).unwrap();
+        let ledger = append_coffee(dir.path(), "main.zhang").await;
+        assert_coffee_written_to(dir.path(), "main.zhang", &ledger, "data/2024/01.zhang");
+    }
+
+    #[tokio::test]
+    async fn an_explicit_directive_output_path_is_kept() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("main.bean"),
+            format!("option \"directive_output_path\" \"books/{{{{year}}}}.beancount\"\n{OPENS}"),
+        )
+        .unwrap();
+        let ledger = append_coffee(dir.path(), "main.bean").await;
+        assert_coffee_written_to(dir.path(), "main.bean", &ledger, "books/2024.beancount");
     }
 }

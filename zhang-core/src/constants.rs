@@ -29,4 +29,6 @@ pub const TXN_ID: &str = "txn_id";
 
 pub const COMMODITY_GROUP: &str = "group";
 
-pub const DEFAULT_DIRECTIVE_OUTPUT_PATH: &str = r#"data/{{year}}/{{month_str}}.zhang"#;
+/// `{{ext}}` is the main file's extension, so new directives are written in the ledger's own format
+/// (`.bean` files for a `main.bean` ledger, `.zhang` files for a `main.zhang` one).
+pub const DEFAULT_DIRECTIVE_OUTPUT_PATH: &str = r#"data/{{year}}/{{month_str}}.{{ext}}"#;

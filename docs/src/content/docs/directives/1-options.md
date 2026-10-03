@@ -93,33 +93,34 @@ option "timezone" "Asia/Shanghai"
 Defines the file path pattern for storing new directives. Uses Python's [Jinja2](https://jinja.palletsprojects.com/) template engine for path formatting.
 
 ```beancount
-option "directive_output_path" "data/{{year}}/{{month_str}}.zhang"
+option "directive_output_path" "data/{{year}}/{{month_str}}.{{ext}}"
 ```
 
-- **Default**: `data/{{year}}/{{month_str}}.zhang`
+- **Default**: `data/{{year}}/{{month_str}}.{{ext}}`, so a `main.zhang` ledger writes to `data/2024/01.zhang` and a `main.bean` ledger to `data/2024/01.bean`
 - **Available placeholders**:
-  - `{type}`: directive type
-  - `{year}`: Current year (e.g., `2023`)
-  - `{month}`: Current month (e.g., `1` for January)
-  - `{month_str}`: Current month (e.g., `01` for January)
-  - `{day}`: Current day (e.g., `5`)
-  - `{day_str}`: Current day (e.g., `05`)
-- **Usage**: When adding new transactions or other directives, they will be stored in files according to this pattern
+  - `{{type}}`: directive type
+  - `{{year}}`: Current year (e.g., `2023`)
+  - `{{month}}`: Current month (e.g., `1` for January)
+  - `{{month_str}}`: Current month (e.g., `01` for January)
+  - `{{day}}`: Current day (e.g., `5`)
+  - `{{day_str}}`: Current day (e.g., `05`)
+  - `{{ext}}`: the main file's extension (e.g., `zhang`, `bean` or `beancount`), so new directives are written in the ledger's own format
+- **Usage**: When adding new transactions or other directives, they will be stored in files according to this pattern. A file that doesn't exist yet is created and included from the main file.
 
 #### Example Path Patterns
 
 ```beancount
 ; Store by month (default)
-option "directive_output_path" "data/{{year}}/{{month}}.zhang"
+option "directive_output_path" "data/{{year}}/{{month_str}}.{{ext}}"
 
 ; Store by day
-option "directive_output_path" "data/{{year}}/{{month}}/{{day}}.zhang"
+option "directive_output_path" "data/{{year}}/{{month}}/{{day}}.{{ext}}"
 
 ; Store by transaction type in separate files
-option "directive_output_path" "data/{{year}}/{{type}}-{{month}}.zhang"
+option "directive_output_path" "data/{{year}}/{{type}}-{{month}}.{{ext}}"
 
 ; Store everything in a single file
-option "directive_output_path" "data/ledger.zhang"
+option "directive_output_path" "data/ledger.{{ext}}"
 ```
 
 ## Usage Examples
