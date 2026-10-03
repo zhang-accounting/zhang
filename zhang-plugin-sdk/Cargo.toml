@@ -1,0 +1,22 @@
+[package]
+name = "zhang-plugin-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "Write zhang WASM plugins in Rust: entry macros, config, custom directives, clock, files, errors and routers"
+# not on crates.io yet: plugin authors depend on it through git
+publish = false
+# `examples/` holds whole plugin crates, built for wasm32-unknown-unknown, not cargo examples
+autoexamples = false
+
+[dependencies]
+zhang-ast = { version = "0.1", path = "../zhang-ast" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bigdecimal = { workspace = true }
+base64 = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+
+# the Extism plug-in kernel and host function imports exist only inside a WASM module. On any other target the
+# SDK still compiles, so plugin logic can be unit tested natively: host calls then answer `unavailable`
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+extism-pdk = { version = "1.4", default-features = false, features = ["http"] }
