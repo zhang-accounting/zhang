@@ -20,3 +20,9 @@ chrono = { version = "0.4", default-features = false, features = ["std", "serde"
 # SDK still compiles, so plugin logic can be unit tested natively: host calls then answer `unavailable`
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 extism-pdk = { version = "1.4", default-features = false, features = ["http"] }
+
+# the price map parity test runs ledgers through zhang's own query engine; native only, never in a plugin
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+zhang-core = { version = "0.1", path = "../zhang-core" }
+zhang-query = { version = "0.1", path = "../zhang-query" }
+tempfile = "3.3.0"
