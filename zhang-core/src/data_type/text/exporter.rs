@@ -465,6 +465,7 @@ mod test {
 
     use indoc::indoc;
 
+    use super::ZhangDataTypeExportable;
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
 
@@ -663,6 +664,37 @@ mod test {
               Expenses:TestCategory:One 1 CCC @@ 1 CNY
         "#}
         );
+    }
+
+    /// numbers are written in plain notation, as they were written, never with an exponent: very small, very large and
+    /// of a high scale
+    #[test]
+    fn numbers_are_written_in_plain_notation() {
+        for number in [
+            "0.000000001",
+            "-0.000000001",
+            "1200000000000000000000000000000",
+            "0.1234567890123456789012345678",
+            "-12345678901234567890.123456789",
+            "100.50",
+        ] {
+            for text in [
+                format!("1970-01-01 balance Assets:A {number} CNY"),
+                format!("1970-01-01 balance Assets:A {number} ~ 0.000000001 CNY"),
+                format!("1970-01-01 balance Assets:A {number} CNY with pad Equity:Open"),
+                format!("1970-01-01 price USD {number} CNY"),
+                format!("1970-01-01 * \"Payee\" \"Narration\"\n  Assets:A {number} CNY\n  Assets:B 1 CCC @@ {number} CNY"),
+                format!("1970-01-01 budget-add Food {number} CNY"),
+            ] {
+                assert_eq!(parse_and_export(&text), text);
+            }
+        }
+        // numbers with an exponent, as arithmetic or a request can leave them
+        let amount = |number: &str| zhang_ast::amount::Amount::new(number.parse().unwrap(), "CNY").export();
+        assert_eq!(amount("1E-9"), "0.000000001 CNY");
+        assert_eq!(amount("1.2E+30"), "1200000000000000000000000000000 CNY");
+        assert_eq!(amount("123456789E-20"), "0.00000000000123456789 CNY");
+        assert_eq!(amount("-5E+3"), "-5000 CNY");
     }
 
     #[test]

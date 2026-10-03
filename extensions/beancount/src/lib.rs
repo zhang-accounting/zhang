@@ -540,4 +540,41 @@ mod test {
             })
         );
     }
+    /// numbers are written in plain notation, as they were read, never with an exponent, which beancount cannot read:
+    /// the directives of `tests/balance_assertions/plain_decimals.bean`, which beancount reads (see its oracle), are
+    /// written back as they are, and so are numbers left with an exponent
+    #[test]
+    fn numbers_are_written_in_plain_notation() {
+        let fixture = include_str!("../tests/balance_assertions/plain_decimals.bean");
+        let beancount = Beancount {};
+        let mut written = 0;
+        for directive in beancount.transform(fixture.to_owned(), None).unwrap() {
+            if !matches!(directive.data, Directive::Transaction(_) | Directive::BalanceCheck(_)) {
+                continue;
+            }
+            let text = directive.span.content.trim_end().to_owned();
+            assert_eq!(beancount.export(directive).trim_end(), text);
+            written += 1;
+        }
+        assert_eq!(written, 7);
+
+        let balance = |number: &str, account: &str, tolerance: Option<&str>| {
+            let balance = Directive::BalanceCheck(BalanceCheck {
+                date: Date::Date(NaiveDate::from_ymd_opt(2024, 1, 3).unwrap()),
+                account: Account::from_str(account).unwrap(),
+                amount: Amount::new(BigDecimal::from_str(number).unwrap(), "CNY"),
+                tolerance: tolerance.map(|it| BigDecimal::from_str(it).unwrap()),
+                meta: Meta::default(),
+            });
+            beancount.export(Spanned::new(balance, SpanInfo::default()))
+        };
+        for (number, account) in [("1E-9", "Assets:Small"), ("1.2E+30", "Assets:Large")] {
+            let written = balance(number, account, None);
+            assert!(fixture.lines().any(|line| line == written), "{written}");
+        }
+        assert_eq!(
+            balance("1E-9", "Assets:Small", Some("5E-10")),
+            "2024-01-03 balance Assets:Small 0.000000001 ~ 0.0000000005 CNY"
+        );
+    }
 }

@@ -1547,6 +1547,97 @@
       }
     ]
   },
+  "plain_decimals": {
+    "accepted_deviation": null,
+    "assertions": [
+      {
+        "account": "Assets:Small",
+        "amount": {
+          "currency": "CNY",
+          "number": "1E-9"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "1E-9"
+        },
+        "date": "2024-01-03",
+        "passed": true
+      },
+      {
+        "account": "Assets:Large",
+        "amount": {
+          "currency": "CNY",
+          "number": "1200000000000000000000000000000"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "1.200000000000000000000000000E+30"
+        },
+        "date": "2024-01-03",
+        "passed": true
+      },
+      {
+        "account": "Assets:Scale",
+        "amount": {
+          "currency": "CNY",
+          "number": "0.1234567890123456789012345678"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "0.1234567890123456789012345678"
+        },
+        "date": "2024-01-03",
+        "passed": true
+      },
+      {
+        "account": "Assets:Small",
+        "amount": {
+          "currency": "CNY",
+          "number": "3E-9"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "3E-9"
+        },
+        "date": "2024-01-05",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:Large": {
+        "CNY": "1.200000000000000000000000000E+30"
+      },
+      "Assets:Scale": {
+        "CNY": "0.1234567890123456789012345678"
+      },
+      "Assets:Small": {
+        "CNY": "3E-9"
+      },
+      "Equity:Large": {
+        "CNY": "-1.200000000000000000000000000E+30"
+      },
+      "Equity:Scale": {
+        "CNY": "-0.1234567890123456789012345678"
+      },
+      "Equity:Small": {
+        "CNY": "-3E-9"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:Small",
+        "date": "2024-01-04",
+        "from": "Equity:Small",
+        "units": {
+          "currency": "CNY",
+          "number": "2E-9"
+        }
+      }
+    ],
+    "pads_with_cost": [],
+    "unused_pads": []
+  },
   "same_day_pad": {
     "accepted_deviation": null,
     "assertions": [
