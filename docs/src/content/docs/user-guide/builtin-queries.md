@@ -139,4 +139,183 @@ No queries yet.
 
 ### Budgets and commodities
 
-No queries yet.
+The budget pages read [`#budgets`](/user-guide/query-language/#budgets), [`#budget_definitions`](/user-guide/query-language/#budget-definitions) and [`#budget_events`](/user-guide/query-language/#budget-events). A month is given as its first day, such as `2024-06-01`; without one, the pages ask for the current month in the ledger's timezone.
+
+#### `budgets.month`
+
+Every budget as of a month: its last month in `#budgets` up to that month, as the budgets page lists them. `#budgets` has a row for every month of a budget through the current month, so `last_month` is the requested month, unless it is a later one. Nothing can have happened to the budget since `last_month`, so the [`CASE`](/user-guide/query-language/#case) carries it over: the month starts with `available` and spends nothing. `activity` is a number, in the budget's `currency`. Budgets that start after the month are not listed. `WHERE date <= :month` also makes `#budgets` generate no later month, so a date typo far ahead in the ledger does not get in the way.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `month` | `date` | the first day of the month |
+
+```sql
+SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
+       last(date) AS last_month,
+       CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
+       CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity,
+       last(available) AS available, last(closed) AS closed
+FROM #budgets
+WHERE date <= :month
+GROUP BY name
+ORDER BY name
+```
+
+#### `budgets.budget`
+
+One budget: its display name, category, commodity, and the accounts whose postings are its activity, from `#budget_definitions`, which has no months. No row if there is no such budget.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `name` | `str` | the budget |
+
+```sql
+SELECT name, alias, category, currency, accounts
+FROM #budget_definitions
+WHERE name = :name
+```
+
+#### `budgets.budget_month`
+
+One budget as of a month, as in `budgets.month`. No row if the budget starts after the month; its page then shows nothing assigned or spent.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `name` | `str` | the budget |
+| `month` | `date` | the first day of the month |
+
+```sql
+SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
+       last(date) AS last_month,
+       CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
+       CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity,
+       last(available) AS available, last(closed) AS closed
+FROM #budgets
+WHERE name = :name AND date <= :month
+GROUP BY name
+```
+
+#### `budgets.events`
+
+What the `budget-add` and `budget-transfer` directives put into a budget in a month, newest first, as written: a transfer out is negative.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `name` | `str` | the budget |
+| `month` | `date` | the first day of the month |
+
+```sql
+SELECT date, time, timestamp, type, amount
+FROM #budget_events
+WHERE name = :name AND type != 'close' AND yearmonth(date) = :month
+ORDER BY timestamp DESC
+```
+
+#### `budgets.postings`
+
+The postings of a budget in a month, newest first, each with its account's balance in the posting's currency after it: those of its accounts that count in it at their date, by [`account_budgets`](/user-guide/query-language/#account-and-commodity-directives), so a posting of an account closed and opened again with another budget is listed in the budget it counts in. The budget's page lists them together with the events of `budgets.events`, newest first.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `accounts` | `set` | the budget's accounts, the `accounts` of `budgets.budget` |
+| `month` | `date` | the first day of the month |
+| `name` | `str` | the budget |
+
+```sql
+SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
+       only(currency, account_balance) AS balance
+WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date)
+ORDER BY timestamp DESC
+```
+
+What a commodity is (its precision, prefix, suffix, rounding and group) comes from its `commodity` directive. How much of it the ledger holds, in which lots, and its prices come from the queries below. Holdings are those of the Assets and Liabilities accounts, chosen with [`under`](/user-guide/query-language/#account-functions) so that the query reads only their postings.
+
+#### `commodities.totals`
+
+How many units of each commodity the Assets and Liabilities accounts hold, for the commodities they hold. A commodity without a row holds nothing.
+
+```sql
+SELECT currency, sum(number) AS total
+WHERE under(account, 'Assets') OR under(account, 'Liabilities')
+GROUP BY currency
+HAVING sum(number) != 0
+ORDER BY currency
+```
+
+#### `commodities.total`
+
+How many units of one commodity the Assets and Liabilities accounts hold. No row if they hold none.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `commodity` | `str` | the commodity |
+
+```sql
+SELECT currency, sum(number) AS total
+WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
+GROUP BY currency
+HAVING sum(number) != 0
+```
+
+#### `commodities.latest_prices`
+
+The latest price of each commodity quoted in a currency, with its date and time.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `currency` | `str` | the currency of the prices, the operating currency |
+
+```sql
+SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
+FROM #prices
+WHERE currency(amount) = :currency
+GROUP BY currency
+ORDER BY currency
+```
+
+#### `commodities.latest_price`
+
+The latest price of one commodity quoted in a currency, with its date and time.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `commodity` | `str` | the commodity |
+| `currency` | `str` | the currency of the price, the operating currency |
+
+```sql
+SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
+FROM #prices
+WHERE currency = :commodity AND currency(amount) = :currency
+GROUP BY currency
+```
+
+#### `commodities.lots`
+
+The lots of a commodity that the Assets and Liabilities accounts hold: the units per account, cost and acquisition date, by account, then oldest first. Units held without a cost are one lot per account.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `commodity` | `str` | the commodity |
+
+```sql
+SELECT account, cost_date, cost_number, cost_currency, sum(number) AS units
+WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
+GROUP BY account, cost_date, cost_number, cost_currency
+HAVING sum(number) != 0
+ORDER BY account, cost_date, cost_number
+```
+
+#### `commodities.prices`
+
+Every price of a commodity, in any currency, oldest first.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `commodity` | `str` | the commodity |
+
+```sql
+SELECT date, time, amount
+FROM #prices
+WHERE currency = :commodity
+ORDER BY date, time
+```

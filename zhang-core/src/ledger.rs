@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, RwLock};
 
 use bigdecimal::BigDecimal;
-use chrono::DateTime;
+use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use itertools::Itertools;
@@ -150,6 +150,12 @@ impl Ledger {
         })
     }
     pub async fn async_load(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
+        Ledger::async_load_with_clock(entry, endpoint, data_source, Clock::System).await
+    }
+
+    /// [`Ledger::async_load`] with the current time read from `clock`: [`Clock::Fixed`] pins "today" for the
+    /// load, its reloads and everything that asks the ledger for the time ([`Ledger::now`])
+    pub async fn async_load_with_clock(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>, clock: Clock) -> ZhangResult<Ledger> {
         let load_result = data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
 
         Ledger::async_process(LedgerProcessContext {
@@ -157,9 +163,21 @@ impl Ledger {
             entry: (entry, endpoint),
             visited_files: load_result.visited_files,
             data_source,
-            clock: Clock::System,
+            clock,
         })
         .await
+    }
+
+    /// The current time by the ledger's [`Clock`]: the system's, or the instant a [`Clock::Fixed`] pins. Unlike
+    /// the load's own reading, which stays the same for the whole load, it is read anew on every call, so a server
+    /// that keeps a ledger loaded for days sees the date change.
+    pub fn now(&self) -> DateTime<Utc> {
+        self.clock.clock().read()
+    }
+
+    /// Today's date in the ledger's timezone, by [`Ledger::now`].
+    pub fn today(&self) -> NaiveDate {
+        self.now().with_timezone(&self.options.timezone).date_naive()
     }
 
     fn init(context: LedgerProcessContext) -> (Self, SplitDirectives) {

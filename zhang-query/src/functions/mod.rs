@@ -42,6 +42,8 @@
 pub mod aggregates;
 pub mod scalars;
 
+use std::collections::BTreeSet;
+
 use chrono::NaiveDate;
 use zhang_ast::{Close, Commodity, Open};
 
@@ -157,6 +159,12 @@ pub trait FunctionContext {
 
     /// The `commodity` directive of a currency (the last one, as beancount keeps it).
     fn commodity_directive(&self, _currency: &str) -> Option<&Commodity> {
+        None
+    }
+
+    /// The budgets the `budget` metadata of an account's latest `open` on or before a date names;
+    /// `None` before the account's first `open`.
+    fn account_budgets(&self, _account: &str, _date: NaiveDate) -> Option<BTreeSet<String>> {
         None
     }
 }

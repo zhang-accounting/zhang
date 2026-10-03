@@ -139,4 +139,183 @@ ORDER BY seq
 
 ### 预算与商品
 
-暂无查询。
+预算页面读取 [`#budgets`](/zh-cn/user-guide/query-language/#预算表)、[`#budget_definitions`](/zh-cn/user-guide/query-language/#预算定义表) 和 [`#budget_events`](/zh-cn/user-guide/query-language/#预算变动表)。月份以其第一天表示，例如 `2024-06-01`；没有指定月份时，页面使用账本时区中的当前月份。
+
+#### `budgets.month`
+
+截至某个月的每个预算：该预算在 `#budgets` 中到这个月为止的最后一个月，即预算页面列出的内容。`#budgets` 中每个预算都有直到当前月份的每一个月，所以 `last_month` 就是所请求的月份，除非请求的是更晚的月份。预算在 `last_month` 之后不可能再有变动，所以 [`CASE`](/zh-cn/user-guide/query-language/#case) 把它顺延过来：这个月以 `available` 开始，支出为零。`activity` 是一个数值，以预算的 `currency` 计。在该月之后才开始的预算不会列出。`WHERE date <= :month` 还让 `#budgets` 不再生成更晚的月份，所以账本中日期写到遥远未来的笔误不会造成影响。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `month` | `date` | 该月的第一天 |
+
+```sql
+SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
+       last(date) AS last_month,
+       CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
+       CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity,
+       last(available) AS available, last(closed) AS closed
+FROM #budgets
+WHERE date <= :month
+GROUP BY name
+ORDER BY name
+```
+
+#### `budgets.budget`
+
+单个预算：它的显示名称、分类、商品，以及其分录计入该预算支出的账户，来自没有月份的 `#budget_definitions`。没有这个预算时没有结果行。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `name` | `str` | 预算 |
+
+```sql
+SELECT name, alias, category, currency, accounts
+FROM #budget_definitions
+WHERE name = :name
+```
+
+#### `budgets.budget_month`
+
+截至某个月的单个预算，与 `budgets.month` 相同。如果预算在该月之后才开始，则没有结果行，预算页面显示为没有分配、也没有支出。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `name` | `str` | 预算 |
+| `month` | `date` | 该月的第一天 |
+
+```sql
+SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
+       last(date) AS last_month,
+       CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
+       CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity,
+       last(available) AS available, last(closed) AS closed
+FROM #budgets
+WHERE name = :name AND date <= :month
+GROUP BY name
+```
+
+#### `budgets.events`
+
+某个月中 `budget-add` 和 `budget-transfer` 指令为预算放入的金额，最新的在前，金额按原样给出：转出为负数。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `name` | `str` | 预算 |
+| `month` | `date` | 该月的第一天 |
+
+```sql
+SELECT date, time, timestamp, type, amount
+FROM #budget_events
+WHERE name = :name AND type != 'close' AND yearmonth(date) = :month
+ORDER BY timestamp DESC
+```
+
+#### `budgets.postings`
+
+某个月中预算的分录，最新的在前，每条分录附带其账户在该分录之后、以该分录货币计的余额：即其日期当时计入该预算的预算账户分录，由 [`account_budgets`](/zh-cn/user-guide/query-language/#账户与商品指令) 判断，所以关闭后以其他预算重新开启的账户，其分录列在它所计入的预算中。预算页面把它们和 `budgets.events` 的事件按时间合并列出，最新的在前。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `accounts` | `set` | 预算的账户，即 `budgets.budget` 的 `accounts` |
+| `month` | `date` | 该月的第一天 |
+| `name` | `str` | 预算 |
+
+```sql
+SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
+       only(currency, account_balance) AS balance
+WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date)
+ORDER BY timestamp DESC
+```
+
+商品的精度、前缀、后缀、舍入方式和分组来自它的 `commodity` 指令。账本持有多少该商品、持有在哪些批次中，以及它的价格，来自下面这些查询。持有量指资产（Assets）和负债（Liabilities）账户中的持有量，这些账户用 [`under`](/zh-cn/user-guide/query-language/#账户函数) 选出，查询因此只读取它们的分录。
+
+#### `commodities.totals`
+
+资产和负债账户持有的每种商品的数量，只列出有持有量的商品。没有结果行的商品持有量为零。
+
+```sql
+SELECT currency, sum(number) AS total
+WHERE under(account, 'Assets') OR under(account, 'Liabilities')
+GROUP BY currency
+HAVING sum(number) != 0
+ORDER BY currency
+```
+
+#### `commodities.total`
+
+资产和负债账户持有的某一种商品的数量。没有持有量时没有结果行。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `commodity` | `str` | 商品 |
+
+```sql
+SELECT currency, sum(number) AS total
+WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
+GROUP BY currency
+HAVING sum(number) != 0
+```
+
+#### `commodities.latest_prices`
+
+每种商品以某种货币报价的最新价格，及其日期和时间。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `currency` | `str` | 报价货币，即运营货币 |
+
+```sql
+SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
+FROM #prices
+WHERE currency(amount) = :currency
+GROUP BY currency
+ORDER BY currency
+```
+
+#### `commodities.latest_price`
+
+某一种商品以某种货币报价的最新价格，及其日期和时间。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `commodity` | `str` | 商品 |
+| `currency` | `str` | 报价货币，即运营货币 |
+
+```sql
+SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
+FROM #prices
+WHERE currency = :commodity AND currency(amount) = :currency
+GROUP BY currency
+```
+
+#### `commodities.lots`
+
+资产和负债账户持有的某种商品的批次：每个账户、每种成本和取得日期的数量，按账户排序，同一账户内最早取得的在前。不按成本持有的数量在每个账户中算作一个批次。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `commodity` | `str` | 商品 |
+
+```sql
+SELECT account, cost_date, cost_number, cost_currency, sum(number) AS units
+WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
+GROUP BY account, cost_date, cost_number, cost_currency
+HAVING sum(number) != 0
+ORDER BY account, cost_date, cost_number
+```
+
+#### `commodities.prices`
+
+某种商品以任何货币报价的所有价格，最早的在前。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `commodity` | `str` | 商品 |
+
+```sql
+SELECT date, time, amount
+FROM #prices
+WHERE currency = :commodity
+ORDER BY date, time
+```

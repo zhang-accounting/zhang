@@ -2,7 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::{BTreeSet, BinaryHeap, HashSet};
 use std::sync::OnceLock;
 use std::time::{Duration as StdDuration, Instant};
 
@@ -131,6 +131,11 @@ impl FunctionContext for Env<'_, '_> {
         self.impure.set(self.impure.get() || self.data.is_none());
         self.data?.commodity_directive(currency)
     }
+
+    fn account_budgets(&self, account: &str, date: NaiveDate) -> Option<BTreeSet<String>> {
+        self.impure.set(self.impure.get() || self.data.is_none());
+        self.data?.budgets_at(account, date).cloned()
+    }
 }
 
 /// Evaluate a constant expression at compile time; `None` when it reads the execution
@@ -246,10 +251,22 @@ impl CExpr {
                 eval_in_list(needle, items, *negated, env)
             }
             CExpr::IsNull { expr, negated } => Ok(Value::Bool(expr.eval(env)?.is_null() != *negated)),
+            CExpr::Case { branches, otherwise } => eval_case(branches, otherwise, env),
             CExpr::InConst { needle, set, negated } => eval_in_const(needle, set, *negated, env),
             CExpr::StrTest { subject, test, .. } => eval_str_test(subject, test, env),
         }
     }
+}
+
+/// `CASE`: the value of the first branch whose condition is TRUE, else `otherwise`. A NULL
+/// condition is not TRUE. Only the chosen value is evaluated.
+fn eval_case(branches: &[(CExpr, CExpr)], otherwise: &CExpr, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
+    for (condition, value) in branches {
+        if condition.eval(env)? == Value::Bool(true) {
+            return value.eval(env);
+        }
+    }
+    otherwise.eval(env)
 }
 
 /// `x [NOT] IN <constants>` with the items hashed: a string needle is looked up in place.

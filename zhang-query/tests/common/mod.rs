@@ -21,6 +21,24 @@ pub fn load_text(content: &str) -> Ledger {
     load_ledger(dir, "main.zhang")
 }
 
+/// Load a ledger from text, with the current time read from `clock`.
+pub fn load_text_at(content: &str, clock: zhang_core::clock::Clock) -> Ledger {
+    use zhang_core::data_type::DataType;
+    let dir = tempfile::tempdir().expect("tempdir").into_path();
+    std::fs::write(dir.join("main.zhang"), content).expect("write ledger");
+    let directives = ZhangDataType {}
+        .transform(content.to_owned(), Some("main.zhang".to_owned()))
+        .expect("parse ledger");
+    Ledger::process(zhang_core::ledger::LedgerProcessContext {
+        directives,
+        entry: (dir, "main.zhang".to_owned()),
+        visited_files: vec![],
+        data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
+        clock,
+    })
+    .expect("cannot load ledger")
+}
+
 /// The fava demo ledger shipped with the integration tests.
 pub fn fava_demo_ledger() -> Ledger {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integration-tests/fava-demo-ledger");

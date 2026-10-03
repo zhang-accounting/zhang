@@ -5,9 +5,9 @@
 //! span. `#documents` has the documents of `GET /api/documents` and `#budget_events` the events
 //! of `GET /api/budgets/{name}/interval/{year}/{month}`.
 //!
-//! Where an API is wrong, the tests say how: the budget API adds the numbers of amounts in
-//! different commodities and reports a budget's final `closed` for every month, which the
-//! table does not.
+//! The budget API computes its figures with built-in queries over `#budgets` (#479), so the two
+//! agree on every figure, also where the API used to be wrong: it added the numbers of amounts in
+//! different commodities and reported a budget's final `closed` for every month.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -115,6 +115,8 @@ fn budget_name_of(row: &serde_json::Map<String, Value>) -> &str {
     row["name"].as_str().unwrap()
 }
 
+/// Checks every row of `#budgets` of the fixture against the budget API, and returns the number
+/// of rows through the month of the ledger's last entry.
 async fn check_budgets(name: &str) -> usize {
     let ledger = load(name).await;
     let rows = query(
@@ -178,21 +180,28 @@ async fn check_budgets(name: &str) -> usize {
             let mut related = info["data"]["related_accounts"].as_array().unwrap().clone();
             related.sort_by_key(|it| it.as_str().unwrap().to_owned());
             assert_eq!(row["accounts"], Value::Array(related), "{at}");
-            // the API's flag says whether the budget is closed now; the table's whether it was in
-            // that month, so the two agree on the budget's last month
-            if (year, month) == ends[budget_name_of(row)] || row["closed"] == json!(true) {
-                assert_eq!(row["closed"], info["data"]["closed"], "{at}");
-            }
+            // whether the budget was closed in or before the month
+            assert_eq!(row["closed"], info["data"]["closed"], "{at}");
+            assert_eq!(row["closed"], api["closed"], "{at}");
         }
     }
-    rows.len()
+    // the months through the ledger's last entry; the later ones, through the current month,
+    // carry the last one over
+    let last_entry = query(&ledger, "SELECT max(date) AS last FROM #entries").await[0]["last"]
+        .as_str()
+        .map(|date| (date[..4].parse::<u32>().unwrap(), date[5..7].parse::<u32>().unwrap()))
+        .unwrap();
+    rows.iter()
+        .filter(|row| (row["year"].as_u64().unwrap() as u32, row["month"].as_u64().unwrap() as u32) <= last_entry)
+        .count()
 }
 
 #[tokio::test]
 async fn budgets_are_the_amounts_of_the_budget_api() {
     assert_eq!(check_budgets("budget-sytem-syntax-and-category").await, 10);
     assert_eq!(check_budgets("budget-sytem-syntax-and-category-multiple-file").await, 10);
-    assert_eq!(check_budgets("query-zhang-tables").await, 10);
+    // `fun`, closed in April, runs on through the current month, so May and June count too
+    assert_eq!(check_budgets("query-zhang-tables").await, 12);
 }
 
 async fn check_errors(name: &str) -> usize {
@@ -333,7 +342,8 @@ async fn the_schema_lists_the_zhang_tables() {
 }
 
 /// A budget in CNY spent in CNY and USD, then closed: the ledger the survey of #479 found the
-/// budget API wrong on.
+/// budget API wrong on. In April it spent 1630 + 1500 CNY, 300 USD (2100 CNY at 7.0, the price
+/// as of April 2nd) and 60 CNY, 5290 CNY in all; the API used to add the 300 USD as 300.
 const MULTI_CURRENCY_BUDGET: &str = r#"
 option "operating_currency" "CNY"
 option "timezone" "Asia/Shanghai"
@@ -432,35 +442,23 @@ async fn budget_differences(ledger: &SharedLedger) -> Vec<(String, u32, u32, &'s
 }
 
 #[tokio::test]
-async fn budgets_differ_from_the_budget_api_where_it_is_wrong() {
+async fn the_budget_api_reports_the_figures_of_the_table() {
     let dir = ScratchDir::with(&[("main.zhang", MULTI_CURRENCY_BUDGET)]);
     let ledger = load_dir(&dir.0).await;
-    let food = |year, month, column, table: Value, api: Value| ("food".to_owned(), year, month, column, table, api);
+    assert_eq!(budget_differences(&ledger).await, vec![]);
+    let request = BudgetListRequest {
+        year: Some(2025),
+        month: Some(4),
+    };
+    let april = body(get_budget_list(State(ledger.clone()), UrlQuery(request)).await).await;
     assert_eq!(
-        budget_differences(&ledger).await,
-        vec![
-            // the API reports the final close for every month; the table from May on
-            food(2025, 3, "closed", json!(false), json!(true)),
-            // the API adds the 300 USD of the US trip as 300; the table converts them at
-            // 7.0 CNY, the price as of April 2nd: 1630 + 1500 + 2100 + 60 = 5290 instead of 3490
-            food(2025, 4, "activity", json!("5290"), json!("3490")),
-            food(2025, 4, "available", json!("-4330"), json!("-2530")),
-            food(2025, 4, "closed", json!(false), json!(true)),
-            // and carries the difference over
-            food(2025, 5, "assigned", json!("-4330"), json!("-2530")),
-            food(2025, 5, "available", json!("-5960"), json!("-4160")),
-        ]
+        amount(&april["data"][0]["activity_amount"]),
+        amount(&json!({"number": "5290", "commodity": "CNY"}))
     );
-    // in one commodity the API is right, and the table agrees with it on every figure
+    assert_eq!(april["data"][0]["closed"], json!(false));
     for name in ["budget-sytem-syntax-and-category", "query-zhang-tables"] {
         let ledger = load(name).await;
-        let differences = budget_differences(&ledger).await;
-        assert!(
-            differences
-                .iter()
-                .all(|(_, _, _, column, table, api)| *column == "closed" && table == &json!(false) && api == &json!(true)),
-            "{name}: {differences:?}"
-        );
+        assert_eq!(budget_differences(&ledger).await, vec![], "{name}");
     }
 }
 
