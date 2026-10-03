@@ -1184,8 +1184,10 @@ fn d2_documents_group_filter_and_stay_empty_without_documents() {
         query(documents(), "SELECT path FROM #documents WHERE account = 'Assets:Bank'"),
         rows(&[&["docs/contract.pdf"], &["statements/2024-01.pdf"], &["attachments/card-slip.pdf"]])
     );
-    // a ledger without documents has an empty table
-    assert_eq!(query(journal(), "SELECT count(*) FROM #documents"), rows(&[&["0"]]));
+    // a ledger without documents has an empty table; like beanquery (conformance case
+    // 031_aggregate_over_no_rows), an aggregate over no rows gives no row
+    assert_eq!(query(journal(), "SELECT count(*) FROM #documents"), rows(&[]));
+    assert_eq!(query(journal(), "SELECT path FROM #documents"), rows(&[]));
 }
 
 // =======================================================================================
