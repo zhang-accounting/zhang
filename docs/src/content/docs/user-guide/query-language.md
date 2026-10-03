@@ -1004,7 +1004,7 @@ the `Expenses:Food` posting has `meta('category')` `'food'`, `entry_meta('catego
 
 ## HTTP API
 
-The Explore page uses the same HTTP endpoints, and you can call them from scripts. If [basic authentication](/installation/3-basic_auth/) is enabled, send the same credentials as for the rest of the API.
+The Explore page uses the same HTTP endpoints, and you can call them from scripts. If [authentication](/installation/3-authentication/) is enabled, sign in first or send the `ZHANG_AUTH` credentials as an HTTP Basic `Authorization` header, as for the rest of the API.
 
 ### Run a query
 

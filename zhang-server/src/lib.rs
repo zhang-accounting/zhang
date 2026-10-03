@@ -4,10 +4,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::DefaultBodyLimit;
+use axum::routing::any;
 use chrono::Utc;
 use gotcha::config::BasicConfig;
 use gotcha::{ConfigWrapper, GotchaApp, GotchaContext, GotchaRouter};
-use itertools::Itertools;
 use log::{debug, error, info, trace};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use routes::account::*;
@@ -27,17 +27,18 @@ use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::validate_request::ValidateRequestHeaderLayer;
 use zhang_core::data_source::DataSource;
 use zhang_core::inputs::ExtraInput;
 use zhang_core::ledger::Ledger;
-use zhang_core::ZhangResult;
+use zhang_core::{ZhangError, ZhangResult};
 
+use crate::auth::{AuthConfig, AuthState, SharedAuth};
 use crate::broadcast::{BroadcastEvent, Broadcaster};
 use crate::error::ServerError;
 use crate::response::ResponseWrapper;
 use crate::state::AppState;
 
+pub mod auth;
 pub mod broadcast;
 pub mod error;
 pub mod request;
@@ -60,6 +61,7 @@ pub struct ServerApp {
     ledger: Arc<RwLock<Ledger>>,
     broadcaster: Arc<Broadcaster>,
     reload_sender: Arc<ReloadSender>,
+    auth: Arc<AuthState>,
 }
 
 impl GotchaApp for ServerApp {
@@ -78,15 +80,16 @@ impl GotchaApp for ServerApp {
     }
 
     fn routes(&self, router: GotchaRouter<GotchaContext<Self::State, Self::Config>>) -> GotchaRouter<GotchaContext<Self::State, Self::Config>> {
-        let basic_credential = self.opts.auth_credential.as_ref().map(|credential| {
-            let token_part = credential.splitn(2, ':').map(|it| it.to_owned()).collect_vec();
-            (
-                token_part.first().cloned().expect("cannot retrieve credential user_id"),
-                token_part.get(1).cloned(),
-            )
-        });
-
         let router = router
+            .get("/api/auth/status", auth::handlers::get_auth_status)
+            .post("/api/auth/login", auth::handlers::auth_login)
+            .post("/api/auth/logout", auth::handlers::auth_logout)
+            .post("/api/auth/passkey/register/start", auth::handlers::passkey_register_start)
+            .post("/api/auth/passkey/register/finish", auth::handlers::passkey_register_finish)
+            .post("/api/auth/passkey/login/start", auth::handlers::passkey_login_start)
+            .post("/api/auth/passkey/login/finish", auth::handlers::passkey_login_finish)
+            .get("/api/auth/passkeys", auth::handlers::get_passkeys)
+            .delete("/api/auth/passkeys/:passkey_id", auth::handlers::delete_passkey)
             .get("/api/sse", sse)
             .post("/api/reload", reload)
             .get("/api/info", get_basic_info)
@@ -120,6 +123,8 @@ impl GotchaApp for ServerApp {
             .get("/api/budgets/:budget_name", get_budget_info)
             .get("/api/budgets/:budget_name/interval/:year/:month", get_budget_interval_detail)
             .get("/api/plugins", routes::plugin::plugin_list)
+            // router plugins: any method, behind the same layers (and authentication) as the rest of the API
+            .route(routes::plugin_router::ROUTE, any(routes::plugin_router::route_to_plugin))
             .post("/api/query", routes::query::run_query)
             .post("/api/query/csv", routes::query::run_query_csv)
             .get("/api/query/schema", routes::query::get_query_schema)
@@ -128,9 +133,12 @@ impl GotchaApp for ServerApp {
             .layer(DefaultBodyLimit::disable())
             .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */));
 
-        let router = if let Some((username, password)) = basic_credential {
-            info!("web basic auth is enabled with username {}", username);
-            router.layer(ValidateRequestHeaderLayer::basic(&username, password.as_deref().unwrap_or_default()))
+        // the frontend (static assets and the SPA fallback below) stays reachable, it shows the login page
+        let router = if self.auth.enabled() {
+            router.layer(axum::middleware::from_fn_with_state(
+                SharedAuth(self.auth.clone()),
+                auth::require_authentication,
+            ))
         } else {
             router
         };
@@ -145,10 +153,15 @@ impl GotchaApp for ServerApp {
     }
 
     async fn state(&self, _config: &gotcha::ConfigWrapper<Self::Config>) -> Result<Self::State, Box<dyn std::error::Error>> {
+        let passkeys = self.auth.load_passkeys().await?;
+        if self.auth.passkey_enabled() {
+            info!("{} registered passkey(s) loaded from {}", passkeys, auth::PASSKEYS_PATH);
+        }
         Ok(AppState {
             ledger: SharedLedger(self.ledger.clone()),
             broadcaster: SharedBroadcaster(self.broadcaster.clone()),
             reload_sender: SharedReloadSender(self.reload_sender.clone()),
+            auth: SharedAuth(self.auth.clone()),
         })
     }
 }
@@ -184,7 +197,16 @@ pub struct ServeConfig {
     pub port: u16,
     pub no_report: bool,
     pub data_source: Arc<dyn DataSource>,
+    /// `user:pass`, enables the password login (`--auth` / `ZHANG_AUTH`)
     pub auth_credential: Option<String>,
+    /// enables the passkey login, the secret needed to register a passkey without a session (`--passkey` / `ZHANG_PASSKEY`)
+    pub passkey_secret: Option<String>,
+    /// the WebAuthn relying party id, by default the host of the request (`ZHANG_PASSKEY_RP_ID`)
+    pub passkey_rp_id: Option<String>,
+    /// the origin of the web UI, by default derived from the request (`ZHANG_PASSKEY_ORIGIN`)
+    pub passkey_origin: Option<String>,
+    /// the key that signs the sessions, random (sessions end on restart) when absent (`ZHANG_SESSION_SECRET`)
+    pub session_secret: Option<String>,
     pub is_local_fs: bool,
 }
 
@@ -361,16 +383,47 @@ pub async fn start_server(
     routes::query::max_result_values();
 
     let app = create_server_app(opts, ledger_data, broadcaster, reload_sender);
-    app.run().await.unwrap();
+    run_app(app).await.map_err(|e| ZhangError::CustomError(e.to_string()))
+}
+
+/// [`GotchaApp::run`], serving with the peer address of the connections, which the sign-in rate
+/// limit falls back to without `X-Forwarded-For`.
+async fn run_app(app: ServerApp) -> Result<(), Box<dyn std::error::Error>> {
+    app.logger()?;
+    let config = app.config().await?;
+    let state = app.state(&config).await?;
+    let router = app.build_router(GotchaContext { config: config.clone(), state }).await?;
+    let listener = tokio::net::TcpListener::bind((config.basic.host.as_str(), config.basic.port)).await?;
+    axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
     Ok(())
 }
 
+fn log_auth_settings(auth: &AuthState, opts: &ServeConfig) {
+    if !auth.enabled() {
+        return;
+    }
+    let mut methods = vec![];
+    if let Some(credential) = &opts.auth_credential {
+        methods.push(format!("password (user {})", credential.split(':').next().unwrap_or_default()));
+    }
+    if auth.passkey_enabled() {
+        methods.push("passkey".to_owned());
+    }
+    info!("authentication is enabled: {}", methods.join(", "));
+    if !auth.has_session_secret() {
+        info!("ZHANG_SESSION_SECRET is not set, sessions end when the server restarts");
+    }
+}
+
 pub fn create_server_app(opts: ServeConfig, ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>) -> ServerApp {
+    let auth = Arc::new(AuthState::new(AuthConfig::from_serve_config(&opts), ledger.clone()));
+    log_auth_settings(&auth, &opts);
     ServerApp {
         opts,
         ledger,
         broadcaster,
         reload_sender,
+        auth,
     }
 }
 

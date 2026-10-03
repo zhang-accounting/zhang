@@ -355,3 +355,32 @@ booked, like `FIFO` among the matching lots, so the ledger keeps its numbers unt
 
 **Solution:** Name the lot to reduce with its cost (and acquisition date), reduce all matching lots at once, or use the
 `FIFO` or `LIFO` booking method on the account.
+
+## PluginError
+
+Reported by a WASM plugin declared with a `plugin` directive, usually a validator that checks the ledger without
+changing it. The plugin reports the problem through the `zhang_emit_error` host function, and the ledger still loads.
+The error's `message` meta describes the problem and its `plugin` meta names the plugin; the plugin may add metas of
+its own. The error points at the directive the plugin names, or at the plugin's `plugin` directive when it names none.
+
+**Example of Error:**
+```zhang {4}
+option "features.plugin" "true"
+plugin "plugins/require-payee.wasm"
+
+2024-01-02 * "lunch"
+    Assets:Cash  -10 CNY
+    Expenses:Food  10 CNY
+```
+
+Here a plugin that requires a payee on every transaction reports `message: "payee is missing"` on the transaction.
+
+**Correct Case:**
+```zhang
+2024-01-02 * "Burger Shop" "lunch"
+    Assets:Cash  -10 CNY
+    Expenses:Food  10 CNY
+```
+
+**Solution:** Fix what the `message` meta describes, or change the plugin's configuration. A message saying that the
+plugin called `zhang_emit_error` with an invalid payload is a bug in the plugin: report it to the plugin's author.

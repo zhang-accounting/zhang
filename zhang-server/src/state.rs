@@ -6,6 +6,7 @@ use gotcha::GotchaContext;
 use tokio::sync::RwLock;
 use zhang_core::ledger::Ledger;
 
+use crate::auth::SharedAuth;
 use crate::broadcast::Broadcaster;
 use crate::ReloadSender;
 
@@ -47,6 +48,7 @@ pub struct AppState {
     pub ledger: SharedLedger,
     pub broadcaster: SharedBroadcaster,
     pub reload_sender: SharedReloadSender,
+    pub auth: SharedAuth,
 }
 
 impl FromRef<GotchaContext<AppState, ()>> for SharedLedger {
@@ -63,5 +65,11 @@ impl FromRef<GotchaContext<AppState, ()>> for SharedBroadcaster {
 impl FromRef<GotchaContext<AppState, ()>> for SharedReloadSender {
     fn from_ref(input: &GotchaContext<AppState, ()>) -> Self {
         input.state.reload_sender.clone()
+    }
+}
+
+impl FromRef<GotchaContext<AppState, ()>> for SharedAuth {
+    fn from_ref(input: &GotchaContext<AppState, ()>) -> Self {
+        input.state.auth.clone()
     }
 }

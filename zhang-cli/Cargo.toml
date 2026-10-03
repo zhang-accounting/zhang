@@ -50,3 +50,5 @@ mime = "0.3"
 http-body-util = "0.1"
 walkdir = "2"
 tempfile = "3.8.0"
+webauthn-rs = "0.5"
+webauthn-authenticator-rs = { version = "0.5", features = ["softpasskey"] }

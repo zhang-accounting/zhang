@@ -28,4 +28,7 @@ pub enum ErrorKind {
 
     UnsupportedBookingMethod,
     AmbiguousLotMatch,
+
+    /// a WASM plugin reported a problem through the `zhang_emit_error` host function
+    PluginError,
 }

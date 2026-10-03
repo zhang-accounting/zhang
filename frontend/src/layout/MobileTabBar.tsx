@@ -1,5 +1,5 @@
 import { useAtomValue } from 'jotai';
-import { ArrowUpRight, Ellipsis, RotateCw } from 'lucide-react';
+import { ArrowUpRight, Ellipsis, LogOut, RotateCw } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -10,12 +10,14 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { useLanguage } from '@/hooks/use-language';
 import { LANGUAGES } from '@/lib/languages';
 import { cn } from '@/lib/utils';
+import { canSignOutAtom } from '@/states/auth';
 import { titleAtom, updatableVersionAtom, versionAtom } from '@/states/basic';
 import { errorCountAtom } from '@/states/errors';
 import { DASHBOARD_LINK, isLinkActive, MOBILE_MORE_LINKS, MOBILE_PRIMARY_LINKS, UPGRADE_GUIDE_URL } from './nav-links';
 import { OnlineStatus } from './OnlineStatus';
 import { THEMES } from './themes';
 import { useReloadLedger } from './use-reload-ledger';
+import { useSignOut } from './use-sign-out';
 
 const TAB_CLASS = cn(
   'relative flex h-full w-full flex-col items-center justify-center gap-1',
@@ -44,7 +46,7 @@ function SegmentedButton({ active, className, ...props }: React.ComponentProps<t
   );
 }
 
-/** "More" bottom sheet: secondary routes, theme, language, reload, update notice. */
+/** "More" bottom sheet: secondary routes, theme, language, reload, update notice, sign out (auth on). */
 function MoreSheet() {
   const { t } = useTranslation();
   const { pathname } = useLocation();
@@ -55,6 +57,8 @@ function MoreSheet() {
   const { theme, setTheme } = useTheme();
   const [lang, setLang] = useLanguage();
   const reloadLedger = useReloadLedger();
+  const canSignOut = useAtomValue(canSignOutAtom);
+  const signOut = useSignOut();
   const moreActive = MOBILE_MORE_LINKS.some((link) => isLinkActive(pathname, link.uri));
 
   return (
@@ -129,6 +133,19 @@ function MoreSheet() {
             <RotateCw />
             {t('SHELL_RELOAD_LEDGER')}
           </Button>
+          {canSignOut && (
+            <Button
+              variant="outline"
+              className="h-10"
+              onClick={() => {
+                setOpen(false);
+                void signOut();
+              }}
+            >
+              <LogOut />
+              {t('auth.sign_out')}
+            </Button>
+          )}
         </div>
         <SheetCloseButton />
       </SheetContent>

@@ -367,11 +367,44 @@ impl BudgetIntervalEventEntity {
     }
 }
 
+/// a loaded plugin
 #[derive(Serialize, Schematic)]
 pub struct PluginEntity {
     pub name: String,
     pub version: String,
-    pub plugin_type: Vec<PluginType>,
+    /// the types the plugin runs as; a declared type this zhang does not know is left out
+    pub plugin_type: Vec<PluginTypeEntity>,
+    pub capabilities: PluginCapabilitiesEntity,
+    /// where a router plugin serves requests, `/api/plugins/{name}`; null for a plugin that is not a
+    /// router, and for a router whose name an earlier router plugin already serves
+    pub route: Nullable<String>,
+}
+
+/// a plugin type this zhang runs
+#[derive(Serialize, Schematic)]
+pub enum PluginTypeEntity {
+    Processor,
+    Mapper,
+    Router,
+}
+
+impl PluginTypeEntity {
+    /// `None` for a type this zhang does not run
+    pub fn from_core(plugin_type: &PluginType) -> Option<PluginTypeEntity> {
+        match plugin_type {
+            PluginType::Processor => Some(PluginTypeEntity::Processor),
+            PluginType::Mapper => Some(PluginTypeEntity::Mapper),
+            PluginType::Router => Some(PluginTypeEntity::Router),
+            PluginType::Unknown => None,
+        }
+    }
+}
+
+/// what a plugin's directive grants it
+#[derive(Serialize, Schematic)]
+pub struct PluginCapabilitiesEntity {
+    /// hosts the plugin may reach over HTTP; empty means no network access
+    pub allowed_hosts: Vec<String>,
 }
 
 #[derive(Serialize, Schematic)]
@@ -925,4 +958,42 @@ mod query_test {
             })
         );
     }
+}
+
+#[derive(Serialize, Schematic)]
+pub struct AuthMethodsEntity {
+    /// username and password, `ZHANG_AUTH`
+    pub password: bool,
+    /// passkeys, `ZHANG_PASSKEY`
+    pub passkey: bool,
+}
+
+#[derive(Serialize, Schematic)]
+pub struct AuthStatusEntity {
+    /// whether any authentication method is enabled
+    pub enabled: bool,
+    /// whether the caller can use the API (always true when authentication is disabled)
+    pub authenticated: bool,
+    pub methods: AuthMethodsEntity,
+    /// whether at least one passkey is registered
+    pub passkey_registered: bool,
+    /// who the caller is signed in as
+    pub user: Option<String>,
+    /// title of ledger
+    pub title: Option<String>,
+}
+
+#[derive(Serialize, Schematic)]
+pub struct PasskeyChallengeEntity {
+    /// identifies the ceremony when finishing it
+    pub state_id: String,
+    /// the options to pass to `navigator.credentials.create` / `navigator.credentials.get`
+    pub options: serde_json::Value,
+}
+
+#[derive(Serialize, Schematic)]
+pub struct PasskeyEntity {
+    pub id: String,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
 }

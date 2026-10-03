@@ -1004,7 +1004,7 @@ WHERE file = 'data/2024.zhang'
 
 ## HTTP API
 
-查询页面使用的就是下面这些 HTTP 接口，你也可以在脚本中调用它们。如果启用了 [Basic Auth 认证](/zh-cn/installation/3-basic_auth/)，请携带与其他 API 相同的凭证。
+查询页面使用的就是下面这些 HTTP 接口，你也可以在脚本中调用它们。如果启用了[身份认证](/zh-cn/installation/3-authentication/)，请先登录，或者像调用其他 API 一样，用 HTTP Basic `Authorization` 头携带 `ZHANG_AUTH` 的凭证。
 
 ### 执行查询
 

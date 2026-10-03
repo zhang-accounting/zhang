@@ -42,12 +42,20 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 mime_guess = "2"
 self_update = "0.39"
-tower-http = { version = "0.5.0", features = ["cors", "limit", "auth"] }
+tower-http = { version = "0.5.0", features = ["cors", "limit"] }
 async-stream = "0.3.5"
 serde_qs = "0.13.0"
+webauthn-rs = "0.5"
+hmac = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+percent-encoding = "2"
+form_urlencoded = "1"
 
 [build-dependencies]
 chrono = { version = "0.4" }
 
 [dev-dependencies]
 beancount = { version = "0.1", path = "../extensions/beancount" }
+webauthn-authenticator-rs = { version = "0.5", features = ["softpasskey"] }
+tower = { version = "0.4", features = ["util"] }

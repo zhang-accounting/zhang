@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
 import { serverBaseUrl } from '@/api/fetcher';
 import { retrieveOptions, retrievePlugins } from '@/api/requests';
+import { PasskeySettings } from '@/components/auth/PasskeySettings';
 import { SettingRow, SettingsSection } from '@/components/basic/Setting';
 import { EmptyState, PageHeader, PageShell } from '@/components/layout';
 import PluginBox from '@/components/PluginBox';
@@ -100,6 +101,8 @@ export default function Settings() {
         </SettingRow>
       </SettingsSection>
 
+      <PasskeySettings />
+
       <SettingsSection
         title={t('settings.ledger')}
         action={
@@ -159,8 +162,9 @@ export default function Settings() {
           <EmptyState icon={Puzzle} title={t('settings.no_plugins_title')} description={t('settings.no_plugins_description')} className="py-8" />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
-            {(plugins ?? []).map((plugin) => (
-              <PluginBox key={plugin.name} name={plugin.name} version={plugin.version} plugin_type={plugin.plugin_type} />
+            {/* declaration order; a plugin declared twice is listed twice */}
+            {(plugins ?? []).map((plugin, index) => (
+              <PluginBox key={index} name={plugin.name} version={plugin.version} plugin_type={plugin.plugin_type} route={plugin.route} />
             ))}
           </div>
         )}

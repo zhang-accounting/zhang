@@ -87,7 +87,11 @@ export interface paths {
     get: operations['get_all_options'];
   };
   '/api/plugins': {
-    /** Plugin List */
+    /**
+     * Plugin List
+     * @description The loaded plugins in declaration order, which is the order they run in. A router plugin
+     * also lists the route it serves.
+     */
     get: operations['plugin_list'];
   };
   '/api/query': {
@@ -672,7 +676,8 @@ export interface operations {
                   | 'MultipleOperatingCurrencyDetect'
                   | 'ParseInvalidMeta'
                   | 'UnsupportedBookingMethod'
-                  | 'AmbiguousLotMatch';
+                  | 'AmbiguousLotMatch'
+                  | 'PluginError';
                 id: string;
                 metas: {
                   [key: string]: string;
@@ -955,7 +960,11 @@ export interface operations {
       };
     };
   };
-  /** Plugin List */
+  /**
+   * Plugin List
+   * @description The loaded plugins in declaration order, which is the order they run in. A router plugin
+   * also lists the route it serves.
+   */
   plugin_list: {
     responses: {
       /** @description default return */
@@ -963,8 +972,18 @@ export interface operations {
         content: {
           'application/json': {
             data: {
+              capabilities: {
+                /** @description hosts the plugin may reach over HTTP; empty means no network access */
+                allowed_hosts: string[];
+              };
               name: string;
-              plugin_type: ('Processor' | 'Mapper' | 'Router' | 'Unknown')[];
+              /** @description the types the plugin runs as; a declared type this zhang does not know is left out */
+              plugin_type: ('Processor' | 'Mapper' | 'Router')[];
+              /**
+               * @description where a router plugin serves requests, `/api/plugins/{name}`; null for a plugin that is not a
+               * router, and for a router whose name an earlier router plugin already serves
+               */
+              route: string | null;
               version: string;
             }[];
           };

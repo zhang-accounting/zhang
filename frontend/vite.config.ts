@@ -23,7 +23,8 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    // Dev only: App.tsx opens a same-origin EventSource on /api/sse; forward it (and other /api calls) to the local zhang server.
+    // Dev only: every /api call (fetch, uploads, the /api/sse EventSource) is same-origin so the HttpOnly session cookie of the
+    // login page is sent; forward them to the local zhang server.
     proxy: {
       '/api': process.env.VITE_API_ENDPOINT || 'http://localhost:8000',
     },

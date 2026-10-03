@@ -6,7 +6,6 @@ import App from './App';
 import './i18n';
 import './global.css';
 import { TooltipProvider } from './components/ui/tooltip';
-import { Toaster } from './components/ui/sonner';
 
 // SPA only: next-themes' inline script never runs when React renders it on the client (and React 19 warns about it),
 // so mark it as a data block. index.html applies the persisted theme class before first paint instead.
@@ -18,7 +17,6 @@ createRoot(document.getElementById('root')!).render(
       <TooltipProvider>
         <BrowserRouter>
           <App />
-          <Toaster mobileOffset={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
         </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>

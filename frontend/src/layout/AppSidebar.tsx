@@ -1,5 +1,5 @@
 import { useAtomValue } from 'jotai';
-import { ArrowUpRight, ChevronRight, RotateCw } from 'lucide-react';
+import { ArrowUpRight, ChevronRight, LogOut, RotateCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation } from 'react-router-dom';
 import NewTransactionButton from '@/components/NewTransactionButton';
@@ -20,6 +20,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { cn } from '@/lib/utils';
+import { canSignOutAtom } from '@/states/auth';
 import { titleAtom, updatableVersionAtom, versionAtom } from '@/states/basic';
 import { errorCountAtom } from '@/states/errors';
 import { LanguageSwitch } from './LanguageSwitch';
@@ -28,6 +29,7 @@ import { OnlineStatus } from './OnlineStatus';
 import { SidebarAccounts } from './SidebarAccounts';
 import { ThemeToggle } from './ThemeToggle';
 import { useReloadLedger } from './use-reload-ledger';
+import { useSignOut } from './use-sign-out';
 
 const UPGRADE_BUTTON_CLASS = cn(buttonVariants({ size: 'sm' }), 'mt-2 w-full');
 const BADGE_CLASS = 'bg-destructive/10 text-destructive peer-data-active/menu-button:text-destructive';
@@ -84,10 +86,33 @@ function MoreGroup() {
   );
 }
 
+/** Footer icon button ending the session (only when the server has auth on). */
+function SignOutButton() {
+  const { t } = useTranslation();
+  const signOut = useSignOut();
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            aria-label={t('auth.sign_out')}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'icon' }), ICON_BUTTON_CLASS)}
+          />
+        }
+      >
+        <LogOut />
+      </TooltipTrigger>
+      <TooltipContent side="top">{t('auth.sign_out')}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 /**
  * Desktop (>= md) navigation, modelled on 多少记账 + Actual Budget: ledger header, "New transaction", primary nav with a
- * collapsible "More" group, the accounts list with balances, and a footer with Tools / Settings plus theme, language and
- * collapse buttons. Collapses to icons (Ctrl/Cmd+B); the accounts list is hidden then.
+ * collapsible "More" group, the accounts list with balances, and a footer with Tools / Settings plus theme, language, sign-out
+ * (auth on) and collapse buttons. Collapses to icons (Ctrl/Cmd+B); the accounts list is hidden then.
  */
 export function AppSidebar() {
   const { t } = useTranslation();
@@ -95,6 +120,7 @@ export function AppSidebar() {
   const ledgerTitle = useAtomValue(titleAtom);
   const version = useAtomValue(versionAtom);
   const updatableVersion = useAtomValue(updatableVersionAtom);
+  const canSignOut = useAtomValue(canSignOutAtom);
   const reloadLedger = useReloadLedger();
 
   return (
@@ -161,6 +187,7 @@ export function AppSidebar() {
         <div className="flex items-center gap-1 px-1 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:px-0">
           <ThemeToggle className={ICON_BUTTON_CLASS} side="top" />
           <LanguageSwitch className={ICON_BUTTON_CLASS} side="top" />
+          {canSignOut && <SignOutButton />}
           <SidebarTrigger
             className={cn(ICON_BUTTON_CLASS, 'ml-auto group-data-[collapsible=icon]:ml-0')}
             aria-label={t('SHELL_TOGGLE_SIDEBAR')}

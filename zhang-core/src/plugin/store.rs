@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 
 #[cfg(feature = "plugin_runtime")]
 use extism::convert::Json as WasmJson;
@@ -7,10 +8,13 @@ use extism::convert::Json as WasmJson;
 use extism::{Manifest, Plugin as WasmPlugin, Wasm};
 use log::{info, warn};
 use sha256::digest;
-use zhang_ast::{Directive, Plugin, Spanned};
+use zhang_ast::{Directive, Plugin, SpanInfo, Spanned};
 
 use crate::domains::schemas::OptionDomain;
-use crate::plugin::capabilities::PluginDeclaration;
+use crate::pipeline::StageContext;
+use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration};
+use crate::plugin::host::PluginHost;
+use crate::plugin::router::unavailable_host_functions;
 use crate::plugin::PluginType;
 use crate::{ZhangError, ZhangResult};
 
@@ -24,37 +28,48 @@ pub struct PluginStore {
 }
 
 impl PluginStore {
-    pub fn insert_plugin(&mut self, _plugin: &Plugin) -> ZhangResult<()> {
+    /// register the plugin `_plugin` declares, as parsed into `declaration`; `span` is the directive's span
+    pub fn insert_plugin(&mut self, _plugin: &Plugin, declaration: PluginDeclaration, span: &SpanInfo) -> ZhangResult<()> {
         let plugin_name = _plugin.module.as_str().to_string();
-        let plugin_hash = digest(plugin_name);
+        let plugin_hash = digest(&plugin_name);
         let plugin_cache_file = PathBuf::from_str(".cache/plugins")
             .expect("Cannot create path")
             .join(format!("{}.wasm", plugin_hash));
         let module_bytes = std::fs::read(&plugin_cache_file)?;
 
         let wasm = Wasm::data(module_bytes.clone());
-        let manifest = Manifest::new([wasm]);
+        let timeout = declaration.capabilities.timeout;
+        let manifest = Manifest::new([wasm]).with_timeout(timeout);
 
-        let mut plugin = WasmPlugin::new(manifest, [], true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
+        // a plugin importing a host function cannot be instantiated without it, so the router host
+        // functions are linked too, answering that they are unavailable
+        let host = PluginHost::new(_plugin.module.as_str(), span.clone());
+        let functions = host.functions().into_iter().chain(unavailable_host_functions());
+        let mut plugin = WasmPlugin::new(manifest, functions, true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
         let name = plugin
             .call::<(), WasmJson<String>>("name", ())
-            .map_err(|e| ZhangError::CustomError(format!("Failed to call 'name': {}", e)))?
+            .map_err(|e| call_error(&plugin_name, "name", timeout, e))?
             .0;
         let version = plugin
             .call::<(), WasmJson<String>>("version", ())
-            .map_err(|e| ZhangError::CustomError(format!("Failed to call 'version': {}", e)))?
+            .map_err(|e| call_error(&plugin_name, "version", timeout, e))?
             .0;
         let declared_types = plugin
             .call::<(), WasmJson<Vec<serde_json::Value>>>("supported_type", ())
-            .map_err(|e| ZhangError::CustomError(format!("Failed to call 'supported_type': {}", e)))?
+            .map_err(|e| call_error(&plugin_name, "supported_type", timeout, e))?
             .0;
         let plugin_types = known_plugin_types(&name, declared_types)?;
+        let ignored_errors = host.take_errors().len();
+        if ignored_errors > 0 {
+            warn!("plugin {name} reported {ignored_errors} error(s) while registering; only its processor and mapper can report errors");
+        }
 
         let registered_plugin = RegisteredPlugin {
             name,
             version,
             module_bytes,
-            declaration: PluginDeclaration::parse(_plugin),
+            declaration,
+            span: span.clone(),
         };
         if plugin_types.contains(&PluginType::Processor) {
             self.processors.push(registered_plugin.clone())
@@ -63,7 +78,7 @@ impl PluginStore {
             self.mappers.push(registered_plugin.clone())
         }
         if plugin_types.contains(&PluginType::Router) {
-            self.routers.push(registered_plugin.clone())
+            self.add_router(registered_plugin.clone())
         }
         self.ordered.push((registered_plugin, plugin_types));
 
@@ -102,6 +117,18 @@ fn known_plugin_types(plugin_name: &str, declared: Vec<serde_json::Value>) -> Zh
     Ok(known)
 }
 
+/// the error of a failed call into a plugin; a call the host stopped at the plugin's timeout says so
+fn call_error(plugin: &str, export: &str, timeout: Duration, error: extism::Error) -> ZhangError {
+    // extism reports a call it interrupted at the manifest's timeout as exactly "timeout"
+    if error.to_string() == "timeout" {
+        ZhangError::CustomError(format!(
+            "plugin {plugin} timed out: its `{export}` call ran longer than {timeout:?}. A `timeout` meta on its `plugin` directive raises the limit"
+        ))
+    } else {
+        ZhangError::CustomError(format!("plugin {plugin} failed in its `{export}` call: {error}"))
+    }
+}
+
 #[derive(Clone)]
 pub struct RegisteredPlugin {
     pub name: String,
@@ -110,47 +137,69 @@ pub struct RegisteredPlugin {
     module_bytes: Vec<u8>,
     /// the capabilities and config declared by the plugin's directive
     declaration: PluginDeclaration,
+    /// the span of the plugin's directive, where the errors it reports go unless they carry a span
+    span: SpanInfo,
 }
 
 impl RegisteredPlugin {
-    fn manifest(&self, options: &[OptionDomain]) -> Manifest {
-        // the host sets no reserved `zhang.*` config yet
-        let config = self.declaration.config_with(options, []);
+    /// what the plugin's directive grants it
+    pub fn capabilities(&self) -> &PluginCapabilities {
+        &self.declaration.capabilities
+    }
+
+    /// the manifest of every instance of the plugin, whatever it runs as: config, allowed hosts and timeout
+    pub(super) fn manifest(&self, options: &[OptionDomain]) -> Manifest {
+        let config = self.declaration.config_with(options, self.declaration.host_config());
         let wasm = Wasm::data(self.module_bytes.clone());
         Manifest::new([wasm])
             .with_config(config.into_iter())
             // no declared host means the plugin gets no network access at all
             .with_allowed_hosts(self.declaration.capabilities.allowed_hosts.iter().cloned())
+            .with_timeout(self.declaration.capabilities.timeout)
     }
 
-    pub fn load_as_plugin(&self, options: &[OptionDomain]) -> ZhangResult<WasmPlugin> {
+    /// the host side of a new instance of this plugin
+    pub fn host(&self) -> PluginHost {
+        PluginHost::new(self.name.clone(), self.span.clone())
+    }
+
+    /// a new instance of the plugin, with the host functions of `host` linked in, and the router host
+    /// functions answering that they are unavailable
+    pub fn load_as_plugin(&self, options: &[OptionDomain], host: &PluginHost) -> ZhangResult<WasmPlugin> {
         info!("loading plugin {} {}", self.name, self.version);
-        let plugin =
-            WasmPlugin::new(self.manifest(options), [], true).map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
+        let functions = host.functions().into_iter().chain(unavailable_host_functions());
+        let plugin = WasmPlugin::new(self.manifest(options), functions, true)
+            .map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
 
         Ok(plugin)
     }
 
-    pub fn execute_as_processor(&self, directive: Vec<Spanned<Directive>>, options: &[OptionDomain]) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let mut plugin = self.load_as_plugin(options)?;
+    /// run the plugin's processor over the whole stream; the errors it reports go to `ctx`
+    pub fn execute_as_processor(&self, directive: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
+        let host = self.host();
+        let mut plugin = self.load_as_plugin(ctx.options, &host)?;
         let ret = plugin
             .call::<WasmJson<Vec<Spanned<Directive>>>, WasmJson<Vec<Spanned<Directive>>>>("processor", WasmJson(directive))
-            .map_err(|e| ZhangError::CustomError(format!("plugin {} failed as processor: {}", self.name, e)))?
+            .map_err(|e| call_error(&self.name, "processor", self.declaration.capabilities.timeout, e))?
             .0;
+        host.forward_to(ctx);
         Ok(ret)
     }
 
-    /// map every directive through the plugin, reusing a single instance for the whole stream
-    pub fn execute_as_mapper(&self, directives: Vec<Spanned<Directive>>, options: &[OptionDomain]) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let mut plugin = self.load_as_plugin(options)?;
+    /// map every directive through the plugin, reusing a single instance for the whole stream;
+    /// the errors it reports go to `ctx`
+    pub fn execute_as_mapper(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
+        let host = self.host();
+        let mut plugin = self.load_as_plugin(ctx.options, &host)?;
         let mut ret = vec![];
         for directive in directives {
             let mapped = plugin
                 .call::<WasmJson<Spanned<Directive>>, WasmJson<Vec<Spanned<Directive>>>>("mapper", WasmJson(directive))
-                .map_err(|e| ZhangError::CustomError(format!("plugin {} failed as mapper: {}", self.name, e)))?
+                .map_err(|e| call_error(&self.name, "mapper", self.declaration.capabilities.timeout, e))?
                 .0;
             ret.extend(mapped);
         }
+        host.forward_to(ctx);
         Ok(ret)
     }
 }
@@ -158,14 +207,30 @@ impl RegisteredPlugin {
 #[cfg(test)]
 mod test {
     use std::collections::BTreeMap;
+    use std::time::Duration;
 
     use serde_json::json;
-    use zhang_ast::{Meta, Plugin, ZhangString};
+    use zhang_ast::{Meta, Plugin, SpanInfo, ZhangString};
 
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::PluginDeclaration;
-    use crate::plugin::store::{known_plugin_types, RegisteredPlugin};
+    use crate::plugin::store::{call_error, known_plugin_types, RegisteredPlugin};
     use crate::plugin::PluginType;
+
+    fn registered_with_meta(meta: &[(&str, &str)]) -> RegisteredPlugin {
+        let directive = Plugin {
+            module: ZhangString::quote("slow.wasm"),
+            value: vec![],
+            meta: meta.iter().map(|(key, value)| (key.to_string(), ZhangString::quote(*value))).collect(),
+        };
+        RegisteredPlugin {
+            name: "slow".to_owned(),
+            version: "0.1.0".to_owned(),
+            module_bytes: vec![],
+            declaration: PluginDeclaration::parse(&directive),
+            span: SpanInfo::default(),
+        }
+    }
 
     #[test]
     fn should_hand_the_plugin_options_and_meta_without_allowed_hosts() {
@@ -195,16 +260,24 @@ mod test {
             version: "0.1.0".to_owned(),
             module_bytes: vec![],
             declaration: PluginDeclaration::parse(&directive),
+            span: SpanInfo::default(),
         };
 
         let manifest = plugin.manifest(&options);
 
+        // the flat keys are unchanged: a repeated key keeps its last value, and the positional
+        // value and `allowed_hosts` only reach the plugin through `zhang.plugin`
         let expected: BTreeMap<String, String> = [
             ("base_currency", "USD"),
             ("operating_currency", "EUR"),
             ("tag", "second"),
             ("timezone", "UTC"),
+            ("zhang.abi", "1"),
             ("zhang.mine", "kept"),
+            (
+                "zhang.plugin",
+                r#"{"module":"fx-rate.wasm","args":["positional"],"meta":{"allowed_hosts":["api.frankfurter.dev","api.example.com"],"base_currency":["USD"],"operating_currency":["EUR"],"tag":["first","second"],"zhang.mine":["kept"]}}"#,
+            ),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value.to_owned()))
@@ -228,6 +301,7 @@ mod test {
             version: "0.1.0".to_owned(),
             module_bytes: vec![],
             declaration: PluginDeclaration::parse(&directive),
+            span: SpanInfo::default(),
         };
 
         assert_eq!(plugin.manifest(&[]).allowed_hosts, Some(vec![]));
@@ -245,5 +319,31 @@ mod test {
     #[test]
     fn should_reject_a_plugin_type_that_is_not_a_name() {
         assert!(known_plugin_types("broken", vec![json!(42)]).is_err());
+    }
+
+    #[test]
+    fn should_give_every_call_a_default_timeout_of_a_minute() {
+        assert_eq!(registered_with_meta(&[]).manifest(&[]).timeout_ms, Some(60_000));
+    }
+
+    #[test]
+    fn should_let_the_timeout_meta_override_the_default() {
+        assert_eq!(registered_with_meta(&[("timeout", "2m")]).manifest(&[]).timeout_ms, Some(120_000));
+        assert_eq!(registered_with_meta(&[("timeout", "1")]).manifest(&[]).timeout_ms, Some(1_000));
+        assert_eq!(
+            registered_with_meta(&[("timeout", "soon")]).manifest(&[]).timeout_ms,
+            Some(60_000),
+            "an invalid timeout falls back to the default"
+        );
+    }
+
+    #[test]
+    fn should_say_that_a_plugin_timed_out() {
+        let timed_out = call_error("slow", "processor", Duration::from_secs(1), extism::Error::msg("timeout")).to_string();
+        assert!(timed_out.contains("plugin slow timed out"), "{timed_out}");
+        assert!(timed_out.contains("`processor` call ran longer than 1s"), "{timed_out}");
+
+        let failed = call_error("slow", "processor", Duration::from_secs(1), extism::Error::msg("boom")).to_string();
+        assert!(failed.contains("plugin slow failed in its `processor` call: boom"), "{failed}");
     }
 }

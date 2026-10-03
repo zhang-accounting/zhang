@@ -4,8 +4,12 @@ pub use semver::Version;
 use serde::{Deserialize, Serialize};
 use zhang_ast::{Directive, Spanned};
 
+use crate::plugin::http::{PluginRequest, PluginResponse};
+
 pub mod capabilities;
+pub mod host;
 pub mod http;
+pub mod router;
 pub mod stage;
 pub mod store;
 
@@ -26,8 +30,10 @@ pub enum PluginType {
     /// ```
     Mapper,
 
-    /// the plugin can handle the customized routes, usually used for new page's API
-    /// like the request of URL `/api/plugins/{PLUGIN_NAME}/my-resources` will be forwarded to plugin's router by zhang-core
+    /// the plugin exports `router`, which handles the HTTP requests to `/api/plugins/{name}` and the
+    /// paths below it, e.g. to serve a custom report page or its data. The request is a
+    /// [`http::PluginRequest`] and the response a [`http::PluginResponse`], both as JSON; see
+    /// [`router`] for the host functions it can read the ledger with
     Router,
 
     /// a type this version of zhang does not know, e.g. one added by a newer zhang.
@@ -49,5 +55,9 @@ pub trait Plugin {
 
     fn mapper(_: Spanned<Directive>) -> Vec<Spanned<Directive>> {
         unimplemented!("plugin does not support mapper type")
+    }
+
+    fn router(_: PluginRequest) -> PluginResponse {
+        unimplemented!("plugin does not support router type")
     }
 }
