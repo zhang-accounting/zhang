@@ -107,8 +107,12 @@ fn load(case: &Case, timezone: Option<&str>) -> Option<Ledger> {
     match ledger {
         Ok(ledger) => Some(ledger),
         // `examples` includes a file that is not in the repository, and the local file data
-        // source does not expand the wildcard includes of `wildcard-include-directive-supportted`
-        Err(error) if SKIPPED.iter().any(|name| case.dir.ends_with(name)) => {
+        // source does not expand the wildcard includes of the wildcard include fixture
+        Err(error)
+            if SKIPPED
+                .iter()
+                .any(|prefix| case.dir.file_name().is_some_and(|name| name.to_string_lossy().starts_with(prefix))) =>
+        {
             eprintln!("skipped {}: {}", case.name, error);
             None
         }
@@ -116,8 +120,8 @@ fn load(case: &Case, timezone: Option<&str>) -> Option<Ledger> {
     }
 }
 
-/// The fixtures that do not load from a plain directory.
-const SKIPPED: [&str; 2] = ["examples", "wildcard-include-directive-supportted"];
+/// The fixtures that do not load from a plain directory, by the start of their name.
+const SKIPPED: [&str; 2] = ["examples", "wildcard-include-directive-"];
 
 fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
