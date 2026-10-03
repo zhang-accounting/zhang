@@ -111,8 +111,8 @@ pub struct Posting {
     ///
     /// A missing field reads as empty, so a WASM plugin built against an older zhang-ast,
     /// whose postings have no `meta`, still exchanges directives with zhang. Such a plugin
-    /// does not know the field, though: the postings of the transactions it returns come
-    /// back without their metadata.
+    /// does not know the field, though, and writes back every directive it is given: every
+    /// transaction that passes through it loses the metadata of its postings.
     #[serde(default)]
     pub meta: Meta,
 }
