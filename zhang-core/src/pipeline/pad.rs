@@ -3,12 +3,14 @@
 use std::collections::{HashMap, HashSet};
 
 use bigdecimal::Zero;
+use chrono::{NaiveDate, NaiveDateTime};
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Date, Directive, Flag, Pad, Posting, SpanInfo, Spanned, Transaction, ZhangString};
 
 use super::balance::{AccountStates, UnitBalances};
 use super::{ProcessStage, StageContext};
+use crate::ledger::Ledger;
 use crate::ZhangResult;
 
 /// inserts the padding transactions (flag `P`) of `pad` and `balance ... with pad` directives.
@@ -19,13 +21,15 @@ use crate::ZhangResult;
 /// the difference to the parent account itself. A pad brings the account to exactly the asserted
 /// amount: zhang infers no tolerance, and pads even within an explicit `~` tolerance.
 ///
-/// - A `pad` serves the next balance assertion of its account in each currency, until the account's
-///   next `pad`, like beancount 3.2.3's `pad` plugin, except that only an assertion on the account
-///   itself uses it (beancount also lets one on a sub-account use it up), and that it is sized from the
-///   balance with every padding before it (beancount leaves out the padding of other pads). Its
-///   padding transaction is dated on the `pad`, so the balances between the `pad` and the assertion
-///   include it. A `pad` that pads nothing — no later assertion of its account needs it — is reported
-///   as [`ErrorKind::UnusedPad`].
+/// - A `pad` serves the next balance assertion of its account in each currency dated after the day of
+///   the `pad`, until the account's next `pad`, as [`PadPairing`] pairs them, like beancount 3.2.3's
+///   `pad` plugin, except that only an assertion on the account itself uses it (beancount also lets one
+///   on a sub-account use it up). It is sized from the balance at that assertion, with the padding of
+///   every assertion served before it (beancount leaves out the padding of other pads). Its padding
+///   transaction goes right after the `pad`, dated on it: the stream puts a `pad` after the balance
+///   entries of its day (see [`Ledger::sort_directives_datetime`]), so with times the padding is dated
+///   at the last of them when that is later than the `pad`. A `pad` that pads nothing — no later
+///   assertion of its account needs it — is reported as [`ErrorKind::UnusedPad`].
 /// - Padding a commodity the account or a sub-account holds at cost is reported as
 ///   [`ErrorKind::PadWithCost`] on the assertion, as in beancount: the padding is booked without a cost.
 /// - A `balance ... with pad` pads its own assertion: its padding transaction is dated on it and goes
@@ -35,14 +39,69 @@ use crate::ZhangResult;
 /// the stream (like beancount's `Pad` entry); the store fold books only the padding transactions.
 pub struct PadStage;
 
+/// pairs the `pad` directives of a sorted stream with the balance assertions they serve, the same way for
+/// the pad stage and for the stream a plugin sees: a `pad` serves the first assertion of its own account in
+/// each currency dated after the day of the `pad` — days are compared, not times, as beancount knows no
+/// times — and is replaced by the account's latest `pad` dated before an assertion
+pub(crate) struct PadPairing<T> {
+    /// the pads of each account that may still serve an assertion, in stream order
+    waiting: HashMap<String, Vec<Waiting<T>>>,
+    /// the pads a later one replaced
+    replaced: Vec<T>,
+}
+
+struct Waiting<T> {
+    date: NaiveDate,
+    /// the currencies whose assertion it served already
+    served: HashSet<String>,
+    pad: T,
+}
+
+impl<T> Default for PadPairing<T> {
+    fn default() -> Self {
+        Self {
+            waiting: HashMap::new(),
+            replaced: vec![],
+        }
+    }
+}
+
+impl<T> PadPairing<T> {
+    /// a `pad` of `account` dated `date`, the next in the stream
+    pub(crate) fn pad(&mut self, account: &Account, date: NaiveDate, pad: T) {
+        self.waiting.entry(account.name().to_owned()).or_default().push(Waiting {
+            date,
+            served: HashSet::new(),
+            pad,
+        });
+    }
+
+    /// the `pad` serving the assertion of `account` in `commodity` dated `date`, the next in the stream: the
+    /// account's latest `pad` dated before that day, unless it served an assertion in `commodity` already
+    pub(crate) fn serve(&mut self, account: &Account, commodity: &str, date: NaiveDate) -> Option<&mut T> {
+        let waiting = self.waiting.get_mut(account.name())?;
+        // the stream is sorted: the pads dated before the day come first
+        let current = waiting.iter().rposition(|it| it.date < date)?;
+        // no later assertion, dated on that day or later, can use an earlier pad
+        self.replaced.extend(waiting.drain(..current).map(|it| it.pad));
+        let current = &mut waiting[0];
+        current.served.insert(commodity.to_owned()).then_some(&mut current.pad)
+    }
+
+    /// every `pad` paired, replaced or not
+    pub(crate) fn into_pads(self) -> impl Iterator<Item = T> {
+        self.replaced.into_iter().chain(self.waiting.into_values().flatten().map(|it| it.pad))
+    }
+}
+
 /// a `pad` waiting for the assertions it serves
 struct ActivePad {
     pad: Pad,
     span: SpanInfo,
-    /// its place in the stream, the order unused pads are reported in
+    /// its place in the stream: its padding goes right after it, and unused pads are reported in this order
     position: usize,
-    /// the currencies whose next assertion it served already
-    served: HashSet<String>,
+    /// what its padding is dated: the `pad`, or the last balance entry of its day when that is later
+    date: Date,
     /// whether it padded anything
     used: bool,
 }
@@ -55,14 +114,17 @@ impl ProcessStage for PadStage {
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
         let mut balances = UnitBalances::for_stage(ctx);
         let mut accounts = AccountStates::default();
-        // the `pad` waiting for assertions, by the account it pads
-        let mut active: HashMap<String, ActivePad> = HashMap::new();
+        let mut pairing: PadPairing<ActivePad> = PadPairing::default();
         let mut ret = Vec::with_capacity(directives.len());
-        // the padding transactions of `pad` directives, dated on their `pad`: the re-sort after the stage puts
-        // them there, after the balance assertions of that day, as beancount orders a day
-        let mut paddings = vec![];
+        // the padding transactions of each `pad`, by the place of the `pad` in `ret`
+        let mut paddings: HashMap<usize, Vec<Spanned<Directive>>> = HashMap::new();
+        // the time of the last balance entry so far: the stream puts a `pad` after every balance entry of its day
+        let mut last_balance_entry: Option<NaiveDateTime> = None;
 
         for directive in directives {
+            if Ledger::is_balance_entry(&directive.data) {
+                last_balance_entry = directive.datetime();
+            }
             let padding = match &directive.data {
                 Directive::Open(open) => {
                     accounts.apply(&directive.data);
@@ -83,25 +145,45 @@ impl ProcessStage for PadStage {
                 }
                 Directive::Pad(pad) => {
                     report_account_errors(ctx, &accounts, &[&pad.account, &pad.pad], &directive.span);
+                    let date = match (last_balance_entry, directive.datetime()) {
+                        (Some(last), Some(at)) if last.date() == at.date() && last > at => Date::Datetime(last),
+                        _ => pad.date.clone(),
+                    };
                     let waiting = ActivePad {
                         pad: pad.clone(),
                         span: directive.span.clone(),
                         position: ret.len(),
-                        served: HashSet::new(),
+                        date,
                         used: false,
                     };
-                    if let Some(replaced) = active.insert(pad.account.name().to_owned(), waiting) {
-                        report_unused(ctx, replaced);
-                    }
+                    pairing.pad(&pad.account, pad.date.naive_date(), waiting);
                     None
                 }
                 Directive::BalanceCheck(check) => {
-                    paddings.extend(serve(ctx, &mut active, &mut balances, &check.account, &check.amount, &directive.span));
+                    serve(
+                        ctx,
+                        &mut pairing,
+                        &mut paddings,
+                        &mut balances,
+                        &check.date,
+                        &check.account,
+                        &check.amount,
+                        &directive.span,
+                    );
                     None
                 }
                 Directive::BalancePad(pad) => {
                     report_account_errors(ctx, &accounts, &[&pad.account, &pad.pad], &directive.span);
-                    paddings.extend(serve(ctx, &mut active, &mut balances, &pad.account, &pad.amount, &directive.span));
+                    serve(
+                        ctx,
+                        &mut pairing,
+                        &mut paddings,
+                        &mut balances,
+                        &pad.date,
+                        &pad.account,
+                        &pad.amount,
+                        &directive.span,
+                    );
                     // nothing to pad: no transaction (beancount does the same)
                     let distance = balances.distance(&pad.account, &pad.amount);
                     (!distance.number.is_zero()).then(|| {
@@ -116,34 +198,46 @@ impl ProcessStage for PadStage {
             ret.push(directive);
             ret.extend(padding);
         }
-        let mut waiting = active.into_values().collect::<Vec<_>>();
-        waiting.sort_by_key(|it| it.position);
-        for waiting in waiting {
-            report_unused(ctx, waiting);
+        let mut pads = pairing.into_pads().collect::<Vec<_>>();
+        pads.sort_by_key(|it| it.position);
+        for pad in pads {
+            report_unused(ctx, pad);
         }
-        ret.extend(paddings);
-        Ok(ret)
+        if paddings.is_empty() {
+            return Ok(ret);
+        }
+        // each padding transaction right after its `pad`, in the order of the assertions it serves
+        let mut placed = Vec::with_capacity(ret.len() + paddings.values().map(Vec::len).sum::<usize>());
+        for (position, directive) in ret.into_iter().enumerate() {
+            placed.push(directive);
+            placed.extend(paddings.remove(&position).unwrap_or_default());
+        }
+        Ok(placed)
     }
 }
 
-/// serve the assertion at `span` of `account` with the `pad` waiting for it, if any: the first assertion of each
-/// currency after the `pad` gets the padding it needs. Returns the padding transaction
+/// serve the assertion at `span` of `account` dated `date` with the `pad` paired with it, if any: the first
+/// assertion of each currency after the `pad` gets the padding it needs, kept in `paddings` for the `pad`
+#[allow(clippy::too_many_arguments)]
 fn serve(
-    ctx: &mut StageContext, active: &mut HashMap<String, ActivePad>, balances: &mut UnitBalances, account: &Account, asserted: &Amount, span: &SpanInfo,
-) -> Option<Spanned<Directive>> {
-    let waiting = active.get_mut(account.name())?;
-    if !waiting.served.insert(asserted.commodity.clone()) {
-        return None;
-    }
+    ctx: &mut StageContext, pairing: &mut PadPairing<ActivePad>, paddings: &mut HashMap<usize, Vec<Spanned<Directive>>>, balances: &mut UnitBalances,
+    date: &Date, account: &Account, asserted: &Amount, span: &SpanInfo,
+) {
+    let Some(waiting) = pairing.serve(account, &asserted.commodity, date.naive_date()) else {
+        return;
+    };
     let distance = balances.distance(account, asserted);
     if distance.number.is_zero() {
-        return None;
+        return;
     }
     report_cost(ctx, balances, account, &asserted.commodity, span);
     waiting.used = true;
-    let txn = padding_transaction(waiting.pad.date.clone(), &waiting.pad.account, &waiting.pad.pad, distance);
+    let txn = padding_transaction(waiting.date.clone(), &waiting.pad.account, &waiting.pad.pad, distance);
     balances.apply_transaction(&txn);
-    Some(Spanned::new(Directive::Transaction(txn), waiting.span.clone()))
+    paddings
+        .entry(waiting.position)
+        .or_default()
+        .push(Spanned::new(Directive::Transaction(txn), waiting.span.clone()));
 }
 
 fn report_account_errors(ctx: &mut StageContext, accounts: &AccountStates, references: &[&Account], span: &SpanInfo) {
@@ -153,7 +247,8 @@ fn report_account_errors(ctx: &mut StageContext, accounts: &AccountStates, refer
 }
 
 /// padding a commodity the account or a sub-account holds at cost is an error on the assertion it serves, as in
-/// beancount: the padding is booked without a cost
+/// beancount: the padding is booked without a cost. Beancount reports it once for each lot held at cost, zhang once
+/// for the assertion
 fn report_cost(ctx: &mut StageContext, balances: &UnitBalances, account: &Account, commodity: &str, span: &SpanInfo) {
     if balances.holds_at_cost(account, commodity) {
         ctx.emit_error(
@@ -214,10 +309,11 @@ fn padding_transaction(date: Date, account: &Account, pad: &Account, distance: A
 #[cfg(test)]
 mod test {
     use bigdecimal::BigDecimal;
+    use chrono::NaiveDate;
     use indoc::indoc;
     use zhang_ast::amount::Amount;
     use zhang_ast::error::ErrorKind;
-    use zhang_ast::{Directive, Flag, Transaction};
+    use zhang_ast::{Date, Directive, Flag, Transaction};
 
     use crate::pipeline::test::run_builtin_stages;
 
@@ -398,6 +494,93 @@ mod test {
         "#});
         assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
         assert_eq!(paddings(&directives), vec![padding("2017-12-01", "Assets:A", "0.10 CNY", "Equity:Open")]);
+    }
+
+    #[test]
+    fn should_pair_a_pad_by_days_whatever_the_times() {
+        // a `balance` on the day of the `pad` is not padded, also later that day: the next day's is
+        let (directives, errors) = run_builtin_stages(indoc! {r#"
+            1970-01-01 open Assets:A
+            1970-01-01 open Equity:Open
+            2024-03-01 10:00:00 balance Assets:A 0 CNY
+            2024-03-01 pad Assets:A Equity:Open
+            2024-03-02 09:00:00 balance Assets:A 150 CNY
+        "#});
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(paddings(&directives), vec![padding("2024-03-01", "Assets:A", "150 CNY", "Equity:Open")]);
+        // the `pad` and its padding come after the balance of its day, at its time
+        let booked = synthesized(&directives, Flag::BalancePad)[0];
+        assert_eq!(
+            booked.date,
+            Date::Datetime(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap().and_hms_opt(10, 0, 0).unwrap())
+        );
+
+        let (directives, errors) = run_builtin_stages(indoc! {r#"
+            1970-01-01 open Assets:A
+            1970-01-01 open Equity:Open
+            2024-03-01 10:00:00 pad Assets:A Equity:Open
+            2024-03-01 12:00:00 balance Assets:A 150 CNY
+            2024-03-02 balance Assets:A 150 CNY
+        "#});
+        // the balance at noon is checked before the `pad` of its day, against nothing, as beancount checks it
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+        assert_eq!(paddings(&directives), vec![padding("2024-03-01", "Assets:A", "150 CNY", "Equity:Open")]);
+    }
+
+    #[test]
+    fn should_put_the_padding_right_after_its_pad() {
+        // as beancount orders a day: its balances, then the rest in file order, the padding right after its pad
+        let (directives, _) = run_builtin_stages(indoc! {r#"
+            1970-01-01 open Assets:A
+            1970-01-01 open Equity:Open
+            1970-01-01 open Expenses:Food
+            2024-01-05 * "before pad"
+              Assets:A -10 CNY
+              Expenses:Food
+            2024-01-05 pad Assets:A Equity:Open
+            2024-01-05 * "after pad"
+              Assets:A -20 CNY
+              Expenses:Food
+            2024-01-05 balance Assets:A -30 CNY
+            2024-01-06 balance Assets:A 100 CNY
+        "#});
+        let order = directives
+            .iter()
+            .filter(|it| it.datetime().is_some_and(|date| date.date().to_string() != "1970-01-01"))
+            .map(|it| match it {
+                Directive::Transaction(txn) => txn
+                    .payee
+                    .as_ref()
+                    .or(txn.narration.as_ref())
+                    .map(|it| it.as_str().to_owned())
+                    .unwrap_or_default(),
+                other => other.directive_type().to_string(),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(order, vec!["BalanceCheck", "before pad", "Pad", "Balance Pad", "after pad", "BalanceCheck"]);
+        assert_eq!(paddings(&directives), vec![padding("2024-01-05", "Assets:A", "130 CNY", "Equity:Open")]);
+    }
+
+    #[test]
+    fn should_not_report_padding_a_commodity_whose_lots_are_sold() {
+        let (directives, errors) = run_builtin_stages(indoc! {r#"
+            1970-01-01 open Assets:Stock
+            1970-01-01 open Assets:Cash
+            1970-01-01 open Equity:Open
+            1970-01-01 open Income:Gains
+            2024-01-02 * "buy"
+              Assets:Stock 10 AAPL {100 USD}
+              Assets:Cash -1000 USD
+            2024-01-03 * "sell all"
+              Assets:Stock -10 AAPL {100 USD} @ 120 USD
+              Assets:Cash 1200 USD
+              Income:Gains -200 USD
+            2024-01-04 pad Assets:Stock Equity:Open
+            2024-01-05 balance Assets:Stock 3 AAPL
+        "#});
+        // no lot is held at cost any more
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(paddings(&directives), vec![padding("2024-01-04", "Assets:Stock", "3 AAPL", "Equity:Open")]);
     }
 
     #[test]

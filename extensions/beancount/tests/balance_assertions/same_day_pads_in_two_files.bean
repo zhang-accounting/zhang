@@ -1,0 +1,16 @@
+; Accepted deviation: two pads of one account on one day, in two files. Beancount
+; orders the directives of a day by their line, whatever their file, so the pad on
+; the later line of its file wins (Equity:X, line 9 of x.bean, after line 1 of
+; y.bean). Zhang orders them by file, in the order the ledger includes them, so the
+; pad of the file included last wins (Equity:Y). The other pad is unused.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Equity:X
+1970-01-01 open Equity:Y
+
+include "same_day_pads_in_two_files/x.bean"
+include "same_day_pads_in_two_files/y.bean"
+
+2024-01-05 balance Assets:A  100 CNY

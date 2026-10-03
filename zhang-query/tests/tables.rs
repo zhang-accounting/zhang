@@ -429,9 +429,10 @@ fn a_pad_is_an_entry_and_its_padding_a_transaction_on_its_date() {
     };
     assert_eq!(
         query("SELECT date, type, flag, accounts FROM #entries WHERE type IN ('pad', 'transaction', 'balance')"),
+        // the padding right after its pad, as in beancount
         rows(&[
-            &["2024-01-01", "transaction", "P", "Assets:Bank, Equity:Opening"],
             &["2024-01-01", "pad", "NULL", "Assets:Bank, Equity:Opening"],
+            &["2024-01-01", "transaction", "P", "Assets:Bank, Equity:Opening"],
             &["2024-01-01", "pad", "NULL", "Assets:Cash, Equity:Opening"],
             &["2024-02-01", "balance", "NULL", "Assets:Bank"],
         ])

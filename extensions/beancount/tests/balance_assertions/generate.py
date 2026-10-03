@@ -58,12 +58,21 @@ ACCEPTED_DEVIATIONS = {
     ),
     "inferred_tolerance": NO_INFERRED_TOLERANCE,
     "nested_pads": (
-        "a pad is sized from the balance with every padding before it: beancount sizes the pad of a parent account "
-        "without the padding of its sub-accounts, and the parent's assertion then fails"
+        "a pad is sized with the padding of every assertion served before it: beancount sizes the pad of a parent "
+        "account without the padding of its sub-accounts, and the parent's assertion then fails"
+    ),
+    "pad_with_cost_lots": (
+        "padding a commodity held at cost is reported once for the balance the pad serves: beancount reports it once "
+        "for each lot held at cost"
     ),
     "pad_within_tolerance": (
         "a pad brings the account to exactly the asserted amount: zhang pads the difference even within an "
         "explicit `~` tolerance, where beancount pads nothing and reports the pad unused"
+    ),
+    "same_day_pads_in_two_files": (
+        "zhang orders the directives of a day by file, in the order the ledger includes them, then by line: "
+        "beancount orders them by line whatever their file, so of two pads of an account on one day in two files, "
+        "another one is the last and pads"
     ),
 }
 

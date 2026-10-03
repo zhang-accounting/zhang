@@ -638,3 +638,34 @@ fn describe_lot(lot: &CommodityLotRecord) -> String {
         (None, _) => format!("{} {}", lot.amount, lot.commodity),
     }
 }
+
+#[cfg(test)]
+mod test {
+    use bigdecimal::BigDecimal;
+    use zhang_ast::amount::Amount;
+
+    use super::Booker;
+    use crate::inventory::BookingMethod;
+    use crate::store::CommodityLotRecord;
+
+    fn lot(units: i32) -> CommodityLotRecord {
+        CommodityLotRecord {
+            commodity: "AAPL".to_owned(),
+            amount: BigDecimal::from(units),
+            cost: Some(Amount::new(BigDecimal::from(100), "USD")),
+            acquisition_date: None,
+        }
+    }
+
+    #[test]
+    fn an_empty_lot_is_not_held_at_cost() {
+        // the booker drops a lot sold to zero; one left empty still holds nothing
+        let mut booker = Booker::new(BookingMethod::Fifo);
+        booker.lots.insert("Assets:Stock".to_owned(), vec![lot(0)]);
+        assert!(!booker.holds_at_cost("Assets:Stock", "AAPL"));
+        booker.lots.insert("Assets:Stock:Sub".to_owned(), vec![lot(2)]);
+        assert!(booker.holds_at_cost("Assets:Stock", "AAPL"));
+        assert!(!booker.holds_at_cost("Assets:Stock", "USD"));
+        assert!(!booker.holds_at_cost("Assets:Stocks", "AAPL"));
+    }
+}

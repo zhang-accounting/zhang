@@ -267,7 +267,14 @@ fn zhang(case: &str) -> Outcome {
 }
 
 /// the ledgers whose deviation from beancount the tests below check
-const DEVIATIONS: &[&str] = &["child_assertion_after_parent_pad", "inferred_tolerance", "nested_pads", "pad_within_tolerance"];
+const DEVIATIONS: &[&str] = &[
+    "child_assertion_after_parent_pad",
+    "inferred_tolerance",
+    "nested_pads",
+    "pad_with_cost_lots",
+    "pad_within_tolerance",
+    "same_day_pads_in_two_files",
+];
 
 #[test]
 fn zhang_agrees_with_beancount_on_every_ledger_without_an_accepted_deviation() {
@@ -393,7 +400,7 @@ fn a_pad_serves_the_assertions_on_its_own_account_only() {
 #[test]
 fn a_pad_counts_the_padding_of_the_sub_accounts() {
     let (beancount, reason) = deviation("nested_pads");
-    assert!(reason.contains("every padding before it"), "{reason}");
+    assert!(reason.contains("every assertion served before it"), "{reason}");
     // beancount pads the parent by 60 where 40 are missing
     assert_eq!(
         beancount.pads,
@@ -419,6 +426,40 @@ fn a_pad_counts_the_padding_of_the_sub_accounts() {
             assertion("2024-01-03", "Assets:Bank:Checking", "60", "60", true),
         ]
     );
+}
+
+#[test]
+fn zhang_orders_the_pads_of_a_day_by_file() {
+    let (beancount, reason) = deviation("same_day_pads_in_two_files");
+    assert!(reason.contains("by file"), "{reason}");
+    let from = |account: &str| vec![("2024-01-02".to_owned(), "Assets:A".to_owned(), cny("100"), account.to_owned())];
+    let unused = vec![("2024-01-02".to_owned(), "Assets:A".to_owned())];
+    // the pad on the later line, in the file included first, wins in beancount
+    assert_eq!(beancount.pads, from("Equity:X"));
+    assert_eq!(beancount.unused_pads, unused);
+
+    let zhang = zhang("same_day_pads_in_two_files");
+    // the pad of the file included last wins in zhang
+    assert_eq!(zhang.pads, from("Equity:Y"));
+    assert_eq!(zhang.unused_pads, unused);
+    assert_eq!(zhang.assertions, beancount.assertions);
+    assert_eq!(zhang.balances["Assets:A"], beancount.balances["Assets:A"]);
+}
+
+#[test]
+fn zhang_reports_a_pad_with_cost_once_for_its_balance() {
+    let (beancount, reason) = deviation("pad_with_cost_lots");
+    assert!(reason.contains("once for each lot"), "{reason}");
+    let balance = ("2024-01-05".to_owned(), "Assets:Broker".to_owned());
+    // one error for each of the two lots in beancount, one for the balance in zhang
+    assert_eq!(beancount.pads_with_cost, vec![balance.clone(), balance.clone()]);
+    let zhang = zhang("pad_with_cost_lots");
+    assert_eq!(zhang.pads_with_cost, vec![balance]);
+    // the rest agrees
+    assert_eq!(zhang.pads, beancount.pads);
+    assert_eq!(zhang.assertions, beancount.assertions);
+    assert_eq!(zhang.balances, beancount.balances);
+    assert_eq!(zhang.unused_pads, beancount.unused_pads);
 }
 
 #[test]

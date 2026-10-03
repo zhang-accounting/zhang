@@ -1,0 +1,13 @@
+; A `pad` with a `time` does not serve a balance later on its day: the balance comes
+; before the pad and fails, and the next day's balance is padded.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Equity:Open
+
+2024-03-01 pad Assets:A Equity:Open
+  time: "10:00:00"
+2024-03-01 balance Assets:A  150 CNY
+  time: "12:00:00"
+2024-03-02 balance Assets:A  150 CNY

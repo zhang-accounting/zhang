@@ -1,0 +1,19 @@
+; Accepted deviation: padding a commodity held at cost in two lots. Beancount reports
+; the pad once for each lot held at cost, zhang once for the balance it serves.
+option "operating_currency" "USD"
+
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Cash
+1970-01-01 open Equity:Open
+
+2024-01-02 * "broker" "buy"
+  Assets:Broker  10 AAPL {100 USD}
+  Assets:Cash  -1000 USD
+2024-01-03 * "broker" "buy more"
+  Assets:Broker  5 AAPL {110 USD}
+  Assets:Cash  -550 USD
+
+2024-01-04 pad Assets:Broker Equity:Open
+2024-01-05 balance Assets:Broker  20 AAPL
