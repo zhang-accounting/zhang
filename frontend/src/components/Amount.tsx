@@ -25,6 +25,8 @@ interface Props {
   signed?: boolean;
   /** Number only: no commodity prefix / suffix / name (dense lists where the currency is implied, e.g. sidebar accounts). */
   plain?: boolean;
+  /** Every decimal the number has, at least the commodity's precision: a sub-cent difference shows instead of rounding to zero. */
+  exact?: boolean;
   className?: string;
 }
 
@@ -45,7 +47,7 @@ function formatCompactNumber(value: BigNumber.Value, locale?: string) {
 }
 
 /** Money with the commodity's prefix / suffix / precision. Always tabular figures. */
-export default function Amount({ amount, currency, negative, mask, compact, tone, signed, plain, className }: Props) {
+export default function Amount({ amount, currency, negative, mask, compact, tone, signed, plain, exact, className }: Props) {
   const { i18n } = useTranslation();
   const commodity = useAtomValue(useMemo(() => selectAtom(commoditiesAtom, (val) => loadable_unwrap(val, undefined, (val) => val[currency])), [currency]));
 
@@ -57,7 +59,8 @@ export default function Amount({ amount, currency, negative, mask, compact, tone
   const parsedValue = BigNumber.isBigNumber(amount) ? amount : new BigNumber(amount);
   const value = parsedValue.multipliedBy(flag);
   const isNegative = !value.isZero() && value.isNegative();
-  const fullValue = value.abs().toFormat(commodity?.precision ?? 2);
+  const precision = commodity?.precision ?? 2;
+  const fullValue = value.abs().toFormat(exact ? Math.max(precision, value.decimalPlaces() ?? 0) : precision);
   const useCompact = compact && value.abs().gte(COMPACT_THRESHOLD);
   const displayedValue = useCompact ? formatCompactNumber(value.abs(), i18n.language) : fullValue;
   const maskedValue = mask ? displayedValue.replace(/\d/g, '*') : displayedValue;

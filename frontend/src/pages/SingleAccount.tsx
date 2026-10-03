@@ -1,3 +1,4 @@
+import BigNumber from 'bignumber.js';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { ChartLine, CircleAlert, Cog, FileStack, NotebookText, WalletMinimal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -82,6 +83,8 @@ function SingleAccount() {
 
   const details = Object.entries(account?.amount.detail ?? {});
   const multiple = details.length > 1;
+  // what a `balance` on the account is checked against: with its sub-accounts
+  const checked = Object.entries(account?.balance_with_sub_accounts ?? {}).sort(([a], [b]) => a.localeCompare(b));
 
   return (
     <PageShell>
@@ -152,12 +155,19 @@ function SingleAccount() {
         <TabsContent value="settings">
           <Section title={t('ledger.balance.title')} description={t('ledger.balance.description')}>
             {account ? (
-              details.length === 0 ? (
+              checked.length === 0 ? (
                 <EmptyState icon={WalletMinimal} title={t('ledger.balance.no_commodities')} />
               ) : (
                 <div className="flex flex-col gap-3">
-                  {details.map(([commodity, amount]) => (
-                    <AccountBalanceCheckLine key={commodity} currentAmount={amount} commodity={commodity} accountName={account.name} onSaved={reload} />
+                  {checked.map(([commodity, amount]) => (
+                    <AccountBalanceCheckLine
+                      key={commodity}
+                      currentAmount={amount}
+                      includesSubAccounts={account.has_sub_accounts}
+                      commodity={commodity}
+                      accountName={account.name}
+                      onSaved={reload}
+                    />
                   ))}
                 </div>
               )
@@ -179,7 +189,9 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
   const journals = useAsync(async () => (await retrieveAccountJournals({ account_name: accountName })).data.data, [accountName, reloadKey]);
   type Row = NonNullable<typeof journals.value>[number];
 
-  // A balance assertion adds nothing: its row shows the amount it asserted instead, red when it failed.
+  // A balance assertion adds nothing: its row shows the amount it asserted instead, red when it failed. The balance
+  // column stays the account's own; the balance the assertion was checked against, which includes the sub-accounts,
+  // shows next to the description when it differs.
   const change = (item: Row, className?: string) =>
     item.asserted ? (
       <span title={t('ledger.preview.balance_amount')} className={cn('text-muted-foreground', !item.passed && 'text-destructive', className)}>
@@ -193,6 +205,13 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
       <Badge variant="destructive" className="shrink-0">
         {t('ledger.journal.check_failed')}
       </Badge>
+    );
+  const checkedAgainst = (item: Row) =>
+    item.checked_balance &&
+    !new BigNumber(item.checked_balance.number).eq(item.account_after.number) && (
+      <span className="shrink-0 text-xs text-muted-foreground">
+        {t('ledger.account.checked_with_sub_accounts')} <Amount amount={item.checked_balance.number} currency={item.checked_balance.commodity} />
+      </span>
     );
 
   if (journals.error) return <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(journals.error)} />;
@@ -218,6 +237,7 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
             <span className="flex min-w-0 items-center gap-2">
               <PayeeNarration payee={item.payee} narration={item.narration} />
               {failed(item)}
+              {checkedAgainst(item)}
             </span>
           ),
         },
@@ -241,6 +261,7 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
               <span className="truncate text-sm font-medium">{item.narration || item.payee || '—'}</span>
               {failed(item)}
             </span>
+            {checkedAgainst(item)}
             <span className="truncate text-xs text-muted-foreground">
               {[item.narration ? item.payee : null, fmt.dateTime(new Date(item.datetime))].filter(Boolean).join(' · ')}
             </span>

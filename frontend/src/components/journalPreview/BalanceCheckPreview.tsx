@@ -41,20 +41,21 @@ export default function BalanceCheckPreview({ data }: Props) {
         <PreviewList>
           <PreviewRow label={t('ledger.preview.account')}>{checkInfo.account}</PreviewRow>
           <PreviewRow label={t('ledger.preview.balance_amount')}>
-            <Amount amount={checkInfo.account_after.number} currency={checkInfo.account_after.commodity} />
+            <Amount exact amount={checkInfo.account_after.number} currency={checkInfo.account_after.commodity} />
           </PreviewRow>
           {data.tolerance && (
             <PreviewRow label={t('ledger.preview.tolerance')}>
-              <Amount amount={data.tolerance} currency={checkInfo.account_after.commodity} />
+              <Amount exact amount={data.tolerance} currency={checkInfo.account_after.commodity} />
             </PreviewRow>
           )}
           {hasDifference && (
             <>
               <PreviewRow label={t('ledger.preview.accumulated_amount')}>
-                <Amount amount={checkInfo.account_before.number} currency={checkInfo.account_before.commodity} />
+                <Amount exact amount={checkInfo.account_before.number} currency={checkInfo.account_before.commodity} />
               </PreviewRow>
               <PreviewRow label={t('ledger.preview.distance')}>
                 <Amount
+                  exact
                   className={isBalanced ? undefined : 'text-destructive'}
                   amount={checkInfo.inferred_unit.number}
                   currency={checkInfo.inferred_unit.commodity}

@@ -249,6 +249,7 @@ export interface operations {
           'application/json': {
             data: {
               alias?: string | null;
+              /** @description the account's own balance, that of its own postings */
               amount: {
                 calculated: {
                   commodity: string;
@@ -258,6 +259,15 @@ export interface operations {
                   [key: string]: string;
                 };
               };
+              /**
+               * @description the balance a balance assertion on the account is checked against, per currency: that of the account
+               * and all its sub-accounts
+               */
+              balance_with_sub_accounts: {
+                [key: string]: string;
+              };
+              /** @description whether the account has sub-accounts, whose balances `balance_with_sub_accounts` includes */
+              has_sub_accounts: boolean;
               name: string;
               /** @enum {string} */
               status: 'Open' | 'Close';
@@ -315,6 +325,7 @@ export interface operations {
           'application/json': {
             data: {
               alias?: string | null;
+              /** @description the account's own balance, that of its own postings */
               amount: {
                 calculated: {
                   commodity: string;
@@ -324,8 +335,17 @@ export interface operations {
                   [key: string]: string;
                 };
               };
+              /**
+               * @description the balance a balance assertion on the account is checked against, per currency: that of the account
+               * and all its sub-accounts
+               */
+              balance_with_sub_accounts: {
+                [key: string]: string;
+              };
               /** Format: date-time */
               date: string;
+              /** @description whether the account has sub-accounts, whose balances `balance_with_sub_accounts` includes */
+              has_sub_accounts: boolean;
               name: string;
               'r#type': string;
               /** @enum {string} */
@@ -461,19 +481,21 @@ export interface operations {
           'application/json': {
             data: {
               account: string;
-              /**
-               * @description the account's balance after the row. For a balance assertion, the balance it was checked
-               * against, which covers the account's sub-accounts too
-               */
+              /** @description the account's own balance after the row, that of its own postings, on every row */
               account_after: {
                 commodity: string;
                 number: string;
               };
-              /**
-               * @description for the row of a balance assertion: the asserted amount, which `account_after` was checked
-               * against; null for a posting
-               */
+              /** @description for the row of a balance assertion: the asserted amount; null for a posting */
               asserted?: {
+                commodity: string;
+                number: string;
+              } | null;
+              /**
+               * @description for the row of a balance assertion: the balance it was checked against, that of the account and
+               * all its sub-accounts; null for a posting
+               */
+              checked_balance?: {
                 commodity: string;
                 number: string;
               } | null;
@@ -904,19 +926,21 @@ export interface operations {
                 }
               | {
                   account: string;
-                  /**
-                   * @description the account's balance after the row. For a balance assertion, the balance it was checked
-                   * against, which covers the account's sub-accounts too
-                   */
+                  /** @description the account's own balance after the row, that of its own postings, on every row */
                   account_after: {
                     commodity: string;
                     number: string;
                   };
-                  /**
-                   * @description for the row of a balance assertion: the asserted amount, which `account_after` was checked
-                   * against; null for a posting
-                   */
+                  /** @description for the row of a balance assertion: the asserted amount; null for a posting */
                   asserted?: {
+                    commodity: string;
+                    number: string;
+                  } | null;
+                  /**
+                   * @description for the row of a balance assertion: the balance it was checked against, that of the account and
+                   * all its sub-accounts; null for a posting
+                   */
+                  checked_balance?: {
                     commodity: string;
                     number: string;
                   } | null;
@@ -1767,19 +1791,21 @@ export interface operations {
               to: string;
               top_transactions: {
                 account: string;
-                /**
-                 * @description the account's balance after the row. For a balance assertion, the balance it was checked
-                 * against, which covers the account's sub-accounts too
-                 */
+                /** @description the account's own balance after the row, that of its own postings, on every row */
                 account_after: {
                   commodity: string;
                   number: string;
                 };
-                /**
-                 * @description for the row of a balance assertion: the asserted amount, which `account_after` was checked
-                 * against; null for a posting
-                 */
+                /** @description for the row of a balance assertion: the asserted amount; null for a posting */
                 asserted?: {
+                  commodity: string;
+                  number: string;
+                } | null;
+                /**
+                 * @description for the row of a balance assertion: the balance it was checked against, that of the account and
+                 * all its sub-accounts; null for a posting
+                 */
+                checked_balance?: {
                   commodity: string;
                   number: string;
                 } | null;
