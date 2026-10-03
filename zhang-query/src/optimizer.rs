@@ -29,14 +29,17 @@
 //!    LIMIT rows (telling DISTINCT rows apart while scanning) and an aggregate query only
 //!    aggregates its first LIMIT groups (unless HAVING may drop some of them); with ORDER BY
 //!    (and no DISTINCT) the scan keeps the top LIMIT rows instead of sorting them all.
+//! 8. [`account_scope`]: when the filter of a `postings` query can only hold for the rows of
+//!    some accounts (`account = :account`), the execution only builds their rows.
 //!
 //! The expression rules rewrite the HAVING condition like any other expression; one that
 //! folds to TRUE is dropped, like a filter.
 
-use crate::compiler::{build_regex, CExpr, LimitMode, Plan, RegexPattern, Running};
+use crate::compiler::{build_regex, AccountScope, CExpr, CmpOp, LimitMode, Plan, RegexPattern, Running, ScopeValue, ScopedAccount};
 use crate::error::LocatedError;
 use crate::executor::eval_constant;
 use crate::functions::ParamType;
+use crate::projector::infallible;
 use crate::value::{DataType, Value};
 
 /// Scalar functions that depend on the execution (its date, the ledger's prices, the current
@@ -57,7 +60,8 @@ pub(crate) fn optimize_naive(plan: Plan) -> Result<Plan, LocatedError> {
     optimize_expressions(plan)
 }
 
-/// The decisions about the plan as a whole: [`rewrite_linear_balance`] and [`limit_mode`].
+/// The decisions about the plan as a whole: [`rewrite_linear_balance`], [`limit_mode`] and
+/// [`account_scope`].
 pub(crate) fn plan_execution(plan: &mut Plan) {
     let mut rewrites = vec![];
     for target in &mut plan.targets {
@@ -73,6 +77,86 @@ pub(crate) fn plan_execution(plan: &mut Plan) {
     rewrites.dedup();
     plan.execution.rewrites = rewrites;
     plan.execution.limit = limit_mode(plan);
+    plan.execution.scope = account_scope(plan);
+}
+
+/// The accounts a `postings` query's rows can be limited to: those named by a conjunct of the
+/// filter (FROM, then WHERE) that only holds for the rows of some accounts:
+///
+/// - `account = x` (a string constant or parameter, on either side),
+/// - `account IN (x, y, ...)` and `account IN :set`,
+/// - `under(account, x)` (`x` and its sub-accounts),
+/// - an `OR` of these.
+///
+/// The rows of other accounts fail the filter, so leaving them out changes no result: the
+/// filter still runs on the rows of the scope, which keeps every row of its accounts, in ledger
+/// order. The running `balance` adds up the same rows, and `account_balance` and the lots only
+/// depend on the rows of their own account. Two cases keep every row:
+///
+/// - the period modifiers (`OPEN ON`, `CLOSE ON`, `CLEAR`), which move balances to other
+///   accounts before the filter runs;
+/// - a conjunct before the scoping one that may fail with an error: the full scan evaluates it
+///   for the rows of other accounts too, and would stop with that error.
+pub(crate) fn account_scope(plan: &Plan) -> Option<AccountScope> {
+    if !plan.table.is_postings() || plan.period.is_some() {
+        return None;
+    }
+    let conjuncts = match plan.filter.as_ref()? {
+        CExpr::And(operands) => operands.as_slice(),
+        filter => std::slice::from_ref(filter),
+    };
+    for conjunct in conjuncts {
+        if let Some(accounts) = scoped_accounts(conjunct) {
+            return Some(AccountScope { accounts });
+        }
+        if !infallible(conjunct) {
+            return None;
+        }
+    }
+    None
+}
+
+/// The accounts a filter conjunct can only hold for (see [`account_scope`]).
+///
+/// To scope by another predicate on the account, add an arm here and, when it names accounts
+/// in a new way, a [`ScopedAccount`] variant.
+fn scoped_accounts(expr: &CExpr) -> Option<Vec<ScopedAccount>> {
+    let is_account = |expr: &CExpr| matches!(expr, CExpr::Column(column) if column.name == "account");
+    // a value naming accounts: a string or NULL, or a string parameter
+    let named = |expr: &CExpr| match expr {
+        CExpr::Const(value @ (Value::Str(_) | Value::Null)) => Some(ScopeValue::Const(value.clone())),
+        CExpr::Param(param) => Some(ScopeValue::Param(param.clone())),
+        _ => None,
+    };
+    match expr {
+        CExpr::Compare { op: CmpOp::Eq, left, right } => {
+            let value = match (is_account(left), is_account(right)) {
+                (true, false) => right,
+                (false, true) => left,
+                _ => return None,
+            };
+            Some(vec![ScopedAccount::Named(named(value)?)])
+        }
+        CExpr::InList { needle, items, negated: false } if is_account(needle) => items.iter().map(|item| named(item).map(ScopedAccount::Named)).collect(),
+        CExpr::InSet { needle, set, negated: false } if is_account(needle) => match set.as_ref() {
+            CExpr::Const(value @ (Value::Set(_) | Value::Null)) => Some(vec![ScopedAccount::Named(ScopeValue::Const(value.clone()))]),
+            CExpr::Param(param) => Some(vec![ScopedAccount::Named(ScopeValue::Param(param.clone()))]),
+            _ => None,
+        },
+        // `under(account, ancestor)`
+        CExpr::Scalar { function, args, .. } if function.name == "under" => match args.as_slice() {
+            [account, ancestor] if is_account(account) => Some(vec![ScopedAccount::Under(named(ancestor)?)]),
+            _ => None,
+        },
+        CExpr::Or(operands) => {
+            let mut accounts = vec![];
+            for operand in operands {
+                accounts.extend(scoped_accounts(operand)?);
+            }
+            Some(accounts)
+        }
+        _ => None,
+    }
 }
 
 /// `units(balance)` → [`Running::Units`] and `cost(balance)` → [`Running::Cost`], bottom-up,
@@ -449,6 +533,126 @@ mod tests {
         assert_eq!(
             show(&optimize_expr(merged).unwrap()),
             "((payee IS NULL) AND (narration IS NULL) AND (account IS NULL))"
+        );
+    }
+
+    fn scope_of(sql: &str) -> Option<String> {
+        let types = crate::ParamTypes::new().bind("a", DataType::Str).bind("set", DataType::Set);
+        let query = crate::Query::compile_with_params(sql, &types).unwrap_or_else(|err| panic!("{sql}: {err}"));
+        query.plan.execution.scope.map(|scope| scope.to_string())
+    }
+
+    #[test]
+    fn scopes_postings_to_the_accounts_the_filter_names() {
+        let some = |it: &str| Some(it.to_owned());
+        assert_eq!(scope_of("SELECT date WHERE account = 'A'"), some("'A'"));
+        assert_eq!(scope_of("SELECT date WHERE :a = account"), some(":a"));
+        assert_eq!(scope_of("SELECT date WHERE account IN ('A', :a, NULL)"), some("'A', :a, NULL"));
+        assert_eq!(scope_of("SELECT date WHERE account IN :set"), some(":set"));
+        assert_eq!(
+            scope_of("SELECT date WHERE account = 'A' OR (account IN :set OR account = :a)"),
+            some("'A', :set, :a")
+        );
+        // a constant folded from an expression, and infallible conjuncts before it
+        assert_eq!(scope_of("SELECT date WHERE account = 'Ex' + 'penses'"), some("'Expenses'"));
+        assert_eq!(
+            scope_of("SELECT date FROM year = 2024 WHERE number > 0 AND 'x' IN tags AND account = 'A' AND payee ~ narration"),
+            some("'A'")
+        );
+        assert_eq!(scope_of("SELECT account, sum(position) WHERE account = :a GROUP BY account"), some(":a"));
+
+        // the filter holds for rows of any account
+        for sql in [
+            "SELECT date",
+            "SELECT date WHERE account != 'A'",
+            "SELECT date WHERE NOT account = 'A'",
+            "SELECT date WHERE account NOT IN ('A')",
+            "SELECT date WHERE account = payee",
+            "SELECT date WHERE account IN ('A', payee)",
+            "SELECT date WHERE account = 'A' OR year = 2024",
+            "SELECT date WHERE account ~ '^A'",
+            // a full scan evaluates a conjunct before the scoping one for every row, and stops at its error
+            "SELECT date WHERE payee ~ narration AND account = 'A'",
+            "SELECT date WHERE number / 0 > 1 AND account = 'A'",
+            // the period modifiers move balances to other accounts before the filter runs
+            "SELECT date FROM OPEN ON 2024-01-01 WHERE account = 'A'",
+            "SELECT date FROM CLOSE CLEAR WHERE account = 'A'",
+            // only the postings table is scoped
+            "SELECT date FROM #balances WHERE account = 'A'",
+        ] {
+            assert_eq!(scope_of(sql), None, "{sql}");
+        }
+    }
+
+    /// `under(account, ancestor)`, which another change adds: the scope keeps the ancestor and
+    /// its sub-accounts, read here with a stand-in for the function.
+    #[test]
+    fn scopes_postings_to_the_accounts_under_an_ancestor() {
+        use crate::functions::{FunctionContext, ReturnType, ScalarFunction};
+
+        fn under(args: &[Value], _: &dyn FunctionContext) -> Result<Value, String> {
+            let (Value::Str(account), Value::Str(ancestor)) = (&args[0], &args[1]) else {
+                return Err("strings".to_owned());
+            };
+            let rest = account.strip_prefix(ancestor.as_str());
+            Ok(Value::Bool(rest.is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))))
+        }
+        static UNDER: ScalarFunction = ScalarFunction {
+            name: "under",
+            params: &[ParamType::Exact(DataType::Str), ParamType::Exact(DataType::Str)],
+            returns: ReturnType::Exact(DataType::Bool),
+            description: "",
+            eval: under,
+        };
+
+        let source = zhang_core::data_source::LocalFileSystemDataSource::new(zhang_core::data_type::text::ZhangDataType {});
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integration-tests/fava-demo-ledger");
+        let ledger = zhang_core::ledger::Ledger::load_with_data_source(dir, "main.zhang".to_owned(), std::sync::Arc::new(source)).unwrap();
+        let options = crate::ExecuteOptions {
+            today: None,
+            timeout: None,
+            max_result_values: None,
+        };
+        let mut counts = vec![];
+        for ancestor in ["Assets:US", "Assets:US:BofA", "Assets:U", "Nowhere"] {
+            let run = |scoped: bool| {
+                let mut query = crate::Query::compile("SELECT date, account, payee, balance, account_balance WHERE account = ''").unwrap();
+                let account = CExpr::Column(column("account").unwrap());
+                let parent = CExpr::Const(Value::from(ancestor));
+                query.plan.filter = Some(CExpr::And(vec![
+                    CExpr::IsNull {
+                        expr: Box::new(col("payee")),
+                        negated: true,
+                    },
+                    CExpr::Or(vec![
+                        CExpr::Scalar {
+                            function: &UNDER,
+                            args: vec![account, parent],
+                            span: Span::default(),
+                        },
+                        CExpr::Compare {
+                            op: CmpOp::Eq,
+                            left: Box::new(col("account")),
+                            right: Box::new(str_("Income:US:Hoogle:Salary")),
+                        },
+                    ]),
+                ]));
+                query.plan.execution.scope = account_scope(&query.plan).filter(|_| scoped);
+                if scoped {
+                    let scope = query.plan.execution.scope.as_ref().map(|it| it.to_string());
+                    assert_eq!(scope, Some(format!("under '{ancestor}', 'Income:US:Hoogle:Salary'")));
+                }
+                let result = query.execute_with_options(&ledger, &crate::Params::new(), &options).unwrap();
+                format!("{:?}", result.rows)
+            };
+            let scoped = run(true);
+            assert_eq!(scoped, run(false), "{ancestor}");
+            counts.push(scoped.matches("Date(").count());
+        }
+        // 'Assets:U' is not an ancestor of 'Assets:US': like 'Nowhere', only the salary is left
+        assert!(
+            counts[0] > counts[1] && counts[1] > counts[2] && counts[2] == counts[3] && counts[3] > 0,
+            "{counts:?}"
         );
     }
 

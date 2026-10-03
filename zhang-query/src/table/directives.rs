@@ -25,7 +25,7 @@ pub(super) fn date_of(directive: &Directive) -> Option<NaiveDate> {
 
 /// Where beancount sorts a directive among the directives of its day: `open` first, then
 /// balance assertions, the other kinds, `document` and `close` last.
-fn day_rank(directive: &Directive) -> i8 {
+pub(super) fn day_rank(directive: &Directive) -> i8 {
     match directive {
         Directive::Open(_) => -2,
         Directive::BalanceCheck(_) | Directive::BalancePad(_) => -1,
@@ -56,7 +56,7 @@ pub(super) fn directives_where<'a>(ledger: &'a Ledger, keep: impl Fn(&Directive)
 /// The directive of a [`Record::Directive`] or [`Record::Balance`] row.
 pub(super) fn directive<'r>(record: &'r Record<'_>) -> Option<&'r Spanned<Directive>> {
     match record {
-        Record::Directive(directive) | Record::Balance { directive, .. } => Some(directive),
+        Record::Directive(directive) | Record::Balance { directive, .. } | Record::Entry { directive, .. } => Some(directive),
         _ => None,
     }
 }
