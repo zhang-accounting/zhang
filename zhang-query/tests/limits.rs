@@ -120,3 +120,17 @@ fn the_default_limit_covers_the_fava_demo_ledger() {
         assert_eq!(result.rows.len(), rows, "{}", sql);
     }
 }
+
+/// The rows before OFFSET of a query without ORDER BY are not built, as those past LIMIT: an error that
+/// only computing their targets would raise is not reported. They still go through WHERE, whose errors
+/// are.
+#[test]
+fn rows_skipped_by_offset_raise_the_errors_of_the_filter_only() {
+    // the first buy is on day 1: 9223372036854775807 + 2 - day overflows on it only
+    let target = "SELECT 9223372036854775807 + (2 - day) WHERE account ~ 'Broker' LIMIT 2 OFFSET 1";
+    assert_eq!(run(target, None).unwrap().rows.len(), 2);
+    let whole = "SELECT 9223372036854775807 + (2 - day) WHERE account ~ 'Broker' LIMIT 2";
+    assert_eq!(run(whole, None).unwrap_err().kind, QueryErrorKind::Eval);
+    let filter = "SELECT date WHERE 9223372036854775807 + (2 - day) > 0 AND account ~ 'Broker' LIMIT 2 OFFSET 1";
+    assert_eq!(run(filter, None).unwrap_err().kind, QueryErrorKind::Eval);
+}

@@ -33,7 +33,7 @@ use chrono::NaiveDate;
 use uuid::Uuid;
 use zhang_ast::{Directive, SpanInfo, Transaction};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::Store;
+use zhang_core::store::{Store, TransactionDomain};
 use zhang_core::utils::id::FromSpan;
 
 use super::directives::{date_of, day_rank};
@@ -164,17 +164,20 @@ impl LedgerCache {
     }
 
     /// The `id` of the `#entries` row `seq`: a transaction has its stored id (the `id` of its
-    /// postings); another directive an id derived from its source position, distinct from the
-    /// id of the padding transaction that shares the position of a `balance ... with pad`.
-    /// The derivation does not depend on the platform's `usize`.
-    pub fn entry_id(&self, ledger: &Ledger, entries: &Entries, seq: u32) -> &str {
+    /// postings), a checked balance assertion the id zhang stored its check with (the id
+    /// `/api/journals` lists it with); another directive an id derived from its source position,
+    /// distinct from the id of the padding transaction that shares the position of a
+    /// `balance ... with pad`. The derivation does not depend on the platform's `usize`.
+    pub fn entry_id(&self, ledger: &Ledger, store: &Store, entries: &Entries, seq: u32) -> &str {
         let ids = self.entry_ids.get_or_init(|| {
             entries
                 .rows
                 .iter()
-                .map(|entry| match entry.txn {
-                    Some(id) => id.to_string(),
-                    None => {
+                .map(|entry| match (entry.txn, entry.assertion) {
+                    (Some(id), _) => id.to_string(),
+                    // a checked assertion has the id of its check, as /api/journals lists it
+                    (None, Some(assertion)) => store.balance_assertions[assertion as usize].id.to_string(),
+                    (None, None) => {
                         let span = &ledger.directives[entry.directive as usize].span;
                         Uuid::from_txn_posting(&Uuid::from_span(span), u32::MAX as usize).to_string()
                     }
@@ -245,6 +248,8 @@ pub(crate) struct EntryInfo {
     pub order: u32,
     /// for a transaction, its id in the store
     pub txn: Option<Uuid>,
+    /// for a balance assertion, its check in the store (an index into `Store::balance_assertions`)
+    pub assertion: Option<u32>,
     /// for a transaction, the kinds of the errors zhang recorded for it, when there are any
     pub errors: Option<BTreeSet<String>>,
 }
@@ -259,13 +264,7 @@ impl Entries {
         for directive in directives {
             positions.of(&directive.span, true);
         }
-        // the stored transactions, which zhang identifies by the position of their directive
-        let mut stored: HashMap<Position, Uuid> = HashMap::with_capacity(store.transactions.len());
-        for txn in store.transactions.values() {
-            if let Some(position) = positions.of(&txn.span, false) {
-                stored.insert(position, txn.id);
-            }
-        }
+        let (stored, checked) = stored_records(ledger, store, &mut positions);
         // what zhang records about a directive, it records at its position
         let mut errors: HashMap<Position, BTreeSet<String>> = HashMap::new();
         for error in &store.errors {
@@ -288,8 +287,8 @@ impl Entries {
             let directive = &directives[idx];
             let position = positions.of(&directive.span, false);
             let txn = match &directive.data {
-                Directive::Transaction(_) => match position.and_then(|position| stored.get(&position)) {
-                    Some(id) => Some(*id),
+                Directive::Transaction(_) => match stored[idx] {
+                    Some(txn) => Some(txn.id),
                     None => continue,
                 },
                 _ => None,
@@ -301,10 +300,11 @@ impl Entries {
                 seq,
                 order: NONE,
                 txn,
+                assertion: checked[idx],
                 errors: txn.and(position).and_then(|position| errors.remove(&position)),
             });
         }
-        for (order, seq) in processing_order(ledger, store, &rows, &of_directive, &mut positions).into_iter().enumerate() {
+        for (order, seq) in processing_order(ledger, store, &rows, &of_directive, &stored).into_iter().enumerate() {
             rows[seq as usize].order = order as u32;
         }
         let transactions = (0..directives.len())
@@ -336,13 +336,7 @@ impl Entries {
 /// comes right after the postings its balance includes. Every other entry, which takes no
 /// number, comes after the numbered entries folded before it and before those folded after it,
 /// in the order of the directives.
-fn processing_order<'a>(ledger: &'a Ledger, store: &'a Store, rows: &[EntryInfo], of_directive: &[u32], positions: &mut Positions<'a>) -> Vec<u32> {
-    // the number of every checked assertion, by the position of its directive
-    let checked: HashMap<Position, i32> = store
-        .balance_assertions
-        .iter()
-        .filter_map(|assertion| positions.of(&assertion.span, false).map(|position| (position, assertion.sequence)))
-        .collect();
+fn processing_order(ledger: &Ledger, store: &Store, rows: &[EntryInfo], of_directive: &[u32], stored: &[Option<&TransactionDomain>]) -> Vec<u32> {
     let mut keys = Vec::with_capacity(rows.len());
     // the highest number taken by the directives folded so far
     let mut folded = i64::MIN;
@@ -351,15 +345,10 @@ fn processing_order<'a>(ledger: &'a Ledger, store: &'a Store, rows: &[EntryInfo]
             continue;
         };
         let number = match &directive.data {
-            Directive::Transaction(_) => rows[seq as usize]
-                .txn
-                .and_then(|id| store.transactions.get(&id))
-                .map(|txn| i64::from(txn.sequence)),
-            Directive::BalanceCheck(_) | Directive::BalancePad(_) => positions
-                .of(&directive.span, false)
-                .and_then(|position| checked.get(&position))
-                .map(|it| i64::from(*it)),
-            _ => None,
+            Directive::Transaction(_) => stored[idx].map(|txn| i64::from(txn.sequence)),
+            _ => rows[seq as usize]
+                .assertion
+                .map(|assertion| i64::from(store.balance_assertions[assertion as usize].sequence)),
         };
         // the number it took, or else the last one taken before it, by a directive folded before it; then the
         // directive
@@ -371,6 +360,67 @@ fn processing_order<'a>(ledger: &'a Ledger, store: &'a Store, rows: &[EntryInfo]
     }
     keys.sort_unstable_by_key(|(key, _)| *key);
     keys.into_iter().map(|(_, seq)| seq).collect()
+}
+
+/// What zhang stored for each of [`Ledger::directives`]: the transaction of a transaction directive,
+/// and the check of a balance assertion (an index into `Store::balance_assertions`); `None` for a
+/// transaction zhang rejected and an assertion it did not check.
+///
+/// zhang keeps both at the position of their directive. Several directives can share a position,
+/// as when a plugin makes them from one directive it read: each takes, in the order of the
+/// directives, the first record of the position not taken yet whose date (and for an assertion,
+/// account and amount) is its own.
+fn stored_records<'s>(ledger: &'s Ledger, store: &'s Store, positions: &mut Positions<'s>) -> (Vec<Option<&'s TransactionDomain>>, Vec<Option<u32>>) {
+    // the records of each position, in the order zhang stored them
+    let mut transactions: HashMap<Position, Vec<&TransactionDomain>> = HashMap::with_capacity(store.transactions.len());
+    for txn in store.transactions.values() {
+        if let Some(position) = positions.of(&txn.span, false) {
+            transactions.entry(position).or_default().push(txn);
+        }
+    }
+    for at in transactions.values_mut() {
+        at.sort_unstable_by_key(|txn| txn.sequence);
+    }
+    let mut assertions: HashMap<Position, Vec<u32>> = HashMap::new();
+    for (index, assertion) in store.balance_assertions.iter().enumerate() {
+        if let Some(position) = positions.of(&assertion.span, false) {
+            assertions.entry(position).or_default().push(index as u32);
+        }
+    }
+    let mut stored = vec![None; ledger.directives.len()];
+    let mut checked = vec![None; ledger.directives.len()];
+    for (idx, directive) in ledger.directives.iter().enumerate() {
+        let date = date_of(&directive.data);
+        match &directive.data {
+            Directive::Transaction(_) => {
+                let Some(at) = positions.of(&directive.span, false).and_then(|position| transactions.get_mut(&position)) else {
+                    continue;
+                };
+                if let Some(taken) = at.iter().position(|txn| Some(txn.datetime.date_naive()) == date) {
+                    stored[idx] = Some(at.remove(taken));
+                }
+            }
+            Directive::BalanceCheck(_) | Directive::BalancePad(_) => {
+                let (account, amount) = match &directive.data {
+                    Directive::BalanceCheck(check) => (&check.account, &check.amount),
+                    Directive::BalancePad(pad) => (&pad.account, &pad.amount),
+                    _ => unreachable!("a balance assertion"),
+                };
+                let Some(at) = positions.of(&directive.span, false).and_then(|position| assertions.get_mut(&position)) else {
+                    continue;
+                };
+                let taken = at.iter().position(|index| {
+                    let check = &store.balance_assertions[*index as usize];
+                    Some(check.datetime.date_naive()) == date && &check.account == account && &check.amount == amount
+                });
+                if let Some(taken) = taken {
+                    checked[idx] = Some(at.remove(taken));
+                }
+            }
+            _ => {}
+        }
+    }
+    (stored, checked)
 }
 
 /// The booked rows of the `postings` table.

@@ -831,7 +831,7 @@ pub static COLUMNS: &[ColumnDef] = &[
     ColumnDef {
         name: "time",
         ty: DataType::Str,
-        description: "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`; '00:00:00' when it has none. \
+        description: "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, as zhang stores it. \
                       A zhang extension.",
         get: Get::Posting(|data, row| time_value(data.entry(row).txn.datetime.time())),
         reads: Reads::POSTING,

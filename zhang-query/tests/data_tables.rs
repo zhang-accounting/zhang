@@ -11,6 +11,7 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use chrono::NaiveDate;
+use zhang_ast::{Date, Directive, Spanned};
 use zhang_core::ledger::Ledger;
 use zhang_query::{Params, Query, Value};
 
@@ -430,6 +431,169 @@ option "timezone" "America/New_York"
         .parse::<i64>()
         .unwrap();
     assert!(paddings < cash, "{paddings} {cash}");
+}
+
+/// An entry without a number of its own comes right after the assertion before it, also after a
+/// `balance ... with pad`, whose number (where zhang checks it) is higher than that of its padding.
+#[test]
+fn an_entry_after_an_assertion_comes_after_its_check() {
+    let ledger = common::load_text(
+        r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Equity:Open
+2024-01-01 * "Self" "t1"
+  Assets:A 1 CNY
+  Equity:Open
+2024-01-02 balance Assets:A 1 CNY
+2024-01-02 document Assets:A "after-balance.pdf"
+2024-01-03 balance Assets:A 5 CNY with pad Equity:Open
+2024-01-03 document Assets:A "after-pad.pdf"
+"#,
+    );
+    assert_eq!(
+        run(&ledger, "SELECT seq, type, date, flag FROM #entries WHERE year = 2024 ORDER BY seq"),
+        rows(&[
+            &["3", "transaction", "2024-01-01", "*"],
+            &["4", "balance", "2024-01-02", "NULL"],
+            &["5", "document", "2024-01-02", "NULL"],
+            &["6", "transaction", "2024-01-03", "P"],
+            &["7", "balance", "2024-01-03", "NULL"],
+            &["8", "document", "2024-01-03", "NULL"],
+        ])
+    );
+}
+
+/// A ledger with a balance assertion whose directive a plugin copied a week later, as a plugin that
+/// repeats an assertion does: the two share the position of the directive written.
+fn a_balance_and_its_copy() -> Ledger {
+    common::load_transformed(
+        r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Equity:Open
+2024-01-01 * "Self" "t1"
+  Assets:A 1 CNY
+  Equity:Open
+2024-01-02 balance Assets:A 1 CNY
+2024-01-03 * "Self" "t3"
+  Assets:A 1 CNY
+  Equity:Open
+2024-01-04 * "Self" "t4"
+  Assets:A 1 CNY
+  Equity:Open
+"#,
+        |mut directives| {
+            let copy = directives
+                .iter()
+                .find_map(|directive| match &directive.data {
+                    Directive::BalanceCheck(check) => {
+                        let mut check = check.clone();
+                        check.date = Date::Date(NaiveDate::from_ymd_opt(2024, 1, 9).unwrap());
+                        check.amount.number = 3.into();
+                        Some(Spanned::new(Directive::BalanceCheck(check), directive.span.clone()))
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            directives.push(copy);
+            directives
+        },
+    )
+}
+
+/// Assertions that share a position each have their own check: their place in the processing order,
+/// their balance and whether they held, and the id zhang stored the check with.
+#[test]
+fn assertions_sharing_a_position_have_their_own_checks() {
+    let ledger = a_balance_and_its_copy();
+    assert_eq!(
+        run(&ledger, "SELECT seq, type, date, narration FROM #entries WHERE year = 2024 ORDER BY seq"),
+        rows(&[
+            &["3", "transaction", "2024-01-01", "t1"],
+            &["4", "balance", "2024-01-02", "NULL"],
+            &["5", "transaction", "2024-01-03", "t3"],
+            &["6", "transaction", "2024-01-04", "t4"],
+            &["7", "balance", "2024-01-09", "NULL"],
+        ])
+    );
+    assert_eq!(
+        run(&ledger, "SELECT seq, date, amount, actual, passed FROM #balances ORDER BY seq"),
+        rows(&[&["4", "2024-01-02", "1 CNY", "1 CNY", "TRUE"], &["7", "2024-01-09", "3 CNY", "3 CNY", "TRUE"]])
+    );
+}
+
+/// A balance assertion has the id zhang stored its check with, the id `/api/journals` lists it with,
+/// in `#balances` and in `#entries`.
+#[test]
+fn balances_have_the_id_of_their_check() {
+    let ledger = common::load_text(PARENT_ACCOUNTS);
+    let ids = run(&ledger, "SELECT id FROM #balances ORDER BY seq")
+        .into_iter()
+        .map(|row| row[0].clone())
+        .collect::<Vec<_>>();
+    let mut stored = ledger
+        .store
+        .read()
+        .unwrap()
+        .balance_assertions
+        .iter()
+        .map(|it| (it.sequence, it.id.to_string()))
+        .collect::<Vec<_>>();
+    stored.sort();
+    assert_eq!(ids, stored.into_iter().map(|(_, id)| id).collect::<Vec<_>>());
+    assert_eq!(
+        run(&ledger, "SELECT id FROM #entries WHERE type = 'balance' ORDER BY seq"),
+        run(&ledger, "SELECT id FROM #balances ORDER BY seq")
+    );
+}
+
+/// A transaction whose directive a plugin copied with its position: zhang stores the last of the two
+/// under the id of the position, and `#entries` lists the one it stored, with the date it stored it
+/// with, once.
+#[test]
+fn a_transaction_sharing_a_position_is_the_one_zhang_stored() {
+    let ledger = common::load_transformed(
+        r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Equity:Open
+2024-01-01 * "Self" "t1"
+  Assets:A 1 CNY
+  Equity:Open
+2024-01-03 * "Self" "t3"
+  Assets:A 1 CNY
+  Equity:Open
+"#,
+        |mut directives| {
+            let copy = directives
+                .iter()
+                .find_map(|directive| match &directive.data {
+                    Directive::Transaction(txn) => {
+                        let mut txn = txn.clone();
+                        txn.date = Date::Date(NaiveDate::from_ymd_opt(2024, 1, 9).unwrap());
+                        Some(Spanned::new(Directive::Transaction(txn), directive.span.clone()))
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            directives.push(copy);
+            directives
+        },
+    );
+    let stored = ledger.store.read().unwrap().transactions.len();
+    assert_eq!(stored, 2);
+    assert_eq!(
+        run(&ledger, "SELECT seq, date, narration FROM #entries WHERE type = 'transaction' ORDER BY seq"),
+        rows(&[&["3", "2024-01-03", "t3"], &["4", "2024-01-09", "t1"]])
+    );
+    assert_eq!(
+        run(&ledger, "SELECT DISTINCT seq, date FROM #postings"),
+        rows(&[&["3", "2024-01-03"], &["4", "2024-01-09"]])
+    );
 }
 
 // ---------------------------------------------------------------------------------------

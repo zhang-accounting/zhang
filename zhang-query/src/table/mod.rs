@@ -498,7 +498,7 @@ impl<'a> Dataset<'a> {
 
     /// The `id` of the `#entries` row `seq`.
     pub(crate) fn entry_id(&self, seq: u32) -> &'a str {
-        self.cache.entry_id(self.ledger, self.entry_table(), seq)
+        self.cache.entry_id(self.ledger, self.store, self.entry_table(), seq)
     }
 
     /// The `open` and `close` directives of `account`, for `open_date()`, `open_meta()`, ...
