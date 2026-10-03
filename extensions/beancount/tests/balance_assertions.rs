@@ -4,7 +4,8 @@
 //! (`balance_assertions/oracle.json`, written by `balance_assertions/generate.py`).
 //!
 //! A balance assertion never moves a balance: the balances are the sums of the postings, and a
-//! pad is sized from them. An assertion or a pad covers the account and all its sub-accounts.
+//! pad is sized from them. An assertion or a pad covers the account and all its sub-accounts. A
+//! ledger the oracle marks with an `accepted_deviation` is checked against zhang's own rule instead.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -28,6 +29,11 @@ fn load(case: &str) -> Ledger {
     Ledger::load_with_data_source(dir(), format!("{case}.bean"), data_source).expect("the ledger loads")
 }
 
+fn oracle_cases() -> serde_json::Map<String, Value> {
+    let oracle: Value = serde_json::from_str(&std::fs::read_to_string(dir().join("oracle.json")).unwrap()).unwrap();
+    oracle.as_object().unwrap().clone()
+}
+
 fn number(value: &Value) -> BigDecimal {
     BigDecimal::from_str(value.as_str().expect("a number is a string")).unwrap().normalized()
 }
@@ -41,6 +47,10 @@ fn of(amount: &Amount) -> (BigDecimal, String) {
     (amount.number.normalized(), amount.commodity.clone())
 }
 
+fn text(value: &Value) -> String {
+    value.as_str().unwrap().to_owned()
+}
+
 /// account -> currency -> units, zeros left out
 type Balances = BTreeMap<String, BTreeMap<String, BigDecimal>>;
 
@@ -50,15 +60,17 @@ type Pad = (String, (BigDecimal, String), String);
 /// (date, account, asserted amount, balance it was checked against, passed)
 type Assertion = (String, String, (BigDecimal, String), (BigDecimal, String), bool);
 
+#[derive(Debug, PartialEq)]
 struct Outcome {
     balances: Balances,
+    /// sorted: zhang books the paddings in the order of the assertions they serve, beancount in the order
+    /// of the pads
     pads: Vec<Pad>,
+    /// sorted: beancount orders the entries of a day by their line, whatever their file
     assertions: Vec<Assertion>,
 }
 
-fn oracle(case: &str) -> Outcome {
-    let oracle: Value = serde_json::from_str(&std::fs::read_to_string(dir().join("oracle.json")).unwrap()).unwrap();
-    let case = &oracle[case];
+fn oracle(case: &Value) -> Outcome {
     assert_eq!(case["errors"], Value::Array(vec![]), "the oracle ledgers have no other errors");
     let balances = case["balances"]
         .as_object()
@@ -74,32 +86,28 @@ fn oracle(case: &str) -> Outcome {
             (account.clone(), held)
         })
         .collect();
-    let pads = case["pads"]
+    let mut pads = case["pads"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|pad| {
-            (
-                pad["account"].as_str().unwrap().to_owned(),
-                amount(&pad["units"]),
-                pad["from"].as_str().unwrap().to_owned(),
-            )
-        })
-        .collect();
-    let assertions = case["assertions"]
+        .map(|pad| (text(&pad["account"]), amount(&pad["units"]), text(&pad["from"])))
+        .collect::<Vec<_>>();
+    pads.sort();
+    let mut assertions = case["assertions"]
         .as_array()
         .unwrap()
         .iter()
         .map(|it| {
             (
-                it["date"].as_str().unwrap().to_owned(),
-                it["account"].as_str().unwrap().to_owned(),
+                text(&it["date"]),
+                text(&it["account"]),
                 amount(&it["amount"]),
                 amount(&it["balance"]),
                 it["passed"].as_bool().unwrap(),
             )
         })
-        .collect();
+        .collect::<Vec<_>>();
+    assertions.sort();
     Outcome { balances, pads, assertions }
 }
 
@@ -121,30 +129,31 @@ fn zhang(case: &str) -> Outcome {
             .unwrap()
             .into_iter()
             .map(|it| (it.balance.commodity, it.balance.number.normalized()))
+            .filter(|(_, units)| !units.is_zero())
             .collect::<BTreeMap<_, _>>();
         held.retain(|_, units| !units.is_zero());
         for units in held.values_mut() {
             *units = units.normalized();
         }
-        let shown = shown.into_iter().filter(|(_, units)| !units.is_zero()).collect::<BTreeMap<_, _>>();
         assert_eq!(&shown, held, "{case}: the balance shown for {account} is the sum of its postings");
     }
     balances.retain(|_, held| !held.is_empty());
 
-    let mut padding = store.transactions.values().filter(|txn| txn.flag == Flag::BalancePad).collect::<Vec<_>>();
-    padding.sort_by_key(|txn| txn.sequence);
-    let pads = padding
-        .into_iter()
+    let mut pads = store
+        .transactions
+        .values()
+        .filter(|txn| txn.flag == Flag::BalancePad)
         .map(|txn| {
             let [padded, from] = &txn.postings[..] else {
                 panic!("{case}: a padding transaction has two postings");
             };
             (padded.account.name().to_owned(), of(&padded.inferred_amount), from.account.name().to_owned())
         })
-        .collect();
+        .collect::<Vec<_>>();
+    pads.sort();
 
     // every `balance` of the beancount ledger, a `balance ... with pad` where a pad serves it
-    let assertions = ledger
+    let mut assertions = ledger
         .directives
         .iter()
         .filter_map(|directive| match &directive.data {
@@ -172,75 +181,116 @@ fn zhang(case: &str) -> Outcome {
             )),
             _ => None,
         })
-        .collect();
+        .collect::<Vec<_>>();
+    assertions.sort();
     Outcome { balances, pads, assertions }
 }
 
-/// zhang's pads come in the order of the assertions they serve, beancount's in the order of the
-/// `pad` directives: compare them per account, in order
-fn by_account(mut pads: Vec<Pad>) -> Vec<Pad> {
-    pads.sort_by(|a, b| a.0.cmp(&b.0));
-    pads
+/// the ledgers whose deviation from beancount the tests below check
+const DEVIATIONS: &[&str] = &["child_assertion_after_parent_pad", "nested_pads"];
+
+#[test]
+fn zhang_agrees_with_beancount_on_every_ledger_without_an_accepted_deviation() {
+    let mut differing = vec![];
+    for (case, expected) in oracle_cases() {
+        if !expected["accepted_deviation"].is_null() {
+            assert!(
+                DEVIATIONS.contains(&case.as_str()),
+                "{case}: an accepted deviation needs a test of zhang's own result"
+            );
+            continue;
+        }
+        assert_eq!(expected["unused_pads"], Value::Array(vec![]), "{case}: beancount uses every pad");
+        let expected = oracle(&expected);
+        let actual = zhang(&case);
+        if actual != expected {
+            differing.push(format!("{case}:\n  zhang:     {actual:?}\n  beancount: {expected:?}"));
+        }
+    }
+    assert!(differing.is_empty(), "{}", differing.join("\n"));
 }
 
-fn check(case: &str) {
-    let expected = oracle(case);
-    let actual = zhang(case);
-    assert_eq!(actual.balances, expected.balances, "{case}: balances");
-    assert_eq!(by_account(actual.pads), by_account(expected.pads), "{case}: pads");
-    assert_eq!(actual.assertions, expected.assertions, "{case}: assertions");
+fn cny(number: &str) -> (BigDecimal, String) {
+    (BigDecimal::from_str(number).unwrap().normalized(), "CNY".to_owned())
+}
+
+fn assertion(date: &str, account: &str, asserted: &str, balance: &str, passed: bool) -> Assertion {
+    (date.to_owned(), account.to_owned(), cny(asserted), cny(balance), passed)
+}
+
+fn padding(account: &str, units: &str) -> Pad {
+    (account.to_owned(), cny(units), "Equity:Open".to_owned())
+}
+
+/// the oracle of an accepted deviation, with the reason it records
+fn deviation(case: &str) -> (Outcome, String, Value) {
+    let expected = &oracle_cases()[case];
+    let reason = expected["accepted_deviation"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{case} is an accepted deviation"))
+        .to_owned();
+    (oracle(expected), reason, expected["unused_pads"].clone())
 }
 
 #[test]
-fn a_failing_assertion_moves_no_balance_and_the_next_pad_starts_from_the_true_balance() {
-    check("failing_assertion");
+fn a_pad_serves_the_assertions_on_its_own_account_only() {
+    let (beancount, reason, unused) = deviation("child_assertion_after_parent_pad");
+    assert!(reason.contains("its own account only"), "{reason}");
+    // the assertion on the sub-account uses up the pad of the parent in beancount
+    assert_eq!(unused, serde_json::json!([{"account": "Assets:Bank", "date": "2024-01-03"}]));
+    assert!(beancount.pads.is_empty());
+    assert_eq!(
+        beancount.assertions,
+        vec![
+            assertion("2024-01-04", "Assets:Bank:Checking", "60", "60", true),
+            assertion("2024-01-05", "Assets:Bank", "100", "60", false),
+        ]
+    );
+
+    let zhang = zhang("child_assertion_after_parent_pad");
+    assert_eq!(zhang.pads, vec![padding("Assets:Bank", "40")]);
+    assert_eq!(
+        zhang.assertions,
+        vec![
+            assertion("2024-01-04", "Assets:Bank:Checking", "60", "60", true),
+            assertion("2024-01-05", "Assets:Bank", "100", "100", true),
+        ]
+    );
 }
 
 #[test]
-fn a_pad_serves_only_the_next_assertion() {
-    check("pad_then_failing_assertion");
-}
+fn a_pad_counts_the_padding_of_the_sub_accounts() {
+    let (beancount, reason, _) = deviation("nested_pads");
+    assert!(reason.contains("every padding before it"), "{reason}");
+    // beancount pads the parent by 60 where 40 are missing
+    assert_eq!(beancount.pads, vec![padding("Assets:Bank", "60"), padding("Assets:Bank:Checking", "60")]);
+    assert_eq!(
+        beancount.assertions,
+        vec![
+            assertion("2024-01-03", "Assets:Bank", "100", "120", false),
+            assertion("2024-01-03", "Assets:Bank:Checking", "60", "60", true),
+        ]
+    );
 
-#[test]
-fn two_pads_are_each_sized_from_the_postings() {
-    check("two_pads");
-}
-
-#[test]
-fn an_assertion_within_its_tolerance_passes_and_moves_nothing() {
-    check("tolerance");
-}
-
-#[test]
-fn a_pad_serves_the_next_assertion_of_each_currency() {
-    check("multi_currency");
-}
-
-#[test]
-fn an_assertion_on_the_day_of_a_pad_is_not_padded() {
-    check("same_day_pad");
-}
-
-#[test]
-fn an_assertion_on_a_parent_account_covers_its_sub_accounts() {
-    check("parent_account");
-    check("parent_children_only");
-}
-
-#[test]
-fn a_pad_on_a_parent_account_pads_the_parent_from_the_balance_of_its_sub_accounts() {
-    check("pad_on_parent");
+    let zhang = zhang("nested_pads");
+    assert_eq!(zhang.pads, vec![padding("Assets:Bank", "40"), padding("Assets:Bank:Checking", "60")]);
+    assert_eq!(
+        zhang.assertions,
+        vec![
+            assertion("2024-01-03", "Assets:Bank", "100", "100", true),
+            assertion("2024-01-03", "Assets:Bank:Checking", "60", "60", true),
+        ]
+    );
 }
 
 #[test]
 fn every_ledger_has_an_oracle() {
-    let oracle: Value = serde_json::from_str(&std::fs::read_to_string(dir().join("oracle.json")).unwrap()).unwrap();
     let mut ledgers = std::fs::read_dir(dir())
         .unwrap()
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .filter_map(|name| name.strip_suffix(".bean").map(str::to_owned))
         .collect::<Vec<_>>();
     ledgers.sort();
-    let cases = oracle.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+    let cases = oracle_cases().keys().cloned().collect::<Vec<_>>();
     assert_eq!(ledgers, cases);
 }
