@@ -362,6 +362,7 @@ Reported by a WASM plugin declared with a `plugin` directive, usually a validato
 changing it. The plugin reports the problem through the `zhang_emit_error` host function, and the ledger still loads.
 The error's `message` meta describes the problem and its `plugin` meta names the plugin; the plugin may add metas of
 its own. The error points at the directive the plugin names, or at the plugin's `plugin` directive when it names none.
+[Writing Plugins](/developer-guides/plugins/#reporting-errors) shows how a plugin reports one.
 
 **Example of Error:**
 ```zhang {4}

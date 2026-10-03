@@ -59,3 +59,4 @@ chrono = { version = "0.4" }
 beancount = { version = "0.1", path = "../extensions/beancount" }
 webauthn-authenticator-rs = { version = "0.5", features = ["softpasskey"] }
 tower = { version = "0.4", features = ["util"] }
+tempfile = "3.3.0"

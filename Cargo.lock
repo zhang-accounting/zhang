@@ -363,9 +363,9 @@ checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 
 [[package]]
 name = "base64"
-version = "0.22.0"
+version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9475866fec1451be56a3c2400fd081ff546538961565ccb5b7142cbd22bc7a51"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
@@ -1426,7 +1426,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ad19858c4c462309a8f3a20abec53e8603bda1eefda26c8bfab51d5516b40cbb"
 dependencies = [
  "anyhow",
- "base64 0.22.0",
+ "base64 0.22.1",
  "bytemuck",
  "extism-convert-macros",
  "prost",
@@ -1454,9 +1454,35 @@ version = "1.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2f59c8dadb5e0bde9a48c6ed45312e6ef625cbcd5f67c28459dbc8fe8bc0383"
 dependencies = [
- "base64 0.22.0",
+ "base64 0.22.1",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "extism-pdk"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "352fcb5a66eb74145a1c4a01f2bd15d59c62c85be73aac8471880c65b26b798f"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "extism-convert",
+ "extism-manifest",
+ "extism-pdk-derive",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "extism-pdk-derive"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d086daea5fd844e3c5ac69ddfe36df4a9a43e7218cf7d1f888182b089b09806c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -6500,7 +6526,7 @@ dependencies = [
  "async-recursion",
  "async-trait",
  "axum",
- "base64 0.22.0",
+ "base64 0.22.1",
  "beancount",
  "bytes",
  "chrono",
@@ -6548,6 +6574,7 @@ dependencies = [
  "indoc 2.0.5",
  "itertools 0.14.0",
  "serde",
+ "serde_json",
  "strum",
 ]
 
@@ -6556,7 +6583,7 @@ name = "zhang-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "base64 0.22.0",
+ "base64 0.22.1",
  "bigdecimal",
  "cap-std",
  "cfg-if",
@@ -6583,6 +6610,33 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "uuid",
+ "zhang-ast",
+]
+
+[[package]]
+name = "zhang-plugin-example-guard"
+version = "0.1.0"
+dependencies = [
+ "zhang-plugin-sdk",
+]
+
+[[package]]
+name = "zhang-plugin-example-summary"
+version = "0.1.0"
+dependencies = [
+ "zhang-plugin-sdk",
+]
+
+[[package]]
+name = "zhang-plugin-sdk"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bigdecimal",
+ "chrono",
+ "extism-pdk",
+ "serde",
+ "serde_json",
  "zhang-ast",
 ]
 
@@ -6618,7 +6672,7 @@ version = "0.1.0"
 dependencies = [
  "async-stream",
  "axum",
- "base64 0.22.0",
+ "base64 0.22.1",
  "beancount",
  "bigdecimal",
  "bytes",
@@ -6646,6 +6700,7 @@ dependencies = [
  "serde_qs",
  "sha2 0.10.8",
  "strum",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tokio-util",

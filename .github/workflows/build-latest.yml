@@ -65,6 +65,9 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ matrix.rust }}
+          # zhang-server/tests/sdk_plugins.rs builds the example plugins of zhang-plugin-sdk for wasm32 and runs
+          # them; without the target that test fails on CI (it only skips locally)
+          target: wasm32-unknown-unknown
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: fake frontend build
         run: mkdir -p dist
@@ -179,12 +182,16 @@ jobs:
         with:
           toolchain: stable
           components: clippy
+          target: wasm32-unknown-unknown
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: fake frontend build
         run: mkdir -p dist
         working-directory: ./frontend
       - name: Clippy
         run: cargo clippy --all-features --all-targets -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs
+      # the plugin SDK's Extism bindings and the exports of `plugin!` only exist on wasm32
+      - name: Clippy the plugin SDK for wasm32
+        run: cargo clippy --target wasm32-unknown-unknown -p zhang-plugin-sdk -p zhang-plugin-example-guard -p zhang-plugin-example-summary -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs
 
   typo-checker:
     runs-on: ubuntu-22.04

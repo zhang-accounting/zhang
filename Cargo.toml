@@ -9,7 +9,12 @@ members = [
     "extensions/*",
     "bindings/python",
     "bindings/wasm",
+    "zhang-plugin-sdk",
+    "zhang-plugin-sdk/examples/*",
 ]
+# the plugin SDK and its example plugins are default members: on a native target the SDK links nothing from
+# Extism (its host calls answer `unavailable`), so they build, test and lint natively like every other crate.
+# The examples become real plugins only when built for wasm32-unknown-unknown (see zhang-server/tests/sdk_plugins.rs)
 default-members = [
     "zhang-core",
     "zhang-query",
@@ -18,6 +23,8 @@ default-members = [
     "zhang-cli",
     "extensions/*",
     "bindings/python",
+    "zhang-plugin-sdk",
+    "zhang-plugin-sdk/examples/*",
 ]
 # zhang-sql (DuckDB-backed SQL explore) is paused: kept in the repo but not built.
 exclude = ["zhang-sql"]
