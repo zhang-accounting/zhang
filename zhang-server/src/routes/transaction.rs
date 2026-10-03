@@ -250,11 +250,12 @@ fn original_transaction<'a>(ledger: &'a Ledger, span: &TransactionInfoDomain) ->
 pub async fn create_new_transaction(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<CreateTransactionRequest>,
 ) -> ApiResult<String> {
-    let ledger = ledger.read().await;
+    let mut ledger = ledger.for_writing().await?;
 
     let trx = transaction_from_request(payload, &ledger, None)?;
 
     ledger.data_source.async_append(&ledger, vec![trx]).await?;
+    ledger.written = true;
     reload_sender.reload();
     ResponseWrapper::json("Ok".to_string())
 }
@@ -266,7 +267,14 @@ pub async fn upload_transaction_document(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, mut multipart: Multipart,
 ) -> ApiResult<String> {
     let transaction_id = Uuid::from_str(&path.0 .0).expect("invalid txn id");
-    let ledger = ledger.read().await;
+    // the files first, then the ledger, held to write
+    let mut files = vec![];
+    while let Some(field) = multipart.next_field().await.unwrap() {
+        let file_name = field.file_name().unwrap().to_string();
+        let content_buf = field.bytes().await.unwrap();
+        files.push((file_name, content_buf));
+    }
+    let mut ledger = ledger.for_writing().await?;
     let mut operations = ledger.operations();
     let entry = &ledger.entry.0;
     let mut documents = vec![];
@@ -276,17 +284,12 @@ pub async fn upload_transaction_document(
         return ResponseWrapper::bad_request();
     };
 
-    while let Some(field) = multipart.next_field().await.unwrap() {
-        let _name = field.name().unwrap().to_string();
-        let file_name = field.file_name().unwrap().to_string();
-        let _content_type = field.content_type().unwrap().to_string();
-
+    for (file_name, content_buf) in files {
         let v4 = Uuid::new_v4();
         let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
         let striped_buf = buf.strip_prefix(entry).unwrap();
         let striped_path_string = striped_buf.to_string_lossy().to_string();
         info!("uploading document `{}`(id={}) to transaction {}", file_name, v4, transaction_id);
-        let content_buf = field.bytes().await.unwrap();
 
         ledger.data_source.async_save(&ledger, striped_path_string, &content_buf).await?;
 
@@ -299,6 +302,7 @@ pub async fn upload_transaction_document(
     }
 
     write_transaction_documents(&ledger, &span_info, &documents).await?;
+    ledger.written = true;
     reload_sender.reload();
     ResponseWrapper::json("Ok".to_string())
 }
@@ -312,7 +316,11 @@ async fn write_transaction_documents(ledger: &Ledger, span: &TransactionInfoDoma
         .map(|document| format!("  document: {}", quote_as(document, QuoteStyle::Beancount)))
         .collect_vec();
     let source_file_path = span.source_file.to_string_lossy().to_string();
-    let mut content = String::from_utf8(ledger.data_source.async_get(source_file_path.clone()).await?).unwrap();
+    // the transaction must still be where the ledger loaded it
+    let mut content = ledger
+        .data_source
+        .async_get_unchanged(source_file_path.clone(), std::slice::from_ref(&span.span))
+        .await?;
     insert_transaction_metas(&mut content, span.span_start, span.span_end, &lines);
     ledger.data_source.async_save(ledger, source_file_path, content.as_bytes()).await?;
     Ok(())
@@ -346,7 +354,7 @@ pub async fn update_single_transaction(
     let Ok(transaction_id) = Uuid::from_str(&path.0 .0) else {
         return ResponseWrapper::bad_request();
     };
-    let ledger = ledger.read().await;
+    let mut ledger = ledger.for_writing().await?;
     let mut operations = ledger.operations();
 
     let span_info = operations.transaction_span(&transaction_id)?;
@@ -359,10 +367,15 @@ pub async fn update_single_transaction(
     let trx_content = String::from_utf8_lossy(&txn_content);
     let source_file_path = span_info.source_file.to_string_lossy().to_string();
 
-    let mut content = String::from_utf8(ledger.data_source.async_get(source_file_path.clone()).await?).unwrap();
+    // the transaction must still be where the ledger loaded it
+    let mut content = ledger
+        .data_source
+        .async_get_unchanged(source_file_path.clone(), std::slice::from_ref(&span_info.span))
+        .await?;
     content.replace_by_span(&SpanInfo::simple(span_info.span_start, span_info.span_end), &trx_content);
 
     ledger.data_source.async_save(&ledger, source_file_path, content.as_bytes()).await?;
+    ledger.written = true;
     reload_sender.reload();
     ResponseWrapper::json(())
 }

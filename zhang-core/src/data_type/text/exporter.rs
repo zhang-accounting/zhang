@@ -4,6 +4,7 @@ use zhang_ast::*;
 
 use crate::data_type::text::parser::is_valid_meta_key;
 use crate::ledger::Ledger;
+use crate::utils::plain_decimal;
 use crate::utils::string_::{quote_as, QuoteStyle};
 
 pub trait ZhangDataTypeExportable: Sized {
@@ -57,7 +58,7 @@ impl ZhangDataTypeExportable for Account {
 impl ZhangDataTypeExportable for Amount {
     type Output = String;
     fn export_as(self, _style: QuoteStyle) -> String {
-        format!("{} {}", self.number, self.commodity)
+        format!("{} {}", plain_decimal(&self.number), self.commodity)
     }
 }
 
@@ -249,7 +250,7 @@ impl ZhangDataTypeExportable for BalanceCheck {
             ..
         } = self;
         let amount_str = match tolerance {
-            Some(tolerance) => format!("{} ~ {} {}", amount.number, tolerance, amount.commodity),
+            Some(tolerance) => format!("{} ~ {} {}", plain_decimal(&amount.number), plain_decimal(&tolerance), amount.commodity),
             None => amount.export_as(style),
         };
         let line = [date.export_as(style), "balance".to_string(), account.export_as(style), amount_str];

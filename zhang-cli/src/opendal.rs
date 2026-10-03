@@ -267,7 +267,10 @@ impl DataSource for OpendalDataSource {
         info!("[opendal] save content path={}", path);
         let vec = content.to_vec();
 
-        self.operator.write(&path, vec).await.expect("cannot write");
+        self.operator
+            .write(&path, vec)
+            .await
+            .map_err(|e| ZhangError::CustomError(format!("cannot write {path}: {e}")))?;
         Ok(())
     }
 }
@@ -377,7 +380,9 @@ impl OpendalDataSource {
         } else {
             entry.join(main_file_endpoint)
         };
-        let striped_endpoint = endpoint.strip_prefix(entry).expect("cannot strip entry prefix");
+        let striped_endpoint = endpoint
+            .strip_prefix(entry)
+            .map_err(|_| ZhangError::CustomError(format!("{} is not in the ledger's directory", endpoint.display())))?;
 
         // a file new to the ledger and to this append
         let new_file = included.filter(|included| !has_path_visited(&ledger.visited_files, &endpoint) && !has_path_visited(included.iter(), &endpoint));

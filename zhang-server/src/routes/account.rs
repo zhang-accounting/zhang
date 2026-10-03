@@ -97,22 +97,23 @@ pub async fn upload_account_document(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, mut multipart: Multipart,
 ) -> ServerResult<Created> {
     let account_name = path.0 .0;
-    let ledger_stage = ledger.read().await;
+    // the files first, then the ledger, held to write
+    let mut files = vec![];
+    while let Some(field) = multipart.next_field().await.unwrap() {
+        let file_name = field.file_name().unwrap().to_string();
+        let content_buf = field.bytes().await.unwrap();
+        files.push((file_name, content_buf));
+    }
+    let mut ledger_stage = ledger.for_writing().await?;
     let account = validate::account(&account_name, &Rules::of(&ledger_stage))?;
     let entry = &ledger_stage.entry.0;
     let mut documents = vec![];
 
-    while let Some(field) = multipart.next_field().await.unwrap() {
-        let _name = field.name().unwrap().to_string();
-        let file_name = field.file_name().unwrap().to_string();
-        let _content_type = field.content_type().unwrap().to_string();
-
+    for (file_name, content_buf) in files {
         let v4 = Uuid::new_v4();
         let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
         let striped_buf = buf.strip_prefix(entry).unwrap();
         info!("uploading document `{}`(id={}) to account {}", file_name, v4, account_name);
-
-        let content_buf = field.bytes().await.unwrap();
 
         let striped_path_string = striped_buf.to_string_lossy().to_string();
         ledger_stage
@@ -131,6 +132,7 @@ pub async fn upload_account_document(
     }
 
     ledger_stage.data_source.async_append(&ledger_stage, documents).await?;
+    ledger_stage.written = true;
     reload_sender.reload();
     Ok(Created)
 }
@@ -198,7 +200,7 @@ pub async fn create_account_balance(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, params: Path<(String,)>, Json(payload): Json<AccountBalanceRequest>,
 ) -> ApiResult<BalanceWriteEntity> {
     let target_account = params.0 .0;
-    let ledger = ledger.read().await;
+    let mut ledger = ledger.for_writing().await?;
     let rules = Rules::of(&ledger);
 
     let row = match payload {
@@ -217,6 +219,7 @@ pub async fn create_account_balance(
     let written = balance_directives(&ledger, vec![row], Date::now(&ledger.options.timezone))?
         .write(&ledger)
         .await?;
+    ledger.written = true;
     reload_sender.reload();
     ResponseWrapper::json(written)
 }
@@ -234,7 +237,7 @@ fn sub_accounts_first(mut balances: Vec<BatchAccountBalanceRequest>) -> Vec<Batc
 pub async fn create_batch_account_balances(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<Vec<BatchAccountBalanceRequest>>,
 ) -> ApiResult<BalanceWriteEntity> {
-    let ledger = ledger.read().await;
+    let mut ledger = ledger.for_writing().await?;
     let rules = Rules::of(&ledger);
     let mut rows = vec![];
     // sub-accounts before their parents, deepest first: a `balance` on a parent covers its sub-accounts, so it
@@ -256,6 +259,7 @@ pub async fn create_batch_account_balances(
 
     // one time for the whole batch, so the file order decides the order of its directives
     let written = balance_directives(&ledger, rows, Date::now(&ledger.options.timezone))?.write(&ledger).await?;
+    ledger.written = true;
     reload_sender.reload();
     ResponseWrapper::json(written)
 }

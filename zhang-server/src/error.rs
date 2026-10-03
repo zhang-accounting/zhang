@@ -55,6 +55,11 @@ impl IntoResponse for ServerError {
             // the query error body is exactly `{message, line, column}`
             return (StatusCode::BAD_REQUEST, Json(crate::response::QueryErrorEntity::from(error))).into_response();
         }
+        if let ServerError::CoreError(error @ ZhangError::FileChanged(_)) = &self {
+            // nothing was written: the file changed since the ledger was loaded
+            let payload = json!({ "message": error.to_string(), "origin": "with_rejection" });
+            return (StatusCode::CONFLICT, Json(payload)).into_response();
+        }
         let payload = json!({
             "message": format!("{}", self),
             "origin": "with_rejection"

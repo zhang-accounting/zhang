@@ -80,12 +80,30 @@ where
     async fn async_get(&self, path: String) -> ZhangResult<Vec<u8>> {
         self.get(path)
     }
+
+    /// The content of the file at `path`, to edit the directives at `spans` in place: each of them must still be
+    /// what the ledger loaded there ([`SpanInfo::content`]). [`ZhangError::FileChanged`] when one is not, the file
+    /// having changed since the ledger was loaded: the ledger must be reloaded for places that are not stale. A
+    /// writer holds the ledger exclusively from this read until it saved the file, so no other write comes between
+    async fn async_get_unchanged(&self, path: String, spans: &[SpanInfo]) -> ZhangResult<String> {
+        let content = String::from_utf8(self.async_get(path.clone()).await?)?;
+        unchanged(&path, &content, spans)?;
+        Ok(content)
+    }
     async fn async_append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
         self.append(ledger, directives)
     }
 
     async fn async_save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         self.save(ledger, path, content)
+    }
+}
+
+/// whether the directives at `spans` are still what the ledger loaded in `content`, the content of the file at `path`
+pub fn unchanged(path: &str, content: &str, spans: &[SpanInfo]) -> ZhangResult<()> {
+    match spans.iter().all(|span| content.get(span.start..span.end) == Some(span.content.as_str())) {
+        true => Ok(()),
+        false => Err(ZhangError::FileChanged(path.to_owned())),
     }
 }
 

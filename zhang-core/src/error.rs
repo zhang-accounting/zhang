@@ -47,6 +47,10 @@ pub enum ZhangError {
     /// a file or directory larger than the caller allows
     #[error("too large: {0}")]
     TooLarge(String),
+
+    /// a file a writer edits in place changed since the ledger was loaded: the places of its directives are stale
+    #[error("the file {0} changed since it was loaded: reload the ledger, and try again")]
+    FileChanged(String),
 }
 
 pub trait IoErrorIntoZhangError<T> {

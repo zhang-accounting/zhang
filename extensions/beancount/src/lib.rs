@@ -4,6 +4,7 @@ use itertools::{Either, Itertools};
 use zhang_ast::*;
 use zhang_core::data_type::text::exporter::{append_meta_as, ZhangDataTypeExportable};
 use zhang_core::data_type::DataType;
+use zhang_core::utils::plain_decimal;
 use zhang_core::utils::string_::QuoteStyle;
 use zhang_core::{ZhangError, ZhangResult};
 
@@ -129,7 +130,7 @@ impl DataType for Beancount {
                 custom_type: ZhangString::unquote("budget-add"),
                 values: vec![
                     StringOrAccount::String(ZhangString::unquote(budget.name)),
-                    StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
+                    StringOrAccount::String(ZhangString::unquote(plain_decimal(&budget.amount.number))),
                     StringOrAccount::String(ZhangString::unquote(budget.amount.commodity)),
                 ],
                 meta: budget.meta,
@@ -141,7 +142,7 @@ impl DataType for Beancount {
                 values: vec![
                     StringOrAccount::String(ZhangString::unquote(budget.from)),
                     StringOrAccount::String(ZhangString::unquote(budget.to)),
-                    StringOrAccount::String(ZhangString::unquote(budget.amount.number.to_string())),
+                    StringOrAccount::String(ZhangString::unquote(plain_decimal(&budget.amount.number))),
                     StringOrAccount::String(ZhangString::unquote(budget.amount.commodity)),
                 ],
                 meta: budget.meta,
@@ -180,7 +181,7 @@ impl BeancountOnlyExportable for BalanceDirective {
             ..
         } = self;
         let amount_str = match tolerance {
-            Some(tolerance) => format!("{} ~ {} {}", amount.number, tolerance, amount.commodity),
+            Some(tolerance) => format!("{} ~ {} {}", plain_decimal(&amount.number), plain_decimal(&tolerance), amount.commodity),
             None => ZhangDataTypeExportable::export(amount),
         };
         let line = [

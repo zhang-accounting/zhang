@@ -3,12 +3,12 @@ use std::sync::Arc;
 
 use axum::extract::FromRef;
 use gotcha::GotchaContext;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockWriteGuard};
 use zhang_core::ledger::Ledger;
 
 use crate::auth::SharedAuth;
 use crate::broadcast::Broadcaster;
-use crate::ReloadSender;
+use crate::{ReloadSender, ServerResult};
 
 #[derive(Clone)]
 pub struct SharedLedger(pub Arc<RwLock<Ledger>>);
@@ -18,6 +18,20 @@ impl Deref for SharedLedger {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl SharedLedger {
+    /// The ledger, to write its files: held exclusively until the write is done, so no other write reads or saves a
+    /// file in between, and a write's places in a file cannot be made stale by another. When an earlier write left it
+    /// stale ([`Ledger::written`]), it is reloaded first, so the write reads what was written. A writer sets
+    /// [`Ledger::written`] once it wrote, and asks for the reload that serves it.
+    pub async fn for_writing(&self) -> ServerResult<RwLockWriteGuard<'_, Ledger>> {
+        let mut ledger = self.write().await;
+        if ledger.written {
+            ledger.async_reload().await?;
+        }
+        Ok(ledger)
     }
 }
 

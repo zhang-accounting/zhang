@@ -22,6 +22,7 @@
 //! without a cost. What is refused is a 400 with the reason, and nothing is written.
 
 use std::collections::BTreeMap;
+use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
@@ -33,6 +34,7 @@ use zhang_core::data_type::is_beancount_endpoint;
 use zhang_core::domains::schemas::AccountStatus;
 use zhang_core::ledger::Ledger;
 use zhang_core::pipeline::serving_pads;
+use zhang_core::utils::plain_decimal;
 use zhang_core::utils::string_::StringExt;
 
 use crate::error::ServerError;
@@ -65,34 +67,41 @@ pub struct ReplacedBalanceEntity {
 /// what a request writes: directives to append, and balances to rewrite in their files
 pub(crate) struct BalanceWrites {
     append: Vec<Directive>,
-    /// a balance's place in its file, and what it becomes; nothing for a balance a row replaced twice
-    replace: Vec<(SpanInfo, Option<Directive>)>,
+    /// each balance replaced, at its place in its file, and the directive replacing it
+    replace: Vec<(SpanInfo, Directive)>,
     replaced: Vec<ReplacedBalanceEntity>,
 }
 
 impl BalanceWrites {
-    /// write to the ledger's files: the balances replaced first, in their place, then the directives appended
+    /// write to the ledger's files: the balances replaced first, in their place, then the directives appended. A
+    /// file whose balances are not where the ledger loaded them is left as it is: [`ZhangError::FileChanged`]
+    ///
+    /// [`ZhangError::FileChanged`]: zhang_core::ZhangError::FileChanged
     pub(crate) async fn write(self, ledger: &Ledger) -> ServerResult<BalanceWriteEntity> {
-        let BalanceWrites { append, mut replace, replaced } = self;
-        // from the end of each file, so the places of the others stay
-        replace.sort_by(|(a, _), (b, _)| (&b.filename, b.start).cmp(&(&a.filename, a.start)));
-        let mut files: Vec<(String, String)> = vec![];
+        let BalanceWrites { append, replace, replaced } = self;
+        // by file; in a file from the end, so the places of the others stay
+        let mut files: BTreeMap<String, Vec<(SpanInfo, Directive)>> = BTreeMap::new();
         for (span, directive) in replace {
             let Some(file) = span.filename.as_ref().map(|it| it.to_string_lossy().to_string()) else {
                 continue;
             };
-            if files.last().is_none_or(|(last, _)| last != &file) {
-                let content = String::from_utf8(ledger.data_source.async_get(file.clone()).await?).map_err(|e| ServerError::InvalidInput(e.to_string()))?;
-                files.push((file.clone(), content));
-            }
-            let text = match directive {
-                Some(directive) => String::from_utf8_lossy(&ledger.data_source.export(directive)?).to_string(),
-                None => String::new(),
-            };
-            let (_, content) = files.last_mut().expect("the file is read");
-            content.replace_by_span(&span, &text);
+            files.entry(file).or_default().push((span, directive));
         }
-        for (file, content) in files {
+        let mut edited = vec![];
+        for (file, mut replacements) in files {
+            let spans = replacements.iter().map(|(span, _)| span.clone()).collect::<Vec<_>>();
+            let mut content = ledger.data_source.async_get_unchanged(file.clone(), &spans).await?;
+            replacements.sort_by_key(|(span, _)| std::cmp::Reverse(span.start));
+            for (span, directive) in replacements {
+                let text = match (&directive, with_amount_of(&span.content, &directive)) {
+                    (_, Some(text)) => text,
+                    (directive, None) => String::from_utf8_lossy(&ledger.data_source.export(directive.clone())?).to_string(),
+                };
+                content.replace_by_span(&span, &text);
+            }
+            edited.push((file, content));
+        }
+        for (file, content) in edited {
             ledger.data_source.async_save(ledger, file, content.as_bytes()).await?;
         }
         if !append.is_empty() {
@@ -100,6 +109,36 @@ impl BalanceWrites {
         }
         Ok(BalanceWriteEntity { replaced })
     }
+}
+
+/// `text`, a `balance` as written, asserting the amount of `balance` instead: only the number changes, and its
+/// tolerance, commodity, comment and metadata stay as written. `None` when its number is not a plain number
+fn with_amount_of(text: &str, balance: &Directive) -> Option<String> {
+    let Directive::BalanceCheck(balance) = balance else { return None };
+    let line = text.lines().next()?;
+    // the date, `balance`, the account, then the number, by their places in the line
+    let mut tokens = vec![];
+    let mut start = None;
+    for (at, character) in line.char_indices().chain(std::iter::once((line.len(), ' '))) {
+        match (character.is_whitespace(), start) {
+            (false, None) => start = Some(at),
+            (true, Some(from)) => {
+                tokens.push((from, at));
+                start = None;
+                if tokens.len() == 4 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let &(start, end) = tokens.get(3)?;
+    let (keyword_start, keyword_end) = tokens[1];
+    if &line[keyword_start..keyword_end] != "balance" {
+        return None;
+    }
+    BigDecimal::from_str(&line[start..end]).ok()?;
+    Some(format!("{}{}{}", &text[..start], plain_decimal(&balance.amount.number), &text[end..]))
 }
 
 /// What `rows` write to `ledger`, made `now`.
@@ -297,14 +336,15 @@ fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date, held: &
         }
     }
 
-    // each new balance in place of the first it replaces; the others it replaces go
+    // each new balance in place of those of the same account and commodity for tomorrow, which assert its amount
+    // instead; appended when there is none
     let mut writes = BalanceWrites {
         append: vec![],
         replace: vec![],
         replaced: vec![],
     };
     for (row, balance) in rows.iter().zip(balances) {
-        let mut balance = Some(balance);
+        let mut replacing = false;
         for directive in ledger.directives.iter().filter(|it| replaced(it)) {
             let Directive::BalanceCheck(old) = &directive.data else { continue };
             if old.account != row.account || old.amount.commodity != row.amount.commodity {
@@ -315,9 +355,12 @@ fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date, held: &
                 account: old.account.name().to_owned(),
                 amount: old.amount.clone(),
             });
-            writes.replace.push((directive.span.clone(), balance.take()));
+            writes.replace.push((directive.span.clone(), balance.clone()));
+            replacing = true;
         }
-        append.extend(balance);
+        if !replacing {
+            append.push(balance);
+        }
     }
     writes.append = append;
     Ok(writes)

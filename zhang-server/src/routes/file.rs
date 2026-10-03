@@ -41,11 +41,12 @@ pub async fn update_file_content(
 ) -> ServerResult<Created> {
     let encoded_file_path = path.0 .0;
     let filename = String::from_utf8(BASE64_STANDARD.decode(encoded_file_path).unwrap()).unwrap();
-    let ledger = ledger.read().await;
+    let mut ledger = ledger.for_writing().await?;
 
     // todo(refact) check if the syntax valid
     // if parse_zhang(&payload.content, None).is_ok() {
     ledger.data_source.async_save(&ledger, filename, payload.content.as_bytes()).await?;
+    ledger.written = true;
     reload_sender.reload();
     Ok(Created)
 }

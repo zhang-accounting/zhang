@@ -459,6 +459,7 @@ impl Operations {
             source_file: it.span.filename.clone().unwrap_or_default(),
             span_start: it.span.start,
             span_end: it.span.end,
+            span: it.span.clone(),
         }))
     }
 
