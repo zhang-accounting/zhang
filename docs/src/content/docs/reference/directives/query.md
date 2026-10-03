@@ -96,7 +96,7 @@ A `query` directive produces no ledger error.
 
 The same syntax works in Beancount files (`.bean`), so ledgers written for Fava keep their saved queries. Zhang reads
 their strings with the escaping rules above. Beancount itself drops a backslash that does not start an escape it
-knows, so it reads `'\d+'` as `'d+'`. It has no `\uXXXX`, `\a`, `\v` or `\e` escape either, so it reads `é` as
+knows, so it reads `'\d+'` as `'d+'`. It has no `\uXXXX`, `\a`, `\v` or `\e` escape either, so it reads `\u00e9` as
 `u00e9` where Zhang reads `é`. If you also use the ledger with Beancount or Fava, write each backslash twice, as in
 `'\\d+'`. That form reads the same in both.
 

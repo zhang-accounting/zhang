@@ -1,48 +1,59 @@
 ---
-title: WebDAV 数据源配置与使用
-description: 本指南详细介绍了如何将 WebDAV 作为数据源在张记账中配置和使用。
+title: WebDAV
+description: 把账本存放在 WebDAV 服务器上，例如 Nextcloud、ownCloud 或 NAS。
 sidebar:
   order: 3
 ---
 
-## WebDAV 数据源配置
+WebDAV 是一种在远程服务器上管理文件的协议。许多文件托管服务和 NAS 系统都提供它，例如 Nextcloud、ownCloud 或群晖（Synology）。张记账可以直接在 WebDAV 服务器上读写账本文件。
 
-WebDAV（基于 Web 的分布式创作和版本控制）是一种允许用户在远程服务器上管理文件的协议。它是一种用于数据存储和同步的强大工具，使得张记账的用户可以远程访问他们的会计数据。本指南将指导您完成将 WebDAV 配置为张记账数据源的步骤。
+## 配置
 
-### 配置要求
+用 `--source web-dav` 或 `ZHANG_DATA_SOURCE=web-dav` 选择这个数据源，并用环境变量配置它：
 
-要将 WebDAV 与张记账集成，您需要提供特定的配置详情。以下是您需要的信息：
+| 环境变量 | 必填 | 示例 | 说明 |
+| --- | --- | --- | --- |
+| `ZHANG_WEBDAV_ENDPOINT` | 是 | `https://dav.example.com/dav` | WebDAV 服务器的 URL。 |
+| `ZHANG_WEBDAV_ROOT` | 是 | `/accounting` | 账本在服务器上所在的文件夹，相对于服务器地址。 |
+| `ZHANG_WEBDAV_USERNAME` | 否 | `your_username` | 用户名，服务器要求时填写。 |
+| `ZHANG_WEBDAV_PASSWORD` | 否 | `your_password` | 密码。许多服务允许你为此创建一个应用专用密码。 |
 
-| 参数             | 命令行参数       | 环境变量                 | 必填 | 示例值                        | 备注                          |
-|----------------|----------------|----------------------|----|----------------------------|-----------------------------|
-| 数据源            | source         | ZHANG_DATA_SOURCE    | 是  | `web-dav`                  | 标识 WebDAV 为数据源。            |
-| WebDAV 服务器地址 | N/A            | ZHANG_WEBDAV_ENDPOINT | 是  | `https://dav.example.com/dav` | 您的 WebDAV 服务器的 URL。        |
-| WebDAV 数据根目录  | N/A            | ZHANG_WEBDAV_ROOT     | 是  | `/accounting`               | WebDAV 服务器上存储数据的根目录。 |
-| WebDAV 用户名      | N/A            | ZHANG_WEBDAV_USERNAME | 是  | `your_username`             | 您的 WebDAV 账户用户名。          |
-| WebDAV 密码       | N/A            | ZHANG_WEBDAV_PASSWORD | 否  | `your_password`             | 您的 WebDAV 账户密码。            |
+`zhang serve` 的 `<PATH>` 参数会被忽略：账本就是 `ZHANG_WEBDAV_ROOT` 文件夹。主文件仍由 `--endpoint` 指定（默认为 `main.zhang`），相对于这个文件夹。按示例中的值，张记账读取 `https://dav.example.com/dav/accounting/main.zhang`。
 
 ## 设置步骤
 
-1. **确定您的 WebDAV 服务器详情**：收集您的 WebDAV 服务器的 URL、根目录、用户名和密码。
-2. **配置环境变量**：使用上述信息设置环境变量。这可以在系统设置中完成，或者在运行张记账时直接完成。
-3. **启动张记账**：设置环境变量后，启动张记账。应用程序将自动连接到指定的 WebDAV 服务器，并使用它作为数据源。
+1. 把账本文件上传到 WebDAV 服务器上的某个文件夹。
+2. 设置好变量后启动张记账：
 
-## 高级配置
+```shell
+docker run --name zhang -d -p 8000:8000 \
+  -e ZHANG_DATA_SOURCE=web-dav \
+  -e ZHANG_WEBDAV_ENDPOINT=https://dav.example.com/dav \
+  -e ZHANG_WEBDAV_ROOT=/accounting \
+  -e ZHANG_WEBDAV_USERNAME=your_username \
+  -e ZHANG_WEBDAV_PASSWORD=your_password \
+  kilerd/zhang:latest
+```
 
-### 自定义 SSL 证书
+或者使用二进制文件：
 
-如果您的 WebDAV 服务器使用自定义 SSL 证书，您可能需要配置张记账以信任此证书。这涉及到将证书添加到系统的受信任证书存储中，或者在张记账配置中直接指定它。
+```shell
+ZHANG_DATA_SOURCE=web-dav \
+ZHANG_WEBDAV_ENDPOINT=https://dav.example.com/dav \
+ZHANG_WEBDAV_ROOT=/accounting \
+ZHANG_WEBDAV_USERNAME=your_username \
+ZHANG_WEBDAV_PASSWORD=your_password \
+zhang serve .
+```
 
-### 代理设置
+## 注意事项
 
-如果您位于代理后面，请配置环境中的代理设置以确保张记账可以到达您的 WebDAV 服务器。这通常涉及设置 `HTTP_PROXY` 和 `HTTPS_PROXY` 环境变量。
+- 张记账不会监视服务器。文件在张记账之外发生变化时（例如通过同步客户端），请使用网页界面的重新加载按钮，或者重启张记账。你在网页界面中记录的内容会写入服务器并立即重新加载。
+- 网页界面会把新条目、上传的文档和通行密钥写入服务器，位置与[本地文件系统](/zh-cn/deployment/data-sources/local/#目录结构)相同。
+- 插件模块和网页界面打开过的文档会缓存在运行张记账的机器上、工作目录的 `.cache` 文件夹中，见 [`.cache` 文件夹](/zh-cn/deployment/data-sources/local/#cache-文件夹)。
 
 ## 故障排除
 
-- **连接问题**：验证 WebDAV 服务器 URL 是否正确并且可以从您的网络访问。如有必要，检查防火墙和代理设置。
-- **身份验证失败**：仔细检查您的用户名和密码。确保您的 WebDAV 服务器配置为接受来自张记账的连接。
-- **数据同步错误**：确保您的 WebDAV 服务器上指定的根目录存在，并且具有正确的权限。
-
-## 结论
-
-将 WebDAV 设置为张记账的数据源可以实现无缝远程访问您的会计数据。通过遵循本指南中概述的步骤，您可以轻松地将 WebDAV 集成到您的会计工作流程中，确保您的数据无论身在何处都能被访问。
+- **张记账启动时报 `ZHANG_WEBDAV_ENDPOINT must be set` 或 `ZHANG_WEBDAV_ROOT must be set` 并退出**：这两个变量都是必填项。
+- **身份验证失败**：检查用户名和密码。如果服务启用了两步验证，请创建一个应用专用密码。
+- **网页界面显示空账本**：张记账没有找到主文件，于是以空账本启动。请检查 `ZHANG_WEBDAV_ENDPOINT`、`ZHANG_WEBDAV_ROOT` 和 `--endpoint`。

@@ -174,7 +174,7 @@ indented**. This is how Beancount and Fava read the file.
 ### How Zhang writes metadata
 
 When Zhang writes a transaction, for example when you create or edit one in the web UI, it writes the transaction's
-metadata right after the header, then each posting followed by its own metadata, indented two levels deeper:
+metadata right after the header, then each posting followed by its own metadata, indented one level deeper than the posting:
 
 ```zhang
 2024-01-02 * "Cafe" "lunch"

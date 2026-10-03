@@ -26,7 +26,7 @@ Budgets live beside your accounts: they never change a balance. The full syntax 
   category: "Discretionary"
 ```
 
-- `budget Food CNY` creates the budget `Food` in CNY. `alias` is the name the web UI shows, and `category` groups budgets on the Budgets page.
+- `budget Food CNY` creates the budget `Food` in CNY. `alias` is the name the web UI shows, and `category` groups budgets on the **Budget** page.
 - The `budget` metadata of an `open` links the account to a budget. Several accounts can share a budget, and an account can name several budgets by repeating the key.
 
 ## Assign and move money
@@ -77,7 +77,7 @@ In April, `Food` starts with the 80 CNY left from March, plus the 2,000 CNY assi
 2024-12-31 budget-close Fun
 ```
 
-`budget-close` marks the budget closed, and the Budgets page shows it as **Closed**, in every month. Accounts that name it still add their spending to it, so remove their `budget` metadata too.
+`budget-close` marks the budget closed, and the **Budget** page shows it as **Closed**, in every month. Accounts that name it still add their spending to it, so remove their `budget` metadata too.
 
 ## Follow your budgets in the web UI
 
