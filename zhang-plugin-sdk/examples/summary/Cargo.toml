@@ -1,0 +1,14 @@
+[package]
+name = "zhang-plugin-example-summary"
+version = "0.1.0"
+edition = "2021"
+description = "Example zhang router plugin: serves account balances as an HTML page and as JSON"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# a plugin outside this repository depends on it through git:
+# zhang-plugin-sdk = { git = "https://github.com/zhang-accounting/zhang", tag = "v…" }
+zhang-plugin-sdk = { path = "../.." }
