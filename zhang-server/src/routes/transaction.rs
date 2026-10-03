@@ -238,15 +238,29 @@ pub async fn upload_transaction_document(
     let metas_content = documents
         .into_iter()
         .map(|document| format!("  document: {}", quote_as(document.as_str(), QuoteStyle::Beancount)))
-        .join("\n");
+        .collect_vec();
 
     let source_file_path = span_info.source_file.to_string_lossy().to_string();
     let mut content = String::from_utf8(ledger.data_source.async_get(source_file_path.clone()).await?).unwrap();
-    content.insert(span_info.span_end, '\n');
-    content.insert_str(span_info.span_end + 1, &metas_content);
+    insert_transaction_metas(&mut content, span_info.span_start, span_info.span_end, &metas_content);
     ledger.data_source.async_save(&ledger, source_file_path, content.as_bytes()).await?;
     reload_sender.reload();
     ResponseWrapper::json("Ok".to_string())
+}
+
+/// Insert the metadata `lines` of the transaction at `span_start..span_end` of `content`
+/// right under its header line. There they are the transaction's in zhang and in
+/// beancount alike: after the postings beancount would read them as the last posting's.
+fn insert_transaction_metas(content: &mut String, span_start: usize, span_end: usize, lines: &[String]) {
+    if lines.is_empty() {
+        return;
+    }
+    let text = lines.iter().map(|line| format!("{line}\n")).join("");
+    match content[span_start..span_end].find('\n') {
+        Some(header_end) => content.insert_str(span_start + header_end + 1, &text),
+        // a one-line directive, such as the `balance` of a balance check: write after it
+        None => content.insert_str(span_end, &format!("\n{}", text.trim_end_matches('\n'))),
+    }
 }
 
 #[api(group = "transaction")]
@@ -301,7 +315,7 @@ mod string_round_trip_test {
     use zhang_core::ledger::Ledger;
     use zhang_core::store::TransactionDomain;
 
-    use super::{create_new_transaction, get_journals, update_single_transaction};
+    use super::{create_new_transaction, get_journals, insert_transaction_metas, update_single_transaction};
     use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, FlagRequest, JournalRequest, MetaRequest};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::ReloadSender;
@@ -897,5 +911,34 @@ mod string_round_trip_test {
         assert_eq!(items[0]["postings"][1]["metas"], serde_json::json!([{"key": "memo", "value": "after"}]));
 
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn uploaded_documents_go_under_the_transaction_header() {
+        let content = "2024-01-15 * \"Bob\" \"coffee\" ; a comment\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n\n2024-01-16 open Assets:Bank\n";
+        let end = content.find("\n\n").unwrap();
+        let mut written = content.to_owned();
+        let lines = vec!["  document: \"a.pdf\"".to_owned(), "  document: \"b.pdf\"".to_owned()];
+        insert_transaction_metas(&mut written, 0, end, &lines);
+        assert_eq!(
+            written,
+            "2024-01-15 * \"Bob\" \"coffee\" ; a comment\n  document: \"a.pdf\"\n  document: \"b.pdf\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n\n2024-01-16 open Assets:Bank\n"
+        );
+        // there they are the transaction's in both formats
+        for directives in [
+            ZhangDataType {}.transform(written.clone(), None).unwrap(),
+            beancount::Beancount {}.transform(written.clone(), None).unwrap(),
+        ] {
+            let Directive::Transaction(transaction) = &directives[0].data else {
+                panic!("expected a transaction")
+            };
+            assert_eq!(transaction.meta.get_all("document").len(), 2);
+            assert!(transaction.postings.iter().all(|posting| posting.meta.get_one("document").is_none()));
+        }
+
+        // nothing to insert leaves the text as it is
+        let mut unchanged = content.to_owned();
+        insert_transaction_metas(&mut unchanged, 0, end, &[]);
+        assert_eq!(unchanged, content);
     }
 }
