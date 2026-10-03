@@ -158,3 +158,42 @@ fn transaction_metadata_is_exported_before_the_postings() {
         "2024-01-02 * \"Cafe\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n    memo: \"paid\""
     );
 }
+
+/// A `document` appended to a file of a beancount ledger, here by the local data source, names its file relative to
+/// that file, as beancount reads it, and zhang reads it back by its path within the ledger.
+#[test]
+fn a_document_appended_to_a_beancount_file_names_its_file_from_there() {
+    use std::sync::Arc;
+
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::ledger::Ledger;
+
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let dir = std::env::temp_dir().join(format!("zhang-document-path-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(dir.join("attachments/u1")).unwrap();
+    std::fs::write(dir.join("attachments/u1/a statement.pdf"), "%PDF").unwrap();
+    std::fs::write(dir.join("main.bean"), "1970-01-01 open Assets:Cash\n").unwrap();
+    let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+    let ledger = Ledger::load_with_data_source(dir.clone(), "main.bean".to_owned(), source.clone()).unwrap();
+    let document = parse("2024-01-15 document Assets:Cash \"attachments/u1/a statement.pdf\"\n", None::<PathBuf>)
+        .unwrap()
+        .remove(0)
+        .data
+        .left()
+        .unwrap();
+
+    ledger.data_source.append(&ledger, vec![document]).unwrap();
+
+    let written = std::fs::read_to_string(dir.join("data/2024/1.zhang")).unwrap();
+    assert!(
+        written.contains("2024-01-15 document Assets:Cash \"../../attachments/u1/a statement.pdf\""),
+        "{written}"
+    );
+    let reloaded = Ledger::load_with_data_source(dir.clone(), "main.bean".to_owned(), source).unwrap();
+    let store = reloaded.store.read().unwrap();
+    assert!(store.errors.is_empty(), "{:?}", store.errors);
+    let paths = store.documents.iter().map(|it| it.path.as_str()).collect::<Vec<_>>();
+    assert_eq!(paths, vec!["attachments/u1/a statement.pdf"]);
+    drop(store);
+    std::fs::remove_dir_all(dir).ok();
+}
