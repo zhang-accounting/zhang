@@ -92,6 +92,19 @@ fn small_results_stay_within_the_limit() {
         let result = run(sql, Some(10_000)).unwrap_or_else(|err| panic!("{}: {}", sql, err));
         assert_eq!(result, run(sql, None).unwrap(), "{}", sql);
     }
+    // the rows before OFFSET of a LIMIT without ORDER BY are only counted, not built: a page at the end of the
+    // journal holds its own rows, with their running balance, and nothing more
+    let sql = "SELECT date, number, units(balance) WHERE account ~ 'Broker' LIMIT 3 OFFSET 195";
+    let page = run(sql, Some(3 * 4)).unwrap_or_else(|err| panic!("{}: {}", sql, err));
+    assert_eq!(page, run(sql, None).unwrap());
+    let units = page.rows.iter().map(|row| row[2].to_string()).collect::<Vec<_>>();
+    assert_eq!(units, ["196 STK", "197 STK", "198 STK"]);
+    too_large(sql, 3 * 4 - 1);
+    // an offset past the rows leaves none
+    assert!(run("SELECT date WHERE account ~ 'Broker' LIMIT 3 OFFSET 1000", Some(1))
+        .unwrap()
+        .rows
+        .is_empty());
     // exactly at the limit is allowed: 200 rows of a date (1) and a one-position inventory (2)
     let sql = "SELECT date, units(balance) WHERE account ~ 'Broker'";
     assert_eq!(run(sql, Some(200 * 3)).unwrap().rows.len(), 200);
@@ -106,4 +119,18 @@ fn the_default_limit_covers_the_fava_demo_ledger() {
         let result = Query::compile(sql).unwrap().execute(&ledger, &Params::new()).unwrap();
         assert_eq!(result.rows.len(), rows, "{}", sql);
     }
+}
+
+/// The rows before OFFSET of a query without ORDER BY are not built, as those past LIMIT: an error that
+/// only computing their targets would raise is not reported. They still go through WHERE, whose errors
+/// are.
+#[test]
+fn rows_skipped_by_offset_raise_the_errors_of_the_filter_only() {
+    // the first buy is on day 1: 9223372036854775807 + 2 - day overflows on it only
+    let target = "SELECT 9223372036854775807 + (2 - day) WHERE account ~ 'Broker' LIMIT 2 OFFSET 1";
+    assert_eq!(run(target, None).unwrap().rows.len(), 2);
+    let whole = "SELECT 9223372036854775807 + (2 - day) WHERE account ~ 'Broker' LIMIT 2";
+    assert_eq!(run(whole, None).unwrap_err().kind, QueryErrorKind::Eval);
+    let filter = "SELECT date WHERE 9223372036854775807 + (2 - day) > 0 AND account ~ 'Broker' LIMIT 2 OFFSET 1";
+    assert_eq!(run(filter, None).unwrap_err().kind, QueryErrorKind::Eval);
 }
