@@ -37,6 +37,10 @@ pub enum ServerError {
     /// a blocking task panicked or was cancelled
     #[error("background task failed: {0}")]
     TaskFailed(#[from] tokio::task::JoinError),
+
+    /// the server ran a built-in query it does not have, a bug; answered with HTTP 500
+    #[error("there is no built-in query named {0}")]
+    UnknownBuiltinQuery(String),
 }
 
 impl From<InvalidAccountError> for ServerError {

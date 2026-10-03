@@ -837,11 +837,15 @@ impl QueryCell {
 pub struct QueryResultEntity {
     pub columns: Vec<QueryColumnEntity>,
     pub rows: Vec<Vec<Nullable<QueryCell>>>,
+    /// the number of rows before `LIMIT` and `OFFSET`; only when the request sets `count_total`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
 }
 
 impl From<zhang_query::QueryResult> for QueryResultEntity {
     fn from(value: zhang_query::QueryResult) -> Self {
         QueryResultEntity {
+            total: value.total,
             columns: value
                 .columns
                 .into_iter()
@@ -853,6 +857,52 @@ impl From<zhang_query::QueryResult> for QueryResultEntity {
             rows: value.rows.iter().map(|row| row.iter().map(QueryCell::encode).collect()).collect(),
         }
     }
+}
+
+/// A built-in query (`GET /api/query/builtins`): the named BQL behind a figure of the app.
+#[derive(Serialize, Schematic)]
+pub struct BuiltinQueryEntity {
+    /// unique, dotted and lower case, e.g. `report.summary`
+    pub name: String,
+    pub description: String,
+    /// the query, with its parameters written `:name`
+    pub bql: String,
+    /// every parameter of the query, in the order it declares them
+    pub params: Vec<BuiltinQueryParamEntity>,
+}
+
+#[derive(Serialize, Schematic)]
+pub struct BuiltinQueryParamEntity {
+    /// the name, `from` for `:from`
+    pub name: String,
+    #[serde(rename = "type")]
+    pub param_type: QueryColumnType,
+}
+
+impl From<&crate::builtin::BuiltinQuery> for BuiltinQueryEntity {
+    fn from(value: &crate::builtin::BuiltinQuery) -> Self {
+        BuiltinQueryEntity {
+            name: value.name.to_owned(),
+            description: value.description.to_owned(),
+            bql: value.bql.to_owned(),
+            params: value
+                .params
+                .iter()
+                .map(|(name, ty)| BuiltinQueryParamEntity {
+                    name: (*name).to_owned(),
+                    param_type: (*ty).into(),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// A built-in query written out (`POST /api/query/builtins/{name}/text`).
+#[derive(Serialize, Schematic)]
+pub struct BuiltinQueryTextEntity {
+    /// the BQL with every parameter written in as a literal: it runs on the Query page
+    /// (`/explore`) to the same result as the query with the parameters bound
+    pub query: String,
 }
 
 #[derive(Serialize, Schematic)]
