@@ -6637,7 +6637,10 @@ dependencies = [
  "extism-pdk",
  "serde",
  "serde_json",
+ "tempfile",
  "zhang-ast",
+ "zhang-core",
+ "zhang-query",
 ]
 
 [[package]]

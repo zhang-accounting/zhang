@@ -2,7 +2,8 @@
 //!
 //! - reports an expense posting larger than the `threshold` setting, an amount resolved per transaction from the
 //!   transaction's `threshold` meta, the latest `custom "guard" "threshold" …` directive, or the plugin's
-//!   `threshold` meta, except for the payees listed in the file its `allowlist` meta names;
+//!   `threshold` meta, except for the payees listed in the file its `allowlist` meta names. A posting in another
+//!   commodity is valued in the threshold's at the ledger's price of its date;
 //! - reports a transaction dated after today;
 //! - stamps every transaction with a `guard-id` meta that stays the same on every load.
 //!
@@ -20,6 +21,7 @@ use std::collections::HashSet;
 
 use zhang_plugin_sdk::ast::ZhangString;
 use zhang_plugin_sdk::config::Config;
+use zhang_plugin_sdk::prices::PriceMap;
 use zhang_plugin_sdk::{clock, custom, errors, fs, plugin, Directive, Error, Stream};
 
 /// the plugin's name: what `/api/plugins` lists, and the first value of its `custom` directives
@@ -36,6 +38,7 @@ plugin! {
 
 fn process(mut stream: Stream) -> Result<Stream, Error> {
     let config = Config::load().with_custom(custom::entries(NAME, &stream));
+    let prices = PriceMap::from_stream(&stream);
     // the reserved config keys and the host functions below need plugin ABI v1; say so on an older zhang
     config.abi()?;
     let today = clock::today()?;
@@ -68,11 +71,23 @@ fn process(mut stream: Stream) -> Result<Stream, Error> {
                     let Some(units) = &posting.units else {
                         continue;
                     };
-                    if posting.account.name().starts_with("Expenses:") && units.commodity == threshold.commodity && units.number > threshold.number {
+                    if !posting.account.name().starts_with("Expenses:") {
+                        continue;
+                    }
+                    // without a price on or before its date, a posting in another commodity cannot be compared
+                    let Some(value) = prices.convert(units, &threshold.commodity, date) else {
+                        continue;
+                    };
+                    if value.number > threshold.number {
+                        let worth = if units.commodity == threshold.commodity {
+                            String::new()
+                        } else {
+                            format!(" (worth {} {})", value.number, value.commodity)
+                        };
                         errors::emit_error_at(
                             &span,
                             format!(
-                                "{} {} {} is over the threshold of {} {}",
+                                "{} {} {}{worth} is over the threshold of {} {}",
                                 posting.account.name(),
                                 units.number,
                                 units.commodity,
