@@ -360,6 +360,34 @@ fn directive_functions_read_open_close_and_commodity() {
     );
 }
 
+/// An account opened twice reads its earliest `open` directive, as beancount keeps it for
+/// beanquery, whichever comes first in the file.
+#[test]
+fn directive_functions_read_the_earliest_open() {
+    let ledger = common::load_text(
+        r#"option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Equity:Opening
+2021-01-01 open Assets:Bank
+  institution: "second"
+2020-01-01 open Assets:Bank
+  institution: "first"
+
+2024-01-10 * "Deposit"
+  Assets:Bank 30 CNY
+  Equity:Opening
+"#,
+    );
+    let result = run_on(
+        &ledger,
+        "SELECT DISTINCT open_date(account), open_meta(account, 'institution'), str(open_meta('Assets:Bank')) WHERE account = 'Assets:Bank'",
+        &Params::new(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(table(&result), expected(&[&["2020-01-01", "first", "institution: first"]]));
+}
+
 // ---------------------------------------------------------------------------------------
 // Dates and intervals
 // ---------------------------------------------------------------------------------------

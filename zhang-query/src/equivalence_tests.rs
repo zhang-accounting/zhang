@@ -594,6 +594,24 @@ fn scoped_queries() -> Vec<(&'static str, Params)> {
             "SELECT DISTINCT account WHERE account IN ('Assets:Broker', 'Assets:Short') AND icontains(payee, 'trade')",
             Params::new(),
         ),
+        // an account named both on its own and as an ancestor, or twice, is read once: its rows
+        // twice would count twice in the running balance
+        (
+            "SELECT date, account, position, balance WHERE account = :account OR under(account, :account)",
+            account("Assets:Cash"),
+        ),
+        (
+            "SELECT date, account, position, balance WHERE account = :account OR under(account, :account)",
+            account("Assets:US:BofA:Checking"),
+        ),
+        (
+            "SELECT date, account, balance WHERE account IN ('Assets:Cash', 'Assets:Cash', 'Assets:US:BofA:Checking', 'Assets:US:BofA:Checking')",
+            Params::new(),
+        ),
+        (
+            "SELECT account, count(*), last(balance) WHERE account IN (:account, :account) OR under(account, :account) OR under(account, :account) GROUP BY account",
+            account("Assets:US:Vanguard"),
+        ),
     ]
 }
 
@@ -631,6 +649,47 @@ fn account_scopes_keep_results() {
                 assert_same(sql, full, scoped);
             }
         }
+    }
+}
+
+/// Filters that the rows of other accounts can pass read every row, and return what a scan of
+/// every row returns: `!=`, `NOT`, `NOT IN` a list or a set, and a scoping conjunct after one
+/// that may fail, which a scan of every row evaluates for the other accounts too (and stops at
+/// its error there).
+#[test]
+fn filters_other_accounts_can_pass_read_every_row() {
+    let account = |name: &str| Params::new().bind("account", name);
+    let accounts = |names: &[&str]| Params::new().bind("accounts", Value::Set(names.iter().map(|it| it.to_string()).collect()));
+    let queries = [
+        ("SELECT date, account, balance WHERE account != 'Assets:Cash'", Params::new()),
+        ("SELECT date, account, balance WHERE account != :account", account("Assets:US:BofA:Checking")),
+        ("SELECT date, account, balance WHERE NOT account = :account", account("Assets:Cash")),
+        (
+            "SELECT date, account, balance WHERE account NOT IN ('Assets:Cash', 'Assets:US:BofA:Checking')",
+            Params::new(),
+        ),
+        (
+            "SELECT date, account, balance WHERE account NOT IN :accounts",
+            accounts(&["Assets:Cash", "Assets:US:BofA:Checking"]),
+        ),
+        // the product overflows for accounts of 13 characters or more, not for Assets:Cash
+        (
+            "SELECT date, account WHERE length(account) * 800000000000000000 > 0 AND account = :account",
+            account("Assets:Cash"),
+        ),
+    ];
+    for ledger in [fava_demo_ledger(), load_text(&random_lots_ledger(3, 120))] {
+        for (sql, params) in &queries {
+            let query = compile_scoped(sql);
+            assert!(query.plan.execution.scope.is_none(), "{sql}");
+            let result = query.execute_with_options(&ledger, params, &options());
+            let full = unscoped(compile_scoped(sql)).execute_with_options(&ledger, params, &options());
+            assert_same(sql, full, result);
+        }
+        // a scan of every row reaches the accounts the product overflows for
+        let (sql, params) = &queries[5];
+        let error = compile_scoped(sql).execute_with_options(&ledger, params, &options()).unwrap_err();
+        assert!(error.message.contains("integer overflow"), "{sql}: {}", error.message);
     }
 }
 

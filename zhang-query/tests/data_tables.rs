@@ -566,6 +566,38 @@ fn budget_amounts_convert_at_their_own_date_within_the_month() {
     );
 }
 
+const DEFINED_MID_MONTH: &str = r#"
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+  budget: food
+
+2024-01-10 * "Market" "before the budget"
+  Expenses:Food 30 CNY
+  Assets:Bank
+
+2024-01-15 budget food CNY
+2024-01-15 budget-add food 100 CNY
+
+2024-01-20 * "Market" "after the budget"
+  Expenses:Food 5 CNY
+  Assets:Bank
+"#;
+
+/// A budget's activity starts at its definition, as zhang folds the ledger: the 30 CNY spent on
+/// the 10th, before the budget of the 15th exists, are no activity of it, even in the same
+/// month; the 5 CNY of the 20th are (35 CNY if both counted).
+#[test]
+fn budget_activity_starts_at_the_definition_of_the_budget() {
+    let ledger = common::load_text(DEFINED_MID_MONTH);
+    assert_eq!(
+        run(&ledger, BUDGET_FIGURES),
+        rows(&[&["food", "2024-01-01", "100 CNY", "100 CNY", "5 CNY", "95 CNY", "FALSE"]])
+    );
+}
+
 #[test]
 fn budget_events_are_the_effects_of_the_budget_directives() {
     let ledger = common::load_text(BUDGETS);
