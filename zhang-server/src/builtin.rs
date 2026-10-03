@@ -87,9 +87,11 @@ pub static BUILTINS: &[BuiltinQuery] = &[
     // ---- budgets and commodities: /api/budgets/*, /api/commodities/* ----
     BuiltinQuery {
         name: "budgets.month",
-        description: "Every budget as of a month (its first day): its last month in #budgets up to that month.",
+        description: "Every budget as of a month (its first day): its last month in #budgets up to that month, carried over to the month when it is later.",
         bql: "SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, \
-              last(date) AS last_month, last(assigned) AS assigned, last(activity) AS activity, \
+              last(date) AS last_month, \
+              CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, \
+              CASE WHEN last(date) < :month THEN last(available) * 0 ELSE last(activity) END AS activity, \
               last(available) AS available, last(closed) AS closed \
               FROM #budgets \
               WHERE date <= :month \
@@ -100,18 +102,18 @@ pub static BUILTINS: &[BuiltinQuery] = &[
     BuiltinQuery {
         name: "budgets.budget",
         description: "One budget: its display name, category, commodity, and the accounts whose postings are its activity.",
-        bql: "SELECT name, first(alias) AS alias, first(category) AS category, first(currency) AS currency, \
-              first(accounts) AS accounts \
-              FROM #budgets \
-              WHERE name = :name \
-              GROUP BY name",
+        bql: "SELECT name, alias, category, currency, accounts \
+              FROM #budget_definitions \
+              WHERE name = :name",
         params: &[("name", DataType::Str)],
     },
     BuiltinQuery {
         name: "budgets.budget_month",
-        description: "One budget as of a month (its first day), as in budgets.month: its last month in #budgets up to that month.",
+        description: "One budget as of a month (its first day), as in budgets.month.",
         bql: "SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, \
-              last(date) AS last_month, last(assigned) AS assigned, last(activity) AS activity, \
+              last(date) AS last_month, \
+              CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, \
+              CASE WHEN last(date) < :month THEN last(available) * 0 ELSE last(activity) END AS activity, \
               last(available) AS available, last(closed) AS closed \
               FROM #budgets \
               WHERE name = :name AND date <= :month \

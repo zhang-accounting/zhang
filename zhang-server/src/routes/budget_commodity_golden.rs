@@ -10,20 +10,24 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::path::{Path as FsPath, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
+use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Months, NaiveDate};
 use serde::Serialize;
 use serde_json::Value as Json;
 use tokio::sync::RwLock;
 use zhang_ast::Directive;
+use zhang_core::clock::Clock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 
+use super::budget_reference::{Figures, Reference};
 use crate::request::{BudgetIntervalDetailRequest, BudgetListRequest};
 use crate::response::ResponseWrapper;
 use crate::routes::{budget, commodity};
@@ -157,13 +161,18 @@ impl Fixture {
     /// includes and fails on a missing include, so a ledger that has either is loaded from a copy
     /// with its wildcards expanded and its missing includes empty ([`materialize`])
     pub(crate) async fn try_load(&self) -> Option<SharedLedger> {
+        self.try_load_at(Clock::System).await
+    }
+
+    /// [`Fixture::try_load`] with the current time read from `clock`.
+    pub(crate) async fn try_load_at(&self, clock: Clock) -> Option<SharedLedger> {
         let load = |dir: PathBuf| async move {
             let source: Arc<dyn zhang_core::data_source::DataSource> = if self.entry.ends_with(".bean") {
                 Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}))
             } else {
                 Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
             };
-            Ledger::async_load(dir, self.entry.clone(), source).await.ok()
+            Ledger::async_load_with_clock(dir, self.entry.clone(), source, clock).await.ok()
         };
         let ledger = match load(self.dir.clone()).await {
             Some(ledger) => ledger,
@@ -296,7 +305,8 @@ fn month_pair(date: NaiveDate) -> (u32, u32) {
 
 /// The probes of a ledger: every endpoint, for every budget and commodity, an unknown one, and
 /// the months around the budgets' series: before the first, every month of it (sampled when it is
-/// long), and after the last.
+/// long), and after the last. A series that runs years past the current month, because of a date
+/// typo, is probed up to a few months after the current one, and at its last month.
 pub(crate) async fn probes(ledger: &SharedLedger) -> Vec<Probe> {
     let ledger = ledger.read().await;
     let store = ledger.store.read().unwrap();
@@ -312,6 +322,12 @@ pub(crate) async fn probes(ledger: &SharedLedger) -> Vec<Probe> {
         let last = last_posting.map(|it| it.with_day(1).unwrap()).map_or(last, |it| it.max(last));
         let start = first - Months::new(1);
         let end = last + Months::new(2);
+        let current = ledger.today().with_day(1).unwrap();
+        let typo = end > current + Months::new(36);
+        if typo {
+            months.insert(month_pair(last));
+        }
+        let end = if typo { current + Months::new(3) } else { end };
         let all = std::iter::successors(Some(start), |it| Some(*it + Months::new(1)))
             .take_while(|it| *it <= end)
             .collect::<Vec<_>>();
@@ -398,6 +414,16 @@ pub(crate) enum Reason {
     /// the month's events are ordered by their Unix time; the old handler compared the UTC time of
     /// a budget event with the local time of a posting
     IntervalOrderedByTimestamp,
+    /// a month so far ahead (a date typo) that the budgets' months up to it are more than the
+    /// result size limit is a 400; the old handler stored the months with entries only
+    FarMonthIsTooLarge,
+    /// decision 7: an account whose `open` names several budgets is an account of each; the old
+    /// handlers read the store, which keeps only the last value of a repeated key
+    RepeatedBudgetMetadata,
+    /// a posting's `account_after` is the account's balance after it in ledger order; the old
+    /// one was the balance at the posting's instant, which a time in a daylight saving gap
+    /// moves after later postings
+    AccountAfterInLedgerOrder,
 }
 
 impl Reason {
@@ -411,12 +437,18 @@ impl Reason {
             Reason::ActivityConverted => "activity converted to the budget's commodity at its date (decision 8)",
             Reason::RelatedAccountsInNameOrder => "related accounts in name order (were in open-directive order)",
             Reason::IntervalOrderedByTimestamp => "events and postings ordered by Unix time (old mixed UTC and local times)",
+            Reason::FarMonthIsTooLarge => "a month whose series exceeds the result size limit is a 400 (a date typo far ahead)",
+            Reason::RepeatedBudgetMetadata => "an account whose open names several budgets counts in each (decision 7)",
+            Reason::AccountAfterInLedgerOrder => "account_after is the balance after the posting in ledger order (was by instant, wrong around a DST gap)",
         }
     }
 }
 
 /// What the classification needs to know of a ledger, read from its store and directives.
 pub(crate) struct Context {
+    /// the figures of the budgets as [`Reference`] computes them, independently of the handlers,
+    /// or why it cannot
+    reference: Result<Reference, String>,
     /// the first day of the month of each budget's `budget-close`
     closed_from: BTreeMap<String, NaiveDate>,
     /// the date of the first posting of a budget's accounts, or amount of a directive of the
@@ -464,8 +496,9 @@ impl Context {
                 }
             }
         }
-        let current_month = first_of_month(chrono::Utc::now().with_timezone(&ledger.options.timezone).date_naive());
+        let current_month = first_of_month(ledger.today());
         Context {
+            reference: Reference::of(&ledger),
             closed_from,
             foreign_from,
             current_month,
@@ -479,8 +512,74 @@ fn sorted_by(items: &mut [Json], key: impl Fn(&Json) -> String) -> bool {
     before != items
 }
 
+/// The number of an amount of the budget API, as a decimal rounded to 20 places: the reference
+/// divides with more digits than the engine's 28 significant ones.
+fn amount_number(json: &Json) -> Option<BigDecimal> {
+    let number = BigDecimal::from_str(json["number"].as_str()?).ok()?;
+    Some(number.with_scale_round(20, bigdecimal::RoundingMode::HalfEven))
+}
+
+/// Whether a budget's figures of the new handler (an object of `GET /api/budgets` or
+/// `GET /api/budgets/{name}`) are the independent computation's ([`Reference`]): the same
+/// amounts by value and the same `closed`. A month before the budget's first is all zero and
+/// open.
+fn check_reference(new: &Json, name: &str, month: NaiveDate, context: &Context) -> Result<(), String> {
+    let reference = context.reference.as_ref().map_err(|why| format!("no reference figures: {}", why))?;
+    let expected = reference.figures(name, month).unwrap_or(Figures {
+        assigned: BigDecimal::zero(),
+        activity: BigDecimal::zero(),
+        available: BigDecimal::zero(),
+        closed: false,
+    });
+    let round = |number: BigDecimal| number.with_scale_round(20, bigdecimal::RoundingMode::HalfEven);
+    let got = (
+        amount_number(&new["assigned_amount"]),
+        amount_number(&new["activity_amount"]),
+        amount_number(&new["available_amount"]),
+        new["closed"].as_bool(),
+    );
+    let want = (
+        Some(round(expected.assigned)),
+        Some(round(expected.activity)),
+        Some(round(expected.available)),
+        Some(expected.closed),
+    );
+    if got == want {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} in {}: the handler gives {:?}, the reference {:?}",
+            name,
+            month.format("%Y-%m"),
+            got,
+            want
+        ))
+    }
+}
+
+/// Whether every posting of a month's detail (of the new handler) is a posting of its account in
+/// the reference, with the units it books and the account's balance after it in ledger order.
+fn check_postings(events: &[Json], context: &Context) -> Result<(), String> {
+    let reference = context.reference.as_ref().map_err(|why| format!("no reference postings: {}", why))?;
+    let number = |json: &Json| json["number"].as_str().and_then(|it| BigDecimal::from_str(it).ok());
+    for event in events.iter().filter(|it| it["type"] == "Posting") {
+        let account = event["account"].as_str().unwrap_or_default();
+        let found = reference.postings(account).iter().any(|posting| {
+            event["narration"].as_str() == posting.narration.as_deref()
+                && number(&event["inferred_unit"]).as_ref() == Some(&posting.units.number)
+                && event["inferred_unit"]["commodity"].as_str() == Some(posting.units.commodity.as_str())
+                && number(&event["account_after"]).as_ref() == Some(&posting.after)
+        });
+        if !found {
+            return Err(format!("the reference has no posting to {} like {}", account, event));
+        }
+    }
+    Ok(())
+}
+
 /// Erase the documented differences of one budget's figures (`old` and `new` are the objects of
-/// one budget), noting their reasons.
+/// one budget), noting their reasons. Amounts may only differ on a budget with amounts in other
+/// commodities, and only where the new ones are the independent computation's.
 fn budget_figures(old: &mut Json, new: &Json, name: &str, month: NaiveDate, context: &Context, reasons: &mut BTreeSet<Reason>) {
     if old["closed"] != new["closed"] {
         // the old handler said whether the budget is closed now; the new one whether it was closed by the month
@@ -491,14 +590,28 @@ fn budget_figures(old: &mut Json, new: &Json, name: &str, month: NaiveDate, cont
         }
     }
     let amounts = ["assigned_amount", "activity_amount", "available_amount"];
-    if amounts.iter().any(|key| old[key] != new[key]) {
-        // only a budget with amounts in other commodities by the end of the month can differ
+    // the same number written with another scale (`0` and `0.0`) is the same figure
+    for key in amounts {
+        if old[key] != new[key] && old[key]["commodity"] == new[key]["commodity"] && amount_number(&old[key]) == amount_number(&new[key]) {
+            old[key] = new[key].clone();
+        }
+    }
+    if amounts.iter().any(|key| old[key] != new[key]) && check_reference(new, name, month, context).is_ok() {
+        // only a budget with amounts in other commodities by the end of the month, or with an
+        // account the store lost, can differ
         let end_of_month = month + Months::new(1);
-        if context.foreign_from.get(name).is_some_and(|from| *from < end_of_month) {
+        let foreign = context.foreign_from.get(name).is_some_and(|from| *from < end_of_month);
+        let repeated = context.reference.as_ref().is_ok_and(|reference| reference.repeated(name));
+        if foreign || repeated {
             for key in amounts {
                 old[key] = new[key].clone();
             }
+        }
+        if foreign {
             reasons.insert(Reason::ActivityConverted);
+        }
+        if repeated {
+            reasons.insert(Reason::RepeatedBudgetMetadata);
         }
     }
 }
@@ -507,6 +620,18 @@ fn budget_figures(old: &mut Json, new: &Json, name: &str, month: NaiveDate, cont
 /// does not explain it.
 pub(crate) fn classify(probe: &Probe, old: &Outcome, new: &Outcome, context: &Context) -> Result<BTreeSet<Reason>, String> {
     let mut reasons = BTreeSet::new();
+    let month = probe.month().unwrap_or(context.current_month);
+    // every figure of the new handlers is the independent computation's, whatever the old said
+    match (probe, new) {
+        (Probe::BudgetList { .. }, Outcome::Json(Json::Array(budgets))) => {
+            for budget in budgets {
+                check_reference(budget, budget["name"].as_str().unwrap_or_default(), month, context)?;
+            }
+        }
+        (Probe::BudgetInfo { name, .. }, Outcome::Json(budget)) => check_reference(budget, name, month, context)?,
+        (Probe::BudgetInterval { .. }, Outcome::Json(Json::Array(events))) => check_postings(events, context)?,
+        _ => {}
+    }
     if old == new {
         return Ok(reasons);
     }
@@ -515,14 +640,30 @@ pub(crate) fn classify(probe: &Probe, old: &Outcome, new: &Outcome, context: &Co
             reasons.insert(Reason::UnknownCommodityIsNotFound);
             return Ok(reasons);
         }
+        (Probe::BudgetList { .. } | Probe::BudgetInfo { .. }, Outcome::Json(_), Outcome::Status(400))
+            if context
+                .reference
+                .as_ref()
+                .is_ok_and(|reference| reference.months_until(month) > crate::routes::query::max_result_values()) =>
+        {
+            reasons.insert(Reason::FarMonthIsTooLarge);
+            return Ok(reasons);
+        }
         (_, Outcome::Json(old), Outcome::Json(new)) => (old.clone(), new.clone()),
         _ => return Err(format!("old {:?}, new {:?}", old, new)),
     };
     let mut new_json = new_json;
-    let month = probe.month().unwrap_or(context.current_month);
     match probe {
         Probe::Commodity { .. } => {
-            let lot_key = |lot: &Json| format!("{} {} {}", lot["account"], lot["acquisition_date"], lot["cost"]);
+            // the documented order of the new lots: by account, then acquisition date and cost,
+            // without either first; the new lots are compared as they come
+            let lot_key = |lot: &Json| {
+                (
+                    lot["account"].as_str().unwrap_or_default().to_owned(),
+                    lot["acquisition_date"].as_str().map(str::to_owned),
+                    lot["cost"]["number"].as_str().and_then(|it| BigDecimal::from_str(it).ok()),
+                )
+            };
             if let Some(lots) = old_json["lots"].as_array_mut() {
                 let before = lots.len();
                 lots.retain(|lot| {
@@ -533,12 +674,11 @@ pub(crate) fn classify(probe: &Probe, old: &Outcome, new: &Outcome, context: &Co
                 if lots.len() != before {
                     reasons.insert(Reason::LotsOfAssetsAndLiabilitiesOnly);
                 }
-                if sorted_by(lots, lot_key) {
+                let before = lots.clone();
+                lots.sort_by_key(|lot| lot_key(lot));
+                if before != *lots {
                     reasons.insert(Reason::LotsInDeterministicOrder);
                 }
-            }
-            if let Some(lots) = new_json["lots"].as_array_mut() {
-                sorted_by(lots, lot_key);
             }
         }
         Probe::BudgetList { .. } => {
@@ -563,9 +703,47 @@ pub(crate) fn classify(probe: &Probe, old: &Outcome, new: &Outcome, context: &Co
                     reasons.insert(Reason::RelatedAccountsInNameOrder);
                 }
             }
+            if old_json["related_accounts"] != new_json["related_accounts"] {
+                if let Ok(reference) = &context.reference {
+                    let expected = serde_json::to_value(reference.accounts(name).into_iter().collect::<Vec<_>>()).expect("serializable");
+                    if reference.repeated(name) && new_json["related_accounts"] == expected {
+                        old_json["related_accounts"] = expected;
+                        reasons.insert(Reason::RepeatedBudgetMetadata);
+                    }
+                }
+            }
             budget_figures(&mut old_json, &new_json, name, month, context, &mut reasons);
         }
-        Probe::BudgetInterval { .. } => {
+        Probe::BudgetInterval { name, .. } => {
+            // the postings of the accounts the store lost (decision 7), checked against the
+            // reference with the others
+            if let (Ok(reference), Some(events)) = (&context.reference, new_json.as_array_mut()) {
+                let lost = reference.lost_accounts(name);
+                let before = events.len();
+                events.retain(|event| !event["account"].as_str().is_some_and(|account| lost.contains(account)));
+                if events.len() != before {
+                    reasons.insert(Reason::RepeatedBudgetMetadata);
+                }
+            }
+            // the balances after the postings, checked against the reference
+            if let (Some(old_events), Some(new_events)) = (old_json.as_array_mut(), new_json.as_array()) {
+                let mut moved = false;
+                for old_event in old_events.iter_mut().filter(|it| it["type"] == "Posting") {
+                    let Some(new_event) = new_events
+                        .iter()
+                        .find(|it| it["trx_id"] == old_event["trx_id"] && it["account"] == old_event["account"])
+                    else {
+                        continue;
+                    };
+                    if old_event["account_after"] != new_event["account_after"] {
+                        old_event["account_after"] = new_event["account_after"].clone();
+                        moved = true;
+                    }
+                }
+                if moved {
+                    reasons.insert(Reason::AccountAfterInLedgerOrder);
+                }
+            }
             // newest first; of the same time, budget events first, then in the old order
             let key = |it: &Json| (std::cmp::Reverse(it["timestamp"].as_i64().unwrap_or_default()), it["type"] != "BudgetEvent");
             if let Some(events) = old_json.as_array_mut() {
@@ -739,14 +917,21 @@ mod documented_differences {
 
     use super::*;
 
-    async fn ledger_of(text: &str) -> SharedLedger {
+    /// The ledger of `text` on 2025-06-15 (UTC): "this month" is June 2025.
+    pub(super) async fn ledger_of(text: &str) -> SharedLedger {
+        ledger_at(text, "2025-06-15T04:00:00Z").await
+    }
+
+    /// The ledger of `text` with its clock pinned at `instant` (RFC 3339).
+    pub(super) async fn ledger_at(text: &str, instant: &str) -> SharedLedger {
         let dir = tempfile::tempdir().unwrap().into_path();
         std::fs::write(dir.join("main.zhang"), text).unwrap();
+        let instant = chrono::DateTime::parse_from_rfc3339(instant).unwrap().to_utc();
         Fixture {
             dir,
             entry: "main.zhang".to_owned(),
         }
-        .try_load()
+        .try_load_at(Clock::Fixed(instant))
         .await
         .expect("the ledger loads")
     }
@@ -773,7 +958,7 @@ mod documented_differences {
     /// - The budget-add of 2025-04-10 (00:00 +08:00, Unix 1744214400) is after the taxi of
     ///   2025-04-09 20:00 +08:00 (1744200000); the old handler compared the add's UTC time
     ///   (04-09 16:00) with the taxi's local time (20:00) and put the taxi first.
-    const BUDGETS: &str = r#"
+    pub(super) const BUDGETS: &str = r#"
 option "operating_currency" "CNY"
 option "timezone" "Asia/Shanghai"
 
@@ -815,16 +1000,21 @@ option "timezone" "Asia/Shanghai"
 2025-05-02 budget-close trip
 "#;
 
-    fn figures(json: &Json) -> (String, String, String, bool) {
+    /// The figures of a budget of the budget API, its numbers by value (`-940.0` is `-940`).
+    pub(super) fn figures(json: &Json) -> (String, String, String, bool) {
+        let number = |key: &str| {
+            let number = BigDecimal::from_str(json[key]["number"].as_str().unwrap()).unwrap();
+            zhang_query::decimal::to_plain_string(&number.normalized())
+        };
         (
-            json["assigned_amount"]["number"].as_str().unwrap().to_owned(),
-            json["activity_amount"]["number"].as_str().unwrap().to_owned(),
-            json["available_amount"]["number"].as_str().unwrap().to_owned(),
+            number("assigned_amount"),
+            number("activity_amount"),
+            number("available_amount"),
             json["closed"].as_bool().unwrap(),
         )
     }
 
-    fn of(assigned: &str, activity: &str, available: &str, closed: bool) -> (String, String, String, bool) {
+    pub(super) fn of(assigned: &str, activity: &str, available: &str, closed: bool) -> (String, String, String, bool) {
         (assigned.to_owned(), activity.to_owned(), available.to_owned(), closed)
     }
 
@@ -844,14 +1034,14 @@ option "timezone" "Asia/Shanghai"
         assert_eq!(figures(&new), of("1000", "0", "1000", false));
         let (old, new) = json_answers(&ledger, info((2025, 4))).await;
         assert_eq!(figures(&old), of("1200", "340", "860", true));
-        assert_eq!(figures(&new), of("1200", "2140.0", "-940.0", false));
+        assert_eq!(figures(&new), of("1200", "2140", "-940", false));
         let (old, new) = json_answers(&ledger, info((2025, 5))).await;
         assert_eq!(figures(&old), of("860", "0", "860", true));
-        assert_eq!(figures(&new), of("-940.0", "0", "-940.0", true));
-        // after the last month of the ledger, the budget carries over
+        assert_eq!(figures(&new), of("-940", "0", "-940", true));
+        // after the current month (June 2025), the budget carries over
         let (old, new) = json_answers(&ledger, info((2026, 1))).await;
         assert_eq!(figures(&old), of("860", "0", "860", true));
-        assert_eq!(figures(&new), of("-940.0", "0", "-940.0", true));
+        assert_eq!(figures(&new), of("-940", "0", "-940", true));
         assert_eq!(new["related_accounts"], json!(["Expenses:Travel"]));
     }
 
@@ -864,7 +1054,7 @@ option "timezone" "Asia/Shanghai"
         assert_eq!(new[0]["alias"], json!("Groceries"));
         // food spent 60 CNY in March and nothing in April
         assert_eq!(figures(&new[0]), of("440", "0", "440", false));
-        assert_eq!(figures(&new[1]), of("1200", "2140.0", "-940.0", false));
+        assert_eq!(figures(&new[1]), of("1200", "2140", "-940", false));
         // a month before every budget lists none
         let (old, new) = json_answers(&ledger, Probe::BudgetList { month: Some((2025, 2)) }).await;
         assert_eq!((old, new), (json!([]), json!([])));
@@ -1028,5 +1218,236 @@ option "operating_currency" "USD"
             answers(&ledger, Probe::Commodity { name: "NOPE".to_owned() }).await,
             (Outcome::Panic, Outcome::Status(404))
         );
+    }
+}
+
+/// The budget pages with the ledger's clock pinned: the current month in the ledger's timezone,
+/// a month after the last row, the pages against the queries they open, and a date typo.
+#[cfg(test)]
+mod fixed_clock {
+    use serde_json::json;
+    use zhang_query::{Params, Value};
+
+    use super::documented_differences::{figures, ledger_at, ledger_of, of, BUDGETS};
+    use super::*;
+    use crate::cells::rows;
+
+    async fn new_json(ledger: &SharedLedger, probe: Probe) -> Json {
+        match probe.run(ledger).await.1 .0 {
+            Outcome::Json(json) => json,
+            other => panic!("{:?}: {:?}", probe, other),
+        }
+    }
+
+    /// Shanghai is UTC+8: at 2024-03-31 16:30 UTC it is already April 1st there. Without a month,
+    /// the budget pages show April, the ledger's current month: 500 CNY assigned in March, 100
+    /// spent in March and 30 on April 1st, so April starts with 400 and spends 30. In UTC it would
+    /// still be March (500 assigned, 100 spent).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_current_month_is_the_ledger_timezones() {
+        let ledger = ledger_at(
+            r#"
+option "operating_currency" "CNY"
+option "timezone" "Asia/Shanghai"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+  budget: food
+2024-03-01 budget food CNY
+2024-03-01 budget-add food 500 CNY
+2024-03-10 "Market" "march"
+  Expenses:Food 100 CNY
+  Assets:Bank
+2024-04-01 00:10:00 "Bakery" "first thing in april"
+  Expenses:Food 30 CNY
+  Assets:Bank
+"#,
+            "2024-03-31T16:30:00Z",
+        )
+        .await;
+        let list = new_json(&ledger, Probe::BudgetList { month: None }).await;
+        assert_eq!(figures(&list[0]), of("400", "30", "370", false));
+        let info = new_json(
+            &ledger,
+            Probe::BudgetInfo {
+                name: "food".to_owned(),
+                month: None,
+            },
+        )
+        .await;
+        assert_eq!(figures(&info), of("400", "30", "370", false));
+        // the query a page opens names the month it shows
+        let march = new_json(&ledger, Probe::BudgetList { month: Some((2024, 3)) }).await;
+        assert_eq!(figures(&march[0]), of("500", "100", "400", false));
+    }
+
+    /// A month after a budget's last row starts with what was available and spends nothing. With
+    /// "today" in April 2025, the series ends in April: 1000 CNY added in March, 300 spent in
+    /// April, so June starts with 700 (not April's 1000 assigned) and spends 0 (not April's 300).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_month_after_the_last_row_carries_the_budget_over() {
+        let ledger = ledger_at(
+            r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+  budget: food
+2025-03-01 budget food CNY
+2025-03-01 budget-add food 1000 CNY
+2025-04-10 "Market" "april"
+  Expenses:Food 300 CNY
+  Assets:Bank
+"#,
+            "2025-04-20T04:00:00Z",
+        )
+        .await;
+        let june = new_json(&ledger, Probe::BudgetList { month: Some((2025, 6)) }).await;
+        assert_eq!(figures(&june[0]), of("700", "0", "700", false));
+        let info = Probe::BudgetInfo {
+            name: "food".to_owned(),
+            month: Some((2025, 6)),
+        };
+        let ((old, _), (new, _)) = info.run(&ledger).await;
+        assert_eq!(figures(new.json().unwrap()), of("700", "0", "700", false));
+        // the old handler carried it over the same way
+        assert_eq!(figures(old.json().unwrap()), of("700", "0", "700", false));
+        let april = new_json(&ledger, Probe::BudgetList { month: Some((2025, 4)) }).await;
+        assert_eq!(figures(&april[0]), of("1000", "300", "700", false));
+    }
+
+    /// What a budget page shows is what the query it opens returns: the figures of `budgets.month`
+    /// and `budgets.budget_month` exactly, as the query gives them, in every kind of month: before
+    /// a budget, with entries, closed, without entries, the current one and later ones.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_budget_pages_show_what_their_queries_return() {
+        let ledger = ledger_of(BUDGETS).await;
+        let cell = |value: &Value| match value {
+            Value::Amount(amount) => serde_json::to_value(amount).unwrap(),
+            Value::Bool(it) => json!(it),
+            Value::Str(it) => json!(it),
+            Value::Null => Json::Null,
+            other => panic!("{:?}", other),
+        };
+        for (year, month) in [(2025, 2), (2025, 3), (2025, 4), (2025, 5), (2025, 6), (2025, 9), (2026, 1)] {
+            let date = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
+            let pair = Some((year as u32, month));
+            // what the queries return
+            let (list, infos) = {
+                let ledger = ledger.read().await;
+                let result = crate::builtin::execute(&ledger, "budgets.month", &Params::new().bind("month", date), false).unwrap();
+                let list = rows(&result)
+                    .map(|row| {
+                        json!({
+                            "name": cell(row.get("name")), "alias": cell(row.get("alias")), "category": cell(row.get("category")),
+                            "closed": cell(row.get("closed")), "assigned_amount": cell(row.get("assigned")),
+                            "activity_amount": cell(row.get("activity")), "available_amount": cell(row.get("available")),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let infos = ["food", "trip"].map(|name| {
+                    let params = Params::new().bind("name", name).bind("month", date);
+                    let result = crate::builtin::execute(&ledger, "budgets.budget_month", &params, false).unwrap();
+                    let figures = rows(&result).next().map(|row| {
+                        json!({
+                            "closed": cell(row.get("closed")), "assigned_amount": cell(row.get("assigned")),
+                            "activity_amount": cell(row.get("activity")), "available_amount": cell(row.get("available")),
+                        })
+                    });
+                    (name, figures)
+                });
+                (list, infos)
+            };
+            // what the pages show
+            assert_eq!(
+                new_json(&ledger, Probe::BudgetList { month: pair }).await,
+                Json::Array(list),
+                "{}-{}",
+                year,
+                month
+            );
+            for (name, query) in infos {
+                let mut page = new_json(
+                    &ledger,
+                    Probe::BudgetInfo {
+                        name: name.to_owned(),
+                        month: pair,
+                    },
+                )
+                .await;
+                match query {
+                    Some(query) => {
+                        let page = page.as_object_mut().unwrap();
+                        page.retain(|key, _| ["closed", "assigned_amount", "activity_amount", "available_amount"].contains(&key.as_str()));
+                        assert_eq!(Json::Object(page.clone()), query, "{} {}-{}", name, year, month);
+                    }
+                    // before the budget's first month the query has no row and the page shows nothing
+                    None => assert_eq!(figures(&page), of("0", "0", "0", false), "{} {}-{}", name, year, month),
+                }
+            }
+        }
+    }
+
+    /// A transaction dated 9999 by mistake in a ledger of twelve budgets: their months through
+    /// it are more than the result size limit. The budget pages ask for one month and read the
+    /// budgets' definitions without months, so they work; asking for a month in 9999 is a 400
+    /// that names the cause.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_date_typo_far_ahead_leaves_the_budget_pages_working() {
+        let mut text = String::from("option \"operating_currency\" \"CNY\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Bank\n");
+        text.push_str("1970-01-01 open Expenses:Food\n  budget: b00\n");
+        for index in 0..12 {
+            text.push_str(&format!("2025-01-01 budget b{:02} CNY\n", index));
+        }
+        text.push_str("2025-01-01 budget-add b00 100 CNY\n");
+        text.push_str("2025-01-10 \"Market\" \"lunch\"\n  Expenses:Food 10 CNY\n  Assets:Bank\n");
+        text.push_str("9999-01-01 \"Market\" \"a typo\"\n  Expenses:Food 1 CNY\n  Assets:Bank\n");
+        let ledger = ledger_at(&text, "2025-03-15T04:00:00Z").await;
+        let list = new_json(&ledger, Probe::BudgetList { month: None }).await;
+        assert_eq!(list.as_array().unwrap().len(), 12);
+        assert_eq!(figures(&list[0]), of("90", "0", "90", false));
+        let info = new_json(
+            &ledger,
+            Probe::BudgetInfo {
+                name: "b00".to_owned(),
+                month: None,
+            },
+        )
+        .await;
+        assert_eq!(info["related_accounts"], json!(["Expenses:Food"]));
+        let interval = new_json(
+            &ledger,
+            Probe::BudgetInterval {
+                name: "b00".to_owned(),
+                year: 2025,
+                month: 1,
+            },
+        )
+        .await;
+        assert_eq!(interval.as_array().unwrap().len(), 2);
+        for probe in [
+            Probe::BudgetInfo {
+                name: "nope".to_owned(),
+                month: None,
+            },
+            Probe::BudgetInterval {
+                name: "nope".to_owned(),
+                year: 2025,
+                month: 1,
+            },
+        ] {
+            assert_eq!(probe.run(&ledger).await.1 .0, Outcome::Status(404), "{:?}", probe);
+        }
+        let response = budget::get_budget_list(
+            State(SharedLedger(ledger.0.clone())),
+            Query(BudgetListRequest {
+                year: Some(9999),
+                month: Some(1),
+            }),
+        )
+        .await;
+        let err = response.err().expect("too large");
+        assert!(err.to_string().contains("too many rows"), "{}", err);
+        assert_eq!(err.into_response().status().as_u16(), 400);
     }
 }

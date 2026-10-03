@@ -2,6 +2,8 @@ pub mod account;
 pub mod budget;
 #[cfg(test)]
 mod budget_commodity_golden;
+#[cfg(test)]
+mod budget_reference;
 pub mod commodity;
 pub mod common;
 pub mod document;

@@ -3,8 +3,7 @@
 //! `#budgets`, `#budget_events` and the postings, and maps their rows into the response.
 
 use axum::extract::{Path, Query, State};
-use bigdecimal::BigDecimal;
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
 use gotcha::api;
 use itertools::Itertools;
 use zhang_ast::amount::Amount;
@@ -22,9 +21,9 @@ use crate::state::SharedLedger;
 use crate::{ApiResult, ServerResult};
 
 /// The first day of the month a budget page asks for: by default the current one in the
-/// ledger's timezone, as `today()` reads it.
+/// ledger's timezone, by the ledger's clock, as `today()` reads it.
 fn requested_month(ledger: &Ledger, params: &BudgetListRequest) -> ServerResult<NaiveDate> {
-    params.month_or(Utc::now().with_timezone(&ledger.options.timezone).date_naive())
+    params.month_or(ledger.today())
 }
 
 /// A budget's figures in a month.
@@ -36,29 +35,21 @@ struct MonthFigures {
 }
 
 impl MonthFigures {
-    /// The figures of `month` from a row of `budgets.month` or `budgets.budget_month`: those of
-    /// the budget's last month up to `month`. `#budgets` runs through the current month, so a
-    /// budget's last month is before `month` only when `month` is later; nothing happened to the
-    /// budget since, so it carries over, as `#budgets` does from month to month: the month starts
-    /// with what was available and spends nothing.
-    fn of(row: &Row<'_>, month: NaiveDate) -> MonthFigures {
+    /// The figures of a row of `budgets.month` or `budgets.budget_month`, as the query gives them
+    /// (it carries a budget over to a month after its last row).
+    fn from_row(row: &Row<'_>) -> MonthFigures {
         let currency = row.str("currency").unwrap_or_default();
         let amount = |name: &str| row.amount(name).unwrap_or_else(|| Amount::zero(&currency));
-        let available = amount("available");
-        let (assigned, activity) = if row.date("last_month").is_some_and(|last| last < month) {
-            (available.clone(), Amount::new(BigDecimal::from(0), &currency))
-        } else {
-            (amount("assigned"), amount("activity"))
-        };
         MonthFigures {
             closed: row.bool("closed").unwrap_or(false),
-            assigned,
-            activity,
-            available,
+            assigned: amount("assigned"),
+            activity: amount("activity"),
+            available: amount("available"),
         }
     }
 
-    /// The figures of a month before the budget's first one: nothing assigned or spent, not closed.
+    /// The figures of a month before the budget's first one, which has no row: nothing assigned
+    /// or spent, not closed.
     fn before_start(currency: &str) -> MonthFigures {
         MonthFigures {
             closed: false,
@@ -81,7 +72,7 @@ pub async fn get_budget_list(ledger: State<SharedLedger>, params: Query<BudgetLi
         let result = execute(ledger, "budgets.month", &Params::new().bind("month", month), false)?;
         let budgets = rows(&result)
             .map(|row| {
-                let figures = MonthFigures::of(&row, month);
+                let figures = MonthFigures::from_row(&row);
                 BudgetListItemEntity {
                     name: row.str("name").unwrap_or_default(),
                     alias: row.str("alias"),
@@ -114,7 +105,7 @@ pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>
         let params = Params::new().bind("name", budget_name.as_str()).bind("month", month);
         let figures = execute(ledger, "budgets.budget_month", &params, false)?;
         let figures = match first_row(&figures) {
-            Some(row) => MonthFigures::of(&row, month),
+            Some(row) => MonthFigures::from_row(&row),
             None => MonthFigures::before_start(&budget.str("currency").unwrap_or_default()),
         };
         Ok(Some(BudgetInfoEntity {

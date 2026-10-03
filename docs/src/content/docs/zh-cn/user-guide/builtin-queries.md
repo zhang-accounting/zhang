@@ -139,11 +139,11 @@ ORDER BY seq
 
 ### 预算与商品
 
-预算页面读取 [`#budgets`](/zh-cn/user-guide/query-language/#预算表) 和 [`#budget_events`](/zh-cn/user-guide/query-language/#预算变动表)。月份以其第一天表示，例如 `2024-06-01`；没有指定月份时，页面使用账本时区中的当前月份。
+预算页面读取 [`#budgets`](/zh-cn/user-guide/query-language/#预算表)、[`#budget_definitions`](/zh-cn/user-guide/query-language/#预算定义表) 和 [`#budget_events`](/zh-cn/user-guide/query-language/#预算变动表)。月份以其第一天表示，例如 `2024-06-01`；没有指定月份时，页面使用账本时区中的当前月份。
 
 #### `budgets.month`
 
-截至某个月的每个预算：该预算在 `#budgets` 中到这个月为止的最后一个月。预算页面列出的就是这些行。`#budgets` 中每个预算都有直到当前月份的每一个月，所以 `last_month` 就是所请求的月份，除非页面请求的是更晚的月份。预算在 `last_month` 之后不可能再有变动，所以页面显示的这种月份以 `available` 开始，支出为零。在该月之后才开始的预算不会列出。
+截至某个月的每个预算：该预算在 `#budgets` 中到这个月为止的最后一个月，即预算页面列出的内容。`#budgets` 中每个预算都有直到当前月份的每一个月，所以 `last_month` 就是所请求的月份，除非请求的是更晚的月份。预算在 `last_month` 之后不可能再有变动，所以 [`CASE`](/zh-cn/user-guide/query-language/#case) 把它顺延过来：这个月以 `available` 开始，支出为零。在该月之后才开始的预算不会列出。`WHERE date <= :month` 还让 `#budgets` 不再生成更晚的月份，所以账本中日期写到遥远未来的笔误不会造成影响。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
@@ -151,7 +151,9 @@ ORDER BY seq
 
 ```sql
 SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
-       last(date) AS last_month, last(assigned) AS assigned, last(activity) AS activity,
+       last(date) AS last_month,
+       CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
+       CASE WHEN last(date) < :month THEN last(available) * 0 ELSE last(activity) END AS activity,
        last(available) AS available, last(closed) AS closed
 FROM #budgets
 WHERE date <= :month
@@ -161,18 +163,16 @@ ORDER BY name
 
 #### `budgets.budget`
 
-单个预算：它的显示名称、分类、商品，以及其分录计入该预算支出的账户。没有这个预算时没有结果行。
+单个预算：它的显示名称、分类、商品，以及其分录计入该预算支出的账户，来自没有月份的 `#budget_definitions`。没有这个预算时没有结果行。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
 | `name` | `str` | 预算 |
 
 ```sql
-SELECT name, first(alias) AS alias, first(category) AS category, first(currency) AS currency,
-       first(accounts) AS accounts
-FROM #budgets
+SELECT name, alias, category, currency, accounts
+FROM #budget_definitions
 WHERE name = :name
-GROUP BY name
 ```
 
 #### `budgets.budget_month`
@@ -186,7 +186,9 @@ GROUP BY name
 
 ```sql
 SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
-       last(date) AS last_month, last(assigned) AS assigned, last(activity) AS activity,
+       last(date) AS last_month,
+       CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
+       CASE WHEN last(date) < :month THEN last(available) * 0 ELSE last(activity) END AS activity,
        last(available) AS available, last(closed) AS closed
 FROM #budgets
 WHERE name = :name AND date <= :month
