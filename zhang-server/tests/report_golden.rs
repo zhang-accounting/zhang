@@ -1518,6 +1518,14 @@ fn a_graph_costs_what_its_range_holds() {
             name,
             month_values / 10
         );
+        // what the queries hold counts, not only the points: a day of invest holds its 1,200 lots
+        if name == "invest" {
+            let error = graph_rows(&ledger, &last_day, &StatisticInterval::Day, within(1_000))
+                .and_then(|rows| rows.build())
+                .err()
+                .unwrap();
+            assert!(error.to_string().contains("has too many points or currencies"), "{}: {}", name, error);
+        }
         // ten years by day hold a hundred times more, and are a 400 in the graph's terms
         let error = graph_rows(&ledger, &decade, &StatisticInterval::Day, within(month_values))
             .and_then(|rows| rows.build())
