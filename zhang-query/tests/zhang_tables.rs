@@ -662,13 +662,24 @@ fn too_many_budget_months_name_the_directive_that_sets_the_end() {
         max_result_values: Some(1_000),
         count_total: false,
     };
+    // a filter that keeps the months of a year still generates every month before it is applied
     let message = |text: &str| {
         let ledger = common::load_text(text);
-        let err = Query::compile("SELECT name, available FROM #budgets WHERE date = 2024-06-01")
+        let err = Query::compile("SELECT name, available FROM #budgets WHERE year = 2024")
             .unwrap()
             .execute_with_options(&ledger, &Params::new(), &options)
             .unwrap_err();
         assert_eq!(err.kind, QueryErrorKind::TooLarge, "{}", err.message);
+        // a filter that keeps only the months up to a date generates none after it, whatever
+        // the typo: the budget pages ask for one month this way
+        for bounded in [
+            "SELECT name, available FROM #budgets WHERE date = 2024-06-01",
+            "SELECT name, last(available) FROM #budgets WHERE date <= 2024-06-01 GROUP BY name",
+            "SELECT name, available FROM #budgets WHERE name = 'food' AND yearmonth(date) = 2024-06-01",
+        ] {
+            let result = Query::compile(bounded).unwrap().execute_with_options(&ledger, &Params::new(), &options);
+            assert!(result.is_ok(), "{bounded}: {:?}", result.err());
+        }
         err.message
     };
     let header = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Bank\n1970-01-01 open Expenses:Food\n  budget: food\n\

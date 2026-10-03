@@ -610,6 +610,109 @@ fn budgets_run_through_the_current_month() {
     assert_eq!(run_at(&ledger, BUDGET_FIGURES, march), budget_figures());
 }
 
+/// `#budget_definitions` has one row per budget, in name order, with what its directives define:
+/// the commodity, the alias and category metadata, the accounts whose `open` names it, and
+/// the date of its budget-close.
+#[test]
+fn budget_definitions_are_the_budgets_without_months() {
+    let ledger = common::load_text(BUDGETS);
+    assert_eq!(
+        run(&ledger, "SELECT * FROM #budget_definitions"),
+        rows(&[
+            &["food", "2024-02-01", "CNY", "Food", "NULL", "Expenses:Food, Income:Cashback", "NULL"],
+            &["invest", "2024-02-01", "CNY", "NULL", "NULL", "Assets:Savings", "NULL"],
+            &["travel", "2024-02-01", "CNY", "NULL", "NULL", "Expenses:Travel", "2024-03-31"],
+        ])
+    );
+    // the metadata functions read the budget directive
+    assert_eq!(
+        run(&ledger, "SELECT name, meta('alias') FROM #budget_definitions WHERE close IS NULL"),
+        rows(&[&["food", "Food"], &["invest", "NULL"]])
+    );
+}
+
+/// A budget closed twice is closed from its first budget-close: in March, not from May, in
+/// `#budgets` and in `#budget_definitions`; `#budget_events` lists both closes.
+#[test]
+fn a_budget_is_closed_by_its_first_budget_close() {
+    let ledger = common::load_text(
+        r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+  budget: food
+2024-01-01 budget food CNY
+2024-03-10 budget-close food
+2024-05-02 budget-close food
+2024-05-03 * "Market" "May"
+  Expenses:Food 10 CNY
+  Assets:Bank
+"#,
+    );
+    assert_eq!(
+        run(&ledger, "SELECT date, closed FROM #budgets"),
+        rows(&[
+            &["2024-01-01", "FALSE"],
+            &["2024-02-01", "FALSE"],
+            &["2024-03-01", "TRUE"],
+            &["2024-04-01", "TRUE"],
+            &["2024-05-01", "TRUE"],
+        ])
+    );
+    assert_eq!(run(&ledger, "SELECT name, close FROM #budget_definitions"), rows(&[&["food", "2024-03-10"]]));
+    assert_eq!(
+        run(&ledger, "SELECT date, type FROM #budget_events"),
+        rows(&[&["2024-03-10", "close"], &["2024-05-02", "close"]])
+    );
+}
+
+/// `#budget_definitions` reads no transaction and has no months, so a transaction dated
+/// centuries ahead by mistake, which makes an unbounded query of `#budgets` too large, leaves it
+/// as it is.
+#[test]
+fn budget_definitions_ignore_date_typos() {
+    let mut text = String::from("option \"operating_currency\" \"CNY\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Bank\n");
+    text.push_str("1970-01-01 open Expenses:Food\n  budget: b0\n9999-01-01 * \"typo\"\n  Expenses:Food 1 CNY\n  Assets:Bank\n");
+    for index in 0..12 {
+        text.push_str(&format!("2024-01-01 budget b{} CNY\n", index));
+    }
+    let ledger = common::load_text(&text);
+    let unbounded = Query::compile("SELECT count(*) FROM #budgets")
+        .unwrap()
+        .execute_at(&ledger, &Params::new(), today());
+    assert!(unbounded.is_err_and(|err| err.message.contains("too many rows")));
+    assert_eq!(
+        run(&ledger, "SELECT name, accounts FROM #budget_definitions WHERE name = 'b0'"),
+        rows(&[&["b0", "Expenses:Food"]])
+    );
+    assert_eq!(run(&ledger, "SELECT count(*) FROM #budget_definitions"), rows(&[&["12"]]));
+}
+
+/// Without a date for `today()`, a query reads the ledger's clock in the ledger's timezone. At
+/// 2024-03-31 16:30 UTC it is already April 1st in Shanghai (UTC+8): this month is April, so
+/// the budgets run through April and "this month" is April.
+#[test]
+fn today_is_the_ledgers_clock_in_its_timezone() {
+    let instant = chrono::DateTime::parse_from_rfc3339("2024-03-31T16:30:00Z").unwrap().to_utc();
+    let ledger = common::load_text_at(BUDGETS, zhang_core::clock::Clock::Fixed(instant));
+    let run_now = |sql: &str| -> Vec<Vec<String>> {
+        let result = Query::compile(sql)
+            .and_then(|query| query.execute(&ledger, &Params::new()))
+            .unwrap_or_else(|err| panic!("{}: {}", sql, err));
+        result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
+    };
+    assert_eq!(run_now("SELECT DISTINCT today()"), rows(&[&["2024-04-01"]]));
+    assert_eq!(
+        run_now("SELECT name, date, activity FROM #budgets WHERE date = yearmonth(today())"),
+        rows(&[
+            &["food", "2024-04-01", "10 CNY"],
+            &["invest", "2024-04-01", "0 CNY"],
+            &["travel", "2024-04-01", "0 CNY"],
+        ])
+    );
+}
+
 /// The table reads the directives and the booked postings: it gives the same rows without
 /// the budgets zhang keeps in its store.
 #[test]

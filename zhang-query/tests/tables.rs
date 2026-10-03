@@ -249,6 +249,7 @@ fn the_schema_describes_every_table() {
             "commodities",
             "budgets",
             "budget_events",
+            "budget_definitions",
             "errors"
         ]
     );

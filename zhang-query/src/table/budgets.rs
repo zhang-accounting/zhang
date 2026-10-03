@@ -52,9 +52,12 @@
 //!   a transaction or a budget directive could still ask for a very long series: every
 //!   generated row is charged to the result budget and the deadline is checked while they are
 //!   built (see [`Limits`]), so such a query stops with a "too large" or "time limit" error
-//!   instead of exhausting memory. Filters run after the rows are generated, so advice to
-//!   narrow the query would not help: the "too large" error names the budget with the longest
-//!   series and the directive whose date ends it, which is where the typo usually is.
+//!   instead of exhausting memory. A query whose filter keeps only the months up to a date
+//!   (`date <= :month`, `yearmonth(date) = :month`, see [`crate::optimizer::date_bound`])
+//!   generates no later month, so the budget pages, which ask for one month, keep working
+//!   whatever typo the ledger holds. Other filters run after the rows are generated, so advice
+//!   to narrow the query would not help: the "too large" error names the budget with the
+//!   longest series and the directive whose date ends it, which is where the typo usually is.
 //! - **Months are dates.** `date` is the first day of the month, so the date literals,
 //!   comparisons and functions of the other tables work (`WHERE date >= 2024-01-01`), and
 //!   `year` and `month` are there for grouping, as in the `postings` table.
@@ -68,6 +71,10 @@
 //!
 //! Rows are ordered by name, then month. `SELECT *` gives the budget page's figures: `name`,
 //! `date`, `assigned`, `activity` and `available`.
+//!
+//! `#budget_definitions` has one row per budget, as its directives define it: its commodity,
+//! display name, category, accounts and the date of its first `budget-close`. It has no months
+//! and reads no transaction, so what a budget is can be asked whatever dates the ledger holds.
 //!
 //! `#budget_events` lists what the budget directives did, in ledger order: a `budget-add` is
 //! an `assign` of its amount, a `budget-transfer` a `transfer_out` of the budget it takes from
@@ -88,7 +95,7 @@ use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
 use super::directives::date_of;
-use super::{ledger_file, ColumnDef, LedgerCache, Limits, Record, Rows, Table};
+use super::{ledger_file, ColumnDef, Generation, LedgerCache, Limits, Record, Rows, Table};
 use crate::error::{LocatedError, QueryErrorKind};
 use crate::prices::PriceMap;
 use crate::projector::Projection;
@@ -100,6 +107,14 @@ pub(super) static BUDGETS: Table = Table {
     columns: COLUMNS,
     wildcard: &["name", "date", "assigned", "activity", "available"],
     rows: Rows::Generated(rows),
+};
+
+pub(super) static BUDGET_DEFINITIONS: Table = Table {
+    name: "budget_definitions",
+    description: "One row per budget, as its directives define it: its commodity, display name, category, the accounts of its activity and the date it is closed; ordered by name. It has no months, so it reads no transaction.",
+    columns: DEFINITION_COLUMNS,
+    wildcard: &["name", "date", "currency", "alias", "category", "accounts", "close"],
+    rows: Rows::Records(definition_rows),
 };
 
 pub(super) static BUDGET_EVENTS: Table = Table {
@@ -120,10 +135,12 @@ struct Budget<'a> {
     /// the index of the `budget` directive in the ledger's directives, the order the store
     /// folds them in: only the transactions after it are the budget's activity
     defined_at: usize,
+    /// the date of the definition
+    defined: NaiveDate,
     /// the month of the definition, the first of the budget's series
     first: NaiveDate,
-    /// the first month the budget is closed in
-    closed_from: Option<NaiveDate>,
+    /// the date of the budget's first `budget-close`, which closes it
+    closed_on: Option<NaiveDate>,
     /// the latest directive with an effect on the budget, and its date
     latest: (NaiveDate, &'a Spanned<Directive>),
 }
@@ -208,8 +225,9 @@ fn budgets(ledger: &Ledger) -> Budgets<'_> {
                     commodity: &budget.commodity,
                     meta: &budget.meta,
                     defined_at: idx,
+                    defined: date,
                     first: first_of_month(date),
-                    closed_from: None,
+                    closed_on: None,
                     latest: (date, directive),
                 });
             }
@@ -237,7 +255,8 @@ fn budgets(ledger: &Ledger) -> Budgets<'_> {
                 if let Some(budget) = budgets.get_mut(close.name.as_str()) {
                     let date = close.date.naive_date();
                     budget.saw(directive, date);
-                    budget.closed_from.get_or_insert(first_of_month(date));
+                    // a budget closes with its first budget-close
+                    budget.closed_on.get_or_insert(date);
                     events.push(event(&close.name, directive, EventKind::Close, None, &close.date));
                 }
             }
@@ -392,8 +411,19 @@ fn first_of_month(date: NaiveDate) -> NaiveDate {
 struct Series<'s, 'a> {
     budget: &'s Budget<'a>,
     end: NaiveDate,
-    /// the directive whose date sets `end`, or `None` when the current month does
-    end_by: Option<&'a Spanned<Directive>>,
+    /// what sets `end`
+    end_by: EndBy<'a>,
+}
+
+/// What sets the last month of a budget's series.
+#[derive(Clone, Copy)]
+enum EndBy<'a> {
+    /// the date of a directive: the budget's last one, or the ledger's last transaction
+    Directive(&'a Spanned<Directive>),
+    /// the current month
+    CurrentMonth,
+    /// the last month the query's filter keeps (see [`crate::optimizer::date_bound`])
+    Query,
 }
 
 impl Series<'_, '_> {
@@ -403,20 +433,19 @@ impl Series<'_, '_> {
     }
 }
 
-fn rows<'a>(ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection, limits: &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError> {
+fn rows<'a>(
+    ledger: &'a Ledger, store: &'a Store, generation: Generation, projection: Projection, limits: &mut Limits<'_>,
+) -> Result<Vec<Record<'a>>, LocatedError> {
     let Budgets { budgets, events } = budgets(ledger);
     let last_transaction = last_transaction(ledger, store);
     let wants_activity = ["activity", "assigned", "available"].into_iter().any(|name| projects(projection, name));
     let wants_added = ["added", "assigned", "available"].into_iter().any(|name| projects(projection, name));
 
-    let mut accounts: HashMap<&str, BTreeSet<String>> = HashMap::new();
-    if wants_activity || projects(projection, "accounts") {
-        for meta in &store.metas {
-            if meta.meta_type == MetaType::AccountMeta.as_ref() && meta.key == "budget" {
-                accounts.entry(meta.value.as_str()).or_default().insert(meta.type_identifier.clone());
-            }
-        }
-    }
+    let mut accounts = if wants_activity || projects(projection, "accounts") {
+        budget_accounts(store)
+    } else {
+        HashMap::new()
+    };
     let prices = (wants_activity || wants_added).then(|| LedgerCache::of(ledger, store).prices(store));
     let mut activity = match &prices {
         Some(prices) if wants_activity => activity(ledger, store, &budgets, &accounts, prices),
@@ -428,8 +457,9 @@ fn rows<'a>(ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: 
     };
 
     // a series ends with the latest of the budget's own last month, the last month with a
-    // transaction and the current month
-    let current_month = first_of_month(today);
+    // transaction and the current month, unless the query keeps only earlier months
+    let current_month = first_of_month(generation.today);
+    let until = generation.until.map(first_of_month);
     let mut sorted = budgets.values().collect::<Vec<_>>();
     sorted.sort_by(|a, b| a.name.cmp(b.name));
     let all = sorted
@@ -438,15 +468,18 @@ fn rows<'a>(ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: 
             let mut series = Series {
                 budget,
                 end: first_of_month(budget.latest.0),
-                end_by: Some(budget.latest.1),
+                end_by: EndBy::Directive(budget.latest.1),
             };
             if let Some((date, transaction)) = last_transaction {
                 if first_of_month(date) > series.end {
-                    (series.end, series.end_by) = (first_of_month(date), Some(transaction));
+                    (series.end, series.end_by) = (first_of_month(date), EndBy::Directive(transaction));
                 }
             }
             if current_month > series.end {
-                (series.end, series.end_by) = (current_month, None);
+                (series.end, series.end_by) = (current_month, EndBy::CurrentMonth);
+            }
+            if let Some(until) = until.filter(|until| *until < series.end) {
+                (series.end, series.end_by) = (until, EndBy::Query);
             }
             series
         })
@@ -475,7 +508,7 @@ fn rows<'a>(ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: 
                 assigned,
                 added,
                 activity,
-                closed: budget.closed_from.is_some_and(|from| from <= month),
+                closed: budget.closed_on.is_some_and(|close| first_of_month(close) <= month),
             }));
             let Some(following) = month.checked_add_months(Months::new(1)) else {
                 break;
@@ -507,15 +540,16 @@ fn too_many_months(err: LocatedError, ledger: &Ledger, all: &[Series<'_, '_>]) -
             .unwrap_or_default()
     };
     let cause = match longest.end_by {
+        EndBy::Query => " (the last month the query keeps)".to_owned(),
         // the current month ends it: the series is long because it starts early
-        None => {
+        EndBy::CurrentMonth => {
             let definition = ledger.directives.get(longest.budget.defined_at);
             format!(
                 ", the current month; check the date of its budget directive{}",
                 definition.map(file).unwrap_or_default()
             )
         }
-        Some(directive) => {
+        EndBy::Directive(directive) => {
             let kind = match &directive.data {
                 Directive::Transaction(_) => Some("a transaction"),
                 Directive::Budget(_) => Some("its budget directive"),
@@ -547,6 +581,17 @@ fn too_many_months(err: LocatedError, ledger: &Ledger, all: &[Series<'_, '_>]) -
 /// Whether the column `name` of this table is projected.
 fn projects(projection: Projection, name: &str) -> bool {
     BUDGETS.column(name).is_some_and(|column| projection.contains(column))
+}
+
+/// The accounts of every budget: those whose `open` has a `budget` metadata entry naming it.
+fn budget_accounts(store: &Store) -> HashMap<&str, BTreeSet<String>> {
+    let mut accounts: HashMap<&str, BTreeSet<String>> = HashMap::new();
+    for meta in &store.metas {
+        if meta.meta_type == MetaType::AccountMeta.as_ref() && meta.key == "budget" {
+            accounts.entry(meta.value.as_str()).or_default().insert(meta.type_identifier.clone());
+        }
+    }
+    accounts
 }
 
 fn budget_month<'r, 'a>(record: &'r Record<'a>) -> Option<&'r BudgetMonth<'a>> {
@@ -619,6 +664,96 @@ static COLUMNS: &[ColumnDef] = &[
         DataType::Bool,
         "Whether the budget was closed (budget-close) in or before the month.",
         |_, record| budget_month(record).map_or(Value::Null, |it| Value::Bool(it.closed)),
+    ),
+];
+
+// ---------------------------------------------------------------------------------------
+// #budget_definitions
+
+/// A budget as its directives define it: a row of the `budget_definitions` table.
+pub(crate) struct BudgetDefinition<'a> {
+    name: &'a str,
+    commodity: &'a str,
+    /// the metadata of the `budget` directive
+    pub(super) meta: &'a Meta,
+    /// the date of the `budget` directive
+    date: NaiveDate,
+    /// the date of the first `budget-close`
+    close: Option<NaiveDate>,
+    /// the accounts of the budget's activity; only collected when the `accounts` column is
+    /// projected
+    accounts: BTreeSet<String>,
+}
+
+fn definition_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
+    let mut accounts = match BUDGET_DEFINITIONS.column("accounts") {
+        Some(column) if projection.contains(column) => budget_accounts(store),
+        _ => HashMap::new(),
+    };
+    let mut budgets = budgets(ledger).budgets.into_values().collect::<Vec<_>>();
+    budgets.sort_by(|a, b| a.name.cmp(b.name));
+    budgets
+        .into_iter()
+        .map(|budget| {
+            Record::BudgetDefinition(BudgetDefinition {
+                name: budget.name,
+                commodity: budget.commodity,
+                meta: budget.meta,
+                date: budget.defined,
+                close: budget.closed_on,
+                accounts: accounts.remove(budget.name).unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+fn budget_definition<'r, 'a>(record: &'r Record<'a>) -> Option<&'r BudgetDefinition<'a>> {
+    match record {
+        Record::BudgetDefinition(budget) => Some(budget),
+        _ => None,
+    }
+}
+
+fn definition_meta(definition: &BudgetDefinition<'_>, key: &str) -> Value {
+    definition.meta.get_one(key).map_or(Value::Null, |value| Value::Str(value.as_str().to_owned()))
+}
+
+static DEFINITION_COLUMNS: &[ColumnDef] = &[
+    ColumnDef::record("name", DataType::Str, "Name of the budget, as written in its directives.", |_, record| {
+        budget_definition(record).map_or(Value::Null, |it| Value::Str(it.name.to_owned()))
+    }),
+    ColumnDef::record(
+        "date",
+        DataType::Date,
+        "Date of the budget directive, from which the budget exists.",
+        |_, record| budget_definition(record).map_or(Value::Null, |it| Value::Date(it.date)),
+    ),
+    ColumnDef::record("currency", DataType::Str, "Commodity the budget is kept in.", |_, record| {
+        budget_definition(record).map_or(Value::Null, |it| Value::Str(it.commodity.to_owned()))
+    }),
+    ColumnDef::record(
+        "alias",
+        DataType::Str,
+        "Display name of the budget (its alias metadata), or NULL if it has none.",
+        |_, record| budget_definition(record).map_or(Value::Null, |it| definition_meta(it, "alias")),
+    ),
+    ColumnDef::record(
+        "category",
+        DataType::Str,
+        "Category the budget is grouped under (its category metadata), or NULL if it has none.",
+        |_, record| budget_definition(record).map_or(Value::Null, |it| definition_meta(it, "category")),
+    ),
+    ColumnDef::record(
+        "accounts",
+        DataType::Set,
+        "Accounts whose postings count as the budget's activity: those with a budget metadata entry naming it.",
+        |_, record| budget_definition(record).map_or(Value::Null, |it| Value::Set(it.accounts.clone())),
+    ),
+    ColumnDef::record(
+        "close",
+        DataType::Date,
+        "Date of the budget's first budget-close, which closes it, or NULL while it is open.",
+        |_, record| budget_definition(record).and_then(|it| it.close).map_or(Value::Null, Value::Date),
     ),
 ];
 

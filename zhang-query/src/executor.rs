@@ -246,10 +246,22 @@ impl CExpr {
                 eval_in_list(needle, items, *negated, env)
             }
             CExpr::IsNull { expr, negated } => Ok(Value::Bool(expr.eval(env)?.is_null() != *negated)),
+            CExpr::Case { branches, otherwise } => eval_case(branches, otherwise, env),
             CExpr::InConst { needle, set, negated } => eval_in_const(needle, set, *negated, env),
             CExpr::StrTest { subject, test, .. } => eval_str_test(subject, test, env),
         }
     }
+}
+
+/// `CASE`: the value of the first branch whose condition is TRUE, else `otherwise`. A NULL
+/// condition is not TRUE. Only the chosen value is evaluated.
+fn eval_case(branches: &[(CExpr, CExpr)], otherwise: &CExpr, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
+    for (condition, value) in branches {
+        if condition.eval(env)? == Value::Bool(true) {
+            return value.eval(env);
+        }
+    }
+    otherwise.eval(env)
 }
 
 /// `x [NOT] IN <constants>` with the items hashed: a string needle is looked up in place.

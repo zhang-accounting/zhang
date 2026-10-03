@@ -543,6 +543,24 @@ WHERE payee IN ('Amazon')
 - `NOT IN` 与 `IN` 相反。
 - 左侧为 `NULL` 时结果为 `NULL`。如果在含有 `NULL` 的列表中没有找到该值，结果也是 `NULL`，与标准 SQL 一致。
 
+### CASE
+
+`CASE` 按条件选择一个值：
+
+```sql
+SELECT date, payee, position,
+       CASE WHEN number >= 100 THEN 'large' WHEN number > 0 THEN 'small' ELSE 'refund' END AS size
+WHERE account ~ '^Expenses'
+```
+
+- 它的值是第一个为 `TRUE` 的 `WHEN` 条件之后 `THEN` 的值；如果没有条件为 `TRUE`，就是 `ELSE` 之后的值。没有 `ELSE` 时，这种情况下它是 `NULL`。
+- 与 `WHERE` 一样，值为 `NULL` 的条件不算 `TRUE`，会继续尝试下一个 `WHEN`。
+- 每个条件都必须是布尔值。各个值必须是同一种类型：`NULL` 可以匹配任何类型；当另一个值是 `decimal` 时，`int` 会扩展为 `decimal`。
+- 只计算被选中的值，所以一个会出错的值（例如整数溢出）只会在选中它的行上出错。
+- 在聚合查询中，条件和值都可以是聚合：`CASE WHEN count(*) > 1 THEN sum(number) ELSE 0 END`。
+- `CASE`、`WHEN`、`THEN`、`ELSE` 和 `END` 只在以 `CASE WHEN` 开头的 `CASE` 表达式中是关键字，在其他地方是普通名字。不支持 `CASE x WHEN value THEN ...` 的写法，请写成 `CASE WHEN x = value THEN ...`。
+- `CASE` 是张记账扩展，beanquery 没有条件表达式。
+
 ### NULL 与三值逻辑
 
 缺失的值为 `NULL`，例如没有收款方的交易的 `payee`，或者没有按成本持有的分录的成本。
@@ -676,7 +694,7 @@ ORDER BY seq DESC
 | `#accounts` | 一个有 `open` 或 `close` 指令的账户 | `account, open, close` |
 | `#commodities` | 一条 `commodity` 指令 | `meta, date, name` |
 
-张记账还有三张自己的表 `#budgets`、`#budget_events` 和 `#errors`，见[张记账特有的表](#张记账特有的表)。
+张记账还有四张自己的表 `#budgets`、`#budget_definitions`、`#budget_events` 和 `#errors`，见[张记账特有的表](#张记账特有的表)。
 
 ```sql
 SELECT currency, last(amount) AS latest
@@ -690,7 +708,7 @@ ORDER BY currency
 - **行的顺序。**没有 `ORDER BY` 时，各行按账本顺序排列：先按日期，再按 beancount 对同一天指令的排序（`open` 最先，然后是余额断言、其他指令，`document` 和 `close` 最后），再按指令在文件中的顺序。
 - **元数据。**每个指令表都有一列 `meta`，以文本形式给出指令的元数据：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。`#entries` 和 `#transactions` 还有 `metas` 列，以[结构化的键值对](#结构化元数据)给出同样的元数据。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取该行指令的某个键（在 `#accounts` 中读取其 `open` 指令），`meta_values(key)` 和 `entry_meta_values(key)` 读取该键的所有值。
 - **余额断言不是交易。**断言不记任何账；它在 `#entries` 中是一条 `balance` 记录，在 `#balances` 中是一行。加载账本时被张记账拒绝的交易也不会出现。`balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
-- **张记账扩展。**有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#prices` 的 `time` 和 `timestamp`；`#balances` 的 `actual` 和 `passed`；以及 `#documents` 的 `source`、`path` 和 `transaction_id`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_events` 和 `#errors` 是张记账自己的表。
+- **张记账扩展。**有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#prices` 的 `time` 和 `timestamp`；`#balances` 的 `actual` 和 `passed`；以及 `#documents` 的 `source`、`path` 和 `transaction_id`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_definitions`、`#budget_events` 和 `#errors` 是张记账自己的表。
 
 ### #entries
 
@@ -791,14 +809,14 @@ ORDER BY account
 
 ## 张记账特有的表
 
-张记账有三张自己的表，存放 Beancount 中没有的数据：`#budgets` 是[预算](/zh-cn/directives/budget/)的逐月数据，`#budget_events` 是预算指令产生的变动，`#errors` 是张记账在账本中发现的问题。它们与[其他表](#其他表)一样用 `FROM #budgets`、`FROM #budget_events` 和 `FROM #errors` 读取，规则也相同：一个表只有自己的列，例如 `account` 不是 `#budgets` 的列，所有子句和函数都可以用于它。与指令表不同，它们没有 `meta` 列，行的顺序见下面各表的说明。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取的都是该行自己的元数据。
+张记账有四张自己的表，存放 Beancount 中没有的数据：`#budgets` 是[预算](/zh-cn/directives/budget/)的逐月数据，`#budget_definitions` 是每个预算的定义，`#budget_events` 是预算指令产生的变动，`#errors` 是张记账在账本中发现的问题。它们与[其他表](#其他表)一样用 `FROM #budgets`、`FROM #budget_definitions`、`FROM #budget_events` 和 `FROM #errors` 读取，规则也相同：一个表只有自己的列，例如 `account` 不是 `#budgets` 的列，所有子句和函数都可以用于它。与指令表不同，它们没有 `meta` 列，行的顺序见下面各表的说明。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取的都是该行自己的元数据。
 
 ### 预算表
 
 `#budgets` 中每个预算每个月对应一行，数据与网页界面的预算页面在该月显示的一致。
 
 - 每个预算从其 `budget` 指令所在的月份起，每个月都有一行，直到以下三个月份中最晚的一个：该预算最后一次 `budget-add`、`budget-transfer` 或 `budget-close` 所在的月份，账本中最后一笔交易所在的月份，以及当前月份，即账本时区中 [`today()`](#日期函数) 所在的月份。因此，用 `budget-add` 为未来月份提前安排的预算会显示那个月，`WHERE date = yearmonth(today())` 也会列出本月的每个预算，即使本月还没有发生任何事。价格、事件、备注、余额断言等其他指令不会延长这些月份。没有预算条目、也没有支出的月份同样有一行，可用金额顺延到这个月，与预算页面一致。最后一行之后的月份没有行：它就是该预算最后一行顺延过去、没有任何支出的样子。
-- 这些月份是生成的，而不是从账本中读取的，所以每个月份都计入[结果大小限制](#限制)，即使它随后被 `WHERE` 丢弃。如果某笔交易或某条预算指令的日期被误写成遥远的未来，或某条 `budget` 指令的日期被误写成遥远的过去，查询会以“结果过大”的错误结束，而不会耗尽内存。错误信息会指出月份最多的预算，以及决定其结束月份的指令，例如 `budget 'food' runs from 2024-01 until 2204-05 because of a transaction dated 2204-05-01 (main.zhang); check that date`；如果它的月份一直延续到当前月份，则会指出它的 `budget` 指令。改正日期后即可再次查询该表。
+- 这些月份是生成的，而不是从账本中读取的，所以每个月份都计入[结果大小限制](#限制)，即使它随后被 `WHERE` 丢弃。例外是只保留某个日期之前月份的 `WHERE`，即用 `AND` 连接的条件中有 `date <= 2024-06-01`、`date < :month`、`date = :month` 或 `yearmonth(date) = :month` 这样的条件：此后的月份不会生成。只查询到所看的月份为止，这样的查询就很快，而且无论账本中有什么日期笔误都能正常工作。如果某笔交易或某条预算指令的日期被误写成遥远的未来，或某条 `budget` 指令的日期被误写成遥远的过去，查询会以“结果过大”的错误结束，而不会耗尽内存。错误信息会指出月份最多的预算，以及决定其结束月份的指令，例如 `budget 'food' runs from 2024-01 until 2204-05 because of a transaction dated 2204-05-01 (main.zhang); check that date`；如果它的月份一直延续到当前月份，则会指出它的 `budget` 指令。改正日期后即可再次查询该表。
 - `assigned`、`activity` 和 `available` 即预算页面上的 Assigned、Activity 和 Available 列。`assigned` 是这个月的起始金额（上个月月底仍可用的金额），加上本月 `budget-add` 和 `budget-transfer` 指令放入的金额（`added`）。`activity` 是预算关联的账户在本月的支出，`available` 即 `assigned - activity`，会顺延到下个月。
 - 所有金额都以预算的商品计。`activity` 把预算关联账户的分录相加，每笔分录都按其日期折算为预算的商品，与 [`convert(position, currency, date)`](#估值函数) 用账本中的价格折算的结果相同：`activity` 就是对这些分录求 `sum(convert(position, 'CNY', date))` 的结果。以其他商品计的 `budget-add` 或 `budget-transfer` 金额，按指令的日期以同样方式折算。没有价格可以折算的分录或金额不计入，而不会被当作另一种商品的数字加进去。
 - 预算从其 `budget` 指令起才存在。针对尚不存在的预算的 `budget-add`、`budget-transfer` 或 `budget-close` 不起作用，预算的 `budget` 指令之前的分录也不算它的支出；张记账会把两者都报告为错误。同名的第二条 `budget` 指令是重复定义，会被忽略。
@@ -857,6 +875,31 @@ SELECT name, last(available) AS available, last(closed) AS closed
 FROM #budgets
 GROUP BY name
 ORDER BY name
+```
+
+### 预算定义表
+
+`#budget_definitions` 中每个预算对应一行，内容是其预算指令定义的信息。它没有月份，也不读取任何交易，所以无论账本中的日期如何，都能回答一个预算是什么。
+
+- 各行按预算名称排序。`SELECT *` 给出所有列。
+- `meta(key)` 读取 `budget` 指令的元数据。
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| `name` | `str` | 预算的名称。 |
+| `date` | `date` | `budget` 指令的日期，预算从这一天起存在。 |
+| `currency` | `str` | 预算使用的商品。 |
+| `alias` | `str` | 预算的显示名称，来自其 `alias` 元数据；没有时为 `NULL`。 |
+| `category` | `str` | 预算的分类，来自其 `category` 元数据；没有时为 `NULL`。 |
+| `accounts` | `set` | 其分录计入该预算支出的账户，与 [`#budgets`](#预算表) 相同。 |
+| `close` | `date` | 预算第一条 `budget-close` 的日期，预算从此关闭；仍在使用时为 `NULL`。之后的 `budget-close` 不再改变什么。 |
+
+仍在使用的预算及其账户：
+
+```sql
+SELECT name, currency, accounts
+FROM #budget_definitions
+WHERE close IS NULL
 ```
 
 ### 预算变动表
@@ -1572,6 +1615,7 @@ ORDER BY date
 - **间隔比较。**间隔可以用 `=`、`!=` 和 `IN` 比较（beanquery 不接受），按月数和天数比较，所以 `GROUP BY` 和 `DISTINCT` 把 `interval('1 year') + interval('-1 month')` 和 `interval('11 months')` 视为同一个值（beanquery 把它们分开）。对间隔排序在 beanquery 中执行时出错，在张记账中检查查询时就会报错。
 - **日期是 1 到 9999 年。**日期函数或日期运算的结果超出这个范围时为 `NULL`；beanquery 会报错。
 - **`OFFSET`** 是张记账的扩展；beanquery 只有 `LIMIT`。
+- **`CASE WHEN ... END`** 是张记账的扩展；beanquery 没有条件表达式。见 [CASE](#case)。
 - **参数。**`JOURNAL` 的模式、`OPEN ON` 和 `CLOSE ON` 的日期，以及 `LIMIT` 和 `OFFSET` 可以是[参数](#参数)。beanquery 在这些地方只接受字面量。
 - **`FROM` 中的表达式在会计期间子句之后过滤。**这与 beanquery 一致。在 BQL v2 中，该表达式在应用 `OPEN`、`CLOSE` 和 `CLEAR` 之前选择交易。
 - **权益账户。**`account_previous_*` 或 `account_current_*` 选项的值如果不是有效的账户名，会被忽略，并使用默认账户。
