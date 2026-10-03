@@ -189,7 +189,8 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "id",
         DataType::Str,
-        "Unique id of the entry: for a transaction its transaction id (the id column of its postings).",
+        "Unique id of the entry: for a transaction its transaction id (the id column of its postings), for a balance \
+         assertion the id zhang stored its check with.",
         |data, record| entry_info(record).map_or(Value::Null, |info| Value::Str(data.entry_id(info.seq).to_owned())),
     ),
     ColumnDef::record(
@@ -260,7 +261,8 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "time",
         DataType::Str,
-        "Time of day of the directive in the ledger's timezone, as `HH:MM:SS`; '00:00:00' when it has none. A zhang extension.",
+        "Time of day of the directive in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, as zhang stores it. A zhang \
+         extension.",
         time,
     ),
     ColumnDef::record(
@@ -315,7 +317,8 @@ static TRANSACTION_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "time",
         DataType::Str,
-        "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`; '00:00:00' when it has none. A zhang extension.",
+        "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, as zhang stores it. A zhang \
+         extension.",
         time,
     ),
     ColumnDef::record(

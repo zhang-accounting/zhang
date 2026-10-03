@@ -133,6 +133,30 @@ option "timezone" "America/New_York"
     assert_eq!(table(&ledger, "SELECT time, timestamp FROM #entries WHERE type = 'transaction'"), expected);
 }
 
+/// Daylight saving started at midnight in São Paulo on 2018-11-04, so a directive of that day written
+/// without a time is stored at the first time after the gap, 01:00, in every table.
+#[test]
+fn midnight_skipped_by_daylight_saving_is_the_first_time_after_the_gap() {
+    let ledger = load_text(
+        r#"
+option "timezone" "America/Sao_Paulo"
+1970-01-01 open Assets:Bank
+1970-01-01 open Equity:Opening
+2018-11-04 * "Self" "opening"
+  Assets:Bank 1 BRL
+  Equity:Opening
+2018-11-04 balance Assets:Bank 1 BRL
+2018-11-04 document Assets:Bank "statement.pdf"
+"#,
+    );
+    // 2018-11-04T03:00:00Z
+    let expected = "01:00:00 | 1541300400";
+    assert_eq!(table(&ledger, "SELECT DISTINCT time, timestamp WHERE year = 2018"), expected);
+    assert_eq!(table(&ledger, "SELECT DISTINCT time, timestamp FROM #entries WHERE year = 2018"), expected);
+    assert_eq!(table(&ledger, "SELECT time, timestamp FROM #balances"), expected);
+    assert_eq!(table(&ledger, "SELECT time, timestamp FROM #documents"), expected);
+}
+
 /// `seq` is the position of an entry in the order zhang processes the ledger: the two
 /// commodities and four opens of 1970 are 0 to 5 (both kinds first in their day, in the order of
 /// the file), the transactions 6 to 10, then the padding transaction of the pad 11 and the pad's
