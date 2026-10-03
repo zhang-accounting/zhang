@@ -189,10 +189,10 @@ impl Operations {
         Ok(())
     }
 
-    /// `id`, or if a transaction has it already, the first id derived from it that none has. Transactions a
-    /// stage synthesized can share a span, which ids are derived from: the padding transactions of a `pad`
-    /// serving several currencies
-    pub(crate) fn unused_transaction_id(&self, id: Uuid) -> Uuid {
+    /// `id`, or if a transaction has it already, the first id derived from it that none has. Directives a stage
+    /// synthesized can share a span, which ids are derived from: the padding transactions of a `pad` serving
+    /// several currencies, and a `balance ... with pad`, whose check is kept, and its padding transaction
+    pub(crate) fn unused_id(&self, id: Uuid) -> Uuid {
         let store = self.read();
         (0..)
             .map(|n| if n == 0 { id } else { Uuid::from_txn_posting(&id, n) })
@@ -571,14 +571,11 @@ impl Operations {
     }
 
     /// the balance of every account per currency including its sub-accounts: the sum of the postings of the
-    /// account and all its sub-accounts, which a balance assertion on the account is checked against
+    /// account and all its sub-accounts, which a balance assertion on the account is checked against. One pass
+    /// over the postings sums each account's own postings, which then go to the account and its ancestors
     pub fn balances_with_sub_accounts(&self) -> ZhangResult<HashMap<String, BalanceWithSubAccounts>> {
         let store = self.read();
-        // the units of each account's own postings, by account name, so that an account's sub-accounts are a range
-        let mut own: BTreeMap<&str, BTreeMap<&str, BigDecimal>> = BTreeMap::new();
-        for account in store.accounts.keys() {
-            own.entry(account.as_str()).or_default();
-        }
+        let mut own: HashMap<&str, BTreeMap<&str, BigDecimal>> = HashMap::new();
         for posting in &store.postings {
             let units = own
                 .entry(posting.account.name())
@@ -587,23 +584,43 @@ impl Operations {
                 .or_insert_with(BigDecimal::zero);
             *units += &posting.inferred_amount.number;
         }
-        Ok(store
-            .accounts
-            .keys()
-            .map(|name| {
-                // `Assets:Bank:` up to `Assets:Bank;` (`;` follows `:`) holds exactly the sub-accounts of `Assets:Bank`
-                let (from, to) = (format!("{name}:"), format!("{name};"));
-                let sub_accounts = own.range(from.as_str()..to.as_str());
-                let has_sub_accounts = sub_accounts.clone().next().is_some();
-                let mut balance: BTreeMap<Currency, BigDecimal> = BTreeMap::new();
-                for (_, held) in own.get_key_value(name.as_str()).into_iter().chain(sub_accounts) {
-                    for (currency, units) in held {
-                        *balance.entry((*currency).to_owned()).or_insert_with(BigDecimal::zero) += units;
-                    }
+        let mut ret: HashMap<String, BalanceWithSubAccounts> = store.accounts.keys().map(|name| (name.clone(), Default::default())).collect();
+        let names = store.accounts.keys().map(String::as_str).chain(own.keys().copied()).collect::<HashSet<_>>();
+        for name in names {
+            let held = own.get(name);
+            // the account itself, then each ancestor: `Assets:Bank` and `Assets` for `Assets:Bank:Checking`
+            let ancestors = name.match_indices(':').map(|(at, _)| &name[..at]);
+            for (index, receiver) in std::iter::once(name).chain(ancestors).enumerate() {
+                let Some(entry) = ret.get_mut(receiver) else { continue };
+                if index > 0 {
+                    entry.has_sub_accounts = true;
                 }
-                (name.clone(), BalanceWithSubAccounts { balance, has_sub_accounts })
-            })
-            .collect())
+                for (currency, units) in held.into_iter().flatten() {
+                    *entry.balance.entry((*currency).to_owned()).or_insert_with(BigDecimal::zero) += units;
+                }
+            }
+        }
+        Ok(ret)
+    }
+
+    /// [`Operations::balances_with_sub_accounts`] of one account, from its own postings and its sub-accounts' only
+    pub fn balance_with_sub_accounts(&self, account: &str) -> ZhangResult<BalanceWithSubAccounts> {
+        let store = self.read();
+        let sub_accounts = format!("{account}:");
+        let mut ret = BalanceWithSubAccounts {
+            has_sub_accounts: store.accounts.keys().any(|name| name.starts_with(&sub_accounts)),
+            ..Default::default()
+        };
+        for posting in &store.postings {
+            let name = posting.account.name();
+            let is_sub_account = name.starts_with(&sub_accounts);
+            if name != account && !is_sub_account {
+                continue;
+            }
+            ret.has_sub_accounts |= is_sub_account;
+            *ret.balance.entry(posting.inferred_amount.commodity.clone()).or_insert_with(BigDecimal::zero) += &posting.inferred_amount.number;
+        }
+        Ok(ret)
     }
 
     pub fn dated_journals(&mut self, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<PostingDomain>> {

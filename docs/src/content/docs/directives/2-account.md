@@ -167,6 +167,10 @@ account already at the asserted amount gets no padding transaction.
 - Padding a commodity the account or one of its sub-accounts holds at cost is reported as a
   [`PadWithCost`](/user-guide/error-code/#padwithcost) error on the assertion, as in Beancount. The padding is
   booked without a cost.
+- A `balance ... with pad` is still an assertion, listed in the journal with the others. It is checked once every
+  balance entry of its time is booked: when the pad of a sub-account at the same time changes the total afterwards,
+  it fails with an [`AccountBalanceCheckError`](/user-guide/error-code/#accountbalancecheckerror) instead of holding
+  silently. Write the balances of sub-accounts before those of their parents; the batch balance tool does so.
 
 Zhang differs from Beancount in how pads are sized and paired:
 

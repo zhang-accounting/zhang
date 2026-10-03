@@ -684,7 +684,7 @@ ORDER BY currency
 | | `account` | `str` | 被断言余额的账户。 |
 | | `amount` | `amount` | 断言的余额。 |
 | | `tolerance` | `decimal` | 显式给出的容差（`~ 0.01`），或 `NULL`。 |
-| | `discrepancy` | `amount` | 断言不成立时为余额减去断言金额；成立时为 `NULL`。`balance ... with pad` 总是成立。 |
+| | `discrepancy` | `amount` | 断言不成立时为余额减去断言金额；成立时为 `NULL`。`balance ... with pad` 也会检查：除非同一时间在它之后的填充改变了它的余额，它总是成立。 |
 | `#notes` | `date`、`account` | `date`、`str` | 备注的日期和账户。 |
 | | `comment` | `str` | 备注的内容。 |
 | | `tags`、`links` | `set` | 标签和链接。 |

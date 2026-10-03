@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { ACCOUNTS_LINK } from '@/layout/nav-links';
 import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
+import { balanceCheckRows } from '../utils/balance-check';
 import { AccountBalanceHistoryGraph } from '../components/AccountBalanceHistoryGraph';
 import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
@@ -84,7 +85,7 @@ function SingleAccount() {
   const details = Object.entries(account?.amount.detail ?? {});
   const multiple = details.length > 1;
   // what a `balance` on the account is checked against: with its sub-accounts
-  const checked = Object.entries(account?.balance_with_sub_accounts ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  const checkRows = account ? balanceCheckRows(account) : [];
 
   return (
     <PageShell>
@@ -155,16 +156,16 @@ function SingleAccount() {
         <TabsContent value="settings">
           <Section title={t('ledger.balance.title')} description={t('ledger.balance.description')}>
             {account ? (
-              checked.length === 0 ? (
+              checkRows.length === 0 ? (
                 <EmptyState icon={WalletMinimal} title={t('ledger.balance.no_commodities')} />
               ) : (
                 <div className="flex flex-col gap-3">
-                  {checked.map(([commodity, amount]) => (
+                  {checkRows.map((row) => (
                     <AccountBalanceCheckLine
-                      key={commodity}
-                      currentAmount={amount}
-                      includesSubAccounts={account.has_sub_accounts}
-                      commodity={commodity}
+                      key={row.commodity}
+                      currentAmount={row.currentAmount}
+                      includesSubAccounts={row.includesSubAccounts}
+                      commodity={row.commodity}
                       accountName={account.name}
                       onSaved={reload}
                     />
@@ -210,7 +211,7 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
     item.checked_balance &&
     !new BigNumber(item.checked_balance.number).eq(item.account_after.number) && (
       <span className="shrink-0 text-xs text-muted-foreground">
-        {t('ledger.account.checked_with_sub_accounts')} <Amount amount={item.checked_balance.number} currency={item.checked_balance.commodity} />
+        {t('ledger.account.checked_with_sub_accounts')} <Amount exact amount={item.checked_balance.number} currency={item.checked_balance.commodity} />
       </span>
     );
 

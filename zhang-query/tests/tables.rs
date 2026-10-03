@@ -376,7 +376,7 @@ fn balances_report_the_discrepancy_zhang_found() {
     assert_eq!(
         on_directives("SELECT * FROM #balances"),
         rows(&[
-            // a balance with pad always holds
+            // a balance with pad holds: it pads to its amount
             &["2024-02-01", "Assets:Bank", "100.00 USD", "NULL", "NULL"],
             // the balance (100.00 after the pad) minus the asserted 99.00
             &["2024-02-02", "Assets:Bank", "99.00 USD", "NULL", "1.00 USD"],
@@ -441,6 +441,25 @@ fn a_pad_is_an_entry_and_its_padding_a_transaction_on_its_date() {
         query("SELECT kind, account, message FROM #errors"),
         rows(&[&["UnusedPad", "Assets:Cash", "Pad is not used by any later balance assertion of its account"]])
     );
+}
+
+#[test]
+fn a_balance_with_pad_reports_the_discrepancy_a_later_pad_of_its_time_leaves() {
+    let ledger = common::load_text(
+        "1970-01-01 open Assets:Bank\n1970-01-01 open Assets:Bank:Checking\n1970-01-01 open Equity:Opening\n\
+         2024-01-02 * \"init\"\n  Assets:Bank 345 CNY\n  Assets:Bank:Checking 155 CNY\n  Equity:Opening\n\
+         2024-01-10 balance Assets:Bank 500 CNY with pad Equity:Opening\n\
+         2024-01-10 balance Assets:Bank:Checking 200 CNY with pad Equity:Opening\n",
+    );
+    let result = Query::compile("SELECT account, discrepancy FROM #balances")
+        .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
+        .unwrap();
+    let rows_of = result
+        .rows
+        .iter()
+        .map(|row| row.iter().map(Value::to_string).collect())
+        .collect::<Vec<Vec<String>>>();
+    assert_eq!(rows_of, rows(&[&["Assets:Bank", "45 CNY"], &["Assets:Bank:Checking", "NULL"]]));
 }
 
 #[test]

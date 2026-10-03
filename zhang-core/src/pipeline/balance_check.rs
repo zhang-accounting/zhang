@@ -2,18 +2,25 @@
 
 use std::collections::HashMap;
 
+use bigdecimal::BigDecimal;
+use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Directive, Spanned};
+use zhang_ast::{Account, BalancePad, Directive, SpanInfo, Spanned};
 
 use super::balance::{exceeds_tolerance, AccountStates, UnitBalances};
 use super::{AssertionOutcome, ProcessStage, StageContext};
+use crate::ledger::Ledger;
 use crate::ZhangResult;
 
-/// validates every `BalanceCheck` against the account's balance at that point of
-/// the stream — the sum of the postings of the account and all its sub-accounts, as
-/// in beancount, including the padding transactions
-/// [`PadStage`](crate::pipeline::PadStage) inserted before it — and reports
+/// validates every balance assertion, `balance` and `balance ... with pad`, against the account's
+/// balance — the sum of the postings of the account and all its sub-accounts, as in beancount,
+/// including the padding transactions [`PadStage`](crate::pipeline::PadStage) inserted — and reports
 /// breaches through the stage error channel.
+///
+/// A `balance` is checked where it stands in the stream. A `balance ... with pad` is checked once every
+/// balance entry of its time is applied, its own padding and those of other pads included: a later
+/// `balance ... with pad` of a sub-account at the same time changes the balance it asserts, and must
+/// not leave it silently false.
 ///
 /// A check only checks, as in beancount: passing or failing, it books nothing and
 /// changes no balance, so the books keep netting to zero. A failing check is an
@@ -30,8 +37,16 @@ impl ProcessStage for BalanceCheckStage {
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
         let mut balances = UnitBalances::for_stage(ctx);
         let mut accounts = AccountStates::default();
+        // the `balance ... with pad` directives of the balance entries being applied, checked after the last one
+        let mut pads: Vec<(&BalancePad, &SpanInfo)> = vec![];
+        let mut pads_at = None;
 
         for directive in &directives {
+            if !pads.is_empty() && !(Ledger::is_balance_entry(&directive.data) && directive.datetime() == pads_at) {
+                for (pad, span) in pads.drain(..) {
+                    check(ctx, &balances, &pad.account, &pad.amount, None, span);
+                }
+            }
             match &directive.data {
                 Directive::Open(open) => {
                     accounts.apply(&directive.data);
@@ -40,24 +55,48 @@ impl ProcessStage for BalanceCheckStage {
                 Directive::Close(_) => accounts.apply(&directive.data),
                 Directive::Commodity(commodity) => balances.apply_commodity(commodity, ctx.options),
                 Directive::Transaction(txn) => balances.apply_transaction(txn),
-                Directive::BalanceCheck(check) => {
-                    let account_name = || HashMap::from([("account_name".to_owned(), check.account.name().to_owned())]);
-                    for (kind, _) in accounts.errors(&[&check.account]) {
-                        ctx.emit_error(kind, directive.span.clone(), account_name());
+                Directive::BalanceCheck(check_directive) => {
+                    for (kind, _) in accounts.errors(&[&check_directive.account]) {
+                        ctx.emit_error(kind, directive.span.clone(), account_name(&check_directive.account));
                     }
-                    let distance = balances.distance(&check.account, &check.amount);
-                    let passed = !exceeds_tolerance(&distance.number, check.tolerance.as_ref());
-                    if !passed {
-                        ctx.emit_error(ErrorKind::AccountBalanceCheckError, directive.span.clone(), account_name());
-                    }
-                    let balance = balances.amount(&check.account, &check.amount.commodity);
-                    ctx.record_assertion(&directive.span, AssertionOutcome { balance, passed });
+                    check(
+                        ctx,
+                        &balances,
+                        &check_directive.account,
+                        &check_directive.amount,
+                        check_directive.tolerance.as_ref(),
+                        &directive.span,
+                    );
+                }
+                // the pad stage reported its accounts
+                Directive::BalancePad(pad) => {
+                    pads.push((pad, &directive.span));
+                    pads_at = directive.datetime();
                 }
                 _ => {}
             }
         }
+        for (pad, span) in pads {
+            check(ctx, &balances, &pad.account, &pad.amount, None, span);
+        }
         Ok(directives)
     }
+}
+
+/// check the assertion at `span` of `amount` on `account` against the balance now, report it if it fails, and
+/// record what it found
+fn check(ctx: &mut StageContext, balances: &UnitBalances, account: &Account, amount: &Amount, tolerance: Option<&BigDecimal>, span: &SpanInfo) {
+    let distance = balances.distance(account, amount);
+    let passed = !exceeds_tolerance(&distance.number, tolerance);
+    if !passed {
+        ctx.emit_error(ErrorKind::AccountBalanceCheckError, span.clone(), account_name(account));
+    }
+    let balance = balances.amount(account, &amount.commodity);
+    ctx.record_assertion(span, AssertionOutcome { balance, passed });
+}
+
+fn account_name(account: &Account) -> HashMap<String, String> {
+    HashMap::from([("account_name".to_owned(), account.name().to_owned())])
 }
 
 #[cfg(test)]
