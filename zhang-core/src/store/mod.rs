@@ -231,6 +231,11 @@ pub struct DocumentDomain {
     pub document_type: DocumentType,
     pub filename: Option<String>,
     pub path: String,
+    /// where the document may be instead, looked at when nothing is at `path`: a `document` of a beancount ledger on
+    /// a remote source, whose files are not looked at on load, may be at its path relative to the ledger's root, as
+    /// earlier versions wrote it, rather than relative to its file, as beancount reads it
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alternate: Option<String>,
 }
 
 #[derive(Default, Clone, Debug, serde::Serialize, PartialEq)]

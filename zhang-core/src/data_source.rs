@@ -1,6 +1,5 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::{Component, Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 
 use chrono::Datelike;
 use log::debug;
@@ -62,15 +61,6 @@ where
         Err(ZhangError::Unsupported(format!("listing the directory {path:?}")))
     }
 
-    /// The paths of the files in the directory `dir` (relative to the ledger root and written with `/`, `""` for the
-    /// root itself), and in its sub-directories too when `recursive`: relative to the root, written with `/`. `None`
-    /// (the default) when this source cannot tell: it cannot list, the listing fails, or it holds more than
-    /// `max_files` files, or takes longer than `timeout`. A source on the local disk is not asked: [`has_file`] looks
-    /// at [`DataSource::local_root`] instead.
-    fn files_in(&self, _dir: String, _recursive: bool, _max_files: usize, _timeout: Duration) -> Option<HashSet<String>> {
-        None
-    }
-
     fn load(&self, _entry: String, _endpoint: String) -> ZhangResult<LoadResult> {
         unimplemented!()
     }
@@ -89,6 +79,17 @@ where
 
     async fn async_get(&self, path: String) -> ZhangResult<Vec<u8>> {
         self.get(path)
+    }
+
+    /// The content of the file at `path`, relative to the ledger root and written with `/`, or `None` when there is
+    /// no file there. [`DataSource::async_get`] reads a missing file as empty on some sources, to append to it.
+    async fn async_get_existing(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
+        match self.async_get(path).await {
+            Ok(content) => Ok(Some(content)),
+            Err(ZhangError::FileNotFound) => Ok(None),
+            Err(ZhangError::IoError(error)) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// The content of the file at `path`, to edit the directives at `spans` in place: each of them must still be
@@ -120,83 +121,6 @@ pub fn written_into(ledger: &Ledger, directive: Directive, file: &Path) -> Direc
         }
         directive => directive,
     }
-}
-
-/// The longest the listings of a remote source may take in all, for one load: past it, whether a file exists is not
-/// known
-pub const LISTING_BUDGET: Duration = Duration::from_secs(20);
-
-/// The most files a listing of a remote source reads: a directory holding more is not known
-pub const LISTING_MAX_FILES: usize = 100_000;
-
-/// What a load found of the files of a remote source, so it tells whether a file exists without asking the source file
-/// by file. The first file asked for in a directory at the ledger's root lists that directory once, its
-/// sub-directories too; a file at the root lists the root once, without them. A source lists a directory at the cost
-/// of a request per page of files, whatever their depth, so a load with many documents costs a few requests. All the
-/// listings of a load share one budget of time, [`LISTING_BUDGET`]: past it, or when a listing fails, whether a file in
-/// a directory not listed yet exists is not known.
-pub struct ListedFiles {
-    /// the files of each directory at the root listed (`""` for the root), `None` for one the source could not list
-    listed: HashMap<String, Option<HashSet<String>>>,
-    /// how long the listings took
-    spent: Duration,
-    budget: Duration,
-}
-
-impl Default for ListedFiles {
-    fn default() -> Self {
-        ListedFiles {
-            listed: HashMap::new(),
-            spent: Duration::ZERO,
-            budget: LISTING_BUDGET,
-        }
-    }
-}
-
-impl ListedFiles {
-    /// Whether there is a file at `path`, within the ledger; `None` when it is not known. `list` lists a directory
-    /// (within the ledger, recursively or not) in the time it is given, as [`DataSource::files_in`].
-    fn has(&mut self, path: &str, list: impl FnOnce(String, bool, Duration) -> Option<HashSet<String>>) -> Option<bool> {
-        let parts = Path::new(path)
-            .components()
-            .map(|it| match it {
-                Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
-                // absolute, or out of the ledger: not listed
-                _ => None,
-            })
-            .collect::<Option<Vec<_>>>()?;
-        let (dir, recursive) = match parts.len() {
-            0 => return None,
-            1 => (String::new(), false),
-            _ => (parts[0].clone(), true),
-        };
-        if !self.listed.contains_key(&dir) {
-            let left = self.budget.saturating_sub(self.spent);
-            let listed = match left.is_zero() {
-                true => None,
-                false => {
-                    let started = Instant::now();
-                    let listed = list(dir.clone(), recursive, left);
-                    self.spent += started.elapsed();
-                    listed
-                }
-            };
-            self.listed.insert(dir.clone(), listed);
-        }
-        self.listed[&dir].as_ref().map(|listed| listed.contains(&parts.join("/")))
-    }
-}
-
-/// Whether `ledger` has a file at `path`, within it or absolute; `None` when its source cannot tell. On the local disk,
-/// the file is looked at; a remote source is asked through the listings of the load ([`ListedFiles`]).
-pub fn has_file(ledger: &mut Ledger, path: &str) -> Option<bool> {
-    if let Some(root) = ledger.data_source.local_root(&ledger.entry.0) {
-        return Some(root.join(path).is_file());
-    }
-    let data_source = ledger.data_source.clone();
-    ledger
-        .listed_files
-        .has(path, |dir, recursive, timeout| data_source.files_in(dir, recursive, LISTING_MAX_FILES, timeout))
 }
 
 /// whether the directives at `spans` are still what the ledger loaded in `content`, the content of the file at `path`
@@ -366,71 +290,6 @@ pub struct SourceEntry {
 pub struct LoadResult {
     pub directives: Vec<Spanned<Directive>>,
     pub visited_files: Vec<PathBuf>,
-}
-
-#[cfg(test)]
-mod listed_files_test {
-    use std::collections::HashSet;
-    use std::time::Duration;
-
-    use super::ListedFiles;
-
-    fn files(paths: &[&str]) -> HashSet<String> {
-        paths.iter().map(|it| it.to_string()).collect()
-    }
-
-    #[test]
-    fn a_directory_at_the_root_is_listed_once_for_all_its_files() {
-        let mut listed = ListedFiles::default();
-        let mut calls = vec![];
-        let mut has = |path: &str| {
-            listed.has(path, |dir, recursive, _| {
-                calls.push((dir.clone(), recursive));
-                match dir.as_str() {
-                    "attachments" => Some(files(&["attachments/u1/a.pdf", "attachments/u2/b.pdf"])),
-                    "" => Some(files(&["main.bean", "c.pdf"])),
-                    // a listing that fails
-                    _ => None,
-                }
-            })
-        };
-        assert_eq!(has("attachments/u1/a.pdf"), Some(true));
-        assert_eq!(has("attachments/u2/b.pdf"), Some(true));
-        assert_eq!(has("attachments/u3/c.pdf"), Some(false));
-        assert_eq!(has("c.pdf"), Some(true));
-        assert_eq!(has("d.pdf"), Some(false));
-        assert_eq!(has("receipts/a.pdf"), None);
-        assert_eq!(has("receipts/b.pdf"), None);
-        // never listed
-        assert_eq!(has("/srv/a.pdf"), None);
-        assert_eq!(has("../a.pdf"), None);
-        assert_eq!(
-            calls,
-            vec![("attachments".to_owned(), true), ("".to_owned(), false), ("receipts".to_owned(), true)]
-        );
-    }
-
-    #[test]
-    fn past_the_budget_no_directory_is_listed() {
-        let mut listed = ListedFiles {
-            budget: Duration::from_millis(50),
-            ..ListedFiles::default()
-        };
-        let mut timeouts = vec![];
-        let mut has = |path: &str| {
-            listed.has(path, |_, _, timeout| {
-                timeouts.push(timeout);
-                // longer than the whole budget
-                std::thread::sleep(Duration::from_millis(80));
-                Some(files(&["a/x.pdf"]))
-            })
-        };
-        assert_eq!(has("a/x.pdf"), Some(true));
-        assert_eq!(has("b/x.pdf"), None);
-        assert_eq!(has("c/x.pdf"), None);
-        assert_eq!(has("a/y.pdf"), Some(false));
-        assert_eq!(timeouts, vec![Duration::from_millis(50)]);
-    }
 }
 
 #[cfg(test)]

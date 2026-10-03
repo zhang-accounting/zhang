@@ -219,7 +219,9 @@ impl Operations {
     /// datetime means:
     ///  - for transaction document: transaction datetime
     ///  - for account document: document linking datetime
-    pub(crate) fn insert_document(&mut self, datetime: DateTime<Tz>, filename: Option<&str>, path: String, document_type: DocumentType) -> ZhangResult<()> {
+    pub(crate) fn insert_document(
+        &mut self, datetime: DateTime<Tz>, filename: Option<&str>, path: String, alternate: Option<String>, document_type: DocumentType,
+    ) -> ZhangResult<()> {
         let mut store = self.write();
 
         store.documents.push(DocumentDomain {
@@ -227,6 +229,7 @@ impl Operations {
             document_type,
             filename: filename.map(|it| it.to_owned()),
             path,
+            alternate,
         });
 
         Ok(())

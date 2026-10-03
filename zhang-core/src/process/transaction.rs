@@ -123,6 +123,7 @@ impl DirectiveProcess for Transaction {
                 self.date.to_timezone_datetime(&ledger.options.timezone),
                 document_pathbuf.file_name().and_then(|it| it.to_str()),
                 document_path,
+                None,
                 DocumentType::Trx(id),
             )?;
         }

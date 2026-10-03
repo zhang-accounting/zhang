@@ -5,26 +5,32 @@ use std::str::FromStr;
 use log::info;
 use zhang_core::ZhangResult;
 
-/// fetch the data from local if the cache exists, normally used for documents.
-pub async fn cacheable_data<F>(id: &str, miss_fn: F) -> ZhangResult<Vec<u8>>
+/// The content `fetch` gives for `key`, kept in the data cache once fetched, for documents of a remote source. When
+/// `fetch` finds nothing, nothing is kept. An empty file kept is not used: earlier versions kept a missing document so.
+/// The file of a key is named by its hash, so no key names a file outside the cache.
+pub async fn cacheable_data<F>(key: &str, fetch: F) -> ZhangResult<Option<Vec<u8>>>
 where
-    F: Future<Output = ZhangResult<Vec<u8>>>,
+    F: Future<Output = ZhangResult<Option<Vec<u8>>>>,
 {
+    use sha2::Digest;
+
     let data_cache_folder = PathBuf::from_str(".cache/data").expect("Cannot create path");
-
-    // create data cache folder if not exist
     tokio::fs::create_dir_all(&data_cache_folder).await?;
+    let hash = sha2::Sha256::digest(key.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let target_file = data_cache_folder.join(hash);
 
-    let target_file = data_cache_folder.join(id);
-
-    let vec = match tokio::fs::read(&target_file).await {
-        Ok(data) => data,
+    match tokio::fs::read(&target_file).await {
+        Ok(data) if !data.is_empty() => Ok(Some(data)),
         _ => {
-            info!("missing cache with id [{}]...", id);
-            let fetched_data = miss_fn.await?;
-            tokio::fs::write(&target_file, &fetched_data).await?;
-            fetched_data
+            info!("missing cache with key [{}]...", key);
+            let fetched = fetch.await?;
+            if let Some(data) = &fetched {
+                tokio::fs::write(&target_file, data).await?;
+            }
+            Ok(fetched)
         }
-    };
-    Ok(vec)
+    }
 }

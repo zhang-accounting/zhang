@@ -51,6 +51,15 @@ pub enum ServerError {
     #[error("{0}")]
     Conflict(String),
 
+    /// a document a request names is in no file. Answered with HTTP 404
+    #[error("{0}")]
+    NoSuchDocument(String),
+
+    /// a document a request names is outside the ledger's directory, which is all that is served. Answered with
+    /// HTTP 403
+    #[error("{0}")]
+    OutsideLedger(String),
+
     /// a transaction a request names by its id is not in the ledger. Answered with HTTP 404
     #[error("there is no transaction {0} in the ledger: the journal it was picked from is out of date, or it was removed. Reopen the journal, and try again")]
     NoSuchTransaction(uuid::Uuid),
@@ -79,7 +88,8 @@ impl IntoResponse for ServerError {
         });
 
         let status = match self {
-            ServerError::NotFound | ServerError::NoSuchTransaction(_) => StatusCode::NOT_FOUND,
+            ServerError::NotFound | ServerError::NoSuchTransaction(_) | ServerError::NoSuchDocument(_) => StatusCode::NOT_FOUND,
+            ServerError::OutsideLedger(_) => StatusCode::FORBIDDEN,
             ServerError::BadRequest | ServerError::InvalidInput(_) => StatusCode::BAD_REQUEST,
             ServerError::CoreError(ZhangError::FileChanged(_)) | ServerError::UnloadableLedger(_) | ServerError::Conflict(_) => StatusCode::CONFLICT,
             _ => StatusCode::INTERNAL_SERVER_ERROR,

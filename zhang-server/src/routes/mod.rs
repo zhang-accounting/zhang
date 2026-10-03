@@ -145,6 +145,8 @@ mod uploaded_files_test {
                 other => panic!("{name:?}: {:?}", other.map(|files| files.len())),
             }
         }
+        // a NUL, which no file system takes, is refused already when the upload is read
+        assert!(matches!(upload(&["a\0b.pdf"]).await, Err(ServerError::InvalidInput(_))));
         // so is a name too long for the file systems, in bytes: 85 characters of 3 bytes each are 255
         let longest = format!("{}.pdf", "a".repeat(251));
         assert_eq!(upload(&[&longest]).await.unwrap()[0].0, longest);

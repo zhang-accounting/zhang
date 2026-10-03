@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -63,29 +63,6 @@ impl DataSource for OpendalDataSource {
 
     fn local_root(&self, _entry: &Path) -> Option<PathBuf> {
         self.local_root.clone()
-    }
-
-    /// lists with the service, its pages of files whatever their depth: `None` past `max_files` files or `timeout`, or
-    /// when the service fails
-    fn files_in(&self, dir: String, recursive: bool, max_files: usize, timeout: Duration) -> Option<HashSet<String>> {
-        // a directory path ends with `/` in opendal, and the root is `/`
-        let listed = format!("{}/", dir.trim_end_matches('/'));
-        let listed = &listed;
-        self.blocking(Some(timeout), |operator| async move {
-            let mut lister = operator.lister_with(listed).recursive(recursive).await?;
-            let mut files = HashSet::new();
-            while let Some(entry) = lister.try_next().await? {
-                if entry.metadata().is_file() {
-                    if files.len() == max_files {
-                        return Ok(None);
-                    }
-                    files.insert(entry.path().trim_start_matches('/').to_owned());
-                }
-            }
-            Ok(Some(files))
-        })
-        .ok()
-        .flatten()
     }
 
     /// checks the size before downloading, never reads more than one chunk past `max_len`, and gives up after
@@ -274,6 +251,14 @@ impl DataSource for OpendalDataSource {
                     Err(ZhangError::CustomError(format!("Error getting file content from {}: {}", path, err)))
                 }
             }
+        }
+    }
+
+    async fn async_get_existing(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
+        match self.operator.read(&path).await {
+            Ok(data) => Ok(Some(data.to_vec())),
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(ZhangError::CustomError(format!("Error getting file content from {}: {}", path, err))),
         }
     }
 
@@ -788,14 +773,12 @@ mod test {
         ("both.pdf", "at the root"),
     ];
 
-    /// The documents of [`DOCUMENTS`]: beancount finds each relative to its file first. The legacy one is found at
-    /// the root, still downloads, and has a notice with the path beancount reads; the missing one is reported.
+    /// The documents of [`DOCUMENTS`] on the local disk, where a stat tells whether a file exists: beancount finds each
+    /// relative to its file first. The legacy one is found at the root, still downloads, and has a notice with the path
+    /// beancount reads; the missing one is reported, and its download is a 404.
     async fn assert_documents(ledger: Ledger) {
-        use axum::extract::{Path as UrlPath, State};
-        use axum::response::IntoResponse;
-        use base64::Engine as _;
+        use axum::extract::State;
         use zhang_ast::error::ErrorKind;
-        use zhang_server::routes::document::download_document;
         use zhang_server::state::SharedLedger;
 
         let (paths, errors) = {
@@ -844,16 +827,28 @@ mod test {
             ("attachments/right.pdf", "right"),
             ("data/2024/both.pdf", "next to its file"),
         ] {
-            let encoded = base64::engine::general_purpose::STANDARD.encode(path);
-            let response = download_document(state.clone(), UrlPath((encoded,))).await.into_response();
-            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-            assert_eq!(body, content.as_bytes(), "{}", path);
+            assert_eq!(download(&state, path).await, (200, content.to_owned()), "{}", path);
         }
+        let (status, _) = download(&state, "data/2024/attachments/missing.pdf").await;
+        assert_eq!(status, 404);
+    }
+
+    /// the status and the body of the download of the document at `path`
+    async fn download(state: &axum::extract::State<zhang_server::state::SharedLedger>, path: &str) -> (u16, String) {
+        use axum::response::IntoResponse;
+        use base64::Engine as _;
+
+        let encoded = base64::engine::general_purpose::STANDARD.encode(path);
+        let response = zhang_server::routes::document::download_document(state.clone(), axum::extract::Path((encoded,)))
+            .await
+            .into_response();
+        let status = response.status().as_u16();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (status, String::from_utf8_lossy(&body).into_owned())
     }
 
     #[tokio::test]
-    async fn a_document_written_relative_to_the_root_by_an_earlier_version_is_kept_with_a_notice() {
-        // on the local disk
+    async fn on_the_local_disk_a_document_written_relative_to_the_root_is_kept_with_a_notice() {
         let dir = tempdir().unwrap();
         for (file, content) in DOCUMENTS {
             std::fs::create_dir_all(dir.path().join(file).parent().unwrap()).unwrap();
@@ -871,27 +866,6 @@ mod test {
         };
         let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
         assert_documents(Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_owned(), source).await.unwrap()).await;
-
-        // on a remote source, which tells whether a file exists
-        let operator = Operator::new(Memory::default()).unwrap();
-        for (file, content) in DOCUMENTS {
-            operator.write(file, content.as_bytes().to_vec()).await.unwrap();
-        }
-        let source = OpendalDataSource {
-            operator,
-            data_type: Box::new(beancount::Beancount {}),
-            is_beancount: true,
-            local_root: None,
-        };
-        let data = source.files_in("data".to_owned(), true, 10, PLUGIN_FILE_TIMEOUT).unwrap();
-        assert_eq!(data, ["data/2024/01.bean", "data/2024/both.pdf"].iter().map(|it| it.to_string()).collect());
-        let root = source.files_in(String::new(), false, 10, PLUGIN_FILE_TIMEOUT).unwrap();
-        assert_eq!(root, ["main.bean", "both.pdf"].iter().map(|it| it.to_string()).collect());
-        assert_eq!(source.files_in("data".to_owned(), true, 1, PLUGIN_FILE_TIMEOUT), None, "past its files");
-        let ledger = Ledger::async_load(std::path::PathBuf::from("/ledger"), "main.bean".to_owned(), Arc::new(source))
-            .await
-            .unwrap();
-        assert_documents(ledger).await;
     }
 
     /// counts the calls an operator makes to its service: a remote service answers each with a request at least
@@ -978,26 +952,31 @@ mod test {
         }
     }
 
-    /// A load of a beancount ledger on a remote source asks it whether its documents exist a directory at a time, not
-    /// a document at a time: 240 documents in three directories, uploaded each in its own one as the UI does, cost a
-    /// listing of each, besides reading the two files of the ledger.
+    /// On a remote source, a load looks at no document: it reads the two files of the ledger, whatever its documents,
+    /// and reports nothing about them, as it does not know (a document a remote source cannot be asked about cheaply is
+    /// neither missing nor at a path picked for it). A document is looked for when it is downloaded: at its path
+    /// relative to its file, then relative to the root, with two reads at most.
     #[tokio::test]
-    async fn a_remote_source_is_asked_for_documents_a_directory_at_a_time() {
+    async fn on_a_remote_source_documents_are_looked_for_when_downloaded() {
         let counting = Counting::default();
         let operator = Operator::new(Memory::default()).unwrap().layer(counting.clone());
         let mut documents = String::new();
+        for (file, content) in DOCUMENTS.iter().filter(|(file, _)| *file != "data/2024/01.bean") {
+            operator.write(file, content.as_bytes().to_vec()).await.unwrap();
+        }
         for index in 0..240 {
             let dir = ["attachments", "receipts", "statements"][index % 3];
             let file = format!("{}/{:08}-0000-0000-0000-000000000000/document {}.pdf", dir, index, index);
-            operator.write(&file, b"%PDF".to_vec()).await.unwrap();
-            documents.push_str(&format!("2024-01-15 document Assets:Cash \"../../{}\"\n", file));
+            operator.write(&file, format!("document {}", index).into_bytes()).await.unwrap();
+            // the first half written by an earlier version, relative to the root
+            match index < 120 {
+                true => documents.push_str(&format!("2024-01-15 document Assets:Cash \"{}\"\n", file)),
+                false => documents.push_str(&format!("2024-01-15 document Assets:Cash \"../../{}\"\n", file)),
+            }
         }
-        // written relative to the root by an earlier version, and missing
-        operator.write("receipts/legacy.pdf", b"%PDF".to_vec()).await.unwrap();
-        documents.push_str("2024-01-16 document Assets:Cash \"receipts/legacy.pdf\"\n2024-01-17 document Assets:Cash \"missing.pdf\"\n");
-        operator.write("data/2024/01.bean", documents.into_bytes()).await.unwrap();
+        let data_file = DOCUMENTS.iter().find(|(file, _)| *file == "data/2024/01.bean").unwrap().1;
         operator
-            .write("main.bean", b"1970-01-01 open Assets:Cash\ninclude \"data/2024/01.bean\"\n".to_vec())
+            .write("data/2024/01.bean", format!("{}{}", data_file, documents).into_bytes())
             .await
             .unwrap();
         counting.0.lock().unwrap().clear();
@@ -1008,41 +987,44 @@ mod test {
             is_beancount: true,
             local_root: None,
         };
-        let ledger = Ledger::async_load(std::path::PathBuf::from("/ledger"), "main.bean".to_owned(), Arc::new(source))
-            .await
-            .unwrap();
+        // a ledger of its own, for the cache of downloads
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let entry = std::path::PathBuf::from(format!("/ledger-{}", nanos));
+        let ledger = Ledger::async_load(entry, "main.bean".to_owned(), Arc::new(source)).await.unwrap();
 
-        let store = ledger.store.read().unwrap();
-        assert_eq!(store.documents.len(), 242);
-        let mut errors = store
-            .errors
-            .iter()
-            .map(|it| format!("{:?} {:?}", it.error_type, it.metas.get("written_as").or_else(|| it.metas.get("path"))))
-            .collect::<Vec<_>>();
-        errors.sort();
-        assert_eq!(
-            errors,
-            vec![
-                "DocumentNotFound Some(\"data/2024/missing.pdf\")".to_owned(),
-                "DocumentPathRelativeToRoot Some(\"../../receipts/legacy.pdf\")".to_owned(),
-            ]
-        );
-        let mut calls = counting.0.lock().unwrap().clone();
+        let mut calls = counting.0.lock().unwrap().drain(..).collect::<Vec<_>>();
         calls.sort();
-        // the two files of the ledger, the three directories of the documents, `data`, where the missing one would
-        // be next to its file, and the root, where it would be at the root
-        assert_eq!(
-            calls,
-            vec![
-                "list /",
-                "list attachments/",
-                "list data/",
-                "list receipts/",
-                "list statements/",
-                "read data/2024/01.bean",
-                "read main.bean"
-            ],
-        );
+        assert_eq!(calls, vec!["read data/2024/01.bean", "read main.bean"]);
+        {
+            let store = ledger.store.read().unwrap();
+            assert!(store.errors.is_empty(), "{:?}", store.errors);
+            assert_eq!(store.documents.len(), 244);
+            let of = |path: &str| {
+                let document = store.documents.iter().find(|it| it.path == path).unwrap_or_else(|| panic!("{}", path));
+                document.alternate.clone()
+            };
+            assert_eq!(of("data/2024/attachments/legacy.pdf"), Some("attachments/legacy.pdf".to_owned()));
+            assert_eq!(of("attachments/right.pdf"), None, "the root-relative reading leaves the ledger");
+            assert_eq!(of("data/2024/both.pdf"), Some("both.pdf".to_owned()));
+        }
+
+        let state = axum::extract::State(zhang_server::state::SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
+        let legacy = "attachments/00000000-0000-0000-0000-000000000000/document 0.pdf";
+        let new = "attachments/00000120-0000-0000-0000-000000000000/document 120.pdf";
+        for (path, expected, reads) in [
+            (format!("data/2024/{}", legacy), (200, "document 0".to_owned()), 2),
+            (new.to_owned(), (200, "document 120".to_owned()), 1),
+            ("data/2024/attachments/legacy.pdf".to_owned(), (200, "legacy".to_owned()), 2),
+            ("data/2024/both.pdf".to_owned(), (200, "next to its file".to_owned()), 1),
+            ("data/2024/attachments/missing.pdf".to_owned(), (404, String::new()), 2),
+        ] {
+            let (status, body) = download(&state, &path).await;
+            let body = if status == 200 { body } else { String::new() };
+            assert_eq!((status, body), expected, "{}", path);
+            let calls = counting.0.lock().unwrap().drain(..).collect::<Vec<_>>();
+            assert_eq!(calls.len(), reads, "{}: {:?}", path, calls);
+            assert!(calls.iter().all(|it| it.starts_with("read ")), "{:?}", calls);
+        }
     }
 
     #[tokio::test]

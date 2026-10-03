@@ -187,7 +187,8 @@ opens as before. It is reported on a `document` of a Beancount ledger whose path
 the `document` is in, which is where Beancount looks, but names one relative to the ledger's directory. Earlier
 versions of Zhang wrote the documents you uploaded so, into files like `data/2026/10.bean`, which Beancount reports as
 "File does not exist". Zhang keeps using the file it finds relative to the ledger's directory, and the notice gives the
-path to write instead.
+path to write instead. It is given for a ledger on the local disk only; see
+[`DocumentNotFound`](#documentnotfound) for a remote storage.
 
 **Example:** in `data/2026/10.bean`
 ```beancount
@@ -202,8 +203,10 @@ are written so.
 
 A `document` of a Beancount ledger names a file that does not exist, neither relative to the file the `document` is
 in, where Beancount looks, nor relative to the ledger's directory. Beancount reports it as "File does not exist".
-On a remote storage such as S3, Zhang lists each directory of the documents once when it loads the ledger, rather than
-asking for each document; when it cannot list a directory in time, it reports nothing for the documents in it.
+Zhang looks for the files when it loads a ledger on the local disk only, where that costs little: on a remote storage,
+such as S3, WebDAV or GitHub, neither this error nor [`DocumentPathRelativeToRoot`](#documentpathrelativetoroot) is
+reported. There a document is looked for when you open it, relative to its file first, then relative to the ledger's
+directory, and opening one found at neither answers that it does not exist.
 
 **Example of Error:** in `data/2026/10.bean`, with no `data/2026/statement.pdf`
 ```beancount

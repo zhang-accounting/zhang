@@ -197,3 +197,65 @@ fn a_document_appended_to_a_beancount_file_names_its_file_from_there() {
     drop(store);
     std::fs::remove_dir_all(dir).ok();
 }
+
+/// On the local disk, whether the document of a `document` exists is looked at with a stat: the source is never asked
+/// to list or read anything for it, and what is found is reported.
+#[test]
+fn on_the_local_disk_documents_are_looked_at_not_listed() {
+    use std::path::Path;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use zhang_ast::error::ErrorKind;
+    use zhang_core::data_source::{DataSource, LoadResult, LocalFileSystemDataSource, SourceEntry};
+    use zhang_core::ledger::Ledger;
+    use zhang_core::ZhangResult;
+
+    /// the local source, counting what it is asked besides loading the ledger
+    struct Counting(LocalFileSystemDataSource, AtomicUsize);
+
+    impl DataSource for Counting {
+        fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
+            self.1.fetch_add(1, Ordering::SeqCst);
+            self.0.get(path)
+        }
+        fn local_root(&self, entry: &Path) -> Option<PathBuf> {
+            self.0.local_root(entry)
+        }
+        fn get_limited(&self, path: String, max_len: u64) -> ZhangResult<Vec<u8>> {
+            self.1.fetch_add(1, Ordering::SeqCst);
+            self.0.get_limited(path, max_len)
+        }
+        fn list(&self, path: String, max_entries: usize) -> ZhangResult<Vec<SourceEntry>> {
+            self.1.fetch_add(1, Ordering::SeqCst);
+            self.0.list(path, max_entries)
+        }
+        fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
+            self.0.load(entry, endpoint)
+        }
+    }
+
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let dir = std::env::temp_dir().join(format!("zhang-local-documents-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(dir.join("attachments")).unwrap();
+    std::fs::create_dir_all(dir.join("data")).unwrap();
+    std::fs::write(dir.join("attachments/legacy.pdf"), "%PDF").unwrap();
+    std::fs::write(dir.join("main.bean"), "1970-01-01 open Assets:Cash\ninclude \"data/2024.bean\"\n").unwrap();
+    std::fs::write(
+        dir.join("data/2024.bean"),
+        "2024-01-01 document Assets:Cash \"attachments/legacy.pdf\"\n2024-01-02 document Assets:Cash \"missing.pdf\"\n",
+    )
+    .unwrap();
+    let source = Arc::new(Counting(LocalFileSystemDataSource::new(beancount::Beancount {}), AtomicUsize::new(0)));
+    let ledger = Ledger::load_with_data_source(dir.clone(), "main.bean".to_owned(), source.clone()).unwrap();
+
+    assert_eq!(source.1.load(Ordering::SeqCst), 0, "nothing is asked of the source for the documents");
+    let store = ledger.store.read().unwrap();
+    let mut errors = store.errors.iter().map(|it| it.error_type.clone()).collect::<Vec<_>>();
+    errors.sort_by_key(|it| format!("{it:?}"));
+    assert_eq!(errors, vec![ErrorKind::DocumentNotFound, ErrorKind::DocumentPathRelativeToRoot]);
+    let documents = store.documents.iter().map(|it| (it.path.as_str(), it.alternate.clone())).collect::<Vec<_>>();
+    assert_eq!(documents, vec![("attachments/legacy.pdf", None), ("data/missing.pdf", None)]);
+    drop(store);
+    std::fs::remove_dir_all(dir).ok();
+}
