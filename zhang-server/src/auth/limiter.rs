@@ -21,11 +21,11 @@ pub const MAX_FAILURES_GLOBAL: usize = 50;
 /// How long a failed attempt counts.
 pub const FAILURE_WINDOW: Duration = Duration::from_secs(15 * 60);
 
-/// The client a request comes from: the address in `X-Forwarded-For` the trusted proxies saw (see
+/// The client a request comes from: the address the reverse proxy appended to `X-Forwarded-For` (see
 /// [`forwarded_value`]), else the peer address. IPv6 clients are grouped by their /64 network, which
 /// one host usually controls whole.
-pub fn client_key(headers: &HeaderMap, peer: Option<SocketAddr>, trusted_proxy_hops: usize) -> String {
-    let address = match forwarded_value(headers, "x-forwarded-for", trusted_proxy_hops) {
+pub fn client_key(headers: &HeaderMap, peer: Option<SocketAddr>) -> String {
+    let address = match forwarded_value(headers, "x-forwarded-for") {
         Some(forwarded) => match parse_address(forwarded) {
             Some(ip) => ip,
             None => return forwarded.chars().take(64).collect(),
@@ -134,18 +134,16 @@ mod test {
     }
 
     #[test]
-    fn clients_are_the_address_the_trusted_proxy_saw_or_the_peer() {
+    fn clients_are_the_address_the_proxy_appended_or_the_peer() {
         let peer: SocketAddr = "198.51.100.1:5000".parse().unwrap();
-        assert_eq!(client_key(&HeaderMap::new(), Some(peer), 1), "198.51.100.1");
-        assert_eq!(client_key(&HeaderMap::new(), None, 1), "unknown");
-        assert_eq!(client_key(&forwarded("10.9.9.9, 203.0.113.7"), Some(peer), 1), "203.0.113.7");
-        assert_eq!(client_key(&forwarded("203.0.113.7, 10.0.0.1"), Some(peer), 2), "203.0.113.7");
-        assert_eq!(client_key(&forwarded("203.0.113.7, 10.0.0.1"), Some(peer), 0), "198.51.100.1");
-        assert_eq!(client_key(&forwarded("203.0.113.7:4711"), None, 1), "203.0.113.7");
-        assert_eq!(client_key(&forwarded("::ffff:203.0.113.7"), None, 1), "203.0.113.7");
-        assert_eq!(client_key(&forwarded("2001:db8:1:2:aaaa::1"), None, 1), "2001:db8:1:2::/64");
-        assert_eq!(client_key(&forwarded("[2001:db8:1:2:bbbb::2]:443"), None, 1), "2001:db8:1:2::/64");
-        assert_eq!(client_key(&forwarded("not an address"), None, 1), "not an address");
+        assert_eq!(client_key(&HeaderMap::new(), Some(peer)), "198.51.100.1");
+        assert_eq!(client_key(&HeaderMap::new(), None), "unknown");
+        assert_eq!(client_key(&forwarded("10.9.9.9, 203.0.113.7"), Some(peer)), "203.0.113.7");
+        assert_eq!(client_key(&forwarded("203.0.113.7:4711"), None), "203.0.113.7");
+        assert_eq!(client_key(&forwarded("::ffff:203.0.113.7"), None), "203.0.113.7");
+        assert_eq!(client_key(&forwarded("2001:db8:1:2:aaaa::1"), None), "2001:db8:1:2::/64");
+        assert_eq!(client_key(&forwarded("[2001:db8:1:2:bbbb::2]:443"), None), "2001:db8:1:2::/64");
+        assert_eq!(client_key(&forwarded("not an address"), None), "not an address");
     }
 
     #[test]

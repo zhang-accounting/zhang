@@ -83,7 +83,7 @@ Changing `ZHANG_PASSKEY` does not remove the passkeys that are already registere
 
 Browsers only allow passkeys on a domain name served over HTTPS, or on `localhost`. They do not work when the web UI is opened through an IP address such as `http://192.168.1.10:8000`.
 
-A passkey is bound to its **relying party ID**, the domain it was created for. By default, Zhang Accounting uses the host of the request, as seen by the browser: the `X-Forwarded-Host` and `X-Forwarded-Proto` headers of the [trusted reverse proxy](#reverse-proxies) take precedence over the `Host` header. Most proxies and hosting platforms set them, so a custom domain usually works without any configuration.
+A passkey is bound to its **relying party ID**, the domain it was created for. By default, Zhang Accounting uses the host of the request, as seen by the browser: the `X-Forwarded-Host` and `X-Forwarded-Proto` headers of a [reverse proxy](#reverse-proxies) take precedence over the `Host` header. Most proxies and hosting platforms set them, so a custom domain usually works without any configuration.
 
 When the proxy does not forward them, or to share passkeys between subdomains, set them explicitly:
 
@@ -101,7 +101,7 @@ Passkeys created for one domain cannot be used on another one: after moving the 
 
 ## Sessions
 
-Signing in sets a `zhang_session` cookie, valid for 30 days. It is `HttpOnly` and `SameSite=Lax`, and marked `Secure` when the browser reaches the server over HTTPS (as reported by the `X-Forwarded-Proto` header of the [trusted reverse proxy](#reverse-proxies)).
+Signing in sets a `zhang_session` cookie, valid for 30 days. It is `HttpOnly` and `SameSite=Lax`, and marked `Secure` when the browser reaches the server over HTTPS (as reported by the `X-Forwarded-Proto` header of a [reverse proxy](#reverse-proxies)).
 
 Sessions are signed with a secret key. Set it with the `ZHANG_SESSION_SECRET` environment variable to keep everyone signed in across restarts and redeployments:
 
@@ -118,30 +118,11 @@ Without `ZHANG_SESSION_SECRET`, a random key is generated every time the server 
 
 To slow down password guessing, failed attempts at the password login and at the passkey registration secret are counted. After 5 failed attempts within 15 minutes from the same address, or 50 from all addresses together, further attempts are refused with `429 Too Many Requests` (and a `Retry-After` header) until the 15 minutes have passed, even with the right password. A successful sign-in resets the count of its address. Browsers that are already signed in, and passkey sign-ins, are not affected.
 
-The address is the one the [trusted reverse proxy](#reverse-proxies) reports in `X-Forwarded-For`, or the address of the connection without a proxy. The counts are kept in memory, so they start over when the server restarts.
+The address is the one the [reverse proxy](#reverse-proxies) reports in `X-Forwarded-For`, or the address of the connection without a proxy. The counts are kept in memory, so they start over when the server restarts.
 
 ## Reverse proxies
 
-Behind a reverse proxy (a TLS terminator, or the edge of a hosting platform such as Railway), Zhang Accounting reads the address of the browser and the address it opened from the `X-Forwarded-For`, `X-Forwarded-Host` and `X-Forwarded-Proto` headers. A browser can send these headers too, so only the entries added by the proxies you trust are used: set `ZHANG_TRUSTED_PROXY_HOPS` to the number of proxies in front of Zhang Accounting.
-
-- `1` (the default): one proxy. As each proxy appends what it saw, the rightmost entry is used.
-- `2` or more: as many proxies, chained; the entry that many places from the right is used, the one the outermost proxy appended.
-- `0`: no proxy, Zhang Accounting is reached directly. The `X-Forwarded-*` headers are ignored, and the address of the connection is used.
-
-When a header has fewer entries than the number of proxies, its leftmost entry is used.
-
-On Railway, keep the default: its edge is the one proxy in front of the service, and it appends the address of the browser.
-
-```shell
-# Railway, or any single reverse proxy: nothing to set (ZHANG_TRUSTED_PROXY_HOPS=1)
-# reached directly, without a proxy:
-docker run --name zhang -p 8000:8000 \
-  -e "ZHANG_AUTH=admin:admin888" \
-  -e "ZHANG_TRUSTED_PROXY_HOPS=0" \
-  kilerd/zhang:latest
-```
-
-With a value that is too high, a browser can choose the address it is counted as for [failed sign-in attempts](#failed-sign-in-attempts); with a value that is too low, every browser is counted as the same address, the one of a proxy.
+Behind a reverse proxy, Zhang Accounting takes the address of the browser, and the host and scheme it opened, from the rightmost entry of the `X-Forwarded-For`, `X-Forwarded-Host` and `X-Forwarded-Proto` headers: the entry the proxy appended, while the ones before it are whatever the browser sent. This is correct behind a single proxy, such as the edge of Railway, so there is nothing to configure there. Behind several proxies, or when the host or scheme passkeys see is wrong, set `ZHANG_PASSKEY_ORIGIN` (and `ZHANG_PASSKEY_RP_ID`), see [Domain name and reverse proxies](#domain-name-and-reverse-proxies).
 
 ## Troubleshooting
 
