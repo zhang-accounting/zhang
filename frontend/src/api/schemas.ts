@@ -1384,7 +1384,7 @@ export interface operations {
               columns: {
                 name: string;
                 /** @enum {string} */
-                type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory';
+                type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
               }[];
               rows: (
                 | boolean
@@ -1421,6 +1421,10 @@ export interface operations {
                       };
                     }[];
                   }
+                | {
+                    key: string;
+                    value: string;
+                  }[]
                 | null
               )[][];
             };
@@ -1534,7 +1538,7 @@ export interface operations {
                 description: string;
                 name: string;
                 /** @enum {string} */
-                type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory';
+                type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
               }[];
               functions: {
                 /** @description whether this is an aggregate function (`sum`, `count`, ...) */
@@ -1550,7 +1554,7 @@ export interface operations {
                   description: string;
                   name: string;
                   /** @enum {string} */
-                  type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory';
+                  type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
                 }[];
                 description: string;
                 /** @description the table name, without `#` */
