@@ -156,6 +156,20 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
     let transaction_ids = ids_of("transaction");
     let balance_ids = ids_of("balance");
 
+    // tags and links as written: the engine's sets are sorted, and the edit form writes them back as listed
+    let written: HashMap<String, (Vec<String>, Vec<String>)> = {
+        let store = ledger
+            .store
+            .read()
+            .map_err(|_| ServerError::InvalidInput("the ledger store is not readable".to_owned()))?;
+        transaction_ids
+            .iter()
+            .filter_map(|id| {
+                let transaction = store.transactions.get(&Uuid::from_str(id).ok()?)?;
+                Some((id.clone(), (transaction.tags.clone(), transaction.links.clone())))
+            })
+            .collect()
+    };
     let mut postings: HashMap<String, Vec<PostingRow>> = HashMap::new();
     if !transaction_ids.is_empty() {
         let result = execute(ledger, JOURNAL_POSTINGS, &Params::new().bind("ids", transaction_ids), false)?;
@@ -178,7 +192,11 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
         .rows
         .iter()
         .map(|row| {
-            let entry = EntryRow::of(&columns, row);
+            let mut entry = EntryRow::of(&columns, row);
+            if let Some((tags, links)) = written.get(&entry.id) {
+                entry.tags = tags.clone();
+                entry.links = links.clone();
+            }
             let postings = postings.remove(&entry.id).unwrap_or_default();
             let check = checks.remove(&entry.id);
             journal_item(entry, postings, check)

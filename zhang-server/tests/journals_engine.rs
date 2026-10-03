@@ -4,6 +4,7 @@
 //!
 //! - a page size of 0 and a page beyond what an offset can count are 400s, and a page past the end
 //!   is empty instead of wrapping around;
+//! - tags and links keep their written order, also through a save;
 //! - a repeated metadata key keeps every value (decision 7);
 //! - a cost is per unit: a `{{total}}` cost is divided by the units, and `{}` shows the cost of the lots it
 //!   reduces when they share one;
@@ -16,9 +17,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Path as UrlPath, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum::Json;
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
 use zhang_core::data_source::LocalFileSystemDataSource;
@@ -27,9 +29,10 @@ use zhang_core::ledger::Ledger;
 use zhang_server::request::JournalRequest;
 use zhang_server::routes::common::get_errors;
 use zhang_server::routes::document::get_documents;
-use zhang_server::routes::transaction::{get_info_for_new_transactions, get_journals};
+use zhang_server::routes::transaction::{get_info_for_new_transactions, get_journals, update_single_transaction};
 use zhang_server::routes::Query as UrlQuery;
-use zhang_server::state::SharedLedger;
+use zhang_server::state::{SharedLedger, SharedReloadSender};
+use zhang_server::ReloadSender;
 
 const LEDGER: &str = r#"option "operating_currency" "CNY"
 option "timezone" "Asia/Shanghai"
@@ -482,6 +485,56 @@ async fn bad_pages_are_bad_requests_and_a_page_past_the_end_is_empty() {
 
     let (status, _) = respond(get_errors(State(ledger.clone()), axum::extract::Query(request(Some(1), Some(0), None, None))).await).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+const TAGGED: &str = r#"option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Cash
+1970-01-01 open Expenses:Food
+
+2024-03-02 * "Tagged" "with tags" #trip #Food ^z-link ^a-link
+  Assets:Cash -4 CNY
+  Expenses:Food 4 CNY
+"#;
+
+/// Tags and links keep their written order, which the query engine's sets do not, so that the edit form, which
+/// sends them back as the journal lists them, does not reorder them when it saves.
+#[tokio::test]
+async fn tags_and_links_keep_their_written_order_through_a_save() {
+    let scratch = Scratch::new(&[("main.zhang", TAGGED)]);
+    let ledger = scratch.ledger().await;
+    let item = page(&ledger, None, None).await["records"][0].clone();
+    assert_eq!(item["tags"], json!(["trip", "Food"]));
+    assert_eq!(item["links"], json!(["z-link", "a-link"]));
+    // a search by tag finds it whatever the case of the needle
+    assert_eq!(page(&ledger, Some("FOOD"), None).await["total_count"], 1);
+
+    // save it back as the edit form does, with the tags and links as listed
+    let posting = |it: &Value| json!({"account": it["account"], "unit": it["unit"], "metas": it["metas"]});
+    let body = json!({
+        "datetime": "2024-03-02T00:00:00Z",
+        "payee": item["payee"],
+        "narration": item["narration"],
+        "flag": "Okay",
+        "postings": item["postings"].as_array().unwrap().iter().map(posting).collect::<Vec<_>>(),
+        "metas": item["metas"],
+        "tags": item["tags"],
+        "links": item["links"],
+    });
+    let payload = serde_json::from_value(body).unwrap();
+    let (sender, _receiver) = tokio::sync::mpsc::channel(1);
+    let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
+    let id = item["id"].as_str().unwrap().to_owned();
+    let (status, body) = respond(update_single_transaction(State(ledger.clone()), reload, UrlPath((id,)), Json(payload)).await).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let written = std::fs::read_to_string(scratch.dir.join("main.zhang")).unwrap();
+    assert!(written.contains("#trip #Food ^z-link ^a-link"), "{written}");
+
+    // and the reloaded journal lists them in that order again
+    let reloaded = scratch.ledger().await;
+    let item = page(&reloaded, None, None).await["records"][0].clone();
+    assert_eq!(item["tags"], json!(["trip", "Food"]));
+    assert_eq!(item["links"], json!(["z-link", "a-link"]));
 }
 
 #[tokio::test]
