@@ -98,23 +98,48 @@ export interface paths {
     get: operations['get_auth_status'];
   };
   '/api/budgets': {
-    /** Get Budget List */
+    /**
+     * Get Budget List
+     * @description Every budget as of a month, by default the current one in the ledger's timezone, ordered by
+     * name. Budgets that start after the month are not listed.
+     *
+     * The figures are those of `#budgets`: activity is converted to the budget's commodity at each
+     * posting's date, and `closed` is whether the budget was closed in or before the month.
+     */
     get: operations['get_budget_list'];
   };
   '/api/budgets/{budget_name}': {
-    /** Get Budget Info */
+    /**
+     * Get Budget Info
+     * @description One budget as of a month, by default the current one in the ledger's timezone, with the
+     * accounts whose postings are its activity, in name order. Before the budget's first month
+     * nothing is assigned or spent.
+     */
     get: operations['get_budget_info'];
   };
   '/api/budgets/{budget_name}/interval/{year}/{month}': {
-    /** Get Budget Interval Detail */
+    /**
+     * Get Budget Interval Detail
+     * @description What happened to a budget in a month, newest first: what its `budget-add` and
+     * `budget-transfer` directives put in, and the postings of its accounts, with their times in
+     * the ledger's timezone.
+     */
     get: operations['get_budget_interval_detail'];
   };
   '/api/commodities': {
-    /** Get All Commodities */
+    /**
+     * Get All Commodities
+     * @description Every commodity, with how much of it the Assets and Liabilities accounts hold and its latest
+     * price in the operating currency.
+     */
     get: operations['get_all_commodities'];
   };
   '/api/commodities/{commodity_name}': {
-    /** Get Single Commodity */
+    /**
+     * Get Single Commodity
+     * @description One commodity: how much of it the Assets and Liabilities accounts hold and in which lots, its
+     * latest price in the operating currency, and all its prices. An unknown commodity is a 404.
+     */
     get: operations['get_single_commodity'];
   };
   '/api/documents': {
@@ -822,7 +847,14 @@ export interface operations {
       };
     };
   };
-  /** Get Budget List */
+  /**
+   * Get Budget List
+   * @description Every budget as of a month, by default the current one in the ledger's timezone, ordered by
+   * name. Budgets that start after the month are not listed.
+   *
+   * The figures are those of `#budgets`: activity is converted to the budget's commodity at each
+   * posting's date, and `closed` is whether the budget was closed in or before the month.
+   */
   get_budget_list: {
     parameters: {
       query?: {
@@ -858,7 +890,12 @@ export interface operations {
       };
     };
   };
-  /** Get Budget Info */
+  /**
+   * Get Budget Info
+   * @description One budget as of a month, by default the current one in the ledger's timezone, with the
+   * accounts whose postings are its activity, in name order. Before the budget's first month
+   * nothing is assigned or spent.
+   */
   get_budget_info: {
     parameters: {
       query?: {
@@ -898,7 +935,12 @@ export interface operations {
       };
     };
   };
-  /** Get Budget Interval Detail */
+  /**
+   * Get Budget Interval Detail
+   * @description What happened to a budget in a month, newest first: what its `budget-add` and
+   * `budget-transfer` directives put in, and the postings of its accounts, with their times in
+   * the ledger's timezone.
+   */
   get_budget_interval_detail: {
     parameters: {
       path: {
@@ -966,7 +1008,11 @@ export interface operations {
       };
     };
   };
-  /** Get All Commodities */
+  /**
+   * Get All Commodities
+   * @description Every commodity, with how much of it the Assets and Liabilities accounts hold and its latest
+   * price in the operating currency.
+   */
   get_all_commodities: {
     responses: {
       /** @description default return */
@@ -991,7 +1037,11 @@ export interface operations {
       };
     };
   };
-  /** Get Single Commodity */
+  /**
+   * Get Single Commodity
+   * @description One commodity: how much of it the Assets and Liabilities accounts hold and in which lots, its
+   * latest price in the operating currency, and all its prices. An unknown commodity is a 404.
+   */
   get_single_commodity: {
     parameters: {
       path: {
