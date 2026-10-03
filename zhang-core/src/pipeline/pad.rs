@@ -94,6 +94,98 @@ impl<T> PadPairing<T> {
     }
 }
 
+/// where a directive is: its file and position, the same for a directive a plugin passed through
+pub(crate) type Place = (Option<std::path::PathBuf>, usize, usize);
+
+pub(crate) fn place(span: &SpanInfo) -> Place {
+    (span.filename.clone(), span.start, span.end)
+}
+
+/// The balance assertions a `pad` may serve once a plugin of ABI v1 returned the stream: those a `pad` it could not see
+/// stands for (see [`super::AbiV1View`]). Any other balance assertion the plugin returned is not padded by a `pad`, as
+/// the plugin saw none. An assertion is known by its place and what it says; of several alike, the first ones
+#[derive(Clone, Default, Debug)]
+pub(crate) struct PadServes(HashMap<Place, Vec<(Directive, usize)>>);
+
+impl PadServes {
+    /// one more `directive` a `pad` may serve
+    pub(crate) fn allow(&mut self, directive: &Spanned<Directive>) {
+        let alike = self.0.entry(place(&directive.span)).or_default();
+        match alike.iter_mut().find(|(it, _)| it == &directive.data) {
+            Some((_, count)) => *count += 1,
+            None => alike.push((directive.data.clone(), 1)),
+        }
+    }
+
+    /// whether a `pad` may serve `directive`, the next one of the stream: it uses up one of those allowed
+    pub(crate) fn take(&mut self, directive: &Spanned<Directive>) -> bool {
+        let Some(alike) = self.0.get_mut(&place(&directive.span)) else {
+            return false;
+        };
+        match alike.iter_mut().find(|(it, count)| *count > 0 && it == &directive.data) {
+            Some((_, count)) => {
+                *count -= 1;
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+/// whether a `pad` may serve `directive`, the next one of the stream: any, before a plugin decided
+pub(crate) fn may_serve(serves: &mut Option<PadServes>, directive: &Spanned<Directive>) -> bool {
+    serves.as_mut().is_none_or(|it| it.take(directive))
+}
+
+/// For each of `new`, written after the directives of a loaded ledger (its stream, [`Ledger::directives`]): the `pad`
+/// that would serve it once the ledger is loaded again, paired as the pad stage pairs them. `None` for a directive that
+/// is no balance assertion, or that no `pad` serves. A `pad` among `new` serves too
+pub fn serving_pads(directives: &[Spanned<Directive>], new: &[Directive]) -> Vec<Option<Pad>> {
+    // what the pairing reads: the pads, and the balance entries, which also order the pads of a day
+    let mut stream = directives
+        .iter()
+        .filter(|it| matches!(it.data, Directive::Pad(_)) || Ledger::is_balance_entry(&it.data))
+        .cloned()
+        .collect::<Vec<_>>();
+    let existing = stream.len();
+    for (index, directive) in new.iter().enumerate() {
+        // after every directive of the ledger, each at its own place
+        let place = usize::MAX - index;
+        stream.push(Spanned::new(
+            directive.clone(),
+            SpanInfo {
+                start: place,
+                end: place,
+                content: String::new(),
+                filename: None,
+            },
+        ));
+    }
+    let keys = Ledger::sort_keys(&stream);
+    let mut order = (0..stream.len()).collect::<Vec<_>>();
+    order.sort_by_key(|index| (keys[*index], *index));
+    let mut pairing: PadPairing<usize> = PadPairing::default();
+    let mut served = vec![None; new.len()];
+    for index in order {
+        let (account, commodity, date) = match &stream[index].data {
+            Directive::Pad(pad) => {
+                pairing.pad(&pad.account, pad.date.naive_date(), index);
+                continue;
+            }
+            Directive::BalanceCheck(check) => (&check.account, &check.amount.commodity, check.date.naive_date()),
+            Directive::BalancePad(pad) => (&pad.account, &pad.amount.commodity, pad.date.naive_date()),
+            _ => continue,
+        };
+        let Some(pad) = pairing.serve(account, commodity, date).copied() else {
+            continue;
+        };
+        if let (Some(slot), Directive::Pad(pad)) = (index.checked_sub(existing).and_then(|it| served.get_mut(it)), &stream[pad].data) {
+            *slot = Some(pad.clone());
+        }
+    }
+    served
+}
+
 /// a `pad` waiting for the assertions it serves
 struct ActivePad {
     pad: Pad,
@@ -120,6 +212,8 @@ impl ProcessStage for PadStage {
         let mut paddings: HashMap<usize, Vec<Spanned<Directive>>> = HashMap::new();
         // the time of the last balance entry so far: the stream puts a `pad` after every balance entry of its day
         let mut last_balance_entry: Option<NaiveDateTime> = None;
+        // the assertions a `pad` may serve, when a plugin decided them
+        let mut serves = ctx.pad_serves.clone();
 
         for directive in directives {
             if Ledger::is_balance_entry(&directive.data) {
@@ -159,6 +253,7 @@ impl ProcessStage for PadStage {
                     pairing.pad(&pad.account, pad.date.naive_date(), waiting);
                     None
                 }
+                Directive::BalanceCheck(_) if !may_serve(&mut serves, &directive) => None,
                 Directive::BalanceCheck(check) => {
                     serve(
                         ctx,
@@ -174,16 +269,18 @@ impl ProcessStage for PadStage {
                 }
                 Directive::BalancePad(pad) => {
                     report_account_errors(ctx, &accounts, &[&pad.account, &pad.pad], &directive.span);
-                    serve(
-                        ctx,
-                        &mut pairing,
-                        &mut paddings,
-                        &mut balances,
-                        &pad.date,
-                        &pad.account,
-                        &pad.amount,
-                        &directive.span,
-                    );
+                    if may_serve(&mut serves, &directive) {
+                        serve(
+                            ctx,
+                            &mut pairing,
+                            &mut paddings,
+                            &mut balances,
+                            &pad.date,
+                            &pad.account,
+                            &pad.amount,
+                            &directive.span,
+                        );
+                    }
                     // nothing to pad: no transaction (beancount does the same)
                     let distance = balances.distance(&pad.account, &pad.amount);
                     (!distance.number.is_zero()).then(|| {
@@ -315,6 +412,7 @@ mod test {
     use zhang_ast::error::ErrorKind;
     use zhang_ast::{Date, Directive, Flag, Transaction};
 
+    use crate::data_type::DataType;
     use crate::pipeline::test::run_builtin_stages;
 
     fn synthesized(directives: &[Directive], flag: Flag) -> Vec<&Transaction> {
@@ -646,6 +744,35 @@ mod test {
         // already at its amount; no later assertion; replaced by a later pad before any assertion
         assert_eq!(errors, vec![ErrorKind::UnusedPad, ErrorKind::UnusedPad, ErrorKind::UnusedPad]);
         assert_eq!(paddings(&directives), vec![padding("2023-01-03", "Assets:C", "5 CNY", "Equity:Open")]);
+    }
+
+    #[test]
+    fn should_report_unused_pads_in_stream_order() {
+        let content = indoc! {r#"
+            1970-01-01 open Assets:A
+            1970-01-01 open Assets:B
+            1970-01-01 open Equity:Open
+            2023-01-02 pad Assets:B Equity:Open
+            2023-01-02 pad Assets:A Equity:Open
+            2023-01-03 pad Assets:A Equity:Open
+            2023-01-04 balance Assets:A 10 CNY
+        "#};
+        let directives = crate::data_type::text::ZhangDataType {}.transform(content.to_owned(), None).unwrap();
+        let mut ctx = crate::pipeline::StageContext::new(&[]);
+        crate::pipeline::run_pipeline(
+            &crate::pipeline::builtin_stages(),
+            crate::ledger::Ledger::sort_directives_datetime(directives),
+            &mut ctx,
+        )
+        .unwrap();
+        // the pad of B, waiting to the end, and the first pad of A, which the second replaced, as they are in the stream
+        let unused = ctx
+            .into_errors()
+            .into_iter()
+            .filter(|it| it.kind == ErrorKind::UnusedPad)
+            .map(|it| it.span.content.trim().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(unused, vec!["2023-01-02 pad Assets:B Equity:Open", "2023-01-02 pad Assets:A Equity:Open"]);
     }
 
     #[test]

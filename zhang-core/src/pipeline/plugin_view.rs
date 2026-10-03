@@ -17,21 +17,26 @@
 //! - a `pad` one of whose served balances the plugin dropped, or turned into a plain `balance`,
 //!   or gave another account or pad account than the others, is left out, and so is a `pad` that,
 //!   put back, would not serve exactly the balances it served, such as when the plugin moved one
-//!   or added an assertion of the account before one. The balances the plugin returned as
-//!   `balance ... with pad` stay so, and each pads its own assertion;
-//! - a `pad` that serves no balance is invisible to a plugin: it is put back as it was, and
-//!   serves the assertions of its account a plugin added after it.
+//!   to another day. The balances the plugin returned as `balance ... with pad` stay so, and each
+//!   pads its own assertion;
+//! - a `pad` that serves no balance is invisible to a plugin: it is put back as it was, and must
+//!   still serve none: where it would serve one, it is left out.
+//!
+//! A `pad` put back serves only the balances it stood for ([`PadServes`], which the pad stage and
+//! the views of later plugins follow): any other balance the plugin returned, such as one it added
+//! or turned into a plain `balance`, is not padded by a `pad` the plugin could not see. So leaving a
+//! `pad` out changes no other `pad`, and the pads of an account are checked once, from the last.
 //!
 //! A plugin that changes nothing gets exactly the stream it was given back, with the `pad`s.
 //! Exposing `pad` to plugins is future ABI work.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 
 use bigdecimal::BigDecimal;
+use chrono::NaiveDate;
 use zhang_ast::{Account, BalanceCheck, BalancePad, Directive, Pad, SpanInfo, Spanned};
 
-use super::pad::PadPairing;
+use super::pad::{may_serve, place, PadPairing, PadServes, Place};
 use super::{ProcessStage, StageContext};
 use crate::ledger::Ledger;
 use crate::ZhangResult;
@@ -53,17 +58,10 @@ impl ProcessStage for AbiV1View {
     }
 
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let (shown, hidden) = hide_pads(directives);
+        let (shown, hidden) = hide_pads(directives, ctx.pad_serves.clone());
         let returned = self.plugin.process(shown, ctx)?;
-        Ok(hidden.restore(returned))
+        Ok(hidden.restore(returned, ctx))
     }
-}
-
-/// where a directive is: its file and position, the same for a directive a plugin passed through
-type Place = (Option<PathBuf>, usize, usize);
-
-fn place(span: &SpanInfo) -> Place {
-    (span.filename.clone(), span.start, span.end)
 }
 
 /// a `pad` [`hide_pads`] took out of the stream
@@ -85,8 +83,8 @@ struct HiddenPads {
 }
 
 /// the stream without its `pad` directives, the `balance` each serves shown as a `balance ... with pad`,
-/// paired as the pad stage pairs them
-fn hide_pads(directives: Vec<Spanned<Directive>>) -> (Vec<Spanned<Directive>>, HiddenPads) {
+/// paired as the pad stage pairs them, a `pad` serving only the assertions `serves` allows when an earlier plugin decided
+fn hide_pads(directives: Vec<Spanned<Directive>>, mut serves: Option<PadServes>) -> (Vec<Spanned<Directive>>, HiddenPads) {
     let mut pairing = PadPairing::default();
     let mut hidden = HiddenPads {
         pads: vec![],
@@ -96,6 +94,7 @@ fn hide_pads(directives: Vec<Spanned<Directive>>) -> (Vec<Spanned<Directive>>, H
     let mut before = None;
     let mut shown = Vec::with_capacity(directives.len());
     for directive in directives {
+        let served = matches!(directive.data, Directive::BalanceCheck(_) | Directive::BalancePad(_)) && may_serve(&mut serves, &directive);
         let Spanned { data, span } = directive;
         let data = match data {
             Directive::Pad(pad) => {
@@ -107,6 +106,7 @@ fn hide_pads(directives: Vec<Spanned<Directive>>) -> (Vec<Spanned<Directive>>, H
                 });
                 continue;
             }
+            Directive::BalanceCheck(check) if !served => Directive::BalanceCheck(check),
             Directive::BalanceCheck(check) => match pairing.serve(&check.account, &check.amount.commodity, check.date.naive_date()).copied() {
                 Some(index) => {
                     hidden.shown.insert(place(&span), (index, check.tolerance));
@@ -122,7 +122,10 @@ fn hide_pads(directives: Vec<Spanned<Directive>>) -> (Vec<Spanned<Directive>>, H
             },
             Directive::BalancePad(pad) => {
                 // an assertion the `pad` serves first, before the `balance ... with pad` pads the rest
-                if let Some(index) = pairing.serve(&pad.account, &pad.amount.commodity, pad.date.naive_date()).copied() {
+                if let Some(index) = served
+                    .then(|| pairing.serve(&pad.account, &pad.amount.commodity, pad.date.naive_date()).copied())
+                    .flatten()
+                {
                     hidden.padded.insert(place(&span), index);
                 }
                 Directive::BalancePad(pad)
@@ -138,7 +141,7 @@ fn hide_pads(directives: Vec<Spanned<Directive>>) -> (Vec<Spanned<Directive>>, H
 impl HiddenPads {
     /// the stream a plugin returned, with the `pad` directives that pad what it returned put back, and the
     /// `balance` directives they serve turned back
-    fn restore(self, returned: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
+    fn restore(self, returned: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> Vec<Spanned<Directive>> {
         let HiddenPads { pads, shown, padded } = self;
         if pads.is_empty() {
             return returned;
@@ -161,12 +164,14 @@ impl HiddenPads {
         }
         let mut pads = pads.into_iter().map(Some).collect::<Vec<_>>();
         let mut out = Vec::with_capacity(returned.len() + count);
-        // the place of each pad in `out`
+        // each pad by its place in `out`, and its place
         let mut pad_of: HashMap<usize, usize> = HashMap::with_capacity(count);
+        let mut position_of = vec![0; count];
         let mut put_back = |indices: Vec<usize>, pads: &mut [Option<HiddenPad>], out: &mut Vec<Spanned<Directive>>| {
             for index in indices {
                 let HiddenPad { pad, span, .. } = pads[index].take().expect("a pad is put back once");
                 pad_of.insert(out.len(), index);
+                position_of[index] = out.len();
                 out.push(Spanned::new(Directive::Pad(pad), span));
             }
         };
@@ -217,11 +222,7 @@ impl HiddenPads {
                 keep[index] = false;
                 continue;
             }
-            let position = pad_of
-                .iter()
-                .find_map(|(position, it)| (*it == index).then_some(*position))
-                .expect("every pad is back");
-            if let Directive::Pad(pad) = &mut out[position].data {
+            if let Directive::Pad(pad) = &mut out[position_of[index]].data {
                 pad.account = account;
                 pad.pad = source;
             }
@@ -245,39 +246,43 @@ impl HiddenPads {
                 });
             }
         }
-        // a pad put back must serve exactly the balances it stands for; leaving one out may change what an earlier
-        // pad of its account serves, so check again until none is left out
-        loop {
-            let paired = pair(&out, &pad_of, &keep);
-            let mut left_out = false;
-            for index in 0..count {
-                if !keep[index] || (serves[index] == 0 && serves_first[index] == 0) {
-                    continue;
-                }
-                let mut expected = claims[index].iter().chain(&natives[index]).copied().collect::<Vec<_>>();
-                expected.sort_unstable();
-                if paired[index] == expected {
-                    continue;
-                }
-                keep[index] = false;
-                left_out = true;
-                for position in &claims[index] {
-                    let Directive::BalanceCheck(check) = out[*position].data.clone() else {
-                        unreachable!("a claim put back is a `balance`")
-                    };
-                    out[*position].data = Directive::BalancePad(BalancePad {
-                        date: check.date,
-                        account: check.account,
-                        amount: check.amount,
-                        pad: sources.remove(position).expect("the pad account of a claim is kept"),
-                        meta: check.meta,
-                    });
-                }
-            }
-            if !left_out {
-                break;
+        // the balances each pad put back stands for, the only ones a pad may serve: a plugin sees no pad, so any other
+        // balance it returned is not padded by one
+        let stands_for = (0..count)
+            .map(|index| {
+                let mut positions = if keep[index] {
+                    claims[index].iter().chain(&natives[index]).copied().collect::<Vec<_>>()
+                } else {
+                    vec![]
+                };
+                positions.sort_unstable();
+                positions
+            })
+            .collect::<Vec<_>>();
+        // a pad put back that would serve other balances than those, is left out: the balances it stood for pad
+        // themselves, as the plugin returned them
+        for index in left_out(&out, &pad_of, &keep, &stands_for) {
+            keep[index] = false;
+            for position in &claims[index] {
+                let Directive::BalanceCheck(check) = out[*position].data.clone() else {
+                    unreachable!("a claim put back is a `balance`")
+                };
+                out[*position].data = Directive::BalancePad(BalancePad {
+                    date: check.date,
+                    account: check.account,
+                    amount: check.amount,
+                    pad: sources.remove(position).expect("the pad account of a claim is kept"),
+                    meta: check.meta,
+                });
             }
         }
+        let mut serves = PadServes::default();
+        for index in (0..count).filter(|index| keep[*index]) {
+            for position in &stands_for[index] {
+                serves.allow(&out[*position]);
+            }
+        }
+        ctx.pad_serves = Some(serves);
         out.into_iter()
             .enumerate()
             .filter(|(position, _)| pad_of.get(position).is_none_or(|index| keep[*index]))
@@ -286,40 +291,88 @@ impl HiddenPads {
     }
 }
 
-/// the places in `out` of the assertions each pad serves, as the pad stage pairs them once `out` is sorted, with the
-/// pads not kept left out
-fn pair(out: &[Spanned<Directive>], pad_of: &HashMap<usize, usize>, keep: &[bool]) -> Vec<Vec<usize>> {
+/// the day of a pad or a balance assertion
+fn day(directive: &Directive) -> Option<NaiveDate> {
+    match directive {
+        Directive::Pad(pad) => Some(pad.date.naive_date()),
+        Directive::BalanceCheck(check) => Some(check.date.naive_date()),
+        Directive::BalancePad(pad) => Some(pad.date.naive_date()),
+        _ => None,
+    }
+}
+
+/// The pads put back (`keep`) that would not serve exactly the balances they stand for once `out` is sorted, as the
+/// pad stage pairs them, a pad serving only the balances some pad stands for: a pad serves the first of each commodity
+/// of those dated after it, and before any later pad. A pad that stands for none must serve none. A pad the plugin
+/// wrote itself serves what it serves.
+///
+/// The pads of an account are checked from the last to the first: a pad left out leaves the balances it stood for to
+/// no pad, and the earlier pads of its account those it would have served. Each balance is looked at about once.
+fn left_out(out: &[Spanned<Directive>], pad_of: &HashMap<usize, usize>, keep: &[bool], stands_for: &[Vec<usize>]) -> Vec<usize> {
     let keys = Ledger::sort_keys(out);
-    let mut order = (0..out.len())
-        .filter(|position| match &out[*position].data {
-            Directive::Pad(_) => pad_of.get(position).is_none_or(|index| keep[*index]),
-            Directive::BalanceCheck(_) | Directive::BalancePad(_) => true,
-            _ => false,
-        })
-        .collect::<Vec<_>>();
-    // the sort is stable: the key, then the place in `out`
-    order.sort_by_key(|position| (keys[*position], *position));
-    // a `pad` the plugin emitted itself is paired too, and stands for nothing
-    let mut pairing: PadPairing<Option<usize>> = PadPairing::default();
-    let mut paired = vec![vec![]; keep.len()];
-    for position in order {
-        let served = match &out[position].data {
-            Directive::Pad(pad) => {
-                pairing.pad(&pad.account, pad.date.naive_date(), pad_of.get(&position).copied());
-                continue;
-            }
-            Directive::BalanceCheck(check) => pairing.serve(&check.account, &check.amount.commodity, check.date.naive_date()),
-            Directive::BalancePad(pad) => pairing.serve(&pad.account, &pad.amount.commodity, pad.date.naive_date()),
-            _ => None,
-        };
-        if let Some(Some(index)) = served {
-            paired[*index].push(position);
+    let mut owner: HashMap<usize, usize> = HashMap::new();
+    for (index, positions) in stands_for.iter().enumerate() {
+        for position in positions {
+            owner.insert(*position, index);
         }
     }
-    for served in &mut paired {
-        served.sort_unstable();
+    // the pads and the balances a pad stands for of each account, by their place in `out`
+    let mut accounts: HashMap<&str, (Vec<usize>, Vec<usize>)> = HashMap::new();
+    for (position, directive) in out.iter().enumerate() {
+        match &directive.data {
+            Directive::Pad(pad) if pad_of.get(&position).is_none_or(|index| keep[*index]) => accounts.entry(pad.account.name()).or_default().0.push(position),
+            Directive::BalanceCheck(check) if owner.contains_key(&position) => accounts.entry(check.account.name()).or_default().1.push(position),
+            Directive::BalancePad(pad) if owner.contains_key(&position) => accounts.entry(pad.account.name()).or_default().1.push(position),
+            _ => {}
+        }
     }
-    paired
+    let commodity = |position: usize| match &out[position].data {
+        Directive::BalanceCheck(check) => check.amount.commodity.as_str(),
+        Directive::BalancePad(pad) => pad.amount.commodity.as_str(),
+        _ => unreachable!("a balance assertion"),
+    };
+    let mut left_out = vec![];
+    for (mut pads, mut balances) in accounts.into_values() {
+        // in the order of the stream once sorted: the key, then the place in `out`
+        pads.sort_by_key(|position| (keys[*position], *position));
+        balances.sort_by_key(|position| (keys[*position], *position));
+        let index_of = balances
+            .iter()
+            .enumerate()
+            .map(|(index, position)| (*position, index))
+            .collect::<HashMap<_, _>>();
+        // the balances no later pad serves are `balances[..end]`, but for those of pads left out
+        let mut gone = vec![false; balances.len()];
+        let mut end = balances.len();
+        for position in pads.into_iter().rev() {
+            let date = day(&out[position].data);
+            // the balances dated after the pad, which it serves the first of each commodity of
+            let mut start = end;
+            while start > 0 && day(&out[balances[start - 1]].data) > date {
+                start -= 1;
+            }
+            let Some(index) = pad_of.get(&position).copied() else {
+                end = start;
+                continue;
+            };
+            let mut commodities = HashSet::new();
+            let mut served = (start..end)
+                .filter(|it| !gone[*it])
+                .map(|it| balances[it])
+                .filter(|it| commodities.insert(commodity(*it)))
+                .collect::<Vec<_>>();
+            served.sort_unstable();
+            if served == stands_for[index] {
+                end = start;
+            } else {
+                left_out.push(index);
+                for position in &stands_for[index] {
+                    gone[index_of[position]] = true;
+                }
+            }
+        }
+    }
+    left_out
 }
 
 #[cfg(test)]
@@ -329,7 +382,7 @@ mod test {
 
     use indoc::indoc;
     use zhang_ast::error::ErrorKind;
-    use zhang_ast::{Account, BalanceCheck, BalancePad, Directive, Spanned};
+    use zhang_ast::{Account, BalanceCheck, BalancePad, Directive, SpanInfo, Spanned};
 
     use super::{hide_pads, AbiV1View};
     use crate::data_type::text::ZhangDataType;
@@ -557,9 +610,9 @@ mod test {
             2024-01-04 balance Assets:Cash 5 USD with pad Equity:Other
         "#});
         assert!(matches!(original[0].data, Directive::Pad(_)), "a pad comes first");
-        let (shown, hidden) = hide_pads(original.clone());
+        let (shown, hidden) = hide_pads(original.clone(), None);
         assert!(!shown.iter().any(|it| matches!(it.data, Directive::Pad(_))));
-        assert_eq!(hidden.restore(shown), original);
+        assert_eq!(hidden.restore(shown, &mut StageContext::new(&[])), original);
     }
 
     #[test]
@@ -811,5 +864,129 @@ mod test {
                 "2024-01-02 Assets:Bank 20 USD from Equity:Open"
             ]
         );
+    }
+
+    /// two pads of the cash on one day: the later one pads, the earlier one is unused
+    const TWO_PADS_OF_A_DAY: &str = indoc! {r#"
+        1970-01-01 open Assets:Cash
+        1970-01-01 open Equity:X
+        1970-01-01 open Equity:Y
+        1970-01-01 open Expenses:Food
+        2024-01-03 pad Assets:Cash Equity:X
+        2024-01-03 * "x" ""
+          Assets:Cash -1 CNY
+          Expenses:Food
+        2024-01-03 pad Assets:Cash Equity:Y
+        2024-01-06 balance Assets:Cash 50 CNY
+    "#};
+
+    #[test]
+    fn an_unused_pad_a_plugin_moves_after_the_used_one_is_left_out_rather_than_pad() {
+        // reversed, the stream puts the unused pad after the one that pads: put back, it would pad the balance
+        let reversing = plugin(|mut stream| {
+            stream.reverse();
+            stream
+        });
+        let (out, errors) = run(reversing, TWO_PADS_OF_A_DAY);
+        assert_eq!(pads(&out), vec!["2024-01-03 Assets:Cash from Equity:Y"]);
+        assert_eq!(paddings(&out), vec!["2024-01-03 Assets:Cash 51 CNY from Equity:Y"]);
+        assert!(errors.is_empty(), "{errors:?}");
+
+        // as it is, it stays unused
+        let (out, errors) = run(plugin(|stream| stream), TWO_PADS_OF_A_DAY);
+        assert_eq!(pads(&out).len(), 2);
+        assert_eq!(paddings(&out), vec!["2024-01-03 Assets:Cash 51 CNY from Equity:Y"]);
+        assert_eq!(errors, vec![ErrorKind::UnusedPad]);
+    }
+
+    #[test]
+    fn a_balance_a_plugin_adds_is_not_padded_by_a_pad_it_cannot_see() {
+        let plugin = plugin(|mut stream| {
+            let span = SpanInfo {
+                start: 999_999,
+                ..SpanInfo::default()
+            };
+            stream.push(Spanned::new(
+                Directive::BalanceCheck(BalanceCheck {
+                    date: zhang_ast::Date::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 4).unwrap()),
+                    account: account("Assets:Bank"),
+                    amount: zhang_ast::amount::Amount::new(5.into(), "EUR"),
+                    tolerance: None,
+                    meta: Default::default(),
+                }),
+                span,
+            ));
+            stream
+        });
+        let (out, errors) = run(plugin, TWO_CURRENCIES);
+        // the pad pads what it padded, and the plugin's balance in EUR fails, as the plugin saw it
+        let (plain, _) = crate::pipeline::test::run_builtin_stages(TWO_CURRENCIES);
+        assert_eq!(paddings(&out), paddings(&plain));
+        assert_eq!(pads(&out), pads(&plain));
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+    }
+
+    #[test]
+    fn a_plugin_dropping_every_served_balance_leaves_the_pad_out_unreported() {
+        let plugin = plugin(|stream| stream.into_iter().filter(|it| !matches!(it.data, Directive::BalancePad(_))).collect());
+        let (out, errors) = run(
+            plugin,
+            indoc! {r#"
+                1970-01-01 open Assets:Bank
+                1970-01-01 open Equity:Open
+                2024-01-01 pad Assets:Bank Equity:Open
+                2024-01-02 balance Assets:Bank 100 CNY
+            "#},
+        );
+        // nothing is left for the pad: it is left out, and not reported unused, as the plugin saw no pad
+        assert!(pads(&out).is_empty());
+        assert!(paddings(&out).is_empty());
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+
+    /// pads of one account, each serving one balance, in two commodities in turn
+    fn pads_in_turn(count: usize) -> String {
+        let mut text = String::from("1970-01-01 open Assets:A\n1970-01-01 open Equity:Open\n");
+        let start = chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
+        for index in 0..count {
+            let pad = start + chrono::Duration::days(2 * index as i64);
+            let commodity = if index % 2 == 0 { "CNY" } else { "USD" };
+            text.push_str(&format!(
+                "{pad} pad Assets:A Equity:Open\n{} balance Assets:A {} {commodity}\n",
+                pad.succ_opt().unwrap(),
+                index + 1
+            ));
+        }
+        text
+    }
+
+    #[test]
+    fn a_plain_balance_a_plugin_makes_of_the_last_served_one_leaves_the_other_pads_as_they_are() {
+        let text = pads_in_turn(2000);
+        let plugin = plugin(|mut stream| {
+            let last = stream.iter().rposition(|it| matches!(it.data, Directive::BalancePad(_))).unwrap();
+            if let Directive::BalancePad(pad) = stream[last].data.clone() {
+                stream[last].data = Directive::BalanceCheck(BalanceCheck {
+                    date: pad.date,
+                    account: pad.account,
+                    amount: pad.amount,
+                    tolerance: None,
+                    meta: pad.meta,
+                });
+            }
+            stream
+        });
+        let started = std::time::Instant::now();
+        let (out, errors) = run(plugin, &text);
+        let elapsed = started.elapsed();
+        // the last pad is left out; the one before does not pad the plain balance, which fails; the other pads and
+        // their paddings are as they were
+        let (plain, _) = crate::pipeline::test::run_builtin_stages(&text);
+        assert_eq!(pads(&out).len(), 1999);
+        assert_eq!(out.iter().filter(|it| matches!(it, Directive::BalancePad(_))).count(), 0);
+        assert_eq!(paddings(&out), paddings(&plain)[..1999].to_vec());
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+        // each balance is paired about once: no time quadratic in the pads
+        assert!(elapsed < std::time::Duration::from_secs(5), "{elapsed:?}");
     }
 }

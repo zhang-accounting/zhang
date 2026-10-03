@@ -36,7 +36,7 @@ use chrono::DateTime;
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use log::debug;
-pub use pad::PadStage;
+pub use pad::{serving_pads, PadStage};
 pub use plugin_view::AbiV1View;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
@@ -100,6 +100,8 @@ pub struct StageContext<'a> {
     clock: LoadClock,
     /// the ledger timezone, which [`StageContext::now`] gives the time in
     timezone: Tz,
+    /// the balance assertions a `pad` may serve, once a plugin decided them; any before
+    pub(crate) pad_serves: Option<pad::PadServes>,
 }
 
 impl<'a> StageContext<'a> {
@@ -113,6 +115,7 @@ impl<'a> StageContext<'a> {
             inputs: IndexSet::new(),
             clock: LoadClock::new(Clock::System),
             timezone: Tz::UTC,
+            pad_serves: None,
         }
     }
 
