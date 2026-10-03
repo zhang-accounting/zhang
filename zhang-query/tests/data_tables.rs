@@ -213,6 +213,41 @@ fn passed_is_the_balance_check_of_zhang() {
     assert_eq!(failed.len(), 3);
 }
 
+/// An assertion has its place among the entries: `seq`, `id`, `time` and `timestamp` are those of its
+/// `#entries` row, so its `seq` orders it with the `seq` of the postings, and `pad` is the account a
+/// `balance ... with pad` pads from.
+#[test]
+fn balances_have_their_place_among_the_entries() {
+    let ledger = common::load_text(PARENT_ACCOUNTS);
+    assert_eq!(
+        run(&ledger, "SELECT seq, id, date, time, timestamp FROM #balances"),
+        run(&ledger, "SELECT seq, id, date, time, timestamp FROM #entries WHERE type = 'balance'")
+    );
+    // an assertion without a time is at midnight, and its timestamp is that of its day
+    assert_eq!(run(&ledger, "SELECT time FROM #balances LIMIT 1"), rows(&[&["00:00:00"]]));
+    let day = run(&ledger, "SELECT timestamp FROM #balances WHERE date = 2024-01-10 LIMIT 1")[0][0]
+        .parse::<i64>()
+        .unwrap();
+    let next = run(&ledger, "SELECT timestamp FROM #balances WHERE date = 2024-01-11")[0][0]
+        .parse::<i64>()
+        .unwrap();
+    assert_eq!(next - day, 24 * 60 * 60);
+    // the salary of the 3rd comes before the assertion of the 4th, the opening of the 2nd before both
+    let salary = run(&ledger, "SELECT seq FROM #postings WHERE narration = 'Salary' LIMIT 1")[0][0]
+        .parse::<i64>()
+        .unwrap();
+    let first = run(&ledger, "SELECT seq FROM #balances LIMIT 1")[0][0].parse::<i64>().unwrap();
+    assert!(salary < first, "{salary} {first}");
+    assert_eq!(
+        run(&ledger, "SELECT date, account, pad FROM #balances WHERE date >= 2024-01-10"),
+        rows(&[
+            &["2024-01-10", "Assets:Bank", "Equity:Opening"],
+            &["2024-01-10", "Assets:Bank:Checking", "Equity:Opening"],
+            &["2024-01-11", "Assets:Bank", "NULL"],
+        ])
+    );
+}
+
 // ---------------------------------------------------------------------------------------
 // #documents: directives, then transaction and posting metadata
 
@@ -373,6 +408,30 @@ fn documents_are_the_directives_then_the_metadata_of_transactions() {
         ),
         rows(&[&["statements/jan.pdf", "NULL", "bank"], &["receipts/c.pdf", "lunch", "NULL"]])
     );
+}
+
+/// A document has the place of what declares it among the entries: a directive its own `#entries` row, a
+/// document named in metadata that of its transaction.
+#[test]
+fn documents_have_the_place_of_what_declares_them() {
+    let (ledger, _) = load_files(&[("main.zhang", DOCUMENTS_MAIN), ("sub/more.zhang", DOCUMENTS_MORE)]);
+    let directives = run(&ledger, "SELECT seq, date, time, timestamp FROM #entries WHERE type = 'document'");
+    assert_eq!(
+        run(&ledger, "SELECT seq, date, time, timestamp FROM #documents WHERE source = 'directive'"),
+        directives
+    );
+    let shop = run(
+        &ledger,
+        "SELECT DISTINCT seq, date, time, timestamp FROM #postings WHERE narration ~ 'documents of'",
+    );
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT DISTINCT seq, date, time, timestamp FROM #documents WHERE path IN ('receipts/a.pdf', 'receipts/b.pdf', 'receipts/c.pdf')"
+        ),
+        shop
+    );
+    assert_eq!(run(&ledger, "SELECT time FROM #documents LIMIT 1"), rows(&[&["00:00:00"]]));
 }
 
 /// A ledger without document metadata has the rows of its directives only, as before.

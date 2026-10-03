@@ -10,13 +10,13 @@
 //! the stored `id` and the errors recorded for the transaction (`balanced`, `errors`).
 
 use chrono::Datelike;
-use zhang_ast::{resolve_local_datetime, Directive, Flag, Spanned, Transaction};
+use zhang_ast::{Directive, Flag, Spanned, Transaction};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
 use super::cache::{EntryInfo, LedgerCache};
-use super::directives::{date_part, date_value, directive, meta_value, set_value, str_value, year};
-use super::postings::{balanced, error_kinds, time_value};
+use super::directives::{date_part, date_value, directive, directive_time, directive_timestamp, meta_value, set_value, str_value, year};
+use super::postings::{balanced, error_kinds};
 use super::{directive_meta, meta_pairs, ColumnDef, Dataset, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
@@ -88,16 +88,12 @@ fn seq(record: &Record<'_>) -> Value {
 /// The time of day of the row's directive in the ledger's timezone, as zhang stores the date and
 /// time of a transaction.
 fn time(data: &Dataset<'_>, record: &Record<'_>) -> Value {
-    let datetime = directive(record).and_then(|it| it.data.datetime());
-    datetime.map_or(Value::Null, |it| time_value(resolve_local_datetime(&data.ledger.options.timezone, &it).time()))
+    directive(record).map_or(Value::Null, |it| directive_time(data, it))
 }
 
 /// The Unix time of the row's directive, read like [`time`].
 fn timestamp(data: &Dataset<'_>, record: &Record<'_>) -> Value {
-    let datetime = directive(record).and_then(|it| it.data.datetime());
-    datetime.map_or(Value::Null, |it| {
-        Value::Int(resolve_local_datetime(&data.ledger.options.timezone, &it).timestamp())
-    })
+    directive(record).map_or(Value::Null, |it| directive_timestamp(data, it))
 }
 
 fn transaction<'r>(record: &'r Record<'_>) -> Option<&'r Transaction> {

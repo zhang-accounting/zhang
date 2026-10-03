@@ -266,6 +266,9 @@ fn d2_schema_has_the_new_columns_and_tables() {
             ("source", "str"),
             ("path", "str"),
             ("transaction_id", "str"),
+            ("seq", "int"),
+            ("time", "str"),
+            ("timestamp", "int"),
         ])
     );
     let wildcard = Query::compile("SELECT * FROM #documents").unwrap().columns();
@@ -302,6 +305,25 @@ fn d2_schema_has_the_new_columns_and_tables() {
             ("amount", "amount"),
         ])
     );
+}
+
+#[test]
+fn a_schema_has_the_columns_that_place_assertions_and_documents() {
+    assert_columns(&[
+        ("balances", "pad", "str"),
+        ("balances", "id", "str"),
+        ("balances", "seq", "int"),
+        ("balances", "time", "str"),
+        ("balances", "timestamp", "int"),
+        ("documents", "seq", "int"),
+        ("documents", "time", "str"),
+        ("documents", "timestamp", "int"),
+    ]);
+    // after beanquery's columns, which SELECT * keeps
+    let wildcard = Query::compile("SELECT * FROM #balances").unwrap().columns();
+    let wildcard = wildcard.iter().map(|it| it.name.as_str()).collect::<Vec<_>>();
+    assert_eq!(wildcard, ["date", "account", "amount", "tolerance", "discrepancy"]);
+    assert_documented(&["`pad`"]);
 }
 
 #[test]
