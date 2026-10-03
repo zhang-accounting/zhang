@@ -255,8 +255,10 @@ impl DataSource for OpendalDataSource {
     }
 
     async fn async_append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        // the files this append includes: the ledger it was given does not know them yet
+        let mut included = vec![];
         for directive in directives {
-            self.append_directive(ledger, directive, None, true).await?;
+            self.append_directive(ledger, directive, None, Some(&mut included)).await?;
         }
         Ok(())
     }
@@ -336,10 +338,12 @@ impl OpendalDataSource {
         })
     }
 
+    /// append `directive` to `file`, or to the file `directive_output_path` gives it, which the main file then
+    /// includes unless the ledger or this append (`included`) has it already. Without `included`, no include
     // `async_recursion` adds a `#[must_use]` to the boxed future it returns
     #[allow(clippy::double_must_use)]
     #[async_recursion]
-    async fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, check_file_visit: bool) -> ZhangResult<()> {
+    async fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, included: Option<&mut Vec<PathBuf>>) -> ZhangResult<()> {
         let (entry, main_file_endpoint) = &ledger.entry;
 
         let endpoint = if let Some(file) = file {
@@ -375,7 +379,10 @@ impl OpendalDataSource {
         };
         let striped_endpoint = endpoint.strip_prefix(entry).expect("cannot strip entry prefix");
 
-        if !has_path_visited(&ledger.visited_files, &endpoint) && check_file_visit {
+        // a file new to the ledger and to this append
+        let new_file = included.filter(|included| !has_path_visited(&ledger.visited_files, &endpoint) && !has_path_visited(included.iter(), &endpoint));
+        if let Some(included) = new_file {
+            included.push(endpoint.clone());
             let path = match endpoint.strip_prefix(entry) {
                 Ok(relative_path) => relative_path.to_str().unwrap(),
                 Err(_) => endpoint.to_str().unwrap(),
@@ -386,7 +393,7 @@ impl OpendalDataSource {
                     file: ZhangString::QuoteString(path.to_string()),
                 }),
                 None,
-                false,
+                None,
             )
             .await?;
         }
@@ -653,6 +660,44 @@ mod test {
         std::fs::write(dir.path().join("main.zhang"), OPENS).unwrap();
         let ledger = append_coffee(dir.path(), "main.zhang").await;
         assert_coffee_written_to(dir.path(), "main.zhang", &ledger, "data/2024/01.zhang");
+    }
+
+    #[tokio::test]
+    async fn an_append_includes_each_new_file_once() {
+        // a batch of balances writes several directives to one new file: beancount refuses a file included twice
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("main.bean"), OPENS).unwrap();
+        let mut opts = ServerOpts {
+            path: dir.path().to_path_buf(),
+            endpoint: "main.bean".to_string(),
+            addr: "".to_string(),
+            port: 0,
+            auth: None,
+            passkey: None,
+            source: None,
+            no_report: true,
+        };
+        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_string(), source.clone())
+            .await
+            .unwrap();
+        let directives = zhang_parse(
+            "2024-01-15 * \"Shop\" \"Coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n2024-01-16 * \"Shop\" \"Tea\"\n  Assets:Cash -3 CNY\n  Expenses:Food 3 CNY\n",
+            None,
+        )
+        .unwrap()
+        .into_iter()
+        .map(|it| it.data)
+        .collect();
+
+        ledger.data_source.async_append(&ledger, directives).await.unwrap();
+
+        let main = std::fs::read_to_string(dir.path().join("main.bean")).unwrap();
+        assert_eq!(main.matches("include \"data/2024/01.bean\"").count(), 1, "{main}");
+        let reloaded = Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_string(), source).await.unwrap();
+        let store = reloaded.store.read().unwrap();
+        assert!(store.errors.is_empty(), "{:?}", store.errors);
+        assert_eq!(store.transactions.len(), 2);
     }
 
     #[tokio::test]

@@ -115,7 +115,9 @@ impl LocalFileSystemDataSource {
         std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
     }
 
-    fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, check_file_visit: bool) -> ZhangResult<()> {
+    /// append `directive` to `file`, or to the file of its month, which the main file then includes unless the ledger
+    /// or this append (`included`) has it already. Without `included`, no include
+    fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, included: Option<&mut Vec<PathBuf>>) -> ZhangResult<()> {
         let (entry, main_file_endpoint) = &ledger.entry;
 
         let endpoint = file.unwrap_or_else(|| {
@@ -128,7 +130,10 @@ impl LocalFileSystemDataSource {
 
         LocalFileSystemDataSource::create_folder_if_not_exist(&endpoint);
 
-        if !has_path_visited(&ledger.visited_files, &endpoint) && check_file_visit {
+        // a file new to the ledger and to this append
+        let new_file = included.filter(|included| !has_path_visited(&ledger.visited_files, &endpoint) && !has_path_visited(included.iter(), &endpoint));
+        if let Some(included) = new_file {
+            included.push(endpoint.clone());
             let path = match endpoint.strip_prefix(entry) {
                 Ok(relative_path) => relative_path.to_str().unwrap(),
                 Err(_) => endpoint.to_str().unwrap(),
@@ -139,12 +144,16 @@ impl LocalFileSystemDataSource {
                     file: ZhangString::QuoteString(path.to_string()),
                 }),
                 None,
-                false,
+                None,
             )?;
         }
 
-        let content_buf = ledger.data_source.get(endpoint.to_string_lossy().to_string())?;
-        let content = String::from_utf8(content_buf)?;
+        let content = match ledger.data_source.get(endpoint.to_string_lossy().to_string()) {
+            Ok(content) => String::from_utf8(content)?,
+            // a file this append creates
+            Err(ZhangError::IoError(e)) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e),
+        };
 
         let appended_content = format!("{}\n{}\n", content, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
 
@@ -214,8 +223,10 @@ impl DataSource for LocalFileSystemDataSource {
     }
 
     fn append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        // the files this append includes: the ledger it was given does not know them yet
+        let mut included = vec![];
         for directive in directives {
-            self.append_directive(ledger, directive, None, true)?;
+            self.append_directive(ledger, directive, None, Some(&mut included))?;
         }
         Ok(())
     }
@@ -233,4 +244,42 @@ pub struct SourceEntry {
 pub struct LoadResult {
     pub directives: Vec<Spanned<Directive>>,
     pub visited_files: Vec<PathBuf>,
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use zhang_ast::Directive;
+
+    use super::LocalFileSystemDataSource;
+    use crate::data_type::text::ZhangDataType;
+    use crate::data_type::DataType;
+    use crate::ledger::Ledger;
+
+    #[test]
+    fn an_append_includes_each_new_file_once() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.zhang"), "1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n").unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone()).unwrap();
+        let directives: Vec<Directive> = ZhangDataType {}
+            .transform(
+                "2024-01-15 * \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n2024-01-16 * \"tea\"\n  Assets:Cash -3 CNY\n  Expenses:Food\n".to_owned(),
+                None,
+            )
+            .unwrap()
+            .into_iter()
+            .map(|it| it.data)
+            .collect();
+
+        ledger.data_source.append(&ledger, directives).unwrap();
+
+        let main = std::fs::read_to_string(dir.path().join("main.zhang")).unwrap();
+        assert_eq!(main.matches("include \"data/2024/1.zhang\"").count(), 1, "{main}");
+        let reloaded = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
+        let store = reloaded.store.read().unwrap();
+        assert!(store.errors.is_empty(), "{:?}", store.errors);
+        assert_eq!(store.transactions.len(), 2);
+    }
 }
