@@ -1480,6 +1480,41 @@ option "timezone" "UTC"
         }
     }
 
+    #[tokio::test]
+    async fn a_commodity_sold_after_the_reconcile_is_held_at_cost() {
+        // the lots of AAPL are sold in three weeks: today, the account holds them at cost, which a padding would book
+        // units without
+        let ledger = format!(
+            r#"option "operating_currency" "USD"
+option "timezone" "UTC"
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Cash
+1970-01-01 open Equity:Open
+1970-01-01 open Income:Gains
+{} * "buy"
+  Assets:Broker 10 AAPL {{100 USD}}
+  Assets:Cash -1000 USD
+{} * "scheduled sale"
+  Assets:Broker -10 AAPL {{100 USD}} @ 120 USD
+  Assets:Cash 1200 USD
+  Income:Gains -200 USD
+"#,
+            days_ago(5),
+            today().checked_add_days(Days::new(20)).unwrap()
+        );
+        for scratch in [Scratch::beancount(&ledger), Scratch::new(&ledger)] {
+            let before = written(&scratch);
+            refused(
+                &scratch,
+                &before,
+                pad(&scratch, "Assets:Broker", amount(12, "AAPL"), "Equity:Open").await,
+                &["Assets:Broker holds AAPL at cost", "would book 2 AAPL without a cost"],
+            );
+        }
+    }
+
     /// a ledger whose main file holds tomorrow's balance after a price, a transaction before them, and one after
     fn ledger_with_tomorrows_balance() -> Scratch {
         Scratch::beancount(&format!(

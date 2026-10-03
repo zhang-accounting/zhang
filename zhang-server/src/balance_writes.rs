@@ -155,7 +155,7 @@ fn with_amount_of(text: &str, balance: &Directive) -> Option<String> {
 pub(crate) fn balance_directives(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date) -> ServerResult<BalanceWrites> {
     refuse_accounts_not_open(ledger, &rows)?;
     let held = held_at_end_of(ledger, now.naive_date());
-    refuse_pads_that_cannot_pass(ledger, &rows, &held)?;
+    refuse_pads_that_cannot_pass(ledger, &rows, &held, now.naive_date())?;
     if is_beancount_endpoint(&ledger.entry.1) {
         return beancount_balances(ledger, rows, now, &held);
     }
@@ -215,9 +215,9 @@ fn refuse_accounts_not_open(ledger: &Ledger, rows: &[BalanceRow]) -> ServerResul
 }
 
 /// a pad row that can only be reported once written: from the account itself or a sub-account, or of a commodity
-/// held at cost
-fn refuse_pads_that_cannot_pass(ledger: &Ledger, rows: &[BalanceRow], held: &Held) -> ServerResult<()> {
-    let store = ledger.store.read().expect("poison lock detect");
+/// held at cost at the end of `today`, which the padding is booked with, as what is `held`
+fn refuse_pads_that_cannot_pass(ledger: &Ledger, rows: &[BalanceRow], held: &Held, today: NaiveDate) -> ServerResult<()> {
+    let mut lots = None;
     for row in rows {
         let Some(source) = &row.pad else { continue };
         let account = row.account.name();
@@ -233,8 +233,8 @@ fn refuse_pads_that_cannot_pass(ledger: &Ledger, rows: &[BalanceRow], held: &Hel
         if difference.is_zero() {
             continue;
         }
-        let at_cost = store
-            .commodity_lots
+        let at_cost = lots
+            .get_or_insert_with(|| ledger.lots_at_end_of(today))
             .iter()
             .filter(|(name, _)| name.as_str() == account || name.strip_prefix(account).is_some_and(|rest| rest.starts_with(':')))
             .flat_map(|(_, lots)| lots)

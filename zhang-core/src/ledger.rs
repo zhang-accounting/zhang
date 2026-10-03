@@ -24,7 +24,7 @@ use crate::inputs::ExtraInput;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::pipeline::{builtin_stages, run_pipeline, AssertionOutcome, AssertionOutcomes, ProcessStage, StageContext};
 use crate::process::{DirectivePreProcess, DirectiveProcess};
-use crate::store::{BalanceAssertionDomain, Store};
+use crate::store::{BalanceAssertionDomain, CommodityLotRecord, Store};
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
@@ -257,6 +257,27 @@ impl Ledger {
         .await?;
         *self = reload_ledger;
         Ok(())
+    }
+
+    /// the lots every account holds at the end of `day`: those of the transactions dated on it or before, booked as
+    /// the load books them. A transaction dated after it, such as a sale planned ahead, is left out
+    pub fn lots_at_end_of(&self, day: NaiveDate) -> HashMap<String, Vec<CommodityLotRecord>> {
+        let mut booker = Booker::new(self.options.default_booking_method);
+        for commodity in self.operations().read().commodities.values() {
+            booker.define_commodity(&commodity.name, commodity.precision, commodity.rounding);
+        }
+        for directive in &self.directives {
+            match &directive.data {
+                Directive::Open(open) => {
+                    booker.apply_open(open);
+                }
+                Directive::Transaction(transaction) if transaction.date.naive_date() <= day => {
+                    booker.book(transaction);
+                }
+                _ => {}
+            }
+        }
+        booker.into_lots()
     }
 
     pub fn operations(&self) -> Operations {
