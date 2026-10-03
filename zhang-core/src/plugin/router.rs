@@ -47,7 +47,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::ledger::Ledger;
-use crate::plugin::host::MESSAGE_META;
+use crate::plugin::host::{read_input_str, MESSAGE_META};
 use crate::plugin::http::{PluginRequest, PluginResponse};
 use crate::plugin::store::{PluginStore, RegisteredPlugin};
 
@@ -57,6 +57,10 @@ pub const ROUTER_EXPORT: &str = "router";
 pub const QUERY_FUNCTION: &str = "zhang_query";
 /// the host function describing the ledger being served
 pub const LEDGER_INFO_FUNCTION: &str = "zhang_ledger_info";
+
+/// the most bytes `zhang_query` will read for a plugin's BQL text. A query is human-written SQL-like
+/// text, so one mebibyte is far beyond any real query while capping what a single call can read.
+const QUERY_MAX_LEN: usize = 1024 * 1024;
 
 /// a query that failed to parse, compile or run
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,12 +167,12 @@ fn answer(plugin: &mut CurrentPlugin, outputs: &mut [Val], result: Result<Value,
 fn zhang_query(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], call: UserData<RouterCall>) -> Result<(), extism::Error> {
     // clone the host out, so the lock is not held while the query runs
     let host = call.get()?.lock().unwrap_or_else(PoisonError::into_inner).host.clone();
-    let bql = match inputs.first().and_then(|offset| plugin.memory_from_val(offset)) {
+    // read the query text through the bounds-checked helper, so a forged block header cannot make
+    // this read out of bounds (a crash) or larger than the limit; a bad input becomes an
+    // `invalid_input` value, never a trap
+    let bql = match inputs.first() {
         None => Err("the query is not a memory block".to_owned()),
-        Some(handle) => plugin
-            .memory_str(handle)
-            .map(str::to_owned)
-            .map_err(|e| format!("the query is not UTF-8 text: {e}")),
+        Some(offset) => read_input_str(plugin, offset, QUERY_MAX_LEN).map_err(|e| format!("the query {e}")),
     };
     let result = query_answer(host.as_deref(), bql.as_deref().map_err(String::as_str));
     answer(plugin, outputs, result)
