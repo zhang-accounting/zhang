@@ -56,8 +56,8 @@ use std::sync::Arc;
 use regex::Regex;
 
 use crate::compiler::{
-    build_regex, AccountScope, CExpr, CmpOp, ConstSet, DateBound, LimitMode, Plan, RegexPattern, Running, ScopeValue, ScopedAccount, StrTest, StrTestKind,
-    UnderAncestor,
+    build_regex, AccountScope, BoundValue, CExpr, CmpOp, ConstSet, DateBound, LimitMode, Plan, RegexPattern, Running, ScopeValue, ScopedAccount, StrTest,
+    StrTestKind, UnderAncestor,
 };
 use crate::error::LocatedError;
 use crate::executor::eval_constant;
@@ -82,6 +82,7 @@ const NOT_FOLDABLE: &[&str] = &[
     "open_date",
     "close_date",
     "open_meta",
+    "account_budgets",
     "commodity_meta",
     "currency_meta",
 ];
@@ -215,7 +216,8 @@ pub(crate) fn plan_execution(plan: &mut Plan) {
 /// The last date the rows of a table that generates its rows (the months of `#budgets`) need
 /// to reach: a conjunct of the filter that only holds for rows dated up to a date,
 ///
-/// - `date <= x`, `date < x` or `date = x` (`x` a date constant or parameter, on either side),
+/// - `date <= x`, `date < x` or `date = x` (`x` a date constant or parameter, `today()` or
+///   `yearmonth(today())`, on either side),
 /// - `yearmonth(date) <= x`, `yearmonth(date) < x` or `yearmonth(date) = x`.
 ///
 /// The rows after it fail the filter, so not generating them changes no result, as an account
@@ -246,9 +248,15 @@ pub(crate) fn date_bound(plan: &Plan) -> Option<DateBound> {
 fn bounding_date(expr: &CExpr) -> Option<DateBound> {
     let is_date = |expr: &CExpr| matches!(expr, CExpr::Column(column) if column.name == "date");
     let is_month = |expr: &CExpr| matches!(expr, CExpr::Scalar { function, args, .. } if function.name == "yearmonth" && matches!(args.as_slice(), [date] if is_date(date)));
+    let is_today = |expr: &CExpr| matches!(expr, CExpr::Scalar { function, args, .. } if function.name == "today" && args.is_empty());
     let bound = |expr: &CExpr| match expr {
-        CExpr::Const(value @ (Value::Date(_) | Value::Null)) => Some(ScopeValue::Const(value.clone())),
-        CExpr::Param(param) => Some(ScopeValue::Param(param.clone())),
+        CExpr::Const(value @ (Value::Date(_) | Value::Null)) => Some(BoundValue::Const(value.clone())),
+        CExpr::Param(param) => Some(BoundValue::Param(param.clone())),
+        // `yearmonth(today())` is no later than today, so today bounds it too
+        CExpr::Scalar { function, args, .. } if function.name == "yearmonth" && matches!(args.as_slice(), [today] if is_today(today)) => {
+            Some(BoundValue::Today)
+        }
+        expr if is_today(expr) => Some(BoundValue::Today),
         _ => None,
     };
     let CExpr::Compare { op, left, right } = expr else {
@@ -848,17 +856,20 @@ mod tests {
             some("date <= :month")
         );
         assert_eq!(bound("SELECT name FROM #budgets WHERE date >= :month"), None);
-        assert_eq!(bound("SELECT name FROM #budgets WHERE date <= today()"), None);
+        assert_eq!(bound("SELECT name FROM #budgets WHERE date <= today()"), some("date <= today()"));
+        assert_eq!(bound("SELECT name FROM #budgets WHERE date = yearmonth(today())"), some("date <= today()"));
+        assert_eq!(bound("SELECT name FROM #budgets WHERE yearmonth(today()) >= date"), some("date <= today()"));
+        assert_eq!(bound("SELECT name FROM #budgets WHERE date <= date_add(today(), 1)"), None);
         assert_eq!(bound("SELECT name FROM #budget_events WHERE date <= :month"), None);
         let explain = crate::Query::compile("SELECT name FROM #budgets WHERE date <= 2024-06-01").unwrap().explain();
         assert!(explain.contains("generate: the rows up to date <= 2024-06-01\n"), "{explain}");
-        // the last date of an execution
+        // the last date of an execution, on 2024-09-09
+        let day = |m: u32, d: u32| chrono::NaiveDate::from_ymd_opt(2024, m, d).unwrap();
         let resolve = |sql: &str, params: Params| {
             let types = ParamTypes::new().bind("month", DataType::Date);
             let query = crate::Query::compile_with_params(sql, &types).unwrap();
-            query.plan.execution.until.as_ref().unwrap().resolve(&params)
+            query.plan.execution.until.as_ref().unwrap().resolve(&params, day(9, 9))
         };
-        let day = |m: u32, d: u32| chrono::NaiveDate::from_ymd_opt(2024, m, d).unwrap();
         let month = |date| Params::new().bind("month", date);
         assert_eq!(resolve("SELECT name FROM #budgets WHERE date <= :month", month(day(6, 1))), day(6, 1));
         assert_eq!(resolve("SELECT name FROM #budgets WHERE date < :month", month(day(6, 1))), day(5, 31));
@@ -874,6 +885,7 @@ mod tests {
             resolve("SELECT name FROM #budgets WHERE date <= :month", Params::new().bind("month", Value::Null)),
             chrono::NaiveDate::MIN
         );
+        assert_eq!(resolve("SELECT name FROM #budgets WHERE date = yearmonth(today())", Params::new()), day(9, 9));
     }
 
     #[test]

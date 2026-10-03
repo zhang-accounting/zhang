@@ -2,7 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::{BTreeSet, BinaryHeap, HashSet};
 use std::sync::OnceLock;
 use std::time::{Duration as StdDuration, Instant};
 
@@ -130,6 +130,11 @@ impl FunctionContext for Env<'_, '_> {
     fn commodity_directive(&self, currency: &str) -> Option<&Commodity> {
         self.impure.set(self.impure.get() || self.data.is_none());
         self.data?.commodity_directive(currency)
+    }
+
+    fn account_budgets(&self, account: &str, date: NaiveDate) -> Option<BTreeSet<String>> {
+        self.impure.set(self.impure.get() || self.data.is_none());
+        self.data?.budgets_at(account, date).cloned()
     }
 }
 

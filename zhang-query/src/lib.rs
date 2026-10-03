@@ -312,7 +312,7 @@ impl Query {
         let data = match &period {
             None => {
                 let scope = self.plan.execution.scope.as_ref().map(|scope| scope.resolve(params)).unwrap_or_default();
-                let until = self.plan.execution.until.as_ref().map(|until| until.resolve(params));
+                let until = self.plan.execution.until.as_ref().map(|until| until.resolve(params, today));
                 let mut limits = table::Limits::new(deadline.as_ref(), &mut budget);
                 table::Dataset::build(ledger, &store, today, self.projection, &scope, until, &mut limits).map_err(|err| err.resolve(&self.source))?
             }

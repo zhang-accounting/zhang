@@ -42,7 +42,7 @@ mod postings;
 mod prices;
 
 use std::cell::OnceCell;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt;
 use std::path::Path;
 
@@ -511,6 +511,11 @@ impl<'a> Dataset<'a> {
     /// The `open` and `close` directives of `account`, for `open_date()`, `open_meta()`, ...
     pub fn account_directives(&self, account: &str) -> Option<AccountDirectives<'a>> {
         self.cache.lookups(self.ledger, self.store).account(self.ledger, account)
+    }
+
+    /// The budgets a posting of `account` dated `date` counts in (see [`lookups::Lookups::budgets_at`]).
+    pub fn budgets_at(&self, account: &str, date: NaiveDate) -> Option<&'a BTreeSet<String>> {
+        self.cache.lookups(self.ledger, self.store).budgets_at(account, date)
     }
 
     /// The `commodity` directive of `currency`, for `commodity_meta()`.

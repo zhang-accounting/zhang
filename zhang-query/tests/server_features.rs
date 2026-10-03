@@ -405,7 +405,14 @@ fn d2_new_columns_and_tables_are_documented_in_both_references() {
 
 #[test]
 fn b_case_the_budget_definitions_and_date_bounds_are_documented_in_both_references() {
-    assert_documented(&["### CASE", "CASE WHEN", "#budget_definitions", "`close`", "yearmonth(date) = :month"]);
+    assert_documented(&[
+        "### CASE",
+        "CASE WHEN",
+        "#budget_definitions",
+        "`close`",
+        "yearmonth(date) = :month",
+        "account_budgets(",
+    ]);
 }
 
 #[test]

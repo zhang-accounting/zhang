@@ -764,6 +764,9 @@ option "operating_currency" "CNY"
             month(6),
         ),
         ("SELECT name, count(*) FROM #budgets WHERE name != 'x' AND date <= :month GROUP BY name", month(2)),
+        // today, in the documented idiom for this month
+        ("SELECT name, date, available FROM #budgets WHERE date = yearmonth(today())", Params::new()),
+        ("SELECT name, count(*) FROM #budgets WHERE date <= today() GROUP BY name", Params::new()),
         // a NULL bound holds for no row
         ("SELECT count(*) FROM #budgets WHERE date <= :month", Params::new().bind("month", Value::Null)),
         // a month before every budget

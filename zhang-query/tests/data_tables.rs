@@ -700,6 +700,63 @@ option "operating_currency" "CNY"
     );
 }
 
+/// An account closed and opened again with another budget counts in the budgets of its `open`
+/// in effect at each posting's date: `Expenses:B` is `b`'s until its close on June 30th, and
+/// `a`'s from its reopening on July 1st. The 5 CNY of March are `b`'s, the 7 CNY of July `a`'s
+/// (counting both in each would give -12 to both).
+const REOPENED: &str = r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:B
+  budget: b
+2024-02-01 budget a CNY
+2024-02-01 budget b CNY
+2024-03-10 "x" "b spend before close"
+  Expenses:B 5 CNY
+  Assets:Bank
+2024-06-30 close Expenses:B
+2024-07-01 open Expenses:B
+  budget: a
+2024-07-05 "y" "spend after reopen as a"
+  Expenses:B 7 CNY
+  Assets:Bank
+"#;
+
+#[test]
+fn a_reopened_account_counts_in_the_budgets_of_its_open_at_each_date() {
+    let ledger = common::load_text(REOPENED);
+    assert_eq!(
+        run(&ledger, "SELECT name, date, activity, available FROM #budgets WHERE month IN (3, 6, 7)"),
+        rows(&[
+            &["a", "2024-03-01", "0 CNY", "0 CNY"],
+            &["a", "2024-06-01", "0 CNY", "0 CNY"],
+            &["a", "2024-07-01", "7 CNY", "-7 CNY"],
+            &["b", "2024-03-01", "5 CNY", "-5 CNY"],
+            &["b", "2024-06-01", "0 CNY", "-5 CNY"],
+            &["b", "2024-07-01", "0 CNY", "-5 CNY"],
+        ])
+    );
+    // the accounts of a budget are those an open names it in, at any time
+    assert_eq!(
+        run(&ledger, "SELECT name, accounts FROM #budget_definitions"),
+        rows(&[&["a", "Expenses:B"], &["b", "Expenses:B"]])
+    );
+    // account_budgets() tells the budgets of an account at a date
+    assert_eq!(
+        run(&ledger, "SELECT date, account_budgets(account, date) WHERE account = 'Expenses:B'"),
+        rows(&[&["2024-03-10", "b"], &["2024-07-05", "a"]])
+    );
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT DISTINCT str(account_budgets('Expenses:B', 1969-12-31)), str(account_budgets('Expenses:B', 2024-06-30)), \
+             str(account_budgets('Nowhere', 2024-06-30))"
+        ),
+        rows(&[&["", "b", ""]])
+    );
+}
+
 /// `#budget_definitions` reads no transaction and has no months, so a transaction dated
 /// centuries ahead by mistake, which makes an unbounded query of `#budgets` too large, leaves it
 /// as it is.

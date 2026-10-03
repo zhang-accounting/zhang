@@ -463,8 +463,8 @@ pub(crate) struct Execution {
 /// of `#budgets`) generates none after it; the filter still applies to the rows it generates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DateBound {
-    /// a date constant, NULL, or a date parameter
-    pub value: ScopeValue,
+    /// a date constant, NULL, a date parameter, or today
+    pub value: BoundValue,
     /// whether the value itself is excluded (`date < x`)
     pub exclusive: bool,
     /// whether the filter compares the month of the date (`yearmonth(date) = x`): every date
@@ -472,13 +472,26 @@ pub(crate) struct DateBound {
     pub month: bool,
 }
 
+/// The value of a [`DateBound`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum BoundValue {
+    /// a date or NULL
+    Const(Value),
+    /// a date parameter, read when the query executes
+    Param(ParamRef),
+    /// `today()`, or `yearmonth(today())`, which is no later: the date of the execution
+    Today,
+}
+
 impl DateBound {
-    /// The last date the rows of one execution can have, with the parameters bound. A NULL
-    /// bound holds for no row: nothing is generated.
-    pub fn resolve(&self, params: &Params) -> NaiveDate {
+    /// The last date the rows of one execution can have, with the parameters bound and `today`
+    /// the date of `today()`. A NULL bound holds for no row: nothing is generated.
+    pub fn resolve(&self, params: &Params, today: NaiveDate) -> NaiveDate {
+        let today = Value::Date(today);
         let value = match &self.value {
-            ScopeValue::Const(value) => Some(value),
-            ScopeValue::Param(param) => params.get(param),
+            BoundValue::Const(value) => Some(value),
+            BoundValue::Param(param) => params.get(param),
+            BoundValue::Today => Some(&today),
         };
         let Some(Value::Date(date)) = value else {
             return NaiveDate::MIN;
@@ -499,8 +512,9 @@ impl fmt::Display for DateBound {
         let subject = if self.month { "yearmonth(date)" } else { "date" };
         let op = if self.exclusive { "<" } else { "<=" };
         match &self.value {
-            ScopeValue::Const(value) => write!(f, "{} {} {}", subject, op, CExpr::Const(value.clone())),
-            ScopeValue::Param(param) => write!(f, "{} {} {}", subject, op, param),
+            BoundValue::Const(value) => write!(f, "{} {} {}", subject, op, CExpr::Const(value.clone())),
+            BoundValue::Param(param) => write!(f, "{} {} {}", subject, op, param),
+            BoundValue::Today => write!(f, "{} {} today()", subject, op),
         }
     }
 }

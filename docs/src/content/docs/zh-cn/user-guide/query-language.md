@@ -557,7 +557,7 @@ WHERE account ~ '^Expenses'
 - 与 `WHERE` 一样，值为 `NULL` 的条件不算 `TRUE`，会继续尝试下一个 `WHEN`。
 - 每个条件都必须是布尔值。各个值必须是同一种类型：`NULL` 可以匹配任何类型；当另一个值是 `decimal` 时，`int` 会扩展为 `decimal`。
 - 只计算被选中的值，所以一个会出错的值（例如整数溢出）只会在选中它的行上出错。
-- 在聚合查询中，条件和值都可以是聚合：`CASE WHEN count(*) > 1 THEN sum(number) ELSE 0 END`。
+- 在聚合查询中，条件和值都可以是聚合：`CASE WHEN count(*) > 1 THEN sum(number) ELSE 0 END`。与 SQL 一样，无论分组选中哪个分支，查询中的每个聚合都会累加其分组的每一行，所以 `CASE` 中聚合的参数会在每一行上计算，如果出错也会在那里出错：只有分支中普通的表达式才只为被选中的分支计算。
 - `CASE`、`WHEN`、`THEN`、`ELSE` 和 `END` 只在以 `CASE WHEN` 开头的 `CASE` 表达式中是关键字，在其他地方是普通名字。不支持 `CASE x WHEN value THEN ...` 的写法，请写成 `CASE WHEN x = value THEN ...`。
 - `CASE` 是张记账扩展，beanquery 没有条件表达式。
 
@@ -821,7 +821,7 @@ ORDER BY account
 - 所有金额都以预算的商品计。`activity` 把预算关联账户的分录相加，每笔分录都按其日期折算为预算的商品，与 [`convert(position, currency, date)`](#估值函数) 用账本中的价格折算的结果相同：`activity` 就是对这些分录求 `sum(convert(position, 'CNY', date))` 的结果。以其他商品计的 `budget-add` 或 `budget-transfer` 金额，按指令的日期以同样方式折算。没有价格可以折算的分录或金额不计入，而不会被当作另一种商品的数字加进去。
 - 预算从其 `budget` 指令起才存在。针对尚不存在的预算的 `budget-add`、`budget-transfer` 或 `budget-close` 不起作用，预算的 `budget` 指令之前的分录也不算它的支出；张记账会把两者都报告为错误。同名的第二条 `budget` 指令是重复定义，会被忽略。
 - 由于 `assigned` 包含顺延的金额，把多个月的 `assigned` 相加会把同一笔钱算多次。要统计一段时间内一共安排了多少预算，请对 `added` 求和。
-- 预算关联的账户，是 `open` 指令中带有指向它的 `budget` 元数据（例如 `budget: food`）的账户。这些账户的分录就是该预算的支出。每一条元数据都算数，所以 `open` 中同时有 `budget: food` 和 `budget: fun` 的账户同属两个预算。
+- 预算关联的账户，是 `open` 指令中带有指向它的 `budget` 元数据（例如 `budget: food`）的账户。这些账户的分录就是该预算的支出。每一条元数据都算数，所以 `open` 中同时有 `budget: food` 和 `budget: fun` 的账户同属两个预算。一笔分录计入其日期当时生效的账户 `open` 所指的预算：账户关闭后以其他预算重新开启，从重新开启起计入新的预算，之前的分录仍属原来的预算。可以用 [`account_budgets(account, date)`](#账户与商品指令) 查看。
 - `meta(key)` 读取 `budget` 指令的元数据。
 - 各行先按预算名称、再按月份排列。`SELECT *` 是 `SELECT name, date, assigned, activity, available` 的简写。
 
@@ -838,7 +838,7 @@ ORDER BY account
 | `added` | `amount` | 本月 `budget-add` 和 `budget-transfer` 指令放入该预算的金额，按指令的日期折算为预算的商品。从该预算转出的金额计为负数。 |
 | `activity` | `amount` | 预算关联的账户在本月的支出，每笔分录按其日期折算为预算的商品。退款计为负数。 |
 | `available` | `amount` | 月底剩余的金额，即 `assigned - activity`。它会顺延到下个月，超支时为负数。 |
-| `accounts` | `set` | 其分录计入该预算支出的账户。 |
+| `accounts` | `set` | 其分录计入该预算支出的账户：任何时候有 `open` 指向该预算的账户。 |
 | `closed` | `bool` | 该预算是否已在本月或更早用 `budget-close` 关闭。在此之前的月份为 `FALSE`。 |
 
 按预算页面的分组，查看每个预算还剩多少：
@@ -1121,6 +1121,7 @@ WHERE file = 'data/2024.zhang'
 | `commodity_meta(str, str) -> str` | 货币 `commodity` 指令的某个元数据值，例如 `commodity_meta(currency, 'name')`。 |
 | `commodity_meta(str) -> metas` | 货币 `commodity` 指令的全部元数据：没有元数据时为空列表，没有 `commodity` 指令时为 `NULL`。 |
 | `currency_meta(str, str) -> str`、`currency_meta(str) -> metas` | 与 `commodity_meta` 相同。 |
+| `account_budgets(str, date) -> set` | 账户在某个日期所属的预算：该日期或之前最近一条 `open` 的 `budget` 元数据所指的预算，所以账户关闭后以其他预算重新开启，从重新开启起属于新的预算。在第一条 `open` 之前为空集合。张记账扩展。 |
 
 元数据不会继承：即使 `Assets:Bank` 有 `institution`，`open_meta('Assets:Bank:Checking', 'institution')` 仍为 `NULL`。beanquery 的单参数形式返回字典，其中还有 `filename` 和 `lineno`；张记账只返回指令自身的元数据。
 

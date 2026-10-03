@@ -309,6 +309,7 @@ fn activity<'a>(
     }
     let cache = LedgerCache::of(ledger, store);
     let (postings, entries) = (cache.postings(ledger, store), cache.entries(ledger, store));
+    let lookups = cache.lookups(ledger, store);
     for (account, owners) in &owners {
         let rows = postings.account_rows(account);
         for (budget, negated) in owners {
@@ -325,6 +326,10 @@ fn activity<'a>(
                 // where the store folded the transaction, among the ledger's directives
                 let folded_at = entry.entry.map(|seq| entries.rows[seq as usize].directive as usize);
                 if folded_at.is_some_and(|at| at < budget.defined_at) {
+                    continue;
+                }
+                // the account counts in the budgets of its `open` in effect at the posting's date
+                if !lookups.budgets_at(account, entry.date).is_some_and(|budgets| budgets.contains(budget.name)) {
                     continue;
                 }
                 let cost = row.lot.as_ref().and_then(|lot| lot.cost.as_ref());
@@ -441,7 +446,7 @@ fn rows<'a>(
     let wants_added = ["added", "assigned", "available"].into_iter().any(|name| projects(projection, name));
 
     let mut accounts = if wants_activity || projects(projection, "accounts") {
-        budget_accounts(ledger)
+        budget_accounts(ledger, store)
     } else {
         HashMap::new()
     };
@@ -582,19 +587,11 @@ fn projects(projection: Projection, name: &str) -> bool {
     BUDGETS.column(name).is_some_and(|column| projection.contains(column))
 }
 
-/// The accounts of every budget: those whose `open` has a `budget` metadata entry naming it.
-/// Every entry counts, so an account whose `open` names two budgets is an account of both
-/// (#479 decision 7); the store keeps only the last value of a repeated key.
-fn budget_accounts(ledger: &Ledger) -> HashMap<String, BTreeSet<String>> {
-    let mut accounts: HashMap<String, BTreeSet<String>> = HashMap::new();
-    for directive in &ledger.directives {
-        if let Directive::Open(open) = &directive.data {
-            for budget in open.meta.get_all("budget") {
-                accounts.entry(budget.as_str().to_owned()).or_default().insert(open.account.name().to_owned());
-            }
-        }
-    }
-    accounts
+/// The accounts of every budget: those whose `open` has a `budget` metadata entry naming it, at
+/// any time. Every entry counts, so an account whose `open` names two budgets is an account of
+/// both (#479 decision 7); the store keeps only the last value of a repeated key.
+fn budget_accounts(ledger: &Ledger, store: &Store) -> HashMap<String, BTreeSet<String>> {
+    LedgerCache::of(ledger, store).lookups(ledger, store).budget_accounts()
 }
 
 fn budget_month<'r, 'a>(record: &'r Record<'a>) -> Option<&'r BudgetMonth<'a>> {
@@ -688,9 +685,9 @@ pub(crate) struct BudgetDefinition<'a> {
     accounts: BTreeSet<String>,
 }
 
-fn definition_rows<'a>(ledger: &'a Ledger, _store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
+fn definition_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
     let mut accounts = match BUDGET_DEFINITIONS.column("accounts") {
-        Some(column) if projection.contains(column) => budget_accounts(ledger),
+        Some(column) if projection.contains(column) => budget_accounts(ledger, store),
         _ => HashMap::new(),
     };
     let mut budgets = budgets(ledger).budgets.into_values().collect::<Vec<_>>();

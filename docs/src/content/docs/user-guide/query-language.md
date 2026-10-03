@@ -557,7 +557,7 @@ WHERE account ~ '^Expenses'
 - A condition that is `NULL` is not `TRUE`, as in `WHERE`, so the next `WHEN` is tried.
 - Each condition must be a boolean. The values must have one type: `NULL` fits any type, and an `int` is widened to a `decimal` when another value is a `decimal`.
 - Only the chosen value is computed, so a value that would fail, such as an integer overflow, only fails for the rows that choose it.
-- The conditions and the values can be aggregates in an aggregate query: `CASE WHEN count(*) > 1 THEN sum(number) ELSE 0 END`.
+- The conditions and the values can be aggregates in an aggregate query: `CASE WHEN count(*) > 1 THEN sum(number) ELSE 0 END`. As in SQL, every aggregate of the query adds up every row of its group, whichever branch the group chooses, so the argument of an aggregate inside a `CASE` is computed for every row, and fails there if it fails: only the plain expressions of the branches are computed for the chosen branch alone.
 - `CASE`, `WHEN`, `THEN`, `ELSE` and `END` are keywords only inside a `CASE` expression, which starts with `CASE WHEN`. Elsewhere they are ordinary names. The form `CASE x WHEN value THEN ...` is not supported; write `CASE WHEN x = value THEN ...`.
 - `CASE` is a Zhang extension. beanquery has no conditional expression.
 
@@ -821,7 +821,7 @@ Zhang has four tables of its own, for data that Beancount does not have: `#budge
 - All amounts are in the budget's commodity. `activity` adds up the postings of the budget's accounts, each converted to the budget's commodity at the posting's date, as [`convert(position, currency, date)`](#valuation-functions) does with the prices of the ledger: `activity` is what `sum(convert(position, 'CNY', date))` gives over those postings. A `budget-add` or `budget-transfer` amount in another commodity is converted the same way at the directive's date. A posting or amount that no price converts is left out, instead of being added as a number of another commodity.
 - A budget exists from its `budget` directive on. A `budget-add`, `budget-transfer` or `budget-close` of a budget that does not exist yet has no effect, and postings before the budget's `budget` directive are not its spending; Zhang reports both as errors. A second `budget` directive of the same name is a duplicate and is ignored.
 - Because `assigned` includes the carry-over, adding it up over several months counts the same money more than once. Add up `added` instead to see how much was budgeted over a period.
-- A budget's accounts are the accounts whose `open` directive has a `budget` metadata entry naming it, such as `budget: food`. Their postings are the budget's activity. Every entry counts, so an account whose `open` has `budget: food` and `budget: fun` is an account of both budgets.
+- A budget's accounts are the accounts whose `open` directive has a `budget` metadata entry naming it, such as `budget: food`. Their postings are the budget's activity. Every entry counts, so an account whose `open` has `budget: food` and `budget: fun` is an account of both budgets. A posting counts in the budgets of its account's `open` in effect at its date: an account closed and opened again with other budgets counts in those from its reopening on, and its earlier postings stay in the earlier budgets. [`account_budgets(account, date)`](#account-and-commodity-directives) tells which.
 - `meta(key)` reads the metadata of the `budget` directive.
 - Rows are ordered by budget name, then by month. `SELECT *` is short for `SELECT name, date, assigned, activity, available`.
 
@@ -838,7 +838,7 @@ Zhang has four tables of its own, for data that Beancount does not have: `#budge
 | `added` | `amount` | Amount the month's `budget-add` and `budget-transfer` directives put into the budget, converted to its commodity at their date. A transfer out of the budget counts as negative. |
 | `activity` | `amount` | Amount the budget's accounts spent in the month, each posting converted to the budget's commodity at its date. A refund counts as negative. |
 | `available` | `amount` | Amount left at the end of the month, `assigned - activity`. It carries over to the next month, and is negative when the budget is overspent. |
-| `accounts` | `set` | Accounts whose postings count as the budget's activity. |
+| `accounts` | `set` | Accounts whose postings count as the budget's activity: those an `open` names the budget in, at any time. |
 | `closed` | `bool` | Whether the budget was closed with `budget-close` in or before the month. It is `FALSE` in the months before. |
 
 What is left in each budget, grouped as on the budget page:
@@ -1121,6 +1121,7 @@ These functions read the `open`, `close` and `commodity` directives of the ledge
 | `commodity_meta(str, str) -> str` | A metadata value of the currency's `commodity` directive, such as `commodity_meta(currency, 'name')`. |
 | `commodity_meta(str) -> metas` | All the metadata of the currency's `commodity` directive: an empty list when it has none, `NULL` without a `commodity` directive. |
 | `currency_meta(str, str) -> str`, `currency_meta(str) -> metas` | The same as `commodity_meta`. |
+| `account_budgets(str, date) -> set` | The budgets an account counts in at a date: those the `budget` metadata of its latest `open` on or before the date names, so an account closed and opened again with other budgets counts in those from its reopening on. Empty before its first `open`. Zhang extension. |
 
 Metadata is not inherited: `open_meta('Assets:Bank:Checking', 'institution')` is `NULL` even if `Assets:Bank` has an `institution`. beanquery's one-argument forms return dictionaries that also hold `filename` and `lineno`; Zhang returns only the directive's own metadata.
 

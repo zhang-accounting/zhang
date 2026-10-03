@@ -810,6 +810,12 @@ fn case_evaluates_only_the_chosen_value() {
     )
     .unwrap_err();
     assert_eq!(err.kind, QueryErrorKind::Eval, "{err}");
+    // an aggregate adds up every row of its group, whichever branch the group chooses, as in
+    // SQL: its argument is computed, and fails, on every row
+    let sql = "SELECT account, CASE WHEN count(*) < 0 THEN sum(9223372036854775807 + year) ELSE count(*) END GROUP BY account";
+    let err = run_on(ledger(), sql, &Params::new(), false).unwrap_err();
+    assert_eq!(err.kind, QueryErrorKind::Eval, "{err}");
+    assert!(err.message.contains("overflow"), "{err}");
 }
 
 /// A CASE can choose between aggregates, the way a built-in query carries a budget over, and
@@ -830,6 +836,16 @@ fn case_works_with_aggregates_and_parameters() {
     let at = |month: NaiveDate| rows_with(sql, &Params::new().bind("month", month));
     assert_eq!(at(NaiveDate::from_ymd_opt(2024, 1, 31).unwrap()), expected(&[&["own"]]));
     assert_eq!(at(NaiveDate::from_ymd_opt(2024, 6, 1).unwrap()), expected(&[&["carried"]]));
+    // a constant TRUE after a condition of the row ends the CASE there, as its ELSE: the
+    // condition of the row is still tested on every row
+    assert_eq!(
+        rows("SELECT account, CASE WHEN account ~ 'Bank' THEN 'bank' WHEN TRUE THEN 'other' WHEN account ~ 'Food' THEN 'never' END WHERE month = 2"),
+        expected(&[&["Expenses:Food", "other"], &["Assets:Bank:Savings", "bank"]])
+    );
+    let explain = Query::compile("SELECT CASE WHEN account ~ 'Bank' THEN 'bank' WHEN TRUE THEN 'other' END")
+        .unwrap()
+        .explain();
+    assert!(explain.contains("CASE WHEN (account ~ /Bank/i) THEN 'bank' ELSE 'other' END"), "{explain}");
     // a constant condition leaves the chosen value alone in the plan
     let explain = Query::compile("SELECT CASE WHEN 1 > 2 THEN 'a' WHEN year > 2000 THEN 'b' ELSE 'c' END")
         .unwrap()
