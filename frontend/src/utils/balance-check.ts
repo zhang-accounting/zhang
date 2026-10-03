@@ -52,9 +52,17 @@ export interface ReplacedBalance {
   date: string;
   account: string;
   amount: { number: string; commodity: string };
+  /** the tolerance (`~`) it was written with, which the new, exact balance does not keep */
+  tolerance?: string | null;
 }
 
-/** How a toast says which balances a request replaced, one per line; empty when it replaced none. */
+/** How a toast says which balances a request replaced, one per line, each with the amount it asserted, written as in the
+ * ledger (`100 ~ 5 CNY` with a tolerance); empty when it replaced none. */
 export function replacedBalancesText(replaced: ReplacedBalance[], line: (balance: { date: string; account: string; amount: string }) => string): string {
-  return replaced.map((it) => line({ date: it.date, account: it.account, amount: `${it.amount.number} ${it.amount.commodity}` })).join('\n');
+  return replaced
+    .map((it) => {
+      const tolerance = it.tolerance ? ` ~ ${it.tolerance}` : '';
+      return line({ date: it.date, account: it.account, amount: `${it.amount.number}${tolerance} ${it.amount.commodity}` });
+    })
+    .join('\n');
 }

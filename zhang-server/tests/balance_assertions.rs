@@ -1196,7 +1196,7 @@ option "timezone" "UTC"
         // the answer says what was replaced, for the UI to tell
         assert_eq!(
             body["data"]["replaced"],
-            json!([{"date": tomorrow().to_string(), "account": "Assets:A", "amount": {"number": "100", "commodity": "CNY"}}])
+            json!([{"date": tomorrow().to_string(), "account": "Assets:A", "amount": {"number": "100", "commodity": "CNY"}, "tolerance": null}])
         );
         // in its place
         assert_eq!(written(&scratch), reconciled.replace("balance Assets:A 100 CNY", "balance Assets:A 80 CNY"));
@@ -1305,13 +1305,14 @@ option "timezone" "UTC"
     #[tokio::test]
     async fn a_replaced_balance_changes_its_amount_only() {
         // balances for tomorrow written by hand, with metadata, a comment and a tolerance: the new amounts take the
-        // places of theirs, and the rest stays as written. Two in one file, the first growing longer
+        // places of theirs, and the rest stays as written. Three in one file, the first growing longer
         let scratch = Scratch::beancount(&format!(
             r#"{OPENS}include "statements.bean"
 {} * "seed"
   Assets:A 100.50 CNY
   Assets:A 6 USD
-  Equity:Fx -100.50 CNY
+  Expenses:Food 0.000000001 CNY
+  Equity:Fx -100.500000001 CNY
   Equity:Fx -6 USD
 "#,
             days_ago(30)
@@ -1322,35 +1323,64 @@ option "timezone" "UTC"
 {tomorrow} balance Assets:A 61 CNY ; a trailing comment
   statement: "bank PDF"
 {tomorrow} balance Equity:Open 0 CNY
-{tomorrow} balance Assets:A 5 ~ 0.01 USD
+{tomorrow} balance Assets:A 5 ~ 0.01 USD ; within a cent
   statement: "broker"
+{tomorrow} balance Expenses:Food 1 CNY
 "#,
             tomorrow = tomorrow()
         );
         std::fs::write(&statements, &written_by_hand).unwrap();
         let (status, body) = rows(
             &scratch,
-            vec![("Assets:A", Amount::new(decimal("100.50"), "CNY"), ""), ("Assets:A", amount(6, "USD"), "")],
+            vec![
+                ("Assets:A", Amount::new(decimal("100.50"), "CNY"), ""),
+                ("Assets:A", amount(6, "USD"), ""),
+                ("Expenses:Food", Amount::new(decimal("0.000000001"), "CNY"), ""),
+            ],
         )
         .await;
         assert!(status.is_success(), "{status} {body}");
+        // the answer says what each asserted, with its tolerance
         assert_eq!(
             body["data"]["replaced"],
             json!([
-                {"date": tomorrow().to_string(), "account": "Assets:A", "amount": {"number": "61", "commodity": "CNY"}},
-                {"date": tomorrow().to_string(), "account": "Assets:A", "amount": {"number": "5", "commodity": "USD"}}
+                {"date": tomorrow().to_string(), "account": "Assets:A", "amount": {"number": "61", "commodity": "CNY"}, "tolerance": null},
+                {"date": tomorrow().to_string(), "account": "Assets:A", "amount": {"number": "5", "commodity": "USD"}, "tolerance": "0.01"},
+                {"date": tomorrow().to_string(), "account": "Expenses:Food", "amount": {"number": "1", "commodity": "CNY"}, "tolerance": null}
             ])
         );
+        // a balance from the balance tools is exact: the tolerance goes, and the number is written in plain notation
         assert_eq!(
             read(&statements),
             written_by_hand
                 .replace("Assets:A 61 CNY", "Assets:A 100.50 CNY")
-                .replace("Assets:A 5 ~ 0.01 USD", "Assets:A 6 ~ 0.01 USD")
+                .replace("Assets:A 5 ~ 0.01 USD", "Assets:A 6 USD")
+                .replace("Expenses:Food 1 CNY", "Expenses:Food 0.000000001 CNY")
         );
         assert_eq!(walkdir(&scratch.dir).len(), 2, "nothing is appended");
         let (errors, _, passed) = reloaded(&scratch).await;
         assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(passed, vec![true, true, true]);
+        assert_eq!(passed, vec![true, true, true, true]);
+    }
+
+    #[tokio::test]
+    async fn a_replaced_balance_is_exact() {
+        // a balance written by hand within 5 CNY: the check of 53 from the UI replaces it, and fails, as the account
+        // holds 50
+        let scratch = Scratch::beancount(&format!(
+            "{OPENS}{} * \"seed\"\n  Assets:A 50 CNY\n  Equity:Fx\n{} balance Assets:A 50 ~ 5 CNY\n",
+            days_ago(30),
+            tomorrow()
+        ));
+        let main = scratch.dir.join(scratch.main);
+        let before = read(&main);
+        let (status, body) = check(&scratch, "Assets:A", amount(53, "CNY")).await;
+        assert!(status.is_success(), "{status} {body}");
+        assert_eq!(body["data"]["replaced"][0]["tolerance"], json!("5"), "{body}");
+        assert_eq!(read(&main), before.replace("balance Assets:A 50 ~ 5 CNY", "balance Assets:A 53 CNY"));
+        let (errors, _, passed) = reloaded(&scratch).await;
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+        assert_eq!(passed, vec![false]);
     }
 
     #[tokio::test]

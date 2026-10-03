@@ -10,7 +10,8 @@
 //! (flag `P`) dated now. The UI writes no `pad`: a `pad` would pad the next balance of every commodity of its account,
 //! and would silently absorb a transaction added later today. Such a transaction makes tomorrow's `balance` fail
 //! instead, until the next check of the day replaces it: each balance of the account and commodity dated tomorrow
-//! asserts the new amount, in its place, and nothing else of it changes. None is written twice. A padding transaction
+//! asserts exactly the new amount, in its place, without the tolerance it may have had, and its comment and metadata
+//! stay. None is written twice. A padding transaction
 //! written before stays, and the difference is computed with it. A file changed since the ledger was loaded is not
 //! edited: its places are stale, and the write is a 409.
 //!
@@ -23,7 +24,6 @@
 //! without a cost. What is refused is a 400 with the reason, and nothing is written.
 
 use std::collections::BTreeMap;
-use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
@@ -63,6 +63,9 @@ pub struct ReplacedBalanceEntity {
     pub account: String,
     /// the amount it asserted
     pub amount: Amount,
+    /// the tolerance (`~`) it was written with, which the new balance does not keep: a balance from the balance tools
+    /// is exact. Null for an exact one
+    pub tolerance: Option<BigDecimal>,
 }
 
 /// what a request writes: directives to append, and balances to rewrite in their files
@@ -112,34 +115,40 @@ impl BalanceWrites {
     }
 }
 
-/// `text`, a `balance` as written, asserting the amount of `balance` instead: only the number changes, and its
-/// tolerance, commodity, comment and metadata stay as written. `None` when its number is not a plain number
+/// `text`, a `balance` as written, asserting exactly the amount of `balance` instead: its amount, from the number to
+/// the commodity, with any tolerance (`~`) in between, is the new one, and its comment and metadata stay as written.
+/// `None` when the commodity is not a word of its own
 fn with_amount_of(text: &str, balance: &Directive) -> Option<String> {
     let Directive::BalanceCheck(balance) = balance else { return None };
     let line = text.lines().next()?;
-    // the date, `balance`, the account, then the number, by their places in the line
-    let mut tokens = vec![];
+    // the places of the words of the line, up to its comment
+    let mut words = vec![];
     let mut start = None;
     for (at, character) in line.char_indices().chain(std::iter::once((line.len(), ' '))) {
         match (character.is_whitespace(), start) {
+            (false, None) if character == ';' => break,
             (false, None) => start = Some(at),
             (true, Some(from)) => {
-                tokens.push((from, at));
+                words.push((from, at));
                 start = None;
-                if tokens.len() == 4 {
-                    break;
-                }
             }
             _ => {}
         }
     }
-    let &(start, end) = tokens.get(3)?;
-    let (keyword_start, keyword_end) = tokens[1];
+    // the date, `balance`, the account, then the amount: a number, a tolerance maybe, and the commodity
+    let &(keyword_start, keyword_end) = words.get(1)?;
     if &line[keyword_start..keyword_end] != "balance" {
         return None;
     }
-    BigDecimal::from_str(&line[start..end]).ok()?;
-    Some(format!("{}{}{}", &text[..start], plain_decimal(&balance.amount.number), &text[end..]))
+    let &(amount_start, _) = words.get(3)?;
+    let &(_, amount_end) = words.iter().skip(4).find(|(from, to)| line[*from..*to] == balance.amount.commodity)?;
+    Some(format!(
+        "{}{} {}{}",
+        &text[..amount_start],
+        plain_decimal(&balance.amount.number),
+        balance.amount.commodity,
+        &text[amount_end..]
+    ))
 }
 
 /// What `rows` write to `ledger`, made `now`.
@@ -355,6 +364,7 @@ fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date, held: &
                 date: tomorrow,
                 account: old.account.name().to_owned(),
                 amount: old.amount.clone(),
+                tolerance: old.tolerance.clone(),
             });
             writes.replace.push((directive.span.clone(), balance.clone()));
             replacing = true;

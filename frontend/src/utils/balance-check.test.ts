@@ -63,11 +63,12 @@ test('the balances a request replaced are told one per line', () => {
   assert.equal(
     replacedBalancesText(
       [
-        { date: '2026-10-05', account: 'Assets:A', amount: { number: '100', commodity: 'CNY' } },
+        { date: '2026-10-05', account: 'Assets:A', amount: { number: '100', commodity: 'CNY' }, tolerance: null },
         { date: '2026-10-05', account: 'Assets:B', amount: { number: '7', commodity: 'USD' } },
+        { date: '2026-10-05', account: 'Assets:C', amount: { number: '50', commodity: 'CNY' }, tolerance: '5' },
       ],
       line,
     ),
-    'Assets:A 2026-10-05: 100 CNY\nAssets:B 2026-10-05: 7 USD',
+    'Assets:A 2026-10-05: 100 CNY\nAssets:B 2026-10-05: 7 USD\nAssets:C 2026-10-05: 50 ~ 5 CNY',
   );
 });
