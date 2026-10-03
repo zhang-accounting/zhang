@@ -523,6 +523,49 @@ fn budgets_do_not_read_the_store_budgets() {
     assert_eq!(run(&ledger, BUDGET_FIGURES), budget_figures());
 }
 
+/// The price of USD changes in the middle of March: from 7 CNY (set in February) to 8 CNY on
+/// the 10th.
+const MID_MONTH_PRICE: &str = r#"
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Travel
+  budget: travel
+
+2024-02-25 price USD 7 CNY
+2024-03-10 price USD 8 CNY
+
+2024-03-01 budget travel CNY
+
+2024-03-05 * "Taxi" "before the price change"
+  Expenses:Travel 10 USD
+  Assets:Bank
+
+2024-03-20 budget-add travel 50 USD
+
+2024-03-25 * "Train" "after the price change"
+  Expenses:Travel 10 USD
+  Assets:Bank
+"#;
+
+/// An amount converts at the price in force on its own date, not on the first day of its
+/// month (7 CNY) nor at the latest price (8 CNY).
+#[test]
+fn budget_amounts_convert_at_their_own_date_within_the_month() {
+    let ledger = common::load_text(MID_MONTH_PRICE);
+    assert_eq!(
+        run(&ledger, BUDGET_FIGURES),
+        rows(&[
+            // the budget-add of the 20th: 50 USD at 8 CNY = 400 CNY (350 at the price of the 1st).
+            // The taxi of the 5th, before the change, at 7 CNY = 70 CNY, and the train of the
+            // 25th at 8 CNY = 80 CNY: 150 CNY (140 at the price of the 1st, 160 at the latest)
+            &["travel", "2024-03-01", "400 CNY", "400 CNY", "150 CNY", "250 CNY", "FALSE"],
+        ])
+    );
+}
+
 #[test]
 fn budget_events_are_the_effects_of_the_budget_directives() {
     let ledger = common::load_text(BUDGETS);

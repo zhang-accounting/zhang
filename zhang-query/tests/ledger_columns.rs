@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use chrono::NaiveDate;
 use common::{fava_demo_ledger, load_text};
+use zhang_core::domains::schemas::{MetaDomain, PriceDomain};
 use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, ExecuteOptions, Inventory, ParamTypes, Params, PriceMap, Query, QueryErrorKind, Value};
 
@@ -377,6 +378,59 @@ fn a_ledger_changed_after_its_first_query_is_an_error() {
         .execute_at(&ledger, &Params::new(), today())
         .unwrap_err();
     assert!(error.message.contains("the ledger changed"), "{}", error.message);
+}
+
+/// Every count the cache's fingerprint keeps catches a change on its own, with the number of
+/// transactions unchanged: a price, a posting, an error, a metadata entry or a directive more.
+/// (The fingerprint counts these, so a change that keeps every count, such as an edited posting
+/// amount, is not caught; zhang never changes a loaded ledger, it replaces it.)
+#[test]
+fn a_ledger_changed_without_changing_its_transactions_is_an_error() {
+    /// what is added, and how
+    type Change = (&'static str, fn(&mut Ledger));
+    let changes: [Change; 5] = [
+        ("a price", |ledger| {
+            ledger.store.write().unwrap().prices.push(PriceDomain {
+                datetime: NaiveDate::from_ymd_opt(2024, 2, 1).unwrap().and_hms_opt(0, 0, 0).unwrap(),
+                commodity: "AAPL".to_owned(),
+                amount: 120.into(),
+                target_commodity: "USD".to_owned(),
+            })
+        }),
+        ("a posting", |ledger| {
+            let mut store = ledger.store.write().unwrap();
+            let posting = store.postings[0].clone();
+            store.postings.push(posting);
+        }),
+        ("an error", |ledger| {
+            let mut store = ledger.store.write().unwrap();
+            let error = store.errors[0].clone();
+            store.errors.push(error);
+        }),
+        ("a metadata entry", |ledger| {
+            ledger.store.write().unwrap().metas.push(MetaDomain {
+                meta_type: "AccountMeta".to_owned(),
+                type_identifier: "Assets:Bank".to_owned(),
+                key: "note".to_owned(),
+                value: "added".to_owned(),
+            })
+        }),
+        ("a directive", |ledger| {
+            let directive = ledger.directives[0].clone();
+            ledger.directives.push(directive);
+        }),
+    ];
+    for (change, apply) in changes {
+        let mut ledger = load_text(LEDGER);
+        assert_eq!(table(&ledger, "SELECT count(*)"), "14", "{change}");
+        let transactions = ledger.store.read().unwrap().transactions.len();
+        apply(&mut ledger);
+        assert_eq!(ledger.store.read().unwrap().transactions.len(), transactions, "{change}");
+        match Query::compile("SELECT count(*)").unwrap().execute_at(&ledger, &Params::new(), today()) {
+            Ok(_) => panic!("{change} more was not caught"),
+            Err(error) => assert!(error.message.contains("the ledger changed"), "{change}: {}", error.message),
+        }
+    }
 }
 
 /// One account holding `lots` lots at distinct costs, one bought per day, paid from a cash
