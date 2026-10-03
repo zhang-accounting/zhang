@@ -197,7 +197,7 @@ impl Reason {
     fn describe(self) -> &'static str {
         match self {
             Reason::ListedWithoutOpen => "bug: accounts without `open` were missing",
-            Reason::DeterministicOrder => "deterministic order (was hash map order / posting order within a transaction)",
+            Reason::DeterministicOrder => "deterministic order: accounts by name, journal rows newest first, history by date",
             Reason::Valuation => "decision 3: engine valuation (inverse rates, via the cost currency, latest of both directions)",
             Reason::TransactionId => "bug: `trx_id` was the posting id; an assertion row has its entry id",
             Reason::Subtree => "decision 6: a parent account's page is its subtree",

@@ -7,10 +7,9 @@
 //! header total and documents cover the account and all its sub-accounts, as the account tree
 //! does. Balances are valued in the operating currency at today's prices with `convert`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::LazyLock;
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
@@ -19,158 +18,32 @@ use zhang_ast::Account;
 use zhang_core::constants::BALANCE_CHECK_PAYEE;
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus};
 use zhang_core::ledger::Ledger;
-use zhang_query::{DataType, Inventory, ParamTypes, Params, Query, QueryResult, Value};
+use zhang_query::{Inventory, Params, QueryResult, Value};
 
+use crate::builtin::{self, calculated_amount};
 use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, DocumentEntity};
-use crate::routes::query::{execute_options, max_result_values};
 use crate::state::SharedLedger;
 use crate::ServerResult;
 
-/// A named query behind an endpoint: the BQL it runs and the types of its parameters. User
-/// input only ever reaches a query as a bound parameter.
-pub struct BuiltinQuery {
-    pub name: &'static str,
-    pub description: &'static str,
-    pub bql: &'static str,
-    pub params: &'static [(&'static str, DataType)],
-}
-
-/// Every account with an `open` or `close` directive, by name.
-pub const ACCOUNTS: BuiltinQuery = BuiltinQuery {
-    name: "accounts",
-    description: "Every account with an open or close directive, with its open and close dates and its alias, by name.",
-    bql: "SELECT account, open, close, meta('alias') AS alias
-FROM #accounts
-ORDER BY account",
-    params: &[],
-};
-
-/// The balance of every account, of its own postings, per currency.
-pub const ACCOUNT_BALANCES: BuiltinQuery = BuiltinQuery {
-    name: "account_balances",
-    description: "The balance of every account that has postings, of its own postings, per currency: the units, their value \
-                  in the operating currency at today's prices, and the date of the first posting.",
-    bql: "SELECT account, currency, sum(number) AS units,
-       convert(sum(position), :operating_currency, today()) AS value,
-       min(date) AS first_date
-GROUP BY account, currency
-ORDER BY account, currency",
-    params: &[("operating_currency", DataType::Str)],
-};
-
-/// The accounts of [`ACCOUNTS`] in the subtree of an account.
-pub const SUBTREE_ACCOUNTS: BuiltinQuery = BuiltinQuery {
-    name: "account_subtree",
-    description: "An account and its sub-accounts that have an open or close directive, with their open and close dates and \
-                  their aliases, by name.",
-    bql: "SELECT account, open, close, meta('alias') AS alias
-FROM #accounts
-WHERE under(account, :account)
-ORDER BY account",
-    params: &[("account", DataType::Str)],
-};
-
-/// [`ACCOUNT_BALANCES`] of the accounts in the subtree of an account.
-pub const SUBTREE_BALANCES: BuiltinQuery = BuiltinQuery {
-    name: "account_subtree_balances",
-    description: "The balance of an account and of each of its sub-accounts, of its own postings, per currency: the units, \
-                  their value in the operating currency at today's prices, and the date of the first posting.",
-    bql: "SELECT account, currency, sum(number) AS units,
-       convert(sum(position), :operating_currency, today()) AS value,
-       min(date) AS first_date
-WHERE under(account, :account)
-GROUP BY account, currency
-ORDER BY account, currency",
-    params: &[("account", DataType::Str), ("operating_currency", DataType::Str)],
-};
-
-/// The postings of an account and its sub-accounts, newest first, with their running balance.
-pub const ACCOUNT_JOURNAL: BuiltinQuery = BuiltinQuery {
-    name: "account_journal",
-    description: "The postings of an account and its sub-accounts, newest first, one row per posting, each with the running \
-                  balance of the account and its sub-accounts in the posting's currency right after it.",
-    bql: "SELECT date, time, timestamp, flag, id, account, payee, narration, currency,
-       sum(number) AS units,
-       last(only(currency, units(balance))) AS balance
-WHERE under(account, :account)
-GROUP BY seq, posting_index, date, time, timestamp, flag, id, account, payee, narration, currency
-ORDER BY seq DESC, posting_index DESC",
-    params: &[("account", DataType::Str)],
-};
-
-/// The balance assertions on an account, newest first.
-pub const ACCOUNT_BALANCE_ASSERTIONS: BuiltinQuery = BuiltinQuery {
-    name: "account_balance_assertions",
-    description: "The balance assertions on an account, newest first: the asserted amount, the balance of the account and \
-                  its sub-accounts it was checked against, whether it held, and the account a balance with pad pads from.",
-    bql: "SELECT date, time, timestamp, id, account, amount, actual, passed, pad
-FROM #balances
-WHERE account = :account
-ORDER BY seq DESC",
-    params: &[("account", DataType::Str)],
-};
-
-/// The balance of an account and its sub-accounts at the end of every day it changed.
-pub const ACCOUNT_BALANCE_HISTORY: BuiltinQuery = BuiltinQuery {
-    name: "account_balance_history",
-    description: "The balance of an account and its sub-accounts at the end of every day with a posting, per currency, in \
-                  date order.",
-    bql: "SELECT date, currency, last(only(currency, units(balance))) AS balance
-WHERE under(account, :account)
-GROUP BY date, currency
-ORDER BY date, currency",
-    params: &[("account", DataType::Str)],
-};
-
-/// The document directives of an account and its sub-accounts.
-pub const ACCOUNT_DOCUMENTS: BuiltinQuery = BuiltinQuery {
-    name: "account_documents",
-    description: "The document directives of an account and its sub-accounts, in ledger order, with the path of each file \
-                  relative to the ledger's directory.",
-    bql: "SELECT date, time, account, path
-FROM #documents
-WHERE source = 'directive' AND under(account, :account)",
-    params: &[("account", DataType::Str)],
-};
-
-/// The built-in queries of the account endpoints.
-pub const ACCOUNT_BUILTINS: &[&BuiltinQuery] = &[
-    &ACCOUNTS,
-    &ACCOUNT_BALANCES,
-    &SUBTREE_ACCOUNTS,
-    &SUBTREE_BALANCES,
-    &ACCOUNT_JOURNAL,
-    &ACCOUNT_BALANCE_ASSERTIONS,
-    &ACCOUNT_BALANCE_HISTORY,
-    &ACCOUNT_DOCUMENTS,
-];
-
-/// Every built-in, compiled once.
-static COMPILED: LazyLock<HashMap<&'static str, Query>> = LazyLock::new(|| {
-    ACCOUNT_BUILTINS
-        .iter()
-        .map(|builtin| {
-            let types = builtin
-                .params
-                .iter()
-                .fold(ParamTypes::new(), |types, (name, data_type)| types.bind(*name, *data_type));
-            let query = Query::compile_with_params(builtin.bql, &types).unwrap_or_else(|error| panic!("built-in query {}: {error}", builtin.name));
-            (builtin.name, query)
-        })
-        .collect()
-});
+/// The built-in queries of the account endpoints, in [`crate::builtin::BUILTINS`].
+const LIST: &str = "accounts.list";
+const BALANCES: &str = "accounts.balances";
+const SUBTREE: &str = "accounts.subtree";
+const SUBTREE_BALANCES: &str = "accounts.subtree_balances";
+const JOURNAL: &str = "accounts.journal";
+const BALANCE_ASSERTIONS: &str = "accounts.balance_assertions";
+const BALANCE_HISTORY: &str = "accounts.balance_history";
+const DOCUMENTS: &str = "accounts.documents";
 
 /// Run a built-in query with the limits of every query the server runs.
-fn run(ledger: &Ledger, builtin: &BuiltinQuery, params: &Params) -> ServerResult<QueryResult> {
-    let query = COMPILED.get(builtin.name).expect("every built-in is compiled");
-    Ok(query.execute_with_options(ledger, params, &execute_options(max_result_values()))?)
+fn run(ledger: &Ledger, name: &str, params: &Params) -> ServerResult<QueryResult> {
+    builtin::execute(ledger, name, params, false)
 }
 
 /// Run `f` on the ledger off the async workers, under one read lock, so the queries of one
 /// response see the same ledger.
 pub async fn with_ledger<T: Send + 'static>(ledger: &SharedLedger, f: impl FnOnce(&Ledger) -> ServerResult<T> + Send + 'static) -> ServerResult<T> {
-    let ledger = ledger.0.clone().read_owned().await;
-    tokio::task::spawn_blocking(move || f(&ledger)).await?
+    crate::routes::query::with_ledger(&ledger.0, f).await
 }
 
 // ---------------------------------------------------------------------------------------
@@ -226,18 +99,44 @@ struct Summary {
     close: Option<NaiveDate>,
     alias: Option<String>,
     first_posting: Option<NaiveDate>,
-    /// the units of its own postings, per currency; a currency back at zero is kept
-    units: BTreeMap<String, BigDecimal>,
-    /// the value of its own postings at today's prices
-    value: Inventory,
-    /// the units of the postings of the account and all its sub-accounts, per currency
-    subtree_units: BTreeMap<String, BigDecimal>,
-    /// the value of the postings of the account and all its sub-accounts at today's prices
-    subtree_value: Inventory,
+    /// the balance of its own postings
+    own: Balance,
+    /// the balance of the postings of the account and all its sub-accounts
+    subtree: Balance,
     has_sub_accounts: bool,
 }
 
-/// The accounts of an [`ACCOUNTS`]-shaped result and the balances of an [`ACCOUNT_BALANCES`]-shaped
+/// The units and the value of some postings, and every currency they hold or held.
+#[derive(Default)]
+struct Balance {
+    units: Inventory,
+    /// their value at today's prices
+    value: Inventory,
+    /// the currencies of the postings: the response keeps a currency that is back at zero
+    currencies: BTreeSet<String>,
+}
+
+impl Balance {
+    fn add(&mut self, other: &Balance) {
+        self.units.add_inventory(&other.units);
+        self.value.add_inventory(&other.value);
+        self.currencies.extend(other.currencies.iter().cloned());
+    }
+
+    /// The response's valued balance: the units per currency, with every currency held and the
+    /// operating currency, so a new account gets a row to set its opening balance, and their total
+    /// value in the operating currency; what no price converts is left out of the total.
+    fn calculated(&self, operating_currency: &str) -> CalculatedAmount {
+        self.currencies
+            .iter()
+            .fold(calculated_amount(&self.units, &self.value, operating_currency), |amount, currency| {
+                amount.persist_commodity(currency)
+            })
+            .persist_commodity(operating_currency)
+    }
+}
+
+/// The accounts of an `accounts.list`-shaped result and the balances of an `accounts.balances`-shaped
 /// one, by name: the accounts with a directive and those with postings. Each account's subtree
 /// totals add up the rows of the account and of the accounts under it, as the account tree does.
 fn summaries(accounts: &QueryResult, balances: &QueryResult) -> BTreeMap<String, Summary> {
@@ -253,9 +152,10 @@ fn summaries(accounts: &QueryResult, balances: &QueryResult) -> BTreeMap<String,
     for row in &balances.rows {
         let summary = summaries.entry(text(columns.get(row, "account")).unwrap_or_default()).or_default();
         let currency = text(columns.get(row, "currency")).unwrap_or_default();
-        summary.units.insert(currency, decimal(columns.get(row, "units")));
+        summary.own.units.add_amount(&Amount::new(decimal(columns.get(row, "units")), currency.clone()));
+        summary.own.currencies.insert(currency);
         if let Some(value) = columns.get(row, "value").as_inventory() {
-            summary.value.add_inventory(value);
+            summary.own.value.add_inventory(value);
         }
         let first = date(columns.get(row, "first_date"));
         summary.first_posting = match (summary.first_posting, first) {
@@ -267,49 +167,21 @@ fn summaries(accounts: &QueryResult, balances: &QueryResult) -> BTreeMap<String,
     // `Assets:Bank:Checking`
     let names = summaries.keys().cloned().collect::<Vec<_>>();
     for name in &names {
-        let (units, value) = {
-            let summary = &summaries[name];
-            (summary.units.clone(), summary.value.clone())
-        };
+        let own = std::mem::take(&mut summaries.get_mut(name).expect("a summary of every name").own);
         let ancestors = name.match_indices(':').map(|(at, _)| &name[..at]);
         for (index, receiver) in std::iter::once(name.as_str()).chain(ancestors).enumerate() {
             let Some(summary) = summaries.get_mut(receiver) else { continue };
             summary.has_sub_accounts |= index > 0;
-            for (currency, number) in &units {
-                *summary.subtree_units.entry(currency.clone()).or_insert_with(BigDecimal::zero) += number;
-            }
-            summary.subtree_value.add_inventory(&value);
+            summary.subtree.add(&own);
         }
+        summaries.get_mut(name).expect("a summary of every name").own = own;
     }
     summaries
 }
 
-/// The response's valued balance: the units per currency, always with the operating currency,
-/// and their total value in the operating currency. What no price converts is left out of the
-/// total.
-fn calculated_amount(units: &BTreeMap<String, BigDecimal>, value: &Inventory, operating_currency: &str) -> CalculatedAmount {
-    let calculated = value
-        .positions()
-        .filter(|position| position.units.commodity == operating_currency)
-        .fold(BigDecimal::zero(), |total, position| total + position.units.number);
-    let mut detail: HashMap<String, BigDecimal> = units.iter().map(|(currency, number)| (currency.clone(), number.clone())).collect();
-    detail.entry(operating_currency.to_owned()).or_default();
-    CalculatedAmount {
-        calculated: Amount::new(calculated, operating_currency.to_owned()),
-        detail,
-    }
-}
-
-/// The subtree units, always with the operating currency, so a new account gets a row to set its
-/// opening balance.
+/// The subtree units per currency, as the response's `balance_with_sub_accounts`.
 fn with_sub_accounts(summary: &Summary, operating_currency: &str) -> HashMap<String, BigDecimal> {
-    let mut balance: HashMap<String, BigDecimal> = summary
-        .subtree_units
-        .iter()
-        .map(|(currency, number)| (currency.clone(), number.clone()))
-        .collect();
-    balance.entry(operating_currency.to_owned()).or_default();
-    balance
+    summary.subtree.calculated(operating_currency).detail
 }
 
 fn status(summary: &Summary) -> AccountStatus {
@@ -324,14 +196,14 @@ fn status(summary: &Summary) -> AccountStatus {
 /// name.
 pub fn account_list(ledger: &Ledger) -> ServerResult<Vec<AccountEntity>> {
     let operating_currency = ledger.options.operating_currency.as_str();
-    let accounts = run(ledger, &ACCOUNTS, &Params::new())?;
-    let balances = run(ledger, &ACCOUNT_BALANCES, &Params::new().bind("operating_currency", operating_currency))?;
+    let accounts = run(ledger, LIST, &Params::new())?;
+    let balances = run(ledger, BALANCES, &Params::new().bind("operating_currency", operating_currency))?;
     Ok(summaries(&accounts, &balances)
         .into_iter()
         .map(|(name, summary)| AccountEntity {
             status: status(&summary),
             alias: summary.alias.clone(),
-            amount: calculated_amount(&summary.units, &summary.value, operating_currency),
+            amount: summary.own.calculated(operating_currency),
             balance_with_sub_accounts: with_sub_accounts(&summary, operating_currency),
             has_sub_accounts: summary.has_sub_accounts,
             name,
@@ -343,10 +215,10 @@ pub fn account_list(ledger: &Ledger) -> ServerResult<Vec<AccountEntity>> {
 /// `None` for any other name.
 pub fn account_info(ledger: &Ledger, account: &str) -> ServerResult<Option<AccountInfoEntity>> {
     let operating_currency = ledger.options.operating_currency.as_str();
-    let accounts = run(ledger, &SUBTREE_ACCOUNTS, &Params::new().bind("account", account))?;
+    let accounts = run(ledger, SUBTREE, &Params::new().bind("account", account))?;
     let balances = run(
         ledger,
-        &SUBTREE_BALANCES,
+        SUBTREE_BALANCES,
         &Params::new().bind("account", account).bind("operating_currency", operating_currency),
     )?;
     let mut summaries = summaries(&accounts, &balances);
@@ -361,8 +233,8 @@ pub fn account_info(ledger: &Ledger, account: &str) -> ServerResult<Option<Accou
         name: account.to_owned(),
         status: status(&summary),
         alias: summary.alias.clone(),
-        amount: calculated_amount(&summary.units, &summary.value, operating_currency),
-        amount_with_sub_accounts: calculated_amount(&summary.subtree_units, &summary.subtree_value, operating_currency),
+        amount: summary.own.calculated(operating_currency),
+        amount_with_sub_accounts: summary.subtree.calculated(operating_currency),
         balance_with_sub_accounts: with_sub_accounts(&summary, operating_currency),
         has_sub_accounts: summary.has_sub_accounts,
     }))
@@ -397,8 +269,8 @@ struct AssertionRow {
 /// the running balance is the balance it was checked against.
 pub fn account_journals(ledger: &Ledger, account: &str) -> ServerResult<Vec<AccountJournalDomain>> {
     let params = Params::new().bind("account", account);
-    let postings = run(ledger, &ACCOUNT_JOURNAL, &params)?;
-    let assertions = run(ledger, &ACCOUNT_BALANCE_ASSERTIONS, &params)?;
+    let postings = run(ledger, JOURNAL, &params)?;
+    let assertions = run(ledger, BALANCE_ASSERTIONS, &params)?;
 
     // both oldest first
     let columns = Columns::of(&postings);
@@ -500,7 +372,7 @@ pub fn account_journals(ledger: &Ledger, account: &str) -> ServerResult<Vec<Acco
 /// `GET /api/accounts/{a}/balances`: the balance of the account and its sub-accounts at the end
 /// of every day it changed, per currency, in date order.
 pub fn account_balance_history(ledger: &Ledger, account: &str) -> ServerResult<AccountBalanceHistoryEntity> {
-    let result = run(ledger, &ACCOUNT_BALANCE_HISTORY, &Params::new().bind("account", account))?;
+    let result = run(ledger, BALANCE_HISTORY, &Params::new().bind("account", account))?;
     let columns = Columns::of(&result);
     let mut balance: HashMap<String, Vec<AccountBalanceItemEntity>> = HashMap::new();
     for row in &result.rows {
@@ -517,7 +389,7 @@ pub fn account_balance_history(ledger: &Ledger, account: &str) -> ServerResult<A
 /// `GET /api/accounts/{a}/documents`: the document directives of the account and its
 /// sub-accounts, in ledger order.
 pub fn account_documents(ledger: &Ledger, account: &str) -> ServerResult<Vec<DocumentEntity>> {
-    let result = run(ledger, &ACCOUNT_DOCUMENTS, &Params::new().bind("account", account))?;
+    let result = run(ledger, DOCUMENTS, &Params::new().bind("account", account))?;
     let columns = Columns::of(&result);
     Ok(result
         .rows
@@ -534,51 +406,4 @@ pub fn account_documents(ledger: &Ledger, account: &str) -> ServerResult<Vec<Doc
             }
         })
         .collect())
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeSet;
-    use std::path::PathBuf;
-
-    use super::{ACCOUNT_BUILTINS, COMPILED};
-
-    /// The `:name` parameters a query's text uses.
-    fn parameters(bql: &str) -> BTreeSet<&str> {
-        let mut found = BTreeSet::new();
-        for (at, _) in bql.match_indices(':') {
-            let name = &bql[at + 1..];
-            let end = name.find(|it: char| !(it.is_ascii_alphanumeric() || it == '_')).unwrap_or(name.len());
-            if end > 0 {
-                found.insert(&name[..end]);
-            }
-        }
-        found
-    }
-
-    #[test]
-    fn every_builtin_compiles_with_the_parameters_it_declares() {
-        assert_eq!(COMPILED.len(), ACCOUNT_BUILTINS.len(), "built-in names are unique");
-        for builtin in ACCOUNT_BUILTINS {
-            let declared = builtin.params.iter().map(|(name, _)| *name).collect::<BTreeSet<_>>();
-            assert_eq!(parameters(builtin.bql), declared, "{}", builtin.name);
-            assert!(!builtin.description.is_empty(), "{}", builtin.name);
-        }
-    }
-
-    #[test]
-    fn every_builtin_is_documented_with_its_bql_in_both_languages() {
-        let docs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../docs/src/content/docs");
-        for file in ["user-guide/built-in-queries.md", "zh-cn/user-guide/built-in-queries.md"] {
-            let text = std::fs::read_to_string(docs.join(file)).unwrap_or_else(|error| panic!("{file}: {error}"));
-            for builtin in ACCOUNT_BUILTINS {
-                assert!(text.contains(&format!("### {}\n", builtin.name)), "{file} lacks a section for {}", builtin.name);
-                assert!(
-                    text.contains(&format!("```sql\n{}\n```", builtin.bql)),
-                    "{file} lacks the BQL of {}",
-                    builtin.name
-                );
-            }
-        }
-    }
 }

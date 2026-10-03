@@ -83,6 +83,88 @@ pub static BUILTINS: &[BuiltinQuery] = &[
     },
     // ---- report: /api/statistic/* ----
     // ---- accounts: /api/accounts/* ----
+    // an account's page is its subtree: `under(account, :account)`
+    BuiltinQuery {
+        name: "accounts.list",
+        description: "Every account with an open or close directive, with its open and close dates and its alias, by name.",
+        bql: "SELECT account, open, close, meta('alias') AS alias
+FROM #accounts
+ORDER BY account",
+        params: &[],
+    },
+    BuiltinQuery {
+        name: "accounts.balances",
+        description: "The balance of every account of its own postings per currency: the units, their value in the operating currency \
+                      at today's prices, and the date of the first posting.",
+        bql: "SELECT account, currency, sum(number) AS units,
+       convert(sum(position), :operating_currency, today()) AS value,
+       min(date) AS first_date
+GROUP BY account, currency
+ORDER BY account, currency",
+        params: &[("operating_currency", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "accounts.subtree",
+        description: "An account and those of its sub-accounts that have an open or close directive, with their open and close dates \
+                      and their aliases, by name.",
+        bql: "SELECT account, open, close, meta('alias') AS alias
+FROM #accounts
+WHERE under(account, :account)
+ORDER BY account",
+        params: &[("account", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "accounts.subtree_balances",
+        description: "The balance of an account and of each of its sub-accounts of their own postings per currency: the units, their \
+                      value in the operating currency at today's prices, and the date of the first posting.",
+        bql: "SELECT account, currency, sum(number) AS units,
+       convert(sum(position), :operating_currency, today()) AS value,
+       min(date) AS first_date
+WHERE under(account, :account)
+GROUP BY account, currency
+ORDER BY account, currency",
+        params: &[("account", DataType::Str), ("operating_currency", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "accounts.journal",
+        description: "The postings of an account and its sub-accounts, newest first, one row per posting, each with the running balance \
+                      of the account and its sub-accounts in the posting's currency right after it.",
+        bql: "SELECT date, time, timestamp, flag, id, account, payee, narration, currency,
+       sum(number) AS units,
+       last(only(currency, units(balance))) AS balance
+WHERE under(account, :account)
+GROUP BY seq, posting_index, date, time, timestamp, flag, id, account, payee, narration, currency
+ORDER BY seq DESC, posting_index DESC",
+        params: &[("account", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "accounts.balance_assertions",
+        description: "The balance assertions on an account, newest first, with the balance of the account and its sub-accounts each \
+                      was checked against, whether it held, and the account a balance with pad pads from.",
+        bql: "SELECT date, time, timestamp, id, account, amount, actual, passed, pad
+FROM #balances
+WHERE account = :account
+ORDER BY seq DESC",
+        params: &[("account", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "accounts.balance_history",
+        description: "The balance of an account and its sub-accounts at the end of every day with a posting, per currency, in date order.",
+        bql: "SELECT date, currency, last(only(currency, units(balance))) AS balance
+WHERE under(account, :account)
+GROUP BY date, currency
+ORDER BY date, currency",
+        params: &[("account", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "accounts.documents",
+        description: "The document directives of an account and its sub-accounts, in ledger order, with the path of each file relative to \
+                      the ledger's directory.",
+        bql: "SELECT date, time, account, path
+FROM #documents
+WHERE source = 'directive' AND under(account, :account)",
+        params: &[("account", DataType::Str)],
+    },
     // ---- journals: /api/journals, /api/for-new-transaction, /api/documents, /api/errors ----
     // ---- budgets and commodities: /api/budgets/*, /api/commodities/* ----
 ];
