@@ -208,9 +208,10 @@ fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original
 }
 
 /// The posting of `original` that the request posting `posting`, one of `requested`, edits:
-/// the only posting to its account on both sides, or else the only one to its account
-/// with its units. `None` when there is no such single posting, so that every value of
-/// the request posting counts as new.
+/// the only posting to its account, or else the only one to its account with its units,
+/// where `posting` is likewise the only one of `requested` (a split or repeated posting
+/// matches nothing). `None` when there is no such single pair, so that every value of the
+/// request posting counts as new.
 fn original_posting<'a>(
     original: &'a Transaction, requested: &[CreateTransactionPostingRequest], posting: &CreateTransactionPostingRequest,
 ) -> Option<&'a Posting> {
@@ -1361,5 +1362,47 @@ mod string_round_trip_test {
         assert!(load().await.operations().read().errors.is_empty());
 
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// A request posting is only matched when it is the only one with its account in
+    /// the request too: splitting a posting makes every value of the parts new.
+    #[tokio::test]
+    async fn a_split_posting_is_not_matched() {
+        let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -10 CNY\n    rate: 1.5\n  Expenses:Food 10 CNY\n";
+        let written = edit_bean(
+            ledger,
+            edit(&[
+                ("Assets:Cash", -4, &[("rate", "1.5")]),
+                ("Assets:Cash", -6, &[("rate", "1.5")]),
+                ("Expenses:Food", 10, &[]),
+            ]),
+        )
+        .await;
+        assert_eq!(
+            postings_of(&written),
+            "\n  Assets:Cash -4 CNY\n    rate: \"1.5\"\n  Assets:Cash -6 CNY\n    rate: \"1.5\"\n  Expenses:Food 10 CNY\n",
+            "{written}"
+        );
+    }
+
+    /// Nor when several request postings have the account and units of a single original
+    /// posting: sending the same posting twice makes every value of both new.
+    #[tokio::test]
+    async fn identical_request_postings_are_not_matched() {
+        let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n    rate: 1.5\n  Assets:Cash -6 CNY\n  Expenses:Food 11 CNY\n";
+        let written = edit_bean(
+            ledger,
+            edit(&[
+                ("Assets:Cash", -5, &[("rate", "1.5")]),
+                ("Assets:Cash", -5, &[("rate", "1.5")]),
+                ("Expenses:Food", 10, &[]),
+            ]),
+        )
+        .await;
+        assert_eq!(
+            postings_of(&written),
+            "\n  Assets:Cash -5 CNY\n    rate: \"1.5\"\n  Assets:Cash -5 CNY\n    rate: \"1.5\"\n  Expenses:Food 10 CNY\n",
+            "{written}"
+        );
     }
 }
