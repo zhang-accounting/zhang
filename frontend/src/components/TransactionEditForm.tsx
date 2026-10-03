@@ -1,12 +1,12 @@
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 import { useAtomValue } from 'jotai';
-import { CalendarIcon, Plus, X } from 'lucide-react';
+import { CalendarIcon, Plus, TableProperties, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
 import { retrieveNewTransactionInfo, retrieveOptions } from '@/api/requests';
-import { JournalTransactionItem } from '@/api/types';
+import { JournalTransactionItem, MetaEntry } from '@/api/types';
 import { GroupCombobox } from '@/components/basic/GroupCombobox';
 import { useDateFormat, useDateLocale } from '@/components/layout/use-date-format';
 import { useListState } from '@/hooks/use-list-state';
@@ -18,66 +18,32 @@ import { Calendar } from './ui/calendar';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { directiveText, parseAmount, PostingDraft, toPostingDrafts, toPostingRequest, toRequestMetas, TransactionFormValue } from './transaction-form-utils';
 
-interface Posting {
-  account: string | undefined;
-  amount: string;
-}
-
-/** Request body shared by "create" and "update" transaction. */
-export interface TransactionFormValue {
-  datetime: string;
-  payee: string;
-  narration: string;
-  flag?: string | null;
-  postings: { account: string; unit: { number: string; commodity: string } | null }[];
-  tags: string[];
-  links: string[];
-  metas: { key: string; value: string }[];
-}
+export type { TransactionFormValue } from './transaction-form-utils';
 
 interface Props {
   onChange(data: TransactionFormValue, isValid: boolean): void;
   data?: JournalTransactionItem;
 }
 
-const POSTING_CARD = 'grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-lg border p-2';
-const POSTING_ROW = 'md:grid-cols-[minmax(0,1fr)_10rem_auto] md:items-center md:rounded-none md:border-0 md:p-0';
+const POSTING_CARD = 'grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 rounded-lg border p-2';
+const POSTING_ROW = 'md:grid-cols-[minmax(0,1fr)_10rem_auto_auto] md:items-center md:rounded-none md:border-0 md:p-0';
+
+/** Number of metadata entries on a posting's metadata toggle. */
+const COUNT_BADGE = cn(
+  'absolute top-0.5 right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-0.5 md:-top-0.5 md:-right-0.5',
+  'bg-foreground-2 text-[10px] leading-none font-medium text-background tabular-nums',
+);
 
 /** Touch-friendly control height (DESIGN.md: 40px on mobile, shadcn's dense 32px from md). */
 const CONTROL = 'h-10 md:h-8';
-
-type AmountState = { status: 'empty' } | { status: 'ok'; number: string; commodity: string } | { status: 'cost_price' | 'no_commodity' | 'invalid' };
 
 const AMOUNT_ERROR: Record<'cost_price' | 'no_commodity' | 'invalid', string> = {
   cost_price: 'ledger.txn.amount_cost_price',
   no_commodity: 'ledger.txn.amount_no_commodity',
   invalid: 'ledger.txn.amount_invalid',
 };
-
-/** `<number> <COMMODITY>` (the ledger's `commodity_name` grammar); the commodity may be left out when there is a fallback. */
-const AMOUNT_PATTERN = /^(-?\d+(?:\.\d+)?)(?:\s*([A-Za-z][A-Za-z0-9._'-]*))?$/;
-
-/**
- * `"-21.5 CNY"` → `{ number: '-21.5', commodity: 'CNY' }`; a bare number falls back to the operating currency. Anything else
- * (cost `{…}`, price `@ …`, expressions, extra tokens) is rejected: the API only stores `{ number, commodity }` per posting.
- */
-function parseAmount(raw: string, fallbackCommodity?: string): AmountState {
-  const text = raw.trim();
-  if (text === '') return { status: 'empty' };
-  if (/[{}@]/.test(text)) return { status: 'cost_price' };
-  const match = AMOUNT_PATTERN.exec(text);
-  if (!match) return { status: 'invalid' };
-  const commodity = match[2] ?? fallbackCommodity;
-  if (!commodity) return { status: 'no_commodity' };
-  return { status: 'ok', number: match[1], commodity };
-}
-
-/** Mirrors the server's `escape_with_quote`. */
-function quote(text: string) {
-  const escaped = text.replace(/["\\$`]/g, (char) => `\\${char}`).replace(/[\n\r\t]/g, (char) => ({ '\n': '\\n', '\r': '\\r', '\t': '\\t' })[char] ?? char);
-  return `"${escaped}"`;
-}
 
 /** `yyyy-MM-dd HH:mm:ss` in the ledger timezone (the server converts the submitted instant to it before writing). */
 function formatLedgerDateTime(date: Date, timeZone?: string) {
@@ -113,6 +79,44 @@ function withTimeOf(day: Date, previous: Date | undefined) {
   return next;
 }
 
+/** Key / value rows of a metadata editor (the transaction's or one posting's). */
+function MetaRows({ metas, onChange }: { metas: MetaEntry[]; onChange(next: MetaEntry[]): void }) {
+  const { t } = useTranslation();
+  const setProp = (idx: number, prop: keyof MetaEntry, text: string) => onChange(metas.map((meta, i) => (i === idx ? { ...meta, [prop]: text } : meta)));
+  return metas.map((meta, idx) => (
+    <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-center gap-2" key={idx}>
+      <Input
+        className={CONTROL}
+        aria-label={t('ledger.txn.meta_key')}
+        placeholder={t('ledger.txn.meta_key')}
+        // keys are case-sensitive identifiers (beancount wants a lowercase first letter): no iOS auto-capitalisation
+        autoCapitalize="none"
+        autoCorrect="off"
+        autoComplete="off"
+        spellCheck={false}
+        value={meta.key}
+        onChange={(e) => setProp(idx, 'key', e.target.value)}
+      />
+      <Input
+        className={CONTROL}
+        aria-label={t('ledger.txn.meta_value')}
+        placeholder={t('ledger.txn.meta_value')}
+        value={meta.value}
+        onChange={(e) => setProp(idx, 'value', e.target.value)}
+      />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-10 text-muted-foreground md:size-8"
+        aria-label={t('ledger.txn.remove_meta')}
+        onClick={() => onChange(metas.filter((_, i) => i !== idx))}
+      >
+        <X />
+      </Button>
+    </div>
+  ));
+}
+
 export default function TransactionEditForm(props: Props) {
   const { t } = useTranslation();
   const fmt = useDateFormat();
@@ -123,16 +127,10 @@ export default function TransactionEditForm(props: Props) {
   const [dateOpen, setDateOpen] = useState(false);
   const [payee, setPayee] = useState<string>(props.data?.payee ?? '');
   const [narration, setNarration] = useState(props.data?.narration ?? '');
-  const [postings, postingsHandler] = useListState<Posting>(
-    props.data?.postings?.map((item) => ({
-      account: item.account ?? undefined,
-      amount: `${item.unit?.number ?? ''} ${item.unit?.commodity ?? ''}`.trim(),
-    })) ?? [
-      { account: undefined, amount: '' },
-      { account: undefined, amount: '' },
-    ],
-  );
-  const [metas, metaHandler] = useListState<{ key: string; value: string }>((props.data?.metas ?? []).filter((meta) => meta.key !== 'document'));
+  const [postings, postingsHandler] = useListState<PostingDraft>(toPostingDrafts(props.data?.postings));
+  const [metas, metaHandler] = useListState<MetaEntry>((props.data?.metas ?? []).filter((meta) => meta.key !== 'document'));
+  // Posting metadata editors are collapsed by default; ids of the expanded postings.
+  const [openPostingMetas, setOpenPostingMetas] = useState<ReadonlySet<number>>(() => new Set());
 
   const accountItems = useAtomValue(accountSelectItemsAtom);
   const { value: options } = useAsync(async () => {
@@ -167,16 +165,10 @@ export default function TransactionEditForm(props: Props) {
       payee: payee ?? '',
       narration: narration,
       flag: props.data?.flag,
-      postings: postings.map((it, idx) => {
-        const unit = parsed[idx];
-        return { account: it.account ?? '', unit: unit.status === 'ok' ? { number: unit.number, commodity: unit.commodity } : null };
-      }),
+      postings: postings.map((it, idx) => toPostingRequest(it, parsed[idx])),
       tags: props.data?.tags ?? [],
       links: props.data?.links ?? [],
-      metas: [
-        ...metas.filter((meta) => meta.key.trim() !== '').map((meta) => ({ key: meta.key.trim(), value: meta.value })),
-        ...(props.data?.metas ?? []).filter((meta) => meta.key === 'document'),
-      ],
+      metas: [...toRequestMetas(metas), ...(props.data?.metas ?? []).filter((meta) => meta.key === 'document')],
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [date, payee, narration, postings, metas, parsed],
@@ -187,23 +179,30 @@ export default function TransactionEditForm(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, isValid]);
 
-  /** The directive the server will write (same layout as its exporter: header, postings, then metas sorted by key). */
-  const preview = (): string => {
-    const header = [
-      formatLedgerDateTime(new Date(value.datetime), options?.timezone),
-      value.flag || '*',
-      quote(value.payee),
-      quote(value.narration),
-      ...value.tags.map((tag) => `#${tag}`),
-      ...value.links.map((link) => `^${link}`),
-    ].join(' ');
-    const postingLines = value.postings.map((posting, idx) => {
-      const amount = parsed[idx];
-      const unit = amount.status === 'ok' ? `${amount.number} ${amount.commodity}` : amount.status === 'empty' ? '' : t('ledger.txn.preview_invalid_amount');
-      return `  ${posting.account || t('ledger.txn.preview_account')} ${unit}`.trimEnd();
+  const preview = (): string =>
+    directiveText(value, {
+      datetime: formatLedgerDateTime(new Date(value.datetime), options?.timezone),
+      amounts: parsed,
+      invalidAmount: t('ledger.txn.preview_invalid_amount'),
+      accountPlaceholder: t('ledger.txn.preview_account'),
     });
-    const metaLines = [...value.metas].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)).map((meta) => `  ${meta.key}: ${quote(meta.value)}`);
-    return [header, ...postingLines, ...metaLines].join('\n');
+
+  const addPosting = () => {
+    const id = Math.max(-1, ...postings.map((it) => it.id)) + 1;
+    postingsHandler.append({ id, account: undefined, amount: '', metas: [] });
+  };
+
+  /** Expands / collapses a posting's metadata editor; expanding an empty one starts with a blank row to fill in. */
+  const togglePostingMetas = (idx: number) => {
+    const posting = postings[idx];
+    const open = openPostingMetas.has(posting.id);
+    setOpenPostingMetas((current) => {
+      const next = new Set(current);
+      if (open) next.delete(posting.id);
+      else next.add(posting.id);
+      return next;
+    });
+    if (!open && posting.metas.length === 0) postingsHandler.setItemProp(idx, 'metas', [{ key: '', value: '' }]);
   };
 
   return (
@@ -265,7 +264,7 @@ export default function TransactionEditForm(props: Props) {
       <section className="flex flex-col gap-2" aria-label={t('ledger.txn.postings')}>
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-medium">{t('ledger.txn.postings')}</h3>
-          <Button variant="ghost" size="sm" className="h-10 md:h-7" onClick={() => postingsHandler.append({ account: undefined, amount: '' })}>
+          <Button variant="ghost" size="sm" className="h-10 md:h-7" onClick={addPosting}>
             <Plus data-icon="inline-start" />
             {t('ledger.txn.add_posting')}
           </Button>
@@ -274,11 +273,14 @@ export default function TransactionEditForm(props: Props) {
           {postings.map((posting, idx) => {
             const amount = parsed[idx];
             const amountError = amount.status === 'ok' || amount.status === 'empty' ? undefined : AMOUNT_ERROR[amount.status];
-            const errorId = `${payeeListId}-posting-${idx}-error`;
+            const errorId = `${payeeListId}-posting-${posting.id}-error`;
+            const metasId = `${payeeListId}-posting-${posting.id}-metas`;
+            const metasOpen = openPostingMetas.has(posting.id);
+            const metaCount = toRequestMetas(posting.metas).length;
             return (
-              <div key={idx} className={cn(POSTING_CARD, POSTING_ROW)}>
+              <div key={posting.id} className={cn(POSTING_CARD, POSTING_ROW)}>
                 <GroupCombobox
-                  className={cn(CONTROL, 'col-span-2 md:col-span-1')}
+                  className={cn(CONTROL, 'col-span-3 md:col-span-1')}
                   aria-label={t('ledger.txn.posting_account', { index: idx + 1 })}
                   placeholder={t('ledger.txn.account_placeholder')}
                   options={accountItems}
@@ -300,17 +302,60 @@ export default function TransactionEditForm(props: Props) {
                 <Button
                   variant="ghost"
                   size="icon"
+                  className="relative size-10 text-muted-foreground md:size-8"
+                  aria-label={t('ledger.txn.posting_metas_toggle', { index: idx + 1, count: metaCount })}
+                  title={t('ledger.txn.posting_metas_title')}
+                  aria-expanded={metasOpen}
+                  aria-controls={metasOpen ? metasId : undefined}
+                  onClick={() => togglePostingMetas(idx)}
+                >
+                  <TableProperties />
+                  {metaCount > 0 && (
+                    <span aria-hidden className={COUNT_BADGE}>
+                      {metaCount}
+                    </span>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
                   className="size-10 text-muted-foreground md:size-8"
                   aria-label={t('ledger.txn.remove_posting')}
                   disabled={postings.length <= 2}
-                  onClick={() => postingsHandler.remove(idx)}
+                  onClick={() => {
+                    postingsHandler.remove(idx);
+                    setOpenPostingMetas((current) => new Set([...current].filter((id) => id !== posting.id)));
+                  }}
                 >
                   <X />
                 </Button>
                 {amountError && (
-                  <p id={errorId} className="col-span-2 text-xs text-destructive md:col-span-3">
+                  <p id={errorId} className="col-span-3 text-xs text-destructive md:col-span-4">
                     {t(amountError)}
                   </p>
+                )}
+                {metasOpen && (
+                  <div
+                    id={metasId}
+                    role="group"
+                    aria-label={t('ledger.txn.posting_metas', { index: idx + 1 })}
+                    className="col-span-3 flex flex-col gap-2 border-t pt-2 md:col-span-4 md:mb-1 md:ml-3 md:border-t-0 md:border-l md:pt-0 md:pl-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">{t('ledger.txn.posting_metas_title')}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-10 md:h-7"
+                        onClick={() => postingsHandler.setItemProp(idx, 'metas', [...posting.metas, { key: '', value: '' }])}
+                      >
+                        <Plus data-icon="inline-start" />
+                        {t('ledger.txn.add_meta')}
+                      </Button>
+                    </div>
+                    {posting.metas.length === 0 && <p className="text-xs text-muted-foreground">{t('ledger.txn.no_metas')}</p>}
+                    <MetaRows metas={posting.metas} onChange={(next) => postingsHandler.setItemProp(idx, 'metas', next)} />
+                  </div>
                 )}
               </div>
             );
@@ -334,33 +379,7 @@ export default function TransactionEditForm(props: Props) {
           </Button>
         </div>
         {metas.length === 0 && <p className="text-xs text-muted-foreground">{t('ledger.txn.no_metas')}</p>}
-        {metas.map((meta, idx) => (
-          <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-center gap-2" key={idx}>
-            <Input
-              className={CONTROL}
-              aria-label={t('ledger.txn.meta_key')}
-              placeholder={t('ledger.txn.meta_key')}
-              value={meta.key}
-              onChange={(e) => metaHandler.setItemProp(idx, 'key', e.target.value)}
-            />
-            <Input
-              className={CONTROL}
-              aria-label={t('ledger.txn.meta_value')}
-              placeholder={t('ledger.txn.meta_value')}
-              value={meta.value}
-              onChange={(e) => metaHandler.setItemProp(idx, 'value', e.target.value)}
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-10 text-muted-foreground md:size-8"
-              aria-label={t('ledger.txn.remove_meta')}
-              onClick={() => metaHandler.remove(idx)}
-            >
-              <X />
-            </Button>
-          </div>
-        ))}
+        <MetaRows metas={metas} onChange={metaHandler.setState} />
       </section>
 
       <Accordion>

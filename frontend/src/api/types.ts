@@ -2,8 +2,17 @@ import { FetchReturnType, OpReturnType } from 'openapi-typescript-fetch';
 import type { retrieveQuerySchema, retrieveSavedQueries } from './requests';
 import { operations } from './schemas';
 
-export type JournalItem = OpReturnType<operations['get_journals']>['data']['records'][number];
+/** `{ key, value }` metadata entry of a transaction or a posting. */
+export type MetaEntry = { key: string; value: string };
+
+// TEMPORARY(pm): posting-level `metas` is hand-written until `schemas.ts` is regenerated from a server that has posting
+// metadata. Then delete `WithPostingMetas` and use the generated record type directly (`metas` becomes required).
+type GeneratedJournalItem = OpReturnType<operations['get_journals']>['data']['records'][number];
+type WithPostingMetas<T> = T extends { postings: (infer P)[] } ? Omit<T, 'postings'> & { postings: (P & { metas?: MetaEntry[] })[] } : T;
+
+export type JournalItem = WithPostingMetas<GeneratedJournalItem>;
 export type JournalTransactionItem = Extract<JournalItem, { type: 'Transaction' }>;
+export type JournalPosting = JournalTransactionItem['postings'][number];
 export type JournalBalanceCheckItem = Extract<JournalItem, { type: 'BalanceCheck' }>;
 export type JournalBalancePadItem = Extract<JournalItem, { type: 'BalancePad' }>;
 

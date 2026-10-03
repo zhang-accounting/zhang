@@ -58,6 +58,8 @@ export default function TransactionPreview({ data }: Props) {
             <PostingRow
               key={idx}
               account={posting.account}
+              metas={posting.metas}
+              metasLabel={t('ledger.preview.posting_metas', { account: posting.account })}
               amount={<Amount amount={posting.inferred_unit.number} currency={posting.inferred_unit.commodity} />}
               balance={
                 <>

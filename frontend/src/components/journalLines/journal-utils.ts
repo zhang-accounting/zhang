@@ -24,7 +24,7 @@ export function hasDocuments(data: JournalTransactionItem) {
 /**
  * Why the transaction form cannot safely rewrite this transaction, or `null` when it can.
  *
- * The update API rebuilds every posting from `{ account, unit }` only, so cost (`{…}`) and price (`@ …`) annotations would be
+ * The update API rebuilds every posting from `{ account, unit, metas }` only, so cost (`{…}`) and price (`@ …`) annotations would be
  * silently dropped. The journal payload exposes `cost`, but not prices: a balanced transaction can only mix commodities through
  * a cost or a price, so postings in more than one commodity are treated as "has cost / price" too. Posting comments and posting
  * flags are not in the payload at all (see `TransactionEditModal`, which asks for confirmation instead).
