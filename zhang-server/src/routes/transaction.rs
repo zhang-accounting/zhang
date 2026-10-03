@@ -8,7 +8,7 @@ use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction};
+use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
 use zhang_core::constants::TXN_ID;
 use zhang_core::data_type::text::parser::transaction_header_len;
 use zhang_core::domains::schemas::{MetaType, TransactionInfoDomain};
@@ -130,10 +130,12 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
 /// Build the transaction a create or update request describes, rejecting with a
 /// 400 any account, commodity, tag, link or flag that would be written unquoted and
 /// not read back, and in a beancount ledger any new name beancount itself rejects.
-fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) -> ServerResult<Directive> {
+/// `original` is the transaction an update replaces, as it was read from the ledger.
+fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, original: Option<&Transaction>) -> ServerResult<Directive> {
     let rules = validate::Rules::of(ledger);
     let mut postings = vec![];
-    for posting in payload.postings {
+    for (index, posting) in payload.postings.into_iter().enumerate() {
+        let original_meta = original.and_then(|it| it.postings.get(index)).map(|it| &it.meta);
         if let Some(unit) = &posting.unit {
             validate::amount(unit, &rules)?;
         }
@@ -144,11 +146,11 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) 
             cost: None,
             price: None,
             comment: None,
-            meta: metas_from_request(posting.metas.unwrap_or_default(), &rules)?,
+            meta: metas_from_request(posting.metas.unwrap_or_default(), &rules, original_meta)?,
         });
     }
 
-    let metas = metas_from_request(payload.metas, &rules)?;
+    let metas = metas_from_request(payload.metas, &rules, original.map(|it| &it.meta))?;
     for tag in &payload.tags {
         validate::tag(tag, &rules)?;
     }
@@ -171,15 +173,42 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) 
     }))
 }
 
-/// The metadata of a request, every key checked by [`validate::meta_key`]. Values are
-/// always written quoted.
-fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules) -> ServerResult<Meta> {
+/// The metadata of a request, every key checked by [`validate::meta_key`].
+///
+/// New and changed values are written quoted. A value `original`, the metadata the
+/// request edits, already has unquoted under the same key is written unquoted again, so
+/// an edit that leaves a number, date or boolean as it was does not turn it into a string
+/// for beancount. An unquoted value read from the ledger is a bare word, so it reads back.
+fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original: Option<&Meta>) -> ServerResult<Meta> {
     let mut meta = Meta::default();
     for MetaRequest { key, value } in metas {
         validate::meta_key(&key, rules)?;
-        meta.insert(key, value.to_quote());
+        let unchanged_bare = original.is_some_and(|original| {
+            original
+                .get_all(&key)
+                .into_iter()
+                .any(|it| matches!(it, ZhangString::UnquoteString(bare) if *bare == value))
+        });
+        let value = if unchanged_bare {
+            ZhangString::UnquoteString(value)
+        } else {
+            value.to_quote()
+        };
+        meta.insert(key, value);
     }
     Ok(meta)
+}
+
+/// The transaction directive the stored transaction at `span` was read from.
+fn original_transaction<'a>(ledger: &'a Ledger, span: &TransactionInfoDomain) -> Option<&'a Transaction> {
+    ledger.directives.iter().find_map(|directive| match &directive.data {
+        Directive::Transaction(transaction)
+            if directive.span.start == span.span_start && directive.span.filename.as_deref() == Some(span.source_file.as_path()) =>
+        {
+            Some(transaction)
+        }
+        _ => None,
+    })
 }
 
 #[api(group = "transaction")]
@@ -188,7 +217,7 @@ pub async fn create_new_transaction(
 ) -> ApiResult<String> {
     let ledger = ledger.read().await;
 
-    let trx = transaction_from_request(payload, &ledger)?;
+    let trx = transaction_from_request(payload, &ledger, None)?;
 
     ledger.data_source.async_append(&ledger, vec![trx]).await?;
     reload_sender.reload();
@@ -290,7 +319,7 @@ pub async fn update_single_transaction(
         return ResponseWrapper::bad_request();
     };
 
-    let trx = transaction_from_request(payload, &ledger)?;
+    let trx = transaction_from_request(payload, &ledger, original_transaction(&ledger, &span_info))?;
     let txn_content = ledger.data_source.export(trx)?;
     let trx_content = String::from_utf8_lossy(&txn_content);
     let source_file_path = span_info.source_file.to_string_lossy().to_string();
@@ -1010,5 +1039,63 @@ mod string_round_trip_test {
                 std::fs::remove_dir_all(dir).ok();
             }
         }
+    }
+
+    /// An edit that leaves a metadata value as it was writes it as it was: an unquoted
+    /// number, date or boolean stays one for beancount. A changed value is quoted.
+    #[tokio::test]
+    async fn an_edit_keeps_unchanged_bare_metadata_values_bare() {
+        let dir = std::env::temp_dir().join(format!("zhang-bare-meta-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let main = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n\n\
+                    2024-01-15 * \"Bob\" \"coffee\"\n  rate: 1.5\n  day: 2024-01-15\n  paid: TRUE\n  note: \"n\"\n  \
+                    Assets:Cash -5 CNY\n    rate: 2.5\n    day: 2024-01-14\n    cleared: FALSE\n  Expenses:Food 5 CNY\n    rate: 7\n";
+        std::fs::write(dir.join("main.bean"), main).unwrap();
+        let load = || async {
+            let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+        };
+
+        let ledger = load().await;
+        let id = ledger.operations().read().transactions.values().next().unwrap().id;
+        // the client sends every value back as text, a few of them changed
+        let mut update = request("coffee", "n");
+        update.payee = "Bob".to_owned();
+        update.metas = vec![meta("rate", "1.5"), meta("day", "2024-02-01"), meta("paid", "TRUE"), meta("note", "n")];
+        update.postings[0].metas = Some(vec![meta("rate", "3.5"), meta("day", "2024-01-14"), meta("cleared", "FALSE")]);
+        // the same text under a key the posting did not have unquoted
+        update.postings[1].metas = Some(vec![meta("rate", "7"), meta("paid", "TRUE")]);
+        let (ledger, reload) = states(ledger);
+        let response = update_single_transaction(ledger, reload, Path((id.to_string(),)), Json(update))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let written = std::fs::read_to_string(dir.join("main.bean")).unwrap();
+        for line in [
+            // unchanged: as they were
+            "\n  rate: 1.5\n",
+            "\n  paid: TRUE\n",
+            "\n  note: \"n\"\n",
+            "\n    day: 2024-01-14\n",
+            "\n    cleared: FALSE\n",
+            "\n    rate: 7\n",
+            // changed or new: quoted
+            "\n  day: \"2024-02-01\"\n",
+            "\n    rate: \"3.5\"\n",
+            "\n    paid: \"TRUE\"",
+        ] {
+            assert!(written.contains(line), "{line:?} in\n{written}");
+        }
+        let reloaded = load().await;
+        assert!(reloaded.operations().read().errors.is_empty(), "{written}");
+        let items = journals(reloaded).await;
+        assert_eq!(
+            items[0]["postings"][0]["metas"],
+            serde_json::json!([{"key": "cleared", "value": "FALSE"}, {"key": "day", "value": "2024-01-14"}, {"key": "rate", "value": "3.5"}])
+        );
+
+        std::fs::remove_dir_all(dir).ok();
     }
 }
