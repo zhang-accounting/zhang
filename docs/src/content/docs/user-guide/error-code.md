@@ -122,9 +122,9 @@ To correct the balance on purpose, use `pad` or `balance ... with pad` (see [Pad
 ## UnusedPad
 
 A `pad` directive padded nothing: no later balance assertion of its account needed it. Beancount reports the same
-error ("Unused Pad entry"). A `pad` serves the next `balance` of its account in each commodity until the account's
-next `pad`; it is unused when every such assertion already holds, when no assertion of the account follows it, or
-when another `pad` of the account replaces it first.
+error ("Unused Pad entry"). A `pad` serves the first `balance` of its account in each commodity on a later day than
+the `pad`, until the account's next `pad`; it is unused when every such assertion already holds, when no assertion of
+the account follows it on a later day, or when another `pad` of the account replaces it first.
 
 **Example of Error:**
 ```zhang
@@ -134,13 +134,14 @@ when another `pad` of the account replaces it first.
 ```
 
 **Solution:** Remove the `pad`, or move it before the assertion it is meant to serve. A `balance` on the day of the
-`pad` comes before it and is not padded.
+`pad` comes before it and is not padded, whatever their times.
 
 ## PadWithCost
 
 A pad would pad a commodity that its account, or one of its sub-accounts, holds at cost (in lots with a cost, such as
 shares bought `{100 USD}`). The padding is still booked, without a cost, and the error is reported on the balance
-assertion it serves, as Beancount reports "Attempt to pad an entry with cost".
+assertion it serves, as Beancount reports "Attempt to pad an entry with cost". Zhang reports it once for the
+assertion; Beancount reports it once for each lot held at cost.
 
 **Example of Error:**
 ```zhang
