@@ -21,11 +21,12 @@ use tokio::sync::RwLock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_server::request::JournalRequest;
-use zhang_server::routes::account::{get_account_info, get_account_journals, get_account_list};
+use zhang_server::request::{BatchAccountBalanceRequest, JournalRequest};
+use zhang_server::routes::account::{create_batch_account_balances, get_account_info, get_account_journals, get_account_list};
 use zhang_server::routes::transaction::get_journals;
 use zhang_server::routes::Query as UrlQuery;
-use zhang_server::state::SharedLedger;
+use zhang_server::state::{SharedLedger, SharedReloadSender};
+use zhang_server::ReloadSender;
 
 const LEDGER: &str = r#"option "operating_currency" "CNY"
 1970-01-01 commodity CNY
@@ -428,4 +429,90 @@ async fn a_c_flagged_transaction_is_an_ordinary_transaction() {
     assert_eq!(record["flag"], "C");
     assert_eq!(record["is_balanced"], true);
     assert_eq!(scratch.balance("Assets:Bank").await, json!({"CNY": "10"}));
+}
+
+#[tokio::test]
+async fn a_new_account_gets_a_row_in_the_operating_currency() {
+    let scratch = Scratch::new(
+        r#"option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Empty
+1970-01-01 open Liabilities:Card USD
+"#,
+    );
+    let (_, info) = respond(get_account_info(scratch.state().await, UrlPath(("Assets:Empty".to_owned(),))).await).await;
+    // like the account's own balance, its balance with sub-accounts holds the operating currency, at zero
+    assert_eq!(info["data"]["amount"]["detail"], json!({"CNY": "0"}));
+    assert_eq!(info["data"]["balance_with_sub_accounts"], json!({"CNY": "0"}));
+    assert_eq!(info["data"]["has_sub_accounts"], false);
+    let (_, list) = respond(get_account_list(scratch.state().await).await).await;
+    let card = list["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|it| it["name"] == "Liabilities:Card")
+        .unwrap()
+        .clone();
+    assert_eq!(card["balance_with_sub_accounts"], json!({"CNY": "0"}));
+}
+
+#[tokio::test]
+async fn a_batch_pads_sub_accounts_before_their_parents() {
+    let today = chrono::Utc::now().date_naive();
+    let data_file = format!("data/{}/{}.zhang", chrono::Datelike::year(&today), chrono::Datelike::month(&today));
+    let scratch = Scratch::new(&format!(
+        r#"option "operating_currency" "CNY"
+option "timezone" "UTC"
+include "{data_file}"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Assets:Bank:Savings
+1970-01-01 open Equity:Open
+2024-01-02 * "Self" "init"
+  Assets:Bank 305 CNY
+  Assets:Bank:Checking 155 CNY
+  Assets:Bank:Savings 40 CNY
+  Equity:Open
+"#
+    ));
+    let data = scratch.dir.join(&data_file);
+    std::fs::create_dir_all(data.parent().unwrap()).unwrap();
+    std::fs::write(&data, "").unwrap();
+
+    // the parent first, as a user may fill the form
+    let cny = |number: u32| zhang_ast::amount::Amount::new(BigDecimal::from(number), "CNY");
+    let batch = vec![
+        BatchAccountBalanceRequest::Pad {
+            account_name: "Assets:Bank".to_owned(),
+            amount: cny(500),
+            pad: "Equity:Open".to_owned(),
+        },
+        BatchAccountBalanceRequest::Pad {
+            account_name: "Assets:Bank:Checking".to_owned(),
+            amount: cny(200),
+            pad: "Equity:Open".to_owned(),
+        },
+    ];
+    let (sender, _) = tokio::sync::mpsc::channel(1);
+    let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
+    let response = create_batch_account_balances(scratch.state().await, reload, axum::Json(batch))
+        .await
+        .into_response();
+    assert!(response.status().is_success(), "{}", response.status());
+
+    // the sub-account is written first, so the parent's assertion covers its padding
+    let written = std::fs::read_to_string(&data).unwrap();
+    let checking = written.find("Assets:Bank:Checking 200 CNY").expect("the sub-account's balance is written");
+    let bank = written.find("Assets:Bank 500 CNY").expect("the parent's balance is written");
+    assert!(checking < bank, "{written}");
+    let state = scratch.state().await;
+    {
+        let ledger = state.read().await;
+        let store = ledger.store.read().unwrap();
+        assert!(store.errors.is_empty(), "{:?}", store.errors);
+        assert!(store.balance_assertions.iter().all(|it| it.passed));
+    }
+    let (_, info) = respond(get_account_info(state, UrlPath(("Assets:Bank".to_owned(),))).await).await;
+    assert_eq!(number(&info["data"]["balance_with_sub_accounts"]["CNY"]), decimal("500"));
 }

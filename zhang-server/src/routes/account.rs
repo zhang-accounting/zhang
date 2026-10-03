@@ -41,7 +41,8 @@ pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<Acco
             .calculate(Utc::now().with_timezone(timezone), &mut operations)?
             .persist_commodity(&ledger.options.operating_currency);
 
-        let with_sub_accounts = all_with_sub_accounts.remove(&account).unwrap_or_default();
+        let mut with_sub_accounts = all_with_sub_accounts.remove(&account).unwrap_or_default();
+        with_sub_accounts.balance.entry(ledger.options.operating_currency.clone()).or_default();
         ret.push(AccountEntity {
             name: account,
             status: account_domain.status,
@@ -75,7 +76,9 @@ pub async fn get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>
         .calculate(Utc::now().with_timezone(timezone), &mut operations)?
         .persist_commodity(&ledger.options.operating_currency);
 
-    let with_sub_accounts = operations.balances_with_sub_accounts()?.remove(&account_info.name).unwrap_or_default();
+    let mut with_sub_accounts = operations.balance_with_sub_accounts(&account_info.name)?;
+    // like `amount`, it holds the operating currency, so a new account gets a row to set its opening balance
+    with_sub_accounts.balance.entry(ledger.options.operating_currency.clone()).or_default();
     ResponseWrapper::json(AccountInfoEntity {
         date: account_info.date,
         r#type: account_info.r#type,
@@ -219,24 +222,37 @@ pub async fn create_account_balance(
     Ok(Created)
 }
 
+/// the balances of a batch, those of deeper accounts first, the order of the request kept otherwise
+fn sub_accounts_first(mut balances: Vec<BatchAccountBalanceRequest>) -> Vec<BatchAccountBalanceRequest> {
+    let depth = |balance: &BatchAccountBalanceRequest| match balance {
+        BatchAccountBalanceRequest::Check { account_name, .. } | BatchAccountBalanceRequest::Pad { account_name, .. } => account_name.matches(':').count(),
+    };
+    balances.sort_by_key(|balance| std::cmp::Reverse(depth(balance)));
+    balances
+}
+
 #[api(group = "account")]
 pub async fn create_batch_account_balances(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<Vec<BatchAccountBalanceRequest>>,
 ) -> ServerResult<Created> {
     let ledger = ledger.read().await;
     let rules = Rules::of(&ledger);
+    // one time for the whole batch, so the file order decides the order of its directives
+    let now = Date::now(&ledger.options.timezone);
     let mut directives = vec![];
-    for balance in payload {
+    // sub-accounts before their parents, deepest first: a `balance` on a parent covers its sub-accounts, so it
+    // must come after their pads to assert, and pad to, the total they leave
+    for balance in sub_accounts_first(payload) {
         let balance = match balance {
             BatchAccountBalanceRequest::Check { account_name, amount } => Directive::BalanceCheck(BalanceCheck {
-                date: Date::now(&ledger.options.timezone),
+                date: now.clone(),
                 account: validate::account(&account_name, &rules)?,
                 amount: validated(amount, &rules)?,
                 tolerance: None,
                 meta: Default::default(),
             }),
             BatchAccountBalanceRequest::Pad { account_name, amount, pad } => Directive::BalancePad(BalancePad {
-                date: Date::now(&ledger.options.timezone),
+                date: now.clone(),
                 account: validate::account(&account_name, &rules)?,
                 amount: validated(amount, &rules)?,
                 meta: Default::default(),
