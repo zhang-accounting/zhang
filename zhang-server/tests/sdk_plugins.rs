@@ -137,6 +137,9 @@ plugin "{module}"
   allowlist: "guard/allow.txt"
   allowed_paths: "guard"
 
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity EUR
 1970-01-01 open Assets:Cash
 1970-01-01 open Expenses:Food
 1970-01-01 open Expenses:Rent
@@ -165,6 +168,21 @@ plugin "{module}"
   Assets:Cash -900 CNY
   Expenses:Food 900 CNY
 
+2024-03-01 price USD 7.2 CNY
+2024-03-01 price CNY 0.125 EUR
+
+2024-03-08 * "Shop" "gadget"
+  Assets:Cash -40 USD
+  Expenses:Food 40 USD
+
+2024-03-09 * "Shop" "souvenir"
+  Assets:Cash -30 EUR
+  Expenses:Food 30 EUR
+
+2024-03-10 * "Shop" "postcard"
+  Assets:Cash -20 EUR
+  Expenses:Food 20 EUR
+
 2024-04-01 * "Cafe" "booked ahead"
   Assets:Cash -10 CNY
   Expenses:Food 10 CNY
@@ -186,7 +204,7 @@ fn guard_ids(ledger: &Ledger) -> Vec<(String, String)> {
 }
 
 #[test]
-fn the_guard_processor_reads_config_custom_clock_and_files_and_reports_errors() {
+fn the_guard_processor_reads_config_custom_clock_files_and_prices_and_reports_errors() {
     let Some(examples) = examples() else {
         return;
     };
@@ -239,6 +257,18 @@ fn the_guard_processor_reads_config_custom_clock_and_files_and_reports_errors() 
                 "threshold",
                 "Expenses:Food 60 CNY is over the threshold of 50 CNY"
             ),
+            // valued in CNY at the ledger's price of the day
+            (
+                "2024-03-08 * \"Shop\" \"gadget\"",
+                "threshold",
+                "Expenses:Food 40 USD (worth 288.0 CNY) is over the threshold of 200 CNY"
+            ),
+            // at the inverse of the CNY -> EUR price
+            (
+                "2024-03-09 * \"Shop\" \"souvenir\"",
+                "threshold",
+                "Expenses:Food 30 EUR (worth 240 CNY) is over the threshold of 200 CNY"
+            ),
             // `zhang_now` is the load's clock, 2024-03-16 in Asia/Shanghai
             (
                 "2024-04-01 * \"Cafe\" \"booked ahead\"",
@@ -246,7 +276,7 @@ fn the_guard_processor_reads_config_custom_clock_and_files_and_reports_errors() 
                 "the transaction is dated 2024-04-01, after today (2024-03-16)"
             ),
         ],
-        "dinner is under the 200 CNY of 2024-03-01, and Market is on the allowlist file"
+        "dinner and postcard (160 CNY) are under the 200 CNY of 2024-03-01, and Market is on the allowlist file"
     );
     assert!(errors.iter().all(|(_, metas)| metas["plugin"] == "guard"));
     assert_eq!(errors[0].1["threshold"], "500 CNY");
@@ -257,9 +287,9 @@ fn the_guard_processor_reads_config_custom_clock_and_files_and_reports_errors() 
 
     // every transaction gets an id from `rng_for`: distinct, and the same on the next load
     let ids = guard_ids(&ledger);
-    assert_eq!(ids.len(), 6);
+    assert_eq!(ids.len(), 9);
     assert!(ids.iter().all(|(_, id)| id.len() == 16 && id.chars().all(|c| c.is_ascii_hexdigit())), "{ids:?}");
-    assert_eq!(ids.iter().map(|(_, id)| id).collect::<BTreeSet<_>>().len(), 6);
+    assert_eq!(ids.iter().map(|(_, id)| id).collect::<BTreeSet<_>>().len(), 9);
     assert_eq!(guard_ids(&load(&dir, &content)), ids);
 
     // an id depends on the transaction's own text only

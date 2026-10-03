@@ -1,0 +1,24 @@
+; The document ledger of zhang-query/tests/server_features.rs: #documents rows from document
+; directives and from `document:` metadata of transactions and postings. sub/more.zhang is
+; included from a subdirectory, so beancount's resolution of its document path (filename)
+; differs from the path zhang keeps relative to the ledger root (path).
+option "operating_currency" "CNY"
+include "sub/more.zhang"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+
+2024-01-10 document Assets:Bank "statements/2024-01.pdf"
+
+2024-01-11 * "Shop" "Receipts"
+  document: "attachments/receipt-1.pdf"
+  document: "attachments/receipt-2.pdf"
+  Expenses:Food                  10 CNY
+    document: "attachments/item-1.jpg"
+    document: "attachments/item-2.jpg"
+  Assets:Bank                   -10 CNY
+
+2024-01-12 * "Shop" "No documents"
+  Expenses:Food                   5 CNY
+  Assets:Bank                    -5 CNY

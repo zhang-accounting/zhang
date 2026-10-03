@@ -1,0 +1,25 @@
+{
+  "name": "date_trunc_edges",
+  "query": "SELECT DISTINCT date_trunc('week', 2016-01-03) AS sunday, date_trunc('week', 2016-01-04) AS monday, date_trunc('week', 2016-03-01) AS leap_week, date_trunc('month', 2016-02-29) AS leap_day, date_trunc('quarter', 2016-12-31) AS q4, date_trunc('decade', 2010-01-01) AS d2010, date_trunc('century', 2000-12-31) AS c2000, date_trunc('century', 2001-01-01) AS c2001, date_trunc('millennium', 2000-12-31) AS m2000, date_trunc('day', 2016-01-01) AS unknown, date_trunc('Week', 2016-01-01) AS upper_case WHERE account = 'Expenses:Financial:Fees'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "sunday", "type": "date"},
+    {"name": "monday", "type": "date"},
+    {"name": "leap_week", "type": "date"},
+    {"name": "leap_day", "type": "date"},
+    {"name": "q4", "type": "date"},
+    {"name": "d2010", "type": "date"},
+    {"name": "c2000", "type": "date"},
+    {"name": "c2001", "type": "date"},
+    {"name": "m2000", "type": "date"},
+    {"name": "unknown", "type": "date"},
+    {"name": "upper_case", "type": "date"}
+  ],
+  "rows": [
+    ["2015-12-28", "2016-01-04", "2016-02-29", "2016-02-01", "2016-10-01", "2010-01-01", "1901-01-01", "2001-01-01", "1001-01-01", null, null]
+  ],
+  "notes": "A Sunday belongs to the week that started on the Monday before, across a year boundary. The century of 2000 starts in 1901 and that of 2001 in 2001. An unknown field ('day') and a field in another case ('Week') are NULL. One row: DISTINCT over the postings of one account."
+}

@@ -8,13 +8,13 @@
 //! table computes each column when it is read, and its builder may skip work that only
 //! unprojected columns need. For the `postings` table:
 //!
-//! - Lot booking always runs over every posting held at cost: the lot a posting reduces
-//!   depends on all earlier postings, and how a reduction splits across lots decides the
-//!   rows themselves (their number and units), so even `SELECT count(*)` needs it. Only
-//!   whether the booked rows *carry* the cost of their lot depends on the projection
-//!   (`position`, `cost_*`, `weight`).
-//! - The price annotation (`price`, `weight`) is derived from the parsed directive (a
-//!   division for `@@` totals) only when projected.
+//! - Lot booking runs over every posting held at cost: the lot a posting reduces depends on
+//!   all earlier postings, and how a reduction splits across lots decides the rows themselves
+//!   (their number and units), so even `SELECT count(*)` needs it. It runs once per loaded
+//!   ledger, whatever the projection, and its rows are kept with the ledger
+//!   ([`crate::table::LedgerCache`]). Only whether an execution's rows *carry* the cost of
+//!   their lot depends on the projection (`position`, `cost_*`, `weight`), and so does the
+//!   price annotation (`price`, `weight`).
 //! - Transaction columns (`id`, `flag`, `payee`, `narration`, `description`, `tags`,
 //!   `links`, `other_accounts`) are never copied up front: a row points at the stored
 //!   transaction and a column reads it when it is evaluated.
@@ -31,6 +31,14 @@
 //! one replay of the filtered rows in ledger order evaluates them for those rows only. A
 //! `first()` / `last()` over it remembers the row it picks and is evaluated there. A plan that
 //! does not read `balance` keeps no running total at all.
+//!
+//! `account_balance`, the running balance of each posting's own account, is a running total
+//! too ([`Running::AccountBalance`]), materialized the same way: the scan only keeps the
+//! balances of the accounts (one inventory each) when the filter, ORDER BY, DISTINCT, a
+//! GROUP BY key or an aggregate reads it, and otherwise the replay sums the rows of every
+//! account up to the chosen rows, whatever the filter, and evaluates it for those rows only.
+//! A row's value is a snapshot of its account's inventory, so only the rows a query holds
+//! copy one, and the result budget counts them.
 
 use std::fmt;
 
@@ -60,6 +68,12 @@ impl Eq for Projection {}
 /// Decide how the plan materializes its running totals (see the module docs).
 pub(crate) fn plan_running(plan: &mut Plan) {
     let mut totals = vec![];
+    // the filter can read the account balances (not `balance`, which it decides)
+    let mut in_filter = vec![];
+    if let Some(filter) = &plan.filter {
+        collect_running(filter, &mut in_filter);
+    }
+    totals.extend(in_filter.iter().copied());
     for target in &plan.targets {
         collect_running(&target.expr, &mut totals);
     }
@@ -81,6 +95,7 @@ pub(crate) fn plan_running(plan: &mut Plan) {
     };
     let mut running = RunningPlan {
         totals,
+        eager: !in_filter.is_empty(),
         ..RunningPlan::default()
     };
     match &plan.group_keys {
@@ -98,7 +113,7 @@ pub(crate) fn plan_running(plan: &mut Plan) {
             }
         }
         Some(keys) => {
-            running.eager = keys.iter().any(|idx| reads_running(&plan.targets[*idx].expr));
+            running.eager |= keys.iter().any(|idx| reads_running(&plan.targets[*idx].expr));
             for (idx, aggregate) in plan.aggregates.iter().enumerate() {
                 match &aggregate.arg {
                     Some(arg) if reads_running(arg) => {
@@ -131,7 +146,22 @@ fn picks_a_row(aggregate: &AggregateCall) -> bool {
 
 /// Functions that return a value, never NULL or an error, for arguments of their types,
 /// as long as they take no integer (`abs` and `neg` can overflow one).
-const TOTAL_FUNCTIONS: &[&str] = &["units", "cost", "value", "convert", "str", "only", "filter_currency", "possign", "abs", "neg"];
+const TOTAL_FUNCTIONS: &[&str] = &[
+    "units",
+    "cost",
+    "value",
+    "convert",
+    "str",
+    "only",
+    "filter_currency",
+    "possign",
+    "abs",
+    "neg",
+    "icontains",
+    "any_icontains",
+    "intersects",
+    "under",
+];
 
 fn total_function(expr: &CExpr) -> bool {
     match expr {
@@ -142,10 +172,11 @@ fn total_function(expr: &CExpr) -> bool {
 
 /// Whether evaluating the expression can never fail, so evaluating it for fewer rows
 /// changes nothing but the work done.
-fn infallible(expr: &CExpr) -> bool {
+pub(crate) fn infallible(expr: &CExpr) -> bool {
     let node = match expr {
         CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) | CExpr::Target(_) => true,
         CExpr::Not(_) | CExpr::And(_) | CExpr::Or(_) | CExpr::Compare { .. } | CExpr::InSet { .. } | CExpr::InList { .. } | CExpr::IsNull { .. } => true,
+        CExpr::InConst { .. } | CExpr::StrTest { .. } => true,
         CExpr::Scalar { .. } => total_function(expr),
         CExpr::Aggregate(_) | CExpr::Neg(..) | CExpr::Arith { .. } | CExpr::Regex { .. } => false,
     };
@@ -245,7 +276,7 @@ impl Projection {
     }
 }
 
-/// `[account, position] (2 of 24 columns)`
+/// `[account, position] (2 of 33 columns)`
 impl fmt::Display for Projection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let names = self.names();
@@ -296,7 +327,7 @@ mod tests {
     use super::*;
     use crate::executor::{execute, Budget, RegexCache};
     use crate::params::Params;
-    use crate::table::{column, Dataset, Limits, Record, COLUMNS};
+    use crate::table::{column, Dataset, Limits, Record, Scope, COLUMNS};
     use crate::Query;
 
     fn load(dir: PathBuf) -> Ledger {
@@ -445,6 +476,7 @@ option "operating_currency" "USD"
             &store,
             today,
             projection.unwrap_or(query.projection),
+            &Scope::All,
             &mut Limits::new(None, &mut budget),
         )
         .unwrap();
@@ -474,27 +506,38 @@ option "operating_currency" "USD"
     }
 
     #[test]
-    fn balances_look_up_discrepancies_only_when_projected() {
+    fn balances_compute_the_true_balances_only_when_projected() {
         let ledger = load_text(&format!("{LEDGER}\n2024-04-03 balance Assets:Bank 1999.00 USD\n"));
         let store = ledger.store.read().unwrap();
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let discrepancies = |sql: &str| {
+        let actuals = |sql: &str| -> (usize, usize) {
             let mut budget = Budget::new(None);
             let data = Dataset::build(
                 &ledger,
                 &store,
                 today,
                 Query::compile(sql).unwrap().projection,
+                &Scope::All,
                 &mut Limits::new(None, &mut budget),
             )
             .unwrap();
-            data.records
+            let computed = data
+                .records
                 .iter()
-                .filter(|record| matches!(record, Record::Balance { discrepancy: Some(_), .. }))
-                .count()
+                .filter(|record| matches!(record, Record::Balance { check: Some(_), .. }))
+                .count();
+            (computed, data.records.len())
         };
-        assert_eq!(discrepancies("SELECT date, amount FROM #balances"), 0);
-        assert_eq!(discrepancies("SELECT date FROM #balances WHERE discrepancy IS NOT NULL"), 1);
+        assert_eq!(actuals("SELECT date, amount FROM #balances").0, 0);
+        for sql in [
+            "SELECT date FROM #balances WHERE discrepancy IS NOT NULL",
+            "SELECT actual FROM #balances",
+            "SELECT count(*) FROM #balances WHERE passed",
+        ] {
+            let (computed, assertions) = actuals(sql);
+            assert!(assertions >= 2, "{sql}");
+            assert_eq!(computed, assertions, "{sql}");
+        }
     }
 
     #[test]
@@ -524,11 +567,11 @@ option "operating_currency" "USD"
         assert_eq!(projection.names(), vec!["payee", "position", "price", "tags"]);
         assert!(projection.keeps_cost() && projection.keeps_price());
         assert!(projection.contains(column("tags").unwrap()) && !projection.contains(column("account").unwrap()));
-        assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 24 columns)");
+        assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 33 columns)");
 
         let projection = Query::compile("SELECT count(*), sum(number) WHERE account ~ 'Food'").unwrap().projection;
         assert!(!projection.keeps_cost() && !projection.keeps_price());
-        assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 24 columns)");
+        assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 33 columns)");
         assert_eq!(Projection::all().names().len(), COLUMNS.len());
     }
 
@@ -570,6 +613,6 @@ option "operating_currency" "USD"
                 };
             }
         }
-        assert_eq!(checked, data.rows.len() * 9);
+        assert_eq!(checked, data.rows.len() * 10);
     }
 }

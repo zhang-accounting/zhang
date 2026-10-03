@@ -8,6 +8,7 @@ pub mod clock;
 pub mod constants;
 pub mod data_source;
 pub mod data_type;
+pub mod derived;
 pub mod domains;
 pub mod error;
 pub mod inputs;

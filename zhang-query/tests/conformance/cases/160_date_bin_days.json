@@ -1,0 +1,22 @@
+{
+  "name": "date_bin_days",
+  "query": "SELECT DISTINCT date, date_bin('7 days', date, 2015-01-05) AS week, date_bin('10 days', date, 2016-12-31) AS backwards, date_bin('1 day', date, 2000-01-01) AS day WHERE account = 'Expenses:Food:Groceries' AND date >= 2016-01-01 AND date < 2016-03-01 ORDER BY date",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "week", "type": "date"},
+    {"name": "backwards", "type": "date"},
+    {"name": "day", "type": "date"}
+  ],
+  "rows": [
+    ["2016-01-10", "2016-01-04", "2016-01-06", "2016-01-10"],
+    ["2016-01-19", "2016-01-18", "2016-01-16", "2016-01-19"],
+    ["2016-01-26", "2016-01-25", "2016-01-26", "2016-01-26"],
+    ["2016-02-11", "2016-02-08", "2016-02-05", "2016-02-11"],
+    ["2016-02-22", "2016-02-22", "2016-02-15", "2016-02-22"]
+  ],
+  "notes": "A stride of days bins by whole strides from the origin, in both directions, and a date on a boundary starts its own bin (unlike strides of months)."
+}

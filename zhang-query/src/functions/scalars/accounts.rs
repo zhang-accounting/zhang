@@ -1,5 +1,5 @@
-//! Account name functions: `parent`, `leaf` and `account_sortkey` (`root` lives with the
-//! registry examples).
+//! Account name functions: `parent`, `leaf`, `account_sortkey` and the zhang extension
+//! `under` (`root` lives with the registry examples).
 
 use std::str::FromStr;
 
@@ -47,6 +47,23 @@ pub(super) fn account_sortkey(args: &[Value], _ctx: &dyn FunctionContext) -> Res
     Ok(Value::Str(format!("{}-{}", index, account)))
 }
 
+/// Whether `account` is `ancestor` or one of its sub-accounts: `ancestor` followed by `:`.
+pub(crate) fn is_under(account: &str, ancestor: &str) -> bool {
+    match account.strip_prefix(ancestor) {
+        Some(rest) => rest.is_empty() || rest.starts_with(':'),
+        None => false,
+    }
+}
+
+/// `under(account, ancestor)`, a zhang extension: whether the account is the ancestor or
+/// below it (`under('Assets:Bank:Cash', 'Assets:Bank')`), never a sibling with a longer name
+/// (`Assets:Banking`).
+pub(super) fn under(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+    let account = args[0].as_str().ok_or("under() expects an account name")?;
+    let ancestor = args[1].as_str().ok_or("under() expects an ancestor account name")?;
+    Ok(Value::Bool(is_under(account, ancestor)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::testing::*;
@@ -60,6 +77,23 @@ mod tests {
         assert_eq!(call("parent", vec!["Assets".into()]), Value::from(""));
         assert_eq!(call("parent", vec!["".into()]), Value::Null);
         assert_eq!(call("parent", vec![Value::Null]), Value::Null);
+    }
+
+    #[test]
+    fn under_matches_the_account_and_its_sub_accounts() {
+        assert_eq!(call("under", vec!["Assets:Bank".into(), "Assets:Bank".into()]), Value::Bool(true));
+        assert_eq!(call("under", vec!["Assets:Bank:Cash".into(), "Assets:Bank".into()]), Value::Bool(true));
+        assert_eq!(call("under", vec!["Assets:Bank:Cash".into(), "Assets".into()]), Value::Bool(true));
+        // a sibling whose name starts with the ancestor's is not under it
+        assert_eq!(call("under", vec!["Assets:Banking".into(), "Assets:Bank".into()]), Value::Bool(false));
+        assert_eq!(call("under", vec!["Assets".into(), "Assets:Bank".into()]), Value::Bool(false));
+        // names are case-sensitive, as accounts are
+        assert_eq!(call("under", vec!["assets:bank".into(), "Assets".into()]), Value::Bool(false));
+        // the empty ancestor is only an ancestor of the empty name
+        assert_eq!(call("under", vec!["Assets".into(), "".into()]), Value::Bool(false));
+        assert_eq!(call("under", vec!["".into(), "".into()]), Value::Bool(true));
+        assert_eq!(call("under", vec![Value::Null, "Assets".into()]), Value::Null);
+        assert_eq!(call("under", vec!["Assets".into(), Value::Null]), Value::Null);
     }
 
     #[test]

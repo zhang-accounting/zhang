@@ -5,7 +5,8 @@
 //! - `convert` first tries a direct market rate from the units currency to the target; for a
 //!   position held at cost it then tries the implied two-step market rate units → cost
 //!   currency → target (it never converts the book cost). Without a rate the units are
-//!   returned as-is.
+//!   returned as-is. It is [`Position::convert`] and [`Inventory::convert`](crate::Inventory::convert), the public
+//!   valuation API, so that Rust callers value holdings exactly as queries do.
 //! - `value` prices the units in the cost currency; positions without cost, or without a
 //!   price, are returned as their units.
 //!
@@ -17,7 +18,7 @@ use chrono::NaiveDate;
 
 use crate::decimal::mul_in_context as mul;
 use crate::functions::FunctionContext;
-use crate::prices::PriceMap;
+use crate::prices::{convert_units, PriceMap};
 use crate::value::{Position, Value};
 use crate::Amount;
 
@@ -43,28 +44,6 @@ fn position_value(position: &Position, prices: &PriceMap, date: Option<NaiveDate
     position.units.clone()
 }
 
-/// beancount `convert.convert_amount`: a direct market rate, else the implied rate through
-/// `via` (skipped when `via` is the target), else the amount unchanged.
-fn convert_units(units: &Amount, target: &str, via: Option<&str>, prices: &PriceMap, date: Option<NaiveDate>) -> Amount {
-    if let Some(rate) = prices.rate(&units.commodity, target, date) {
-        return Amount::new(mul(&units.number, &rate), target);
-    }
-    if let Some(via) = via.filter(|via| *via != target) {
-        if let (Some(rate1), Some(rate2)) = (prices.rate(&units.commodity, via, date), prices.rate(via, target, date)) {
-            // two roundings, like beancount's `number * rate1 * rate2`
-            return Amount::new(mul(&mul(&units.number, &rate1), &rate2), target);
-        }
-    }
-    units.clone()
-}
-
-/// beancount `convert.convert_position`: convert the units, stepping through the cost
-/// currency when there is no direct rate.
-fn convert_position(position: &Position, target: &str, prices: &PriceMap, date: Option<NaiveDate>) -> Amount {
-    let via = position.cost.as_ref().map(|cost| cost.currency.as_str());
-    convert_units(&position.units, target, via, prices, date)
-}
-
 pub(super) fn units(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
     match &args[0] {
         Value::Position(position) => Ok(Value::Amount(position.units.clone())),
@@ -87,8 +66,8 @@ pub(super) fn convert(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value
     let prices = ctx.prices();
     match &args[0] {
         Value::Amount(amount) => Ok(Value::Amount(convert_units(amount, target, None, prices, date))),
-        Value::Position(position) => Ok(Value::Amount(convert_position(position, target, prices, date))),
-        Value::Inventory(inventory) => Ok(Value::Inventory(inventory.reduce(|position| convert_position(position, target, prices, date)))),
+        Value::Position(position) => Ok(Value::Amount(position.convert(target, prices, date))),
+        Value::Inventory(inventory) => Ok(Value::Inventory(inventory.convert(target, prices, date))),
         _ => Err("convert() expects an amount, a position or an inventory".to_owned()),
     }
 }

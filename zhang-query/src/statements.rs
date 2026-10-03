@@ -132,6 +132,7 @@ pub(crate) fn balances(keyword: Span, at: Option<AtFunction>, where_clause: Opti
         }]),
         pivot_by: None,
         limit: None,
+        offset: None,
     }
 }
 
@@ -166,6 +167,7 @@ pub(crate) fn journal(keyword: Span, account: Option<Expr>, at: Option<AtFunctio
         order_by: None,
         pivot_by: None,
         limit: None,
+        offset: None,
     }
 }
 
@@ -204,6 +206,7 @@ mod tests {
             && a_order.len() == b_order.len()
             && a_order.iter().zip(&b_order).all(|((a, a_desc), (b, b_desc))| a.same_as(b) && a_desc == b_desc)
             && a.limit == b.limit
+            && a.offset == b.offset
     }
 
     #[test]

@@ -1,0 +1,17 @@
+{
+  "name": "date_bin_null_strides",
+  "query": "SELECT DISTINCT date_bin('-7 days', 2015-03-30, 2015-01-05) AS negative_days, date_bin(interval('2 fortnights'), 2015-03-30, 2015-01-05) AS unknown_unit, date_bin('-1 year', 2015-03-30, 2015-01-05) AS negative_year WHERE account = 'Expenses:Financial:Fees'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "negative_days", "type": "date"},
+    {"name": "unknown_unit", "type": "date"},
+    {"name": "negative_year", "type": "date"}
+  ],
+  "rows": [
+    [null, null, null]
+  ],
+  "notes": "A negative stride is NULL, and so is a NULL stride (interval('2 fortnights') is NULL). (beanquery rejects a NULL literal argument at compile time, since NULL has its own type there; zhang returns NULL.)"
+}

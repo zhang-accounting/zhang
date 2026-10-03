@@ -193,6 +193,7 @@ What the SDK offers:
 | `clock` | `now()`, `today()`, `rng()`, `rng_for(&directive)` |
 | `fs` | `read_file`, `read_to_string`, `list_dir` |
 | `errors` | `emit_error(message)`, `emit_error_at(span, message, metas)` |
+| `prices` | `PriceMap::from_stream(&stream)`, `rate(base, quote, date)`, `convert(amount, target, date)` for [exchange rates](#exchange-rates) |
 | `router` | `Request`, `Response`, `query(bql)`, `ledger_info()` |
 
 On a native target the SDK still compiles: `plugin!` exports nothing and host functions answer `unavailable`, so `cargo test` runs your plugin logic without Zhang, with a `Config::from_map(...)` standing in for the host's config. Two complete plugins, a processor and a router, live in [`zhang-plugin-sdk/examples`](https://github.com/zhang-accounting/zhang/tree/main/zhang-plugin-sdk/examples); Zhang's own tests build and run them.
@@ -224,6 +225,30 @@ An entry dated 2024-03-05 sees the threshold of 2024-01-01; one dated 2024-08-01
 4. a ledger option of that name.
 
 Only a processor sees the whole stream, so only a processor can read `custom` config; a mapper sees one directive at a time.
+
+## Exchange rates
+
+Zhang never precomputes prices for plugins. A processor that needs exchange rates builds them from the stream it receives, with the SDK's `PriceMap`:
+
+```rust
+use zhang_plugin_sdk::prices::PriceMap;
+
+let prices = PriceMap::from_stream(&stream);
+let rate = prices.rate("USD", "CNY", date);              // Option<BigDecimal>
+let value = prices.convert(&posting_units, "CNY", date); // Option<Amount>
+```
+
+It gives the same rates as Zhang's query engine uses for `convert`, `value` and `getprice`, so a plugin's valuations agree with Zhang's. The rules are beancount's:
+
+- The rate on a date is the **latest `price` on or before it**. There is no rate before the first price.
+- Prices of a pair on **the same day replace each other**: the last one in the stream wins.
+- A pair without prices of its own uses the **inverse** of the opposite pair, `1 / rate`; zero prices have no inverse and are skipped.
+- A pair quoted **in both directions** has one merged history. The direction with more prices is kept and the other one is inverted into it, so the rate is the latest quote in either direction. Of two quotes on the same day, the one of the less-quoted direction wins.
+- A commodity's rate to itself is 1.
+
+**Precision:** rates from `price` directives are exact. An inverse that terminates is exact too (`1 / 8 = 0.125`); one that does not is rounded half-even to 28 significant digits, as beancount's decimal context and Zhang's query engine do (`1 / 7 = 0.1428571428571428571428571429`). `convert` rounds a product to 28 significant digits only when it has more.
+
+**Implicit prices:** `PriceMap::from_stream_with_implicit` also takes the prices written on postings, `@` per unit and `@@` in total, like beancount's `implicit_prices` plugin. Zhang itself does not use them, so the rates they add differ from what Zhang shows; it is an opt-in for plugins ported from beancount. A posting written without units is skipped: plugins see transactions before booking, so it carries no price yet.
 
 ## Reporting errors
 

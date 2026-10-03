@@ -48,6 +48,7 @@ import beanquery
 from beancount import loader
 from beancount.core import amount, data, inventory, position
 from beanquery.numberify import numberify_results
+from dateutil.relativedelta import relativedelta
 from beanquery.query_render import render_csv
 from beanquery.sources import beancount as bq_source
 
@@ -76,6 +77,13 @@ def case(area, name, query, kind=ENGINE, ordered=False, expect="rows", notes="",
 def case2(area, name, query, **kwargs):
     """A Phase 2 case (issue #434): BALANCES, JOURNAL, the balance column, FROM OPEN/CLOSE/CLEAR, CSV."""
     return case(area, name, query, phase=2, **kwargs)
+
+
+def case4(area, name, query, **kwargs):
+    """A case of the engine-language features of issue #479 (wave 1) that beanquery has: its date functions
+    (date_trunc, date_part, date_add, date_diff, date(), interval, date_bin) with the INTERVAL type, and its
+    account and commodity directive functions (open_date, close_date, open_meta, commodity_meta)."""
+    return case(area, name, query, phase=4, **kwargs)
 
 
 def case3(area, name, query, **kwargs):
@@ -882,6 +890,195 @@ CASES = [
           expect="csv", kind=LEDGER, ordered=True,
           notes="SELECT * over #balances in CSV: tolerance is a decimal column of empty cells, and discrepancy "
                 "is an amount column that is NULL on every row, so numberify drops it (no CSV column)."),
+
+    # --- Phase 4 (issue #479, wave 1): beanquery 0.2.0 date functions ------------------------
+    case4("date", "date_trunc_fields_on_ledger_dates",
+          "SELECT DISTINCT date, date_trunc('week', date) AS week, date_trunc('month', date) AS month, "
+          "date_trunc('quarter', date) AS quarter, date_trunc('year', date) AS year, "
+          "date_trunc('decade', date) AS decade, date_trunc('century', date) AS century, "
+          "date_trunc('millennium', date) AS millennium "
+          "WHERE account ~ '^Expenses' AND year = 2016 AND (day(date) = 1 OR day(date) >= 29) ORDER BY date",
+          ordered=True,
+          notes="date_trunc(field, date) is the first day of the date's week (Monday, so 2016-03-01 is in the week "
+                "of 2016-02-29), month, quarter, year, decade, century (1901, 2001, ...) or millennium (1001, "
+                "2001, ...). The dates are the first and last days of months in 2016, a leap year."),
+    case4("date", "date_trunc_edges",
+          "SELECT DISTINCT date_trunc('week', 2016-01-03) AS sunday, date_trunc('week', 2016-01-04) AS monday, "
+          "date_trunc('week', 2016-03-01) AS leap_week, date_trunc('month', 2016-02-29) AS leap_day, "
+          "date_trunc('quarter', 2016-12-31) AS q4, date_trunc('decade', 2010-01-01) AS d2010, "
+          "date_trunc('century', 2000-12-31) AS c2000, date_trunc('century', 2001-01-01) AS c2001, "
+          "date_trunc('millennium', 2000-12-31) AS m2000, date_trunc('day', 2016-01-01) AS unknown, "
+          "date_trunc('Week', 2016-01-01) AS upper_case WHERE account = 'Expenses:Financial:Fees'",
+          notes="A Sunday belongs to the week that started on the Monday before, across a year boundary. The "
+                "century of 2000 starts in 1901 and that of 2001 in 2001. An unknown field ('day') and a field "
+                "in another case ('Week') are NULL. One row: DISTINCT over the postings of one account."),
+    case4("date", "date_part_fields",
+          "SELECT DISTINCT date_part('weekday', 2016-01-03) AS weekday, date_part('dow', 2016-01-04) AS dow, "
+          "date_part('isoweekday', 2016-01-03) AS isoweekday, date_part('isodow', 2016-01-04) AS isodow, "
+          "date_part('week', 2016-01-03) AS week, date_part('isoyear', 2016-01-03) AS isoyear, "
+          "date_part('week', 2015-12-31) AS week_dec, date_part('month', 2016-02-29) AS month, "
+          "date_part('quarter', 2016-11-03) AS quarter, date_part('year', 2016-01-03) AS year, "
+          "date_part('decade', 2009-05-05) AS decade, date_part('century', 2000-01-03) AS century, "
+          "date_part('millennium', 2001-01-03) AS millennium, date_part('epoch', 2016-01-03) AS epoch, "
+          "date_part('epoch', 1969-12-31) AS before_epoch, date_part('day', 2016-01-03) AS unknown "
+          "WHERE account = 'Expenses:Financial:Fees'",
+          notes="date_part(field, date): weekday and dow count from Monday = 0, isoweekday and isodow from Monday "
+                "= 1; week and isoyear are ISO 8601 (2016-01-03 is in week 53 of 2015); decade is year // 10, "
+                "century and millennium start at year 1; epoch is in seconds and negative before 1970. There is "
+                "no 'day' field: NULL."),
+    case4("date", "date_part_on_ledger_dates",
+          "SELECT date, date_part('dow', date) AS dow, date_part('isodow', date) AS isodow, "
+          "date_part('week', date) AS week, date_part('isoyear', date) AS isoyear, "
+          "date_part('quarter', date) AS quarter, date_part('epoch', date) AS epoch "
+          "WHERE account = 'Expenses:Food:Groceries' AND date >= 2015-12-20 AND date < 2016-02-15 ORDER BY date",
+          ordered=True,
+          notes="date_part over the postings around a year boundary, where the ISO year and week differ from the "
+                "calendar ones."),
+    case4("date", "date_add_and_date_diff",
+          "SELECT DISTINCT date_add(2016-02-28, 1) AS leap_day, date_add(2015-02-28, 1) AS march_first, "
+          "date_add(2016-03-01, -1) AS back_to_leap_day, date_add(2016-12-31, 1) AS new_year, "
+          "date_add(2016-01-31, 0) AS same, date_diff(2016-03-01, 2016-02-01) AS february, "
+          "date_diff(2015-03-01, 2015-02-01) AS short_february, date_diff(2016-01-01, 2016-12-31) AS negative "
+          "WHERE account = 'Expenses:Financial:Fees'",
+          notes="date_add(date, days) adds days (negative days go back); date_diff(a, b) is the days from b to a."),
+    case4("date", "date_add_and_diff_on_columns",
+          "SELECT date, date_add(date, 30) AS later, date_add(date, -1) AS before, "
+          "date_diff(date, 2016-01-01) AS since_new_year "
+          "WHERE account = 'Expenses:Home:Rent' AND year = 2016 ORDER BY date",
+          ordered=True),
+    case4("date", "date_constructors",
+          "SELECT DISTINCT date(2016, 2, 29) AS leap_day, date(2015, 2, 29) AS no_leap_day, date(2016, 13, 1) AS month_13, "
+          "date(2016, 0, 1) AS month_0, date(0, 1, 1) AS year_0, date(10000, 1, 1) AS year_10000, "
+          "date('2016-02-29') AS text, date('2016-2-9') AS short_text, date('2016-02- 9') AS space_day, "
+          "date('016-02-09') AS short_year, date(' 2016-02-09') AS leading_space, date('2016-02-09x') AS trailing, "
+          "date('20160209') AS compact, date('2015-02-29') AS invalid_text WHERE account = 'Expenses:Financial:Fees'",
+          notes="date(y, m, d) and date(text) are NULL when there is no such day, or the year is outside 1 to 9999. "
+                "date(text) parses like Python's strptime('%Y-%m-%d'): a four-digit year, a month and a day of one "
+                "or two digits (the day may also be a space and one digit), and nothing else."),
+    case4("date", "date_constructor_on_columns",
+          "SELECT date, date(year, month, 1) AS first, date(year + 1, 1, 1) AS next_year "
+          "WHERE account = 'Expenses:Home:Rent' AND year = 2016 AND month <= 3 ORDER BY date",
+          ordered=True),
+
+    # --- intervals ------------------------------------------------------------------------------
+    case4("interval", "interval_values",
+          "SELECT DISTINCT interval('1 month') AS month, interval('13 months') AS months_13, interval('-1 year') AS year, "
+          "interval('+10 days') AS days, interval('1  days') AS two_spaces, interval('2 weeks') AS weeks, "
+          "interval('1 Month') AS upper_case, interval(' 1 day') AS leading_space, interval('1 dayss') AS typo, "
+          "interval('1 year') + interval('-1 month') AS months_11, interval('1 month') + interval('3 days') AS mixed "
+          "WHERE account = 'Expenses:Financial:Fees'",
+          notes="interval(text) accepts '<n> day[s]', '<n> month[s]' or '<n> year[s]' with an optional sign, and is "
+                "NULL otherwise (upper case, surrounding spaces, other units). Intervals add up. The fixture encodes "
+                "beanquery's relativedelta like zhang's interval text: the months as years and months with the "
+                "sign of their total, then the days ('1 year 1 month', '11 months', '1 month 3 days'). "
+                "ACCEPTED DEVIATION: zhang also accepts weeks (interval('2 weeks') is 14 days), which beanquery "
+                "does not."),
+    case4("interval", "date_interval_arithmetic",
+          "SELECT DISTINCT 2016-01-31 + interval('1 month') AS leap_end, 2015-01-31 + interval('1 month') AS end, "
+          "2016-03-31 - interval('1 month') AS back, interval('1 month') + 2016-01-31 AS commuted, "
+          "2016-02-29 + interval('1 year') AS next_year, 2016-02-29 - interval('-1 year') AS minus_negative, "
+          "2016-01-31 + (interval('1 month') + interval('1 day')) AS months_then_days, "
+          "2016-01-31 - interval('1 month') - interval('1 month') AS twice, 2016-01-10 + interval('-10 days') AS days "
+          "WHERE account = 'Expenses:Financial:Fees'",
+          notes="Adding an interval moves by the months first, keeping the day unless the month is shorter (then "
+                "its last day), then by the days. Subtracting adds the negated interval, one step at a time, so "
+                "2016-01-31 minus one month twice is 2015-11-30."),
+    case4("interval", "date_plus_interval_on_month_ends",
+          "SELECT DISTINCT date, date + interval('1 month') AS next_month, date - interval('1 year') AS last_year, "
+          "date + interval('-3 months') AS quarter_before "
+          "WHERE account ~ '^Expenses' AND year = 2016 AND day(date) >= 29 ORDER BY date",
+          ordered=True),
+    case4("interval", "date_bin_months_and_years",
+          "SELECT DISTINCT date, date_bin('1 month', date, 2016-01-01) AS month, date_bin('3 months', date, 2016-01-01) AS quarter, "
+          "date_bin('1 year', date, 2015-07-01) AS fiscal_year, date_bin(interval('2 months'), date, 2015-12-01) AS two_months "
+          "WHERE account ~ '^Expenses' AND year = 2016 AND day(date) >= 29 ORDER BY date",
+          ordered=True,
+          notes="date_bin(stride, date, origin) is the start of the bin of the date among bins of the stride laid from "
+                "the origin; the stride may be an interval or its text. No date here is on a bin boundary (see "
+                "date_bin_on_boundaries)."),
+    case4("interval", "date_bin_on_boundaries",
+          "SELECT DISTINCT date_bin('1 month', 2000-02-01, 2000-01-01) AS feb, "
+          "date_bin(interval('1 month'), 2000-03-01, 2000-01-01) AS mar, date_bin('3 months', 2015-07-01, 2015-01-01) AS q3, "
+          "date_bin('1 year', 2016-01-01, 2015-01-01) AS next_year, date_bin('1 month', 2015-01-01, 2015-01-01) AS origin, "
+          "date_bin('1 month', 2014-12-01, 2015-01-01) AS month_before, date_bin('1 month', 2014-11-30, 2015-01-01) AS before, "
+          "date_bin('7 days', 2015-01-12, 2015-01-05) AS week WHERE account = 'Expenses:Financial:Fees'",
+          notes="ACCEPTED DEVIATION: with a stride of months or years, beanquery puts a date exactly on a bin boundary "
+                "other than the origin into the previous bin (date_bin('1 month', 2000-02-01, 2000-01-01) is "
+                "2000-01-01), while a stride of days starts a new bin there. In zhang a date on a boundary always "
+                "starts its bin (2000-02-01), as date_trunc() does."),
+    case4("interval", "date_bin_month_end_origin",
+          "SELECT DISTINCT date_bin('1 month', 2015-03-30, 2015-01-31) AS after_drift, "
+          "date_bin('1 month', 2015-03-29, 2015-01-31) AS drift_day, date_bin('1 month', 2015-03-28, 2015-01-31) AS boundary, "
+          "date_bin('1 month', 2014-11-15, 2015-01-31) AS before_origin, date_bin('1 month', 2014-12-31, 2015-01-31) AS one_before, "
+          "date_bin('1 month', 2015-01-31, 2015-01-31) AS origin, date_bin('1 year', 2017-02-28, 2016-02-29) AS leap_origin, "
+          "date_bin('-1 month', 2015-03-30, 2015-01-31) AS negative WHERE account = 'Expenses:Financial:Fees'",
+          notes="ACCEPTED DEVIATION: beanquery adds each stride to the previous bin, so from a month-end origin its bins "
+                "drift (2015-01-31, 2015-02-28, 2015-03-28, ...; backwards 2014-12-31, 2014-11-30, 2014-10-30), and a "
+                "date on a boundary falls in the previous bin. zhang lays the bins as origin + k strides "
+                "(2015-02-28, 2015-03-31, ...; backwards 2014-11-30, 2014-10-31) and a boundary starts its bin. A "
+                "negative stride is NULL in both."),
+    case4("interval", "date_bin_days",
+          "SELECT DISTINCT date, date_bin('7 days', date, 2015-01-05) AS week, date_bin('10 days', date, 2016-12-31) AS backwards, "
+          "date_bin('1 day', date, 2000-01-01) AS day "
+          "WHERE account = 'Expenses:Food:Groceries' AND date >= 2016-01-01 AND date < 2016-03-01 ORDER BY date",
+          ordered=True,
+          notes="A stride of days bins by whole strides from the origin, in both directions, and a date on a "
+                "boundary starts its own bin (unlike strides of months)."),
+    case4("interval", "date_bin_null_strides",
+          "SELECT DISTINCT date_bin('-7 days', 2015-03-30, 2015-01-05) AS negative_days, "
+          "date_bin(interval('2 fortnights'), 2015-03-30, 2015-01-05) AS unknown_unit, date_bin('-1 year', 2015-03-30, 2015-01-05) AS negative_year "
+          "WHERE account = 'Expenses:Financial:Fees'",
+          notes="A negative stride is NULL, and so is a NULL stride (interval('2 fortnights') is NULL). (beanquery rejects "
+                "a NULL literal argument at compile time, since NULL has its own type there; zhang returns NULL.)"),
+
+    # --- account and commodity directives -------------------------------------------------------
+    case4("directives", "open_and_close_dates",
+          "SELECT DISTINCT account, open_date(account) AS opened, close_date(account) AS closed "
+          "WHERE account ~ 'Vanguard|Chase|Opening' ORDER BY account",
+          ordered=True,
+          notes="open_date(account) and close_date(account) read the account's open and close directives (the "
+                "ledger closes no account, so close_date is NULL)."),
+    case4("directives", "directive_functions_of_unknown_names",
+          "SELECT DISTINCT open_date('Assets:Nope') AS opened, close_date('Assets:Nope') AS closed, "
+          "open_meta('Assets:Nope', 'x') AS meta, commodity_meta('NOPE', 'name') AS commodity, "
+          "open_date('assets:us:bofa:checking') AS lower_case WHERE account = 'Expenses:Financial:Fees'",
+          notes="An unknown account or commodity is NULL; names are case-sensitive."),
+    case4("directives", "open_meta_values",
+          "SELECT DISTINCT account, open_meta(account, 'institution') AS institution, open_meta(account, 'number') AS number, "
+          "open_meta(account, 'account') AS account_number, open_meta(account, 'nope') AS missing "
+          "WHERE account ~ '^Assets:US:(BofA|Vanguard)' ORDER BY account",
+          ordered=True,
+          notes="open_meta(account, key) is a metadata value of the account's open directive, NULL when absent. "
+                "Metadata is not inherited: Assets:US:BofA:Checking has no institution although Assets:US:BofA "
+                "has. beanquery's one-argument open_meta(account) is a dict with filename and lineno, which zhang "
+                "does not keep, so it is not covered."),
+    case4("directives", "commodity_meta_values",
+          "SELECT DISTINCT currency, commodity_meta(currency, 'name') AS name, currency_meta(currency, 'export') AS export, "
+          "commodity_meta(currency, 'price') AS price WHERE account ~ '^Assets:US:(ETrade|Vanguard)' ORDER BY currency",
+          ordered=True,
+          notes="commodity_meta(currency, key), and its alias currency_meta, read the currency's commodity "
+                "directive."),
+    case4("directives", "directive_functions_on_tables",
+          "SELECT name, commodity_meta(name, 'export') AS export, open_date('Assets:US:Vanguard:Cash') AS vanguard_cash "
+          "FROM #commodities ORDER BY name",
+          ordered=True,
+          notes="The directive functions read the ledger, so they work on any table."),
+
+    # --- errors -----------------------------------------------------------------------------------
+    case4("error", "error_date_trunc_argument_order", "SELECT date_trunc(date, 'month')", expect="error",
+          notes="date_trunc takes the field first."),
+    case4("error", "error_interval_comparison",
+          "SELECT DISTINCT interval('1 month') < interval('2 months') WHERE account = 'Expenses:Financial:Fees'",
+          expect="error",
+          notes="Intervals have no order. (beanquery also rejects = and != on intervals, which zhang accepts: see "
+                "ACCEPTED_DEVIATIONS.)"),
+    case4("error", "error_date_bin_int_stride", "SELECT date_bin(7, date, 2016-01-01)", expect="error"),
+    case4("error", "error_open_date_of_a_date", "SELECT open_date(date)", expect="error"),
+    case4("select", "offset_is_a_name",
+          "SELECT date AS offset, account WHERE account ~ 'Fees' ORDER BY offset DESC LIMIT 2",
+          ordered=True,
+          notes="beanquery has no OFFSET, so offset is an ordinary name. zhang's OFFSET is only a keyword right after "
+                "a LIMIT count, so the name keeps working."),
 ]
 
 
@@ -961,6 +1158,8 @@ def column_type(dtype):
         return "position"
     if dtype is inventory.Inventory:
         return "inventory"
+    if dtype is relativedelta:
+        return "interval"
     if dtype is object:
         # meta()/entry_meta() are dynamically typed in beanquery; zhang metadata values are strings.
         return "str"
@@ -997,9 +1196,28 @@ def position_sort_key(pos):
     return (pos.units.currency, cost_key, pos.units.number)
 
 
+def enc_interval(value):
+    """A relativedelta of years, months and days as zhang writes an interval: the total months as years and
+    months (both with the sign of the total), then the days; zero parts are left out, zero is '0 days'."""
+    if value.hours or value.minutes or value.seconds or value.microseconds or value.leapdays or value.weekday:
+        raise TypeError(f"unmapped relativedelta {value!r}")
+    months = value.years * 12 + value.months
+    sign = -1 if months < 0 else 1
+    years, months = sign * (abs(months) // 12), sign * (abs(months) % 12)
+
+    def unit(n, name):
+        return f"{n} {name}{'' if abs(n) == 1 else 's'}"
+    parts = [unit(n, name) for n, name in ((years, "year"), (months, "month")) if n]
+    if value.days or not parts:
+        parts.append(unit(value.days, "day"))
+    return " ".join(parts)
+
+
 def enc_cell(value):
     if value is None:
         return None
+    if isinstance(value, relativedelta):
+        return enc_interval(value)
     if isinstance(value, bool):
         return value
     if isinstance(value, int):

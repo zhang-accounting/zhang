@@ -21,6 +21,10 @@
 //!   that name one (an account that does not exist or is closed, a failed balance check).
 //!   `meta()` reads the rest of what zhang records about an error, such as `meta('txn_id')`
 //!   for errors of a transaction, or `meta('budget_name')`.
+//! - **Which error it is.** `id` is the id zhang gives the error, the `id` of `/api/errors`, and
+//!   `span_start` and `span_end` are the byte offsets of the directive in its file, as the UI
+//!   uses them to open and edit it. The id is derived from the directive's position, so the
+//!   errors of one directive share it.
 //!
 //! An error without a file would come first, as `NULL` sorts first.
 //! `SELECT *` gives `file`, `date`, `kind`, `account` and `message`.
@@ -31,6 +35,7 @@ use std::path::Path;
 
 use chrono::NaiveDate;
 use zhang_ast::error::ErrorKind;
+use zhang_ast::SpanInfo;
 use zhang_core::domains::schemas::ErrorDomain;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
@@ -234,7 +239,33 @@ static COLUMNS: &[ColumnDef] = &[
                 .map_or(Value::Null, |content| Value::Str(content.to_owned()))
         },
     ),
+    ColumnDef::record(
+        "id",
+        DataType::Str,
+        "Id of the error, the id of GET /api/errors; the errors of one directive share it.",
+        |_, record| ledger_error(record).map_or(Value::Null, |it| Value::Str(it.error.id.clone())),
+    ),
+    ColumnDef::record(
+        "span_start",
+        DataType::Int,
+        "Byte offset in its file where the directive that raised the error starts, or NULL if unknown.",
+        |_, record| span_offset(record, |span| span.start),
+    ),
+    ColumnDef::record(
+        "span_end",
+        DataType::Int,
+        "Byte offset in its file where the directive that raised the error ends, or NULL if unknown.",
+        |_, record| span_offset(record, |span| span.end),
+    ),
 ];
+
+/// An offset of the span of the error's directive; NULL for an error without one.
+fn span_offset(record: &Record<'_>, offset: fn(&SpanInfo) -> usize) -> Value {
+    ledger_error(record)
+        .and_then(|it| it.error.span.as_ref())
+        .and_then(|span| i64::try_from(offset(span)).ok())
+        .map_or(Value::Null, Value::Int)
+}
 
 #[cfg(test)]
 mod tests {

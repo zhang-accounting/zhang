@@ -1,4 +1,4 @@
-import type { QueryAmount, QueryInventory, QueryPosition } from '@/api/types';
+import type { QueryAmount, QueryInventory, QueryMeta, QueryPosition } from '@/api/types';
 
 /**
  * Adds thousands separators to an exact decimal string without converting it to a float.
@@ -25,4 +25,8 @@ export function isPosition(value: unknown): value is QueryPosition {
 
 export function isInventory(value: unknown): value is QueryInventory {
   return isObject(value) && Array.isArray(value.positions);
+}
+
+export function isMetas(value: unknown): value is QueryMeta[] {
+  return Array.isArray(value) && value.every((item) => isObject(item) && typeof item.key === 'string' && typeof item.value === 'string');
 }

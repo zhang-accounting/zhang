@@ -1,0 +1,9 @@
+; The error ledger of zhang-query/tests/server_features.rs: #errors ids and byte spans, with
+; errors in two files.
+option "operating_currency" "CNY"
+option "operating_currency" "USD"
+include "more.zhang"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food

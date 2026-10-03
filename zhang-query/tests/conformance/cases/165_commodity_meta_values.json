@@ -1,0 +1,24 @@
+{
+  "name": "commodity_meta_values",
+  "query": "SELECT DISTINCT currency, commodity_meta(currency, 'name') AS name, currency_meta(currency, 'export') AS export, commodity_meta(currency, 'price') AS price WHERE account ~ '^Assets:US:(ETrade|Vanguard)' ORDER BY currency",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "currency", "type": "str"},
+    {"name": "name", "type": "str"},
+    {"name": "export", "type": "str"},
+    {"name": "price", "type": "str"}
+  ],
+  "rows": [
+    ["GLD", "SPDR Gold Trust (ETF)", "NYSEARCA:GLD", "USD:google/NYSEARCA:GLD"],
+    ["ITOT", "iShares Core S&P Total U.S. Stock Market ETF", "NYSEARCA:ITOT", "USD:google/NYSEARCA:ITOT"],
+    ["RGAGX", "American Funds The Growth Fund of America Class R-6", "MUTF:RGAGX", "USD:google/MUTF:RGAGX"],
+    ["USD", "US Dollar", "CASH", null],
+    ["VBMPX", "Vanguard Total Bond Market Index Fund Institutional Plus Shares", "MUTF:VBMPX", "USD:google/MUTF:VBMPX"],
+    ["VEA", "Vanguard FTSE Developed Markets ETF", "NYSEARCA:VEA", "USD:google/NYSEARCA:VEA"],
+    ["VHT", "Vanguard Health Care ETF", "NYSEARCA:VHT", "USD:google/NYSEARCA:VHT"]
+  ],
+  "notes": "commodity_meta(currency, key), and its alias currency_meta, read the currency's commodity directive."
+}

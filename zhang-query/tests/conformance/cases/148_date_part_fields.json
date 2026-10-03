@@ -1,0 +1,30 @@
+{
+  "name": "date_part_fields",
+  "query": "SELECT DISTINCT date_part('weekday', 2016-01-03) AS weekday, date_part('dow', 2016-01-04) AS dow, date_part('isoweekday', 2016-01-03) AS isoweekday, date_part('isodow', 2016-01-04) AS isodow, date_part('week', 2016-01-03) AS week, date_part('isoyear', 2016-01-03) AS isoyear, date_part('week', 2015-12-31) AS week_dec, date_part('month', 2016-02-29) AS month, date_part('quarter', 2016-11-03) AS quarter, date_part('year', 2016-01-03) AS year, date_part('decade', 2009-05-05) AS decade, date_part('century', 2000-01-03) AS century, date_part('millennium', 2001-01-03) AS millennium, date_part('epoch', 2016-01-03) AS epoch, date_part('epoch', 1969-12-31) AS before_epoch, date_part('day', 2016-01-03) AS unknown WHERE account = 'Expenses:Financial:Fees'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "weekday", "type": "int"},
+    {"name": "dow", "type": "int"},
+    {"name": "isoweekday", "type": "int"},
+    {"name": "isodow", "type": "int"},
+    {"name": "week", "type": "int"},
+    {"name": "isoyear", "type": "int"},
+    {"name": "week_dec", "type": "int"},
+    {"name": "month", "type": "int"},
+    {"name": "quarter", "type": "int"},
+    {"name": "year", "type": "int"},
+    {"name": "decade", "type": "int"},
+    {"name": "century", "type": "int"},
+    {"name": "millennium", "type": "int"},
+    {"name": "epoch", "type": "int"},
+    {"name": "before_epoch", "type": "int"},
+    {"name": "unknown", "type": "int"}
+  ],
+  "rows": [
+    [6, 0, 7, 1, 53, 2015, 53, 2, 4, 2016, 200, 20, 3, 1451779200, -86400, null]
+  ],
+  "notes": "date_part(field, date): weekday and dow count from Monday = 0, isoweekday and isodow from Monday = 1; week and isoyear are ISO 8601 (2016-01-03 is in week 53 of 2015); decade is year // 10, century and millennium start at year 1; epoch is in seconds and negative before 1970. There is no 'day' field: NULL."
+}
