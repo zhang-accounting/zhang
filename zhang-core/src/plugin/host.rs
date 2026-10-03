@@ -13,6 +13,17 @@
 //!   way, with a message saying it is invalid. While a router plugin handles a request there is no
 //!   error list, so the problem is logged as a warning instead (see [`crate::plugin::router`]).
 //! - `zhang_now() -> i64`: the current time of the load (see [`NOW`]).
+//! - `zhang_read_file(path: i64) -> i64` and `zhang_list_dir(path: i64) -> i64`: read a file or list a
+//!   directory the plugin's `allowed_paths` grant, read-only (see [`crate::plugin::files`] for the rules).
+//!   `path` is the offset of a kernel memory block holding the path as UTF-8 text, relative to the ledger
+//!   root and written with `/` (`"."` is the root). The result is the offset of a block holding JSON:
+//!   `{"Ok": {"content": "...", "encoding": "utf8" | "base64"}}` for a file (base64 when it is not valid
+//!   UTF-8 or is mostly control characters), `{"Ok": {"entries": [{"name": "...", "kind": "file" |
+//!   "dir"}]}}` for a directory (sorted by name), or `{"Err": {"kind": "denied" | "not_found" |
+//!   "too_large" | "unsupported" | "invalid", "message": "..."}}`. They never trap: a path block that is
+//!   not readable UTF-8 of at most [`FILE_PATH_MAX_LEN`] bytes gives `invalid`. Only a processor or
+//!   mapper reads files: a plugin without `allowed_paths` gets `denied` for every path, and so does any
+//!   plugin while it registers (`name`, `version`, `supported_type`) or handles a request as a router.
 //!
 //! Every plugin instance gets its own [`PluginHost`]. It keeps what the host functions collect while
 //! the instance runs, until the stage running the plugin hands it to the pipeline.
@@ -33,6 +44,7 @@ use zhang_ast::SpanInfo;
 use crate::clock::LoadClock;
 use crate::inputs::ExtraInput;
 use crate::pipeline::{StageContext, StageError};
+use crate::plugin::files::{FileAccess, FileCall, FileError, FileErrorKind};
 
 /// name of the host function a plugin reports a problem with
 pub const EMIT_ERROR: &str = "zhang_emit_error";
@@ -200,11 +212,14 @@ struct HostState {
 pub struct PluginHost {
     state: Arc<Mutex<HostState>>,
     clock: Arc<Mutex<ClockState>>,
+    files: Arc<Mutex<FilesState>>,
 }
 
 impl PluginHost {
     /// the host of an instance running as a stage: `clock` is the clock of the load, in the ledger timezone
-    /// `timezone`, and every `zhang_now` call is recorded
+    /// `timezone`, and every `zhang_now` call is recorded. Its file functions deny every path until
+    /// [`PluginHost::with_files`] grants some; the hosts of [`PluginHost::registering`] and
+    /// [`PluginHost::routing`] never get any
     pub fn new(plugin: impl Into<String>, directive_span: SpanInfo, clock: LoadClock, timezone: Tz) -> Self {
         Self::with_clock_state(plugin.into(), directive_span, ClockState::new(clock, timezone, true))
     }
@@ -232,15 +247,18 @@ impl PluginHost {
         Self {
             state: Arc::new(Mutex::new(state)),
             clock: Arc::new(Mutex::new(clock)),
+            files: Arc::new(Mutex::new(FilesState::default())),
         }
     }
 
     /// every host function zhang offers, bound to this host
     pub fn functions(&self) -> Vec<Function> {
-        vec![
+        let mut functions = vec![
             Function::new(EMIT_ERROR, [PTR], [], UserData::Rust(self.state.clone()), emit_error).with_namespace(EXTISM_USER_MODULE),
             self.now_function(),
-        ]
+        ];
+        functions.extend(self.file_functions());
+        functions
     }
 
     /// take the errors the plugin reported so far
@@ -248,13 +266,17 @@ impl PluginHost {
         std::mem::take(&mut self.state.lock().unwrap_or_else(PoisonError::into_inner).errors)
     }
 
-    /// hand what the plugin reported and read so far to the pipeline: its errors, and the date if it read the time
+    /// hand what the plugin reported and read so far to the pipeline: its errors, the date if it read the time,
+    /// and the files and directories it read
     pub fn forward_to(&self, ctx: &mut StageContext) {
         for error in self.take_errors() {
             ctx.emit_error(error.kind, error.span, error.metas);
         }
         if self.take_clock_read() {
             ctx.add_input(ExtraInput::Clock);
+        }
+        for input in self.take_inputs() {
+            ctx.add_input(input);
         }
     }
 }
@@ -426,15 +448,107 @@ fn now_payload(now: &DateTime<Tz>) -> NowPayload {
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// File access: `zhang_read_file` and `zhang_list_dir`, the `allowed_paths` capability
+// ---------------------------------------------------------------------------------------------------------------
+
+/// name of the host function a plugin reads a granted file with
+pub const READ_FILE: &str = "zhang_read_file";
+/// name of the host function a plugin lists a granted directory with
+pub const LIST_DIR: &str = "zhang_list_dir";
+
+/// the most bytes [`read_input_str`] will read for the path a plugin passes to `zhang_read_file` or
+/// `zhang_list_dir`: 4 KiB, Linux's `PATH_MAX`. A path relative to the ledger root is far shorter.
+const FILE_PATH_MAX_LEN: usize = 4096;
+
+/// the state the file functions of one plugin instance share
+#[derive(Default)]
+struct FilesState {
+    /// what the plugin may read; `None` while it registers or handles a request as a router, when every
+    /// call is denied
+    access: Option<FileAccess>,
+    /// the inputs its calls recorded, in call order
+    inputs: Vec<ExtraInput>,
+}
+
+impl PluginHost {
+    /// this host with the files `access` grants readable through `zhang_read_file` and `zhang_list_dir`
+    pub fn with_files(self, access: FileAccess) -> Self {
+        self.files.lock().unwrap_or_else(PoisonError::into_inner).access = Some(access);
+        self
+    }
+
+    /// take the inputs the plugin's file calls recorded so far
+    pub fn take_inputs(&self) -> Vec<ExtraInput> {
+        std::mem::take(&mut self.files.lock().unwrap_or_else(PoisonError::into_inner).inputs)
+    }
+
+    fn file_functions(&self) -> [Function; 2] {
+        [
+            Function::new(READ_FILE, [PTR], [PTR], UserData::Rust(self.files.clone()), read_file).with_namespace(EXTISM_USER_MODULE),
+            Function::new(LIST_DIR, [PTR], [PTR], UserData::Rust(self.files.clone()), list_dir).with_namespace(EXTISM_USER_MODULE),
+        ]
+    }
+}
+
+/// `zhang_read_file(path) -> result`
+fn read_file(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<FilesState>) -> Result<(), extism::Error> {
+    file_call(plugin, inputs, outputs, state, FileAccess::read_file)
+}
+
+/// `zhang_list_dir(path) -> result`
+fn list_dir(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<FilesState>) -> Result<(), extism::Error> {
+    file_call(plugin, inputs, outputs, state, FileAccess::list_dir)
+}
+
+/// run a file function on the path the plugin passed and hand it the JSON result; a path it cannot read is an
+/// `invalid` result, not a trap
+fn file_call<T: Serialize>(
+    plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<FilesState>, call: impl FnOnce(&FileAccess, &str) -> FileCall<T>,
+) -> Result<(), extism::Error> {
+    // through the bounds-checked helper, so a forged block header cannot make this read out of bounds (a
+    // crash) or larger than the limit; any unreadable path (an empty one is no block either) is `invalid`
+    let path = match inputs.first() {
+        None => Err(FileError::new(FileErrorKind::Invalid, "the path is not a memory block")),
+        Some(offset) => read_input_str(plugin, offset, FILE_PATH_MAX_LEN).map_err(|e| FileError::new(FileErrorKind::Invalid, format!("the path {e}"))),
+    };
+    let result = {
+        let state = state.get()?;
+        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        let call = run_file_call(state.access.as_ref(), path, call);
+        state.inputs.extend(call.input);
+        serde_json::to_vec(&call.result).expect("file results always serialize to JSON")
+    };
+    let output = outputs.first_mut().ok_or_else(|| extism::Error::msg("a file function returns one value"))?;
+    plugin.memory_set_val(output, result)
+}
+
+/// the outcome of a file call on `path`, the path the plugin passed or why it could not be read. Without
+/// `access`, while the plugin registers or handles a request as a router, every path is denied
+fn run_file_call<T>(access: Option<&FileAccess>, path: Result<String, FileError>, call: impl FnOnce(&FileAccess, &str) -> FileCall<T>) -> FileCall<T> {
+    match (path, access) {
+        (Err(error), _) => FileCall::rejected(error),
+        (Ok(path), None) => FileCall::rejected(FileError::new(
+            FileErrorKind::Denied,
+            format!("{path:?}: files can only be read while the plugin runs as a processor or mapper"),
+        )),
+        (Ok(path), Some(access)) => call(access, &path),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
 
     use zhang_ast::error::ErrorKind;
     use zhang_ast::SpanInfo;
 
-    use super::{check_bounds, plugin_error, InputError, EMIT_ERROR_MAX_LEN, KERNEL_DATA_START};
+    use super::{check_bounds, plugin_error, run_file_call, InputError, EMIT_ERROR_MAX_LEN, KERNEL_DATA_START};
+    use crate::data_source::LocalFileSystemDataSource;
+    use crate::data_type::text::ZhangDataType;
+    use crate::plugin::files::{FileAccess, FileError, FileErrorKind};
 
     /// a plausible data-region size: one page minus the `MemoryRoot`, the value a freshly started
     /// kernel reports
@@ -578,6 +692,36 @@ mod test {
                 error.metas["message"]
             );
         }
+    }
+
+    #[test]
+    fn should_deny_every_file_call_without_file_access() {
+        let call = run_file_call(None, Ok("documents/receipt.txt".to_owned()), FileAccess::read_file);
+
+        let error = call.result.unwrap_err();
+        assert_eq!(error.kind, FileErrorKind::Denied);
+        assert!(
+            error.message.contains("only be read while the plugin runs as a processor or mapper"),
+            "{}",
+            error.message
+        );
+        assert_eq!(call.input, None);
+        assert_eq!(
+            serde_json::to_value(run_file_call(None, Ok(".".to_owned()), FileAccess::list_dir).result).unwrap()["Err"]["kind"],
+            "denied"
+        );
+    }
+
+    #[test]
+    fn should_pass_on_a_path_the_plugin_could_not_pass() {
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let access = FileAccess::new(vec![PathBuf::new()], source, Path::new("/"));
+        let unreadable = FileError::new(FileErrorKind::Invalid, "the path is not UTF-8 text");
+
+        let call = run_file_call(Some(&access), Err(unreadable.clone()), FileAccess::read_file);
+
+        assert_eq!(call.result, Err(unreadable));
+        assert_eq!(call.input, None);
     }
 
     #[test]

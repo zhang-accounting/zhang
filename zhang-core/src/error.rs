@@ -39,6 +39,14 @@ pub enum ZhangError {
 
     #[error("custom error: {0}")]
     CustomError(String),
+
+    /// an operation the data source does not support, e.g. listing a directory
+    #[error("not supported by this data source: {0}")]
+    Unsupported(String),
+
+    /// a file or directory larger than the caller allows
+    #[error("too large: {0}")]
+    TooLarge(String),
 }
 
 pub trait IoErrorIntoZhangError<T> {

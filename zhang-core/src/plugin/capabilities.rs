@@ -11,6 +11,21 @@
 //! - `allowed_hosts` (multi-valued) grants HTTP access to those hosts only; no entry means no
 //!   network. The host consumes it, so it is the only key that never becomes a flat config entry
 //!   (the plugin still sees it in `zhang.plugin`, below).
+//! - `allowed_paths` (multi-valued) grants read-only access to files in the ledger, through the
+//!   `zhang_read_file` and `zhang_list_dir` host functions ([`crate::plugin::host`]); no entry means no
+//!   file access. Each value is a file or a directory relative to the ledger root, written with `/`;
+//!   `"."` grants the whole root. A directory grants everything under it, compared component by
+//!   component (`documents` does not grant `documents-private`), except hidden entries: below a grant,
+//!   a name starting with `.` is readable only when a value names it, so `"."` does not expose
+//!   `.git/config` or `.env`, while `".config"` grants `.config/…`. An empty or absolute value, or one
+//!   holding a `..` component, a NUL or a backslash, is a `ParseInvalidMeta` error on the directive and
+//!   grants nothing. Files are read from the ledger's own source, so this works for local ledgers and
+//!   for ledgers on S3, WebDAV or GitHub alike, and nothing outside the ledger root can be read (see
+//!   [`crate::plugin::files`]).
+//!
+//!   **Warning:** `allowed_paths` together with `allowed_hosts` lets a plugin send what it reads off the
+//!   machine. A plugin already receives the whole ledger, so grant files and hosts together only to a
+//!   plugin you would trust with both.
 //! - `timeout` bounds how long a single call into the plugin may run, [`DEFAULT_TIMEOUT`] without
 //!   it. The value is whole seconds (`"90"`) or a whole number with a unit `ms`, `s`, `m` or `h`
 //!   (`"500ms"`, `"30s"`, `"2m"`), above zero and at most a day. A repeated key keeps its last
@@ -26,11 +41,12 @@
 //!   [`PluginDirectiveConfig`]), and [`SEED_CONFIG_KEY`] (`zhang.seed`) to the plugin's seed (see
 //!   [`plugin_seed`]).
 //!
-//! Every other capability key (`timeout`, `seed`, and later `allowed_paths`, `stage`) is read here
+//! Every other capability key (`allowed_paths`, `timeout`, `seed`, and later `stage`) is read here
 //! *and* still passed through as config, so a plugin that already uses a meta key with that name
-//! sees no change.
+//! sees no change, and a plugin can see what it was granted.
 
 use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use log::warn;
@@ -39,10 +55,14 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::Plugin;
 
 use crate::domains::schemas::OptionDomain;
+use crate::plugin::files::clean_path;
 use crate::utils::hashmap::HashMapOfExt;
 
 /// meta key on a `plugin` directive granting it HTTP access to the given hosts
 const ALLOWED_HOSTS_KEY: &str = "allowed_hosts";
+
+/// meta key on a `plugin` directive granting it read access to the given files and directories
+const ALLOWED_PATHS_KEY: &str = "allowed_paths";
 
 /// meta key on a `plugin` directive bounding how long a single call into the plugin may run
 const TIMEOUT_KEY: &str = "timeout";
@@ -80,6 +100,9 @@ const SEED_DOMAIN: &[u8] = b"zhang/plugin-seed/v1";
 pub struct PluginCapabilities {
     /// hosts this plugin may reach over HTTP; empty means no network access
     pub allowed_hosts: Vec<String>,
+    /// files and directories this plugin may read, relative to the ledger root and cleaned (empty for the
+    /// whole root); empty means no file access
+    pub allowed_paths: Vec<PathBuf>,
     /// how long a single call into the plugin may run before the host stops it
     pub timeout: Duration,
     /// the `seed` meta, mixed into the plugin's seed; `None` without one
@@ -90,6 +113,7 @@ impl Default for PluginCapabilities {
     fn default() -> Self {
         PluginCapabilities {
             allowed_hosts: vec![],
+            allowed_paths: vec![],
             timeout: DEFAULT_TIMEOUT,
             seed: None,
         }
@@ -174,6 +198,16 @@ impl PluginDeclaration {
                 // consumed by the host. A later capability key gets its own arm that reads the value
                 // and still inserts it into the config below.
                 ALLOWED_HOSTS_KEY => declaration.capabilities.allowed_hosts.push(value),
+                ALLOWED_PATHS_KEY => {
+                    match clean_path(&value) {
+                        Ok(path) => declaration.capabilities.allowed_paths.push(path),
+                        Err(_) => declaration.errors.push(DeclarationError {
+                            kind: ErrorKind::ParseInvalidMeta,
+                            metas: HashMap::of2("plugin", directive.module.as_str(), ALLOWED_PATHS_KEY, value.clone()),
+                        }),
+                    }
+                    declaration.config.insert(key, value);
+                }
                 TIMEOUT_KEY => {
                     timeout = Some(value.clone());
                     declaration.config.insert(key, value);
@@ -286,6 +320,7 @@ fn parse_timeout(value: &str) -> Option<Duration> {
 #[cfg(test)]
 mod test {
     use std::collections::{BTreeMap, HashMap};
+    use std::path::PathBuf;
     use std::time::Duration;
 
     use zhang_ast::error::ErrorKind;
@@ -419,6 +454,48 @@ mod test {
                 "timeout {value:?}"
             );
             assert_eq!(declaration.config, map(&[("timeout", value)]), "timeout {value:?}");
+        }
+    }
+
+    #[test]
+    fn should_read_allowed_paths_and_still_pass_them_through() {
+        let declaration = PluginDeclaration::parse(&directive(&[
+            ("allowed_paths", "documents"),
+            ("allowed_paths", "./statements//2024.csv"),
+            ("allowed_paths", "."),
+        ]));
+
+        assert_eq!(
+            declaration.capabilities.allowed_paths,
+            vec![PathBuf::from("documents"), PathBuf::from("statements/2024.csv"), PathBuf::new()]
+        );
+        assert_eq!(declaration.errors, vec![]);
+        // like any other key: the flat config keeps the last value, `zhang.plugin` every value
+        assert_eq!(declaration.config, map(&[("allowed_paths", ".")]));
+        assert_eq!(declaration.directive.meta["allowed_paths"], vec!["documents", "./statements//2024.csv", "."]);
+    }
+
+    #[test]
+    fn should_grant_no_file_access_without_allowed_paths() {
+        let declaration = PluginDeclaration::parse(&directive(&[("allowed_hosts", "api.example.com")]));
+
+        assert_eq!(declaration.capabilities.allowed_paths, Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn should_report_an_invalid_allowed_path_and_grant_nothing_for_it() {
+        for value in ["../outside", "documents/../..", "/etc", "", "documents\\2024", "documents\0"] {
+            let declaration = PluginDeclaration::parse(&directive(&[("allowed_paths", value), ("allowed_paths", "documents")]));
+
+            assert_eq!(declaration.capabilities.allowed_paths, vec![PathBuf::from("documents")], "value {value:?}");
+            assert_eq!(
+                declaration.errors,
+                vec![DeclarationError {
+                    kind: ErrorKind::ParseInvalidMeta,
+                    metas: HashMap::of2("plugin", "fx-rate.wasm", "allowed_paths", value),
+                }],
+                "value {value:?}"
+            );
         }
     }
 

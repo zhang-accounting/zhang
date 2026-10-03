@@ -15,6 +15,7 @@ use crate::clock::LoadClock;
 use crate::domains::schemas::OptionDomain;
 use crate::pipeline::StageContext;
 use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration};
+use crate::plugin::files::FileAccess;
 use crate::plugin::host::PluginHost;
 use crate::plugin::router::unavailable_host_functions;
 use crate::plugin::PluginType;
@@ -31,8 +32,11 @@ pub struct PluginStore {
 
 impl PluginStore {
     /// register the plugin `_plugin` declares, as parsed into `declaration`; `span` is the directive's span.
-    /// `clock` is the clock of the load, which the plugin reads in the ledger timezone `timezone`
-    pub fn insert_plugin(&mut self, _plugin: &Plugin, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz) -> ZhangResult<()> {
+    /// `clock` is the clock of the load, which the plugin reads in the ledger timezone `timezone`, and `files`
+    /// what the plugin may read once it runs as a processor or mapper
+    pub fn insert_plugin(
+        &mut self, _plugin: &Plugin, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
+    ) -> ZhangResult<()> {
         let plugin_name = _plugin.module.as_str().to_string();
         let plugin_hash = digest(&plugin_name);
         let plugin_cache_file = PathBuf::from_str(".cache/plugins")
@@ -45,7 +49,8 @@ impl PluginStore {
         let manifest = Manifest::new([wasm]).with_timeout(timeout);
 
         // a plugin importing a host function cannot be instantiated without it, so the router host
-        // functions are linked too, answering that they are unavailable
+        // functions are linked too, answering that they are unavailable. Registering, the file
+        // functions deny every path
         let host = PluginHost::registering(_plugin.module.as_str(), span.clone(), clock.clone(), timezone);
         let functions = host.functions().into_iter().chain(unavailable_host_functions());
         let mut plugin = WasmPlugin::new(manifest, functions, true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
@@ -75,6 +80,7 @@ impl PluginStore {
             declaration,
             span: span.clone(),
             occurrence,
+            files,
         };
         if plugin_types.contains(&PluginType::Processor) {
             self.processors.push(registered_plugin.clone())
@@ -151,6 +157,8 @@ pub struct RegisteredPlugin {
     span: SpanInfo,
     /// how many plugins registered before this one declare the same module; it makes their seeds differ
     occurrence: usize,
+    /// the files the plugin's `allowed_paths` let it read
+    files: FileAccess,
 }
 
 impl RegisteredPlugin {
@@ -170,13 +178,15 @@ impl RegisteredPlugin {
             .with_timeout(self.declaration.capabilities.timeout)
     }
 
-    /// the host side of a new instance of this plugin, running as a stage with the context `ctx`
+    /// the host side of a new instance of this plugin, running as a stage with the context `ctx`, with the
+    /// files the plugin's `allowed_paths` let it read
     pub fn host(&self, ctx: &StageContext) -> PluginHost {
-        PluginHost::new(self.name.clone(), self.span.clone(), ctx.clock().clone(), ctx.timezone())
+        PluginHost::new(self.name.clone(), self.span.clone(), ctx.clock().clone(), ctx.timezone()).with_files(self.files.clone())
     }
 
     /// the host side of a new instance of this plugin handling an HTTP request as a router: `zhang_now`
-    /// reads `clock` afresh for the request and records nothing (see [`PluginHost::routing`])
+    /// reads `clock` afresh for the request and records nothing (see [`PluginHost::routing`]), and the file
+    /// functions deny every path, whatever `allowed_paths` grants
     pub fn routing_host(&self, clock: LoadClock, timezone: Tz) -> PluginHost {
         PluginHost::routing(self.name.clone(), self.span.clone(), clock, timezone)
     }
@@ -192,7 +202,7 @@ impl RegisteredPlugin {
         Ok(plugin)
     }
 
-    /// run the plugin's processor over the whole stream; the errors it reports go to `ctx`
+    /// run the plugin's processor over the whole stream; the errors it reports and the files it reads go to `ctx`
     pub fn execute_as_processor(&self, directive: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
         let host = self.host(ctx);
         let mut plugin = self.load_as_plugin(ctx.options, &host)?;
@@ -205,7 +215,7 @@ impl RegisteredPlugin {
     }
 
     /// map every directive through the plugin, reusing a single instance for the whole stream;
-    /// the errors it reports go to `ctx`
+    /// the errors it reports and the files it reads go to `ctx`
     pub fn execute_as_mapper(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
         let host = self.host(ctx);
         let mut plugin = self.load_as_plugin(ctx.options, &host)?;
@@ -225,15 +235,24 @@ impl RegisteredPlugin {
 #[cfg(test)]
 mod test {
     use std::collections::BTreeMap;
+    use std::path::Path;
+    use std::sync::Arc;
     use std::time::Duration;
 
     use serde_json::json;
     use zhang_ast::{Meta, Plugin, SpanInfo, ZhangString};
 
+    use crate::data_source::LocalFileSystemDataSource;
+    use crate::data_type::text::ZhangDataType;
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::PluginDeclaration;
+    use crate::plugin::files::FileAccess;
     use crate::plugin::store::{call_error, known_plugin_types, PluginStore, RegisteredPlugin};
     use crate::plugin::PluginType;
+
+    fn no_files() -> FileAccess {
+        FileAccess::new(vec![], Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})), Path::new("/ledger"))
+    }
 
     fn registered_with_meta(meta: &[(&str, &str)]) -> RegisteredPlugin {
         registered_as("slow.wasm", meta, 0)
@@ -253,6 +272,7 @@ mod test {
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
             occurrence,
+            files: no_files(),
         }
     }
 
@@ -313,6 +333,7 @@ mod test {
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
             occurrence: 0,
+            files: no_files(),
         };
 
         let manifest = plugin.manifest(&options);
@@ -356,6 +377,7 @@ mod test {
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
             occurrence: 0,
+            files: no_files(),
         };
 
         assert_eq!(plugin.manifest(&[]).allowed_hosts, Some(vec![]));
