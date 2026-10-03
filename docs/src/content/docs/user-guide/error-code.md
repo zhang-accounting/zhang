@@ -136,6 +136,23 @@ when another `pad` of the account replaces it first.
 **Solution:** Remove the `pad`, or move it before the assertion it is meant to serve. A `balance` on the day of the
 `pad` comes before it and is not padded.
 
+## PadWithCost
+
+A pad would pad a commodity that its account, or one of its sub-accounts, holds at cost (in lots with a cost, such as
+shares bought `{100 USD}`). The padding is still booked, without a cost, and the error is reported on the balance
+assertion it serves, as Beancount reports "Attempt to pad an entry with cost".
+
+**Example of Error:**
+```zhang
+2024-01-02 * "Buy"
+  Assets:Broker:Stock  10 AAPL {100 USD}
+  Assets:Broker:Cash  -1000 USD
+2024-01-03 pad Assets:Broker:Stock Equity:Opening-Balances
+2024-01-04 balance Assets:Broker:Stock  15 AAPL
+```
+
+**Solution:** Book the missing units with a transaction that gives their cost, instead of padding them.
+
 ## AccountDoesNotExist
 
 Triggered when operations are performed on an account that has not been defined in the ledger.

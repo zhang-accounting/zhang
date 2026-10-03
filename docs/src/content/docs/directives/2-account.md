@@ -164,6 +164,9 @@ account already at the asserted amount gets no padding transaction.
 - A `pad` that pads nothing, because no later assertion of its account needs it, is reported as an
   [`UnusedPad`](/user-guide/error-code/#unusedpad) error, as in Beancount.
 - A `balance ... with pad` pads its own assertion, dated on it, and is never reported unused.
+- Padding a commodity the account or one of its sub-accounts holds at cost is reported as a
+  [`PadWithCost`](/user-guide/error-code/#padwithcost) error on the assertion, as in Beancount. The padding is
+  booked without a cost.
 
 Zhang differs from Beancount in how pads are sized and paired:
 
