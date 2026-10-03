@@ -848,9 +848,10 @@ pub static COLUMNS: &[ColumnDef] = &[
     ColumnDef {
         name: "seq",
         ty: DataType::Int,
-        description: "Position of the transaction in #entries, from 0 in ledger order, shared by all its postings: ORDER BY seq DESC \
-                      lists the newest first. NULL for the synthetic transactions of OPEN, CLOSE and CLEAR. A zhang extension.",
-        get: Get::Posting(|data, row| data.entry(row).seq.map_or(Value::Null, |seq| Value::Int(seq.into()))),
+        description: "Position of the transaction, from 0, in the order zhang processes the ledger, as in #entries, shared by all \
+                      its postings: ORDER BY seq DESC lists the newest first. NULL for the synthetic transactions of OPEN, CLOSE \
+                      and CLEAR. A zhang extension.",
+        get: Get::Posting(|data, row| data.entry(row).seq.map_or(Value::Null, |seq| Value::Int(data.entry_order(seq).into()))),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },

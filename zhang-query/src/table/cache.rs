@@ -6,10 +6,11 @@
 //! only, never on a query: each part is built by the first query that needs it, and every
 //! later query reads the same part, whichever query built it.
 //!
-//! - [`Entries`]: the rows of `#entries` in ledger order (their position is the `seq` column),
-//!   the rows of `#transactions`, and for every transaction its stored id and the kinds of the
-//!   errors recorded for it. Stored transactions are found by source position, which is how
-//!   zhang derives their ids, so no id is hashed.
+//! - [`Entries`]: the rows of `#entries` in beancount's order, the position of every entry in
+//!   the order zhang processed the ledger (the `seq` column), the rows of `#transactions`, and
+//!   for every transaction its stored id and the kinds of the errors recorded for it. Stored
+//!   transactions are found by source position, which is how zhang derives their ids, so no id
+//!   is hashed.
 //! - [`Postings`]: the booked rows of the `postings` table ([`CachedRow`]), the transactions
 //!   they belong to, and the rows of every account, so a query scoped to some accounts
 //!   ([`super::Scope`]) only visits theirs. Booking runs here, over every posting at cost; a
@@ -237,8 +238,11 @@ pub(crate) struct Entries {
 pub(crate) struct EntryInfo {
     /// the index of the directive in [`Ledger::directives`]
     pub directive: u32,
-    /// the position in `#entries`
+    /// the index of the row in `#entries`
     pub seq: u32,
+    /// the position of the entry in the order zhang processed the ledger: the `seq` column (see
+    /// [`processing_order`])
+    pub order: u32,
     /// for a transaction, its id in the store
     pub txn: Option<Uuid>,
     /// for a transaction, the kinds of the errors zhang recorded for it, when there are any
@@ -295,9 +299,13 @@ impl Entries {
             rows.push(EntryInfo {
                 directive: idx as u32,
                 seq,
+                order: NONE,
                 txn,
                 errors: txn.and(position).and_then(|position| errors.remove(&position)),
             });
+        }
+        for (order, seq) in processing_order(ledger, store, &rows, &of_directive, &mut positions).into_iter().enumerate() {
+            rows[seq as usize].order = order as u32;
         }
         let transactions = (0..directives.len())
             .filter(|idx| of_directive[*idx] != NONE && matches!(directives[*idx].data, Directive::Transaction(_)))
@@ -314,6 +322,55 @@ impl Entries {
     pub fn of_directive(&self, idx: usize) -> Option<&EntryInfo> {
         self.of_directive.get(idx).filter(|it| **it != NONE).map(|it| &self.rows[*it as usize])
     }
+}
+
+/// The rows of `#entries` (their indexes) in the order zhang processed the ledger, which the
+/// `seq` column numbers.
+///
+/// zhang folds [`Ledger::directives`] into the store in their order, by datetime, then `open` and
+/// `commodity`, then the balance entries, then the rest, as it sorts them. Transactions and
+/// balance assertions take a number from one counter as they are folded: their `sequence` in the
+/// store. An assertion is numbered where zhang checked it, which for a `balance ... with pad` is
+/// after the other balance entries of its time, its padding among them. The store's numbers
+/// therefore order them, and the running balance a query adds up is the store's: an assertion
+/// comes right after the postings its balance includes. Every other entry, which takes no
+/// number, comes after the numbered entries folded before it and before those folded after it,
+/// in the order of the directives.
+fn processing_order<'a>(ledger: &'a Ledger, store: &'a Store, rows: &[EntryInfo], of_directive: &[u32], positions: &mut Positions<'a>) -> Vec<u32> {
+    // the number of every checked assertion, by the position of its directive
+    let checked: HashMap<Position, i32> = store
+        .balance_assertions
+        .iter()
+        .filter_map(|assertion| positions.of(&assertion.span, false).map(|position| (position, assertion.sequence)))
+        .collect();
+    let mut keys = Vec::with_capacity(rows.len());
+    // the highest number taken by the directives folded so far
+    let mut folded = i64::MIN;
+    for (idx, directive) in ledger.directives.iter().enumerate() {
+        let Some(seq) = of_directive.get(idx).copied().filter(|it| *it != NONE) else {
+            continue;
+        };
+        let number = match &directive.data {
+            Directive::Transaction(_) => rows[seq as usize]
+                .txn
+                .and_then(|id| store.transactions.get(&id))
+                .map(|txn| i64::from(txn.sequence)),
+            Directive::BalanceCheck(_) | Directive::BalancePad(_) => positions
+                .of(&directive.span, false)
+                .and_then(|position| checked.get(&position))
+                .map(|it| i64::from(*it)),
+            _ => None,
+        };
+        // the number it took, or else the last one taken before it, by a directive folded before it; then the
+        // directive
+        let key = (number.unwrap_or(folded), idx);
+        if let Some(number) = number {
+            folded = folded.max(number);
+        }
+        keys.push((key, seq));
+    }
+    keys.sort_unstable_by_key(|(key, _)| *key);
+    keys.into_iter().map(|(_, seq)| seq).collect()
 }
 
 /// The booked rows of the `postings` table.

@@ -82,7 +82,7 @@ fn entry_info<'r>(record: &'r Record<'_>) -> Option<&'r EntryInfo> {
 }
 
 fn seq(record: &Record<'_>) -> Value {
-    entry_info(record).map_or(Value::Null, |info| Value::Int(info.seq.into()))
+    entry_info(record).map_or(Value::Null, |info| Value::Int(info.order.into()))
 }
 
 /// The time of day of the row's directive in the ledger's timezone, as zhang stores the date and
@@ -253,7 +253,8 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "seq",
         DataType::Int,
-        "Position of the entry in #entries, from 0 in ledger order; ORDER BY seq DESC lists the newest first. A zhang extension.",
+        "Position of the entry, from 0, in the order zhang processes the ledger; ORDER BY seq DESC lists the newest first. A \
+         zhang extension.",
         |_, record| seq(record),
     ),
     ColumnDef::record(
@@ -307,8 +308,8 @@ static TRANSACTION_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "seq",
         DataType::Int,
-        "Position of the transaction in #entries, from 0 in ledger order; ORDER BY seq DESC lists the newest first. A zhang \
-         extension.",
+        "Position of the transaction, from 0, in the order zhang processes the ledger, as in #entries; ORDER BY seq DESC \
+         lists the newest first. A zhang extension.",
         |_, record| seq(record),
     ),
     ColumnDef::record(
