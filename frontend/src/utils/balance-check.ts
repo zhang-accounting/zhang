@@ -46,3 +46,11 @@ export function subAccountsFirst<T extends { account_name: string }>(balances: T
     .sort((a, b) => depth(b.balance) - depth(a.balance) || a.index - b.index)
     .map(({ balance }) => balance);
 }
+
+/**
+ * Whether a batch pads an account and also asserts one of its sub-accounts. A beancount ledger fails such a batch whichever
+ * balance is written first: beancount lets the sub-account's balance use up the parent's pad (see the balance assertion docs).
+ */
+export function padsAnAccountWithItsSubAccount(balances: { account_name: string; pad: string }[]): boolean {
+  return balances.some((parent) => parent.pad !== '' && balances.some((balance) => balance.account_name.startsWith(`${parent.account_name}:`)));
+}

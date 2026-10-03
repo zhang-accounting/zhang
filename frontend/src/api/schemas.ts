@@ -1205,6 +1205,8 @@ export interface operations {
             data: {
               /** @description docker build date of zhang accounting */
               build_date: string;
+              /** @description the ledger's file format, from its main file's extension: `beancount` or `zhang` */
+              format: string;
               /** @description title of ledger */
               title?: string | null;
               /** @description version of zhang accounting */

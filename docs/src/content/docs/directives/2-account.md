@@ -143,9 +143,18 @@ padding goes to the asserted account itself, also when it is a parent account. A
 amount gets no padding transaction.
 
 The `balance ... with pad` is still an assertion, listed in the journal with the others. It is checked once every
-balance entry of its time is booked: when the pad of a sub-account at the same time changes the total afterwards,
-it fails with an [`AccountBalanceCheckError`](/user-guide/error-code/#accountbalancecheckerror) instead of holding
-silently. Write the balances of sub-accounts before those of their parents; the batch balance tool does so.
+balance entry of its time is booked, and fails with an
+[`AccountBalanceCheckError`](/user-guide/error-code/#accountbalancecheckerror) instead of holding silently when the
+padding cannot bring the total to the asserted amount:
+
+- when the pad of a sub-account at the same time changes the total afterwards. Write the balances of sub-accounts
+  before those of their parents; the batch balance tool does so;
+- when it pads from the asserted account itself or from one of its sub-accounts: that padding moves units within
+  the total it asserts, so it never changes it. Beancount fails such a pad too.
+
+In a Beancount ledger, a pad of an account and a balance of one of its sub-accounts in the same batch fail
+`bean-check` whichever is written first: Beancount lets the sub-account's balance use up the parent's pad (see the
+differences below). The batch balance tool warns about it; check the parent without a pad instead.
 
 In a Beancount ledger, a `pad` directive serves the next `balance` of its own account in each commodity, until the
 account's next `pad`. A `balance` on the day of the `pad` comes before it and is not padded. Zhang differs from
