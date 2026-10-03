@@ -54,3 +54,13 @@ export function subAccountsFirst<T extends { account_name: string }>(balances: T
 export function padsAnAccountWithItsSubAccount(balances: { account_name: string; pad: string }[]): boolean {
   return balances.some((parent) => parent.pad !== '' && balances.some((balance) => balance.account_name.startsWith(`${parent.account_name}:`)));
 }
+
+/**
+ * Whether a batch pads an account from more than one account. A beancount ledger pads an account from a single account per day,
+ * so the server refuses such a batch for a beancount ledger.
+ */
+export function padsAnAccountFromTwoAccounts(balances: { account_name: string; pad: string }[]): boolean {
+  return balances.some(
+    (one) => one.pad !== '' && balances.some((other) => other.account_name === one.account_name && other.pad !== '' && other.pad !== one.pad),
+  );
+}

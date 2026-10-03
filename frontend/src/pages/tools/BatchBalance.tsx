@@ -20,7 +20,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { batchBalanceRows, padsAnAccountWithItsSubAccount, subAccountsFirst } from '@/utils/balance-check';
+import { batchBalanceRows, padsAnAccountFromTwoAccounts, padsAnAccountWithItsSubAccount, subAccountsFirst } from '@/utils/balance-check';
 import { useListState } from '@/hooks/use-list-state';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { apiErrorMessage } from '@/lib/api-error';
@@ -124,13 +124,14 @@ export default function BatchBalance() {
   // Derived (not stored) so that toggling "Reflect" off clears every flag and the count at once, and on brings them back.
   const hasMismatch = (account: BalanceLineItem) => reflectOnUnbalancedAmount && isMismatch(account);
   const filledCount = accounts.filter((account) => account.balanceAmount.trim() !== '').length;
-  // beancount cannot pass a pad of an account together with a balance of one of its sub-accounts
+  // beancount cannot pass a pad of an account together with a balance of one of its sub-accounts, nor pad an account from
+  // two accounts on one day (the server refuses that)
   const ledgerFormat = useAtomValue(ledgerFormatAtom);
-  const beancountPadConflict =
-    ledgerFormat === 'beancount' &&
-    padsAnAccountWithItsSubAccount(
-      accounts.filter((account) => account.balanceAmount.trim() !== '').map((account) => ({ account_name: account.accountName, pad: account.pad ?? '' })),
-    );
+  const filledPads = accounts
+    .filter((account) => account.balanceAmount.trim() !== '')
+    .map((account) => ({ account_name: account.accountName, pad: account.pad ?? '' }));
+  const beancountPadConflict = ledgerFormat === 'beancount' && padsAnAccountWithItsSubAccount(filledPads);
+  const beancountTwoPadAccounts = ledgerFormat === 'beancount' && padsAnAccountFromTwoAccounts(filledPads);
   const mismatchCount = accounts.filter(hasMismatch).length;
 
   const onSave = async () => {
@@ -324,6 +325,7 @@ export default function BatchBalance() {
             <span className="truncate text-xs text-destructive tabular-nums">{t('batch_balance.mismatch_count', { count: mismatchCount })}</span>
           )}
           {beancountPadConflict && <span className="text-xs text-warning">{t('batch_balance.beancount_parent_pad')}</span>}
+          {beancountTwoPadAccounts && <span className="text-xs text-warning">{t('batch_balance.beancount_two_pad_accounts')}</span>}
         </div>
         <Button
           variant="ghost"

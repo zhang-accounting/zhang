@@ -2,7 +2,7 @@
 //   pnpm run test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { balanceCheckRows, batchBalanceRows, padsAnAccountWithItsSubAccount, subAccountsFirst } from './balance-check.ts';
+import { balanceCheckRows, batchBalanceRows, padsAnAccountFromTwoAccounts, padsAnAccountWithItsSubAccount, subAccountsFirst } from './balance-check.ts';
 
 const calculated = { number: '0', commodity: 'CNY' };
 
@@ -65,4 +65,13 @@ test('a batch padding an account and asserting one of its sub-accounts is flagge
   // a parent checked without a pad is fine, and so is a sibling that is no sub-account
   assert.equal(padsAnAccountWithItsSubAccount([check('Assets:Bank'), pad('Assets:Bank:Checking')]), false);
   assert.equal(padsAnAccountWithItsSubAccount([pad('Assets:Bank'), pad('Assets:Banking')]), false);
+});
+
+test('a batch padding an account from two accounts is flagged', () => {
+  const row = (account_name: string, pad: string) => ({ account_name, pad });
+  assert.equal(padsAnAccountFromTwoAccounts([row('Assets:Wallet', 'Equity:Open'), row('Assets:Wallet', 'Equity:Fx')]), true);
+  // one pad account, a commodity checked without a pad, or two accounts each from its own: fine
+  assert.equal(padsAnAccountFromTwoAccounts([row('Assets:Wallet', 'Equity:Open'), row('Assets:Wallet', 'Equity:Open')]), false);
+  assert.equal(padsAnAccountFromTwoAccounts([row('Assets:Wallet', 'Equity:Open'), row('Assets:Wallet', '')]), false);
+  assert.equal(padsAnAccountFromTwoAccounts([row('Assets:Wallet', 'Equity:Open'), row('Assets:Bank', 'Equity:Fx')]), false);
 });

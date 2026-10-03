@@ -55,22 +55,40 @@ const LEDGER: &str = r#"option "operating_currency" "CNY"
 /// A ledger directory under the system temp dir, removed on drop.
 struct Scratch {
     dir: PathBuf,
+    /// the main file: `main.zhang`, or `main.bean` for a beancount ledger
+    main: &'static str,
 }
 
 impl Scratch {
     fn new(content: &str) -> Scratch {
+        Scratch::with_main("main.zhang", content)
+    }
+
+    fn beancount(content: &str) -> Scratch {
+        Scratch::with_main("main.bean", content)
+    }
+
+    fn with_main(main: &'static str, content: &str) -> Scratch {
         let dir = std::env::temp_dir().join(format!("zhang-balance-assertions-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("main.zhang"), content).unwrap();
-        Scratch { dir }
+        std::fs::write(dir.join(main), content).unwrap();
+        Scratch { dir, main }
+    }
+
+    /// the ledger loaded from the files as they are now
+    async fn ledger(&self) -> Ledger {
+        let source: Arc<dyn zhang_core::data_source::DataSource> = if self.main.ends_with(".bean") {
+            Arc::new(LocalFileSystemDataSource::new(beancount::Beancount::default()))
+        } else {
+            Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
+        };
+        Ledger::async_load(self.dir.clone(), self.main.to_owned(), source)
+            .await
+            .expect("the ledger loads")
     }
 
     async fn state(&self) -> State<SharedLedger> {
-        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::async_load(self.dir.clone(), "main.zhang".to_owned(), source)
-            .await
-            .expect("the ledger loads");
-        State(SharedLedger(Arc::new(RwLock::new(ledger))))
+        State(SharedLedger(Arc::new(RwLock::new(self.ledger().await))))
     }
 
     /// The body of `GET /api/journals` with these parameters.
@@ -110,7 +128,15 @@ async fn respond(response: impl IntoResponse) -> (StatusCode, Value) {
     let response = response.into_response();
     let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap())
+    // a write answers with no body
+    (
+        status,
+        if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap()
+        },
+    )
 }
 
 /// a decimal string of the response as a number, so `35` and `35.000` compare equal
@@ -583,4 +609,226 @@ async fn an_opened_sub_account_without_postings_counts_as_a_sub_account() {
         .unwrap()
         .clone();
     assert_eq!(checking["has_sub_accounts"], false);
+}
+
+/// A beancount ledger reconciled through the API, day after day, as the UI does it. The UI writes a pad as a `pad` on
+/// the day before plus the `balance`, with its time in `time:` metadata. Beancount knows no times: a `pad` serves the
+/// balances of later days only, and the balances of its own day come before it.
+mod beancount_pads {
+    use axum::extract::{Path as UrlPath, State};
+    use axum::http::StatusCode;
+    use axum::Json;
+    use bigdecimal::BigDecimal;
+    use chrono::{Days, NaiveDate};
+    use serde_json::{json, Value};
+    use zhang_ast::amount::Amount;
+    use zhang_ast::error::ErrorKind;
+    use zhang_server::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
+    use zhang_server::routes::account::{create_account_balance, create_batch_account_balances};
+    use zhang_server::state::SharedReloadSender;
+    use zhang_server::ReloadSender;
+
+    use super::{respond, Scratch};
+
+    fn today() -> NaiveDate {
+        // the ledgers below are in UTC
+        chrono::Utc::now().date_naive()
+    }
+
+    fn days_ago(days: u64) -> NaiveDate {
+        today().checked_sub_days(Days::new(days)).unwrap()
+    }
+
+    fn reload() -> State<SharedReloadSender> {
+        let (sender, _) = tokio::sync::mpsc::channel(1);
+        State(SharedReloadSender(std::sync::Arc::new(ReloadSender(sender))))
+    }
+
+    fn amount(number: u32, commodity: &str) -> Amount {
+        Amount::new(BigDecimal::from(number), commodity)
+    }
+
+    async fn pad(scratch: &Scratch, account: &str, amount: Amount, from: &str) -> (StatusCode, Value) {
+        let request = AccountBalanceRequest::Pad { amount, pad: from.to_owned() };
+        respond(create_account_balance(scratch.state().await, reload(), UrlPath((account.to_owned(),)), Json(request)).await).await
+    }
+
+    async fn batch(scratch: &Scratch, rows: Vec<(&str, Amount, &str)>) -> (StatusCode, Value) {
+        let rows = rows
+            .into_iter()
+            .map(|(account, amount, from)| BatchAccountBalanceRequest::Pad {
+                account_name: account.to_owned(),
+                amount,
+                pad: from.to_owned(),
+            })
+            .collect();
+        respond(create_batch_account_balances(scratch.state().await, reload(), Json(rows)).await).await
+    }
+
+    /// what the ledger reloaded from its files holds: the errors, the paddings (date, units, account padded from) and
+    /// whether each assertion passed
+    async fn reloaded(scratch: &Scratch) -> (Vec<ErrorKind>, Vec<String>, Vec<bool>) {
+        let ledger = scratch.ledger().await;
+        let store = ledger.store.read().unwrap();
+        let errors = store.errors.iter().map(|it| it.error_type.clone()).collect();
+        let mut paddings = store
+            .transactions
+            .values()
+            .filter(|it| it.flag == zhang_ast::Flag::BalancePad)
+            .map(|it| {
+                format!(
+                    "{} {} from {}",
+                    it.datetime.date_naive(),
+                    it.postings[0].inferred_amount,
+                    it.postings[1].account.name()
+                )
+            })
+            .collect::<Vec<_>>();
+        paddings.sort();
+        let passed = store.balance_assertions.iter().map(|it| it.passed).collect();
+        (errors, paddings, passed)
+    }
+
+    fn written(scratch: &Scratch) -> String {
+        walkdir(&scratch.dir)
+            .into_iter()
+            .filter(|it| it != &scratch.dir.join(scratch.main))
+            .map(|it| std::fs::read_to_string(it).unwrap())
+            .collect()
+    }
+
+    fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut files = vec![];
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                files.extend(walkdir(&path));
+            } else {
+                files.push(path);
+            }
+        }
+        files
+    }
+
+    const OPENS: &str = r#"option "operating_currency" "CNY"
+option "timezone" "UTC"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 open Assets:A
+1970-01-01 open Equity:Open
+1970-01-01 open Equity:Fx
+1970-01-01 open Expenses:Food
+"#;
+
+    #[tokio::test]
+    async fn a_pad_made_today_serves_todays_balance_after_yesterdays() {
+        // yesterday's pad from the UI, then dinner; today's pad pads from where dinner left the account
+        let scratch = Scratch::beancount(&format!(
+            r#"{OPENS}{} pad Assets:A Equity:Open
+{} balance Assets:A 100 CNY
+  time: "09:30:00"
+{} * "dinner"
+  Assets:A -20 CNY
+  Expenses:Food
+  time: "20:00:00"
+"#,
+            days_ago(2),
+            days_ago(1),
+            days_ago(1)
+        ));
+        let (status, body) = pad(&scratch, "Assets:A", amount(500, "CNY"), "Equity:Open").await;
+        assert!(status.is_success(), "{status} {body}");
+
+        let (errors, paddings, passed) = reloaded(&scratch).await;
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(
+            paddings,
+            vec![
+                format!("{} 100 CNY from Equity:Open", days_ago(2)),
+                format!("{} 420 CNY from Equity:Open", days_ago(1))
+            ]
+        );
+        assert_eq!(passed, vec![true, true]);
+        assert_eq!(scratch.balance("Assets:A").await, json!({"CNY": "500"}));
+
+        // another commodity padded today from the same account uses today's `pad`: one `pad` is written
+        let (status, body) = pad(&scratch, "Assets:A", amount(20, "USD"), "Equity:Open").await;
+        assert!(status.is_success(), "{status} {body}");
+        assert_eq!(written(&scratch).matches(" pad Assets:A ").count(), 1, "{}", written(&scratch));
+        let (errors, paddings, _) = reloaded(&scratch).await;
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(paddings.contains(&format!("{} 20 USD from Equity:Open", days_ago(1))), "{paddings:?}");
+
+        // beancount cannot pad today's balances from another account, nor a commodity balanced today again
+        for (amount, from, refusal) in [
+            (amount(30, "USD"), "Equity:Fx", "single account per day"),
+            (amount(600, "CNY"), "Equity:Open", "has a balance in CNY"),
+        ] {
+            let before = written(&scratch);
+            let (status, body) = pad(&scratch, "Assets:A", amount, from).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+            assert!(body["message"].as_str().unwrap().contains(refusal), "{body}");
+            assert_eq!(written(&scratch), before, "nothing is written");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_pad_made_today_leaves_yesterdays_balance_alone() {
+        // yesterday's check from the UI, at a time after midnight, when today's `pad` is dated
+        let scratch = Scratch::beancount(&format!(
+            r#"{OPENS}{} balance Assets:A 0 CNY
+  time: "10:00:00"
+"#,
+            days_ago(1)
+        ));
+        let (status, body) = pad(&scratch, "Assets:A", amount(150, "CNY"), "Equity:Open").await;
+        assert!(status.is_success(), "{status} {body}");
+        let (errors, paddings, passed) = reloaded(&scratch).await;
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(paddings, vec![format!("{} 150 CNY from Equity:Open", days_ago(1))]);
+        assert_eq!(passed, vec![true, true]);
+    }
+
+    #[tokio::test]
+    async fn a_batch_pads_an_account_once_a_day_from_one_account() {
+        let scratch = Scratch::beancount(OPENS);
+        let main = std::fs::read_to_string(scratch.dir.join(scratch.main)).unwrap();
+
+        // two pad accounts for one account: refused, nothing written
+        let (status, body) = batch(
+            &scratch,
+            vec![("Assets:A", amount(100, "CNY"), "Equity:Open"), ("Assets:A", amount(20, "USD"), "Equity:Fx")],
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        let message = body["message"].as_str().unwrap();
+        assert!(message.contains("beancount pads an account from a single account per day"), "{message}");
+        assert!(message.contains("Equity:Open") && message.contains("Equity:Fx"), "{message}");
+        assert!(written(&scratch).is_empty());
+        assert_eq!(std::fs::read_to_string(scratch.dir.join(scratch.main)).unwrap(), main);
+
+        // one pad account: one `pad` serving both balances, its file included once
+        let (status, body) = batch(
+            &scratch,
+            vec![("Assets:A", amount(100, "CNY"), "Equity:Open"), ("Assets:A", amount(20, "USD"), "Equity:Open")],
+        )
+        .await;
+        assert!(status.is_success(), "{status} {body}");
+        let files = written(&scratch);
+        assert_eq!(files.matches(" pad Assets:A Equity:Open").count(), 1, "{files}");
+        assert_eq!(files.matches(" balance Assets:A ").count(), 2, "{files}");
+        let main = std::fs::read_to_string(scratch.dir.join(scratch.main)).unwrap();
+        assert_eq!(main.matches("include ").count(), 1, "{main}");
+
+        let (errors, paddings, passed) = reloaded(&scratch).await;
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(
+            paddings,
+            vec![
+                format!("{} 100 CNY from Equity:Open", days_ago(1)),
+                format!("{} 20 USD from Equity:Open", days_ago(1))
+            ]
+        );
+        assert_eq!(passed, vec![true, true]);
+    }
 }
