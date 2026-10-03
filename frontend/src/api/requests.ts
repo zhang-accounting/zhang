@@ -57,6 +57,10 @@ export const retrieveQuerySchema = openAPIFetcher.path('/api/query/schema').meth
 
 export const retrieveSavedQueries = openAPIFetcher.path('/api/query/saved').method('get').create();
 
+export const retrieveBuiltinQueries = openAPIFetcher.path('/api/query/builtins').method('get').create();
+
+export const retrieveBuiltinQueryText = openAPIFetcher.path('/api/query/builtins/{name}/text').method('post').create();
+
 /**
  * Runs a query through `POST /api/query/csv` and returns the CSV file. A query error is thrown as an `ApiError`
  * carrying the same `{message, line, column}` body as `POST /api/query`.

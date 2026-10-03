@@ -549,6 +549,13 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         description: "Whether the two sets share an element, e.g. intersects(tags, :tags). A zhang extension.",
         eval: search::intersects,
     },
+    ScalarFunction {
+        name: "set",
+        params: &[ParamType::Variadic(Str)],
+        returns: ReturnType::Exact(Set),
+        description: "A set of the given strings, e.g. intersects(tags, set('trip', 'food')); set() is the empty set. A zhang extension.",
+        eval: search::set,
+    },
     // ---- function library: strings ----
     ScalarFunction {
         name: "str",
