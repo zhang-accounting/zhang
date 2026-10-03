@@ -5,8 +5,8 @@ description: How a WASM plugin serves its own HTTP endpoints under /api/plugins/
 
 A plugin that declares the `Router` type answers HTTP requests itself, so it can serve a custom report page, a chart's data or a small API next to Zhang's own. Like every plugin it is a WebAssembly module built with [Extism](https://extism.org/), and plugins must be enabled with `option "features.plugin" "true"`.
 
-:::caution[Early version]
-Router plugins can read the ledger but not change it. A full plugin guide comes later.
+:::note[Writing plugins]
+Router plugins can read the ledger but not change it. [Writing Plugins](/developer-guides/plugins/) covers every plugin type, the `plugin` directive and its capabilities, and the Rust SDK, whose `router` module wraps everything on this page.
 :::
 
 ## Route
@@ -60,7 +60,7 @@ A router plugin reads the ledger through host functions in the `extism:host/user
 - `zhang_query(bql)` runs a read-only [query](/user-guide/query-language/) and returns what `POST /api/query` returns in `data`: `{"columns": [{"name", "type"}], "rows": [[...]]}`. It has the same time and result size limits. A query that fails gives the kind `query`, with `message`, `line` and `column`.
 - `zhang_ledger_info()` returns `{"title": "...", "operating_currency": "CNY", "timezone": "Asia/Shanghai"}`.
 
-In Rust with the Extism PDK:
+In Rust with the plain Extism PDK (the [Rust SDK](/developer-guides/plugins/#router-plugins) wraps this as `router::query`):
 
 ```rust
 use extism_pdk::*;
