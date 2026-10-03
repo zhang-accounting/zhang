@@ -1268,4 +1268,98 @@ mod string_round_trip_test {
             "{written}"
         );
     }
+
+    /// In a file with CRLF line endings the document line goes after the whole line
+    /// ending of the header, never between its `\r` and `\n`.
+    #[tokio::test]
+    async fn uploaded_documents_go_under_a_crlf_header() {
+        for main in ["main.zhang", "main.bean"] {
+            let dir = std::env::temp_dir().join(format!("zhang-document-crlf-{}", Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let dir = dir.canonicalize().unwrap();
+            let opens = "1970-01-01 commodity CNY\r\n1970-01-01 open Assets:Cash\r\n1970-01-01 open Expenses:Food\r\n\r\n";
+            let header = "2024-01-15 * \"Bob\" \"coffee\"\r\n";
+            let postings = "  Assets:Cash -5 CNY\r\n  Expenses:Food 5 CNY\r\n";
+            std::fs::write(dir.join(main), format!("{opens}{header}{postings}")).unwrap();
+            let load = || async {
+                let source: Arc<LocalFileSystemDataSource> = if main.ends_with(".bean") {
+                    Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}))
+                } else {
+                    Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
+                };
+                Ledger::async_load(dir.clone(), main.to_owned(), source).await.expect("load ledger")
+            };
+
+            let ledger = load().await;
+            let id = ledger.operations().read().transactions.values().next().unwrap().id;
+            let span = ledger.operations().transaction_span(&id).unwrap().unwrap();
+            write_transaction_documents(&ledger, &span, &["attachments/a.pdf".to_owned()]).await.unwrap();
+
+            let written = std::fs::read_to_string(dir.join(main)).unwrap();
+            assert_eq!(written, format!("{opens}{header}  document: \"attachments/a.pdf\"\n{postings}"), "{main}");
+            let reloaded = load().await;
+            let operations = reloaded.operations();
+            let store = operations.read();
+            assert!(store.errors.is_empty(), "{main}: {:?}", store.errors);
+            let transaction = store.transactions.values().next().unwrap();
+            assert_eq!(transaction.narration.as_deref(), Some("coffee"), "{main}");
+            assert_eq!(transaction.postings.len(), 2, "{main}");
+            let documents = store
+                .documents
+                .iter()
+                .filter(|it| it.document_type.as_trx() == Some(transaction.id.to_string()))
+                .count();
+            assert_eq!(documents, 1, "{main}");
+            drop(store);
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    /// Transactions of two files can start at the same offset: an edit takes the
+    /// original forms of its values from the transaction of its own file.
+    #[tokio::test]
+    async fn an_edit_reads_the_original_of_its_own_file() {
+        let dir = std::env::temp_dir().join(format!("zhang-edit-two-files-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let transaction =
+            |payee: &str, rate: &str| format!("2024-01-15 * \"{payee}\" \"coffee\"\n  rate: {rate}\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n");
+        std::fs::write(
+            dir.join("main.bean"),
+            format!(
+                "{}\ninclude \"other.bean\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n",
+                transaction("Main", "1.5")
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("other.bean"), transaction("Other", "\"1.5\"")).unwrap();
+        let load = || async {
+            let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+        };
+
+        for (payee, file, written_rate) in [("Other", "other.bean", "  rate: \"1.5\"\n"), ("Main", "main.bean", "  rate: 1.5\n")] {
+            let ledger = load().await;
+            let (id, start) = {
+                let operations = ledger.operations();
+                let store = operations.read();
+                let transaction = store.transactions.values().find(|it| it.payee.as_deref() == Some(payee)).unwrap();
+                (transaction.id, transaction.span.start)
+            };
+            assert_eq!(start, 0, "both transactions start their file");
+            let mut update = request("coffee", "n");
+            update.payee = payee.to_owned();
+            update.metas = vec![meta("rate", "1.5")];
+            let (state, reload) = states(ledger);
+            let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
+                .await
+                .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+            let written = std::fs::read_to_string(dir.join(file)).unwrap();
+            assert!(written.contains(written_rate), "{file}: {written}");
+        }
+        assert!(load().await.operations().read().errors.is_empty());
+
+        std::fs::remove_dir_all(dir).ok();
+    }
 }
