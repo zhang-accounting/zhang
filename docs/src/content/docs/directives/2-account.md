@@ -196,7 +196,9 @@ reads them as Zhang does, and nothing is padded but what you asked for, when you
 - "My balance now" is a `balance` dated tomorrow: the start of tomorrow is the end of today, after every transaction
   of today. A transaction you add later today is not in the amount you asserted, so it makes that balance fail, as in
   Beancount. Check the balance again: a new check of the account and commodity replaces that balance of tomorrow in
-  your file instead of adding a second one, and the UI tells you which balance it replaced.
+  your file instead of adding a second one. Only its amount changes: its metadata, comment and tolerance stay as you
+  wrote them, and a balance you wrote more than once is changed everywhere. The UI tells you which balances it
+  replaced.
 - With a pad, the difference between your amount and what the account and its sub-accounts hold now is booked as a
   padding transaction (flag `P`) dated now, from the pad account, before the `balance`. Nothing is booked when there
   is no difference. A padding transaction booked earlier stays, and a new pad books the difference from it. The UI
@@ -215,7 +217,9 @@ In both ledgers, these are refused, as they could only be reported once written:
 - a pad of a commodity the account or one of its sub-accounts holds at cost: it would book units without a cost.
   Record them with their cost instead, as a purchase or a sale.
 
-A refused request writes nothing, and the UI shows why.
+A refused request writes nothing, and the UI shows why. A request also writes nothing when a file it would change in
+place was edited since Zhang loaded it, and Zhang has not reloaded it yet: it answers 409, and the ledger is reloaded,
+so trying again works.
 
 Zhang differs from Beancount in how pads are sized and paired:
 
