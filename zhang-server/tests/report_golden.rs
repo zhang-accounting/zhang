@@ -24,7 +24,7 @@ use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::calculable::Calculable;
 use zhang_query::{DataType, ParamTypes, Params, Query};
-use zhang_server::builtin::{calculated_amount, LedgerDateRange};
+use zhang_server::builtin::{calculated_amount, execute, LedgerDateRange};
 use zhang_server::report::{self, legacy};
 use zhang_server::request::StatisticInterval;
 
@@ -295,6 +295,57 @@ fn engine_units(ledger: &Ledger, accounts: &BTreeSet<String>, until: DateTime<Ut
     }))
 }
 
+/// A figure computed by the engine apart from the report's queries: the units of the postings
+/// dated `from` to `to` to the accounts whose first component is one of `types` (every account,
+/// with an `open` or not), or to `account` alone, and their value in the operating currency at
+/// the prices of `at`.
+fn engine_figure(ledger: &Ledger, types: &[AccountType], account: Option<&str>, from: NaiveDate, to: NaiveDate, at: NaiveDate) -> Fig {
+    let query = Query::compile_with_params(
+        "SELECT units(sum(position)), convert(sum(position), :currency, :at) \
+         WHERE root(account, 1) IN :types AND (:account IS NULL OR account = :account) AND date >= :from AND date <= :to",
+        &ParamTypes::new()
+            .bind("currency", DataType::Str)
+            .bind("at", DataType::Date)
+            .bind("types", DataType::Set)
+            .bind("account", DataType::Str)
+            .bind("from", DataType::Date)
+            .bind("to", DataType::Date),
+    )
+    .unwrap();
+    let currency = ledger.options.operating_currency.clone();
+    let params = Params::new()
+        .bind("currency", currency.as_str())
+        .bind("at", at)
+        .bind("types", types.iter().map(|it| it.to_string()).collect::<BTreeSet<_>>())
+        .bind("account", account.map(str::to_owned))
+        .bind("from", from)
+        .bind("to", to);
+    let result = query.execute_at(ledger, &params, Utc::now().date_naive()).unwrap();
+    let inventory = |value: &zhang_query::Value| match value {
+        zhang_query::Value::Inventory(inventory) => inventory.clone(),
+        _ => zhang_query::Inventory::new(),
+    };
+    match result.rows.first() {
+        Some(row) => Fig::of(&calculated_amount(&inventory(&row[0]), &inventory(&row[1]), &currency)),
+        None => Fig::of(&CalculatedAmount::new(&currency)),
+    }
+}
+
+/// The first day the engine can date.
+fn day_one() -> NaiveDate {
+    NaiveDate::from_ymd_opt(1, 1, 1).unwrap()
+}
+
+/// The postings of a flow: to the accounts whose first component is one of `types`, or to
+/// `account` alone, from `from` to `to`.
+#[derive(Clone, Copy)]
+struct Flow<'a> {
+    types: &'a [AccountType],
+    account: Option<&'a str>,
+    from: NaiveDate,
+    to: NaiveDate,
+}
+
 struct Context<'a> {
     ledger: &'a Ledger,
     name: &'a str,
@@ -334,48 +385,69 @@ impl Context<'_> {
             .collect()
     }
 
-    /// Why the old and the new balance of `types` differ: the old one adds up the opened
-    /// accounts until `old_until` and values them the old way at `old_at`; the new one adds up
-    /// every account until the end of `day` and values them at `day`. Every step that changes
-    /// the figure must be one of the reasons, and the old figure must be reproduced.
-    fn balance_reasons(&self, types: &[AccountType], old: &Fig, new: &Fig, old_until: DateTime<Utc>, old_at: DateTime<Utc>, day: NaiveDate) -> Reasons {
-        let timezone = self.timezone();
-        let end_of_day = end_of(day, &timezone);
-        let opened = self.accounts(types, true);
-        let all = self.accounts(types, false);
-        let mut reasons = Reasons::new();
-        let old_units = engine_units(self.ledger, &opened, old_until);
-        if old_units != old.units || old_value(self.ledger, old, old_at.with_timezone(&timezone)) != old.calculated {
+    /// Whether the old figure is what the old code computes: its value, the old way, of its
+    /// units at `old_at`.
+    fn old_is_reproduced(&self, old: &Fig, old_at: DateTime<Utc>) -> bool {
+        old_value(self.ledger, old, old_at.with_timezone(&self.timezone())) == old.calculated
+    }
+
+    /// Why the new value differs from the old one, when the new figure is `expected`, the
+    /// engine's own computation of it at the new date `new_at`: the old way of valuing gives
+    /// the new units another value at the new date than the engine (`PricePaths`: an inverse
+    /// price or the cost currency), or another value at the old date than at the new one
+    /// (`date_reason`). A new figure that is not the expected one is unexplained.
+    fn valuation_reasons(&self, new: &Fig, expected: &Fig, old_at: DateTime<Utc>, new_at: DateTime<Utc>, date_reason: Reason) -> Reasons {
+        if new != expected {
             return Reasons::from([Reason::Unexplained]);
         }
+        let timezone = self.timezone();
+        let old_way_then = old_value(self.ledger, new, old_at.with_timezone(&timezone));
+        let old_way_now = old_value(self.ledger, new, new_at.with_timezone(&timezone));
+        let mut reasons = Reasons::new();
+        if old_way_now != new.calculated {
+            reasons.insert(Reason::PricePaths);
+        }
+        if old_way_then != old_way_now {
+            reasons.insert(date_reason);
+        }
+        reasons
+    }
+
+    /// Why the old and the new balance of `types` differ: the old one adds up the opened
+    /// accounts until `old_until` and values them the old way at `old_at`; the new one must be
+    /// the engine's balance of every account at the end of `day`, valued at `day`. Every step
+    /// that changes the figure must be one of the reasons, and the old figure must be reproduced.
+    fn balance_reasons(&self, types: &[AccountType], old: &Fig, new: &Fig, old_until: DateTime<Utc>, old_at: DateTime<Utc>, day: NaiveDate) -> Reasons {
+        let end_of_day = end_of(day, &self.timezone());
+        let opened = self.accounts(types, true);
+        let old_units = engine_units(self.ledger, &opened, old_until);
+        if old_units != old.units || !self.old_is_reproduced(old, old_at) {
+            return Reasons::from([Reason::Unexplained]);
+        }
+        let expected = engine_figure(self.ledger, types, None, day_one(), day, day);
+        if expected.units != new.units || engine_units(self.ledger, &self.accounts(types, false), end_of_day) != new.units {
+            return Reasons::from([Reason::Unexplained]);
+        }
+        let mut reasons = Reasons::new();
         let opened_at_day = engine_units(self.ledger, &opened, end_of_day);
         if opened_at_day != old_units {
             reasons.insert(Reason::UtcCutOff);
         }
-        if engine_units(self.ledger, &all, end_of_day) != new.units {
-            return Reasons::from([Reason::Unexplained]);
-        }
         if opened_at_day != new.units {
             reasons.insert(Reason::AccountsWithoutOpen);
         }
-        reasons.extend(self.valuation_reasons(new, old_at, end_of_day, Reason::EndOfRangePrices));
+        reasons.extend(self.valuation_reasons(new, &expected, old_at, end_of_day, Reason::EndOfRangePrices));
         reasons
     }
 
-    /// Why the new value of the new units differs from what the old code would give them at
-    /// `old_at`: the old method at the new date (`date_reason`), or prices it does not use.
-    fn valuation_reasons(&self, new: &Fig, old_at: DateTime<Utc>, new_at: DateTime<Utc>, date_reason: Reason) -> Reasons {
-        let timezone = self.timezone();
-        if old_value(self.ledger, new, old_at.with_timezone(&timezone)) == new.calculated {
-            return Reasons::new();
+    /// Why the old and the new value of a flow differ: the units must be the same, the old value
+    /// reproduced at `old_at`, and the new one the engine's at the flow's last day.
+    fn flow_reasons(&self, flow: Flow, old: &Fig, new: &Fig, old_at: DateTime<Utc>, date_reason: Reason) -> Reasons {
+        if old.units != new.units || !self.old_is_reproduced(old, old_at) {
+            return Reasons::from([Reason::Unexplained]);
         }
-        if old_value(self.ledger, new, new_at.with_timezone(&timezone)) == new.calculated {
-            Reasons::from([date_reason])
-        } else if old_value(self.ledger, new, old_at.with_timezone(&timezone)) == old_value(self.ledger, new, new_at.with_timezone(&timezone)) {
-            Reasons::from([Reason::PricePaths])
-        } else {
-            Reasons::from([date_reason, Reason::PricePaths])
-        }
+        let expected = engine_figure(self.ledger, flow.types, flow.account, flow.from, flow.to, flow.to);
+        self.valuation_reasons(new, &expected, old_at, end_of(flow.to, &self.timezone()), date_reason)
     }
 
     fn summary(&mut self) {
@@ -403,26 +475,33 @@ impl Context<'_> {
                 reasons,
             );
         }
-        let end_of_range = end_of(self.range.to, &self.timezone());
-        for (item, old, new, types) in [
+        let (from, to) = (self.range.from, self.range.to);
+        for (item, old, new, types, balance) in [
             (
                 "balance",
                 &old.balance,
                 &new.balance,
-                Some(&[AccountType::Assets, AccountType::Liabilities][..]),
+                &[AccountType::Assets, AccountType::Liabilities][..],
+                true,
             ),
-            ("liability", &old.liability, &new.liability, Some(&[AccountType::Liabilities][..])),
-            ("income", &old.income, &new.income, None),
-            ("expense", &old.expense, &new.expense, None),
+            ("liability", &old.liability, &new.liability, &[AccountType::Liabilities][..], true),
+            ("income", &old.income, &new.income, &[AccountType::Income][..], false),
+            ("expense", &old.expense, &new.expense, &[AccountType::Expenses][..], false),
         ] {
             let (old, new) = (Fig::of(old), Fig::of(new));
             if old == new {
                 continue;
             }
-            let reasons = match types {
-                Some(types) => self.balance_reasons(types, &old, &new, self.to, self.to, self.range.to),
-                None if old.units == new.units => self.valuation_reasons(&new, self.to, end_of_range, Reason::Unexplained),
-                None => Reasons::new(),
+            let reasons = if balance {
+                self.balance_reasons(types, &old, &new, self.to, self.to, to)
+            } else {
+                let flow = Flow {
+                    types,
+                    account: None,
+                    from,
+                    to,
+                };
+                self.flow_reasons(flow, &old, &new, self.to, Reason::Unexplained)
             };
             self.found("summary", item, old.show(), new.show(), reasons);
         }
@@ -433,20 +512,31 @@ impl Context<'_> {
         let old = legacy::graph(self.ledger, self.from, self.to).unwrap();
         let new = report::graph(self.ledger, &self.range, &StatisticInterval::Day).unwrap();
         let offset = self.to.with_timezone(&timezone).naive_local() - self.to.naive_utc();
+        let span = |days: &BTreeSet<NaiveDate>| {
+            format!(
+                "{}..{}",
+                days.first().map(|d| d.to_string()).unwrap_or_default(),
+                days.last().map(|d| d.to_string()).unwrap_or_default()
+            )
+        };
+        let days_of = |from: NaiveDate, to: NaiveDate| -> BTreeSet<NaiveDate> {
+            std::iter::successors(Some(from), |d| d.succ_opt().filter(|next| *next <= to)).collect()
+        };
 
         let old_days: BTreeSet<NaiveDate> = old.balances.keys().copied().collect();
         let new_days: BTreeSet<NaiveDate> = new.balances.keys().copied().collect();
+        // the new days are those of the range, the old ones those of its instants in UTC
+        if new_days != days_of(self.range.from, self.range.to) {
+            self.found(
+                "graph",
+                "balances: days of the range",
+                span(&days_of(self.range.from, self.range.to)),
+                span(&new_days),
+                Reasons::new(),
+            );
+        }
         if old_days != new_days {
-            let span = |days: &BTreeSet<NaiveDate>| {
-                format!(
-                    "{}..{}",
-                    days.first().map(|d| d.to_string()).unwrap_or_default(),
-                    days.last().map(|d| d.to_string()).unwrap_or_default()
-                )
-            };
-            // the old days are those of the range's instants in UTC
-            let utc_days: BTreeSet<NaiveDate> =
-                std::iter::successors(Some(self.from.date_naive()), |d| d.succ_opt().filter(|next| *next <= self.to.date_naive())).collect();
+            let utc_days = days_of(self.from.date_naive(), self.to.date_naive());
             let reasons = if !offset.is_zero() && utc_days == old_days {
                 Reasons::from([Reason::UtcCutOff])
             } else {
@@ -485,21 +575,63 @@ impl Context<'_> {
                 }
                 // the old change of a day is valued at 23:59:59 UTC of that day
                 let old_at = Utc.from_utc_datetime(&day.and_hms_opt(23, 59, 59).unwrap());
-                let reasons = if old_fig.units == new_fig.units && old_value(self.ledger, &old_fig, old_at.with_timezone(&timezone)) == old_fig.calculated {
-                    self.valuation_reasons(&new_fig, old_at, end_of(day, &timezone), Reason::UtcCutOff)
-                } else {
-                    Reasons::new()
+                let flow = Flow {
+                    types: &[account_type],
+                    account: None,
+                    from: day,
+                    to: day,
                 };
+                let reasons = self.flow_reasons(flow, &old_fig, &new_fig, old_at, Reason::UtcCutOff);
                 self.found("graph", format!("changes/{}/{}", day, account_type), old_fig.show(), new_fig.show(), reasons);
             }
         }
+    }
+
+    /// The ten largest postings of `account_type` in the range as the engine values them apart
+    /// from `report.top_postings`: by value in the operating currency at the prices of the
+    /// last day, income and liabilities negated, those without a price last, then in ledger
+    /// order; as `date account units currency id`.
+    fn expected_top(&self, account_type: AccountType) -> (Vec<String>, bool) {
+        let query = Query::compile_with_params(
+            "SELECT date, account, id, units(position), convert(position, :currency, :to) \
+             WHERE root(account, 1) = :type AND date >= :from AND date <= :to",
+            &ParamTypes::new()
+                .bind("currency", DataType::Str)
+                .bind("type", DataType::Str)
+                .bind("from", DataType::Date)
+                .bind("to", DataType::Date),
+        )
+        .unwrap();
+        let currency = self.ledger.options.operating_currency.clone();
+        let params = Params::new()
+            .bind("currency", currency.as_str())
+            .bind("type", account_type.to_string())
+            .bind("from", self.range.from)
+            .bind("to", self.range.to);
+        let rows = query.execute_at(self.ledger, &params, Utc::now().date_naive()).unwrap().rows;
+        let mut foreign = false;
+        let mut postings: Vec<(bool, BigDecimal, String)> = rows
+            .into_iter()
+            .map(|row| match &row[..] {
+                [zhang_query::Value::Date(date), zhang_query::Value::Str(account), zhang_query::Value::Str(id), zhang_query::Value::Amount(units), zhang_query::Value::Amount(value)] => {
+                    foreign |= units.commodity != currency;
+                    let positive = matches!(account_type, AccountType::Assets | AccountType::Expenses);
+                    let signed = if positive { value.number.clone() } else { -value.number.clone() };
+                    let text = format!("{} {} {} {} {}", date, account, plain(&units.number), units.commodity, id);
+                    (value.commodity != currency, signed, text)
+                }
+                other => panic!("unexpected row {:?}", other),
+            })
+            .collect();
+        // a stable sort keeps ledger order between equal values
+        postings.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
+        (postings.into_iter().take(10).map(|(_, _, text)| text).collect(), foreign)
     }
 
     fn rank(&mut self, account_type: AccountType) {
         let endpoint = format!("rank {}", account_type);
         let old = legacy::rank(self.ledger, account_type, self.from, self.to).unwrap();
         let new = report::rank(self.ledger, account_type, &self.range).unwrap();
-        let end_of_range = end_of(self.range.to, &self.timezone());
         let old_detail: BTreeMap<String, Fig> = old.detail.iter().map(|it| (it.account.clone(), Fig::of(&it.amount))).collect();
         let new_detail: BTreeMap<String, Fig> = new.detail.iter().map(|it| (it.account.clone(), Fig::of(&it.amount))).collect();
         for account in old_detail.keys().chain(new_detail.keys()).collect::<BTreeSet<_>>() {
@@ -510,11 +642,13 @@ impl Context<'_> {
             if old_fig == new_fig {
                 continue;
             }
-            let reasons = if old_fig.units == new_fig.units {
-                self.valuation_reasons(&new_fig, self.to, end_of_range, Reason::Unexplained)
-            } else {
-                Reasons::new()
+            let flow = Flow {
+                types: &[account_type],
+                account: Some(account),
+                from: self.range.from,
+                to: self.range.to,
             };
+            let reasons = self.flow_reasons(flow, &old_fig, &new_fig, self.to, Reason::Unexplained);
             self.found(&endpoint, format!("detail/{}", account), old_fig.show(), new_fig.show(), reasons);
         }
 
@@ -530,19 +664,21 @@ impl Context<'_> {
         };
         let old_rows: Vec<String> = old.top_transactions.iter().map(row).collect();
         let new_rows: Vec<String> = new.top_transactions.iter().map(row).collect();
+        let (expected, foreign) = self.expected_top(account_type);
+        if new_rows != expected {
+            self.found(
+                &endpoint,
+                "top_transactions: by value",
+                expected.join("; "),
+                new_rows.join("; "),
+                Reasons::new(),
+            );
+        }
         if old_rows != new_rows {
-            let operating = &self.ledger.options.operating_currency;
-            let foreign = {
-                let store = self.ledger.store.read().unwrap();
-                store.postings.iter().any(|it| {
-                    it.account.account_type == account_type
-                        && it.trx_datetime >= self.from
-                        && it.trx_datetime <= self.to
-                        && &it.inferred_amount.commodity != operating
-                })
-            };
             let numbers = |rows: &[AccountJournalDomain]| rows.iter().map(|it| it.inferred_unit.number.normalized()).collect::<Vec<_>>();
-            let reasons = if foreign {
+            let reasons = if new_rows != expected {
+                Reasons::new()
+            } else if foreign {
                 Reasons::from([Reason::RankByValue])
             } else if numbers(&old.top_transactions) == numbers(&new.top_transactions) {
                 Reasons::from([Reason::Ties])
@@ -917,6 +1053,14 @@ fn ranking_of_the_hand_ledger() {
         .to_string();
     assert_eq!(rent.trx_id, trx_id);
 
+    // the query as "Open query" runs it: its value column is each posting at the prices of `to`
+    let params = APRIL.bind(Params::new().bind("type", "Expenses").bind("currency", "CNY"));
+    let result = execute(&ledger, "report.top_postings", &params, false).unwrap();
+    let value = result.columns.iter().position(|column| column.name == "value").unwrap();
+    let values: Vec<String> = result.rows.iter().map(|row| row[value].to_string()).collect();
+    // 300 USD at 7.3, the price of April 30; hours have no price
+    assert_eq!(values, vec!["2190.0 CNY", "1630 CNY", "200 CNY", "60 CNY", "8 HOUR"]);
+
     let income = report::rank(&ledger, AccountType::Income, &APRIL).unwrap();
     let top: Vec<String> = income
         .top_transactions
@@ -1082,74 +1226,183 @@ fn east_of_utc_the_old_graph_is_off_by_a_day() {
     }
 }
 
-/// Every ledger of the comparison, in UTC.
+/// A ledger whose weeks and months without postings see the price of the dollar change, and
+/// with prices after the ends of [`CARRY_RANGES`]: the cases where the date a bucket is valued
+/// at matters.
+const CARRY_LEDGER: &str = r#"option "operating_currency" "CNY"
+option "timezone" "Asia/Shanghai"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:USBank
+1970-01-01 open Expenses:Travel
+1970-01-01 open Equity:Opening
+
+2025-03-31 price USD 7.00 CNY
+2025-04-10 price USD 7.10 CNY
+2025-04-18 price USD 7.15 CNY
+2025-05-20 price USD 7.30 CNY
+2025-06-20 price USD 7.40 CNY
+
+2025-03-31 "Opening" "dollars"
+  Assets:USBank 1000 USD
+  Assets:Bank 500 CNY
+  Equity:Opening -1000 USD
+  Equity:Opening -500 CNY
+
+2025-04-02 "Trip" "in the week of March 31"
+  Expenses:Travel 100 USD
+  Assets:USBank
+
+2025-04-15 "Trip" "in the week of April 14"
+  Expenses:Travel 50 USD
+  Assets:USBank
+
+2025-06-05 "Trip" "in June"
+  Expenses:Travel 20 USD
+  Assets:USBank
+"#;
+
+/// The ranges of [`CARRY_LEDGER`] whose buckets the valuation date of matters:
+/// - April by week: the week of April 7 has no postings and the price changes on April 10, so
+///   it is valued on April 13, not on April 7;
+/// - April 1 to 9 by week: the same week is the last, valued on April 9, before the price of
+///   April 10;
+/// - April 1 to 16 by week: the last week has a posting in dollars and the price of April 18 is
+///   after the range;
+/// - April to June by month: May has no postings and the price changes on May 20;
+/// - April 1 to May 10 by month: May is the last month, valued before the price of May 20;
+/// - April 1 to June 10 by month: June has a posting in dollars, and the price of June 20 is
+///   after the range.
+const CARRY_RANGES: [(&str, &str, StatisticInterval); 6] = [
+    ("2025-04-01", "2025-04-30", StatisticInterval::Week),
+    ("2025-04-01", "2025-04-09", StatisticInterval::Week),
+    ("2025-04-01", "2025-04-16", StatisticInterval::Week),
+    ("2025-04-01", "2025-06-30", StatisticInterval::Month),
+    ("2025-04-01", "2025-05-10", StatisticInterval::Month),
+    ("2025-04-01", "2025-06-10", StatisticInterval::Month),
+];
+
+/// [`CARRY_LEDGER`], loaded the way the server loads a ledger.
+fn carry_ledger() -> Ledger {
+    let dir = std::env::temp_dir().join(format!("zhang-report-carry-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("main.zhang"), CARRY_LEDGER).unwrap();
+    let case = Case {
+        name: "carry".to_owned(),
+        dir: dir.clone(),
+        main: "main.zhang",
+    };
+    let ledger = load(&case, None).unwrap();
+    std::fs::remove_dir_all(dir).ok();
+    ledger
+}
+
+/// Every ledger of the comparison, in UTC, and the two hand ledgers.
 fn all_ledgers() -> Vec<(String, Ledger)> {
     fixtures()
         .into_iter()
         .filter_map(|case| load(&case, Some("UTC")).map(|ledger| (case.name, ledger)))
-        .chain([("hand".to_owned(), hand_ledger())])
+        .chain([("hand".to_owned(), hand_ledger()), ("carry".to_owned(), carry_ledger())])
         .collect()
 }
 
-/// Each point of the daily graph is the net worth of that day valued at that day's prices, as a
-/// query for that day alone computes it, whether the day has postings or is carried over.
+/// The ranges to check the buckets of a ledger on: those of [`ranges`] by day, week and month
+/// (up to about three months by day and a year by week), and [`CARRY_RANGES`] for
+/// [`CARRY_LEDGER`].
+fn bucket_ranges(name: &str, ledger: &Ledger) -> Vec<(LedgerDateRange, StatisticInterval)> {
+    // long ranges only by month, to keep the test quick: it runs six queries per bucket
+    let mut all: Vec<(LedgerDateRange, StatisticInterval)> = ranges(ledger)
+        .into_iter()
+        .flat_map(|(_, range, _)| [StatisticInterval::Day, StatisticInterval::Week, StatisticInterval::Month].map(|interval| (range, interval)))
+        .filter(|(range, interval)| match interval {
+            StatisticInterval::Day => (range.to - range.from).num_days() <= 100,
+            StatisticInterval::Week => (range.to - range.from).num_days() <= 400,
+            StatisticInterval::Month => true,
+        })
+        .collect();
+    if name == "carry" {
+        all.extend(
+            CARRY_RANGES
+                .iter()
+                .map(|(from, to, interval)| (LedgerDateRange { from: d(from), to: d(to) }, *interval)),
+        );
+    }
+    all
+}
+
+/// The first and the last day of the bucket of `day`, computed apart from the report: the day,
+/// its week from Monday to Sunday, or its month.
+fn bucket_of(day: NaiveDate, interval: &StatisticInterval) -> (NaiveDate, NaiveDate) {
+    match interval {
+        StatisticInterval::Day => (day, day),
+        StatisticInterval::Week => {
+            let monday = day - Days::new(day.weekday().num_days_from_monday() as u64);
+            (monday, monday + Days::new(6))
+        }
+        StatisticInterval::Month => {
+            let first = day.with_day(1).unwrap();
+            (first, first + Months::new(1) - Days::new(1))
+        }
+    }
+}
+
+const TYPES: [AccountType; 5] = [
+    AccountType::Assets,
+    AccountType::Liabilities,
+    AccountType::Equity,
+    AccountType::Income,
+    AccountType::Expenses,
+];
+
+/// Every bucket of the graph, by day, week and month, is a bucket of the range, and its point is
+/// the net worth at its last day in the range valued at the prices of that day, as a query for
+/// that day alone computes it, whether the bucket has postings or is carried over; what each
+/// account type changed by in it is valued at the same day.
 #[test]
-fn every_day_is_valued_at_its_own_prices() {
-    let query = Query::compile_with_params(
-        "SELECT units(sum(position)), convert(sum(position), :currency, :day) WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :day",
-        &ParamTypes::new().bind("currency", DataType::Str).bind("day", DataType::Date),
-    )
-    .unwrap();
+fn every_bucket_is_valued_at_its_last_day_in_the_range() {
     for (name, ledger) in all_ledgers() {
-        let currency = ledger.options.operating_currency.clone();
-        for (label, range, _) in ranges(&ledger).into_iter().filter(|(_, range, _)| (range.to - range.from).num_days() <= 100) {
-            let graph = report::graph(&ledger, &range, &StatisticInterval::Day).unwrap();
-            for (day, amount) in &graph.balances {
-                let params = Params::new().bind("currency", currency.as_str()).bind("day", *day);
-                let result = query.execute_at(&ledger, &params, Utc::now().date_naive()).unwrap();
-                let expected = match result.rows.first() {
-                    Some(row) => {
-                        let inventory = |value: &zhang_query::Value| match value {
-                            zhang_query::Value::Inventory(inventory) => inventory.clone(),
-                            _ => zhang_query::Inventory::new(),
-                        };
-                        calculated_amount(&inventory(&row[0]), &inventory(&row[1]), &currency)
-                    }
-                    None => CalculatedAmount::new(&currency),
-                };
-                assert_eq!(Fig::of(amount), Fig::of(&expected), "{} {} on {}", name, label, day);
+        for (range, interval) in bucket_ranges(&name, &ledger) {
+            let graph = report::graph(&ledger, &range, &interval).unwrap();
+            let label = format!("{} {}..{} {:?}", name, range.from, range.to, interval);
+            let expected: BTreeSet<NaiveDate> = std::iter::successors(Some(range.from), |day| day.succ_opt().filter(|next| *next <= range.to))
+                .map(|day| bucket_of(day, &interval).0)
+                .collect();
+            assert_eq!(graph.balances.keys().copied().collect::<BTreeSet<_>>(), expected, "{}: buckets", label);
+            for start in expected {
+                let last = bucket_of(start, &interval).1.min(range.to);
+                let net_worth = engine_figure(&ledger, &[AccountType::Assets, AccountType::Liabilities], None, day_one(), last, last);
+                assert_eq!(Fig::of(&graph.balances[&start]), net_worth, "{}: net worth of {}", label, start);
+                for account_type in TYPES {
+                    let change = graph.changes.get(&start).and_then(|it| it.get(&account_type)).map(Fig::of).unwrap_or_default();
+                    let expected = engine_figure(&ledger, &[account_type], None, start.max(range.from), last, last);
+                    assert_eq!(change, expected, "{}: {} of {}", label, account_type, start);
+                }
             }
         }
     }
 }
 
-/// A week or a month of the graph is the net worth on its last day in the range, and what it
-/// changed by adds up the days of the range in it.
+/// A week or a month of the graph agrees with the days in it: its point is the point of its last
+/// day in the range, its value included, and what it changed by adds up the changes of its
+/// days, valued at that last day.
 #[test]
 fn weeks_and_months_add_up_the_days() {
     for (name, ledger) in all_ledgers() {
-        for (label, range, _) in ranges(&ledger) {
+        let mut checked: BTreeSet<(NaiveDate, NaiveDate)> = BTreeSet::new();
+        for (range, _) in bucket_ranges(&name, &ledger) {
+            if !checked.insert((range.from, range.to)) {
+                continue;
+            }
+            let label = format!("{} {}..{}", name, range.from, range.to);
             let daily = report::graph(&ledger, &range, &StatisticInterval::Day).unwrap();
             for interval in [StatisticInterval::Week, StatisticInterval::Month] {
                 let graph = report::graph(&ledger, &range, &interval).unwrap();
-                let starts: BTreeSet<NaiveDate> = graph.balances.keys().copied().collect();
-                // every day of the range is in exactly one bucket, the last that starts on or before it
-                let bucket_of = |day: &NaiveDate| {
-                    *starts
-                        .range(..=*day)
-                        .next_back()
-                        .unwrap_or_else(|| panic!("{} {} {:?}: no bucket for {}", name, label, interval, day))
-                };
                 let mut last_day: BTreeMap<NaiveDate, NaiveDate> = BTreeMap::new();
                 let mut changes: BTreeMap<(NaiveDate, String), BTreeMap<String, BigDecimal>> = BTreeMap::new();
                 for day in daily.balances.keys() {
-                    let bucket = bucket_of(day);
-                    let start_ok = match interval {
-                        StatisticInterval::Week => bucket.weekday() == chrono::Weekday::Mon && (*day - bucket).num_days() < 7,
-                        StatisticInterval::Month => bucket.day() == 1 && bucket.month() == day.month() && bucket.year() == day.year(),
-                        StatisticInterval::Day => unreachable!(),
-                    };
-                    assert!(start_ok, "{} {} {:?}: {} in the bucket of {}", name, label, interval, day, bucket);
+                    let bucket = bucket_of(*day, &interval).0;
                     let last = last_day.entry(bucket).or_insert(*day);
                     *last = (*last).max(*day);
                     for (account_type, amount) in daily.changes.get(day).into_iter().flatten() {
@@ -1159,30 +1412,99 @@ fn weeks_and_months_add_up_the_days() {
                         }
                     }
                 }
-                assert_eq!(starts, last_day.keys().copied().collect(), "{} {} {:?}: buckets", name, label, interval);
-                for (bucket, last) in last_day {
+                assert_eq!(
+                    graph.balances.keys().copied().collect::<BTreeSet<_>>(),
+                    last_day.keys().copied().collect(),
+                    "{} {:?}: buckets",
+                    label,
+                    interval
+                );
+                for (bucket, last) in &last_day {
                     assert_eq!(
-                        Fig::of(&graph.balances[&bucket]),
-                        Fig::of(&daily.balances[&last]),
-                        "{} {} {:?}: {}",
-                        name,
+                        Fig::of(&graph.balances[bucket]),
+                        Fig::of(&daily.balances[last]),
+                        "{} {:?}: {}",
                         label,
                         interval,
                         bucket
                     );
                 }
-                let actual: BTreeMap<(NaiveDate, String), BTreeMap<String, BigDecimal>> = graph
+                let actual: BTreeMap<(NaiveDate, String), Fig> = graph
                     .changes
                     .iter()
                     .flat_map(|(bucket, by_type)| {
                         by_type
                             .iter()
-                            .map(move |(account_type, amount)| ((*bucket, account_type.to_string()), Fig::of(amount).units))
+                            .map(move |(account_type, amount)| ((*bucket, account_type.to_string()), Fig::of(amount)))
                     })
                     .collect();
-                let expected: BTreeMap<_, _> = changes.into_iter().map(|(key, sum)| (key, units(sum))).collect();
-                assert_eq!(actual, expected, "{} {} {:?}: changes", name, label, interval);
+                let expected: BTreeMap<(NaiveDate, String), Fig> = changes
+                    .into_iter()
+                    .map(|((bucket, account_type), sum)| {
+                        let account_type = AccountType::from_str(&account_type).unwrap();
+                        let last = last_day[&bucket];
+                        let valued = engine_figure(&ledger, &[account_type], None, bucket.max(range.from), last, last);
+                        assert_eq!(valued.units, units(sum), "{} {:?}: units of {} {}", label, interval, bucket, account_type);
+                        ((bucket, account_type.to_string()), valued)
+                    })
+                    .collect();
+                assert_eq!(actual, expected, "{} {:?}: changes", label, interval);
             }
         }
     }
+}
+
+/// The handler's answers to a range it cannot graph and to an unknown account type are 400s
+/// that say why.
+#[tokio::test]
+async fn bad_report_requests_are_bad_requests() {
+    use axum::extract::{Path as UrlPath, Query as UrlQuery, State};
+    use axum::response::IntoResponse;
+    use zhang_server::request::{StatisticGraphRequest, StatisticRequest};
+    use zhang_server::routes::statistics::{get_statistic_graph, get_statistic_rank_detail_by_account_type};
+    use zhang_server::state::SharedLedger;
+
+    let ledger = SharedLedger(Arc::new(tokio::sync::RwLock::new(carry_ledger())));
+    let answer = |response: axum::response::Response| async move {
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        (status.as_u16(), body["message"].as_str().unwrap_or_default().to_owned())
+    };
+
+    let request = StatisticGraphRequest {
+        from: "0001-01-01".to_owned(),
+        to: "9999-12-31".to_owned(),
+        interval: StatisticInterval::Day,
+    };
+    let (status, message) = answer(get_statistic_graph(State(ledger.clone()), UrlQuery(request)).await.into_response()).await;
+    assert_eq!(status, 400);
+    assert!(
+        message.contains("would have 3652059 points") && message.contains("ask for weeks or months"),
+        "{}",
+        message
+    );
+
+    // by month the same range is fine
+    let request = StatisticGraphRequest {
+        from: "2025-01-01".to_owned(),
+        to: "2025-12-31".to_owned(),
+        interval: StatisticInterval::Month,
+    };
+    let (status, _) = answer(get_statistic_graph(State(ledger.clone()), UrlQuery(request)).await.into_response()).await;
+    assert_eq!(status, 200);
+
+    let request = StatisticRequest {
+        from: "2025-04-01".to_owned(),
+        to: "2025-04-30".to_owned(),
+    };
+    let response = get_statistic_rank_detail_by_account_type(State(ledger.clone()), UrlPath(("Foo".to_owned(),)), UrlQuery(request))
+        .await
+        .into_response();
+    let (status, message) = answer(response).await;
+    assert_eq!(status, 400);
+    assert_eq!(
+        message,
+        "unknown account type \"Foo\": expected Assets, Liabilities, Equity, Income or Expenses"
+    );
 }
