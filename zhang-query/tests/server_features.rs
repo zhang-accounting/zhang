@@ -15,10 +15,11 @@
 //!   0.2.0 over `server_features/oracle/main.zhang`. Regenerate with
 //!   `/tmp/bqvenv/bin/python zhang-query/tests/server_features/oracle/generate.py` and check
 //!   with `generate.py --check`.
-//!   Where the lead ruled that zhang deliberately differs from beanquery (a date on a
-//!   `date_bin` month or year boundary starts that bin; `interval` accepts weeks), the oracle
-//!   keeps beanquery's rows, generate.py marks the case `accepted_deviation`, and
-//!   `ACCEPTED_DEVIATIONS` below holds the rows zhang must return, as in `conformance.rs`.
+//!   Where the lead ruled that zhang deliberately differs from beanquery (`date_bin` starts
+//!   bin k at origin + k × stride, computed from the origin, and a date on a bin start begins
+//!   that bin; `interval` accepts weeks), the oracle keeps beanquery's rows, generate.py marks
+//!   the case `accepted_deviation`, and `ACCEPTED_DEVIATIONS` below holds the rows zhang must
+//!   return, as in `conformance.rs`.
 //! - **zhang extensions**: derived by hand from the small ledgers under `server_features/`;
 //!   every expected value is explained next to it, so a reviewer can re-derive it from the
 //!   ledger text.
@@ -2111,6 +2112,10 @@ struct Deviation {
 const DATE_BIN_BOUNDARY: &str = "zhang buckets correctly: a date exactly on a month or year bin boundary starts that bin \
                                  (date_bin('1 month', 2000-02-01, 2000-01-01) is 2000-02-01); beanquery 0.2.0 puts it into \
                                  the previous bin";
+const DATE_BIN_FROM_ORIGIN: &str = "zhang starts bin k at origin + k x stride, computed from the origin, so month and year \
+                                    bins do not drift (from 2020-01-31 monthly: 01-31, 02-29, 03-31, 04-30), and a date on a bin \
+                                    start begins that bin; beanquery 0.2.0 adds the stride to the previous start (01-31, 02-29, \
+                                    03-29, ...) and puts a date on a start into the previous bin";
 const INTERVAL_WEEKS: &str = "zhang extension: interval('<n> week[s]') is 7 x n days; beanquery 0.2.0 returns NULL for weeks";
 
 const ACCEPTED_DEVIATIONS: &[Deviation] = &[
@@ -2165,36 +2170,78 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
             "1999-12-01",
         ]],
     },
-    // READING (kept from beanquery, the ruling does not change it): with an origin on the 31st,
-    // the boundaries are built by adding one month to the previous boundary, so they drift:
-    // 2020-01-31, 2020-02-29, 2020-03-29, ..., 2020-12-29, 2021-01-29, 2021-02-28, 2021-03-28,
-    // then the 28th; before the origin 2019-12-31, 2019-11-30, ... down to the 28th. The ruling
-    // moves the two posting dates that are boundaries, 2020-02-29 and 2021-02-28, into the bins
-    // they start (beanquery: 2020-01-31 and 2021-01-29); the other rows are beanquery's.
+    // Month-end origins (ruled): bin k starts at origin + k × stride, computed from the origin
+    // and clamped to the month's last day, never from the previous start; a date belongs to the
+    // last bin starting on or before it.
+    // - '1 month' from 2020-01-31: every start is the last day of a month (Jan 31 + k months
+    //   clamps to the month end), so a date that is its month's last day starts a bin, and any
+    //   other date is in the bin of the previous month's last day: 2000-01-01 -> 1999-12-31,
+    //   2020-02-29 -> 2020-02-29, 2020-03-01 -> 2020-02-29, 2021-02-28 -> 2021-02-28,
+    //   2024-12-30 -> 2024-11-30. (beanquery drifts to 02-29, 03-29, ..., the 29th, then the
+    //   28th.)
+    // - '2 months' from 2020-01-31: the starts are the last days of the odd months (Jan, Mar,
+    //   May, Jul, Sep, Nov): 1969-12-31 -> 1969-11-30, 2000-02-29 -> 2000-01-31,
+    //   2021-03-31 -> 2021-03-31, 2024-05-31 -> 2024-05-31, 2024-12-31 -> 2024-11-30.
+    // - '1 year' from 2020-02-29: the starts are Feb 29 in leap years and Feb 28 otherwise:
+    //   2000-01-01 -> 1999-02-28, 2000-02-29 -> 2000-02-29 (2000 is a leap year),
+    //   2020-01-31 -> 2019-02-28, 2021-02-28 -> 2021-02-28 (the 2021 bin starts on Feb 28),
+    //   2024-01-01 -> 2023-02-28, 2024-02-29 -> 2024-02-29. (beanquery: 2021-02-28 ->
+    //   2020-02-29, and from 2021 on its starts stay on Feb 28.)
     Deviation {
         case: "date_bin_month_end_origin",
-        reason: DATE_BIN_BOUNDARY,
+        reason: DATE_BIN_FROM_ORIGIN,
         rows: &[
-            &["1969-12-31", "1969-12-28"],
-            &["1999-12-31", "1999-12-28"],
-            &["2000-01-01", "1999-12-28"],
-            &["2000-02-29", "2000-02-28"],
-            &["2001-01-01", "2000-12-28"],
-            &["2020-01-01", "2019-12-31"],
-            &["2020-01-31", "2020-01-31"],
-            &["2020-02-29", "2020-02-29"],
-            &["2020-03-01", "2020-02-29"],
-            &["2020-12-31", "2020-12-29"],
-            &["2021-01-03", "2020-12-29"],
-            &["2021-02-28", "2021-02-28"],
-            &["2021-03-31", "2021-03-28"],
-            &["2023-01-01", "2022-12-28"],
-            &["2024-01-01", "2023-12-28"],
-            &["2024-02-29", "2024-02-28"],
-            &["2024-05-31", "2024-05-28"],
-            &["2024-12-30", "2024-12-28"],
-            &["2024-12-31", "2024-12-28"],
+            &["1969-12-31", "1969-12-31", "1969-11-30", "1969-02-28"],
+            &["1999-12-31", "1999-12-31", "1999-11-30", "1999-02-28"],
+            &["2000-01-01", "1999-12-31", "1999-11-30", "1999-02-28"],
+            &["2000-02-29", "2000-02-29", "2000-01-31", "2000-02-29"],
+            &["2001-01-01", "2000-12-31", "2000-11-30", "2000-02-29"],
+            &["2020-01-01", "2019-12-31", "2019-11-30", "2019-02-28"],
+            &["2020-01-31", "2020-01-31", "2020-01-31", "2019-02-28"],
+            &["2020-02-29", "2020-02-29", "2020-01-31", "2020-02-29"],
+            &["2020-03-01", "2020-02-29", "2020-01-31", "2020-02-29"],
+            &["2020-12-31", "2020-12-31", "2020-11-30", "2020-02-29"],
+            &["2021-01-03", "2020-12-31", "2020-11-30", "2020-02-29"],
+            &["2021-02-28", "2021-02-28", "2021-01-31", "2021-02-28"],
+            &["2021-03-31", "2021-03-31", "2021-03-31", "2021-02-28"],
+            &["2023-01-01", "2022-12-31", "2022-11-30", "2022-02-28"],
+            &["2024-01-01", "2023-12-31", "2023-11-30", "2023-02-28"],
+            &["2024-02-29", "2024-02-29", "2024-01-31", "2024-02-29"],
+            &["2024-05-31", "2024-05-31", "2024-05-31", "2024-02-29"],
+            &["2024-12-30", "2024-11-30", "2024-11-30", "2024-02-29"],
+            &["2024-12-31", "2024-12-31", "2024-11-30", "2024-02-29"],
         ],
+    },
+    // Single dates around month-end starts, by the same rule:
+    // - monthly from 2020-01-31 (starts 01-31, 02-29, 03-31, 04-30, 05-31; before the origin
+    //   2019-12-31, 11-30, 10-31, 09-30): 2020-03-30 -> 2020-02-29 (beanquery 2020-03-29),
+    //   2020-03-31 -> 2020-03-31 (beanquery 2020-03-29), 2020-04-30 -> 2020-04-30 (beanquery
+    //   2020-04-29), 2019-10-30 -> 2019-09-30, the day before the start 2019-10-31 (beanquery
+    //   2019-10-30, a drifted start);
+    // - two-monthly from 2020-01-31 (starts 01-31, 03-31): 2020-03-31 -> 2020-03-31 (beanquery
+    //   2020-01-31), 2020-03-30 -> 2020-01-31;
+    // - yearly from 2020-02-29 (starts 2019-02-28, 2020-02-29, 2021-02-28, 2022-02-28,
+    //   2023-02-28, 2024-02-29): 2021-02-28 -> 2021-02-28 (beanquery 2020-02-29), 2021-02-27 ->
+    //   2020-02-29, 2024-02-28 -> 2023-02-28, 2024-02-29 -> 2024-02-29 (beanquery 2024-02-28),
+    //   2019-02-28 -> 2019-02-28;
+    // - the interval form: 2020-05-31 -> 2020-05-31 (beanquery 2020-05-29).
+    Deviation {
+        case: "date_bin_month_end_examples",
+        reason: DATE_BIN_FROM_ORIGIN,
+        rows: &[&[
+            "2020-02-29",
+            "2020-03-31",
+            "2020-04-30",
+            "2019-09-30",
+            "2020-03-31",
+            "2020-01-31",
+            "2021-02-28",
+            "2020-02-29",
+            "2023-02-28",
+            "2024-02-29",
+            "2019-02-28",
+            "2020-05-31",
+        ]],
     },
     // date + 7 days, date - 14 days, date - 7 days, date + 21 days (beanquery: NULL), across
     // month, year and leap-day ends: 1969-12-31 + 7 = 1970-01-07, 2000-02-29 + 7 = 2000-03-07,
@@ -2337,10 +2384,16 @@ fn l_oracle_date_bin() {
     check_oracle("date_bin");
 }
 
-/// Accepted deviation, as the lead ruled: a date exactly on a month or year bin boundary starts
-/// that bin (`date_bin('1 month', 2000-02-01, 2000-01-01)` is 2000-02-01). beanquery 0.2.0 puts
-/// it into the previous bin, the kind of off-by-one the report graph must not have; the oracle
-/// keeps beanquery's rows and `ACCEPTED_DEVIATIONS` has zhang's.
+/// Accepted deviations, as the lead ruled:
+/// - bin k starts at origin + k × stride, computed from the origin itself, so month and year
+///   bins from a month-end origin do not drift (from 2020-01-31, monthly bins start on 01-31,
+///   02-29, 03-31, 04-30, ...; beanquery 0.2.0 adds the stride to the previous start: 01-31,
+///   02-29, 03-29, ...);
+/// - a date exactly on a bin start begins that bin (`date_bin('1 month', 2000-02-01,
+///   2000-01-01)` is 2000-02-01); beanquery puts it into the previous bin, the kind of
+///   off-by-one the report graph must not have.
+///
+/// The oracle keeps beanquery's rows and `ACCEPTED_DEVIATIONS` has zhang's.
 #[test]
 fn l_oracle_date_bin_month_boundaries() {
     check_oracle("date_bin_boundary");

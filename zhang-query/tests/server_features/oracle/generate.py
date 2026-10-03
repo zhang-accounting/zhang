@@ -61,6 +61,12 @@ DATE_BIN_BOUNDARY = (
     "date_bin('1 month', 2000-02-01, 2000-01-01) is 2000-02-01. beanquery 0.2.0 puts it into the "
     "previous bin (2000-01-01), because its loop stops when the next boundary is >= the date; dates "
     "inside a bin, before the origin and day strides are not affected.")
+DATE_BIN_FROM_ORIGIN = (
+    "zhang starts the bins at origin + k x stride, each computed from the origin itself, so month and "
+    "year bins do not drift: from 2020-01-31 the monthly bins start on 01-31, 02-29, 03-31, 04-30, "
+    "and a date on a bin start begins that bin. beanquery 0.2.0 adds the stride to the previous start, "
+    "so its bins drift (01-31, 02-29, 03-29, 04-29, ...), and it puts a date on a start into the "
+    "previous bin.")
 INTERVAL_WEEKS = (
     "zhang extension: interval('<n> week[s]') is 7 x n days. beanquery 0.2.0 returns NULL for weeks: "
     "its regular expression only lets day, month and year through, although interval() has a branch "
@@ -198,11 +204,22 @@ CASES = [
                "boundary before the origin (correct in beanquery too).",
          accepted_deviation=DATE_BIN_BOUNDARY),
     case("date_bin_boundary", "date_bin_month_end_origin",
-         "SELECT DISTINCT date, date_bin('1 month', date, 2020-01-31) ORDER BY date",
-         notes="With an origin on the 31st the boundaries drift (2020-01-31, 2020-02-29, 2020-03-29, ...) "
-               "because each step adds one month to the previous boundary; 2020-02-29 and 2021-02-28 are "
-               "boundaries.",
-         accepted_deviation=DATE_BIN_BOUNDARY),
+         "SELECT DISTINCT date, date_bin('1 month', date, 2020-01-31), date_bin('2 months', date, 2020-01-31), "
+         "date_bin('1 year', date, 2020-02-29) ORDER BY date",
+         notes="Origins at a month end, so that origin + k x stride clamps to shorter months. beanquery "
+               "adds the stride to the previous boundary, so its boundaries drift (2020-01-31, 2020-02-29, "
+               "2020-03-29, ...; 2020-02-29, 2021-02-28, 2022-02-28, 2023-02-28, 2024-02-28, ...).",
+         accepted_deviation=DATE_BIN_FROM_ORIGIN),
+    case("date_bin_boundary", "date_bin_month_end_examples",
+         "SELECT DISTINCT date_bin('1 month', 2020-03-30, 2020-01-31), date_bin('1 month', 2020-03-31, 2020-01-31), "
+         "date_bin('1 month', 2020-04-30, 2020-01-31), date_bin('1 month', 2019-10-30, 2020-01-31), "
+         "date_bin('2 months', 2020-03-31, 2020-01-31), date_bin('2 months', 2020-03-30, 2020-01-31), "
+         "date_bin('1 year', 2021-02-28, 2020-02-29), date_bin('1 year', 2021-02-27, 2020-02-29), "
+         "date_bin('1 year', 2024-02-28, 2020-02-29), date_bin('1 year', 2024-02-29, 2020-02-29), "
+         "date_bin('1 year', 2019-02-28, 2020-02-29), date_bin(interval('1 month'), 2020-05-31, 2020-01-31) "
+         "WHERE account = 'Assets:Wallet'",
+         notes="Single dates around the bin starts of month-end origins, before and after the origin.",
+         accepted_deviation=DATE_BIN_FROM_ORIGIN),
 
     # --- open_date, close_date, open_meta, commodity_meta ------------------------------------
     case("directive_meta", "open_and_close_dates_of_each_account",
