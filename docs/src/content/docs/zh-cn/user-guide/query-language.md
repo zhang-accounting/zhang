@@ -821,7 +821,7 @@ ORDER BY account
 - 所有金额都以预算的商品计。`activity` 把预算关联账户的分录相加，每笔分录都按其日期折算为预算的商品，与 [`convert(position, currency, date)`](#估值函数) 用账本中的价格折算的结果相同：`activity` 就是对这些分录求 `sum(convert(position, 'CNY', date))` 的结果。以其他商品计的 `budget-add` 或 `budget-transfer` 金额，按指令的日期以同样方式折算。没有价格可以折算的分录或金额不计入，而不会被当作另一种商品的数字加进去。
 - 预算从其 `budget` 指令起才存在。针对尚不存在的预算的 `budget-add`、`budget-transfer` 或 `budget-close` 不起作用，预算的 `budget` 指令之前的分录也不算它的支出；张记账会把两者都报告为错误。同名的第二条 `budget` 指令是重复定义，会被忽略。
 - 由于 `assigned` 包含顺延的金额，把多个月的 `assigned` 相加会把同一笔钱算多次。要统计一段时间内一共安排了多少预算，请对 `added` 求和。
-- 预算关联的账户，是 `open` 指令中带有指向它的 `budget` 元数据（例如 `budget: food`）的账户。这些账户的分录就是该预算的支出。
+- 预算关联的账户，是 `open` 指令中带有指向它的 `budget` 元数据（例如 `budget: food`）的账户。这些账户的分录就是该预算的支出。每一条元数据都算数，所以 `open` 中同时有 `budget: food` 和 `budget: fun` 的账户同属两个预算。
 - `meta(key)` 读取 `budget` 指令的元数据。
 - 各行先按预算名称、再按月份排列。`SELECT *` 是 `SELECT name, date, assigned, activity, available` 的简写。
 

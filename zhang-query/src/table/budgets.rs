@@ -90,7 +90,6 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Months, NaiveDate, NaiveTime};
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Date, Directive, Meta, Spanned};
-use zhang_core::domains::schemas::MetaType;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
@@ -293,12 +292,12 @@ fn in_commodity<'u>(units: &'u Amount, cost: Option<&Cost>, commodity: &str, pri
 /// date, counted negated on an Income, Liabilities or Equity account, as zhang counts them.
 /// Only the cached rows of the budgets' accounts are read.
 fn activity<'a>(
-    ledger: &'a Ledger, store: &'a Store, budgets: &HashMap<&'a str, Budget<'a>>, accounts: &HashMap<&'a str, BTreeSet<String>>, prices: &PriceMap,
+    ledger: &'a Ledger, store: &'a Store, budgets: &HashMap<&'a str, Budget<'a>>, accounts: &HashMap<String, BTreeSet<String>>, prices: &PriceMap,
 ) -> HashMap<(&'a str, NaiveDate), BigDecimal> {
     // account -> (budget, whether its postings count negated)
     let mut owners: HashMap<&str, Vec<(&Budget<'a>, bool)>> = HashMap::new();
     for (name, budget_accounts) in accounts {
-        let Some(budget) = budgets.get(name) else { continue };
+        let Some(budget) = budgets.get(name.as_str()) else { continue };
         for account in budget_accounts {
             let negated = account.parse::<Account>().is_ok_and(|account| account.get_account_sign() < 0);
             owners.entry(account.as_str()).or_default().push((budget, negated));
@@ -442,7 +441,7 @@ fn rows<'a>(
     let wants_added = ["added", "assigned", "available"].into_iter().any(|name| projects(projection, name));
 
     let mut accounts = if wants_activity || projects(projection, "accounts") {
-        budget_accounts(store)
+        budget_accounts(ledger)
     } else {
         HashMap::new()
     };
@@ -584,11 +583,15 @@ fn projects(projection: Projection, name: &str) -> bool {
 }
 
 /// The accounts of every budget: those whose `open` has a `budget` metadata entry naming it.
-fn budget_accounts(store: &Store) -> HashMap<&str, BTreeSet<String>> {
-    let mut accounts: HashMap<&str, BTreeSet<String>> = HashMap::new();
-    for meta in &store.metas {
-        if meta.meta_type == MetaType::AccountMeta.as_ref() && meta.key == "budget" {
-            accounts.entry(meta.value.as_str()).or_default().insert(meta.type_identifier.clone());
+/// Every entry counts, so an account whose `open` names two budgets is an account of both
+/// (#479 decision 7); the store keeps only the last value of a repeated key.
+fn budget_accounts(ledger: &Ledger) -> HashMap<String, BTreeSet<String>> {
+    let mut accounts: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for directive in &ledger.directives {
+        if let Directive::Open(open) = &directive.data {
+            for budget in open.meta.get_all("budget") {
+                accounts.entry(budget.as_str().to_owned()).or_default().insert(open.account.name().to_owned());
+            }
         }
     }
     accounts
@@ -685,9 +688,9 @@ pub(crate) struct BudgetDefinition<'a> {
     accounts: BTreeSet<String>,
 }
 
-fn definition_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
+fn definition_rows<'a>(ledger: &'a Ledger, _store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
     let mut accounts = match BUDGET_DEFINITIONS.column("accounts") {
-        Some(column) if projection.contains(column) => budget_accounts(store),
+        Some(column) if projection.contains(column) => budget_accounts(ledger),
         _ => HashMap::new(),
     };
     let mut budgets = budgets(ledger).budgets.into_values().collect::<Vec<_>>();

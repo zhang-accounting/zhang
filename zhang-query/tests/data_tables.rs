@@ -667,6 +667,39 @@ option "operating_currency" "CNY"
     );
 }
 
+/// An account whose `open` names two budgets with repeated `budget` entries is an account of
+/// both, as every value of a repeated key counts (#479 decision 7): its 30 CNY are the
+/// activity of each.
+#[test]
+fn an_account_of_two_budgets_counts_in_both() {
+    let ledger = common::load_text(
+        r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Shared
+  budget: food
+  budget: fun
+1970-01-01 open Expenses:Food
+  budget: food
+2024-01-01 budget food CNY
+2024-01-01 budget fun CNY
+2024-01-05 * "Market" "shared"
+  Expenses:Shared 30 CNY
+  Expenses:Food 5 CNY
+  Assets:Bank
+"#,
+    );
+    assert_eq!(
+        run(&ledger, "SELECT name, activity, accounts FROM #budgets"),
+        rows(&[&["food", "35 CNY", "Expenses:Food, Expenses:Shared"], &["fun", "30 CNY", "Expenses:Shared"]])
+    );
+    assert_eq!(
+        run(&ledger, "SELECT name, accounts FROM #budget_definitions"),
+        rows(&[&["food", "Expenses:Food, Expenses:Shared"], &["fun", "Expenses:Shared"]])
+    );
+}
+
 /// `#budget_definitions` reads no transaction and has no months, so a transaction dated
 /// centuries ahead by mistake, which makes an unbounded query of `#budgets` too large, leaves it
 /// as it is.
