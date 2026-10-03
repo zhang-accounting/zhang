@@ -92,6 +92,19 @@ fn small_results_stay_within_the_limit() {
         let result = run(sql, Some(10_000)).unwrap_or_else(|err| panic!("{}: {}", sql, err));
         assert_eq!(result, run(sql, None).unwrap(), "{}", sql);
     }
+    // the rows before OFFSET of a LIMIT without ORDER BY are only counted, not built: a page at the end of the
+    // journal holds its own rows, with their running balance, and nothing more
+    let sql = "SELECT date, number, units(balance) WHERE account ~ 'Broker' LIMIT 3 OFFSET 195";
+    let page = run(sql, Some(3 * 4)).unwrap_or_else(|err| panic!("{}: {}", sql, err));
+    assert_eq!(page, run(sql, None).unwrap());
+    let units = page.rows.iter().map(|row| row[2].to_string()).collect::<Vec<_>>();
+    assert_eq!(units, ["196 STK", "197 STK", "198 STK"]);
+    too_large(sql, 3 * 4 - 1);
+    // an offset past the rows leaves none
+    assert!(run("SELECT date WHERE account ~ 'Broker' LIMIT 3 OFFSET 1000", Some(1))
+        .unwrap()
+        .rows
+        .is_empty());
     // exactly at the limit is allowed: 200 rows of a date (1) and a one-position inventory (2)
     let sql = "SELECT date, units(balance) WHERE account ~ 'Broker'";
     assert_eq!(run(sql, Some(200 * 3)).unwrap().rows.len(), 200);
