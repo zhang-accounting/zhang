@@ -1,5 +1,6 @@
 //! The commodity pages. What a commodity is (precision, prefix, suffix, rounding, group) is read
-//! from the store; its holdings, lots and prices come from [built-in queries](crate::builtin).
+//! from the store; its holdings, lots and prices come from [built-in queries](crate::builtin)
+//! (`commodities.*`).
 
 use std::collections::HashMap;
 
@@ -10,90 +11,18 @@ use itertools::Itertools;
 use zhang_ast::amount::Amount;
 use zhang_core::constants::COMMODITY_GROUP;
 use zhang_core::domains::schemas::{CommodityDomain, MetaType};
-use zhang_query::{DataType, Params, QueryResult};
+use zhang_core::ledger::Ledger;
+use zhang_query::{Params, QueryResult};
 
-use crate::builtin::{run, BuiltinQuery};
+use crate::builtin::{execute, with_ledger};
 use crate::cells::{first_row, rows, Row};
 use crate::response::{CommodityDetailEntity, CommodityListItemEntity, CommodityLotEntity, CommodityPriceEntity, ResponseWrapper};
 use crate::state::SharedLedger;
 use crate::{ApiResult, ServerResult};
 
-/// How much of every commodity the ledger holds.
-pub(crate) static COMMODITY_TOTALS: BuiltinQuery = BuiltinQuery {
-    name: "commodity_totals",
-    description: "How many units of each commodity the Assets and Liabilities accounts hold, for the commodities they \
-                  hold.",
-    bql: "SELECT currency, sum(number) AS total
-WHERE root(account, 1) IN ('Assets', 'Liabilities')
-GROUP BY currency
-HAVING sum(number) != 0
-ORDER BY currency",
-    params: &[],
-};
-
-/// How much of one commodity the ledger holds.
-pub(crate) static COMMODITY_TOTAL: BuiltinQuery = BuiltinQuery {
-    name: "commodity_total",
-    description: "How many units of a commodity the Assets and Liabilities accounts hold. No row if they hold none.",
-    bql: "SELECT currency, sum(number) AS total
-WHERE currency = :commodity AND root(account, 1) IN ('Assets', 'Liabilities')
-GROUP BY currency
-HAVING sum(number) != 0",
-    params: &[("commodity", DataType::Str)],
-};
-
-/// The latest price of every commodity in one currency.
-pub(crate) static LATEST_PRICES: BuiltinQuery = BuiltinQuery {
-    name: "latest_prices",
-    description: "The latest price directive of each commodity quoted in a currency (the operating currency), with its \
-                  date and time.",
-    bql: "SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
-FROM #prices
-WHERE currency(amount) = :currency
-GROUP BY currency
-ORDER BY currency",
-    params: &[("currency", DataType::Str)],
-};
-
-/// The latest price of one commodity in one currency.
-pub(crate) static LATEST_PRICE: BuiltinQuery = BuiltinQuery {
-    name: "latest_price",
-    description: "The latest price directive of a commodity quoted in a currency (the operating currency), with its \
-                  date and time. No row if there is none.",
-    bql: "SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
-FROM #prices
-WHERE currency = :commodity AND currency(amount) = :currency
-GROUP BY currency",
-    params: &[("commodity", DataType::Str), ("currency", DataType::Str)],
-};
-
-/// The lots of one commodity held in the Assets and Liabilities accounts.
-pub(crate) static COMMODITY_LOTS: BuiltinQuery = BuiltinQuery {
-    name: "commodity_lots",
-    description: "The lots of a commodity that the Assets and Liabilities accounts hold: the units per account, cost \
-                  and acquisition date, by account, then oldest first. Units held without cost are one lot per account.",
-    bql: "SELECT account, cost_date, cost_number, cost_currency, sum(number) AS units
-WHERE currency = :commodity AND root(account, 1) IN ('Assets', 'Liabilities')
-GROUP BY account, cost_date, cost_number, cost_currency
-HAVING sum(number) != 0
-ORDER BY account, cost_date, cost_number",
-    params: &[("commodity", DataType::Str)],
-};
-
-/// Every price of one commodity.
-pub(crate) static COMMODITY_PRICES: BuiltinQuery = BuiltinQuery {
-    name: "commodity_prices",
-    description: "Every price directive of a commodity, in any currency, oldest first.",
-    bql: "SELECT date, time, amount
-FROM #prices
-WHERE currency = :commodity
-ORDER BY date, time",
-    params: &[("commodity", DataType::Str)],
-};
-
-/// What the store knows of a commodity: its directive's settings and its group.
-fn commodity_item(commodity: CommodityDomain, group: Option<String>, total: BigDecimal, latest_price: Option<Row<'_>>) -> CommodityListItemEntity {
-    let latest_price_amount = latest_price.as_ref().and_then(|row| row.amount("price"));
+/// A commodity of the list, from the store's commodity, its group, its total and its latest price.
+fn commodity_item(commodity: CommodityDomain, group: Option<String>, total: BigDecimal, latest_price: Option<&Row<'_>>) -> CommodityListItemEntity {
+    let latest_price_amount = latest_price.and_then(|row| row.amount("price"));
     CommodityListItemEntity {
         name: commodity.name,
         precision: commodity.precision,
@@ -102,17 +31,16 @@ fn commodity_item(commodity: CommodityDomain, group: Option<String>, total: BigD
         rounding: commodity.rounding.to_string(),
         group,
         total_amount: total,
-        latest_price_date: latest_price.as_ref().and_then(|row| row.datetime("date", "time")),
+        latest_price_date: latest_price.and_then(|row| row.datetime("date", "time")),
         latest_price_amount: latest_price_amount.as_ref().map(|it| it.number.clone()),
         latest_price_commodity: latest_price_amount.map(|it| it.commodity),
     }
 }
 
-/// The commodities of the store, in the store's order, with their groups.
-async fn stored_commodities(ledger: &SharedLedger, name: Option<&str>) -> (Vec<(CommodityDomain, Option<String>)>, String) {
-    let ledger = ledger.read().await;
-    let operations = ledger.operations();
-    let store = operations.read();
+/// The commodities of the store (all of them, or the one named `name`), in the store's order,
+/// with their groups.
+fn stored_commodities(ledger: &Ledger, name: Option<&str>) -> Vec<(CommodityDomain, Option<String>)> {
+    let store = ledger.store.read().expect("poison lock detect");
     let group = |commodity: &str| {
         store
             .metas
@@ -120,13 +48,12 @@ async fn stored_commodities(ledger: &SharedLedger, name: Option<&str>) -> (Vec<(
             .find(|meta| meta.meta_type == MetaType::CommodityMeta.as_ref() && meta.type_identifier == commodity && meta.key == COMMODITY_GROUP)
             .map(|meta| meta.value.clone())
     };
-    let commodities = store
+    store
         .commodities
         .values()
         .filter(|commodity| name.is_none_or(|name| commodity.name == name))
         .map(|commodity| (commodity.clone(), group(&commodity.name)))
-        .collect_vec();
-    (commodities, ledger.options.operating_currency.clone())
+        .collect_vec()
 }
 
 fn by_currency(result: &QueryResult) -> HashMap<String, Row<'_>> {
@@ -137,20 +64,24 @@ fn by_currency(result: &QueryResult) -> HashMap<String, Row<'_>> {
 /// price in the operating currency.
 #[api(group = "commodity")]
 pub async fn get_all_commodities(ledger: State<SharedLedger>) -> ApiResult<Vec<CommodityListItemEntity>> {
-    let (commodities, operating_currency) = stored_commodities(&ledger, None).await;
-    let totals = run(&ledger, &COMMODITY_TOTALS, Params::new()).await?;
-    let totals = by_currency(&totals);
-    let prices = run(&ledger, &LATEST_PRICES, Params::new().bind("currency", operating_currency)).await?;
-    let mut prices = by_currency(&prices);
-
-    let items = commodities
-        .into_iter()
-        .map(|(commodity, group)| {
-            let total = totals.get(&commodity.name).and_then(|row| row.decimal("total")).unwrap_or_default();
-            let latest_price = prices.remove(&commodity.name);
-            commodity_item(commodity, group, total, latest_price)
-        })
-        .collect_vec();
+    let items = with_ledger(&ledger, |ledger| {
+        let commodities = stored_commodities(ledger, None);
+        let totals = execute(ledger, "commodities.totals", &Params::new(), false)?;
+        let totals = by_currency(&totals);
+        let params = Params::new().bind("currency", ledger.options.operating_currency.as_str());
+        let prices = execute(ledger, "commodities.latest_prices", &params, false)?;
+        let prices = by_currency(&prices);
+        let items = commodities
+            .into_iter()
+            .map(|(commodity, group)| {
+                let total = totals.get(&commodity.name).and_then(|row| row.decimal("total")).unwrap_or_default();
+                let latest_price = prices.get(&commodity.name);
+                commodity_item(commodity, group, total, latest_price)
+            })
+            .collect_vec();
+        Ok(items)
+    })
+    .await?;
     ResponseWrapper::json(items)
 }
 
@@ -159,29 +90,27 @@ pub async fn get_all_commodities(ledger: State<SharedLedger>) -> ApiResult<Vec<C
 #[api(group = "commodity")]
 pub async fn get_single_commodity(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<CommodityDetailEntity> {
     let commodity_name = params.0 .0;
-    let (commodities, operating_currency) = stored_commodities(&ledger, Some(&commodity_name)).await;
-    let Some((commodity, group)) = commodities.into_iter().next() else {
-        return ResponseWrapper::not_found();
-    };
-    let detail = single_commodity(&ledger, commodity, group, operating_currency).await?;
-    ResponseWrapper::json(detail)
+    let detail = with_ledger(&ledger, move |ledger| {
+        let Some((commodity, group)) = stored_commodities(ledger, Some(&commodity_name)).into_iter().next() else {
+            return Ok(None);
+        };
+        single_commodity(ledger, commodity, group).map(Some)
+    })
+    .await?;
+    match detail {
+        Some(detail) => ResponseWrapper::json(detail),
+        None => ResponseWrapper::not_found(),
+    }
 }
 
-async fn single_commodity(
-    ledger: &SharedLedger, commodity: CommodityDomain, group: Option<String>, operating_currency: String,
-) -> ServerResult<CommodityDetailEntity> {
-    let name = commodity.name.clone();
-    let total = run(ledger, &COMMODITY_TOTAL, Params::new().bind("commodity", name.as_str())).await?;
+fn single_commodity(ledger: &Ledger, commodity: CommodityDomain, group: Option<String>) -> ServerResult<CommodityDetailEntity> {
+    let commodity_param = || Params::new().bind("commodity", commodity.name.as_str());
+    let total = execute(ledger, "commodities.total", &commodity_param(), false)?;
     let total = first_row(&total).and_then(|row| row.decimal("total")).unwrap_or_default();
-    let latest_price = run(
-        ledger,
-        &LATEST_PRICE,
-        Params::new().bind("commodity", name.as_str()).bind("currency", operating_currency),
-    )
-    .await?;
-    let info = commodity_item(commodity, group, total, first_row(&latest_price));
+    let params = commodity_param().bind("currency", ledger.options.operating_currency.as_str());
+    let latest_price = execute(ledger, "commodities.latest_price", &params, false)?;
 
-    let lots = run(ledger, &COMMODITY_LOTS, Params::new().bind("commodity", name.as_str())).await?;
+    let lots = execute(ledger, "commodities.lots", &commodity_param(), false)?;
     let lots = rows(&lots)
         .map(|row| CommodityLotEntity {
             account: row.str("account").unwrap_or_default(),
@@ -195,7 +124,7 @@ async fn single_commodity(
         })
         .collect_vec();
 
-    let prices = run(ledger, &COMMODITY_PRICES, Params::new().bind("commodity", name.as_str())).await?;
+    let prices = execute(ledger, "commodities.prices", &commodity_param(), false)?;
     let prices = rows(&prices)
         .filter_map(|row| {
             Some(CommodityPriceEntity {
@@ -205,6 +134,7 @@ async fn single_commodity(
         })
         .collect_vec();
 
+    let info = commodity_item(commodity, group, total, first_row(&latest_price).as_ref());
     Ok(CommodityDetailEntity { info, lots, prices })
 }
 

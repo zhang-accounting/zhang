@@ -5,12 +5,13 @@ use axum::extract::State;
 use axum::Json;
 use gotcha::api;
 use log::{info, warn};
+use zhang_core::ledger::Ledger;
 use zhang_query::{ExecuteOptions, Params, Query, QueryResult, DEFAULT_MAX_RESULT_VALUES};
 
 use crate::request::QueryRequest;
 use crate::response::{QueryApiResult, QueryCsvResult, QueryResultEntity, QuerySchemaEntity, ResponseWrapper, SavedQueryEntity};
 use crate::state::SharedLedger;
-use crate::{ApiResult, ServerResult};
+use crate::{ApiResult, LedgerState, ServerResult};
 
 /// How long one query may run before it is stopped with a 400.
 const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -96,6 +97,15 @@ pub(crate) fn execute_options(max_result_values: u64) -> ExecuteOptions {
         max_result_values: Some(max_result_values),
         count_total: false,
     }
+}
+
+/// Run `work` on the ledger off the async workers, under its read lock: the path of every
+/// query the server runs, `POST /api/query` and the built-in queries alike. Queries in `work`
+/// run with [`execute_options`], whose time limit bounds how long the lock is held.
+pub async fn with_ledger<T: Send + 'static>(ledger: &LedgerState, work: impl FnOnce(&Ledger) -> ServerResult<T> + Send + 'static) -> ServerResult<T> {
+    // an owned guard moves into the blocking task
+    let ledger = ledger.clone().read_owned().await;
+    tokio::task::spawn_blocking(move || work(&ledger)).await?
 }
 
 /// Compile and run a query off the async workers, under the ledger read lock, the time
