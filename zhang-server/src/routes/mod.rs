@@ -25,16 +25,26 @@ use serde_qs;
 
 pub struct Query<T>(pub T);
 
+/// the longest name of a file, in bytes, most file systems hold
+const MAX_FILE_NAME_BYTES: usize = 255;
+
 /// the files of an upload, each with its name, read before the ledger is held to write them. A file is saved by its
-/// name under the ledger's attachments, so the name is a plain file name: the upload is a 400 otherwise, or when it
-/// cannot be read
+/// name under the ledger's attachments, so the name is a plain file name the file systems hold: the upload is a 400
+/// otherwise, or when it cannot be read
 pub(crate) async fn uploaded_files(multipart: &mut axum::extract::Multipart) -> crate::ServerResult<Vec<(String, axum::body::Bytes)>> {
     let unreadable = |e: axum::extract::multipart::MultipartError| crate::error::ServerError::InvalidInput(format!("the upload cannot be read: {e}"));
     let mut files = vec![];
     while let Some(field) = multipart.next_field().await.map_err(unreadable)? {
         let file_name = field.file_name().unwrap_or_default().to_owned();
-        if std::path::Path::new(&file_name).file_name().and_then(|it| it.to_str()) != Some(file_name.as_str()) {
+        if std::path::Path::new(&file_name).file_name().and_then(|it| it.to_str()) != Some(file_name.as_str()) || file_name.contains('\0') {
             return Err(crate::error::ServerError::InvalidInput(format!("{file_name:?} is not the name of a file")));
+        }
+        if file_name.len() > MAX_FILE_NAME_BYTES {
+            return Err(crate::error::ServerError::InvalidInput(format!(
+                "the name of {file_name:?} is {} bytes long, longer than the {MAX_FILE_NAME_BYTES} a file name can be: rename it, and \
+                 upload it again",
+                file_name.len()
+            )));
         }
         let content = field.bytes().await.map_err(unreadable)?;
         files.push((file_name, content));
@@ -132,6 +142,18 @@ mod uploaded_files_test {
         for name in ["../main.zhang", "/etc/passwd", "a/b.pdf", "..", ""] {
             match upload(&["ok.pdf", name]).await {
                 Err(ServerError::InvalidInput(message)) => assert!(message.contains("is not the name of a file"), "{message}"),
+                other => panic!("{name:?}: {:?}", other.map(|files| files.len())),
+            }
+        }
+        // so is a name too long for the file systems, in bytes: 85 characters of 3 bytes each are 255
+        let longest = format!("{}.pdf", "a".repeat(251));
+        assert_eq!(upload(&[&longest]).await.unwrap()[0].0, longest);
+        assert_eq!(upload(&[&"收".repeat(85)]).await.unwrap().len(), 1);
+        for name in [format!("{}.pdf", "a".repeat(252)), format!("{}.pdf", "收".repeat(84))] {
+            match upload(&["ok.pdf", &name]).await {
+                Err(ServerError::InvalidInput(message)) => {
+                    assert!(message.contains(&format!("is {} bytes long, longer than the 255", name.len())), "{message}")
+                }
                 other => panic!("{name:?}: {:?}", other.map(|files| files.len())),
             }
         }
