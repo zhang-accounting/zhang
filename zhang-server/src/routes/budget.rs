@@ -13,10 +13,11 @@ use zhang_core::ledger::Ledger;
 use zhang_core::store::BudgetEventType;
 use zhang_query::{Params, Value};
 
-use crate::builtin::{execute, with_ledger};
+use crate::builtin::execute;
 use crate::cells::{first_row, rows, Row};
 use crate::request::{BudgetIntervalDetailRequest, BudgetListRequest};
 use crate::response::{BudgetEventEntity, BudgetInfoEntity, BudgetIntervalEventEntity, BudgetListItemEntity, ResponseWrapper};
+use crate::routes::query::with_ledger;
 use crate::state::SharedLedger;
 use crate::{ApiResult, ServerResult};
 

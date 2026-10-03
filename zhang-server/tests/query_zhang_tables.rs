@@ -79,7 +79,17 @@ async fn body(response: impl IntoResponse) -> Value {
 
 /// The rows of `POST /api/query`, as objects keyed by column name.
 async fn query(ledger: &SharedLedger, sql: &str) -> Vec<serde_json::Map<String, Value>> {
-    let response = body(run_query(State(ledger.clone()), Json(QueryRequest { query: sql.to_owned() })).await).await;
+    let response = body(
+        run_query(
+            State(ledger.clone()),
+            Json(QueryRequest {
+                query: sql.to_owned(),
+                count_total: None,
+            }),
+        )
+        .await,
+    )
+    .await;
     let columns = response["data"]["columns"]
         .as_array()
         .unwrap()

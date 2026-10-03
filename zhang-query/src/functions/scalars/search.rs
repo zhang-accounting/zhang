@@ -1,5 +1,5 @@
-//! Search functions, zhang extensions for keyword search: `icontains`, `any_icontains` and
-//! `intersects`.
+//! Search functions, zhang extensions for keyword search: `icontains`, `any_icontains`,
+//! `intersects` and the `set` constructor.
 //!
 //! Case-insensitive means compared after Unicode lower-casing ([`str::to_lowercase`]) of both
 //! sides. With a constant needle (a literal, or a parameter of the execution) the optimizer
@@ -31,12 +31,21 @@ pub(super) fn intersects(args: &[Value], _ctx: &dyn FunctionContext) -> Result<V
     Ok(Value::Bool(small.iter().any(|item| large.contains(item))))
 }
 
+/// `set(a, b, ...)`: the set of the given strings.
+pub(super) fn set(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+    args.iter()
+        .map(|arg| arg.as_str().map(str::to_owned).ok_or_else(|| "set() expects strings".to_owned()))
+        .collect::<Result<_, _>>()
+        .map(Value::Set)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 
     use super::super::testing::*;
     use super::*;
+    use crate::functions::TestContext;
 
     fn set(items: &[&str]) -> Value {
         Value::Set(items.iter().map(|it| it.to_string()).collect::<BTreeSet<_>>())
@@ -68,5 +77,15 @@ mod tests {
         assert_eq!(call("intersects", vec![set(&["a", "b"]), set(&["A"])]), Value::Bool(false));
         assert_eq!(call("intersects", vec![set(&[]), set(&[])]), Value::Bool(false));
         assert_eq!(call("intersects", vec![set(&["a"]), Value::Null]), Value::Null);
+    }
+
+    #[test]
+    fn set_builds_a_set_of_any_number_of_strings() {
+        assert_eq!(call("set", vec![]), set(&[]));
+        assert_eq!(call("set", vec!["b".into(), "a".into(), "b".into()]), set(&["a", "b"]));
+        assert_eq!(call("set", vec!["it's \\ \"x\"".into()]), set(&["it's \\ \"x\""]));
+        assert_eq!(call("set", vec!["a".into(), Value::Null]), Value::Null);
+        let error = try_call_with(&TestContext::default(), "set", vec!["a".into(), Value::Int(1)]).unwrap_err();
+        assert_eq!(error, "no overload of set(str, int); available: set(str, ...) -> set");
     }
 }

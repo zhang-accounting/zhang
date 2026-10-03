@@ -1,5 +1,5 @@
 use std::cmp::max;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use gotcha::Schematic;
@@ -176,6 +176,28 @@ pub struct BudgetIntervalDetailRequest {
 pub struct QueryRequest {
     /// the BQL query text
     pub query: String,
+    /// also count the rows before `LIMIT` and `OFFSET` into the result's `total`, e.g. for the
+    /// number of pages; `POST /api/query` only
+    pub count_total: Option<bool>,
+}
+
+/// The value of a parameter of a built-in query, by its type: a boolean for `bool`, an integer
+/// for `int`, a number or a string such as `"12.50"` for `decimal`, a string for `str`, a
+/// string `YYYY-MM-DD` for `date` and a list of strings for `set`; `null` is NULL.
+#[derive(Schematic, Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum BuiltinParamValue {
+    Bool(bool),
+    Int(i64),
+    Number(f64),
+    Text(String),
+    List(Vec<String>),
+}
+
+#[derive(Schematic, Deserialize)]
+pub struct BuiltinQueryTextRequest {
+    /// the value of every parameter of the query, by name (`from` for `:from`)
+    pub params: HashMap<String, Option<BuiltinParamValue>>,
 }
 
 #[derive(Schematic, Deserialize)]

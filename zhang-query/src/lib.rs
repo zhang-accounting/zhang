@@ -213,10 +213,52 @@ impl Query {
         )
     }
 
-    /// Execute against a ledger with explicit [`ExecuteOptions`].
-    pub fn execute_with_options(&self, ledger: &Ledger, params: &Params, options: &ExecuteOptions) -> Result<QueryResult, QueryError> {
-        // start the clock before building the rows, which is part of the work
-        let deadline = options.timeout.map(executor::Deadline::after);
+    /// The parameters the query uses, each once, in the order they first appear in its text,
+    /// with the types they were compiled with.
+    pub fn params(&self) -> Vec<(ParamRef, DataType)> {
+        let mut uses = self.plan.params.iter().collect::<Vec<_>>();
+        uses.sort_by_key(|(_, _, span)| span.start);
+        let mut params: Vec<(ParamRef, DataType)> = vec![];
+        for (param, ty, _) in uses {
+            if !params.iter().any(|(seen, _)| seen == param) {
+                params.push((param.clone(), *ty));
+            }
+        }
+        params
+    }
+
+    /// The query's text with every parameter replaced by its value in `params`, written as BQL
+    /// by [`params::to_bql`]: a query that runs without parameters, e.g. to show it to a user
+    /// who can run it over HTTP, where parameters cannot be bound. Compiling the text and
+    /// executing it gives the same result as executing this query with `params`, except for
+    /// the name of a target written without `AS`, which is its text and now shows the value.
+    ///
+    /// The parameters must be bound with the types the query was compiled with, as for an
+    /// execution, and a value BQL cannot write (an amount, position, inventory or metadata, or
+    /// a date outside the years 1 to 9999) is an error. Where the grammar takes a literal
+    /// rather than an expression (the pattern of `JOURNAL`, the dates of `OPEN ON` and
+    /// `CLOSE ON`, the counts of `LIMIT` and `OFFSET`), a value that [`params::to_bql`] writes
+    /// as an expression does not compile: a string with both kinds of quotes, or a negative
+    /// count.
+    pub fn inline_params(&self, params: &Params) -> Result<String, QueryError> {
+        self.check_params(params)?;
+        let mut text = String::with_capacity(self.source.len());
+        let mut copied = 0;
+        for (range, param) in parser::param_tokens(&self.source) {
+            let located = |message: String| error::LocatedError::compile(message, error::Span::new(range.start, range.end)).resolve(&self.source);
+            let value = params.get(&param).ok_or_else(|| located(format!("parameter {} is not bound", param)))?;
+            let literal =
+                params::to_bql(value).ok_or_else(|| located(format!("parameter {} is of type {}, which has no BQL literal", param, value.data_type())))?;
+            text.push_str(&self.source[copied..range.start]);
+            text.push_str(&literal);
+            copied = range.end;
+        }
+        text.push_str(&self.source[copied..]);
+        Ok(text)
+    }
+
+    /// Every parameter of the query is bound, to a value of its compiled type or NULL.
+    fn check_params(&self, params: &Params) -> Result<(), QueryError> {
         for (param, declared, span) in &self.plan.params {
             let located = |message: String| error::LocatedError::compile(message, *span).resolve(&self.source);
             match params.get(param) {
@@ -232,6 +274,14 @@ impl Query {
                 Some(_) => {}
             }
         }
+        Ok(())
+    }
+
+    /// Execute against a ledger with explicit [`ExecuteOptions`].
+    pub fn execute_with_options(&self, ledger: &Ledger, params: &Params, options: &ExecuteOptions) -> Result<QueryResult, QueryError> {
+        // start the clock before building the rows, which is part of the work
+        let deadline = options.timeout.map(executor::Deadline::after);
+        self.check_params(params)?;
         let window = self.plan.window(params).map_err(|err| err.resolve(&self.source))?;
         let period = self
             .plan
