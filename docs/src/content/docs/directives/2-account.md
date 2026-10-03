@@ -118,9 +118,9 @@ A `balance` directive asserts what an account holds in one commodity:
 
 - The assertion is checked at the start of its date, against the sum of the account's postings before it.
   Transactions of the same day come after it, as in Beancount. In a Zhang ledger, an assertion with a time is checked
-  at that time. In a Beancount ledger, Zhang ignores its `time` metadata, as Beancount does. Where the account had
-  transactions on that day before that time, which earlier versions of Zhang counted, the assertion is reported as a
-  [`BalanceTimeIgnored`](/user-guide/error-code/#balancetimeignored) warning.
+  at that time. In a Beancount ledger, Zhang ignores its `time` metadata, as Beancount does. Where transactions of the
+  account on that day before that time, which earlier versions of Zhang counted, changed what it checks, the assertion
+  is listed with a [`BalanceTimeIgnored`](/user-guide/error-code/#balancetimeignored) notice.
 - It covers the account and all its sub-accounts, as in Beancount: `balance Assets:Bank 100 CNY` passes when
   `Assets:Bank:Checking` holds 60 CNY and `Assets:Bank:Savings` holds 40 CNY.
 - **It must match exactly.** `1520.00 CNY` passes only when the balance is exactly 1520 CNY. Only an explicit
@@ -193,17 +193,27 @@ padding cannot bring the total to the asserted amount:
 In a Beancount ledger, the balances made in the UI or with the batch balance tool are written so that Beancount
 reads them as Zhang does, and nothing is padded but what you asked for, when you asked:
 
-- "My balance now" is a `balance` dated tomorrow, which comes after every transaction of today. A transaction you
-  add later today is not in the amount you asserted, so it makes that balance fail, as in Beancount: check the
-  balance again.
+- "My balance now" is a `balance` dated tomorrow: the start of tomorrow is the end of today, after every transaction
+  of today. A transaction you add later today is not in the amount you asserted, so it makes that balance fail, as in
+  Beancount. Check the balance again: a new check of the account and commodity replaces that balance of tomorrow in
+  your file instead of adding a second one, and the UI tells you which balance it replaced.
 - With a pad, the difference between your amount and what the account and its sub-accounts hold now is booked as a
   padding transaction (flag `P`) dated now, from the pad account, before the `balance`. Nothing is booked when there
-  is no difference. The UI writes no `pad` directive: a `pad` would pad the next balance of every commodity of the
-  account, and would silently absorb a transaction you add later today.
+  is no difference. A padding transaction booked earlier stays, and a new pad books the difference from it. The UI
+  writes no `pad` directive: a `pad` would pad the next balance of every commodity of the account, and would silently
+  absorb a transaction you add later today.
 - A `pad` you wrote yourself would still pad a balance written after it, in a commodity it never served, and absorb
-  the transactions before that balance. Such a balance is refused, with the `pad` to close first: write a balance of
-  that commodity on the day after the `pad`. This covers a commodity the account first holds after the `pad`.
-- A balance of an account that is closed or not open, or padded from one, is refused, in a Zhang ledger too.
+  the transactions before that balance. Such a balance is refused, and the message names the file and the date of
+  that `pad`: edit the file, and add a balance of that commodity on the day after the `pad`, right after it. This
+  covers a commodity the account first holds after the `pad`.
+
+In both ledgers, these are refused, as they could only be reported once written:
+
+- a balance of an account that is closed or not open, or padded from one;
+- a pad from the account itself or one of its sub-accounts: the padding would move units within the total the
+  balance asserts, which it never changes;
+- a pad of a commodity the account or one of its sub-accounts holds at cost: it would book units without a cost.
+  Record them with their cost instead, as a purchase or a sale.
 
 A refused request writes nothing, and the UI shows why.
 

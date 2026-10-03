@@ -156,13 +156,17 @@ assertion; Beancount reports it once for each lot held at cost.
 
 ## BalanceTimeIgnored
 
-A warning: a `balance` of a Beancount ledger has a `time` metadata later than transactions of its account, or of a
-sub-account, on its date. Zhang checks a `balance` of a Beancount ledger at the start of its date, before every
-transaction of that day, as Beancount does, and ignores its `time`. Earlier versions of Zhang checked it at that time,
-after those transactions, so the assertion now checks a different amount, and a `pad` serving it pads a different
-amount. The ledger loads; the assertion passes or fails on its own.
+A notice, not an error of the ledger: Zhang has no levels of errors, so it is listed with the errors, but the ledger
+loads and the balance passes or fails on its own. It is reported, once, on a `balance` of a Beancount ledger whose
+check means something else than in earlier versions of Zhang. Zhang checks a `balance` of a Beancount ledger at the
+start of its date, before every transaction of that day, as Beancount does, and ignores its `time` metadata. Earlier
+versions read a `time` written `H:M:S` and checked the balance at that time, after the transactions of the day before
+it. The notice is given when those transactions changed what the account and its sub-accounts hold in the balance's
+commodity: the balance now checks a different amount, and a `pad` serving it pads a different amount. A `time` like
+`09:30`, which earlier versions did not read, changes nothing, and neither do transactions in other commodities, or
+that net to zero.
 
-**Example of Warning:**
+**Example:**
 ```beancount
 2024-03-05 * "breakfast"
   Assets:Cash  -10 CNY
@@ -172,8 +176,9 @@ amount. The ledger loads; the assertion passes or fails on its own.
   time: "09:30:00"
 ```
 
-**Solution:** To assert the balance after the transactions of the day, date the `balance` on the next day and remove
-its `time`, as the UI writes it now. To assert it before them, remove the `time`.
+**Solution:** The notice goes once the `time` is gone. To assert the balance after the transactions of the day, date
+the `balance` on the next day and remove its `time`, as the UI writes it now. To assert it before them, remove the
+`time`.
 
 ## AccountDoesNotExist
 
