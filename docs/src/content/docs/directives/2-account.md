@@ -142,10 +142,16 @@ the postings of the account and its sub-accounts: an earlier assertion, even a f
 padding goes to the asserted account itself, also when it is a parent account. An account already at the asserted
 amount gets no padding transaction.
 
-In a Beancount ledger, a `pad` directive serves the next `balance` of its account in each commodity, as in
-Beancount. A `balance` on the day of the `pad` comes before it and is not padded. The padding transaction is dated
-on the `balance` it serves, where Beancount dates it on the `pad`, and the `pad` and its `balance` must be in the
-same file.
+In a Beancount ledger, a `pad` directive serves the next `balance` of its own account in each commodity, until the
+account's next `pad`. A `balance` on the day of the `pad` comes before it and is not padded. Zhang differs from
+Beancount here:
+
+- The padding transaction is dated on the `balance` it serves, where Beancount dates it on the `pad`, and the `pad`
+  and its `balance` must be in the same file.
+- Only an assertion on the padded account itself uses the `pad`. Beancount also lets an assertion on a sub-account
+  use up the `pad` of its parent account, which then pads nothing for the parent's own assertion.
+- A pad is sized from the balance with every padding before it. Beancount sizes the pad of a parent account without
+  the padding of its sub-accounts, so the parent's assertion fails there by that padding.
 
 ## Best Practices
 
