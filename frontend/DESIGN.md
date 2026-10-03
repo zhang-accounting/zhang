@@ -127,10 +127,11 @@ react-day-picker 10 (`ui/calendar`) · react-i18next · jotai. `cn` comes from `
   section; per posting behind a collapsed toggle with a count badge, as an indented block under the row). Key inputs disable
   auto-capitalisation; key rules are the server's (400 `{ message }` → the usual toast). The preview lists transaction metas
   under "Details" and each posting's metas as a small indented key / value list under that posting.
-- `document` metas are files, not editable metadata: the server links a posting's `document` to its transaction, so the preview
-  grid, the row indicator (`transactionDocuments()`) and the form (hidden, sent back unchanged) treat posting and transaction
-  documents alike. The form's text preview follows the ledger format from `/api/files` (first file `.bean`: date + `time`
-  meta, beancount quoting).
+- `document` metas are files, not editable metadata: the server links a posting's `document` to its transaction (older
+  uploads after the last posting of a `.bean` ledger are posting metadata), so the preview grid and the row indicator
+  (`transactionDocuments()`, each path once) and the form (hidden, sent back unchanged) treat posting and transaction documents
+  alike; the posting's metadata list leaves them out. The form's text preview follows the ledger format from `/api/files`
+  (first file `.bean`: date + `time` meta, beancount quoting).
 - Unsaved changes: `useUnsavedChangesGuard(dirty, message)` covers tab close / reload (`beforeunload`) and in-app links (a
   capture-phase click listener on `a[href]` asks first). The app uses `<BrowserRouter>`, so `useBlocker` is unavailable and
   **browser Back cannot be blocked**; keep `?file=`-style switches on `replace` so Back leaves the page instead of silently
