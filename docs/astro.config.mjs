@@ -22,6 +22,7 @@ const movedPages = {
   'user-guide/error-code': 'reference/error-codes',
   'user-guide/query-language': 'reference/query-language',
   'user-guide/router-plugins': 'guides/router-plugins',
+  'user-guide/builtin-queries': 'reference/builtin-queries',
   'developer-guides/plugins': 'developers/writing-plugins',
   'developer-guides/project-structure': 'developers/project-structure',
 };
@@ -120,6 +121,7 @@ export default defineConfig({
               items: [{ autogenerate: { directory: 'reference/directives' } }],
             },
             'reference/query-language',
+            'reference/builtin-queries',
             'reference/error-codes',
           ],
         },
