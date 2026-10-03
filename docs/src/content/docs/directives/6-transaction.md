@@ -78,4 +78,4 @@ Zhang reads this layout the same way in both file formats, and so do Beancount a
 
 ## Plugins
 
-WASM plugins receive and return transactions with the metadata of each posting in the `meta` field of the posting. A plugin built against an older version of Zhang, from before posting metadata, still works, but the transactions it returns lose the metadata of their postings. Rebuild such a plugin to keep it.
+WASM plugins receive and return transactions with the metadata of each posting in the `meta` field of the posting. A plugin built against an older version of Zhang, from before posting metadata, still works, but it reads and writes back every directive it is given, so **every** transaction that passes through it loses the metadata of its postings, not only the ones it changes. Rebuild such a plugin to keep it.

@@ -10,7 +10,8 @@ use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
 use zhang_core::constants::TXN_ID;
-use zhang_core::domains::schemas::MetaType;
+use zhang_core::data_type::text::parser::transaction_header_len;
+use zhang_core::domains::schemas::{MetaType, TransactionInfoDomain};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::TransactionDomain;
 use zhang_core::utils::string_::{quote_as, QuoteStyle, StringExt};
@@ -129,10 +130,12 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
 /// Build the transaction a create or update request describes, rejecting with a
 /// 400 any account, commodity, tag, link or flag that would be written unquoted and
 /// not read back, and in a beancount ledger any new name beancount itself rejects.
-fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) -> ServerResult<Directive> {
+/// `original` is the transaction an update replaces, as it was read from the ledger.
+fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, original: Option<&Transaction>) -> ServerResult<Directive> {
     let rules = validate::Rules::of(ledger);
     let mut postings = vec![];
-    for posting in payload.postings {
+    for (index, posting) in payload.postings.into_iter().enumerate() {
+        let original_meta = original.and_then(|it| it.postings.get(index)).map(|it| &it.meta);
         if let Some(unit) = &posting.unit {
             validate::amount(unit, &rules)?;
         }
@@ -143,11 +146,11 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) 
             cost: None,
             price: None,
             comment: None,
-            meta: metas_from_request(posting.metas.unwrap_or_default(), &rules)?,
+            meta: metas_from_request(posting.metas.unwrap_or_default(), &rules, original_meta)?,
         });
     }
 
-    let metas = metas_from_request(payload.metas, &rules)?;
+    let metas = metas_from_request(payload.metas, &rules, original.map(|it| &it.meta))?;
     for tag in &payload.tags {
         validate::tag(tag, &rules)?;
     }
@@ -170,15 +173,42 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger) 
     }))
 }
 
-/// The metadata of a request, every key checked by [`validate::meta_key`]. Values are
-/// always written quoted.
-fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules) -> ServerResult<Meta> {
+/// The metadata of a request, every key checked by [`validate::meta_key`].
+///
+/// New and changed values are written quoted. A value `original`, the metadata the
+/// request edits, already has unquoted under the same key is written unquoted again, so
+/// an edit that leaves a number, date or boolean as it was does not turn it into a string
+/// for beancount. An unquoted value read from the ledger is a bare word, so it reads back.
+fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original: Option<&Meta>) -> ServerResult<Meta> {
     let mut meta = Meta::default();
     for MetaRequest { key, value } in metas {
         validate::meta_key(&key, rules)?;
-        meta.insert(key, value.to_quote());
+        let unchanged_bare = original.is_some_and(|original| {
+            original
+                .get_all(&key)
+                .into_iter()
+                .any(|it| matches!(it, ZhangString::UnquoteString(bare) if *bare == value))
+        });
+        let value = if unchanged_bare {
+            ZhangString::UnquoteString(value)
+        } else {
+            value.to_quote()
+        };
+        meta.insert(key, value);
     }
     Ok(meta)
+}
+
+/// The transaction directive the stored transaction at `span` was read from.
+fn original_transaction<'a>(ledger: &'a Ledger, span: &TransactionInfoDomain) -> Option<&'a Transaction> {
+    ledger.directives.iter().find_map(|directive| match &directive.data {
+        Directive::Transaction(transaction)
+            if directive.span.start == span.span_start && directive.span.filename.as_deref() == Some(span.source_file.as_path()) =>
+        {
+            Some(transaction)
+        }
+        _ => None,
+    })
 }
 
 #[api(group = "transaction")]
@@ -187,7 +217,7 @@ pub async fn create_new_transaction(
 ) -> ApiResult<String> {
     let ledger = ledger.read().await;
 
-    let trx = transaction_from_request(payload, &ledger)?;
+    let trx = transaction_from_request(payload, &ledger, None)?;
 
     ledger.data_source.async_append(&ledger, vec![trx]).await?;
     reload_sender.reload();
@@ -230,34 +260,45 @@ pub async fn upload_transaction_document(
             Err(_) => buf.to_str().unwrap(),
         };
 
-        documents.push(ZhangString::QuoteString(path.to_string()));
+        documents.push(path.to_string());
     }
 
-    // the source file may be zhang or beancount text: the beancount quote style is
-    // read back exactly by both parsers, and by Python beancount too
-    let metas_content = documents
-        .into_iter()
-        .map(|document| format!("  document: {}", quote_as(document.as_str(), QuoteStyle::Beancount)))
-        .collect_vec();
-
-    let source_file_path = span_info.source_file.to_string_lossy().to_string();
-    let mut content = String::from_utf8(ledger.data_source.async_get(source_file_path.clone()).await?).unwrap();
-    insert_transaction_metas(&mut content, span_info.span_start, span_info.span_end, &metas_content);
-    ledger.data_source.async_save(&ledger, source_file_path, content.as_bytes()).await?;
+    write_transaction_documents(&ledger, &span_info, &documents).await?;
     reload_sender.reload();
     ResponseWrapper::json("Ok".to_string())
+}
+
+/// Write `documents` into the ledger as `document` metadata of the transaction at `span`.
+async fn write_transaction_documents(ledger: &Ledger, span: &TransactionInfoDomain, documents: &[String]) -> ServerResult<()> {
+    // the source file may be zhang or beancount text: the beancount quote style is
+    // read back exactly by both parsers, and by Python beancount too
+    let lines = documents
+        .iter()
+        .map(|document| format!("  document: {}", quote_as(document, QuoteStyle::Beancount)))
+        .collect_vec();
+    let source_file_path = span.source_file.to_string_lossy().to_string();
+    let mut content = String::from_utf8(ledger.data_source.async_get(source_file_path.clone()).await?).unwrap();
+    insert_transaction_metas(&mut content, span.span_start, span.span_end, &lines);
+    ledger.data_source.async_save(ledger, source_file_path, content.as_bytes()).await?;
+    Ok(())
 }
 
 /// Insert the metadata `lines` of the transaction at `span_start..span_end` of `content`
 /// right under its header line. There they are the transaction's in zhang and in
 /// beancount alike: after the postings beancount would read them as the last posting's.
+/// The header line ends at the first line ending outside its quoted strings, since a
+/// payee or narration may span several lines.
 fn insert_transaction_metas(content: &mut String, span_start: usize, span_end: usize, lines: &[String]) {
     if lines.is_empty() {
         return;
     }
     let text = lines.iter().map(|line| format!("{line}\n")).join("");
-    match content[span_start..span_end].find('\n') {
-        Some(header_end) => content.insert_str(span_start + header_end + 1, &text),
+    let span = &content[span_start..span_end];
+    match transaction_header_len(span) {
+        Some(header_len) => {
+            let line_ending = if span[header_len..].starts_with("\r\n") { 2 } else { 1 };
+            content.insert_str(span_start + header_len + line_ending, &text)
+        }
         // a one-line directive, such as the `balance` of a balance check: write after it
         None => content.insert_str(span_end, &format!("\n{}", text.trim_end_matches('\n'))),
     }
@@ -278,7 +319,7 @@ pub async fn update_single_transaction(
         return ResponseWrapper::bad_request();
     };
 
-    let trx = transaction_from_request(payload, &ledger)?;
+    let trx = transaction_from_request(payload, &ledger, original_transaction(&ledger, &span_info))?;
     let txn_content = ledger.data_source.export(trx)?;
     let trx_content = String::from_utf8_lossy(&txn_content);
     let source_file_path = span_info.source_file.to_string_lossy().to_string();
@@ -315,7 +356,7 @@ mod string_round_trip_test {
     use zhang_core::ledger::Ledger;
     use zhang_core::store::TransactionDomain;
 
-    use super::{create_new_transaction, get_journals, insert_transaction_metas, update_single_transaction};
+    use super::{create_new_transaction, get_journals, insert_transaction_metas, update_single_transaction, write_transaction_documents};
     use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, FlagRequest, JournalRequest, MetaRequest};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::ReloadSender;
@@ -940,5 +981,121 @@ mod string_round_trip_test {
         let mut unchanged = content.to_owned();
         insert_transaction_metas(&mut unchanged, 0, end, &[]);
         assert_eq!(unchanged, content);
+    }
+
+    /// Documents are written under the header even when a quoted payee or narration
+    /// spans several lines, in both formats, and the rest of the text is left as it is.
+    #[tokio::test]
+    async fn uploaded_documents_go_under_a_header_spanning_several_lines() {
+        let cases = [
+            ("Bob", "multi\nline narration", "\"Bob\" \"multi\nline narration\""),
+            ("Bob\n  Assets:Cash -1 CNY", "coffee", "\"Bob\n  Assets:Cash -1 CNY\" \"coffee\""),
+            ("Bob", "say \"hi\"\nthere", "\"Bob\" \"say \\\"hi\\\"\nthere\""),
+        ];
+        for main in ["main.zhang", "main.bean"] {
+            for (payee, narration, strings) in cases {
+                let dir = std::env::temp_dir().join(format!("zhang-document-header-{}", Uuid::new_v4()));
+                std::fs::create_dir_all(&dir).unwrap();
+                let dir = dir.canonicalize().unwrap();
+                let opens = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n\n";
+                let postings = "  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n";
+                let header = format!("2024-01-15 * {strings} ; a \"comment\"\n");
+                std::fs::write(dir.join(main), format!("{opens}{header}{postings}")).unwrap();
+                let load = || async {
+                    let source: Arc<LocalFileSystemDataSource> = if main.ends_with(".bean") {
+                        Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}))
+                    } else {
+                        Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
+                    };
+                    Ledger::async_load(dir.clone(), main.to_owned(), source).await.expect("load ledger")
+                };
+
+                let ledger = load().await;
+                let id = ledger.operations().read().transactions.values().next().unwrap().id;
+                let span = ledger.operations().transaction_span(&id).unwrap().unwrap();
+                write_transaction_documents(&ledger, &span, &["attachments/a.pdf".to_owned()]).await.unwrap();
+
+                let written = std::fs::read_to_string(dir.join(main)).unwrap();
+                assert_eq!(written, format!("{opens}{header}  document: \"attachments/a.pdf\"\n{postings}"), "{main}");
+                let reloaded = load().await;
+                let operations = reloaded.operations();
+                let store = operations.read();
+                assert!(store.errors.is_empty(), "{main} {:?}: {:?}", strings, store.errors);
+                let transaction = store.transactions.values().next().unwrap();
+                assert_eq!(transaction.payee.as_deref(), Some(payee), "{main}");
+                assert_eq!(transaction.narration.as_deref(), Some(narration), "{main}");
+                assert_eq!(transaction.postings.len(), 2, "{main}");
+                assert!(transaction.postings.iter().all(|posting| posting.metas.is_empty()), "{main}");
+                let documents = store
+                    .documents
+                    .iter()
+                    .filter(|it| it.document_type.as_trx() == Some(transaction.id.to_string()))
+                    .map(|it| it.path.clone())
+                    .collect::<Vec<_>>();
+                assert_eq!(documents, vec!["attachments/a.pdf"], "{main} {strings}");
+                let metas = store.metas.iter().filter(|it| it.type_identifier == transaction.id.to_string()).count();
+                assert_eq!(metas, 1, "the document is transaction metadata");
+                drop(store);
+                std::fs::remove_dir_all(dir).ok();
+            }
+        }
+    }
+
+    /// An edit that leaves a metadata value as it was writes it as it was: an unquoted
+    /// number, date or boolean stays one for beancount. A changed value is quoted.
+    #[tokio::test]
+    async fn an_edit_keeps_unchanged_bare_metadata_values_bare() {
+        let dir = std::env::temp_dir().join(format!("zhang-bare-meta-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let main = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n\n\
+                    2024-01-15 * \"Bob\" \"coffee\"\n  rate: 1.5\n  day: 2024-01-15\n  paid: TRUE\n  note: \"n\"\n  \
+                    Assets:Cash -5 CNY\n    rate: 2.5\n    day: 2024-01-14\n    cleared: FALSE\n  Expenses:Food 5 CNY\n    rate: 7\n";
+        std::fs::write(dir.join("main.bean"), main).unwrap();
+        let load = || async {
+            let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+        };
+
+        let ledger = load().await;
+        let id = ledger.operations().read().transactions.values().next().unwrap().id;
+        // the client sends every value back as text, a few of them changed
+        let mut update = request("coffee", "n");
+        update.payee = "Bob".to_owned();
+        update.metas = vec![meta("rate", "1.5"), meta("day", "2024-02-01"), meta("paid", "TRUE"), meta("note", "n")];
+        update.postings[0].metas = Some(vec![meta("rate", "3.5"), meta("day", "2024-01-14"), meta("cleared", "FALSE")]);
+        // the same text under a key the posting did not have unquoted
+        update.postings[1].metas = Some(vec![meta("rate", "7"), meta("paid", "TRUE")]);
+        let (ledger, reload) = states(ledger);
+        let response = update_single_transaction(ledger, reload, Path((id.to_string(),)), Json(update))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let written = std::fs::read_to_string(dir.join("main.bean")).unwrap();
+        for line in [
+            // unchanged: as they were
+            "\n  rate: 1.5\n",
+            "\n  paid: TRUE\n",
+            "\n  note: \"n\"\n",
+            "\n    day: 2024-01-14\n",
+            "\n    cleared: FALSE\n",
+            "\n    rate: 7\n",
+            // changed or new: quoted
+            "\n  day: \"2024-02-01\"\n",
+            "\n    rate: \"3.5\"\n",
+            "\n    paid: \"TRUE\"",
+        ] {
+            assert!(written.contains(line), "{line:?} in\n{written}");
+        }
+        let reloaded = load().await;
+        assert!(reloaded.operations().read().errors.is_empty(), "{written}");
+        let items = journals(reloaded).await;
+        assert_eq!(
+            items[0]["postings"][0]["metas"],
+            serde_json::json!([{"key": "cleared", "value": "FALSE"}, {"key": "day", "value": "2024-01-14"}, {"key": "rate", "value": "3.5"}])
+        );
+
+        std::fs::remove_dir_all(dir).ok();
     }
 }

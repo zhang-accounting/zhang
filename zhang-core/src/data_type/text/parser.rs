@@ -14,7 +14,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1, take_while_m_n};
 use nom::character::complete::{char, line_ending, not_line_ending, one_of, satisfy, space0, space1};
-use nom::combinator::{map, map_res, opt, recognize, value, verify};
+use nom::combinator::{map, map_res, opt, peek, recognize, value, verify};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
@@ -914,6 +914,24 @@ pub fn is_valid_transaction_flag(flag: &str) -> bool {
     reads_all(self::flag, flag)
 }
 
+/// The length of the header line of `text`, a transaction as written in zhang or
+/// beancount syntax (the beancount parser reads the same header): everything before the
+/// line ending of its first line. That is not the first line ending of `text` when a
+/// quoted payee or narration spans several lines. `None` when `text` does not start with
+/// a transaction header followed by a line ending, such as a one-line `balance`.
+pub fn transaction_header_len(text: &str) -> Option<usize> {
+    let header = tuple((
+        parse_date,
+        opt(transaction_flag),
+        many_m_n(0, 2, preceded(space1, quote_string)),
+        tags_or_links,
+        space0,
+        opt(inline_comment),
+    ));
+    let (rest, _) = terminated(header, peek(line_ending))(text).ok()?;
+    Some(offset(text, rest))
+}
+
 fn error_at(original: &str, rest: &str, message: &str) -> ParseError {
     let position = offset(original, rest);
     let consumed = &original[..position];
@@ -1655,6 +1673,31 @@ mod test {
                 let posting = trx.postings.pop().unwrap();
                 assert_eq!(BigDecimal::from_str("-0.000000001").unwrap(), posting.units.unwrap().number);
             }
+        }
+
+        #[test]
+        fn header_len_ends_at_the_first_line_ending_outside_strings() {
+            use crate::data_type::text::parser::transaction_header_len;
+
+            let postings = "\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n";
+            for header in [
+                "2024-01-15 * \"Bob\" \"coffee\"",
+                "2024-01-15 10:30:00 txn \"Bob\" \"coffee\" #trip ^inv-1",
+                "2024-01-15 \"coffee\"",
+                "2024-01-15 * \"Bob\" \"multi\nline narration\"",
+                "2024-01-15 * \"Bob\n  Assets:Cash -1 CNY\" \"coffee\"",
+                "2024-01-15 * \"Bob\" \"say \\\"hi\\\"\nthere\"",
+                "2024-01-15 * \"Bob\" \"ends with a backslash \\\\\"",
+                "2024-01-15 * \"Bob\" \"coffee\" ; a 5\" screen, \"quoted",
+                "2024-01-15 * \"Bob\" \"coffee\" #trip // a comment",
+            ] {
+                let text = format!("{header}{postings}");
+                assert_eq!(transaction_header_len(&text), Some(header.len()), "{text:?}");
+                let crlf = format!("{header}\r\n  Assets:Cash -5 CNY\r\n");
+                assert_eq!(transaction_header_len(&crlf), Some(header.len()), "{crlf:?}");
+            }
+            assert_eq!(transaction_header_len("2024-01-15 balance Assets:Cash 5 CNY"), None);
+            assert_eq!(transaction_header_len("2024-01-15 balance Assets:Cash 5 CNY\n"), None);
         }
 
         /// A metadata line belongs to the posting before it only when it is indented

@@ -119,9 +119,36 @@ fn a_time_older_zhang_wrote_after_the_postings_stays_the_transactions_time() {
     assert_eq!(txn.date, Date::Datetime(nine));
     assert_eq!(txn.postings[1].meta.get_one("time"), Some(&ZhangString::quote("12:30:00")));
 
-    // only a time of day is taken, and only from the last posting
-    let txn = transaction("2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n    time: \"12:30:00\"\n  Expenses:Food 5 CNY\n    time: \"soon\"\n");
+    // only a time of day is taken
+    let txn = transaction("2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n  time: \"soon\"\n");
     assert!(matches!(txn.date, Date::Date(_)));
-    assert_eq!(meta(&txn.postings[0].meta), json!({"time": "12:30:00"}));
     assert_eq!(meta(&txn.postings[1].meta), json!({"time": "soon"}));
+}
+
+/// Where nothing says older zhang wrote it, a posting's `time` is the posting's, as
+/// beancount 3.2.3 reads it.
+#[test]
+fn a_time_of_a_posting_stays_the_postings() {
+    use zhang_ast::Date;
+
+    let times = |txn: &zhang_ast::Transaction| txn.postings.iter().map(|posting| meta(&posting.meta)).collect::<Vec<_>>();
+    // every posting has a time, under it or at its indentation
+    for text in [
+        "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 USD\n    time: \"01:00:00\"\n  Expenses:Food 5 USD\n    time: \"02:00:00\"\n",
+        "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 USD\n  time: \"01:00:00\"\n  Expenses:Food 5 USD\n  time: \"02:00:00\"\n",
+    ] {
+        let txn = transaction(text);
+        assert!(matches!(txn.date, Date::Date(_)), "{text}");
+        assert_eq!(times(&txn), vec![json!({"time": "01:00:00"}), json!({"time": "02:00:00"})], "{text}");
+    }
+
+    // the last posting only, indented deeper than it: zhang never wrote that
+    let txn = transaction("2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 USD\n  Expenses:Food 5 USD\n    time: \"02:00:00\"\n");
+    assert!(matches!(txn.date, Date::Date(_)));
+    assert_eq!(times(&txn), vec![json!({}), json!({"time": "02:00:00"})]);
+
+    // another posting has a time too
+    let txn = transaction("2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 USD\n    time: \"01:00:00\"\n  Expenses:Food 5 USD\n  time: \"02:00:00\"\n");
+    assert!(matches!(txn.date, Date::Date(_)));
+    assert_eq!(times(&txn), vec![json!({"time": "01:00:00"}), json!({"time": "02:00:00"})]);
 }
