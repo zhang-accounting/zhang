@@ -24,7 +24,8 @@ use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::calculable::Calculable;
 use zhang_query::{DataType, ParamTypes, Params, Query};
-use zhang_server::report::{self, legacy, LedgerDateRange};
+use zhang_server::builtin::{calculated_amount, LedgerDateRange};
+use zhang_server::report::{self, legacy};
 use zhang_server::request::StatisticInterval;
 
 /// A ledger to compare on.
@@ -1108,7 +1109,7 @@ fn every_day_is_valued_at_its_own_prices() {
                             zhang_query::Value::Inventory(inventory) => inventory.clone(),
                             _ => zhang_query::Inventory::new(),
                         };
-                        report::calculated_amount(&inventory(&row[0]), &inventory(&row[1]), &currency)
+                        calculated_amount(&inventory(&row[0]), &inventory(&row[1]), &currency)
                     }
                     None => CalculatedAmount::new(&currency),
                 };

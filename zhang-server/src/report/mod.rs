@@ -8,10 +8,9 @@
 //!
 //! Ranges are ledger dates, both inclusive. Valuation follows #479: the summary and the
 //! rankings are valued at the prices of the last day of the range, and each point of the
-//! graph at the prices of its own last day.
+//! graph at the prices of its own last day in the range.
 
 pub mod legacy;
-mod shim;
 
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
@@ -22,19 +21,19 @@ use zhang_ast::amount::CalculatedAmount;
 use zhang_ast::AccountType;
 use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::ledger::Ledger;
-use zhang_query::{DataType, Inventory, Params, PriceMap, QueryResult, Value};
+use zhang_query::{DataType, Inventory, Params, PriceMap, Value};
 
-pub use self::shim::{calculated_amount, run, BuiltinQuery, LedgerDateRange};
+use crate::builtin::{calculated_amount, execute, BuiltinQuery, LedgerDateRange};
 use crate::request::StatisticInterval;
 use crate::response::{ReportRankItemEntity, StatisticGraphEntity, StatisticRankEntity, StatisticSummaryEntity};
 use crate::ServerResult;
 
-/// The balances of the asset and liability accounts at the end of the range: the report's
-/// net worth is their sum, and its liabilities the second row.
-pub static BALANCES: BuiltinQuery = BuiltinQuery {
+/// The balances of the asset and of the liability accounts at the end of a day. The summary's
+/// net worth is their sum, and the graph starts from them on the day before its range.
+pub const BALANCES: BuiltinQuery = BuiltinQuery {
     name: "report.balances",
-    description: "The balance of the assets and of the liabilities at the end of `to`, with their value in `currency` at the prices of that day. The report's net worth is their sum.",
-    bql: "SELECT root(account, 1) AS type, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+    description: "The balances of the assets and of the liabilities at the end of :to, valued in :currency at the prices of that day.",
+    bql: "SELECT root(account, 1) AS type, sum(position) AS balance, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
 WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to
 GROUP BY type
 ORDER BY type",
@@ -42,9 +41,9 @@ ORDER BY type",
 };
 
 /// The income and the expenses of the range.
-pub static FLOWS: BuiltinQuery = BuiltinQuery {
+pub const FLOWS: BuiltinQuery = BuiltinQuery {
     name: "report.flows",
-    description: "The income and the expenses from `from` to `to`, with their value in `currency` at the prices of `to`. Income is negative, as in the ledger.",
+    description: "The income and the expenses from :from to :to, valued in :currency at the prices of :to.",
     bql: "SELECT root(account, 1) AS type, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
 WHERE (under(account, 'Income') OR under(account, 'Expenses')) AND date >= :from AND date <= :to
 GROUP BY type
@@ -53,9 +52,9 @@ ORDER BY type",
 };
 
 /// The number of transactions of the range; padding transactions are not counted.
-pub static TRANSACTION_COUNT: BuiltinQuery = BuiltinQuery {
+pub const TRANSACTION_COUNT: BuiltinQuery = BuiltinQuery {
     name: "report.transaction_count",
-    description: "The number of transactions from `from` to `to`. The padding transactions of `balance ... with pad` (flag `P`) are not counted, and balance assertions are not transactions.",
+    description: "The number of transactions from :from to :to, without the padding transactions of balance ... with pad.",
     bql: "SELECT count(*) AS transactions
 FROM #transactions
 WHERE flag != 'P' AND date >= :from AND date <= :to",
@@ -63,14 +62,14 @@ WHERE flag != 'P' AND date >= :from AND date <= :to",
 };
 
 /// The net worth at the end of every bucket of the graph that has postings.
-pub static NET_WORTH: BuiltinQuery = BuiltinQuery {
+pub const NET_WORTH: BuiltinQuery = BuiltinQuery {
     name: "report.net_worth",
-    description: "The net worth (assets and liabilities) at the end of every day, week or month from `from` to `to` that has postings, with its value in `currency` at the prices of the bucket's last day (of `to` for the last bucket). `interval` is '1 day', '1 week' or '1 month': the bins from 2001-01-01, a Monday and the first of a month, are calendar days, weeks starting on Monday and months, each named by its first day. `OPEN ON :from` starts from the balances of the day before `from`, which are the row of the bucket of that day. The report carries a bucket without postings over from the previous one, valued at its own last day.",
+    description: "The net worth at the end of every day, week or month (:interval) from :from to :to that has postings, valued in :currency at the prices of its last day in the range.",
     bql: "SELECT date_bin(:interval, date, 2001-01-01) AS bucket, last(balance) AS balance, units(last(balance)) AS units,
   convert(last(balance), :currency, least(max(date_bin(:interval, date, 2001-01-01)) + interval(:interval) - 1, :to)) AS value
-FROM OPEN ON :from
 WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to
 GROUP BY bucket
+HAVING max(date) >= :from
 ORDER BY bucket",
     params: &[
         ("from", DataType::Date),
@@ -80,10 +79,10 @@ ORDER BY bucket",
     ],
 };
 
-/// What every bucket of the graph changed, per account type.
-pub static CHANGES: BuiltinQuery = BuiltinQuery {
+/// What every bucket of the graph changed by, per account type.
+pub const CHANGES: BuiltinQuery = BuiltinQuery {
     name: "report.changes",
-    description: "What each account type changed by in every day, week or month from `from` to `to`, with its value in `currency` at the prices of the bucket's last day (of `to` for the last bucket). The buckets are those of report.net_worth; the first one only counts the postings from `from` on.",
+    description: "What each account type changed by in every day, week or month (:interval) from :from to :to, valued in :currency at the prices of its last day in the range.",
     bql: "SELECT date_bin(:interval, date, 2001-01-01) AS bucket, root(account, 1) AS type, units(sum(position)) AS units,
   convert(sum(position), :currency, least(max(date_bin(:interval, date, 2001-01-01)) + interval(:interval) - 1, :to)) AS value
 WHERE date >= :from AND date <= :to
@@ -98,9 +97,9 @@ ORDER BY bucket, type",
 };
 
 /// What every account of one type changed by in the range.
-pub static ACCOUNT_TOTALS: BuiltinQuery = BuiltinQuery {
+pub const ACCOUNT_TOTALS: BuiltinQuery = BuiltinQuery {
     name: "report.account_totals",
-    description: "What every account of the type `type` (such as 'Expenses') changed by from `from` to `to`, with its value in `currency` at the prices of `to`, smallest value first.",
+    description: "What every account of the type :type changed by from :from to :to, valued in :currency at the prices of :to, smallest first.",
     bql: "SELECT account, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
 WHERE under(account, :type) AND date >= :from AND date <= :to
 GROUP BY account
@@ -114,9 +113,10 @@ ORDER BY number(only(:currency, convert(sum(position), :currency, :to))), accoun
 };
 
 /// The ten largest postings of one account type in the range.
-pub static TOP_POSTINGS: BuiltinQuery = BuiltinQuery {
+pub const TOP_POSTINGS: BuiltinQuery = BuiltinQuery {
     name: "report.top_postings",
-    description: "The ten largest postings to accounts of the type `type` from `from` to `to`, by their value in `currency` at the prices of `to`: income and liabilities by their negated value, so the largest income comes first. Postings that no price converts to `currency` come last.",
+    description:
+        "The ten largest postings to accounts of the type :type from :from to :to by their value in :currency at the prices of :to, those without a price last.",
     bql: "SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
   only(currency, account_balance) AS account_balance, convert(position, :currency, :to) AS value
 WHERE under(account, :type) AND date >= :from AND date <= :to
@@ -130,25 +130,17 @@ LIMIT 10",
     ],
 };
 
-/// Every built-in query of the report.
-pub static QUERIES: &[&BuiltinQuery] = &[&BALANCES, &FLOWS, &TRANSACTION_COUNT, &NET_WORTH, &CHANGES, &ACCOUNT_TOTALS, &TOP_POSTINGS];
-
 /// `GET /api/statistic/summary`: the net worth and the liabilities at the end of the range,
 /// and its income, expenses and number of transactions.
 pub fn summary(ledger: &Ledger, range: &LedgerDateRange) -> ServerResult<StatisticSummaryEntity> {
     let currency = ledger.options.operating_currency.as_str();
-    let balances = by_type(run(ledger, &BALANCES, &Params::new().bind("to", range.to).bind("currency", currency))?);
-    let flows = by_type(run(
-        ledger,
-        &FLOWS,
-        &Params::new().bind("from", range.from).bind("to", range.to).bind("currency", currency),
-    )?);
-    let count = run(ledger, &TRANSACTION_COUNT, &Params::new().bind("from", range.from).bind("to", range.to))?;
+    let balances = by_type(run(ledger, &BALANCES, Params::new().bind("to", range.to).bind("currency", currency))?);
+    let flows = by_type(run(ledger, &FLOWS, range.bind(Params::new().bind("currency", currency)))?);
+    let count = run(ledger, &TRANSACTION_COUNT, range.bind(Params::new()))?;
 
     let figure = |figures: &HashMap<String, Figure>, account_type: AccountType| figures.get(&account_type.to_string()).cloned().unwrap_or_default();
-    let assets = figure(&balances, AccountType::Assets);
     let liabilities = figure(&balances, AccountType::Liabilities);
-    let net_worth = assets.plus(&liabilities);
+    let net_worth = figure(&balances, AccountType::Assets).plus(&liabilities);
     let timezone = &ledger.options.timezone;
     Ok(StatisticSummaryEntity {
         from: first_instant(range.from, timezone),
@@ -158,7 +150,7 @@ pub fn summary(ledger: &Ledger, range: &LedgerDateRange) -> ServerResult<Statist
         income: figure(&flows, AccountType::Income).amount(currency),
         expense: figure(&flows, AccountType::Expenses).amount(currency),
         // an aggregate query without rows has no row, not a zero
-        transaction_number: count.rows.first().and_then(|row| row.first()).and_then(Value::as_int).unwrap_or(0),
+        transaction_number: count.into_iter().next().and_then(|mut row| row.take("transactions").as_int()).unwrap_or(0),
     })
 }
 
@@ -170,30 +162,26 @@ pub fn summary(ledger: &Ledger, range: &LedgerDateRange) -> ServerResult<Statist
 /// would value it; it has no changes.
 pub fn graph(ledger: &Ledger, range: &LedgerDateRange, interval: &StatisticInterval) -> ServerResult<StatisticGraphEntity> {
     let currency = ledger.options.operating_currency.as_str();
-    let params = Params::new()
-        .bind("from", range.from)
-        .bind("to", range.to)
-        .bind("interval", stride(interval))
-        .bind("currency", currency);
+    let params = range.bind(Params::new().bind("interval", stride(interval)).bind("currency", currency));
 
-    // the closing balance of every bucket with postings (and of the bucket before the range)
+    // the closing balance of every bucket with postings in the range
     let mut closing: BTreeMap<NaiveDate, (Inventory, Figure)> = BTreeMap::new();
-    for row in run(ledger, &NET_WORTH, &params)?.rows {
-        let mut cells = row.into_iter();
-        let (Some(Value::Date(bucket)), Some(balance), Some(units), Some(value)) = (cells.next(), cells.next(), cells.next(), cells.next()) else {
-            continue;
-        };
-        closing.insert(bucket, (inventory(balance), Figure::of(units, value)));
+    for mut row in run(ledger, &NET_WORTH, params.clone())? {
+        if let Value::Date(bucket) = row.take("bucket") {
+            closing.insert(bucket, (inventory(row.take("balance")), Figure::of(row.take("units"), row.take("value"))));
+        }
     }
 
+    // the balance before the range, carried into its first buckets until they have postings
+    let mut carried = Inventory::new();
+    if let Some(day_before) = range.from.pred_opt() {
+        for mut row in run(ledger, &BALANCES, Params::new().bind("to", day_before).bind("currency", currency))? {
+            carried.add_inventory(&inventory(row.take("balance")));
+        }
+    }
+    let mut prices: Option<PriceMap> = None;
     let buckets = buckets(range, interval);
     let mut balances = HashMap::with_capacity(buckets.len());
-    let mut carried = buckets
-        .first()
-        .and_then(|first| closing.range(..first).next_back())
-        .map(|(_, (balance, _))| balance.clone())
-        .unwrap_or_default();
-    let mut prices: Option<PriceMap> = None;
     for bucket in buckets {
         let amount = match closing.get(&bucket) {
             Some((balance, figure)) => {
@@ -204,26 +192,22 @@ pub fn graph(ledger: &Ledger, range: &LedgerDateRange, interval: &StatisticInter
             None => {
                 let prices = prices.get_or_insert_with(|| PriceMap::for_ledger(ledger));
                 let value = carried.convert(currency, prices, Some(bucket_end(bucket, interval).min(range.to)));
-                calculated_amount(&carried.units(), &value, currency)
+                calculated_amount(&carried, &value, currency)
             }
         };
         balances.insert(bucket, amount);
     }
 
     let mut changes: HashMap<NaiveDate, HashMap<AccountType, CalculatedAmount>> = HashMap::new();
-    for row in run(ledger, &CHANGES, &params)?.rows {
-        let mut cells = row.into_iter();
-        let (Some(Value::Date(bucket)), Some(Value::Str(account_type)), Some(units), Some(value)) = (cells.next(), cells.next(), cells.next(), cells.next())
-        else {
+    for mut row in run(ledger, &CHANGES, params)? {
+        let (Value::Date(bucket), Value::Str(account_type)) = (row.take("bucket"), row.take("type")) else {
             continue;
         };
         let Ok(account_type) = AccountType::from_str(&account_type) else {
             continue;
         };
-        changes
-            .entry(bucket)
-            .or_default()
-            .insert(account_type, Figure::of(units, value).amount(currency));
+        let amount = Figure::of(row.take("units"), row.take("value")).amount(currency);
+        changes.entry(bucket).or_default().insert(account_type, amount);
     }
 
     Ok(StatisticGraphEntity {
@@ -238,28 +222,16 @@ pub fn graph(ledger: &Ledger, range: &LedgerDateRange, interval: &StatisticInter
 /// range, and its ten largest postings.
 pub fn rank(ledger: &Ledger, account_type: AccountType, range: &LedgerDateRange) -> ServerResult<StatisticRankEntity> {
     let currency = ledger.options.operating_currency.as_str();
-    let params = Params::new()
-        .bind("type", account_type.to_string())
-        .bind("from", range.from)
-        .bind("to", range.to)
-        .bind("currency", currency);
+    let params = range.bind(Params::new().bind("type", account_type.to_string()).bind("currency", currency));
 
-    let detail = run(ledger, &ACCOUNT_TOTALS, &params)?
-        .rows
-        .into_iter()
-        .filter_map(|row| {
-            let mut cells = row.into_iter();
-            let (Some(Value::Str(account)), Some(units), Some(value)) = (cells.next(), cells.next(), cells.next()) else {
-                return None;
-            };
-            Some(ReportRankItemEntity {
-                account,
-                amount: Figure::of(units, value).amount(currency),
-            })
-        })
-        .collect();
-
-    let top_transactions = run(ledger, &TOP_POSTINGS, &params)?.rows.into_iter().filter_map(top_posting).collect();
+    let mut detail = vec![];
+    for mut row in run(ledger, &ACCOUNT_TOTALS, params.clone())? {
+        if let Value::Str(account) = row.take("account") {
+            let amount = Figure::of(row.take("units"), row.take("value")).amount(currency);
+            detail.push(ReportRankItemEntity { account, amount });
+        }
+    }
+    let top_transactions = run(ledger, &TOP_POSTINGS, params)?.into_iter().filter_map(top_posting).collect();
 
     Ok(StatisticRankEntity {
         from: range.from.and_time(NaiveTime::MIN),
@@ -270,30 +242,16 @@ pub fn rank(ledger: &Ledger, account_type: AccountType, range: &LedgerDateRange)
 }
 
 /// A row of `report.top_postings` as a journal item.
-fn top_posting(row: Vec<Value>) -> Option<AccountJournalDomain> {
-    let mut cells = row.into_iter();
-    let (
-        Some(Value::Date(date)),
-        Some(Value::Str(time)),
-        Some(Value::Int(timestamp)),
-        Some(Value::Str(account)),
-        Some(Value::Str(id)),
-        Some(payee),
-        Some(narration),
-        Some(Value::Amount(units)),
-        Some(Value::Amount(account_balance)),
-    ) = (
-        cells.next(),
-        cells.next(),
-        cells.next(),
-        cells.next(),
-        cells.next(),
-        cells.next(),
-        cells.next(),
-        cells.next(),
-        cells.next(),
-    )
-    else {
+fn top_posting(mut row: Row) -> Option<AccountJournalDomain> {
+    let (Value::Date(date), Value::Str(time), Value::Int(timestamp), Value::Str(account), Value::Str(id), Value::Amount(units), Value::Amount(account_balance)) = (
+        row.take("date"),
+        row.take("time"),
+        row.take("timestamp"),
+        row.take("account"),
+        row.take("id"),
+        row.take("units"),
+        row.take("account_balance"),
+    ) else {
         return None;
     };
     Some(AccountJournalDomain {
@@ -301,8 +259,8 @@ fn top_posting(row: Vec<Value>) -> Option<AccountJournalDomain> {
         timestamp,
         account,
         trx_id: id,
-        payee: text(payee),
-        narration: text(narration),
+        payee: text(row.take("payee")),
+        narration: text(row.take("narration")),
         inferred_unit: units,
         account_after: account_balance,
         asserted: None,
@@ -321,7 +279,7 @@ pub fn stride(interval: &StatisticInterval) -> &'static str {
 }
 
 /// The first day of the bucket of `date`: the day itself, the Monday of its week or the first
-/// of its month, as `date_bin(stride, date, 2001-01-01)` bins it.
+/// of its month, as `date_bin(stride, date, 2001-01-01)` bins it (2001-01-01 is a Monday).
 fn bucket_start(date: NaiveDate, interval: &StatisticInterval) -> NaiveDate {
     match interval {
         StatisticInterval::Day => date,
@@ -330,7 +288,7 @@ fn bucket_start(date: NaiveDate, interval: &StatisticInterval) -> NaiveDate {
     }
 }
 
-/// The day after the bucket that starts on `start`.
+/// The first day of the bucket after the one that starts on `start`.
 fn next_bucket(start: NaiveDate, interval: &StatisticInterval) -> Option<NaiveDate> {
     match interval {
         StatisticInterval::Day => start.checked_add_days(Days::new(1)),
@@ -379,6 +337,36 @@ fn instant(local: NaiveDateTime, timezone: &Tz, earliest: bool) -> DateTime<Utc>
     found.map(|it| it.with_timezone(&Utc)).unwrap_or_else(|| Utc.from_utc_datetime(&local))
 }
 
+/// The rows of one of the report's queries, their cells taken by column name.
+fn run(ledger: &Ledger, query: &BuiltinQuery, params: Params) -> ServerResult<Vec<Row>> {
+    let result = execute(ledger, query.name, &params, false)?;
+    let columns: HashMap<String, usize> = result.columns.iter().enumerate().map(|(index, column)| (column.name.clone(), index)).collect();
+    Ok(result
+        .rows
+        .into_iter()
+        .map(|cells| Row {
+            columns: columns.clone(),
+            cells,
+        })
+        .collect())
+}
+
+/// A row of a query result.
+struct Row {
+    columns: HashMap<String, usize>,
+    cells: Vec<Value>,
+}
+
+impl Row {
+    /// The cell of the column `name`; NULL if the query has no such column.
+    fn take(&mut self, name: &str) -> Value {
+        match self.columns.get(name).and_then(|index| self.cells.get_mut(*index)) {
+            Some(cell) => std::mem::replace(cell, Value::Null),
+            None => Value::Null,
+        }
+    }
+}
+
 /// The units and the value of a figure, as the queries return them.
 #[derive(Debug, Clone, Default)]
 struct Figure {
@@ -406,17 +394,12 @@ impl Figure {
     }
 }
 
-/// The figures of a query grouped by account type, by type.
-fn by_type(result: QueryResult) -> HashMap<String, Figure> {
-    result
-        .rows
-        .into_iter()
-        .filter_map(|row| {
-            let mut cells = row.into_iter();
-            let (Some(Value::Str(account_type)), Some(units), Some(value)) = (cells.next(), cells.next(), cells.next()) else {
-                return None;
-            };
-            Some((account_type, Figure::of(units, value)))
+/// The figures of a query grouped by account type (`type`, `units`, `value`), by type.
+fn by_type(rows: Vec<Row>) -> HashMap<String, Figure> {
+    rows.into_iter()
+        .filter_map(|mut row| match row.take("type") {
+            Value::Str(account_type) => Some((account_type, Figure::of(row.take("units"), row.take("value")))),
+            _ => None,
         })
         .collect()
 }
@@ -434,7 +417,7 @@ fn inventory(value: Value) -> Inventory {
     }
 }
 
-/// A text cell; `NULL` is none.
+/// A text cell; NULL is none.
 fn text(value: Value) -> Option<String> {
     match value {
         Value::Str(text) => Some(text),

@@ -82,6 +82,13 @@ pub static BUILTINS: &[BuiltinQuery] = &[
         params: &[("payee", DataType::Str), ("tags", DataType::Set)],
     },
     // ---- report: /api/statistic/* ----
+    crate::report::BALANCES,
+    crate::report::FLOWS,
+    crate::report::TRANSACTION_COUNT,
+    crate::report::NET_WORTH,
+    crate::report::CHANGES,
+    crate::report::ACCOUNT_TOTALS,
+    crate::report::TOP_POSTINGS,
     // ---- accounts: /api/accounts/* ----
     // ---- journals: /api/journals, /api/for-new-transaction, /api/documents, /api/errors ----
     // ---- budgets and commodities: /api/budgets/*, /api/commodities/* ----

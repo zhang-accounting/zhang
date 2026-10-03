@@ -7,9 +7,10 @@ use axum::extract::{Path, Query, State};
 use gotcha::api;
 use zhang_ast::AccountType;
 
-use crate::report::LedgerDateRange;
+use crate::builtin::LedgerDateRange;
 use crate::request::{StatisticGraphRequest, StatisticRequest};
 use crate::response::{ResponseWrapper, StatisticGraphEntity, StatisticRankEntity, StatisticSummaryEntity};
+use crate::routes::query::with_ledger;
 use crate::state::SharedLedger;
 use crate::{report, ApiResult};
 
@@ -19,10 +20,12 @@ use crate::{report, ApiResult};
 ///
 /// `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
 #[api(group = "statistic")]
-pub async fn get_statistic_summary(ledger: State<SharedLedger>, params: Query<StatisticRequest>) -> ApiResult<StatisticSummaryEntity> {
-    let ledger = ledger.0 .0.clone().read_owned().await;
-    let range = LedgerDateRange::from_query(&params.from, &params.to, &ledger.options.timezone)?;
-    let summary = tokio::task::spawn_blocking(move || report::summary(&ledger, &range)).await??;
+pub async fn get_statistic_summary(ledger: State<SharedLedger>, Query(params): Query<StatisticRequest>) -> ApiResult<StatisticSummaryEntity> {
+    let summary = with_ledger(&ledger.0 .0, move |ledger| {
+        let range = LedgerDateRange::from_query(&params.from, &params.to, &ledger.options.timezone)?;
+        report::summary(ledger, &range)
+    })
+    .await?;
     ResponseWrapper::json(summary)
 }
 
@@ -32,11 +35,12 @@ pub async fn get_statistic_summary(ledger: State<SharedLedger>, params: Query<St
 ///
 /// `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
 #[api(group = "statistic")]
-pub async fn get_statistic_graph(ledger: State<SharedLedger>, params: Query<StatisticGraphRequest>) -> ApiResult<StatisticGraphEntity> {
-    let ledger = ledger.0 .0.clone().read_owned().await;
-    let range = LedgerDateRange::from_query(&params.from, &params.to, &ledger.options.timezone)?;
-    let interval = params.interval;
-    let graph = tokio::task::spawn_blocking(move || report::graph(&ledger, &range, &interval)).await??;
+pub async fn get_statistic_graph(ledger: State<SharedLedger>, Query(params): Query<StatisticGraphRequest>) -> ApiResult<StatisticGraphEntity> {
+    let graph = with_ledger(&ledger.0 .0, move |ledger| {
+        let range = LedgerDateRange::from_query(&params.from, &params.to, &ledger.options.timezone)?;
+        report::graph(ledger, &range, &params.interval)
+    })
+    .await?;
     ResponseWrapper::json(graph)
 }
 
@@ -46,11 +50,13 @@ pub async fn get_statistic_graph(ledger: State<SharedLedger>, params: Query<Stat
 /// `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
 #[api(group = "statistic")]
 pub async fn get_statistic_rank_detail_by_account_type(
-    ledger: State<SharedLedger>, paths: Path<(String,)>, params: Query<StatisticRequest>,
+    ledger: State<SharedLedger>, paths: Path<(String,)>, Query(params): Query<StatisticRequest>,
 ) -> ApiResult<StatisticRankEntity> {
     let account_type = AccountType::from_str(&paths.0 .0)?;
-    let ledger = ledger.0 .0.clone().read_owned().await;
-    let range = LedgerDateRange::from_query(&params.from, &params.to, &ledger.options.timezone)?;
-    let rank = tokio::task::spawn_blocking(move || report::rank(&ledger, account_type, &range)).await??;
+    let rank = with_ledger(&ledger.0 .0, move |ledger| {
+        let range = LedgerDateRange::from_query(&params.from, &params.to, &ledger.options.timezone)?;
+        report::rank(ledger, account_type, &range)
+    })
+    .await?;
     ResponseWrapper::json(rank)
 }

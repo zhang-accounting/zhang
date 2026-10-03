@@ -127,7 +127,134 @@ ORDER BY seq
 
 ### 报表
 
-暂无查询。
+**报表**页和首页（`GET /api/statistic/summary`、`/api/statistic/graph` 和 `/api/statistic/{account_type}`）。范围是两个账本日期 `from` 和 `to`，含首尾两天；这些接口也接受时间点，表示该时间点在账本时区中所在的那一天。`currency` 是账本的运营货币。
+
+- **估值。**汇总和排行按 `to` 当天的价格估值。图表的每个点按它自己最后一天的价格估值，最后一个点按 `to` 的价格估值。价格可以反向使用；按成本持有、自身没有价格的持仓通过成本货币估值（见 [`convert`](/zh-cn/user-guide/query-language/#估值函数)）。任何价格都换算不了的金额保留原货币，不计入以运营货币表示的合计。
+- **图表**每天、每周（周一到周日）或每月一个点，以它的第一天命名，因此第一周（月）和最后一周（月）可能超出范围。范围内没有分录的点沿用前一个点的净资产，最前面的点沿用 `from` 前一天的 `report.balances`，并按它自己最后一天的价格估值。
+
+#### `report.balances`
+
+`to` 当天结束时资产和负债的余额，按账户类型分组，按当天的价格以 `currency` 估值。汇总中的净资产是两者之和，负债是第二行。图表用它求 `from` 前一天的余额，作为起点。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `to` | `date` | 余额的日期 |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT root(account, 1) AS type, sum(position) AS balance, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to
+GROUP BY type
+ORDER BY type
+```
+
+#### `report.flows`
+
+范围内的收入和支出，按 `to` 当天的价格以 `currency` 估值。与账本中一样，收入为负数。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `from` | `date` | 第一天 |
+| `to` | `date` | 最后一天 |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT root(account, 1) AS type, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE (under(account, 'Income') OR under(account, 'Expenses')) AND date >= :from AND date <= :to
+GROUP BY type
+ORDER BY type
+```
+
+#### `report.transaction_count`
+
+范围内的交易笔数。`balance ... with pad` 生成的补齐交易（标记 `P`）不计入，余额断言不是交易。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `from` | `date` | 第一天 |
+| `to` | `date` | 最后一天 |
+
+```sql
+SELECT count(*) AS transactions
+FROM #transactions
+WHERE flag != 'P' AND date >= :from AND date <= :to
+```
+
+#### `report.net_worth`
+
+范围内每个有分录的日、周或月结束时的净资产（资产与负债的余额），按它在范围内最后一天的价格以 `currency` 估值。`interval` 为 `'1 day'`、`'1 week'` 或 `'1 month'`：[`date_bin`](/zh-cn/user-guide/query-language/#日期函数) 从 2001-01-01（既是周一，又是月初）开始划分的区间，就是日历上的日、从周一开始的周和月，每个区间以它的第一天命名。[`least`](/zh-cn/user-guide/query-language/#比较函数) 让最后一个区间的估值日期不超出范围。`balance` 保留批次，用于给没有分录的点估值。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `from` | `date` | 第一天 |
+| `to` | `date` | 最后一天 |
+| `interval` | `str` | `'1 day'`、`'1 week'` 或 `'1 month'` |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT date_bin(:interval, date, 2001-01-01) AS bucket, last(balance) AS balance, units(last(balance)) AS units,
+  convert(last(balance), :currency, least(max(date_bin(:interval, date, 2001-01-01)) + interval(:interval) - 1, :to)) AS value
+WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to
+GROUP BY bucket
+HAVING max(date) >= :from
+ORDER BY bucket
+```
+
+#### `report.changes`
+
+范围内每日、每周或每月各账户类型的变动，按它在范围内最后一天的价格以 `currency` 估值，即收支图表中的柱。区间与 `report.net_worth` 相同；第一个区间只计入 `from` 当天及以后的分录。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `from` | `date` | 第一天 |
+| `to` | `date` | 最后一天 |
+| `interval` | `str` | `'1 day'`、`'1 week'` 或 `'1 month'` |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT date_bin(:interval, date, 2001-01-01) AS bucket, root(account, 1) AS type, units(sum(position)) AS units,
+  convert(sum(position), :currency, least(max(date_bin(:interval, date, 2001-01-01)) + interval(:interval) - 1, :to)) AS value
+WHERE date >= :from AND date <= :to
+GROUP BY bucket, type
+ORDER BY bucket, type
+```
+
+#### `report.account_totals`
+
+某一类型（例如 `'Expenses'`）的每个账户在范围内的变动，按 `to` 当天的价格以 `currency` 估值，按估值从小到大排列，即收入和支出的构成。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `type` | `str` | `'Assets'`、`'Liabilities'`、`'Equity'`、`'Income'` 或 `'Expenses'` |
+| `from` | `date` | 第一天 |
+| `to` | `date` | 最后一天 |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT account, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE under(account, :type) AND date >= :from AND date <= :to
+GROUP BY account
+ORDER BY number(only(:currency, convert(sum(position), :currency, :to))), account
+```
+
+#### `report.top_postings`
+
+范围内某一类型账户的十笔最大分录，按 `to` 当天的价格以 `currency` 估值排序，即最大的支出和收入。[`possign`](/zh-cn/user-guide/query-language/#金额与数值) 把收入和负债变为正数，因此最大的收入排在最前。任何价格都无法换算为 `currency` 的分录排在最后。`account_balance` 是该分录之后其账户以分录货币计的余额。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `type` | `str` | `'Assets'`、`'Liabilities'`、`'Equity'`、`'Income'` 或 `'Expenses'` |
+| `from` | `date` | 第一天 |
+| `to` | `date` | 最后一天 |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
+  only(currency, account_balance) AS account_balance, convert(position, :currency, :to) AS value
+WHERE under(account, :type) AND date >= :from AND date <= :to
+ORDER BY currency(convert(position, :currency, :to)) = :currency DESC, number(possign(convert(position, :currency, :to), account)) DESC
+LIMIT 10
+```
 
 ### 账户
 
