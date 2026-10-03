@@ -149,6 +149,70 @@ fn failed_assertions_are_balance_check_errors() {
     assert_eq!(failed, errors);
 }
 
+const PARENT_ACCOUNTS: &str = r#"
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Assets:Bank:Savings
+1970-01-01 open Equity:Opening
+1970-01-01 open Income:Salary
+
+2024-01-02 * "Opening"
+  Assets:Bank 345 CNY
+  Assets:Bank:Checking 155 CNY
+  Equity:Opening
+
+2024-01-03 * "Salary"
+  Assets:Bank:Savings 100 CNY
+  Income:Salary
+
+2024-01-04 balance Assets:Bank 600 CNY
+2024-01-05 balance Assets:Bank 345 CNY
+2024-01-06 balance Assets:Bank 600.004 ~ 0.01 CNY
+2024-01-07 balance Assets:Bank:Checking 155 CNY
+2024-01-08 balance Assets:Bank:Savings 99 CNY
+
+2024-01-10 balance Assets:Bank 700 CNY with pad Equity:Opening
+2024-01-10 balance Assets:Bank:Checking 200 CNY with pad Equity:Opening
+2024-01-11 balance Assets:Bank 745 CNY
+"#;
+
+/// `passed` is zhang's balance check: an assertion passes exactly when zhang reports no
+/// `AccountBalanceCheckError` for it, also for parent accounts, whose balance includes their
+/// sub-accounts, for a tolerance, and for a `balance ... with pad`, which is checked once the
+/// pads of its time are booked.
+#[test]
+fn passed_is_the_balance_check_of_zhang() {
+    let ledger = common::load_text(PARENT_ACCOUNTS);
+    assert_eq!(
+        run(&ledger, "SELECT date, account, amount, discrepancy, actual, passed FROM #balances"),
+        rows(&[
+            // 345 of its own, 155 of Assets:Bank:Checking and 100 of Assets:Bank:Savings
+            &["2024-01-04", "Assets:Bank", "600 CNY", "NULL", "600 CNY", "TRUE"],
+            &["2024-01-05", "Assets:Bank", "345 CNY", "255 CNY", "600 CNY", "FALSE"],
+            // 0.004 away, within the tolerance of 0.01
+            &["2024-01-06", "Assets:Bank", "600.004 CNY", "NULL", "600 CNY", "TRUE"],
+            &["2024-01-07", "Assets:Bank:Checking", "155 CNY", "NULL", "155 CNY", "TRUE"],
+            &["2024-01-08", "Assets:Bank:Savings", "99 CNY", "1 CNY", "100 CNY", "FALSE"],
+            // the pad of the parent brings it to 700 (+100), then the pad of its sub-account of
+            // the same time adds 45 (155 to 200): checked after both, the parent is at 745
+            &["2024-01-10", "Assets:Bank", "700 CNY", "45 CNY", "745 CNY", "FALSE"],
+            &["2024-01-10", "Assets:Bank:Checking", "200 CNY", "NULL", "200 CNY", "TRUE"],
+            // the failed check moved nothing
+            &["2024-01-11", "Assets:Bank", "745 CNY", "NULL", "745 CNY", "TRUE"],
+        ])
+    );
+    let failed = run(&ledger, "SELECT date, account FROM #balances WHERE NOT passed ORDER BY date, account");
+    let errors = run(
+        &ledger,
+        "SELECT date, account FROM #errors WHERE kind = 'AccountBalanceCheckError' ORDER BY date, account",
+    );
+    assert_eq!(failed, errors);
+    assert_eq!(failed.len(), 3);
+}
+
 // ---------------------------------------------------------------------------------------
 // #documents: directives, then transaction and posting metadata
 
