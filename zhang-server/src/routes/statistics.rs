@@ -78,7 +78,8 @@ pub async fn get_statistic_summary(ledger: State<SharedLedger>, params: Query<St
         .read()
         .transactions
         .values()
-        .filter(|trx| trx.flag != Flag::BalanceCheck || trx.flag != Flag::BalancePad)
+        // the padding transactions are no transactions of the user
+        .filter(|trx| trx.flag != Flag::BalanceCheck && trx.flag != Flag::BalancePad)
         .filter(|trx| trx.datetime.ge(&params.from))
         .filter(|trx| trx.datetime.le(&params.to))
         .count();

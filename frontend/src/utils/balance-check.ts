@@ -46,29 +46,3 @@ export function subAccountsFirst<T extends { account_name: string }>(balances: T
     .sort((a, b) => depth(b.balance) - depth(a.balance) || a.index - b.index)
     .map(({ balance }) => balance);
 }
-
-/**
- * Whether a batch pads an account and also asserts one of its sub-accounts. A beancount ledger fails such a batch whichever
- * balance is written first: beancount lets the sub-account's balance use up the parent's pad (see the balance assertion docs).
- */
-export function padsAnAccountWithItsSubAccount(balances: { account_name: string; pad: string }[]): boolean {
-  return balances.some((parent) => parent.pad !== '' && balances.some((balance) => balance.account_name.startsWith(`${parent.account_name}:`)));
-}
-
-/**
- * Whether a batch pads an account from more than one account. A beancount ledger pads an account from a single account per day,
- * so the server refuses such a batch for a beancount ledger.
- */
-export function padsAnAccountFromTwoAccounts(balances: { account_name: string; pad: string }[]): boolean {
-  return balances.some(
-    (one) => one.pad !== '' && balances.some((other) => other.account_name === one.account_name && other.pad !== '' && other.pad !== one.pad),
-  );
-}
-
-/**
- * Whether a batch pads an account in one commodity and checks another of its commodities without a pad. A beancount `pad` pads
- * every commodity of its account, so the server refuses such a batch for a beancount ledger.
- */
-export function checksAPaddedAccountWithoutAPad(balances: { account_name: string; pad: string }[]): boolean {
-  return balances.some((one) => one.pad !== '' && balances.some((other) => other.account_name === one.account_name && other.pad === ''));
-}

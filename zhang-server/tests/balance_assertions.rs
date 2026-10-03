@@ -612,9 +612,9 @@ async fn an_opened_sub_account_without_postings_counts_as_a_sub_account() {
 }
 
 /// A beancount ledger reconciled through the API, day after day, as the UI does it. Beancount knows no times: it checks a
-/// `balance` at the start of its date, before the transactions of that day, and a `pad` serves the first balance of
-/// its account in every commodity on a later day. So the UI writes "my balance now" as a `balance` dated tomorrow, and a
-/// pad as a `pad` dated today.
+/// `balance` at the start of its date, before the transactions of that day. So the UI writes "my balance now" as a
+/// `balance` dated tomorrow, and the difference a pad books as a padding transaction (flag `P`) dated now. It writes no
+/// `pad`, which would pad the next balance of every commodity and absorb transactions added later.
 mod beancount_pads {
     use axum::extract::{Path as UrlPath, State};
     use axum::http::StatusCode;
@@ -692,18 +692,6 @@ mod beancount_pads {
         respond(create_account_balance(scratch.state().await, reload(), UrlPath((account.to_owned(),)), Json(request)).await).await
     }
 
-    async fn batch(scratch: &Scratch, rows: Vec<(&str, Amount, &str)>) -> (StatusCode, Value) {
-        let rows = rows
-            .into_iter()
-            .map(|(account, amount, from)| BatchAccountBalanceRequest::Pad {
-                account_name: account.to_owned(),
-                amount,
-                pad: from.to_owned(),
-            })
-            .collect();
-        respond(create_batch_account_balances(scratch.state().await, reload(), Json(rows)).await).await
-    }
-
     /// what the ledger reloaded from its files holds: the errors, the paddings (date, units, account padded from) and
     /// whether each assertion passed
     async fn reloaded(scratch: &Scratch) -> (Vec<ErrorKind>, Vec<String>, Vec<bool>) {
@@ -759,13 +747,28 @@ option "timezone" "UTC"
 1970-01-01 open Expenses:Food
 "#;
 
+    /// the `pad` directives of the written files
+    fn pad_directives(scratch: &Scratch) -> Vec<String> {
+        written(scratch)
+            .lines()
+            .filter(|line| line.split_whitespace().nth(1) == Some("pad"))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// add `text` to the end of the main file, as a user editing it
+    fn append(scratch: &Scratch, text: &str) {
+        let main = scratch.dir.join(scratch.main);
+        let content = std::fs::read_to_string(&main).unwrap();
+        std::fs::write(&main, format!("{content}\n{text}")).unwrap();
+    }
+
     #[tokio::test]
-    async fn a_pad_made_today_serves_todays_balance_after_yesterdays() {
-        // yesterday's pad from the UI, then dinner; today's pad pads from where dinner left the account
+    async fn a_reconcile_books_the_difference_now_and_checks_tomorrow() {
+        // yesterday's pad from the old UI, then dinner; today's reconcile books the 420 dinner left missing
         let scratch = Scratch::beancount(&format!(
             r#"{OPENS}{} pad Assets:A Equity:Open
 {} balance Assets:A 100 CNY
-  time: "09:30:00"
 {} * "dinner"
   Assets:A -20 CNY
   Expenses:Food
@@ -777,6 +780,31 @@ option "timezone" "UTC"
         ));
         let (status, body) = pad(&scratch, "Assets:A", amount(500, "CNY"), "Equity:Open").await;
         assert!(status.is_success(), "{status} {body}");
+        let files = written(&scratch);
+        assert!(pad_directives(&scratch).is_empty(), "{files}");
+        assert!(
+            files.contains(&format!("{} P \"Balance Pad\" \"pad Assets:A to Equity:Open\"", today())),
+            "{files}"
+        );
+        assert!(files.contains("Assets:A 420 CNY") && files.contains("Equity:Open -420 CNY"), "{files}");
+        assert!(files.contains(&format!("{} balance Assets:A 500 CNY", tomorrow())), "{files}");
+        // shown as a pad, and not counted as a transaction of the user
+        let journal = scratch.journals(None, None, None, None).await;
+        let pads = journal["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|it| it["type"] == "BalancePad" && it["narration"] == "pad Assets:A to Equity:Open")
+            .count();
+        assert_eq!(pads, 2, "{journal}");
+        let request = zhang_server::request::StatisticRequest {
+            from: chrono::Utc::now() - chrono::Duration::days(30),
+            to: chrono::Utc::now() + chrono::Duration::days(30),
+        };
+        let (status, summary) =
+            respond(zhang_server::routes::statistics::get_statistic_summary(scratch.state().await, axum::extract::Query(request)).await).await;
+        assert_eq!(status, StatusCode::OK, "{summary}");
+        assert_eq!(summary["data"]["transaction_number"], json!(1), "the dinner only");
 
         let (errors, paddings, passed) = reloaded(&scratch).await;
         assert!(errors.is_empty(), "{errors:?}");
@@ -789,89 +817,46 @@ option "timezone" "UTC"
         );
         assert_eq!(passed, vec![true, true]);
         assert_eq!(scratch.balance("Assets:A").await, json!({"CNY": "500"}));
-
-        // another commodity padded today from the same account uses today's `pad`: one `pad` is written
-        let (status, body) = pad(&scratch, "Assets:A", amount(20, "USD"), "Equity:Open").await;
-        assert!(status.is_success(), "{status} {body}");
-        assert_eq!(written(&scratch).matches(" pad Assets:A ").count(), 1, "{}", written(&scratch));
-        let (errors, paddings, _) = reloaded(&scratch).await;
-        assert!(errors.is_empty(), "{errors:?}");
-        assert!(paddings.contains(&format!("{} 20 USD from Equity:Open", today())), "{paddings:?}");
-
-        // beancount cannot pad today's balances from another account, nor a commodity balanced today again
-        for (amount, from, refusal) in [
-            (amount(30, "USD"), "Equity:Fx", "single account per day"),
-            (amount(600, "CNY"), "Equity:Open", "has a balance in CNY"),
-        ] {
-            let before = written(&scratch);
-            let (status, body) = pad(&scratch, "Assets:A", amount, from).await;
-            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-            assert!(body["message"].as_str().unwrap().contains(refusal), "{body}");
-            assert_eq!(written(&scratch), before, "nothing is written");
-        }
     }
 
     #[tokio::test]
-    async fn a_pad_made_today_leaves_yesterdays_balance_alone() {
-        // yesterday's check from the UI, at a time after midnight, when today's `pad` is dated
+    async fn a_transaction_added_after_a_reconcile_makes_it_fail_instead_of_being_padded() {
+        // the account holds 10 USD; reconciled at 100 CNY, then dinner and coffee are added today
         let scratch = Scratch::beancount(&format!(
-            r#"{OPENS}{} balance Assets:A 0 CNY
-  time: "10:00:00"
+            r#"{OPENS}{} * "seed usd"
+  Assets:A 10 USD
+  Equity:Fx
 "#,
-            days_ago(1)
+            days_ago(30)
         ));
-        let (status, body) = pad(&scratch, "Assets:A", amount(150, "CNY"), "Equity:Open").await;
+        let (status, body) = pad(&scratch, "Assets:A", amount(100, "CNY"), "Equity:Open").await;
         assert!(status.is_success(), "{status} {body}");
-        let (errors, paddings, passed) = reloaded(&scratch).await;
-        assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(paddings, vec![format!("{} 150 CNY from Equity:Open", today())]);
-        assert_eq!(passed, vec![true, true]);
-    }
-
-    #[tokio::test]
-    async fn a_batch_pads_an_account_once_a_day_from_one_account() {
-        let scratch = Scratch::beancount(OPENS);
-        let main = std::fs::read_to_string(scratch.dir.join(scratch.main)).unwrap();
-
-        // two pad accounts for one account: refused, nothing written
-        let (status, body) = batch(
+        append(
             &scratch,
-            vec![("Assets:A", amount(100, "CNY"), "Equity:Open"), ("Assets:A", amount(20, "USD"), "Equity:Fx")],
-        )
-        .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-        let message = body["message"].as_str().unwrap();
-        assert!(message.contains("beancount pads an account from a single account per day"), "{message}");
-        assert!(message.contains("Equity:Open") && message.contains("Equity:Fx"), "{message}");
-        assert!(written(&scratch).is_empty());
-        assert_eq!(std::fs::read_to_string(scratch.dir.join(scratch.main)).unwrap(), main);
-
-        // one pad account: one `pad` serving both balances, its file included once
-        let (status, body) = batch(
-            &scratch,
-            vec![("Assets:A", amount(100, "CNY"), "Equity:Open"), ("Assets:A", amount(20, "USD"), "Equity:Open")],
-        )
-        .await;
-        assert!(status.is_success(), "{status} {body}");
-        let files = written(&scratch);
-        assert_eq!(files.matches(" pad Assets:A Equity:Open").count(), 1, "{files}");
-        assert_eq!(files.matches(" balance Assets:A ").count(), 2, "{files}");
-        let main = std::fs::read_to_string(scratch.dir.join(scratch.main)).unwrap();
-        assert_eq!(main.matches("include ").count(), 1, "{main}");
-
-        let (errors, paddings, passed) = reloaded(&scratch).await;
-        assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(
-            paddings,
-            vec![format!("{} 100 CNY from Equity:Open", today()), format!("{} 20 USD from Equity:Open", today())]
+            &format!(
+                r#"{today} * "Shop" "dinner"
+  Expenses:Food 20 CNY
+  Assets:A
+{today} * "Shop" "coffee"
+  Expenses:Food 3 USD
+  Assets:A
+"#,
+                today = today()
+            ),
         );
-        assert_eq!(passed, vec![true, true]);
+        let (errors, paddings, passed) = reloaded(&scratch).await;
+        // the padding is the 100 asked for, no more; tomorrow's balance fails by the dinner, and no balance of USD is
+        // written, which the coffee leaves at 7
+        assert_eq!(paddings, vec![format!("{} 100 CNY from Equity:Open", today())]);
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+        assert_eq!(passed, vec![false]);
+        assert_eq!(scratch.balance("Assets:A").await, json!({"CNY": "80", "USD": "7"}));
     }
 
     #[tokio::test]
     async fn a_reconcile_is_checked_after_the_transactions_of_today() {
         // lunch today, then "my balance now is 100": the balance is dated tomorrow, so it covers lunch, as bean-check
-        // reads it, and the pad pads 130
+        // reads it, and the padding is 130
         let scratch = Scratch::beancount(&format!(
             r#"{OPENS}{} * "Shop" "lunch"
   time: "12:00:00"
@@ -883,9 +868,7 @@ option "timezone" "UTC"
         let (status, body) = pad(&scratch, "Assets:A", amount(100, "CNY"), "Equity:Open").await;
         assert!(status.is_success(), "{status} {body}");
         let files = written(&scratch);
-        assert!(files.contains(&format!("{} pad Assets:A Equity:Open", today())), "{files}");
         assert!(files.contains(&format!("{} balance Assets:A 100 CNY", tomorrow())), "{files}");
-        assert!(!files.contains("time:"), "{files}");
         let (errors, paddings, passed) = reloaded(&scratch).await;
         assert!(errors.is_empty(), "{errors:?}");
         assert_eq!(paddings, vec![format!("{} 130 CNY from Equity:Open", today())]);
@@ -895,64 +878,106 @@ option "timezone" "UTC"
         // a plain check is dated tomorrow too
         let (status, body) = check(&scratch, "Assets:A", amount(100, "CNY")).await;
         assert!(status.is_success(), "{status} {body}");
-        assert!(written(&scratch).matches(&format!("{} balance Assets:A 100 CNY", tomorrow())).count() == 2);
+        assert_eq!(written(&scratch).matches(&format!("{} balance Assets:A 100 CNY", tomorrow())).count(), 2);
         let (errors, _, passed) = reloaded(&scratch).await;
         assert!(errors.is_empty(), "{errors:?}");
         assert_eq!(passed, vec![true, true]);
     }
 
     #[tokio::test]
-    async fn a_pad_writes_the_balance_of_the_other_commodities_of_the_account() {
-        // the account holds 20 USD: its `pad` would pad the next USD balance, so that balance is written along
+    async fn a_batch_books_each_difference_from_its_own_account() {
+        // two commodities of one account from two accounts, and a plain check of a third
         let scratch = Scratch::beancount(&format!(
-            r#"{OPENS}{} * "salary"
-  Assets:A 20 USD
+            r#"{OPENS}1970-01-01 commodity EUR
+{} * "seed"
+  Assets:A 5 EUR
   Equity:Fx
 "#,
             days_ago(3)
         ));
-        let (status, body) = pad(&scratch, "Assets:A", amount(100, "CNY"), "Equity:Open").await;
-        assert!(status.is_success(), "{status} {body}");
-        let files = written(&scratch);
-        assert!(files.contains(&format!("{} balance Assets:A 20 USD", tomorrow())), "{files}");
-        let (errors, paddings, passed) = reloaded(&scratch).await;
-        assert!(errors.is_empty(), "{errors:?}");
-        // the pad serves the USD balance without padding anything
-        assert_eq!(paddings, vec![format!("{} 100 CNY from Equity:Open", today())]);
-        assert_eq!(passed, vec![true, true]);
-    }
-
-    #[tokio::test]
-    async fn a_plain_check_a_pad_of_the_same_batch_would_serve_is_refused() {
-        // a CNY pad and a plain USD check of one account: beancount's pad would pad the USD too
-        let scratch = Scratch::beancount(OPENS);
-        let before = written(&scratch);
-        let answer = rows(
-            &scratch,
-            vec![("Assets:A", amount(100, "CNY"), "Equity:Open"), ("Assets:A", amount(20, "USD"), "")],
-        )
-        .await;
-        refused(
-            &scratch,
-            &before,
-            answer,
-            &["beancount pads every commodity of an account", "Assets:A", "USD", "with a pad from Equity:Open"],
-        );
-        // padded too, both pass
         let (status, body) = rows(
             &scratch,
-            vec![("Assets:A", amount(100, "CNY"), "Equity:Open"), ("Assets:A", amount(20, "USD"), "Equity:Open")],
+            vec![
+                ("Assets:A", amount(100, "CNY"), "Equity:Open"),
+                ("Assets:A", amount(20, "USD"), "Equity:Fx"),
+                ("Assets:A", amount(6, "EUR"), ""),
+            ],
         )
         .await;
         assert!(status.is_success(), "{status} {body}");
-        let (errors, _, passed) = reloaded(&scratch).await;
-        assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(passed, vec![true, true]);
+        assert!(pad_directives(&scratch).is_empty());
+        let main = std::fs::read_to_string(scratch.dir.join(scratch.main)).unwrap();
+        assert_eq!(main.matches("include ").count(), 1, "{main}");
+        let (errors, paddings, passed) = reloaded(&scratch).await;
+        // the plain EUR check is not padded: it fails
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+        assert_eq!(
+            paddings,
+            vec![format!("{} 100 CNY from Equity:Open", today()), format!("{} 20 USD from Equity:Fx", today())]
+        );
+        assert_eq!(passed, vec![true, true, false]);
     }
 
     #[tokio::test]
-    async fn a_plain_check_an_earlier_pad_would_serve_is_refused() {
-        // the UI padded CNY three days ago, when the account held no USD; a plain USD check now would be padded by it
+    async fn a_batch_books_the_difference_of_a_parent_after_its_sub_accounts() {
+        // the parent's balance covers its sub-accounts: its difference counts theirs, and an account named like it
+        // is not one of them
+        let scratch = Scratch::beancount(&format!(
+            r#"option "operating_currency" "CNY"
+option "timezone" "UTC"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Assets:Bank:Checking:Sub
+1970-01-01 open Assets:Bank:Savings
+1970-01-01 open Assets:BankX
+1970-01-01 open Equity:Open
+1970-01-01 open Income:X
+{} * "seed"
+  Assets:Bank:Checking 60 CNY
+  Assets:Bank:Checking:Sub 5 CNY
+  Assets:Bank:Savings 40 CNY
+  Assets:Bank 5 CNY
+  Assets:BankX 1000 CNY
+  Income:X
+{} * "payday, not yet"
+  Assets:Bank:Checking 500 CNY
+  Income:X
+"#,
+            days_ago(3),
+            tomorrow().checked_add_days(Days::new(5)).unwrap()
+        ));
+        let (status, body) = rows(
+            &scratch,
+            vec![
+                ("Assets:Bank", amount(200, "CNY"), "Equity:Open"),
+                ("Assets:Bank:Checking:Sub", amount(10, "CNY"), "Equity:Open"),
+                ("Assets:Bank:Checking", amount(70, "CNY"), "Equity:Open"),
+                ("Assets:Bank:Savings", amount(45, "CNY"), ""),
+                ("Assets:BankX", amount(1010, "CNY"), "Equity:Open"),
+            ],
+        )
+        .await;
+        assert!(status.is_success(), "{status} {body}");
+        let (errors, paddings, passed) = reloaded(&scratch).await;
+        // Sub is padded by 5, which brings Checking to its 70; the plain Savings check fails at 40; the parent is
+        // padded from the 115 the batch leaves it, not counting Assets:BankX and its padding, nor the payday after
+        // tomorrow
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+        assert_eq!(
+            paddings,
+            vec![
+                format!("{} 10 CNY from Equity:Open", today()),
+                format!("{} 5 CNY from Equity:Open", today()),
+                format!("{} 85 CNY from Equity:Open", today())
+            ]
+        );
+        assert_eq!(passed.iter().filter(|it| **it).count(), 4);
+    }
+
+    #[tokio::test]
+    async fn a_balance_a_pad_of_the_ledger_would_serve_is_refused() {
+        // a pad written by hand three days ago, when the account held no USD: it would pad a USD balance now
         let scratch = Scratch::beancount(&format!(
             r#"{OPENS}{} pad Assets:A Equity:Open
 {} balance Assets:A 100 CNY
@@ -961,48 +986,74 @@ option "timezone" "UTC"
             days_ago(2)
         ));
         let before = written(&scratch);
-        let answer = check(&scratch, "Assets:A", amount(20, "USD")).await;
-        refused(
-            &scratch,
-            &before,
-            answer,
-            &[
-                "beancount pads every commodity of an account",
-                &format!("the pad of Assets:A on {} from Equity:Open", days_ago(3)),
-                "close that pad",
-            ],
-        );
-        // a commodity first held after the pad: the same
-        let scratch = Scratch::beancount(&format!(
-            r#"{OPENS}{} pad Assets:A Equity:Open
-{} balance Assets:A 100 CNY
-{} * "salary"
-  Assets:A 20 USD
-  Equity:Fx
-"#,
-            days_ago(3),
-            days_ago(2),
-            days_ago(1)
-        ));
-        let before = written(&scratch);
-        let answer = check(&scratch, "Assets:A", amount(20, "USD")).await;
-        refused(&scratch, &before, answer, &[&format!("the pad of Assets:A on {}", days_ago(3)), "USD"]);
-        // checked with a pad, it is written: the new pad replaces the old one, and serves the CNY balance written along
-        let (status, body) = pad(&scratch, "Assets:A", amount(25, "USD"), "Equity:Fx").await;
+        let close = format!("Close that pad first: write a balance of Assets:A in USD on {}", days_ago(2));
+        for answer in [
+            check(&scratch, "Assets:A", amount(20, "USD")).await,
+            pad(&scratch, "Assets:A", amount(20, "USD"), "Equity:Fx").await,
+        ] {
+            refused(
+                &scratch,
+                &before,
+                answer,
+                &[
+                    "beancount pads every commodity of an account",
+                    &format!("the pad of Assets:A on {} from Equity:Open", days_ago(3)),
+                    &close,
+                ],
+            );
+        }
+        // closed as told, the balance is written
+        append(&scratch, &format!("{} balance Assets:A 0 USD\n", days_ago(2)));
+        let (status, body) = pad(&scratch, "Assets:A", amount(20, "USD"), "Equity:Fx").await;
         assert!(status.is_success(), "{status} {body}");
-        assert!(written(&scratch).contains(&format!("{} balance Assets:A 100 CNY", tomorrow())));
         let (errors, paddings, passed) = reloaded(&scratch).await;
         assert!(errors.is_empty(), "{errors:?}");
         assert_eq!(
             paddings,
-            vec![format!("{} 100 CNY from Equity:Open", days_ago(3)), format!("{} 5 USD from Equity:Fx", today())]
+            vec![
+                format!("{} 100 CNY from Equity:Open", days_ago(3)),
+                format!("{} 20 USD from Equity:Fx", today())
+            ]
         );
         assert!(passed.iter().all(|it| *it), "{passed:?}");
     }
 
     #[tokio::test]
-    async fn a_pad_row_with_nothing_to_pad_is_a_plain_balance() {
-        // beancount reports a pad that pads nothing: the account is at the amount already, so no `pad` is written
+    async fn a_balance_of_an_account_not_open_is_refused() {
+        let scratch = Scratch::beancount(&format!(
+            "{OPENS}1970-01-01 open Assets:Old\n{} close Assets:Old\n1970-01-01 open Equity:Gone\n{} close Equity:Gone\n",
+            days_ago(10),
+            days_ago(10)
+        ));
+        let before = written(&scratch);
+        refused(
+            &scratch,
+            &before,
+            pad(&scratch, "Assets:Old", amount(10, "CNY"), "Equity:Open").await,
+            &["Assets:Old is closed", "Reopen it"],
+        );
+        refused(
+            &scratch,
+            &before,
+            check(&scratch, "Assets:Old", amount(10, "CNY")).await,
+            &["Assets:Old is closed"],
+        );
+        refused(
+            &scratch,
+            &before,
+            pad(&scratch, "Assets:A", amount(10, "CNY"), "Equity:Gone").await,
+            &["Equity:Gone is closed", "a pad from Equity:Gone"],
+        );
+        refused(
+            &scratch,
+            &before,
+            pad(&scratch, "Assets:A", amount(10, "CNY"), "Equity:Never").await,
+            &["Equity:Never is not open", "Open it first"],
+        );
+    }
+
+    #[tokio::test]
+    async fn a_pad_row_with_nothing_to_pad_books_nothing() {
         let scratch = Scratch::beancount(&format!(
             r#"{OPENS}{} * "salary"
   Assets:A 100 CNY
@@ -1013,7 +1064,7 @@ option "timezone" "UTC"
         let (status, body) = rows(&scratch, vec![("Assets:A", amount(100, "CNY"), "Equity:Open")]).await;
         assert!(status.is_success(), "{status} {body}");
         let files = written(&scratch);
-        assert!(!files.contains(" pad "), "{files}");
+        assert!(!files.contains("Balance Pad"), "{files}");
         assert!(files.contains(&format!("{} balance Assets:A 100 CNY", tomorrow())), "{files}");
         let (errors, paddings, passed) = reloaded(&scratch).await;
         assert!(errors.is_empty(), "{errors:?}");
@@ -1023,7 +1074,7 @@ option "timezone" "UTC"
 
     #[tokio::test]
     async fn a_plain_check_after_a_pad_that_served_its_commodity_is_written() {
-        // a pad the UI wrote with the balance of every commodity the account held: it cannot pad a later check
+        // a pad with a balance of every commodity the account held: it cannot pad a later check
         let scratch = Scratch::beancount(&format!(
             r#"{OPENS}{} * "salary"
   Assets:A 20 USD
