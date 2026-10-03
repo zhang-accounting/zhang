@@ -23,6 +23,11 @@ export interface GraphRow {
   expense: number;
 }
 
+/** The `:interval` of the graph's built-in queries (`report.net_worth`, `report.changes`) for a bucket size. */
+export function intervalStride(interval: GraphInterval): string {
+  return { Day: '1 day', Week: '1 week', Month: '1 month' }[interval];
+}
+
 /** Pick a bucket size that keeps the bar count readable: daily up to ~6 weeks, weekly up to ~6 months, then monthly. */
 export function intervalForRange(from: Date, to: Date): GraphInterval {
   const days = (to.getTime() - from.getTime()) / 86_400_000;

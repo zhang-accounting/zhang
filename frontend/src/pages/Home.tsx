@@ -8,12 +8,13 @@ import { retrieveStatisticGraph } from '@/api/requests';
 import { MonthBudgetsCard } from '@/components/budget/MonthBudgetsCard';
 import { JournalRow } from '@/components/journalLines/JournalRow';
 import { EmptyState, PageHeader, PageShell, useIsMobile } from '@/components/layout';
-import { useGraphRows } from '@/components/layout/chart-utils';
+import { intervalStride, useGraphRows } from '@/components/layout/chart-utils';
 import { formatRange, useDateFormat } from '@/components/layout/use-date-format';
-import { ledgerDates } from '@/components/layout/ledger-dates';
 import { activityAnchor, trailingMonth, useRecentJournals } from '@/components/layout/use-ledger-activity';
 import { TransactionEditModal } from '@/components/modals/TransactionEditModal';
 import { TransactionPreviewModal } from '@/components/modals/TransactionPreviewModal';
+import { OpenInExplore } from '@/components/query/OpenInExplore';
+import { ledgerDate } from '@/components/query/explore-link';
 import { JournalRowsSkeleton } from '@/components/skeletons/journalListSkeleton';
 import { buttonVariants } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -89,7 +90,8 @@ function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latest?.datetime]);
 
-  const dates = ledgerDates(range);
+  // the days of the range, as ledger dates
+  const dates = { from: ledgerDate(range.from), to: ledgerDate(range.to) };
   const graph = useAsync(async () => {
     if (!ready) return undefined;
     const res = await retrieveStatisticGraph({ ...dates, interval: 'Day' });
@@ -116,6 +118,9 @@ function Home() {
   // Chart hints sit right of the title from sm up and under it on phones (the title would otherwise be truncated).
   const chartHint = (text: string) => <span className="hidden text-xs text-muted-foreground sm:inline">{text}</span>;
   const chartHintMobile = (text: string) => <span className="sm:hidden">{text}</span>;
+  /** "Open query" for the built-in query behind a chart, once its currency is known. */
+  const openQuery = (name: string) =>
+    commodity ? <OpenInExplore iconOnly name={name} params={{ ...dates, interval: intervalStride('Day'), currency: commodity }} /> : undefined;
 
   return (
     <PageShell className="gap-3 md:gap-3">
@@ -151,7 +156,12 @@ function Home() {
           contentClassName="flex flex-1 flex-col"
           title={t('ledger.chart.net_worth')}
           description={chartHintMobile(t('ledger.home.net_worth_description'))}
-          rightSection={chartHint(t('ledger.home.net_worth_description'))}
+          rightSection={
+            <>
+              {chartHint(t('ledger.home.net_worth_description'))}
+              {openQuery('report.net_worth')}
+            </>
+          }
         >
           {chartBody(<BalanceTrendChart rows={rows} commodity={commodity} className={CHART_FILL} />)}
         </Section>
@@ -168,7 +178,12 @@ function Home() {
           contentClassName="flex flex-1 flex-col"
           title={t('ledger.chart.income_expenses')}
           description={chartHintMobile(t('ledger.home.cash_flow_description'))}
-          rightSection={chartHint(t('ledger.home.cash_flow_description'))}
+          rightSection={
+            <>
+              {chartHint(t('ledger.home.cash_flow_description'))}
+              {openQuery('report.changes')}
+            </>
+          }
         >
           {chartBody(<CashFlowChart rows={rows} commodity={commodity} className={CHART_FILL} />)}
         </Section>
