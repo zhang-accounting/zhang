@@ -23,7 +23,7 @@ pub enum ZhangError {
     #[error("ip addr error: {0}")]
     IpAddrError(#[from] AddrParseError),
 
-    #[error("Parse Error \nPath: {path}{msg}")]
+    #[error("cannot parse {path}: {msg}")]
     PestError { path: String, msg: String },
     #[error("Process Error: {kind} \n file: {:?}[{}:{}] \n content: {}", span.filename,span.start, span.end, span.content)]
     ProcessError { span: SpanInfo, kind: zhang_ast::error::ErrorKind },

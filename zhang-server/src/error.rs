@@ -41,6 +41,19 @@ pub enum ServerError {
     /// the server ran a built-in query it does not have, a bug; answered with HTTP 500
     #[error("there is no built-in query named {0}")]
     UnknownBuiltinQuery(String),
+
+    /// the files of the ledger changed, and cannot be loaded as they are now: a write that edits the ledger as loaded
+    /// writes nothing until they are fixed. Answered with HTTP 409
+    #[error("the ledger cannot be loaded from its files as they are now, so nothing was written. Fix them in the file editor, then try again: {0}")]
+    UnloadableLedger(ZhangError),
+
+    /// what a request was made from is out of date: the ledger changed since. Answered with HTTP 409
+    #[error("{0}")]
+    Conflict(String),
+
+    /// a transaction a request names by its id is not in the ledger. Answered with HTTP 404
+    #[error("there is no transaction {0} in the ledger: the journal it was picked from is out of date, or it was removed. Reopen the journal, and try again")]
+    NoSuchTransaction(uuid::Uuid),
 }
 
 impl From<InvalidAccountError> for ServerError {
@@ -55,19 +68,20 @@ impl IntoResponse for ServerError {
             // the query error body is exactly `{message, line, column}`
             return (StatusCode::BAD_REQUEST, Json(crate::response::QueryErrorEntity::from(error))).into_response();
         }
-        if let ServerError::CoreError(error @ ZhangError::FileChanged(_)) = &self {
+        let message = match &self {
             // nothing was written: the file changed since the ledger was loaded
-            let payload = json!({ "message": error.to_string(), "origin": "with_rejection" });
-            return (StatusCode::CONFLICT, Json(payload)).into_response();
-        }
+            ServerError::CoreError(error @ ZhangError::FileChanged(_)) => error.to_string(),
+            other => other.to_string(),
+        };
         let payload = json!({
-            "message": format!("{}", self),
+            "message": message,
             "origin": "with_rejection"
         });
 
         let status = match self {
-            ServerError::NotFound => StatusCode::NOT_FOUND,
+            ServerError::NotFound | ServerError::NoSuchTransaction(_) => StatusCode::NOT_FOUND,
             ServerError::BadRequest | ServerError::InvalidInput(_) => StatusCode::BAD_REQUEST,
+            ServerError::CoreError(ZhangError::FileChanged(_)) | ServerError::UnloadableLedger(_) | ServerError::Conflict(_) => StatusCode::CONFLICT,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
 

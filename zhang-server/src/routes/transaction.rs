@@ -16,6 +16,7 @@ use zhang_core::domains::schemas::{MetaType, TransactionInfoDomain};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{BalanceAssertionDomain, TransactionDomain};
 use zhang_core::utils::string_::{quote_as, QuoteStyle, StringExt};
+use zhang_core::ZhangError;
 
 use super::Query;
 use crate::error::ServerError;
@@ -278,7 +279,7 @@ pub async fn upload_transaction_document(
 
     let span_info = operations.transaction_span(&transaction_id)?;
     let Some(span_info) = span_info else {
-        return ResponseWrapper::bad_request();
+        return Err(ServerError::NoSuchTransaction(transaction_id));
     };
 
     let written = async {
@@ -307,8 +308,20 @@ pub async fn upload_transaction_document(
         write_transaction_documents(&ledger, &span_info, &documents).await
     }
     .await;
-    wrote(&mut ledger, &reload_sender, written)?;
+    wrote(&mut ledger, &reload_sender, written.map_err(moved))?;
     ResponseWrapper::json("Ok".to_string())
+}
+
+/// `error`, for a write to a transaction: a file changed since the ledger was loaded may have moved the transaction,
+/// which then has another id, as ids are derived from places
+fn moved(error: ServerError) -> ServerError {
+    match error {
+        ServerError::CoreError(ZhangError::FileChanged(file)) => ServerError::Conflict(format!(
+            "the file {file} changed since the ledger was loaded, so nothing was written. The transaction may be at \
+             another place in it now, under another id: reopen the journal, and try again"
+        )),
+        other => other,
+    }
 }
 
 /// Write `documents` into the ledger as `document` metadata of the transaction at `span`.
@@ -363,7 +376,7 @@ pub async fn update_single_transaction(
 
     let span_info = operations.transaction_span(&transaction_id)?;
     let Some(span_info) = span_info else {
-        return ResponseWrapper::bad_request();
+        return Err(ServerError::NoSuchTransaction(transaction_id));
     };
 
     let trx = transaction_from_request(payload, &ledger, original_transaction(&ledger, &span_info))?;
@@ -382,7 +395,7 @@ pub async fn update_single_transaction(
         ServerResult::Ok(())
     }
     .await;
-    wrote(&mut ledger, &reload_sender, written)?;
+    wrote(&mut ledger, &reload_sender, written.map_err(moved))?;
     ResponseWrapper::json(())
 }
 
@@ -410,7 +423,10 @@ mod string_round_trip_test {
     use zhang_core::ledger::Ledger;
     use zhang_core::store::TransactionDomain;
 
-    use super::{create_new_transaction, get_journals, insert_transaction_metas, metas_from_request, update_single_transaction, write_transaction_documents};
+    use super::{
+        create_new_transaction, get_journals, insert_transaction_metas, metas_from_request, update_single_transaction, upload_transaction_document,
+        write_transaction_documents,
+    };
     use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, FlagRequest, JournalRequest, MetaRequest};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::ReloadSender;
@@ -1459,8 +1475,9 @@ mod string_round_trip_test {
         );
     }
     /// A document or an update of a transaction in a file changed since the ledger was loaded is refused with a 409,
-    /// and nothing is written: the transaction is no longer where the ledger loaded it. Tried again, the ledger is
-    /// reloaded first, and the update is written in the right place.
+    /// and nothing is written: the transaction is no longer where the ledger loaded it, and has another id. Tried
+    /// again, the ledger is reloaded first: the old id is a 404, and the id of the journal reopened is written in the
+    /// right place.
     #[tokio::test]
     async fn a_transaction_in_a_file_changed_since_the_load_is_not_written() {
         let dir = std::env::temp_dir().join(format!("zhang-stale-transaction-{}", Uuid::new_v4()));
@@ -1484,18 +1501,63 @@ mod string_round_trip_test {
         assert_eq!(refused.into_response().status(), StatusCode::CONFLICT);
         assert_eq!(std::fs::read_to_string(&main).unwrap(), edited, "nothing is written");
 
+        // through the API, the message tells the transaction may have moved, under another id
         let (ledger_state, reload) = states(loaded);
+        let body = |response: axum::response::Response| async move {
+            let status = response.status();
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            (
+                status,
+                serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["message"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+            )
+        };
+        let upload = || {
+            let request = axum::http::Request::builder()
+                .method("POST")
+                .header("content-type", "multipart/form-data; boundary=X")
+                .body(axum::body::Body::from(
+                    "--X\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.pdf\"\r\n\r\n%PDF\r\n--X--\r\n",
+                ))
+                .unwrap();
+            async {
+                <axum::extract::Multipart as axum::extract::FromRequest<()>>::from_request(request, &())
+                    .await
+                    .unwrap()
+            }
+        };
+        let (status, message) = body(
+            upload_transaction_document(ledger_state.clone(), reload.clone(), Path((id.to_string(),)), upload().await)
+                .await
+                .into_response(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{message}");
+        assert!(
+            message.contains("main.bean changed since the ledger was loaded, so nothing was written"),
+            "{message}"
+        );
+        assert!(message.contains("under another id: reopen the journal, and try again"), "{message}");
+        assert_eq!(std::fs::read_to_string(&main).unwrap(), edited, "nothing is written");
+        assert!(!dir.join("attachments").exists(), "no attachment is saved");
+
+        // tried again with that id: the ledger is reloaded, and the transaction has another id now
         let update = || edit(&[("Assets:Cash", -6, &[]), ("Expenses:Food", 6, &[])]);
-        let response = update_single_transaction(ledger_state.clone(), reload.clone(), Path((id.to_string(),)), Json(update()))
-            .await
-            .into_response();
-        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let (status, message) = body(
+            update_single_transaction(ledger_state.clone(), reload.clone(), Path((id.to_string(),)), Json(update()))
+                .await
+                .into_response(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{message}");
+        assert!(message.contains(&format!("there is no transaction {id} in the ledger")), "{message}");
+        assert!(message.contains("Reopen the journal, and try again"), "{message}");
         assert_eq!(std::fs::read_to_string(&main).unwrap(), edited, "nothing is written");
 
-        // the ledger is reloaded for the next write, which finds the transaction where it is now
-        let reloaded = ledger_state.for_writing().await.unwrap();
-        let id = reloaded.operations().read().transactions.values().next().unwrap().id;
-        drop(reloaded);
+        // with the id of the journal reopened, the update is written in the right place
+        let id = ledger_state.read().await.operations().read().transactions.values().next().unwrap().id;
         let response = update_single_transaction(ledger_state, reload, Path((id.to_string(),)), Json(update()))
             .await
             .into_response();
