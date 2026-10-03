@@ -1,10 +1,9 @@
 //! `#entries` (one row per directive) and `#transactions` (one row per transaction), as in
 //! beanquery.
 //!
-//! zhang materializes every balance assertion as a transaction with flag `C`; those are not
-//! transactions here (the assertion is a `balance` entry), and neither are transactions the
-//! ledger rejected (they never reach the store). The padding transactions of `balance ... with
-//! pad` (flag `P`) are, as in beancount.
+//! A balance assertion is a `balance` entry, not a transaction: it books nothing. Transactions
+//! the ledger rejected are not rows either (they never reach the store). The padding
+//! transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
 
 use chrono::Datelike;
 use uuid::Uuid;
@@ -51,11 +50,11 @@ pub(super) static TRANSACTIONS: Table = Table {
     rows: Rows::Records(transaction_rows),
 };
 
-/// Whether a transaction directive is one of the ledger's transactions: stored, and not the
-/// correcting transaction of a balance assertion.
+/// Whether a transaction directive is one of the ledger's transactions: one zhang stored, not one
+/// it rejected while loading.
 fn is_transaction(store: &Store, directive: &Spanned<Directive>) -> bool {
     match &directive.data {
-        Directive::Transaction(txn) => txn.flag != Some(Flag::BalanceCheck) && store.transactions.contains_key(&Uuid::from_span(&directive.span)),
+        Directive::Transaction(_) => store.transactions.contains_key(&Uuid::from_span(&directive.span)),
         _ => false,
     }
 }

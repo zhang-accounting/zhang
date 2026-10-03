@@ -10,10 +10,11 @@ use serde::Serialize;
 use uuid::Uuid;
 use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{AccountType, Currency, SpanInfo};
+use zhang_ast::{AccountType, Currency, Flag, SpanInfo};
+use zhang_core::constants::BALANCE_CHECK_PAYEE;
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, ErrorDomain, MetaDomain, QueryDomain};
 use zhang_core::plugin::PluginType;
-use zhang_core::store::{BudgetEvent, BudgetEventType, PostingDomain};
+use zhang_core::store::{BalanceAssertionDomain, BudgetEvent, BudgetEventType, PostingDomain};
 
 use crate::error::ServerError;
 use crate::ServerResult;
@@ -128,7 +129,7 @@ impl From<MetaDomain> for MetaEntity {
 #[serde(tag = "type")]
 pub enum JournalItemEntity {
     Transaction(JournalTransactionItemEntity),
-    BalanceCheck(JournalBalanceItemEntity),
+    BalanceCheck(JournalBalanceCheckItemEntity),
     BalancePad(JournalBalanceItemEntity),
 }
 
@@ -198,6 +199,53 @@ pub struct JournalBalanceItemEntity {
     pub narration: Option<String>,
     pub type_: String,
     pub(crate) postings: Vec<JournalTransactionPostingEntity>,
+}
+
+/// A balance assertion. It books nothing and changes no balance; a failing one is an `AccountBalanceCheckError`.
+#[derive(Serialize, Schematic)]
+pub struct JournalBalanceCheckItemEntity {
+    pub id: Uuid,
+    pub sequence: i32,
+    pub datetime: NaiveDateTime,
+    /// `Balance Check`
+    pub payee: String,
+    /// the account
+    pub narration: Option<String>,
+    pub type_: String,
+    /// one entry describing the check, not a posting: `account_before` is the account's balance where the assertion
+    /// stands, `account_after` the asserted amount, and `unit` and `inferred_unit` the asserted amount minus the balance
+    pub(crate) postings: Vec<JournalTransactionPostingEntity>,
+    /// the explicit tolerance (`~`) of the assertion; null for an exact one
+    pub tolerance: Option<BigDecimal>,
+    /// whether the balance is within the tolerance of the asserted amount
+    pub passed: bool,
+}
+
+impl From<BalanceAssertionDomain> for JournalBalanceCheckItemEntity {
+    fn from(assertion: BalanceAssertionDomain) -> Self {
+        let difference = Amount::new(&assertion.amount.number - &assertion.balance.number, assertion.amount.commodity.clone());
+        // the asserted amount, written with the decimals of the balance too
+        let asserted = Amount::new(&assertion.balance.number + &difference.number, assertion.amount.commodity.clone());
+        JournalBalanceCheckItemEntity {
+            id: assertion.id,
+            sequence: assertion.sequence,
+            datetime: assertion.datetime.naive_local(),
+            payee: BALANCE_CHECK_PAYEE.to_owned(),
+            narration: Some(assertion.account.name().to_owned()),
+            type_: Flag::BalanceCheck.to_string(),
+            postings: vec![JournalTransactionPostingEntity {
+                account: assertion.account.name().to_owned(),
+                unit: Some(difference.clone()),
+                cost: None,
+                inferred_unit: difference,
+                account_before: assertion.balance,
+                account_after: asserted,
+                metas: vec![],
+            }],
+            tolerance: assertion.tolerance,
+            passed: assertion.passed,
+        }
+    }
 }
 
 #[derive(Serialize, Schematic)]

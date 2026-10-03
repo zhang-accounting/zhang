@@ -16,13 +16,18 @@
 //! [`ActiveAccountsStage`], which only reports references to inactive accounts,
 //! then [`PadStage`] then [`BalanceCheckStage`], two independent folds over the
 //! stream that share only the pure helpers in the `balance` module.
+//!
+//! A balance assertion never moves a balance (as in beancount): [`PadStage`] adds the
+//! padding transactions, the only directives that book anything on behalf of an
+//! assertion, and [`BalanceCheckStage`] only checks. It records what it found for each
+//! assertion with [`StageContext::record_assertion`], which the store keeps for the journal.
 
 mod active_accounts;
 pub(crate) mod balance;
 mod balance_check;
 mod pad;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 pub use active_accounts::ActiveAccountsStage;
 pub use balance_check::BalanceCheckStage;
@@ -31,6 +36,8 @@ use chrono_tz::Tz;
 use indexmap::IndexSet;
 use log::debug;
 pub use pad::PadStage;
+use uuid::Uuid;
+use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, SpanInfo, Spanned};
 
@@ -38,6 +45,7 @@ use crate::clock::{Clock, LoadClock};
 use crate::domains::schemas::{CommodityDomain, OptionDomain};
 use crate::inputs::ExtraInput;
 use crate::ledger::Ledger;
+use crate::utils::id::FromSpan;
 use crate::ZhangResult;
 
 /// a problem reported by a stage; collected by the executor and materialized
@@ -48,6 +56,33 @@ pub struct StageError {
     pub metas: HashMap<String, String>,
 }
 
+/// what [`BalanceCheckStage`] found for one `balance` assertion
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssertionOutcome {
+    /// the account's balance in the asserted currency where the assertion stands: the sum of the
+    /// postings before it. The assertion itself changes no balance
+    pub balance: Amount,
+    /// whether `balance` is within the assertion's tolerance of the asserted amount. A failing
+    /// assertion is also reported as an [`ErrorKind::AccountBalanceCheckError`]
+    pub passed: bool,
+}
+
+/// the [`AssertionOutcome`]s of a load, by the id of the assertion's span (the id the store gives it).
+/// Assertions sharing a span, which a plugin may emit, are taken in the order they were recorded
+#[derive(Debug, Default)]
+pub struct AssertionOutcomes(HashMap<Uuid, VecDeque<AssertionOutcome>>);
+
+impl AssertionOutcomes {
+    pub fn record(&mut self, span: &SpanInfo, outcome: AssertionOutcome) {
+        self.0.entry(Uuid::from_span(span)).or_default().push_back(outcome);
+    }
+
+    /// the outcome of the next assertion with this span, `None` if none was recorded
+    pub fn take(&mut self, span: &SpanInfo) -> Option<AssertionOutcome> {
+        self.0.get_mut(&Uuid::from_span(span)).and_then(VecDeque::pop_front)
+    }
+}
+
 /// context handed to every stage
 pub struct StageContext<'a> {
     /// the ledger's resolved options
@@ -56,6 +91,7 @@ pub struct StageContext<'a> {
     /// `commodity` directives are in the stream
     pub commodities: Vec<CommodityDomain>,
     errors: Vec<StageError>,
+    assertions: AssertionOutcomes,
     inputs: IndexSet<ExtraInput>,
     /// the clock of the load, read on first use
     clock: LoadClock,
@@ -70,6 +106,7 @@ impl<'a> StageContext<'a> {
             options,
             commodities: vec![],
             errors: vec![],
+            assertions: AssertionOutcomes::default(),
             inputs: IndexSet::new(),
             clock: LoadClock::new(Clock::System),
             timezone: Tz::UTC,
@@ -123,9 +160,19 @@ impl<'a> StageContext<'a> {
         &self.inputs
     }
 
+    /// record what a `balance` assertion, the directive at `span`, was checked against
+    pub fn record_assertion(&mut self, span: &SpanInfo, outcome: AssertionOutcome) {
+        self.assertions.record(span, outcome);
+    }
+
     /// consume the context and take the errors stages reported
     pub fn into_errors(self) -> Vec<StageError> {
         self.errors
+    }
+
+    /// consume the context and take the errors stages reported, and the outcomes of the balance assertions
+    pub fn into_results(self) -> (Vec<StageError>, AssertionOutcomes) {
+        (self.errors, self.assertions)
     }
 }
 
@@ -137,8 +184,8 @@ pub trait ProcessStage {
 }
 
 /// the native core stages, in execution order; they run after all plugin stages.
-/// [`ActiveAccountsStage`] checks the stream before the pad/check stages add their
-/// `P`/`C` transactions, whose accounts those stages report themselves
+/// [`ActiveAccountsStage`] checks the stream before the pad stage adds its `P`
+/// transactions; the pad/check stages report the accounts of their directives themselves
 pub fn builtin_stages() -> Vec<Box<dyn ProcessStage>> {
     vec![Box::new(ActiveAccountsStage), Box::new(PadStage), Box::new(BalanceCheckStage)]
 }
@@ -147,8 +194,8 @@ pub fn builtin_stages() -> Vec<Box<dyn ProcessStage>> {
 /// ("don't trust the stages" — beancount does the same after every plugin).
 ///
 /// The sort is stable and by datetime; within one datetime, balance entries
-/// (balance pad/check directives and `P`/`C`-flagged transactions) come first,
-/// after `open`. A stage inserting a balance transaction right after its
+/// (balance pad/check directives and `P`-flagged transactions) come first,
+/// after `open`. A stage inserting a padding transaction right after its
 /// directive can rely on it staying there.
 pub fn run_pipeline(stages: &[Box<dyn ProcessStage>], mut directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
     for stage in stages {
@@ -168,7 +215,7 @@ pub(crate) mod test {
     use zhang_ast::error::ErrorKind;
     use zhang_ast::{Comment, Directive, SpanInfo, Spanned};
 
-    use super::{builtin_stages, run_pipeline, ProcessStage, StageContext};
+    use super::{builtin_stages, run_pipeline, AssertionOutcome, ProcessStage, StageContext};
     use crate::clock::{Clock, LoadClock};
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
@@ -179,11 +226,26 @@ pub(crate) mod test {
     /// parse a ledger, run the built-in stages over it and return the output
     /// stream with the kinds of the errors the stages reported
     pub(crate) fn run_builtin_stages(content: &str) -> (Vec<Directive>, Vec<ErrorKind>) {
+        let (directives, errors, _) = run_builtin_stages_with_assertions(content);
+        (directives, errors)
+    }
+
+    /// [`run_builtin_stages`], with the outcomes of the balance checks in stream order
+    pub(crate) fn run_builtin_stages_with_assertions(content: &str) -> (Vec<Directive>, Vec<ErrorKind>, Vec<AssertionOutcome>) {
         let directives = ZhangDataType {}.transform(content.to_owned(), None).unwrap();
         let mut ctx = StageContext::new(&[]);
         let out = run_pipeline(&builtin_stages(), Ledger::sort_directives_datetime(directives), &mut ctx).unwrap();
-        let errors = ctx.into_errors().into_iter().map(|it| it.kind).collect();
-        (out.into_iter().map(|it| it.data).collect(), errors)
+        let (errors, mut assertions) = ctx.into_results();
+        let outcomes = out
+            .iter()
+            .filter(|it| matches!(it.data, Directive::BalanceCheck(_)))
+            .map(|it| assertions.take(&it.span).expect("every check records its outcome"))
+            .collect();
+        (
+            out.into_iter().map(|it| it.data).collect(),
+            errors.into_iter().map(|it| it.kind).collect(),
+            outcomes,
+        )
     }
 
     fn span() -> SpanInfo {

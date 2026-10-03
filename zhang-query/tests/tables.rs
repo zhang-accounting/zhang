@@ -386,6 +386,34 @@ fn balances_report_the_discrepancy_zhang_found() {
 }
 
 #[test]
+fn a_balance_discrepancy_is_measured_from_the_postings() {
+    // an assertion moves no balance, failing or not: each one is measured from the postings, and a
+    // transaction flagged `C` (beancount's conversions) is an ordinary transaction
+    let ledger = common::load_text(
+        "1970-01-01 open Assets:Bank\n1970-01-01 open Equity:Opening\n\
+         2024-01-01 * \"Salary\"\n  Assets:Bank 165 CNY\n  Equity:Opening\n\
+         2024-01-02 balance Assets:Bank 200 CNY\n\
+         2024-01-03 balance Assets:Bank 200 CNY\n\
+         2024-01-04 balance Assets:Bank 165.004 ~ 0.01 CNY\n\
+         2024-01-05 C \"Conversion\"\n  Assets:Bank 10 CNY\n  Equity:Opening\n",
+    );
+    let query = |sql: &str| -> Vec<Vec<String>> {
+        let result = Query::compile(sql)
+            .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
+            .unwrap_or_else(|err| panic!("{}: {}", sql, err));
+        result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
+    };
+    assert_eq!(
+        query("SELECT date, discrepancy FROM #balances"),
+        rows(&[&["2024-01-02", "-35 CNY"], &["2024-01-03", "-35 CNY"], &["2024-01-04", "NULL"]])
+    );
+    assert_eq!(
+        query("SELECT flag, sum(position) WHERE account = 'Assets:Bank' GROUP BY flag ORDER BY flag"),
+        rows(&[&["*", "165 CNY"], &["C", "10 CNY"]])
+    );
+}
+
+#[test]
 fn notes_documents_and_commodities() {
     assert_eq!(
         on_directives("SELECT * FROM #notes"),

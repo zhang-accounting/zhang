@@ -6,6 +6,7 @@
 //! share no mutable state, only these helpers. Each fold sees exactly what the
 //! store fold will book, in stream order — the stream is sorted, so "every
 //! transaction before this directive" is "every transaction up to its datetime".
+//! Only transactions move a balance: a balance assertion never does.
 //! [`ActiveAccountsStage`](crate::pipeline::ActiveAccountsStage) folds the account
 //! lifecycle ([`AccountStates`]) the same way.
 
@@ -93,8 +94,7 @@ impl UnitBalances {
     /// every other posting adds its units, or for an implicit posting the amount
     /// interpolated from the other postings
     pub fn apply_transaction(&mut self, txn: &Transaction) {
-        // a rejected transaction does not reach the store, and a balance-check one
-        // (flag `C`) the fold cannot book aborts the whole load there; nothing to book here
+        // a rejected transaction does not reach the store; nothing to book here
         let BookOutcome::Booked(booked) = self.booker.book(txn) else {
             return;
         };
@@ -103,7 +103,7 @@ impl UnitBalances {
         }
     }
 
-    pub fn add(&mut self, account: &Account, amount: &Amount) {
+    fn add(&mut self, account: &Account, amount: &Amount) {
         let commodities = self.balances.entry(account.name().to_owned()).or_default();
         let balance = commodities.entry(amount.commodity.clone()).or_insert_with(BigDecimal::zero);
         *balance = (&*balance).add(&amount.number);
@@ -116,6 +116,11 @@ impl UnitBalances {
             .and_then(|commodities| commodities.get(commodity))
             .cloned()
             .unwrap_or_else(BigDecimal::zero)
+    }
+
+    /// the account's current units of `commodity` as an amount
+    pub fn amount(&self, account: &Account, commodity: &str) -> Amount {
+        Amount::new(self.balance(account, commodity), commodity)
     }
 
     /// how far the account is from `target`: `target - current balance`

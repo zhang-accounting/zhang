@@ -5,7 +5,7 @@
 //! information (price annotations, lot date and label, transaction metadata).
 //!
 //! Which entries produce rows follows beancount: transactions and padding transactions
-//! (flag `P`) do; balance assertions (stored by zhang as transactions with flag `C`) do not.
+//! (flag `P`) do; balance assertions, which book nothing, do not.
 //!
 //! Rows are built for one [`Projection`]: lot booking always runs over every posting, but a
 //! row keeps only the parts its projected columns read (see [`crate::projector`]). Columns
@@ -19,7 +19,7 @@ use std::path::Path;
 use bigdecimal::{BigDecimal, Signed, Zero};
 use chrono::{Datelike, NaiveDate};
 use zhang_ast::amount::Amount;
-use zhang_ast::{Directive, Flag, Meta, PostingCost, SingleTotalPrice, SpanInfo, Transaction};
+use zhang_ast::{Directive, Meta, PostingCost, SingleTotalPrice, SpanInfo, Transaction};
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::inventory::BookingMethod;
 use zhang_core::ledger::Ledger;
@@ -93,7 +93,7 @@ impl<'a> Dataset<'a> {
     pub fn new(ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection) -> Self {
         let mut directives = Directives::new(ledger);
 
-        let mut transactions = store.transactions.values().filter(|txn| txn.flag != Flag::BalanceCheck).collect::<Vec<_>>();
+        let mut transactions = store.transactions.values().collect::<Vec<_>>();
         transactions.sort_by_key(|txn| txn.sequence);
 
         let mut entries = Vec::with_capacity(transactions.len());

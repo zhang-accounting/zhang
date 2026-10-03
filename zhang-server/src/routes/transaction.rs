@@ -5,7 +5,7 @@ use axum::extract::{Multipart, Path, State};
 use axum::Json;
 use gotcha::api;
 use indexmap::IndexSet;
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use log::info;
 use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
@@ -14,7 +14,7 @@ use zhang_core::constants::TXN_ID;
 use zhang_core::data_type::text::parser::{is_valid_bare_meta_value, transaction_header_len};
 use zhang_core::domains::schemas::{MetaType, TransactionInfoDomain};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::TransactionDomain;
+use zhang_core::store::{BalanceAssertionDomain, TransactionDomain};
 use zhang_core::utils::string_::{quote_as, QuoteStyle, StringExt};
 
 use super::Query;
@@ -41,6 +41,14 @@ pub async fn get_info_for_new_transactions(ledger: State<SharedLedger>) -> ApiRe
     })
 }
 
+/// a journal entry before it is mapped into its response item
+enum JournalEntry {
+    Transaction(TransactionDomain),
+    Assertion(BalanceAssertionDomain),
+}
+
+/// The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
+/// among the transactions; it books nothing.
 #[api(group = "transaction")]
 pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemEntity>> {
     let ledger = ledger.read().await;
@@ -49,27 +57,36 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
 
     let store = operations.read();
 
-    let total_count = store
+    let transactions = store
         .transactions
         .values()
         .filter(|it| it.match_keywords(params.keyword.as_ref(), &params.tags, &params.links))
-        .count();
+        .map(|it| (it.sequence, Either::Left(it)));
+    let assertions = store
+        .balance_assertions
+        .iter()
+        .filter(|it| it.match_keywords(params.keyword.as_ref(), &params.tags, &params.links))
+        .map(|it| (it.sequence, Either::Right(it)));
+    let matched = transactions.chain(assertions).collect_vec();
+    let total_count = matched.len();
 
-    let journals: Vec<TransactionDomain> = store
-        .transactions
-        .values()
-        .filter(|it| it.match_keywords(params.keyword.as_ref(), &params.tags, &params.links))
-        .sorted_by_key(|it| -it.sequence)
+    let journals = matched
+        .into_iter()
+        .sorted_by_key(|(sequence, _)| -sequence)
         .skip(params.offset() as usize)
         .take(params.limit() as usize)
-        .cloned()
+        .map(|(_, entry)| match entry {
+            Either::Left(transaction) => JournalEntry::Transaction(transaction.clone()),
+            Either::Right(assertion) => JournalEntry::Assertion(assertion.clone()),
+        })
         .collect_vec();
 
     drop(store);
     let mut ret = vec![];
     for journal_item in journals {
-        let item = match journal_item.flag {
-            Flag::BalancePad => {
+        let item = match journal_item {
+            JournalEntry::Assertion(assertion) => JournalItemEntity::BalanceCheck(assertion.into()),
+            JournalEntry::Transaction(journal_item) if journal_item.flag == Flag::BalancePad => {
                 let postings = journal_item.postings.into_iter().map(JournalTransactionPostingEntity::from).collect_vec();
                 JournalItemEntity::BalancePad(JournalBalanceItemEntity {
                     id: journal_item.id,
@@ -81,19 +98,7 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
                     postings,
                 })
             }
-            Flag::BalanceCheck => {
-                let postings = journal_item.postings.into_iter().map(JournalTransactionPostingEntity::from).collect_vec();
-                JournalItemEntity::BalanceCheck(JournalBalanceItemEntity {
-                    id: journal_item.id,
-                    sequence: journal_item.sequence,
-                    datetime: journal_item.datetime.naive_local(),
-                    payee: journal_item.payee.unwrap_or_default(),
-                    narration: journal_item.narration,
-                    type_: journal_item.flag.to_string(),
-                    postings,
-                })
-            }
-            _ => {
+            JournalEntry::Transaction(journal_item) => {
                 let postings = journal_item.postings.into_iter().map(JournalTransactionPostingEntity::from).collect_vec();
                 let metas = operations
                     .metas(MetaType::TransactionMeta, journal_item.id.to_string())

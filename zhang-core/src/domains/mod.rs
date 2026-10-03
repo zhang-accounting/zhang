@@ -14,12 +14,14 @@ use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, PostingCost, Rounding, SpanInfo};
 
+use crate::constants::BALANCE_CHECK_PAYEE;
 use crate::domains::schemas::{
     AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType,
     OptionDomain, PriceDomain, QueryDomain, TransactionInfoDomain,
 };
 use crate::store::{
-    BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, DocumentDomain, DocumentType, PostingDomain, PostingMetaDomain, Store, TransactionDomain,
+    BalanceAssertionDomain, BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, DocumentDomain, DocumentType, PostingDomain, PostingMetaDomain,
+    Store, TransactionDomain,
 };
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
@@ -184,6 +186,13 @@ impl Operations {
             .get_mut(trx_id)
             .expect("invalid context: cannot find txn header when inserting postings");
         txn_header.postings.push(posting);
+        Ok(())
+    }
+
+    /// record a checked `balance` assertion
+    pub(crate) fn insert_balance_assertion(&mut self, assertion: BalanceAssertionDomain) -> ZhangResult<()> {
+        let mut store = self.write();
+        store.balance_assertions.push(assertion);
         Ok(())
     }
 
@@ -497,31 +506,40 @@ impl Operations {
         Ok(ret)
     }
 
+    /// the journal of one account, newest first: a row per posting with the balance after it, and a
+    /// row per balance assertion with the balance it was checked against, which it does not change
     pub fn account_journals(&mut self, account: &str) -> ZhangResult<Vec<AccountJournalDomain>> {
         let store = self.read();
         let account = Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?;
 
-        let mut ret = vec![];
-        for posting in store.postings.iter().filter(|posting| posting.account.eq(&account)).cloned().sorted_by(|a, b| {
-            a.trx_datetime
-                .cmp(&b.trx_datetime)
-                .reverse()
-                .then(a.trx_sequence.cmp(&b.trx_sequence).reverse())
-        }) {
-            let posting: PostingDomain = posting;
+        let postings = store.postings.iter().filter(|posting| posting.account.eq(&account)).map(|posting| {
             let trx_header = store.transactions.get(&posting.trx_id);
-            ret.push(AccountJournalDomain {
+            let row = AccountJournalDomain {
                 datetime: posting.trx_datetime.naive_local(),
                 timestamp: posting.trx_datetime.timestamp(),
                 account: posting.account.name().to_owned(),
                 trx_id: posting.id.to_string(),
                 payee: trx_header.and_then(|it| it.payee.clone()),
                 narration: trx_header.and_then(|it| it.narration.clone()),
-                inferred_unit: posting.inferred_amount,
-                account_after: posting.after_amount,
+                inferred_unit: posting.inferred_amount.clone(),
+                account_after: posting.after_amount.clone(),
+                asserted: None,
+                passed: None,
+            };
+            (posting.trx_datetime, posting.trx_sequence, row)
+        });
+        let assertions = store
+            .balance_assertions
+            .iter()
+            .filter(|assertion| assertion.account.eq(&account))
+            .map(|assertion| (assertion.datetime, assertion.sequence, assertion_journal_row(assertion)));
+        Ok(postings
+            .chain(assertions)
+            .sorted_by(|(a_datetime, a_sequence, _), (b_datetime, b_sequence, _)| {
+                a_datetime.cmp(b_datetime).reverse().then(a_sequence.cmp(b_sequence).reverse())
             })
-        }
-        Ok(ret)
+            .map(|(_, _, row)| row)
+            .collect_vec())
     }
 
     pub fn dated_journals(&mut self, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<PostingDomain>> {
@@ -557,6 +575,8 @@ impl Operations {
                 narration: trx.narration,
                 inferred_unit: posting.inferred_amount,
                 account_after: posting.after_amount,
+                asserted: None,
+                passed: None,
             })
         }
         Ok(ret)
@@ -584,6 +604,8 @@ impl Operations {
                 narration: trx.narration,
                 inferred_unit: posting.inferred_amount,
                 account_after: posting.after_amount,
+                asserted: None,
+                passed: None,
             })
         }
         Ok(ret)
@@ -885,5 +907,26 @@ impl Operations {
     pub fn get_account_budget(&self, account_name: impl AsRef<str>) -> ZhangResult<Vec<String>> {
         let metas = self.metas(MetaType::AccountMeta, account_name)?;
         Ok(metas.into_iter().filter(|meta| meta.key.eq("budget")).map(|meta| meta.value).collect_vec())
+    }
+}
+
+/// the row of a balance assertion in its account's journal: it adds nothing, and `account_after` is the
+/// balance the assertion was checked against. Its id follows the posting rows' ids, derived from the
+/// assertion id like the id of a single posting
+fn assertion_journal_row(assertion: &BalanceAssertionDomain) -> AccountJournalDomain {
+    // zero, written with the decimals of the asserted amount and the balance
+    let difference = (&assertion.amount.number).sub(&assertion.balance.number);
+    let nothing = BigDecimal::zero().with_scale(difference.fractional_digit_count());
+    AccountJournalDomain {
+        datetime: assertion.datetime.naive_local(),
+        timestamp: assertion.datetime.timestamp(),
+        account: assertion.account.name().to_owned(),
+        trx_id: Uuid::from_txn_posting(&assertion.id, 0).to_string(),
+        payee: Some(BALANCE_CHECK_PAYEE.to_owned()),
+        narration: Some(assertion.account.name().to_owned()),
+        inferred_unit: Amount::new(nothing, assertion.amount.commodity.clone()),
+        account_after: assertion.balance.clone(),
+        asserted: Some(assertion.amount.clone()),
+        passed: Some(assertion.passed),
     }
 }

@@ -110,8 +110,15 @@ pub struct AccountJournalDomain {
     pub trx_id: String,
     pub payee: Option<String>,
     pub narration: Option<String>,
+    /// what the row adds to the account; zero for a balance assertion, which changes no balance
     pub inferred_unit: Amount,
+    /// the account's balance after the row
     pub account_after: Amount,
+    /// for the row of a balance assertion: the asserted amount, which `account_after` was checked
+    /// against; null for a posting
+    pub asserted: Option<Amount>,
+    /// for the row of a balance assertion: whether it held, within its tolerance; null for a posting
+    pub passed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]

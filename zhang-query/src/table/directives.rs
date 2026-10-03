@@ -4,13 +4,12 @@
 //! Rows come in ledger order: by date, then as beancount orders the directives of a day
 //! ([`ledger_order`]).
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
 
 use chrono::{Datelike, NaiveDate};
 use zhang_ast::amount::Amount;
-use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, Directive, Flag, Spanned};
+use zhang_ast::{Account, Directive, Spanned};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
@@ -110,44 +109,25 @@ fn assertion(directive: &Directive) -> Option<(&Account, &Amount, Option<&bigdec
 }
 
 /// The balance assertions. Only when the projection reads `discrepancy` are the failed checks
-/// looked up: a check zhang reported as failed has a discrepancy of the balance minus the
-/// asserted amount, which is minus the correcting transaction (flag `C`) the check inserted
-/// right after itself. A `balance ... with pad` always holds.
+/// looked up: zhang keeps every check it made in the store, and a failed one has a discrepancy of
+/// the account's balance minus the asserted amount. A `balance ... with pad` always holds.
 fn balance_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
     let wanted = BALANCES.column("discrepancy").is_some_and(|column| projection.contains(column));
-    // the correcting transaction of a check has the check's span
-    let mut corrections = HashMap::new();
+    // a check zhang kept has its directive's span
+    let mut discrepancies = HashMap::new();
     if wanted {
-        let failed = store
-            .errors
-            .iter()
-            .filter(|error| error.error_type == ErrorKind::AccountBalanceCheckError)
-            .filter_map(|error| error.span.as_ref())
-            .map(|span| (span.filename.as_deref(), span.start))
-            .collect::<HashSet<_>>();
-        for directive in &ledger.directives {
-            let key = (directive.span.filename.as_deref(), directive.span.start);
-            if let Directive::Transaction(txn) = &directive.data {
-                if txn.flag == Some(Flag::BalanceCheck) && failed.contains(&key) {
-                    if let Some(distance) = txn.postings.first().and_then(|posting| posting.units.as_ref()) {
-                        corrections.insert(key, distance);
-                    }
-                }
-            }
+        for assertion in store.balance_assertions.iter().filter(|assertion| !assertion.passed) {
+            let discrepancy = Amount::new(&assertion.balance.number - &assertion.amount.number, assertion.amount.commodity.clone());
+            discrepancies.insert((assertion.span.filename.as_deref(), assertion.span.start), discrepancy);
         }
     }
-    let discrepancy_of = |check: &Spanned<Directive>| -> Option<Amount> {
-        corrections
-            .get(&(check.span.filename.as_deref(), check.span.start))
-            .map(|distance| -(*distance).clone())
-    };
     ledger_order(ledger)
         .into_iter()
         .filter(|directive| assertion(&directive.data).is_some())
         .map(|directive| Record::Balance {
             directive,
             discrepancy: if wanted && matches!(directive.data, Directive::BalanceCheck(_)) {
-                discrepancy_of(directive)
+                discrepancies.get(&(directive.span.filename.as_deref(), directive.span.start)).cloned()
             } else {
                 None
             },

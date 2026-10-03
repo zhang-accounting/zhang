@@ -13,12 +13,12 @@ use crate::ZhangResult;
 /// sizes every `BalancePad` against the account's balance at that point of the
 /// stream and inserts the padding transaction (flag `P`) right after it.
 ///
+/// The balance is the true one, the sum of the account's postings, as in
+/// beancount: a `balance` assertion before the pad changes no balance, even when it
+/// fails, so a pad brings the account to its amount from where the postings left it.
 /// The pad directive stays in the stream (like beancount's `Pad` entry); the
 /// store fold books only the synthesized transaction. A pad already at its
-/// target amount synthesizes nothing. An earlier balance check moves the account
-/// to its asserted amount (through the correcting transaction
-/// [`BalanceCheckStage`](crate::pipeline::BalanceCheckStage) adds later), so this
-/// fold applies that correction too.
+/// target amount synthesizes nothing.
 pub struct PadStage;
 
 impl ProcessStage for PadStage {
@@ -48,11 +48,6 @@ impl ProcessStage for PadStage {
                 }
                 Directive::Transaction(txn) => {
                     balances.apply_transaction(txn);
-                    None
-                }
-                Directive::BalanceCheck(check) => {
-                    let correction = balances.distance(&check.account, &check.amount);
-                    balances.add(&check.account, &correction);
                     None
                 }
                 Directive::BalancePad(pad) => {
@@ -161,8 +156,8 @@ mod test {
     }
 
     #[test]
-    fn should_size_pad_after_an_earlier_check_corrected_the_balance() {
-        // the failing check books its distance, so the account sits at 100 when padded
+    fn should_size_pad_from_the_true_balance_after_a_failing_check() {
+        // the failing check changes no balance: the account holds 50 when padded to 150
         let (directives, errors) = run_builtin_stages(indoc! {r#"
             1970-01-01 open Assets:A
             1970-01-01 open Equity:Open
@@ -174,7 +169,29 @@ mod test {
         "#});
         assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
         let pads = synthesized(&directives, Flag::BalancePad);
-        assert_eq!(pads[0].postings[0].units, Some(Amount::new(BigDecimal::from(50), "CNY")));
+        assert_eq!(pads[0].postings[0].units, Some(Amount::new(BigDecimal::from(100), "CNY")));
+    }
+
+    #[test]
+    fn should_size_each_pad_from_the_balance_the_postings_reach() {
+        // two pads of the same account, with a transaction and a failing check between them
+        let (directives, errors) = run_builtin_stages(indoc! {r#"
+            1970-01-01 open Assets:A
+            1970-01-01 open Equity:Open
+            1970-01-01 open Expenses:Food
+            2023-01-01 balance Assets:A 100 CNY with pad Equity:Open
+            2023-01-02 * ""
+              Assets:A -30 CNY
+              Expenses:Food
+            2023-01-03 balance Assets:A 100 CNY
+            2023-01-04 balance Assets:A 120 CNY with pad Equity:Open
+        "#});
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+        let pads = synthesized(&directives, Flag::BalancePad)
+            .into_iter()
+            .map(|pad| pad.postings[0].units.clone().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(pads, vec![Amount::new(BigDecimal::from(100), "CNY"), Amount::new(BigDecimal::from(50), "CNY")]);
     }
 
     #[test]

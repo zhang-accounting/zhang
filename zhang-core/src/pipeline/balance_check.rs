@@ -2,22 +2,23 @@
 
 use std::collections::HashMap;
 
-use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{BalanceCheck, Directive, Flag, Posting, Spanned, Transaction, ZhangString};
+use zhang_ast::{Directive, Spanned};
 
 use super::balance::{exceeds_tolerance, AccountStates, UnitBalances};
-use super::{ProcessStage, StageContext};
+use super::{AssertionOutcome, ProcessStage, StageContext};
 use crate::ZhangResult;
 
 /// validates every `BalanceCheck` against the account's balance at that point of
-/// the stream — including the padding transactions [`PadStage`](crate::pipeline::PadStage)
-/// inserted before it — and reports breaches through the stage error channel.
+/// the stream — the sum of its postings, including the padding transactions
+/// [`PadStage`](crate::pipeline::PadStage) inserted before it — and reports
+/// breaches through the stage error channel.
 ///
-/// Every check, passing or not, inserts its correcting transaction (flag `C`,
-/// a single posting of the distance) right after itself, so the account sits at
-/// the asserted amount from there on; the store fold books it like any other
-/// transaction.
+/// A check only checks, as in beancount: passing or failing, it books nothing and
+/// changes no balance, so the books keep netting to zero. A failing check is an
+/// [`ErrorKind::AccountBalanceCheckError`] and nothing else; `balance ... with pad`
+/// is how a balance is corrected on purpose. The stream leaves the stage unchanged;
+/// what each check found is recorded with [`StageContext::record_assertion`].
 pub struct BalanceCheckStage;
 
 impl ProcessStage for BalanceCheckStage {
@@ -28,67 +29,33 @@ impl ProcessStage for BalanceCheckStage {
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
         let mut balances = UnitBalances::for_stage(ctx);
         let mut accounts = AccountStates::default();
-        let mut ret = Vec::with_capacity(directives.len());
 
-        for directive in directives {
-            let correction = match &directive.data {
+        for directive in &directives {
+            match &directive.data {
                 Directive::Open(open) => {
                     accounts.apply(&directive.data);
                     balances.apply_open(open);
-                    None
                 }
-                Directive::Close(_) => {
-                    accounts.apply(&directive.data);
-                    None
-                }
-                Directive::Commodity(commodity) => {
-                    balances.apply_commodity(commodity, ctx.options);
-                    None
-                }
-                Directive::Transaction(txn) => {
-                    balances.apply_transaction(txn);
-                    None
-                }
+                Directive::Close(_) => accounts.apply(&directive.data),
+                Directive::Commodity(commodity) => balances.apply_commodity(commodity, ctx.options),
+                Directive::Transaction(txn) => balances.apply_transaction(txn),
                 Directive::BalanceCheck(check) => {
                     let account_name = || HashMap::from([("account_name".to_owned(), check.account.name().to_owned())]);
                     for (kind, _) in accounts.errors(&[&check.account]) {
                         ctx.emit_error(kind, directive.span.clone(), account_name());
                     }
                     let distance = balances.distance(&check.account, &check.amount);
-                    if exceeds_tolerance(&distance.number, check.tolerance.as_ref()) {
+                    let passed = !exceeds_tolerance(&distance.number, check.tolerance.as_ref());
+                    if !passed {
                         ctx.emit_error(ErrorKind::AccountBalanceCheckError, directive.span.clone(), account_name());
                     }
-                    let txn = correcting_transaction(check, distance);
-                    balances.apply_transaction(&txn);
-                    Some(Spanned::new(Directive::Transaction(txn), directive.span.clone()))
+                    let balance = balances.amount(&check.account, &check.amount.commodity);
+                    ctx.record_assertion(&directive.span, AssertionOutcome { balance, passed });
                 }
-                _ => None,
-            };
-            ret.push(directive);
-            ret.extend(correction);
+                _ => {}
+            }
         }
-        Ok(ret)
-    }
-}
-
-fn correcting_transaction(check: &BalanceCheck, distance: Amount) -> Transaction {
-    Transaction {
-        date: check.date.clone(),
-        flag: Some(Flag::BalanceCheck),
-        payee: Some(ZhangString::quote("Balance Check")),
-        narration: Some(ZhangString::quote(check.account.name())),
-        tags: Default::default(),
-        links: Default::default(),
-        postings: vec![Posting {
-            flag: None,
-            account: check.account.clone(),
-            units: Some(distance),
-            cost: None,
-            price: None,
-            comment: None,
-            meta: Default::default(),
-        }],
-        meta: Default::default(),
+        Ok(directives)
     }
 }
 
@@ -102,26 +69,24 @@ mod test {
     use zhang_ast::error::ErrorKind;
     use zhang_ast::{Directive, Flag};
 
-    use crate::pipeline::test::run_builtin_stages;
-
-    /// the distances booked by the checks' correcting transactions, in stream order
-    fn check_distances(directives: &[Directive]) -> Vec<Amount> {
-        directives
-            .iter()
-            .filter_map(|it| match it {
-                Directive::Transaction(txn) if txn.flag == Some(Flag::BalanceCheck) => txn.postings[0].units.clone(),
-                _ => None,
-            })
-            .collect()
-    }
+    use crate::pipeline::test::{run_builtin_stages, run_builtin_stages_with_assertions};
+    use crate::pipeline::AssertionOutcome;
 
     fn cny(number: &str) -> Amount {
         Amount::new(BigDecimal::from_str(number).unwrap(), "CNY")
     }
 
+    fn outcome(balance: &str, passed: bool) -> AssertionOutcome {
+        AssertionOutcome { balance: cny(balance), passed }
+    }
+
+    fn transactions(directives: &[Directive]) -> usize {
+        directives.iter().filter(|it| matches!(it, Directive::Transaction(_))).count()
+    }
+
     #[test]
-    fn should_pass_and_fail_within_tolerance() {
-        let (directives, errors) = run_builtin_stages(indoc! {r#"
+    fn should_pass_and_fail_within_tolerance_without_moving_the_balance() {
+        let (directives, errors, outcomes) = run_builtin_stages_with_assertions(indoc! {r#"
             1970-01-01 open Assets:A
             1970-01-01 open Equity:Open
             2023-01-01 * ""
@@ -131,26 +96,31 @@ mod test {
             2023-01-03 balance Assets:A 10 CNY
             2023-01-04 balance Assets:A 10.01 ~ 0.01 CNY
             2023-01-05 balance Assets:A 9.99 ~ 0.01 CNY
+            2023-01-06 balance Assets:A 10.004 CNY
         "#});
 
-        // 10.004 vs 10 is within 0.01; the correcting transaction books the
-        // distance, so the account sits at each asserted amount afterwards
-        assert_eq!(check_distances(&directives), vec![cny("-0.004"), cny("0"), cny("0.01"), cny("-0.02")]);
-        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
-
-        let check = directives
+        // every check sees the same 10.004: none of them, passing or failing, moves the balance
+        assert_eq!(
+            outcomes,
+            vec![
+                outcome("10.004", true),
+                outcome("10.004", false),
+                outcome("10.004", true),
+                outcome("10.004", false),
+                outcome("10.004", true),
+            ]
+        );
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError, ErrorKind::AccountBalanceCheckError]);
+        // the stream leaves the stage as it came: no transaction is added
+        assert_eq!(transactions(&directives), 1);
+        assert!(!directives
             .iter()
-            .find(|it| matches!(it, Directive::Transaction(txn) if txn.flag == Some(Flag::BalanceCheck)))
-            .unwrap();
-        let Directive::Transaction(check) = check else { unreachable!() };
-        assert_eq!(check.payee.as_ref().unwrap().as_str(), "Balance Check");
-        assert_eq!(check.narration.as_ref().unwrap().as_str(), "Assets:A");
-        assert_eq!(check.postings.len(), 1);
+            .any(|it| matches!(it, Directive::Transaction(txn) if txn.flag == Some(Flag::BalanceCheck))));
     }
 
     #[test]
     fn should_see_the_padding_transaction_of_the_same_day() {
-        let (directives, errors) = run_builtin_stages(indoc! {r#"
+        let (_, errors, outcomes) = run_builtin_stages_with_assertions(indoc! {r#"
             1970-01-01 open Assets:A
             1970-01-01 open Equity:Open
             2023-02-01 balance Assets:A 100 CNY with pad Equity:Open
@@ -158,12 +128,58 @@ mod test {
             2023-02-01 balance Equity:Open -100 CNY
         "#});
         assert!(errors.is_empty());
-        assert_eq!(check_distances(&directives), vec![cny("0"), cny("0")]);
+        assert_eq!(outcomes, vec![outcome("100", true), outcome("-100", true)]);
+    }
+
+    #[test]
+    fn should_check_against_the_balance_left_by_an_earlier_failing_check() {
+        // the second check is checked against the postings (165), not against the 200 the first one asserted
+        let (_, errors, outcomes) = run_builtin_stages_with_assertions(indoc! {r#"
+            1970-01-01 open Assets:A
+            1970-01-01 open Income:X
+            2024-01-01 * "x"
+              Assets:A 165 CNY
+              Income:X
+            2024-01-02 balance Assets:A 200 CNY
+            2024-01-03 balance Assets:A 200 CNY
+            2024-01-04 balance Assets:A 165 CNY
+        "#});
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError, ErrorKind::AccountBalanceCheckError]);
+        assert_eq!(outcomes, vec![outcome("165", false), outcome("165", false), outcome("165", true)]);
+    }
+
+    #[test]
+    fn should_check_each_currency_of_an_account_on_its_own() {
+        let (_, errors, outcomes) = run_builtin_stages_with_assertions(indoc! {r#"
+            1970-01-01 open Assets:A
+            1970-01-01 open Equity:Open
+            2023-01-01 * ""
+              Assets:A 10 CNY
+              Equity:Open
+            2023-01-02 balance Assets:A 10 CNY
+            2023-01-02 balance Assets:A 0 USD
+            2023-01-02 balance Assets:A 5 USD
+        "#});
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+        assert_eq!(
+            outcomes,
+            vec![
+                outcome("10", true),
+                AssertionOutcome {
+                    balance: Amount::new(BigDecimal::from(0), "USD"),
+                    passed: true
+                },
+                AssertionOutcome {
+                    balance: Amount::new(BigDecimal::from(0), "USD"),
+                    passed: false
+                },
+            ]
+        );
     }
 
     #[test]
     fn should_book_inferred_implicit_postings_and_skip_rejected_transactions() {
-        let (directives, errors) = run_builtin_stages(indoc! {r#"
+        let (_, errors, outcomes) = run_builtin_stages_with_assertions(indoc! {r#"
             1970-01-01 open Assets:A
             1970-01-01 open Assets:B
             1970-01-01 open Equity:Open
@@ -177,7 +193,7 @@ mod test {
             2023-01-03 balance Assets:A 10 CNY
         "#});
         assert!(errors.is_empty());
-        assert_eq!(check_distances(&directives), vec![cny("0")]);
+        assert_eq!(outcomes, vec![outcome("10", true)]);
     }
 
     #[test]

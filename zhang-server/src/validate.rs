@@ -102,6 +102,9 @@ impl Names {
         for price in &store.prices {
             names.commodities.extend([price.commodity.clone(), price.target_commodity.clone()]);
         }
+        names
+            .commodities
+            .extend(store.balance_assertions.iter().map(|assertion| assertion.amount.commodity.clone()));
         for transaction in store.transactions.values() {
             names.tags.extend(transaction.tags.iter().cloned());
             names.links.extend(transaction.links.iter().cloned());

@@ -11,10 +11,17 @@
         "BalancePad"
       ],
       [
-        "$.data.transactions[*][?(@.sequence==2)].flag",
-        "BalanceCheck"
+        "$.data.balance_assertions.length()",
+        1
+      ],
+      [
+        "$.data.balance_assertions[?(@.sequence==2)].passed",
+        true
+      ],
+      [
+        "$.data.balance_assertions[?(@.sequence==2)].balance.number",
+        "0.10"
       ]
     ]
   }
 ]
-
