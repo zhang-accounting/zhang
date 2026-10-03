@@ -146,7 +146,7 @@ ORDER BY seq
 | `keyword` | `str` | 搜索文本；`NULL` 表示不搜索。交易的收款人、描述、标签、链接或账户包含它（不区分大小写）时匹配；余额断言的账户或 `Balance Check` 字样包含它时匹配。它是普通文本，不是正则表达式。 |
 | `tags` | `set` | 交易须带有其中任一标签；`NULL` 表示任意。余额断言没有标签 |
 | `links` | `set` | 交易须带有其中任一链接；`NULL` 表示任意 |
-| `size` | `int` | 每页的行数，至少为 1 |
+| `size` | `int` | 每页的行数，1 到 1000 |
 | `offset` | `int` | 该页之前的行数：`(page - 1) × size` |
 
 ```sql
@@ -166,7 +166,7 @@ ORDER BY timestamp DESC,
 LIMIT :size OFFSET :offset
 ```
 
-- 页数按 `LIMIT` 和 `OFFSET` 之前的总行数计算。页大小为 0，或页码超出偏移量所能表示的范围时，返回 HTTP 400；超过最后一页的页码返回空页。
+- 页数按 `LIMIT` 和 `OFFSET` 之前的总行数计算。`GET /api/journals` 和 `GET /api/errors` 的页大小 `size` 为 1 到 1000，默认 100；其他大小返回 HTTP 400，消息为 `size must be between 1 and 1000`；超过最后一页的页码返回空页。
 - 行按张记账检查它们的顺序排列，最新的在前：先按时刻；同一时刻内依次是余额断言、补齐交易（标记为 `P`）、`balance ... with pad`（在同一时刻的补齐交易之后检查），然后是其他交易，各自按账本顺序。`balance ... with pad` 的 `accounts` 中有它的补齐来源账户。除 `balance ... with pad` 外，这就是 `#entries` 的顺序；`#entries` 目前把 `balance ... with pad` 列在它的补齐交易之前，等 `seq` 遵循张记账检查一天的顺序后，`ORDER BY` 将改为 `seq DESC`。
 - 标记为 `P` 的交易是补齐交易，页面显示为 `BalancePad` 条目。`balance` 行是 `BalanceCheck` 条目，由 `journals.balance_checks` 补全。
 
@@ -254,7 +254,7 @@ ORDER BY seq DESC
 
 | 参数 | 类型 | 值 |
 |------|------|----|
-| `size` | `int` | 每页的错误数，至少为 1 |
+| `size` | `int` | 每页的错误数，1 到 1000 |
 | `offset` | `int` | 该页之前的错误数：`(page - 1) × size` |
 
 ```sql

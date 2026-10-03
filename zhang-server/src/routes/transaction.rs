@@ -59,7 +59,8 @@ enum JournalEntry {
 /// among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
 /// of a page from `journals.postings` and `journals.balance_checks`.
 ///
-/// A page size of 0, or a page beyond what an offset can count, is a bad request.
+/// A page has 1 to 1000 rows (`size`, 100 by default); another size is a bad request, and a page past the last one is
+/// empty.
 #[api(group = "transaction")]
 pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemEntity>> {
     ResponseWrapper::json(journals::journal(&ledger, params.0).await?)

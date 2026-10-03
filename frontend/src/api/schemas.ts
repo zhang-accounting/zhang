@@ -128,7 +128,8 @@ export interface paths {
     /**
      * Get Errors
      * @description The ledger's errors, one page at a time, by file and then by position in the file: the built-in
-     * query `journals.errors`. A page size of 0, or a page beyond what an offset can count, is a bad request.
+     * query `journals.errors`. A page has 1 to 1000 errors (`size`, 100 by default); another size is a bad request, and a
+     * page past the last one is empty.
      */
     get: operations['get_errors'];
   };
@@ -161,7 +162,8 @@ export interface paths {
      * among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
      * of a page from `journals.postings` and `journals.balance_checks`.
      *
-     * A page size of 0, or a page beyond what an offset can count, is a bad request.
+     * A page has 1 to 1000 rows (`size`, 100 by default); another size is a bad request, and a page past the last one is
+     * empty.
      */
     get: operations['get_journals'];
   };
@@ -1109,7 +1111,8 @@ export interface operations {
   /**
    * Get Errors
    * @description The ledger's errors, one page at a time, by file and then by position in the file: the built-in
-   * query `journals.errors`. A page size of 0, or a page beyond what an offset can count, is a bad request.
+   * query `journals.errors`. A page has 1 to 1000 errors (`size`, 100 by default); another size is a bad request, and a
+   * page past the last one is empty.
    */
   get_errors: {
     parameters: {
@@ -1271,7 +1274,8 @@ export interface operations {
    * among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
    * of a page from `journals.postings` and `journals.balance_checks`.
    *
-   * A page size of 0, or a page beyond what an offset can count, is a bad request.
+   * A page has 1 to 1000 rows (`size`, 100 by default); another size is a bad request, and a page past the last one is
+   * empty.
    */
   get_journals: {
     parameters: {

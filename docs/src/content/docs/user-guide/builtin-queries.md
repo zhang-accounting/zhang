@@ -146,7 +146,7 @@ One page of the journal, newest first: the transactions, padding transactions in
 | `keyword` | `str` | the search text, or `NULL` for none: a transaction matches if its payee, narration, tags, links or accounts contain it, ignoring case, and a balance assertion if its accounts or the words `Balance Check` do. It is plain text, never a regular expression. |
 | `tags` | `set` | the tags, any of which a transaction must have, or `NULL` for any; a balance assertion has none |
 | `links` | `set` | the links, any of which a transaction must have, or `NULL` for any |
-| `size` | `int` | the number of rows of a page, at least 1 |
+| `size` | `int` | the number of rows of a page, from 1 to 1000 |
 | `offset` | `int` | the rows before the page: `(page - 1) × size` |
 
 ```sql
@@ -166,7 +166,7 @@ ORDER BY timestamp DESC,
 LIMIT :size OFFSET :offset
 ```
 
-- The page counts all its rows before `LIMIT` and `OFFSET` for its number of pages. A page size of 0, or a page beyond what an offset can count, is answered with HTTP 400; a page past the last one is empty.
+- The page counts all its rows before `LIMIT` and `OFFSET` for its number of pages. `GET /api/journals` and `GET /api/errors` take a page `size` from 1 to 1000, 100 by default, and answer another size with HTTP 400 and the message `size must be between 1 and 1000`; a page past the last one is empty.
 - Rows come newest first, in the order Zhang checks them: by time, and at one time the balance assertions, the padding transactions (flag `P`), the `balance ... with pad`s, which are checked after the paddings of their time, then the other transactions, each in ledger order. A `balance ... with pad` names its pad account in `accounts`. This is the order of `#entries` except for the `balance ... with pad`s, which `#entries` lists before their paddings for now; once `seq` follows the order Zhang checks a day in, the `ORDER BY` becomes `seq DESC`.
 - A transaction with the flag `P` is a padding transaction, which the page shows as a `BalancePad` item. A `balance` row is a `BalanceCheck` item, built from `journals.balance_checks`.
 
@@ -254,7 +254,7 @@ One page of the ledger's errors, by file and then by position in the file.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
-| `size` | `int` | the number of errors of a page, at least 1 |
+| `size` | `int` | the number of errors of a page, from 1 to 1000 |
 | `offset` | `int` | the errors before the page: `(page - 1) × size` |
 
 ```sql

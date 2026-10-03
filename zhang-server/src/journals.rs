@@ -97,19 +97,26 @@ fn sequence(value: &Value) -> i32 {
     value.as_int().and_then(|seq| i32::try_from(seq).ok()).unwrap_or(i32::MAX)
 }
 
-/// The page, the page size and the offset of a paged request: a size of 0, or a page whose rows
-/// lie beyond what an offset can count, is a bad request.
+/// The largest page a paged endpoint (`/api/journals`, `/api/errors`) returns.
+pub const MAX_PAGE_SIZE: u32 = 1000;
+
+/// The page, the page size and the offset of a paged request. A size outside 1 to
+/// [`MAX_PAGE_SIZE`] is a bad request; a page past the last one is empty.
 pub fn page_window(params: &JournalRequest) -> ServerResult<(u32, u32, i64)> {
     let page = params.page();
     let size = params.limit();
-    if size == 0 {
-        return Err(ServerError::InvalidInput("the page size must be at least 1".to_owned()));
+    if !(1..=MAX_PAGE_SIZE).contains(&size) {
+        return Err(ServerError::InvalidInput(format!("size must be between 1 and {}", MAX_PAGE_SIZE)));
     }
-    let offset = u64::from(page - 1) * u64::from(size);
-    match i64::try_from(offset) {
-        Ok(offset) if offset.checked_add(i64::from(size)).is_some() => Ok((page, size, offset)),
-        _ => Err(ServerError::InvalidInput(format!("page {} of {} rows is out of range", page, size))),
-    }
+    let offset = window_offset(page, size).ok_or_else(|| ServerError::InvalidInput(format!("page {} of {} rows is out of range", page, size)))?;
+    Ok((page, size, offset))
+}
+
+/// The rows before page `page` (from 1) of `size` rows, when the page ends where the query engine
+/// can count (within 64 bits); `None` otherwise. Within [`MAX_PAGE_SIZE`] it always does.
+fn window_offset(page: u32, size: u32) -> Option<i64> {
+    let offset = i64::try_from(u64::from(page.max(1) - 1) * u64::from(size)).ok()?;
+    offset.checked_add(i64::from(size)).map(|_| offset)
 }
 
 fn total(result: &QueryResult) -> u32 {
@@ -445,7 +452,7 @@ pub async fn errors(ledger: &SharedLedger, params: JournalRequest) -> ServerResu
 
 #[cfg(test)]
 mod test {
-    use super::page_window;
+    use super::{page_window, window_offset, MAX_PAGE_SIZE};
     use crate::request::JournalRequest;
 
     fn request(page: Option<u32>, size: Option<u32>) -> JournalRequest {
@@ -459,6 +466,18 @@ mod test {
     }
 
     #[test]
+    fn an_offset_must_leave_room_for_its_page() {
+        assert_eq!(window_offset(1, 1), Some(0));
+        assert_eq!(window_offset(u32::MAX, MAX_PAGE_SIZE), Some(i64::from(u32::MAX - 1) * i64::from(MAX_PAGE_SIZE)));
+        // beyond a page size the endpoints accept: the last page whose end fits in 64 bits, one whose offset fits but
+        // whose end does not, and one whose offset does not fit
+        assert_eq!(window_offset(2_147_483_648, u32::MAX), Some(9_223_372_030_412_324_865));
+        assert_eq!(window_offset(2_147_483_649, u32::MAX), None);
+        assert_eq!(window_offset(2_147_483_650, u32::MAX), None);
+        assert_eq!(window_offset(u32::MAX, u32::MAX), None);
+    }
+
+    #[test]
     fn pages_are_windows_of_the_rows() {
         assert_eq!(page_window(&request(None, None)).unwrap(), (1, 100, 0));
         assert_eq!(page_window(&request(Some(0), Some(10))).unwrap(), (1, 10, 0));
@@ -466,14 +485,18 @@ mod test {
         // past the end of a u32, which the old journal wrapped around
         assert_eq!(page_window(&request(Some(42949674), Some(100))).unwrap(), (42949674, 100, 4294967300));
         assert_eq!(
-            page_window(&request(Some(1 << 31), Some(u32::MAX))).unwrap().2,
-            i64::from((1u32 << 31) - 1) * i64::from(u32::MAX)
+            page_window(&request(Some(u32::MAX), Some(MAX_PAGE_SIZE))).unwrap(),
+            (u32::MAX, MAX_PAGE_SIZE, 4_294_967_294_000)
         );
     }
 
     #[test]
-    fn an_empty_page_size_and_a_page_no_offset_can_count_are_bad_requests() {
-        assert!(page_window(&request(Some(1), Some(0))).is_err());
-        assert!(page_window(&request(Some(u32::MAX), Some(u32::MAX))).is_err());
+    fn a_page_size_outside_1_to_1000_is_a_bad_request() {
+        for size in [0, MAX_PAGE_SIZE + 1, u32::MAX] {
+            let error = page_window(&request(Some(1), Some(size))).unwrap_err();
+            assert_eq!(error.to_string(), "size must be between 1 and 1000", "{size}");
+        }
+        assert!(page_window(&request(Some(1), Some(1))).is_ok());
+        assert!(page_window(&request(Some(1), Some(MAX_PAGE_SIZE))).is_ok());
     }
 }

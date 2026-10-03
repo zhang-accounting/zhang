@@ -2,8 +2,8 @@
 //! hand-verified values. They pin what changed from the hand-written endpoints, each for a reason
 //! `journals_golden.rs` names:
 //!
-//! - a page size of 0 and a page beyond what an offset can count are 400s, and a page past the end
-//!   is empty instead of wrapping around;
+//! - a page size outside 1 to 1000 is a 400, and a page past the end is empty instead of wrapping
+//!   around;
 //! - tags and links keep their written order, also through a save;
 //! - a repeated metadata key keeps every value (decision 7);
 //! - a cost is per unit: a `{{total}}` cost is divided by the units, and `{}` shows the cost of the lots it
@@ -469,8 +469,19 @@ async fn bad_pages_are_bad_requests_and_a_page_past_the_end_is_empty() {
     // the old journal divided by the size and panicked
     let (status, _) = journals(&ledger, request(Some(1), Some(0), None, None)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    let (status, _) = journals(&ledger, request(Some(u32::MAX), Some(u32::MAX), None, None)).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // a page has at most 1000 rows, with a message that says so
+    for size in [1001, u32::MAX] {
+        let (status, body) = journals(&ledger, request(Some(u32::MAX), Some(size), None, None)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["message"], "size must be between 1 and 1000");
+    }
+    let (status, body) = journals(&ledger, request(Some(1), Some(1000), None, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["total_count"], 9);
+    // the last page there can be, past the end
+    let (status, body) = journals(&ledger, request(Some(u32::MAX), Some(1000), None, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["records"], json!([]));
     // the old journal computed the offset in 32 bits: 42949674 × 100 wrapped around to 4, a page of rows
     let (status, body) = journals(&ledger, request(Some(42949674), Some(100), None, None)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -483,8 +494,13 @@ async fn bad_pages_are_bad_requests_and_a_page_past_the_end_is_empty() {
     assert_eq!(summary(&body["data"]), vec!["Transaction Cafe lunch"]);
     assert_eq!(body["data"]["total_page"], 3);
 
-    let (status, _) = respond(get_errors(State(ledger.clone()), axum::extract::Query(request(Some(1), Some(0), None, None))).await).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    for size in [0, 1001] {
+        let (status, body) = respond(get_errors(State(ledger.clone()), axum::extract::Query(request(Some(1), Some(size), None, None))).await).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["message"], "size must be between 1 and 1000");
+    }
+    let (status, _) = respond(get_errors(State(ledger.clone()), axum::extract::Query(request(Some(1), Some(1000), None, None))).await).await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 const TAGGED: &str = r#"option "operating_currency" "CNY"

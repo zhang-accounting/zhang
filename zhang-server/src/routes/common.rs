@@ -55,7 +55,8 @@ pub async fn get_basic_info(ledger: State<SharedLedger>) -> ApiResult<BasicInfoE
 }
 
 /// The ledger's errors, one page at a time, by file and then by position in the file: the built-in
-/// query `journals.errors`. A page size of 0, or a page beyond what an offset can count, is a bad request.
+/// query `journals.errors`. A page has 1 to 1000 errors (`size`, 100 by default); another size is a bad request, and a
+/// page past the last one is empty.
 #[api(group = "error")]
 pub async fn get_errors(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<ErrorEntity>> {
     ResponseWrapper::json(journals::errors(&ledger, params.0).await?)
