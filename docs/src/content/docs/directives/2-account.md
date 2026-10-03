@@ -116,8 +116,9 @@ A `balance` directive asserts what an account holds in one commodity:
 2024-01-31 balance Assets:Bank:Checking 1520.00 ~ 0.01 CNY
 ```
 
-- The assertion is checked at the start of its date (at its time, if it has one), against the sum of the account's
-  postings before it. Transactions of the same day come after it, as in Beancount.
+- The assertion is checked at the start of its date, against the sum of the account's postings before it.
+  Transactions of the same day come after it, as in Beancount. In a Zhang ledger, an assertion with a time is checked
+  at that time. In a Beancount ledger, Zhang ignores its `time` metadata, as Beancount does.
 - It covers the account and all its sub-accounts, as in Beancount: `balance Assets:Bank 100 CNY` passes when
   `Assets:Bank:Checking` holds 60 CNY and `Assets:Bank:Savings` holds 40 CNY.
 - **It must match exactly.** `1520.00 CNY` passes only when the balance is exactly 1520 CNY. Only an explicit
@@ -160,7 +161,8 @@ transaction.
 - A `pad` serves the first `balance` of its own account in each commodity on a later day than the `pad`, until a
   later `pad` of that account. Days are compared, not times, as Beancount knows no times.
 - A `balance` on the day of the `pad` comes before it, as Beancount orders a day, and is not padded, whatever their
-  times: with times (in a Beancount ledger, the `time` metadata), a `pad` comes after the last balance of its day.
+  times: in a Zhang ledger with times, a `pad` comes after the last balance of its day. In a Beancount ledger, Zhang
+  ignores the `time` metadata of a `pad`, as Beancount does, and the `pad`s of a day keep the order of their lines.
 - Its padding transaction is dated on the `pad` and comes right after it, as in Beancount, so the balances between
   the `pad` and the assertion include it. When the `pad` comes after a later balance of its day, the padding is dated
   at the time of that balance.
@@ -186,13 +188,25 @@ padding cannot bring the total to the asserted amount:
 - when it pads from the asserted account itself or from one of its sub-accounts: that padding moves units within
   the total it asserts, so it never changes it. Beancount fails such a pad too.
 
-In a Beancount ledger, a balance with a pad made in the UI or the batch balance tool is written as a `pad` dated the
-day before, then the `balance`, so that Beancount pads it too. The pads of one account made on one day share that
-`pad`: the batch balance tool writes one `pad` for all the padded commodities of an account, and a pad made later
-that day writes only its `balance`. Beancount pads an account from a single account per day, and only the first
-balance of each commodity of a day, so Zhang refuses, with a message and without writing anything, to pad an account
-from a second account on one day, or to pad a commodity the account has a balance of that day already. The `pad` also
-pads the other commodities of the account balanced that day, also those checked without a pad.
+In a Beancount ledger, the balances made in the UI or with the batch balance tool are written so that Beancount
+reads them as Zhang does:
+
+- "My balance now" is a `balance` dated tomorrow, which comes after every transaction of today. A transaction added
+  later today changes what it checks, as in Beancount.
+- A balance with a pad also writes a `pad` dated today. The pads of one account made on one day share that `pad`: the
+  batch balance tool writes one `pad` for all the padded commodities of an account, and a pad made later that day
+  writes only its `balance`. When nothing needs padding, no `pad` is written: Beancount would report it unused.
+- A `pad` pads the next balance of every commodity of its account. So with the `pad`, the account's balance in each
+  other commodity it holds is written too, which the `pad` serves without padding anything: it cannot pad a later
+  balance silently.
+- A balance without a pad that a `pad` would serve, because that `pad` never served its commodity, is refused with
+  the `pad` it would be padded by: check it with a pad, which replaces that `pad`, or write a balance of that commodity
+  after the `pad` first. This covers a commodity the account first holds after the `pad`.
+- Beancount pads an account from a single account per day, and only the first balance of each commodity of a day. So
+  Zhang also refuses to pad an account from a second account on one day, and to pad a commodity the account has a
+  balance of that day already.
+
+A refused request writes nothing, and the UI shows why.
 
 In a Beancount ledger, a pad of an account and a balance of one of its sub-accounts in the same batch fail
 `bean-check` whichever is written first: Beancount lets the sub-account's balance use up the parent's pad (see the
@@ -208,7 +222,9 @@ Zhang differs from Beancount in how pads are sized and paired:
   without the padding of its sub-accounts, so the parent's assertion fails there by that padding.
 - Zhang orders the directives of a day by their time, then by file, in the order the ledger includes the files, then
   by line. Beancount orders them by line, whatever their file, and knows no times. Of two `pad`s of an account on one
-  day in different files, the one Zhang orders last pads, which may not be the one Beancount uses.
+  day in different files, the one Zhang orders last pads, which may not be the one Beancount uses. In a Beancount
+  ledger, Zhang ignores the `time` metadata of `balance` and `pad` directives, so within one file the pads of a day
+  are ordered as in Beancount.
 - Padding a commodity held at cost is one `PadWithCost` error for the assertion it serves. Beancount reports it once
   for each lot held at cost.
 

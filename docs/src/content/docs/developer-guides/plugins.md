@@ -104,7 +104,9 @@ What a plugin sees:
 - **No `pad` directives.** ABI v1 predates the [`pad` directive](/directives/2-account/#pads), and a plugin built against an older `zhang-ast` cannot read it. So Zhang sets every `pad` aside before it calls a plugin. A `balance` that a `pad` serves is shown to the plugin as the `balance … with pad` it was before Zhang had `pad`, with the pad's account: a plugin sees the stream a Beancount ledger gave it before. What the plugin returns is its word, and Zhang puts each `pad` back only where it pads what the plugin returned:
   - a `pad` whose `balance … with pad`s all come back as `balance … with pad`, of one account from one pad account, is put back with that account and pad account, so a plugin may rename either or change the pad account. Its balances turn back into `balance`s, with their tolerance, and keep everything else the plugin changed in them. A plugin that changes nothing gets exactly the stream it was given;
   - a `pad` one of whose `balance … with pad`s the plugin dropped, turned into a plain `balance`, or gave another account or pad account than the others, is left out, and so is a `pad` that, put back, would serve other balances than the ones it stood for (when a plugin moves one to another date, or adds a balance of the account before one). Every `balance … with pad` the plugin returned then pads its own assertion, as a `balance … with pad` does;
-  - a `pad` that serves no balance is invisible to a plugin, which cannot change or drop it. It is put back as it is, and serves the balances of its account a plugin adds after it.
+  - a `pad` that serves no balance is invisible to a plugin, which cannot change or drop it. It is put back as it is, and must still serve none: put back where it would serve one, it is left out.
+
+  A `pad` put back serves only the balances it stood for. Any other `balance` the plugin returns, such as one it adds or one it turned into a plain `balance`, is not padded by a `pad` it could not see, and is checked as it is.
 
   Pads are not visible to plugins yet; exposing them is future ABI work.
 
