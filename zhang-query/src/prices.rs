@@ -10,7 +10,7 @@
 //! [`crate::decimal`].
 
 use std::collections::HashMap;
-use std::sync::PoisonError;
+use std::sync::{Arc, PoisonError};
 
 use bigdecimal::{BigDecimal, One, Zero};
 use chrono::NaiveDate;
@@ -20,6 +20,7 @@ use zhang_core::ledger::Ledger;
 
 use crate::decimal;
 use crate::decimal::mul_in_context as mul;
+use crate::table::LedgerCache;
 use crate::value::{Inventory, Position};
 
 /// Exchange rates between currency pairs, built from the ledger's `price` directives.
@@ -42,6 +43,15 @@ impl PriceMap {
     pub fn for_ledger(ledger: &Ledger) -> Self {
         let store = ledger.store.read().unwrap_or_else(PoisonError::into_inner);
         Self::from_prices(&store.prices)
+    }
+
+    /// The price map the queries of a loaded ledger value with: built once per ledger, kept in
+    /// its cache and shared, so a caller can keep valuing with it, with the same prices as its
+    /// queries, after releasing the ledger. It takes the store's read lock, so do not call it
+    /// while holding the write lock.
+    pub fn cached(ledger: &Ledger) -> Arc<PriceMap> {
+        let store = ledger.store.read().unwrap_or_else(PoisonError::into_inner);
+        LedgerCache::of(ledger, &store).shared_prices(&store).clone()
     }
 
     pub fn from_prices<'a>(prices: impl IntoIterator<Item = &'a PriceDomain>) -> Self {
