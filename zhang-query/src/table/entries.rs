@@ -4,16 +4,20 @@
 //! A balance assertion is a `balance` entry, not a transaction: it books nothing. Transactions
 //! the ledger rejected are not rows either (they never reach the store). The padding
 //! transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
+//!
+//! Both tables read their rows from the cache of the ledger ([`super::cache::Entries`]), which
+//! also gives zhang's own columns: `seq` (the position in `#entries`), and on `#transactions`
+//! the stored `id` and the errors recorded for the transaction (`balanced`, `errors`).
 
 use chrono::Datelike;
-use uuid::Uuid;
-use zhang_ast::{Directive, Flag, Spanned, Transaction};
+use zhang_ast::{resolve_local_datetime, Directive, Flag, Spanned, Transaction};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
-use zhang_core::utils::id::FromSpan;
 
-use super::directives::{date_part, date_value, directive, ledger_order, meta_value, set_value, str_value, year};
-use super::{ColumnDef, Record, Rows, Table};
+use super::cache::{EntryInfo, LedgerCache};
+use super::directives::{date_part, date_value, directive, meta_value, set_value, str_value, year};
+use super::postings::{balanced, error_kinds, time_value};
+use super::{directive_meta, meta_pairs, ColumnDef, Dataset, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
@@ -50,30 +54,50 @@ pub(super) static TRANSACTIONS: Table = Table {
     rows: Rows::Records(transaction_rows),
 };
 
-/// Whether a transaction directive is one of the ledger's transactions: one zhang stored, not one
-/// it rejected while loading.
-fn is_transaction(store: &Store, directive: &Spanned<Directive>) -> bool {
-    match &directive.data {
-        Directive::Transaction(_) => store.transactions.contains_key(&Uuid::from_span(&directive.span)),
-        _ => false,
+/// The entries, in ledger order: the dated directives without the transactions the ledger
+/// rejected (see [`super::cache::Entries`]).
+fn entry_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
+    let table = LedgerCache::of(ledger, store).entries(ledger, store);
+    table.rows.iter().map(|info| entry_record(ledger, info)).collect()
+}
+
+/// The transaction entries, in the order of the ledger's directives.
+fn transaction_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
+    let table = LedgerCache::of(ledger, store).entries(ledger, store);
+    table.transactions.iter().map(|idx| entry_record(ledger, &table.rows[*idx as usize])).collect()
+}
+
+fn entry_record<'a>(ledger: &'a Ledger, info: &'a EntryInfo) -> Record<'a> {
+    Record::Entry {
+        directive: &ledger.directives[info.directive as usize],
+        info,
     }
 }
 
-fn entry_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    ledger_order(ledger)
-        .into_iter()
-        .filter(|directive| !matches!(directive.data, Directive::Transaction(_)) || is_transaction(store, directive))
-        .map(Record::Directive)
-        .collect()
+fn entry_info<'r>(record: &'r Record<'_>) -> Option<&'r EntryInfo> {
+    match record {
+        Record::Entry { info, .. } => Some(info),
+        _ => None,
+    }
 }
 
-fn transaction_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    ledger
-        .directives
-        .iter()
-        .filter(|directive| is_transaction(store, directive))
-        .map(Record::Directive)
-        .collect()
+fn seq(record: &Record<'_>) -> Value {
+    entry_info(record).map_or(Value::Null, |info| Value::Int(info.seq.into()))
+}
+
+/// The time of day of the row's directive in the ledger's timezone, as zhang stores the date and
+/// time of a transaction.
+fn time(data: &Dataset<'_>, record: &Record<'_>) -> Value {
+    let datetime = directive(record).and_then(|it| it.data.datetime());
+    datetime.map_or(Value::Null, |it| time_value(resolve_local_datetime(&data.ledger.options.timezone, &it).time()))
+}
+
+/// The Unix time of the row's directive, read like [`time`].
+fn timestamp(data: &Dataset<'_>, record: &Record<'_>) -> Value {
+    let datetime = directive(record).and_then(|it| it.data.datetime());
+    datetime.map_or(Value::Null, |it| {
+        Value::Int(resolve_local_datetime(&data.ledger.options.timezone, &it).timestamp())
+    })
 }
 
 fn transaction<'r>(record: &'r Record<'_>) -> Option<&'r Transaction> {
@@ -124,18 +148,6 @@ fn entry_accounts(directive: &Directive) -> Value {
     Value::Set(accounts.into_iter().map(str::to_owned).collect())
 }
 
-/// The id of an entry: a transaction has its transaction id (the `id` of its postings);
-/// another directive an id derived from its source position, distinct from the id of the
-/// padding transaction that shares the position of a `balance ... with pad`. The derivation
-/// does not depend on the platform's `usize`.
-fn entry_id(directive: &Spanned<Directive>) -> String {
-    let id = Uuid::from_span(&directive.span);
-    match directive.data {
-        Directive::Transaction(_) => id.to_string(),
-        _ => Uuid::from_txn_posting(&id, u32::MAX as usize).to_string(),
-    }
-}
-
 fn flag(txn: &Transaction) -> Value {
     Value::Str(txn.flag.clone().unwrap_or(Flag::Okay).to_string())
 }
@@ -182,7 +194,7 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
         "id",
         DataType::Str,
         "Unique id of the entry: for a transaction its transaction id (the id column of its postings).",
-        |_, record| of_directive(record, |it| Value::Str(entry_id(it))),
+        |data, record| entry_info(record).map_or(Value::Null, |info| Value::Str(data.entry_id(info.seq).to_owned())),
     ),
     ColumnDef::record(
         "type",
@@ -242,6 +254,31 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
          balance, note and document, and the pad account of balance ... with pad; empty for other directives.",
         |_, record| of_directive(record, |it| entry_accounts(&it.data)),
     ),
+    ColumnDef::record(
+        "seq",
+        DataType::Int,
+        "Position of the entry in #entries, from 0 in ledger order; ORDER BY seq DESC lists the newest first. A zhang extension.",
+        |_, record| seq(record),
+    ),
+    ColumnDef::record(
+        "time",
+        DataType::Str,
+        "Time of day of the directive in the ledger's timezone, as `HH:MM:SS`; '00:00:00' when it has none. A zhang extension.",
+        time,
+    ),
+    ColumnDef::record(
+        "timestamp",
+        DataType::Int,
+        "Unix time, in seconds, of the directive's date and time. A zhang extension.",
+        timestamp,
+    ),
+    ColumnDef::record(
+        "metas",
+        DataType::Metas,
+        "Metadata of the directive as (key, value) pairs: sorted by key, every value of a repeated key in written order. A zhang \
+         extension.",
+        |_, record| metas_value(record),
+    ),
 ];
 
 static TRANSACTION_COLUMNS: &[ColumnDef] = &[
@@ -265,4 +302,55 @@ static TRANSACTION_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record("meta", DataType::Str, "Metadata of the transaction, as `key: \"value\"` pairs.", |_, record| {
         meta_value(record)
     }),
+    ColumnDef::record(
+        "id",
+        DataType::Str,
+        "Unique id of the transaction: the id column of its postings and of its #entries row. A zhang extension.",
+        |data, record| entry_info(record).map_or(Value::Null, |info| Value::Str(data.entry_id(info.seq).to_owned())),
+    ),
+    ColumnDef::record(
+        "seq",
+        DataType::Int,
+        "Position of the transaction in #entries, from 0 in ledger order; ORDER BY seq DESC lists the newest first. A zhang \
+         extension.",
+        |_, record| seq(record),
+    ),
+    ColumnDef::record(
+        "time",
+        DataType::Str,
+        "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`; '00:00:00' when it has none. A zhang extension.",
+        time,
+    ),
+    ColumnDef::record(
+        "timestamp",
+        DataType::Int,
+        "Unix time, in seconds, of the transaction's date and time. A zhang extension.",
+        timestamp,
+    ),
+    ColumnDef::record(
+        "balanced",
+        DataType::Bool,
+        "FALSE when zhang recorded that the transaction does not balance (an UnbalancedTransaction error), else TRUE. A \
+         zhang extension.",
+        |_, record| entry_info(record).map_or(Value::Null, |info| balanced(info.errors.as_ref())),
+    ),
+    ColumnDef::record(
+        "errors",
+        DataType::Set,
+        "Kinds of the errors zhang recorded for the transaction, as #errors names them in kind; empty when there are none. A \
+         zhang extension.",
+        |_, record| entry_info(record).map_or(Value::Null, |info| error_kinds(info.errors.as_ref())),
+    ),
+    ColumnDef::record(
+        "metas",
+        DataType::Metas,
+        "Metadata of the transaction as (key, value) pairs: sorted by key, every value of a repeated key in written order. A zhang \
+         extension.",
+        |_, record| metas_value(record),
+    ),
 ];
+
+/// The `metas` column of an entry.
+fn metas_value(record: &Record<'_>) -> Value {
+    of_directive(record, |it| Value::Metas(meta_pairs(directive_meta(&it.data))))
+}

@@ -370,7 +370,7 @@ fn explain_and_projection_of_the_zhang_tables() {
          agg#0: count(*)\n\
          filter: (date >= 2024-01-01)\n\
          group by: [0]\n\
-         project: [date, kind] (2 of 8 columns)\n"
+         project: [date, kind] (2 of 11 columns)\n"
     );
     let compiled = Query::compile("SELECT name, sum(number(activity)) FROM #budgets WHERE 'Expenses:Food' IN accounts GROUP BY name").unwrap();
     assert_eq!(compiled.table(), "budgets");
@@ -428,6 +428,7 @@ fn zhang_tables_export_to_csv_and_respect_the_result_budget() {
         today: Some(today()),
         timeout: None,
         max_result_values: Some(limit),
+        count_total: false,
     };
     // 10 rows of 5 values plus the 10 generated budget rows, 6 rows of 4 values
     for (sql, values) in [("SELECT * FROM #budgets", 60), ("SELECT file, date, kind, account FROM #errors", 24)] {
@@ -479,6 +480,20 @@ fn the_schema_describes_the_zhang_tables() {
             ("date", DataType::Date),
             ("account", DataType::Str),
             ("source", DataType::Str),
+            ("id", DataType::Str),
+            ("span_start", DataType::Int),
+            ("span_end", DataType::Int),
+        ]
+    );
+    assert_eq!(
+        columns("budget_events"),
+        vec![
+            ("name", DataType::Str),
+            ("date", DataType::Date),
+            ("time", DataType::Str),
+            ("timestamp", DataType::Int),
+            ("type", DataType::Str),
+            ("amount", DataType::Amount),
         ]
     );
     let wildcard = |name: &str| {
@@ -599,6 +614,7 @@ fn generated_budget_months_are_bounded_by_the_result_budget_and_the_deadline() {
         today: Some(today()),
         timeout,
         max_result_values,
+        count_total: false,
     };
     let err = compiled
         .execute_with_options(&ledger, &Params::new(), &options(None, Some(10_000)))
@@ -624,6 +640,7 @@ fn too_many_budget_months_name_the_directive_that_sets_the_end() {
         today: Some(today()),
         timeout: None,
         max_result_values: Some(1_000),
+        count_total: false,
     };
     let message = |text: &str| {
         let ledger = common::load_text(text);

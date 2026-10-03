@@ -1,0 +1,7 @@
+2024-02-01 * "Shop" "typo"
+  Expenses:Fodo                  10 CNY
+  Assets:Bank                   -10 CNY
+
+2024-02-02 * "Shop" "unbalanced"
+  Expenses:Food                  10 CNY
+  Assets:Bank                    -9 CNY

@@ -17,8 +17,8 @@ pub(super) static PRICES: Table = Table {
     rows: Rows::Records(rows),
 };
 
-fn rows<'a>(ledger: &'a Ledger, _store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    directives_where(ledger, |it| matches!(it, Directive::Price(_)))
+fn rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
+    directives_where(ledger, store, |it| matches!(it, Directive::Price(_)))
 }
 
 fn price<'r>(record: &'r Record<'_>) -> Option<&'r Price> {

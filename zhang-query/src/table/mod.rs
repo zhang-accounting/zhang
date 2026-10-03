@@ -10,7 +10,9 @@
 //! There are three kinds of row sources:
 //!
 //! - [`Rows::Postings`]: the `postings` table ([`postings`]), the default when a query names
-//!   no table. Its rows are booked postings ([`Row`]) built for the query's projection.
+//!   no table. Its rows are booked postings ([`Row`]), assembled for the query's projection
+//!   from the rows booked once per loaded ledger ([`LedgerCache`]), and only those of the
+//!   accounts the query is scoped to ([`Scope`]).
 //! - [`Rows::Records`]: every other table. A builder walks the ledger once and returns one
 //!   [`Record`] per row, which only borrows the ledger and the store; its columns are computed
 //!   when an expression reads them. A builder may skip work that only unprojected columns
@@ -31,9 +33,11 @@
 
 mod accounts;
 mod budgets;
+mod cache;
 mod directives;
 mod entries;
 mod errors;
+mod lookups;
 mod postings;
 mod prices;
 
@@ -43,15 +47,16 @@ use std::fmt;
 use std::path::Path;
 
 use chrono::NaiveDate;
-use zhang_ast::amount::Amount;
-use zhang_ast::{Directive, Meta, Spanned};
+use zhang_ast::{Commodity, Directive, Meta, Spanned};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
+pub(crate) use self::cache::LedgerCache;
 pub use self::postings::COLUMNS;
-pub(crate) use self::postings::{position, Entry, Row, BALANCE_COLUMN};
+pub(crate) use self::postings::{position, Entry, MaybeOwned, Row, Scope, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN};
 use crate::error::LocatedError;
 use crate::executor::{Budget, Deadline};
+use crate::functions::AccountDirectives;
 use crate::prices::PriceMap;
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
@@ -98,7 +103,7 @@ impl Table {
 
 /// How a table produces its rows.
 pub(crate) enum Rows {
-    /// booked postings (see [`Dataset::new`])
+    /// booked postings (see [`Dataset::postings`])
     Postings,
     /// one [`Record`] per row, built for a projection
     Records(RecordSource),
@@ -158,6 +163,7 @@ static TABLES: &[&Table] = &[
     &accounts::ACCOUNTS,
     &directives::COMMODITIES,
     &budgets::BUDGETS,
+    &budgets::BUDGET_EVENTS,
     &errors::ERRORS,
 ];
 
@@ -263,12 +269,19 @@ pub(crate) enum Borrow {
 pub(crate) enum Record<'a> {
     /// a dated directive of the processed ledger
     Directive(&'a Spanned<Directive>),
+    /// a row of `#entries` or `#transactions`: a directive with its place in the ledger
+    Entry {
+        directive: &'a Spanned<Directive>,
+        info: &'a cache::EntryInfo,
+    },
     /// a balance assertion (`balance`, or `balance ... with pad`) and, when the projection
-    /// reads it, the difference its check found (the balance minus the asserted amount)
+    /// reads it, what zhang's check of it found
     Balance {
         directive: &'a Spanned<Directive>,
-        discrepancy: Option<Amount>,
+        check: Option<directives::AssertionCheck>,
     },
+    /// a document: a `document` directive, or a `document` metadata value
+    Document(directives::DocumentRow<'a>),
     /// an account with its `open` and `close` directives (at least one of them)
     Account {
         name: &'a str,
@@ -277,6 +290,8 @@ pub(crate) enum Record<'a> {
     },
     /// one month of a budget
     Budget(budgets::BudgetMonth<'a>),
+    /// one effect of a budget directive
+    BudgetEvent(budgets::BudgetEvent<'a>),
     /// a ledger error
     Error(errors::LedgerError<'a>),
 }
@@ -286,9 +301,11 @@ impl<'a> Record<'a> {
     /// record table (an account reads the metadata of its `open`, else of its `close`).
     fn metadata(&self) -> Option<&'a Meta> {
         match self {
-            Record::Directive(directive) | Record::Balance { directive, .. } => directive_meta(&directive.data),
+            Record::Directive(directive) | Record::Balance { directive, .. } | Record::Entry { directive, .. } => directive_meta(&directive.data),
             Record::Account { open, close, .. } => open.or(*close).and_then(|directive| directive_meta(&directive.data)),
+            Record::Document(document) => Some(document.metadata()),
             Record::Budget(month) => month.metadata(),
+            Record::BudgetEvent(event) => directive_meta(&event.directive.data),
             // an error's details are not directive metadata (see `meta`)
             Record::Error(_) => None,
         }
@@ -301,6 +318,32 @@ impl<'a> Record<'a> {
             _ => self.metadata().and_then(|meta| meta.get_one(key)).map(|value| value.as_str().to_owned()),
         }
     }
+
+    /// Every value of metadata `key` of the row, in written order.
+    fn meta_values(&self, key: &str) -> Vec<String> {
+        match self {
+            Record::Error(error) => error.meta(key).into_iter().collect(),
+            _ => self
+                .metadata()
+                .map(|meta| meta.get_all(key).into_iter().map(|value| value.as_str().to_owned()).collect())
+                .unwrap_or_default(),
+        }
+    }
+}
+
+/// Metadata as `(key, value)` pairs, the value of the `metas` columns: sorted by key, the
+/// values of a repeated key in written order (zhang keeps no order between different keys).
+pub(crate) fn meta_pairs(meta: Option<&Meta>) -> Vec<(String, String)> {
+    let mut pairs = meta
+        .cloned()
+        .map(|meta| meta.get_flatten())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(key, value)| (key, value.to_plain_string()))
+        .collect::<Vec<_>>();
+    // a stable sort keeps the values of a key in order
+    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    pairs
 }
 
 /// Metadata as text, the value of the `meta` columns: `key: "value"` pairs sorted by key and
@@ -381,16 +424,22 @@ pub(crate) struct Dataset<'a> {
     pub records: Vec<Record<'a>>,
     pub today: NaiveDate,
     pub projection: Projection,
+    ledger: &'a Ledger,
     store: &'a Store,
-    prices: OnceCell<PriceMap>,
+    /// what every query of the ledger shares (see [`LedgerCache`])
+    cache: &'a LedgerCache,
     store_meta: OnceCell<HashMap<&'a str, Vec<(&'a str, &'a str)>>>,
 }
 
 impl<'a> Dataset<'a> {
-    /// The rows of the projection's table; generated rows count against `limits`.
-    pub fn build(ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection, limits: &mut Limits<'_>) -> Result<Self, LocatedError> {
+    /// The rows of the projection's table (of the `postings` table, those in `scope`);
+    /// generated rows count against `limits`.
+    pub fn build(
+        ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection, scope: &Scope, limits: &mut Limits<'_>,
+    ) -> Result<Self, LocatedError> {
+        let cache = LedgerCache::of(ledger, store);
         let records = match projection.table().rows {
-            Rows::Postings => return Ok(Dataset::new(ledger, store, today, projection)),
+            Rows::Postings => return Ok(Dataset::postings(ledger, store, cache, today, projection, scope)),
             Rows::Records(source) => source(ledger, store, projection),
             Rows::Generated(source) => source(ledger, store, projection, limits)?,
         };
@@ -401,8 +450,9 @@ impl<'a> Dataset<'a> {
             records,
             today,
             projection,
+            ledger,
             store,
-            prices: OnceCell::new(),
+            cache,
             store_meta: OnceCell::new(),
         })
     }
@@ -428,8 +478,29 @@ impl<'a> Dataset<'a> {
         (0..self.len()).map(|idx| self.row(idx))
     }
 
+    /// The ledger's price map, built once per loaded ledger.
     pub fn prices(&self) -> &PriceMap {
-        self.prices.get_or_init(|| PriceMap::from_prices(&self.store.prices))
+        self.cache.prices(self.store)
+    }
+
+    /// The `#entries` / `#transactions` rows of the ledger.
+    pub(crate) fn entry_table(&self) -> &'a cache::Entries {
+        self.cache.entries(self.ledger, self.store)
+    }
+
+    /// The `id` of the `#entries` row `seq`.
+    pub(crate) fn entry_id(&self, seq: u32) -> &'a str {
+        self.cache.entry_id(self.ledger, self.entry_table(), seq)
+    }
+
+    /// The `open` and `close` directives of `account`, for `open_date()`, `open_meta()`, ...
+    pub fn account_directives(&self, account: &str) -> Option<AccountDirectives<'a>> {
+        self.cache.lookups(self.ledger, self.store).account(self.ledger, account)
+    }
+
+    /// The `commodity` directive of `currency`, for `commodity_meta()`.
+    pub fn commodity_directive(&self, currency: &str) -> Option<&'a Commodity> {
+        self.cache.lookups(self.ledger, self.store).commodity(self.ledger, currency)
     }
 
     /// What `meta(key)` reads at `row`: the posting's metadata, or a record's own metadata.
@@ -446,6 +517,29 @@ impl<'a> Dataset<'a> {
         match row {
             RowRef::Posting(row) => self.entry_meta(row, key),
             RowRef::Record(record) => record.meta(key),
+        }
+    }
+
+    /// What `meta_values(key)` reads at `row`: every value of the key, as `meta(key)` reads
+    /// the first.
+    pub fn row_meta_values(&self, row: RowRef<'_, '_>, key: &str) -> Vec<String> {
+        match row {
+            RowRef::Posting(row) => self
+                .posting_metas(row)
+                .iter()
+                .filter(|meta| meta.key == key)
+                .map(|meta| meta.value.clone())
+                .collect(),
+            RowRef::Record(record) => record.meta_values(key),
+        }
+    }
+
+    /// What `entry_meta_values(key)` reads at `row`: every value of the key, as
+    /// `entry_meta(key)` reads the first.
+    pub fn row_entry_meta_values(&self, row: RowRef<'_, '_>, key: &str) -> Vec<String> {
+        match row {
+            RowRef::Posting(row) => self.entry_meta_values(row, key),
+            RowRef::Record(record) => record.meta_values(key),
         }
     }
 }

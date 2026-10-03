@@ -1,0 +1,41 @@
+; The balance assertion ledger of zhang-query/tests/server_features.rs: #balances.actual and
+; #balances.passed. Each assertion's expected actual balance and outcome are derived in the
+; test; keep them in sync.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity EUR
+1970-01-01 commodity AAPL
+
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Cash
+1970-01-01 open Assets:Broker
+1970-01-01 open Expenses:Food
+1970-01-01 open Equity:Opening
+
+2024-01-01 * "Opening"
+  Assets:Bank                10.004 CNY
+  Assets:Bank                    20 USD
+  Equity:Opening            -10.004 CNY
+  Equity:Opening                -20 USD
+
+2024-01-02 balance Assets:Bank 10 ~ 0.01 CNY
+2024-01-03 balance Assets:Bank 10.014 ~ 0.01 CNY
+2024-01-04 balance Assets:Bank 10.015 ~ 0.01 CNY
+2024-01-05 balance Assets:Bank 10 CNY
+2024-01-06 balance Assets:Bank 20 USD
+2024-01-06 balance Assets:Bank 0 EUR
+
+2024-01-10 * "Market"
+  Expenses:Food                   4 CNY
+  Assets:Bank                    -4 CNY
+2024-01-10 balance Assets:Bank 10.004 CNY
+2024-01-11 balance Assets:Bank 6.004 CNY
+
+2024-01-15 balance Assets:Cash 100 CNY with pad Equity:Opening
+
+2024-01-20 * "Broker" "Buy"
+  Assets:Broker                  10 AAPL {100 CNY}
+  Equity:Opening              -1000 CNY
+2024-01-21 balance Assets:Broker 10 AAPL

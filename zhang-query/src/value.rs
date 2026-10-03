@@ -12,7 +12,7 @@ use std::ops::Neg;
 use std::sync::Arc;
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::NaiveDate;
+use chrono::{Datelike, Duration, NaiveDate};
 use zhang_ast::amount::Amount;
 
 use crate::decimal::to_plain_string;
@@ -37,10 +37,14 @@ pub enum DataType {
     Amount,
     Position,
     Inventory,
+    /// A calendar interval of months and days, as `interval('1 month')` builds it.
+    Interval,
+    /// Metadata as an ordered list of `(key, value)` pairs, e.g. the `metas` column.
+    Metas,
 }
 
 impl DataType {
-    pub const ALL: [DataType; 10] = [
+    pub const ALL: [DataType; 12] = [
         DataType::Null,
         DataType::Bool,
         DataType::Int,
@@ -51,6 +55,8 @@ impl DataType {
         DataType::Amount,
         DataType::Position,
         DataType::Inventory,
+        DataType::Interval,
+        DataType::Metas,
     ];
 
     pub fn name(&self) -> &'static str {
@@ -65,6 +71,8 @@ impl DataType {
             DataType::Amount => "amount",
             DataType::Position => "position",
             DataType::Inventory => "inventory",
+            DataType::Interval => "interval",
+            DataType::Metas => "metas",
         }
     }
 
@@ -333,6 +341,117 @@ impl fmt::Display for Inventory {
     }
 }
 
+/// A calendar interval: a number of months (a year counts as twelve) and a number of days,
+/// either of which may be negative. It is beanquery's `relativedelta` as `interval()` builds
+/// it, and it moves a date the same way: by the months first, keeping the day of the month
+/// unless the month it lands in is shorter (then its last day), and then by the days.
+///
+/// Intervals are not ordered: `1 month` is not comparable with `30 days`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct Interval {
+    pub months: i64,
+    pub days: i64,
+}
+
+impl Interval {
+    pub fn new(months: i64, days: i64) -> Self {
+        Interval { months, days }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.months == 0 && self.days == 0
+    }
+
+    /// `date` moved by the interval: by the months first (the day of the month is kept,
+    /// or the last day of a shorter month is taken), then by the days. `None` when the
+    /// result is not a representable date.
+    pub fn add_to(&self, date: NaiveDate) -> Option<NaiveDate> {
+        let date = if self.months == 0 {
+            date
+        } else {
+            let index = (date.year() as i64)
+                .checked_mul(12)?
+                .checked_add(date.month0() as i64)?
+                .checked_add(self.months)?;
+            let year = i32::try_from(index.div_euclid(12)).ok()?;
+            let month = index.rem_euclid(12) as u32 + 1;
+            let day = date.day().min(days_in_month(year, month)?);
+            NaiveDate::from_ymd_opt(year, month, day)?
+        };
+        date.checked_add_signed(Duration::try_days(self.days)?)
+    }
+
+    /// `date` moved back by the interval (beanquery's `date - relativedelta`): by the
+    /// negated months first, then by the negated days.
+    pub fn subtract_from(&self, date: NaiveDate) -> Option<NaiveDate> {
+        self.checked_neg()?.add_to(date)
+    }
+
+    pub fn checked_neg(&self) -> Option<Interval> {
+        Some(Interval::new(self.months.checked_neg()?, self.days.checked_neg()?))
+    }
+
+    pub fn checked_add(&self, other: &Interval) -> Option<Interval> {
+        Some(Interval::new(self.months.checked_add(other.months)?, self.days.checked_add(other.days)?))
+    }
+
+    pub fn checked_sub(&self, other: &Interval) -> Option<Interval> {
+        self.checked_add(&other.checked_neg()?)
+    }
+}
+
+/// The dates a query computes: years 1 to 9999, the calendar of beancount (Python's
+/// `datetime.date`). A date function or date arithmetic whose result falls outside is NULL.
+pub(crate) fn in_calendar(date: NaiveDate) -> bool {
+    (1..=9999).contains(&date.year())
+}
+
+/// `date` as a value when it is in the calendar ([`in_calendar`]); NULL otherwise.
+pub(crate) fn calendar_value(date: Option<NaiveDate>) -> Value {
+    date.filter(|date| in_calendar(*date)).map_or(Value::Null, Value::Date)
+}
+
+/// The number of days of a month; `None` for a month outside the calendar.
+pub(crate) fn days_in_month(year: i32, month: u32) -> Option<u32> {
+    let first = NaiveDate::from_ymd_opt(year, month, 1)?;
+    let next = if month == 12 {
+        NaiveDate::from_ymd_opt(year.checked_add(1)?, 1, 1)?
+    } else {
+        NaiveDate::from_ymd_opt(year, month + 1, 1)?
+    };
+    Some((next - first).num_days() as u32)
+}
+
+/// `1 year 2 months -3 days`: the months as years and months (both with the sign of the
+/// months), then the days; zero parts are left out, and the zero interval is `0 days`.
+impl fmt::Display for Interval {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let unit = |n: i64, singular: &str| format!("{} {}{}", n, singular, if n.abs() == 1 { "" } else { "s" });
+        let years = self.months / 12;
+        let months = self.months % 12;
+        let mut parts = vec![];
+        if years != 0 {
+            parts.push(unit(years, "year"));
+        }
+        if months != 0 {
+            parts.push(unit(months, "month"));
+        }
+        if self.days != 0 || parts.is_empty() {
+            parts.push(unit(self.days, "day"));
+        }
+        f.write_str(&parts.join(" "))
+    }
+}
+
+/// Metadata as `(key, value)` pairs in order: the value of the `metas` columns and of
+/// `open_meta(account)`.
+pub type Metas = Vec<(String, String)>;
+
+/// `key: value` pairs joined by `; `, the text of a [`Value::Metas`].
+pub(crate) fn metas_to_string(metas: &[(String, String)]) -> String {
+    metas.iter().map(|(key, value)| format!("{}: {}", key, value)).collect::<Vec<_>>().join("; ")
+}
+
 /// A typed runtime value. Any value may be `Null`.
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -346,6 +465,8 @@ pub enum Value {
     Amount(Amount),
     Position(Position),
     Inventory(Inventory),
+    Interval(Interval),
+    Metas(Metas),
 }
 
 impl Value {
@@ -361,6 +482,8 @@ impl Value {
             Value::Amount(_) => DataType::Amount,
             Value::Position(_) => DataType::Position,
             Value::Inventory(_) => DataType::Inventory,
+            Value::Interval(_) => DataType::Interval,
+            Value::Metas(_) => DataType::Metas,
         }
     }
 
@@ -424,6 +547,18 @@ impl Value {
             _ => None,
         }
     }
+    pub fn as_interval(&self) -> Option<Interval> {
+        match self {
+            Value::Interval(it) => Some(*it),
+            _ => None,
+        }
+    }
+    pub fn as_metas(&self) -> Option<&[(String, String)]> {
+        match self {
+            Value::Metas(it) => Some(it),
+            _ => None,
+        }
+    }
 
     /// The total order used by `ORDER BY`, `min()` and `max()`.
     ///
@@ -458,6 +593,9 @@ impl Value {
                 }
                 left.len().cmp(&right.len())
             }
+            // intervals are not comparable in BQL; this order only makes sorting total
+            (Value::Interval(a), Value::Interval(b)) => (a.months, a.days).cmp(&(b.months, b.days)),
+            (Value::Metas(a), Value::Metas(b)) => a.cmp(b),
             // mixed types never appear in a single typed column; order by type for totality
             (a, b) => a.data_type().cmp(&b.data_type()),
         }
@@ -509,6 +647,8 @@ impl PartialEq for Value {
             (Value::Amount(a), Value::Amount(b)) => a == b,
             (Value::Position(a), Value::Position(b)) => a == b,
             (Value::Inventory(a), Value::Inventory(b)) => a == b,
+            (Value::Interval(a), Value::Interval(b)) => a == b,
+            (Value::Metas(a), Value::Metas(b)) => a == b,
             _ => false,
         }
     }
@@ -530,6 +670,8 @@ impl Hash for Value {
             Value::Amount(it) => hash_amount(it, state),
             Value::Position(it) => it.hash(state),
             Value::Inventory(it) => it.hash(state),
+            Value::Interval(it) => it.hash(state),
+            Value::Metas(it) => it.hash(state),
         }
     }
 }
@@ -548,6 +690,8 @@ impl fmt::Display for Value {
             Value::Amount(it) => write!(f, "{} {}", to_plain_string(&it.number), it.commodity),
             Value::Position(it) => write!(f, "{}", it),
             Value::Inventory(it) => write!(f, "{}", it),
+            Value::Interval(it) => write!(f, "{}", it),
+            Value::Metas(it) => f.write_str(&metas_to_string(it)),
         }
     }
 }
@@ -571,6 +715,8 @@ impl_from!(BTreeSet<String>, Set);
 impl_from!(Amount, Amount);
 impl_from!(Position, Position);
 impl_from!(Inventory, Inventory);
+impl_from!(Interval, Interval);
+impl_from!(Metas, Metas);
 
 impl From<i32> for Value {
     fn from(value: i32) -> Self {
@@ -648,6 +794,34 @@ mod tests {
         assert_eq!(Value::Null.sort_cmp(&Value::Int(1)), Ordering::Less);
         assert_eq!(Value::Int(2).sort_cmp(&Value::Decimal(BigDecimal::from_str("1.5").unwrap())), Ordering::Greater);
         assert_eq!(Value::Int(1), Value::Decimal(BigDecimal::from_str("1.00").unwrap()));
+    }
+
+    #[test]
+    fn intervals_move_by_months_then_days() {
+        let day = |text: &str| NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap();
+        let month = Interval::new(1, 0);
+        assert_eq!(month.add_to(day("2024-01-31")), Some(day("2024-02-29")));
+        assert_eq!(month.add_to(day("2023-01-31")), Some(day("2023-02-28")));
+        assert_eq!(month.subtract_from(day("2024-03-31")), Some(day("2024-02-29")));
+        assert_eq!(Interval::new(-12, 0).add_to(day("2024-02-29")), Some(day("2023-02-28")));
+        assert_eq!(Interval::new(1, 1).add_to(day("2024-01-31")), Some(day("2024-03-01")));
+        assert_eq!(Interval::new(0, -1).add_to(day("2024-03-01")), Some(day("2024-02-29")));
+        assert_eq!(Interval::new(i64::MAX, 0).add_to(day("2024-01-01")), None);
+        assert_eq!(Interval::new(0, i64::MIN).add_to(day("2024-01-01")), None);
+        assert_eq!(Interval::new(13, -3).to_string(), "1 year 1 month -3 days");
+        assert_eq!(Interval::new(-1, 1).to_string(), "-1 month 1 day");
+        assert_eq!(Interval::new(24, 0).to_string(), "2 years");
+        assert_eq!(Value::Interval(Interval::new(1, 0)).data_type(), DataType::Interval);
+        assert_eq!(Interval::new(1, 2).checked_sub(&Interval::new(1, 2)), Some(Interval::default()));
+        assert_eq!(Interval::new(i64::MIN, 0).checked_neg(), None);
+    }
+
+    #[test]
+    fn metas_render_as_pairs() {
+        let metas = Value::Metas(vec![("a".into(), "1".into()), ("a".into(), "2".into()), ("b".into(), "x: y".into())]);
+        assert_eq!(metas.to_string(), "a: 1; a: 2; b: x: y");
+        assert_eq!(Value::Metas(vec![]).to_string(), "");
+        assert_eq!(metas.data_type(), DataType::Metas);
     }
 
     #[test]

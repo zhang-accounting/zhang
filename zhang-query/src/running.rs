@@ -1,4 +1,10 @@
-//! The running totals behind the `balance` column ([`RunningState`]).
+//! The running totals behind the `balance` and `account_balance` columns ([`RunningState`]).
+//!
+//! `account_balance` is the balance of every account over every row of the table so far,
+//! whatever the filter: the state keeps one inventory per account, which every row updates
+//! ([`RunningState::observe`]), and a row reads its account's inventory. Reading it shares the
+//! inventory instead of copying it, so a value only costs a copy when it outlives the next row
+//! of its account: the rows a query holds, which the result budget counts.
 //!
 //! The state always keeps the running inventory of the rows added so far. When the optimizer
 //! turned `units(balance)` or `cost(balance)` into running sums ([`Running::Units`],
@@ -16,12 +22,12 @@
 //! a zero term) the currency is reduced from the lots as before. Both give the same decimal,
 //! scale included.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use bigdecimal::{BigDecimal, Signed, Zero};
 
 use crate::compiler::Running;
-use crate::table::{self, Row};
+use crate::table::{self, Row, RowRef};
 use crate::value::{Inventory, Position};
 use crate::Amount;
 
@@ -130,26 +136,23 @@ fn cost_term(position: &Position) -> Amount {
     position.at_cost()
 }
 
-/// The running totals of one pass over the filtered rows.
-pub(crate) struct RunningState {
+/// A running inventory, and the running sums of the linear functions of it a plan reads.
+struct Sums {
     balance: Inventory,
     units: Option<LinearSum>,
     cost: Option<LinearSum>,
 }
 
-impl RunningState {
-    /// A state keeping the `totals`.
-    pub fn new(totals: &[Running]) -> Self {
-        RunningState {
+impl Sums {
+    fn new(units: bool, cost: bool) -> Sums {
+        Sums {
             balance: Inventory::new(),
-            units: totals.contains(&Running::Units).then(LinearSum::default),
-            cost: totals.contains(&Running::Cost).then(LinearSum::default),
+            units: units.then(LinearSum::default),
+            cost: cost.then(LinearSum::default),
         }
     }
 
-    /// Add a row that passed the filter.
-    pub fn add(&mut self, row: &Row<'_>) {
-        let position = table::position(row);
+    fn add(&mut self, position: Position) {
         if self.units.is_none() && self.cost.is_none() {
             self.balance.add_owned_position(position);
             return;
@@ -168,15 +171,15 @@ impl RunningState {
         }
     }
 
-    /// The value of the running `total`.
-    pub fn value(&self, total: Running) -> Inventory {
+    /// The inventory (shared, not copied), `units()` or `cost()` of it.
+    fn value(&self, total: Running) -> Inventory {
         match total {
-            Running::Balance => self.balance.clone(),
-            Running::Units => match &self.units {
+            Running::Balance | Running::AccountBalance => self.balance.clone(),
+            Running::Units | Running::AccountUnits => match &self.units {
                 Some(sum) => sum.value(&self.balance, units_term),
                 None => self.balance.units(),
             },
-            Running::Cost => match &self.cost {
+            Running::Cost | Running::AccountCost => match &self.cost {
                 Some(sum) => sum.value(&self.balance, cost_term),
                 None => self.balance.at_cost(),
             },
@@ -184,12 +187,89 @@ impl RunningState {
     }
 }
 
+/// The totals of every account.
+struct Accounts {
+    sums: HashMap<String, Sums>,
+    /// whether the totals keep `units()` and `cost()` sums
+    units: bool,
+    cost: bool,
+}
+
+/// The running totals of one pass over the rows.
+pub(crate) struct RunningState {
+    /// the totals of the rows that pass the filter, when the plan reads `balance` (or a linear
+    /// function of it)
+    filtered: Option<Sums>,
+    /// the totals of every account over every row observed so far, when the plan reads
+    /// `account_balance` (or a linear function of it)
+    accounts: Option<Accounts>,
+}
+
+impl RunningState {
+    /// A state keeping the `totals`.
+    pub fn new(totals: &[Running]) -> Self {
+        let has = |total| totals.contains(&total);
+        let filtered = totals.iter().any(|total| !total.per_account());
+        let per_account = totals.iter().any(Running::per_account);
+        RunningState {
+            filtered: filtered.then(|| Sums::new(has(Running::Units), has(Running::Cost))),
+            accounts: per_account.then(|| Accounts {
+                sums: HashMap::new(),
+                units: has(Running::AccountUnits),
+                cost: has(Running::AccountCost),
+            }),
+        }
+    }
+
+    /// Whether the state keeps the account balances, which every row of the table updates.
+    pub fn observes(&self) -> bool {
+        self.accounts.is_some()
+    }
+
+    /// Add a row of the table, whether or not it passes the filter, to the totals of its
+    /// account.
+    pub fn observe(&mut self, row: &Row<'_>) {
+        let Some(accounts) = &mut self.accounts else {
+            return;
+        };
+        let position = table::position(row);
+        match accounts.sums.get_mut(row.account) {
+            Some(sums) => sums.add(position),
+            None => {
+                let mut sums = Sums::new(accounts.units, accounts.cost);
+                sums.add(position);
+                accounts.sums.insert(row.account.to_owned(), sums);
+            }
+        }
+    }
+
+    /// Add a row that passed the filter.
+    pub fn add(&mut self, row: &Row<'_>) {
+        if let Some(sums) = &mut self.filtered {
+            sums.add(table::position(row));
+        }
+    }
+
+    /// The value of the running `total` at `row`, the row being evaluated.
+    pub fn value(&self, total: Running, row: Option<RowRef<'_, '_>>) -> Inventory {
+        let sums = if total.per_account() {
+            match (&self.accounts, row) {
+                (Some(accounts), Some(RowRef::Posting(row))) => accounts.sums.get(row.account),
+                _ => None,
+            }
+        } else {
+            self.filtered.as_ref()
+        };
+        sums.map_or_else(Inventory::new, |sums| sums.value(total))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
     use std::str::FromStr;
 
     use super::*;
+    use crate::table::MaybeOwned;
     use crate::value::Cost;
 
     fn row(number: &str, currency: &str, cost: Option<&str>) -> Row<'static> {
@@ -197,12 +277,14 @@ mod tests {
             entry: 0,
             posting_index: 0,
             account: "Assets:Broker",
-            units: Cow::Owned(Amount::new(BigDecimal::from_str(number).unwrap(), currency)),
-            cost: cost.map(|cost| Cost {
-                number: BigDecimal::from_str(cost).unwrap(),
-                currency: "USD".to_owned(),
-                date: None,
-                label: None,
+            units: MaybeOwned::owned(Amount::new(BigDecimal::from_str(number).unwrap(), currency)),
+            cost: cost.map(|cost| {
+                MaybeOwned::owned(Cost {
+                    number: BigDecimal::from_str(cost).unwrap(),
+                    currency: "USD".to_owned(),
+                    date: None,
+                    label: None,
+                })
             }),
             price: None,
         }
@@ -230,9 +312,9 @@ mod tests {
             ("-5.00", "USD", None),
         ] {
             state.add(&row(number, currency, cost));
-            let balance = state.value(Running::Balance);
-            let units = state.value(Running::Units);
-            let cost = state.value(Running::Cost);
+            let balance = state.value(Running::Balance, None);
+            let units = state.value(Running::Units, None);
+            let cost = state.value(Running::Cost, None);
             assert_eq!(format!("{:?}", units), format!("{:?}", balance.units()), "{number} {currency}");
             assert_eq!(format!("{:?}", cost), format!("{:?}", balance.at_cost()), "{number} {currency}");
             seen.push(units.to_string());

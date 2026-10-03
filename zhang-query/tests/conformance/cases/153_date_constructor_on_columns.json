@@ -1,0 +1,19 @@
+{
+  "name": "date_constructor_on_columns",
+  "query": "SELECT date, date(year, month, 1) AS first, date(year + 1, 1, 1) AS next_year WHERE account = 'Expenses:Home:Rent' AND year = 2016 AND month <= 3 ORDER BY date",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "first", "type": "date"},
+    {"name": "next_year", "type": "date"}
+  ],
+  "rows": [
+    ["2016-01-06", "2016-01-01", "2017-01-01"],
+    ["2016-02-03", "2016-02-01", "2017-01-01"],
+    ["2016-03-06", "2016-03-01", "2017-01-01"]
+  ],
+  "notes": ""
+}

@@ -1,0 +1,21 @@
+{
+  "name": "open_and_close_dates",
+  "query": "SELECT DISTINCT account, open_date(account) AS opened, close_date(account) AS closed WHERE account ~ 'Vanguard|Chase|Opening' ORDER BY account",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "opened", "type": "date"},
+    {"name": "closed", "type": "date"}
+  ],
+  "rows": [
+    ["Assets:US:Vanguard:Cash", "2015-01-01", null],
+    ["Assets:US:Vanguard:RGAGX", "2015-01-01", null],
+    ["Assets:US:Vanguard:VBMPX", "2015-01-01", null],
+    ["Equity:Opening-Balances", "1980-05-12", null],
+    ["Liabilities:US:Chase:Slate", "1980-05-12", null]
+  ],
+  "notes": "open_date(account) and close_date(account) read the account's open and close directives (the ledger closes no account, so close_date is NULL)."
+}

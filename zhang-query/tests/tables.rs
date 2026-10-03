@@ -157,6 +157,7 @@ fn table_results_respect_the_budget_and_export_to_csv() {
         today: Some(today()),
         timeout: None,
         max_result_values: Some(limit),
+        count_total: false,
     };
     // 4 rows of 3 values
     assert!(compiled.execute_with_options(ledger(), &Params::new(), &options(12)).is_ok());
@@ -205,6 +206,7 @@ fn the_schema_describes_every_table() {
             "accounts",
             "commodities",
             "budgets",
+            "budget_events",
             "errors"
         ]
     );
@@ -561,6 +563,8 @@ mod oracle {
             DataType::Amount => "amount",
             DataType::Position => "position",
             DataType::Inventory => "inventory",
+            DataType::Interval => "interval",
+            DataType::Metas => "metas",
         }
     }
 
@@ -586,6 +590,8 @@ mod oracle {
             Value::Set(it) => json!(it.iter().collect::<Vec<_>>()),
             Value::Amount(it) => amount(&it.number.to_string(), &it.commodity),
             Value::Position(it) => panic!("positions are not encoded: {:?}", it),
+            Value::Interval(it) => json!(it.to_string()),
+            Value::Metas(it) => panic!("metadata pairs are not encoded: {:?}", it),
             Value::Inventory(it) => {
                 let mut positions = it
                     .positions()

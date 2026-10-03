@@ -1,0 +1,12 @@
+{
+  "name": "error_date_trunc_argument_order",
+  "query": "SELECT date_trunc(date, 'month')",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "date_trunc takes the field first."
+}

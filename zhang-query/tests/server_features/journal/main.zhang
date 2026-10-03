@@ -1,0 +1,100 @@
+; The journal ledger of zhang-query/tests/server_features.rs: the new columns of #postings,
+; #transactions and #entries (time, timestamp, seq, id, posting_index, account_balance,
+; balanced, errors, metas, entry_metas) and the new functions (icontains, any_icontains,
+; intersects, under, meta_values, entry_meta_values), LIMIT/OFFSET and count_total.
+;
+; The ledger's timezone is UTC+8 without daylight saving time, so a time of day and its Unix
+; timestamp differ by eight hours. Every expected value in the test is derived from this
+; file by hand; keep them in sync.
+option "operating_currency" "CNY"
+option "timezone" "Asia/Shanghai"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity AAPL
+
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Savings
+1970-01-01 open Assets:BankCard
+1970-01-01 open Assets:Broker
+  booking_method: "FIFO"
+1970-01-01 open Assets:Old
+1970-01-01 open Expenses:Food
+1970-01-01 open Expenses:Fun
+1970-01-01 open Income:Salary
+1970-01-01 open Income:Gains
+
+2023-12-31 * "Employer" "December salary"
+  Assets:Bank                1000 CNY
+  Income:Salary             -1000 CNY
+
+; three transactions of the same day, written out of time order: zhang orders a day by
+; time, and an entry without a time is at 00:00:00
+2024-01-15 10:30:00 * "Cafe" "Morning coffee" #coffee
+  receipt: "r-1"
+  Expenses:Food                30 CNY
+    note: "latte"
+  Assets:Bank                 -30 CNY
+
+2024-01-15 * "Market" "Groceries" ^grocery
+  Expenses:Food                50 CNY
+  Assets:Bank                 -50 CNY
+
+2024-01-15 09:05 * "Bakery" "Bread"
+  Expenses:Food                20 CNY
+  Assets:Bank                 -20 CNY
+
+; the implicit posting is written first; metadata keys repeat on the transaction and on a posting
+2024-01-16 * "Cinema" "Movie night" #fun #weekend
+  project: "alpha"
+  project: "beta"
+  trip: "Tokyo"
+  Assets:Bank
+  Expenses:Fun                 80 CNY
+    project: "alpha"
+    project: "gamma"
+    seat: "F12"
+  Expenses:Food                15 CNY
+
+2024-01-20 * "Bank" "Move to savings"
+  Assets:Bank:Savings         100 CNY
+  Assets:Bank                -100 CNY
+
+2024-01-21 * "Card" "Card payment"
+  Expenses:Fun                 10 CNY
+  Assets:BankCard             -10 CNY
+
+; two lots at the same cost; the FIFO sale of 7 takes 5 from the first and 2 from the second
+2024-02-01 * "Broker" "Buy AAPL"
+  Assets:Broker                 5 AAPL {100 CNY}
+  Assets:Bank                -500 CNY
+
+2024-02-02 * "Broker" "Buy AAPL again"
+  Assets:Broker                 5 AAPL {100 CNY}
+  Assets:Bank                -500 CNY
+
+2024-03-01 * "Broker" "Sell AAPL"
+  Assets:Bank                 840 CNY
+  Assets:Broker                -7 AAPL {100 CNY} @ 120 CNY
+  Income:Gains               -140 CNY
+
+2024-03-02 close Assets:Old
+
+2024-03-05 * "Shop" "Unbalanced"
+  Expenses:Food                10 CNY
+  Assets:Bank                  -9 CNY
+
+2024-03-06 * "Shop" "Closed account"
+  Expenses:Food                 5 CNY
+  Assets:Old                   -5 CNY
+
+2024-03-07 * "Shop" "Closed and unbalanced"
+  Expenses:Food                 7 CNY
+  Assets:Old                   -6 CNY
+
+2024-03-10 * "Only a narration"
+  Expenses:Food                 1 CNY
+  Assets:Bank                  -1 CNY
+
+2024-03-11 * "Straße" "ÄPFEL vom Markt"
+  Expenses:Food                 2 CNY
+  Assets:Bank                  -2 CNY
