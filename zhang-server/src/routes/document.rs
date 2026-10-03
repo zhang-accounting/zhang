@@ -33,7 +33,7 @@ pub async fn download_document(ledger: State<SharedLedger>, path: Path<(String,)
     (headers, bytes)
 }
 
-/// Every document of the ledger, newest first: the built-in query `documents.all`.
+/// Every document of the ledger, newest first: the built-in query `journals.documents`.
 #[api(group = "document")]
 pub async fn get_documents(ledger: State<SharedLedger>) -> ApiResult<Vec<DocumentEntity>> {
     ResponseWrapper::json(journals::documents(&ledger).await?)

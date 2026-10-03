@@ -27,7 +27,7 @@ use crate::state::{SharedLedger, SharedReloadSender};
 use crate::{journals, validate, ApiResult, ServerResult};
 
 /// The payees and the open accounts the new-transaction form suggests: the built-in queries
-/// `new_transaction.payees` and `new_transaction.accounts`.
+/// `journals.payees` and `journals.accounts`.
 #[api(group = "transaction")]
 // todo rename api
 pub async fn get_info_for_new_transactions(ledger: State<SharedLedger>) -> ApiResult<InfoForNewTransaction> {
@@ -56,8 +56,8 @@ enum JournalEntry {
 }
 
 /// The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
-/// among the transactions; it books nothing. The built-in query `journal.page`, with the postings and the checks
-/// of a page from `journal.postings` and `journal.balance_checks`.
+/// among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
+/// of a page from `journals.postings` and `journals.balance_checks`.
 ///
 /// A page size of 0, or a page beyond what an offset can count, is a bad request.
 #[api(group = "transaction")]

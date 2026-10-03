@@ -2,16 +2,13 @@
 //! ledger as built-in queries of the query engine (#479): every response is one or more named BQL
 //! queries plus a thin mapping into its existing shape.
 //!
+//! The queries are in the registry of built-in queries ([`crate::builtin`]), under `journals.`.
 //! User input is only ever bound as parameters, never formatted into a query. The queries of one
-//! response run under one read guard of the ledger, so they see the same ledger.
-//!
-//! Until the shared registry of built-in queries is in place, the queries of this module are
-//! compiled and run here, once, with the limits of `/api/query`.
+//! response run under one read lock of the ledger, so they see the same ledger.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::LazyLock;
 
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
@@ -22,170 +19,27 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::Flag;
 use zhang_core::constants::BALANCE_CHECK_PAYEE;
 use zhang_core::ledger::Ledger;
-use zhang_query::{DataType, ExecuteOptions, ParamTypes, Params, Query, QueryResult, Value};
+use zhang_query::{Params, QueryResult, Value};
 
+use crate::builtin::execute;
 use crate::error::ServerError;
 use crate::request::JournalRequest;
 use crate::response::{
     DocumentEntity, ErrorEntity, InfoForNewTransaction, JournalBalanceCheckItemEntity, JournalBalanceItemEntity, JournalItemEntity,
     JournalTransactionItemEntity, JournalTransactionPostingEntity, MetaEntity, Pageable, SpanInfoEntity,
 };
-use crate::routes::query::{execute_options, max_result_values};
+use crate::routes::query::with_ledger;
 use crate::state::SharedLedger;
 use crate::ServerResult;
 
-/// A named, documented query the server runs, with the types of its parameters.
-pub struct BuiltinQuery {
-    pub name: &'static str,
-    pub description: &'static str,
-    pub bql: &'static str,
-    pub params: &'static [(&'static str, DataType)],
-}
-
-/// One page of the journal: the transactions and the balance assertions, newest first.
-pub const JOURNAL: BuiltinQuery = BuiltinQuery {
-    name: "journal.page",
-    description: "The journal: the transactions (padding transactions included) and the balance assertions, newest first, one \
-                  page at a time. `keyword` keeps the transactions whose payee, narration, tags, links or accounts contain it, \
-                  ignoring case, and the balance assertions whose accounts or the words Balance Check contain it; `tags` and \
-                  `links` keep the transactions that have one of them, and no balance assertion. A NULL parameter keeps every \
-                  row.",
-    bql: "SELECT seq, type, id, date, time, flag, payee, narration, tags, links, metas
-FROM #entries
-WHERE (type = 'transaction'
-       AND (:tags IS NULL OR intersects(tags, :tags))
-       AND (:links IS NULL OR intersects(links, :links))
-       AND (:keyword IS NULL OR icontains(payee, :keyword) OR icontains(narration, :keyword)
-            OR any_icontains(tags, :keyword) OR any_icontains(links, :keyword) OR any_icontains(accounts, :keyword)))
-   OR (type = 'balance' AND :tags IS NULL AND :links IS NULL
-       AND (:keyword IS NULL OR icontains('Balance Check', :keyword) OR any_icontains(accounts, :keyword)))
-ORDER BY seq DESC
-LIMIT :size OFFSET :offset",
-    params: &[
-        ("keyword", DataType::Str),
-        ("tags", DataType::Set),
-        ("links", DataType::Set),
-        ("size", DataType::Int),
-        ("offset", DataType::Int),
-    ],
-};
-
-/// The postings of some transactions of the journal.
-pub const JOURNAL_POSTINGS: BuiltinQuery = BuiltinQuery {
-    name: "journal.postings",
-    description: "The postings of the transactions with the ids `ids`, one row per posting as written (the lots booking split \
-                  it into added up), in ledger order: its units, whether they were inferred (`automatic`), the per-unit cost \
-                  of its first lot, the balance of its account in the posting's currency before and after it, and whether its \
-                  transaction balances.",
-    bql: "SELECT id, posting_index, account, automatic, balanced,
-       first(currency) AS currency,
-       sum(number) AS number,
-       first(cost_number) AS cost_number, first(cost_currency) AS cost_currency,
-       number(last(only(currency, account_balance))) - sum(number) AS balance_before,
-       number(last(only(currency, account_balance))) AS balance_after,
-       first(metas) AS metas
-WHERE id IN :ids
-GROUP BY id, posting_index, account, automatic, balanced",
-    params: &[("ids", DataType::Set)],
-};
-
-/// The balance assertions of the journal.
-pub const JOURNAL_BALANCE_CHECKS: BuiltinQuery = BuiltinQuery {
-    name: "journal.balance_checks",
-    description: "The balance assertions with the ids `ids`: the asserted amount, the account's true balance, their difference \
-                  and whether the assertion holds.",
-    bql: "SELECT id, account, amount, tolerance, actual, passed,
-       amount - actual AS difference,
-       actual + (amount - actual) AS asserted
-FROM #balances
-WHERE id IN :ids",
-    params: &[("ids", DataType::Set)],
-};
-
-/// The payees the new-transaction form suggests.
-pub const PAYEES: BuiltinQuery = BuiltinQuery {
-    name: "new_transaction.payees",
-    description: "Every payee of the ledger's transactions, once and sorted, without those of the padding transactions.",
-    bql: "SELECT DISTINCT payee
-FROM #transactions
-WHERE payee IS NOT NULL AND payee != '' AND flag != 'P'
-ORDER BY payee",
-    params: &[],
-};
-
-/// The accounts the new-transaction form offers.
-pub const OPEN_ACCOUNTS: BuiltinQuery = BuiltinQuery {
-    name: "new_transaction.accounts",
-    description: "The accounts that are open: opened, and not closed. Sorted by name.",
-    bql: "SELECT account
-FROM #accounts
-WHERE open IS NOT NULL AND close IS NULL
-ORDER BY account",
-    params: &[],
-};
-
-/// The documents page.
-pub const DOCUMENTS: BuiltinQuery = BuiltinQuery {
-    name: "documents.all",
-    description: "Every document of the ledger, newest first: the document directives and the documents transactions and \
-                  postings name in their metadata, with the path to download them by.",
-    bql: "SELECT date, time, path, account, transaction_id
-FROM #documents
-ORDER BY seq DESC",
-    params: &[],
-};
-
-/// One page of the ledger's errors.
-pub const ERRORS: BuiltinQuery = BuiltinQuery {
-    name: "errors.page",
-    description: "The ledger's errors, one page at a time, by file and then by position in the file.",
-    bql: "SELECT id, kind, file, span_start, span_end, source, metas
-FROM #errors
-LIMIT :size OFFSET :offset",
-    params: &[("size", DataType::Int), ("offset", DataType::Int)],
-};
-
-/// Every built-in query of this module.
-pub const BUILTINS: &[&BuiltinQuery] = &[
-    &JOURNAL,
-    &JOURNAL_POSTINGS,
-    &JOURNAL_BALANCE_CHECKS,
-    &PAYEES,
-    &OPEN_ACCOUNTS,
-    &DOCUMENTS,
-    &ERRORS,
-];
-
-/// The built-in queries, each compiled once.
-static COMPILED: LazyLock<HashMap<&'static str, Query>> = LazyLock::new(|| {
-    BUILTINS
-        .iter()
-        .map(|builtin| {
-            let types = builtin.params.iter().fold(ParamTypes::new(), |types, (name, ty)| types.bind(*name, *ty));
-            let query = Query::compile_with_params(builtin.bql, &types)
-                .unwrap_or_else(|error| panic!("the built-in query {} does not compile: {:?}", builtin.name, error));
-            (builtin.name, query)
-        })
-        .collect()
-});
-
-/// Run a built-in query over `ledger` with the limits of `/api/query`; `count_total` also counts
-/// its rows before `LIMIT` and `OFFSET`.
-fn run(ledger: &Ledger, builtin: &BuiltinQuery, params: &Params, count_total: bool) -> ServerResult<QueryResult> {
-    let query = COMPILED.get(builtin.name).expect("every built-in query is compiled");
-    let options = ExecuteOptions {
-        count_total,
-        ..execute_options(max_result_values())
-    };
-    Ok(query.execute_with_options(ledger, params, &options)?)
-}
-
-/// Run `work` over the ledger under one read guard, off the async workers: the queries of one
-/// response see the same ledger.
-async fn with_ledger<T: Send + 'static>(ledger: &SharedLedger, work: impl FnOnce(&Ledger) -> ServerResult<T> + Send + 'static) -> ServerResult<T> {
-    let guard = ledger.0.clone().read_owned().await;
-    tokio::task::spawn_blocking(move || work(&guard)).await?
-}
+/// The built-in queries of the journal ([`crate::builtin::BUILTINS`]).
+pub const JOURNAL: &str = "journals.page";
+pub const JOURNAL_POSTINGS: &str = "journals.postings";
+pub const JOURNAL_BALANCE_CHECKS: &str = "journals.balance_checks";
+pub const PAYEES: &str = "journals.payees";
+pub const OPEN_ACCOUNTS: &str = "journals.accounts";
+pub const DOCUMENTS: &str = "journals.documents";
+pub const ERRORS: &str = "journals.errors";
 
 /// The columns of a result by name.
 struct Columns(HashMap<String, usize>);
@@ -280,8 +134,8 @@ fn journal_params(params: &JournalRequest, size: u32, offset: i64) -> Params {
 pub async fn journal(ledger: &SharedLedger, params: JournalRequest) -> ServerResult<Pageable<JournalItemEntity>> {
     let (page, size, offset) = page_window(&params)?;
     let query_params = journal_params(&params, size, offset);
-    with_ledger(ledger, move |ledger| {
-        let page_rows = run(ledger, &JOURNAL, &query_params, true)?;
+    with_ledger(&ledger.0, move |ledger| {
+        let page_rows = execute(ledger, JOURNAL, &query_params, true)?;
         let records = journal_items(ledger, &page_rows)?;
         Ok(Pageable::new(total(&page_rows), page, size, records))
     })
@@ -304,7 +158,7 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
 
     let mut postings: HashMap<String, Vec<PostingRow>> = HashMap::new();
     if !transaction_ids.is_empty() {
-        let result = run(ledger, &JOURNAL_POSTINGS, &Params::new().bind("ids", transaction_ids), false)?;
+        let result = execute(ledger, JOURNAL_POSTINGS, &Params::new().bind("ids", transaction_ids), false)?;
         let posting_columns = Columns::of(&result);
         for row in &result.rows {
             let posting = PostingRow::of(&posting_columns, row);
@@ -313,7 +167,7 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
     }
     let mut checks: HashMap<String, BalanceCheckRow> = HashMap::new();
     if !balance_ids.is_empty() {
-        let result = run(ledger, &JOURNAL_BALANCE_CHECKS, &Params::new().bind("ids", balance_ids), false)?;
+        let result = execute(ledger, JOURNAL_BALANCE_CHECKS, &Params::new().bind("ids", balance_ids), false)?;
         let check_columns = Columns::of(&result);
         for row in &result.rows {
             checks.insert(string(check_columns.get(row, "id")), BalanceCheckRow::of(&check_columns, row));
@@ -496,11 +350,11 @@ fn journal_item(entry: EntryRow, postings: Vec<PostingRow>, check: Option<Balanc
 
 /// `GET /api/for-new-transaction`: the payees and the open accounts.
 pub async fn info_for_new_transaction(ledger: &SharedLedger) -> ServerResult<InfoForNewTransaction> {
-    with_ledger(ledger, |ledger| {
+    with_ledger(&ledger.0, |ledger| {
         let first_column = |result: QueryResult| result.rows.iter().filter_map(|row| optional_string(&row[0])).collect_vec();
         Ok(InfoForNewTransaction {
-            payee: first_column(run(ledger, &PAYEES, &Params::new(), false)?),
-            account_name: first_column(run(ledger, &OPEN_ACCOUNTS, &Params::new(), false)?),
+            payee: first_column(execute(ledger, PAYEES, &Params::new(), false)?),
+            account_name: first_column(execute(ledger, OPEN_ACCOUNTS, &Params::new(), false)?),
         })
     })
     .await
@@ -511,8 +365,8 @@ pub async fn info_for_new_transaction(ledger: &SharedLedger) -> ServerResult<Inf
 
 /// `GET /api/documents`: every document, newest first.
 pub async fn documents(ledger: &SharedLedger) -> ServerResult<Vec<DocumentEntity>> {
-    with_ledger(ledger, |ledger| {
-        let result = run(ledger, &DOCUMENTS, &Params::new(), false)?;
+    with_ledger(&ledger.0, |ledger| {
+        let result = execute(ledger, DOCUMENTS, &Params::new(), false)?;
         let columns = Columns::of(&result);
         Ok(result
             .rows
@@ -539,8 +393,8 @@ pub async fn documents(ledger: &SharedLedger) -> ServerResult<Vec<DocumentEntity
 /// `GET /api/errors`: one page of the ledger's errors.
 pub async fn errors(ledger: &SharedLedger, params: JournalRequest) -> ServerResult<Pageable<ErrorEntity>> {
     let (page, size, offset) = page_window(&params)?;
-    with_ledger(ledger, move |ledger| {
-        let result = run(ledger, &ERRORS, &Params::new().bind("size", i64::from(size)).bind("offset", offset), true)?;
+    with_ledger(&ledger.0, move |ledger| {
+        let result = execute(ledger, ERRORS, &Params::new().bind("size", i64::from(size)).bind("offset", offset), true)?;
         let columns = Columns::of(&result);
         let records = result
             .rows
@@ -568,31 +422,8 @@ pub async fn errors(ledger: &SharedLedger, params: JournalRequest) -> ServerResu
 
 #[cfg(test)]
 mod test {
-    use std::collections::BTreeSet;
-
-    use super::{page_window, BUILTINS, COMPILED};
+    use super::page_window;
     use crate::request::JournalRequest;
-
-    /// Every built-in query compiles, and declares exactly the parameters its BQL uses.
-    #[test]
-    fn every_builtin_compiles_with_the_parameters_it_declares() {
-        for builtin in BUILTINS {
-            assert!(COMPILED.contains_key(builtin.name), "{}", builtin.name);
-            let used: BTreeSet<&str> = builtin
-                .bql
-                .match_indices(':')
-                .map(|(at, _)| {
-                    let name = &builtin.bql[at + 1..];
-                    &name[..name.find(|it: char| !(it.is_ascii_alphanumeric() || it == '_')).unwrap_or(name.len())]
-                })
-                .filter(|name| !name.is_empty())
-                .collect();
-            let declared: BTreeSet<&str> = builtin.params.iter().map(|(name, _)| *name).collect();
-            assert_eq!(used, declared, "{}", builtin.name);
-        }
-        let names: BTreeSet<&str> = BUILTINS.iter().map(|it| it.name).collect();
-        assert_eq!(names.len(), BUILTINS.len(), "built-in names are unique");
-    }
 
     fn request(page: Option<u32>, size: Option<u32>) -> JournalRequest {
         JournalRequest {
