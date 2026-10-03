@@ -125,6 +125,8 @@ impl Schematic for FlagRequest {
 pub struct CreateTransactionPostingRequest {
     pub account: String,
     pub unit: Option<Amount>,
+    /// metadata of the posting, checked like the transaction's `metas`
+    pub metas: Option<Vec<MetaRequest>>,
 }
 
 #[derive(Schematic, Deserialize)]

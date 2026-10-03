@@ -196,3 +196,51 @@ fn today_comes_from_the_execution() {
         .unwrap();
     assert_eq!(result.rows, vec![vec![Value::Date(today), Value::from("2024-Q1")]]);
 }
+
+#[test]
+fn metadata_functions_read_the_posting_and_its_transaction() {
+    let ledger = common::load_text(
+        r#"1970-01-01 commodity CNY
+1970-01-01 open Assets:Cash
+1970-01-01 open Expenses:Food
+1970-01-01 open Expenses:Drinks
+
+2024-01-02 * "Cafe" "lunch"
+  category: "meals"
+  shared: "transaction"
+  Assets:Cash -10 CNY
+    receipt: "r1"
+  Expenses:Food 6 CNY
+    shared: "posting"
+    category: "food"
+    note: "say \"hi\""
+  Expenses:Drinks 4 CNY
+"#,
+    );
+    expect(
+        &ledger,
+        "SELECT account, meta('category'), entry_meta('category'), any_meta('category'), any_meta('shared'), meta('receipt'), \
+         entry_meta('receipt'), any_meta('receipt') ORDER BY account",
+        &[
+            &["Assets:Cash", "NULL", "meals", "meals", "transaction", "r1", "NULL", "r1"],
+            &["Expenses:Drinks", "NULL", "meals", "meals", "transaction", "NULL", "NULL", "NULL"],
+            &["Expenses:Food", "food", "meals", "food", "posting", "NULL", "NULL", "NULL"],
+        ],
+    );
+    // the `meta` column holds the posting's own metadata, as text
+    expect(
+        &ledger,
+        "SELECT account, meta ORDER BY account",
+        &[
+            &["Assets:Cash", "receipt: \"r1\""],
+            &["Expenses:Drinks", ""],
+            &["Expenses:Food", "category: \"food\", note: \"say \\\"hi\\\"\", shared: \"posting\""],
+        ],
+    );
+    expect(
+        &ledger,
+        "SELECT any_meta('category') AS category, sum(number) GROUP BY category ORDER BY category",
+        &[&["food", "6"], &["meals", "-6"]],
+    );
+    expect(&ledger, "SELECT account WHERE meta('receipt') IS NOT NULL", &[&["Assets:Cash"]]);
+}

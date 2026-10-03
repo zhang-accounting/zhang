@@ -102,6 +102,19 @@ pub struct Posting {
     pub cost: Option<PostingCost>,
     pub price: Option<SingleTotalPrice>,
     pub comment: Option<String>,
+    /// Metadata of the posting: the metadata lines written under it, as opposed to the
+    /// transaction's own [`Transaction::meta`].
+    ///
+    /// Which lines belong to a posting depends on the format: in beancount every metadata
+    /// line after a posting belongs to it, in zhang only a line indented deeper than the
+    /// posting line does.
+    ///
+    /// A missing field reads as empty, so a WASM plugin built against an older zhang-ast,
+    /// whose postings have no `meta`, still exchanges directives with zhang. Such a plugin
+    /// does not know the field, though, and writes back every directive it is given: every
+    /// transaction that passes through it loses the metadata of its postings.
+    #[serde(default)]
+    pub meta: Meta,
 }
 impl Posting {
     pub fn set_comment(mut self, comment: String) -> Self {

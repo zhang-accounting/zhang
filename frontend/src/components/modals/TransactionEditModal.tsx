@@ -19,7 +19,7 @@ import { RawEditNote } from './RawEditNote';
 /**
  * Edit an existing transaction: Dialog >= md, bottom Drawer < md. Opens whenever `editTransactionAtom` is set.
  *
- * The update API rewrites the whole transaction from the form (account + `number commodity` per posting). Cost / price are
+ * The update API rewrites the whole transaction from the form (account, `number commodity` and metadata per posting). Cost / price are
  * detected from the payload and block editing (Raw Edit instead); posting comments and posting flags are not in the payload,
  * so saving asks for an explicit confirmation that they will be dropped.
  */

@@ -32,6 +32,71 @@ export interface paths {
     /** Get Account Journals */
     get: operations['get_account_journals'];
   };
+  '/api/auth/login': {
+    /**
+     * Auth Login
+     * @description Exchanges the `ZHANG_AUTH` credential for a session cookie.
+     */
+    post: operations['auth_login'];
+  };
+  '/api/auth/logout': {
+    /**
+     * Auth Logout
+     * @description Ends the session by clearing its cookie.
+     */
+    post: operations['auth_logout'];
+  };
+  '/api/auth/passkey/login/finish': {
+    /**
+     * Passkey Login Finish
+     * @description Finishes a passkey login and signs the caller in.
+     */
+    post: operations['passkey_login_finish'];
+  };
+  '/api/auth/passkey/login/start': {
+    /**
+     * Passkey Login Start
+     * @description Starts a passkey login, allowing every registered passkey.
+     */
+    post: operations['passkey_login_start'];
+  };
+  '/api/auth/passkey/register/finish': {
+    /**
+     * Passkey Register Finish
+     * @description Finishes registering a passkey and stores it. A caller without a session (registering with
+     * the secret) is signed in with the new passkey; a signed-in caller keeps their session.
+     */
+    post: operations['passkey_register_finish'];
+  };
+  '/api/auth/passkey/register/start': {
+    /**
+     * Passkey Register Start
+     * @description Starts registering a passkey; needs a session or the `ZHANG_PASSKEY` secret.
+     */
+    post: operations['passkey_register_start'];
+  };
+  '/api/auth/passkeys': {
+    /**
+     * Get Passkeys
+     * @description The registered passkeys; needs a session.
+     */
+    get: operations['get_passkeys'];
+  };
+  '/api/auth/passkeys/{passkey_id}': {
+    /**
+     * Delete Passkey
+     * @description Removes a passkey (and ends its sessions); needs a session. The last passkey stays while
+     * password login is disabled.
+     */
+    delete: operations['delete_passkey'];
+  };
+  '/api/auth/status': {
+    /**
+     * Get Auth Status
+     * @description Whether authentication is enabled, which methods, and who the caller is.
+     */
+    get: operations['get_auth_status'];
+  };
   '/api/budgets': {
     /** Get Budget List */
     get: operations['get_budget_list'];
@@ -407,6 +472,310 @@ export interface operations {
               timestamp: number;
               trx_id: string;
             }[];
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Auth Login
+   * @description Exchanges the `ZHANG_AUTH` credential for a session cookie.
+   */
+  auth_login: {
+    requestBody: {
+      content: {
+        'application/json': {
+          password: string;
+          username: string;
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /** @description whether the caller can use the API (always true when authentication is disabled) */
+              authenticated: boolean;
+              /** @description whether any authentication method is enabled */
+              enabled: boolean;
+              methods: {
+                /** @description passkeys, `ZHANG_PASSKEY` */
+                passkey: boolean;
+                /** @description username and password, `ZHANG_AUTH` */
+                password: boolean;
+              };
+              /** @description whether at least one passkey is registered */
+              passkey_registered: boolean;
+              /** @description title of ledger */
+              title?: string | null;
+              /** @description who the caller is signed in as */
+              user?: string | null;
+            };
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Auth Logout
+   * @description Ends the session by clearing its cookie.
+   */
+  auth_logout: {
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /** @description whether the caller can use the API (always true when authentication is disabled) */
+              authenticated: boolean;
+              /** @description whether any authentication method is enabled */
+              enabled: boolean;
+              methods: {
+                /** @description passkeys, `ZHANG_PASSKEY` */
+                passkey: boolean;
+                /** @description username and password, `ZHANG_AUTH` */
+                password: boolean;
+              };
+              /** @description whether at least one passkey is registered */
+              passkey_registered: boolean;
+              /** @description title of ledger */
+              title?: string | null;
+              /** @description who the caller is signed in as */
+              user?: string | null;
+            };
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Passkey Login Finish
+   * @description Finishes a passkey login and signs the caller in.
+   */
+  passkey_login_finish: {
+    requestBody: {
+      content: {
+        'application/json': {
+          /**
+           * Format: json
+           * @description the `PublicKeyCredential` of `navigator.credentials.get`
+           */
+          credential: Record<string, never>;
+          state_id: string;
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /** @description whether the caller can use the API (always true when authentication is disabled) */
+              authenticated: boolean;
+              /** @description whether any authentication method is enabled */
+              enabled: boolean;
+              methods: {
+                /** @description passkeys, `ZHANG_PASSKEY` */
+                passkey: boolean;
+                /** @description username and password, `ZHANG_AUTH` */
+                password: boolean;
+              };
+              /** @description whether at least one passkey is registered */
+              passkey_registered: boolean;
+              /** @description title of ledger */
+              title?: string | null;
+              /** @description who the caller is signed in as */
+              user?: string | null;
+            };
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Passkey Login Start
+   * @description Starts a passkey login, allowing every registered passkey.
+   */
+  passkey_login_start: {
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * Format: json
+               * @description the options to pass to `navigator.credentials.create` / `navigator.credentials.get`
+               */
+              options: Record<string, never>;
+              /** @description identifies the ceremony when finishing it */
+              state_id: string;
+            };
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Passkey Register Finish
+   * @description Finishes registering a passkey and stores it. A caller without a session (registering with
+   * the secret) is signed in with the new passkey; a signed-in caller keeps their session.
+   */
+  passkey_register_finish: {
+    requestBody: {
+      content: {
+        'application/json': {
+          /**
+           * Format: json
+           * @description the `RegisterPublicKeyCredential` of `navigator.credentials.create`
+           */
+          credential: Record<string, never>;
+          /** @description the name of the new passkey, overriding the one given when starting */
+          name?: string | null;
+          state_id: string;
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /** @description whether the caller can use the API (always true when authentication is disabled) */
+              authenticated: boolean;
+              /** @description whether any authentication method is enabled */
+              enabled: boolean;
+              methods: {
+                /** @description passkeys, `ZHANG_PASSKEY` */
+                passkey: boolean;
+                /** @description username and password, `ZHANG_AUTH` */
+                password: boolean;
+              };
+              /** @description whether at least one passkey is registered */
+              passkey_registered: boolean;
+              /** @description title of ledger */
+              title?: string | null;
+              /** @description who the caller is signed in as */
+              user?: string | null;
+            };
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Passkey Register Start
+   * @description Starts registering a passkey; needs a session or the `ZHANG_PASSKEY` secret.
+   */
+  passkey_register_start: {
+    requestBody: {
+      content: {
+        'application/json': {
+          /** @description the name of the new passkey */
+          name?: string | null;
+          /** @description the `ZHANG_PASSKEY` secret, needed when the caller has no session */
+          secret?: string | null;
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * Format: json
+               * @description the options to pass to `navigator.credentials.create` / `navigator.credentials.get`
+               */
+              options: Record<string, never>;
+              /** @description identifies the ceremony when finishing it */
+              state_id: string;
+            };
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Get Passkeys
+   * @description The registered passkeys; needs a session.
+   */
+  get_passkeys: {
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              created_at: string;
+              id: string;
+              name: string;
+            }[];
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Delete Passkey
+   * @description Removes a passkey (and ends its sessions); needs a session. The last passkey stays while
+   * password login is disabled.
+   */
+  delete_passkey: {
+    parameters: {
+      path: {
+        passkey_id: string;
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              created_at: string;
+              id: string;
+              name: string;
+            }[];
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Get Auth Status
+   * @description Whether authentication is enabled, which methods, and who the caller is.
+   */
+  get_auth_status: {
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /** @description whether the caller can use the API (always true when authentication is disabled) */
+              authenticated: boolean;
+              /** @description whether any authentication method is enabled */
+              enabled: boolean;
+              methods: {
+                /** @description passkeys, `ZHANG_PASSKEY` */
+                passkey: boolean;
+                /** @description username and password, `ZHANG_AUTH` */
+                password: boolean;
+              };
+              /** @description whether at least one passkey is registered */
+              passkey_registered: boolean;
+              /** @description title of ledger */
+              title?: string | null;
+              /** @description who the caller is signed in as */
+              user?: string | null;
+            };
           };
         };
       };
@@ -840,6 +1209,11 @@ export interface operations {
                         commodity: string;
                         number: string;
                       };
+                      /** @description metadata of the posting, sorted by key */
+                      metas: {
+                        key: string;
+                        value: string;
+                      }[];
                       unit?: {
                         commodity: string;
                         number: string;
@@ -875,6 +1249,11 @@ export interface operations {
                         commodity: string;
                         number: string;
                       };
+                      /** @description metadata of the posting, sorted by key */
+                      metas: {
+                        key: string;
+                        value: string;
+                      }[];
                       unit?: {
                         commodity: string;
                         number: string;
@@ -910,6 +1289,11 @@ export interface operations {
                         commodity: string;
                         number: string;
                       };
+                      /** @description metadata of the posting, sorted by key */
+                      metas: {
+                        key: string;
+                        value: string;
+                      }[];
                       unit?: {
                         commodity: string;
                         number: string;
@@ -1371,6 +1755,13 @@ export interface operations {
           payee: string;
           postings: {
             account: string;
+            /** @description metadata of the posting, checked like the transaction's `metas` */
+            metas?:
+              | {
+                  key: string;
+                  value: string;
+                }[]
+              | null;
             unit?: {
               commodity: string;
               number: string;
@@ -1412,6 +1803,13 @@ export interface operations {
           payee: string;
           postings: {
             account: string;
+            /** @description metadata of the posting, checked like the transaction's `metas` */
+            metas?:
+              | {
+                  key: string;
+                  value: string;
+                }[]
+              | null;
             unit?: {
               commodity: string;
               number: string;

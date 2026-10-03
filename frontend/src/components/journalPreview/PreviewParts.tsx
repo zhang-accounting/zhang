@@ -39,15 +39,43 @@ export function PreviewRow({ label, children }: { label: React.ReactNode; childr
   );
 }
 
-/** Account + amount row with the balance after the posting underneath. */
-export function PostingRow({ account, amount, balance }: { account: string; amount: React.ReactNode; balance?: React.ReactNode }) {
+/**
+ * Account + amount row with the balance after the posting underneath, and the posting's own metadata (if any) as a compact
+ * key / value list below, indented like the posting's metadata lines in the ledger file.
+ */
+export function PostingRow({
+  account,
+  amount,
+  balance,
+  metas,
+  metasLabel,
+}: {
+  account: string;
+  amount: React.ReactNode;
+  balance?: React.ReactNode;
+  metas?: { key: string; value: string }[];
+  /** Accessible name of the metadata list. */
+  metasLabel?: string;
+}) {
   return (
-    <div className="flex items-start justify-between gap-3 px-3 py-2.5 text-sm">
-      <span className="min-w-0 break-all">{account}</span>
-      <span className="flex shrink-0 flex-col items-end gap-0.5">
-        <span className="font-medium">{amount}</span>
-        {balance && <span className="text-xs text-muted-foreground">{balance}</span>}
-      </span>
+    <div className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">
+      <div className="flex items-start justify-between gap-3">
+        <span className="min-w-0 break-all">{account}</span>
+        <span className="flex shrink-0 flex-col items-end gap-0.5">
+          <span className="font-medium">{amount}</span>
+          {balance && <span className="text-xs text-muted-foreground">{balance}</span>}
+        </span>
+      </div>
+      {metas && metas.length > 0 && (
+        <dl aria-label={metasLabel} className="ml-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 border-l pl-3 text-xs">
+          {metas.map((meta, idx) => (
+            <React.Fragment key={idx}>
+              <dt className="max-w-40 break-words text-muted-foreground">{meta.key}</dt>
+              <dd className="min-w-0 break-words text-foreground-2">{meta.value}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
+      )}
     </div>
   );
 }

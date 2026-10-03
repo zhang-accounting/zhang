@@ -594,6 +594,7 @@ Two booking cases are still handled differently by Zhang's ledger processing tha
 | `price` | `amount` | Price per unit written with `@`, or `NULL` if there is none. A total price written with `@@` is divided by the number of units. |
 | `weight` | `amount` | Amount that the posting contributes to balancing its transaction: units times the per-unit cost if the posting is held at cost, otherwise units times the price if it has one, otherwise the units. |
 | `other_accounts` | `set` | Accounts of the other postings in the same transaction. |
+| `meta` | `str` | Metadata of the posting as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` if it has none. The transaction's own metadata is read with `entry_meta()`. |
 | `balance` | `inventory` | The [running balance](#the-running-balance): the sum of the positions of the rows up to and including this one. It cannot be used in `FROM` or `WHERE`. |
 
 ### The running balance
@@ -971,11 +972,19 @@ The `year`, `month` and `day` columns are shortcuts: `year` is the same as `year
 | `entry_meta(str) -> str` | Value of a metadata key on the transaction, or `NULL` if it is not set. |
 | `any_meta(str) -> str` | Value of a metadata key on the posting, falling back to the transaction, or `NULL` if neither has it. |
 
-Metadata values are always returned as text. On the [other tables](#other-tables), all three read the metadata of the row's directive. On `#budgets` they read the metadata of the `budget` directive, and on `#errors` the details Zhang records about the error.
+Metadata values are always returned as text. When a key is repeated, its first value is returned. On the [other tables](#other-tables), all three read the metadata of the row's directive. On `#budgets` they read the metadata of the `budget` directive, and on `#errors` the details Zhang records about the error.
 
-:::note
-Zhang does not keep metadata per posting yet: every metadata line inside a transaction, including lines indented under a posting, is stored on the transaction. Until that changes ([#434](https://github.com/zhang-accounting/zhang/issues/434)), `meta` always returns `NULL`. Use `entry_meta` or `any_meta` to read metadata.
-:::
+Which metadata lines of a transaction belong to a posting depends on the file format, see [Transactions](/directives/6-transaction/#which-lines-belong-to-a-posting). For example, with
+
+```zhang
+2024-01-02 * "Cafe" "lunch"
+  category: "meals"
+  Assets:Cash -10 CNY
+  Expenses:Food 10 CNY
+    category: "food"
+```
+
+the `Expenses:Food` posting has `meta('category')` `'food'`, `entry_meta('category')` `'meals'` and `any_meta('category')` `'food'`, and the `Assets:Cash` posting has `NULL`, `'meals'` and `'meals'`.
 
 ### String functions
 
@@ -1154,7 +1163,7 @@ Text is written as it is, without any protection against formulas, as in beanque
 }
 ```
 
-- `columns` has one entry per column, 23 in all, in the order of the [column table](#columns). The last one is the running `balance`.
+- `columns` has one entry per column, 24 in all, in the order of the [column table](#columns). The last one is the running `balance`.
 - `tables` has one entry per table, `postings` first, then the [other tables](#other-tables) in the order listed there, then `budgets` and `errors`. `name` has no `#`. The `postings` entry has the same columns as `columns`, and the attributes of a structured column are listed as columns named like `open.date`.
 - `functions` has one entry per overload, 66 in all: first the aggregate functions, then the scalar functions, including `account_sortkey` and `maxwidth`. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
 
@@ -1351,7 +1360,7 @@ One row per day with postings, with the account's balance at the end of the day.
 
 - **`PRINT`**, which is rejected with an error.
 - **Subqueries** after `FROM`, the double-quoted table names of beanquery (`FROM "prices"`), and its one-row table `FROM #`.
-- **The beanquery columns** `posting_flag`, `filename`, `lineno`, `location`, `meta`, `entry`, `accounts` and `type` of the postings table, and `lineno` of `#entries`: Zhang does not keep line numbers.
+- **The beanquery columns** `posting_flag`, `filename`, `lineno`, `location`, `entry`, `accounts` and `type` of the postings table, and `lineno` of `#entries`: Zhang does not keep line numbers.
 - **Subscripts**, such as `meta['name']`. Use `meta('name')`.
 - **Operators `BETWEEN` and `%`**, and beanquery's quoted identifiers.
 - **Functions not listed on this page**, such as `round`, `safediv`, `has_account`, `open_date`, `close_date`, `open_meta`, `currency_meta`, `grep`, `subst`, `upper`, `lower`, `joinstr`, `findfirst`, the conversion functions `int`, `decimal` and `date`, and the `date_*` functions. Calling one is an error.
@@ -1362,7 +1371,6 @@ One row per day with postings, with the account's balance at the end of the day.
 - **`SELECT *` includes `account`.** beanquery expands `*` to `date, flag, payee, narration, position`. Zhang adds `account` before `position`, because a posting is hard to read without its account.
 - **Standard three-valued logic.** In beanquery, `NOT NULL` is `TRUE`, so `NOT (payee = 'x')` keeps postings without a payee, and `NULL AND FALSE` is `NULL`. In Zhang, `NOT NULL` is `NULL` and `NULL AND FALSE` is `FALSE`, as in SQL.
 - **One-element lists work.** `payee IN ('Amazon')` works in Zhang. beanquery reads `('Amazon')` as a parenthesized string and needs `('Amazon',)`.
-- **`meta()` is always `NULL` for now**, because Zhang does not keep posting metadata yet. See [Metadata functions](#metadata-functions).
 - **Comments** start with `--`. beanquery's `;` line comments and `/* */` block comments are not supported. A single `;` is only allowed at the end of the query.
 - **Regular expressions** use Rust syntax, which has no look-around or back-references.
 - **Booking methods.** Accounts that use `STRICT`, `AVERAGE`, `AVERAGE_ONLY` or `NONE` are booked FIFO for now, and an ambiguous `STRICT` match is not an error. See [Lot booking](#lot-booking).
@@ -1381,7 +1389,7 @@ One row per day with postings, with the account's balance at the end of the day.
 - **`PIVOT BY` with `NULL` values.** beanquery fails when the values of a pivot target mix `NULL` with others. Zhang sorts `NULL` first and names its column `NULL`.
 - **`PIVOT BY` without grouping** is an error in Zhang. beanquery fails while it runs such a query.
 - **CSV export of a pivot with missing cells.** beanquery fails to numberify the empty cells of a pivoted amount or inventory column. Zhang leaves them empty.
-- **Metadata is text.** beanquery's `meta` columns are dictionaries that also hold `filename` and `lineno`. In Zhang, `meta` is the text `key: "value", ...` of the directive's own metadata, and `open.meta` and `close.meta` likewise.
+- **Metadata is text.** beanquery's `meta` columns are dictionaries that also hold `filename` and `lineno`. In Zhang, `meta` is the text `key: "value", ...` of the directive's own metadata (of the posting's in the postings table), and `open.meta` and `close.meta` likewise.
 - **`open` and `close` of `#accounts` read as their date** when used without an attribute. In beanquery they are the whole directives.
 - **`entry_meta()` and `any_meta()` work on every table**, like `meta()`. beanquery only accepts them on the postings table.
 - **`#entries` holds Zhang's directives.** It has Zhang's budget directives, and a `balance ... with pad` is one `balance` entry followed by its padding transaction, where beancount has a `pad` and a `balance` entry. The `id` of an entry is Zhang's id, not beancount's hash.

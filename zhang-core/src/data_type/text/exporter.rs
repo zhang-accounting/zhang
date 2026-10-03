@@ -128,15 +128,20 @@ impl ZhangDataTypeExportable for Transaction {
         header.append(&mut tags);
         header.append(&mut links);
 
-        // metadata goes before the postings: beancount attaches a metadata line that
-        // follows a posting to that posting, not to the transaction
-        let meta = self.meta.export_as(style).into_iter();
-        let postings = self.postings.into_iter().map(|posting| posting.export_as(style));
-        let lines = meta.chain(postings).map(|it| format!("  {}", it));
-        std::iter::once(header.into_iter().flatten().join(" ")).chain(lines).join("\n")
+        // the transaction's metadata goes before the postings: beancount attaches a
+        // metadata line that follows a posting to that posting. A posting's own metadata
+        // follows it two levels deeper, which beancount and zhang (where it must be
+        // indented deeper than the posting) both read as the posting's
+        let meta = self.meta.export_as(style).into_iter().map(|it| format!("  {}", it));
+        let postings = self.postings.into_iter().flat_map(|mut posting| {
+            let meta = std::mem::take(&mut posting.meta).export_as(style).into_iter().map(|it| format!("    {}", it));
+            std::iter::once(format!("  {}", posting.export_as(style))).chain(meta)
+        });
+        std::iter::once(header.into_iter().flatten().join(" ")).chain(meta).chain(postings).join("\n")
     }
 }
 
+/// The posting line alone: its metadata is written by the transaction, under it.
 impl ZhangDataTypeExportable for Posting {
     type Output = String;
     fn export_as(self, style: QuoteStyle) -> String {
@@ -690,6 +695,11 @@ mod test {
                 .unwrap();
             for directive in &mut directives {
                 *directive.data.meta_mut().unwrap() = meta.clone();
+                if let Directive::Transaction(txn) = &mut directive.data {
+                    for posting in &mut txn.postings {
+                        posting.meta = meta.clone();
+                    }
+                }
             }
             for directive in directives {
                 let exported = data_type.export(Spanned::new(directive.data.clone(), SpanInfo::default()));
@@ -756,6 +766,49 @@ mod test {
             "#}
             .trim()
         );
+    }
+
+    #[test]
+    fn posting_meta_is_written_under_its_posting_two_levels_deeper() {
+        use zhang_ast::{Directive, SpanInfo, Spanned};
+
+        use crate::data_type::text::exporter::ZhangDataTypeExportable;
+        use crate::utils::string_::QuoteStyle;
+
+        let source = indoc! {r#"
+            1970-01-01 * "Payee" "Narration"
+              Assets:123 -1 CNY
+                receipt: "r-1"
+                "my key": "say \"hi\""
+              b: "transaction"
+              Expenses:Food 1 CNY
+                 category: lunch
+              a: "transaction too"
+        "#};
+        let expected = indoc! {r#"
+            1970-01-01 * "Payee" "Narration"
+              a: "transaction too"
+              b: "transaction"
+              Assets:123 -1 CNY
+                "my key": "say \"hi\""
+                receipt: "r-1"
+              Expenses:Food 1 CNY
+                category: lunch
+        "#}
+        .trim();
+        assert_eq!(parse_and_export(source.trim()), expected);
+
+        // both styles write the same layout, which reads back to the same directive
+        let data_type = ZhangDataType {};
+        let directive = data_type.transform(source.to_owned(), None).unwrap().pop().unwrap().data;
+        let Directive::Transaction(txn) = &directive else { unreachable!() };
+        assert_eq!(txn.postings[0].meta.clone().get_flatten().len(), 2);
+        assert_eq!(txn.postings[1].meta.clone().get_flatten().len(), 1);
+        assert_eq!(txn.meta.clone().get_flatten().len(), 2);
+        assert_eq!(txn.clone().export_as(QuoteStyle::Beancount), expected);
+        let reparsed = data_type.transform(expected.to_owned(), None).unwrap().pop().unwrap();
+        assert_eq!(reparsed.data, directive);
+        assert_eq!(data_type.export(Spanned::new(reparsed.data, SpanInfo::default())), expected);
     }
 
     #[test]
@@ -943,6 +996,7 @@ mod test {
             meta
         };
         let txn_meta = meta("note");
+        let posting_meta = meta("receipt");
         let open_meta = meta("name");
         let query_meta = meta("owner");
         vec![
@@ -966,6 +1020,7 @@ mod test {
                         }),
                         price: None,
                         comment: None,
+                        meta: posting_meta,
                     },
                     Posting {
                         flag: None,
@@ -974,6 +1029,7 @@ mod test {
                         cost: None,
                         price: None,
                         comment: None,
+                        meta: Default::default(),
                     },
                 ],
                 meta: txn_meta,

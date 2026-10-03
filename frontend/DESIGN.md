@@ -143,11 +143,21 @@ react-day-picker 10 (`ui/calendar`) · react-i18next · jotai. `cn` comes from `
   `await responseError(response)`.
 - `api/fetcher.ts` rewrites the `tags` / `links` query params to `tags[]=…`: zhang-server rejects `tags=…` (400) and ignores
   `tags%5B%5D=…`.
-- Transactions: the update API rebuilds every posting from `{ account, unit }`, so cost / price / posting comments / posting
-  flags are dropped. `transactionEditBlocker()` (`journalLines/journal-utils`) disables "Edit" (row menu + preview) for
+- Transactions: the update API rebuilds every posting from `{ account, unit, metas }`, so cost / price / posting comments /
+  posting flags are dropped. `transactionEditBlocker()` (`journalLines/journal-utils`) disables "Edit" (row menu + preview) for
   transactions with a cost or with postings in several commodities (price) and points to Raw Edit; comments and posting
   flags are not in the journal payload, so saving an edit asks for confirmation. `TransactionEditForm` accepts only
-  `<number> <COMMODITY>` per amount and its preview is rendered from the exact request body.
+  `<number> <COMMODITY>` per amount and its preview is rendered from the exact request body (pure helpers and tests in
+  `components/transaction-form-utils`).
+- Metadata (`metas: { key, value }[]` on transactions and postings): the form edits it as key / value rows (transaction
+  section; per posting behind a collapsed toggle with a count badge, as an indented block under the row). Key inputs disable
+  auto-capitalisation; key rules are the server's (400 `{ message }` → the usual toast). The preview lists transaction metas
+  under "Details" and each posting's metas as a small indented key / value list under that posting.
+- `document` metas are files, not editable metadata: the server links a posting's `document` to its transaction (older
+  uploads after the last posting of a `.bean` ledger are posting metadata), so the preview grid and the row indicator
+  (`transactionDocuments()`, each path once) and the form (hidden, sent back unchanged) treat posting and transaction documents
+  alike; the posting's metadata list leaves them out. The form's text preview follows the ledger format from `/api/files`
+  (first file `.bean`: date + `time` meta, beancount quoting).
 - Unsaved changes: `useUnsavedChangesGuard(dirty, message)` covers tab close / reload (`beforeunload`) and in-app links (a
   capture-phase click listener on `a[href]` asks first). The app uses `<BrowserRouter>`, so `useBlocker` is unavailable and
   **browser Back cannot be blocked**; keep `?file=`-style switches on `replace` so Back leaves the page instead of silently

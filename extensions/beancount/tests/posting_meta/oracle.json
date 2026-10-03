@@ -1,0 +1,122 @@
+[
+  {
+    "date": "2020-01-02",
+    "meta": {
+      "memo": "paid in cash"
+    },
+    "narration": "metadata before the postings",
+    "postings": [
+      {
+        "account": "Assets:Cash",
+        "meta": {}
+      },
+      {
+        "account": "Expenses:Food",
+        "meta": {}
+      }
+    ]
+  },
+  {
+    "date": "2020-01-03",
+    "meta": {},
+    "narration": "metadata indented deeper than its posting",
+    "postings": [
+      {
+        "account": "Assets:Cash",
+        "meta": {
+          "receipt": "r-1"
+        }
+      },
+      {
+        "account": "Expenses:Food",
+        "meta": {
+          "category": "lunch"
+        }
+      }
+    ]
+  },
+  {
+    "date": "2020-01-04",
+    "meta": {},
+    "narration": "metadata at the indentation of the postings, after them",
+    "postings": [
+      {
+        "account": "Assets:Cash",
+        "meta": {}
+      },
+      {
+        "account": "Expenses:Food",
+        "meta": {
+          "memo": "after"
+        }
+      }
+    ]
+  },
+  {
+    "date": "2020-01-05",
+    "meta": {},
+    "narration": "metadata shallower than its posting, and indented with a tab",
+    "postings": [
+      {
+        "account": "Assets:Cash",
+        "meta": {
+          "shallow": "s"
+        }
+      },
+      {
+        "account": "Expenses:Food",
+        "meta": {
+          "tabbed": "t"
+        }
+      }
+    ]
+  },
+  {
+    "date": "2020-01-06",
+    "meta": {
+      "memo": "trip"
+    },
+    "narration": "metadata before, between and after the postings, with comments",
+    "postings": [
+      {
+        "account": "Assets:Cash",
+        "meta": {
+          "receipt": "r-2"
+        }
+      },
+      {
+        "account": "Expenses:Food",
+        "meta": {
+          "note": "6 for food"
+        }
+      },
+      {
+        "account": "Expenses:Drinks",
+        "meta": {
+          "day": "2020-01-06",
+          "deeper": "d",
+          "rate": "1.5"
+        }
+      }
+    ]
+  },
+  {
+    "date": "2020-01-07",
+    "meta": {},
+    "narration": "metadata on a posting without units",
+    "postings": [
+      {
+        "account": "Assets:Cash",
+        "meta": {
+          "kind": "salary"
+        }
+      },
+      {
+        "account": "Income:Salary",
+        "meta": {
+          "source": "payroll"
+        }
+      }
+    ]
+  }
+]

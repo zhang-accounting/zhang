@@ -160,6 +160,97 @@ mod test {
             assert_eq!(meta.type_identifier, "Assets:MyCard");
             Ok(())
         }
+
+        #[test]
+        fn should_keep_posting_meta_per_posting() -> Result<(), Box<dyn std::error::Error>> {
+            let ledger = load_from_text(indoc! {r#"
+                1970-01-01 commodity CNY
+                1970-01-01 open Assets:Cash
+                1970-01-01 open Expenses:Food
+                  budget: food
+                2024-01-01 budget food CNY
+
+                2024-01-02 * "Cafe" "lunch"
+                  memo: "m"
+                  document: "receipts/transaction.pdf"
+                  Assets:Cash -5 CNY
+                    receipt: "r1"
+                  Expenses:Food 5 CNY
+                    document: "receipts/posting.pdf"
+                    b: "2"
+                    a: "1"
+                    a: "0"
+            "#});
+            let operations = ledger.operations();
+            let store = operations.read();
+            assert!(store.errors.is_empty(), "{:?}", store.errors);
+            let txn = store.transactions.values().next().unwrap().clone();
+            let pairs = |metas: &[crate::store::PostingMetaDomain]| metas.iter().map(|it| format!("{}={}", it.key, it.value)).collect::<Vec<_>>();
+            let postings = txn.postings.iter().map(|posting| pairs(&posting.metas)).collect::<Vec<_>>();
+            // sorted by key, the values of a repeated key in ledger order
+            assert_eq!(postings, vec![vec!["receipt=r1"], vec!["a=1", "a=0", "b=2", "document=receipts/posting.pdf"]]);
+            let stored = store.postings.iter().map(|posting| pairs(&posting.metas)).collect::<Vec<_>>();
+            assert_eq!(stored, postings);
+
+            // the transaction's own metadata is unchanged
+            let mut documents = store
+                .documents
+                .iter()
+                .filter(|it| it.document_type.as_trx() == Some(txn.id.to_string()))
+                .map(|it| it.path.clone())
+                .collect::<Vec<_>>();
+            drop(store);
+            let mut metas = operations
+                .metas(MetaType::TransactionMeta, txn.id.to_string())?
+                .into_iter()
+                .map(|meta| format!("{}={}", meta.key, meta.value))
+                .collect::<Vec<_>>();
+            metas.sort();
+            assert_eq!(metas, vec!["document=receipts/transaction.pdf", "memo=m"]);
+
+            // a posting's document is a document of its transaction too
+            documents.sort();
+            assert_eq!(documents, vec!["receipts/posting.pdf", "receipts/transaction.pdf"]);
+
+            // budgets read the account metadata as before
+            let detail = operations.budget_month_detail("food", 202401)?.expect("budget month");
+            assert_eq!(detail.activity_amount.number, bigdecimal::BigDecimal::from(5));
+            Ok(())
+        }
+
+        /// Directives go to a WASM plugin, and come back from it, as JSON.
+        #[test]
+        fn postings_without_meta_from_an_older_plugin_still_deserialise() {
+            use zhang_ast::{Directive, Spanned};
+
+            use crate::data_type::text::ZhangDataType;
+            use crate::data_type::DataType;
+
+            let directives = ZhangDataType {}
+                .transform(
+                    "2024-01-02 * \"Cafe\"\n  memo: \"m\"\n  Assets:Cash -5 CNY\n    receipt: \"r1\"\n  Expenses:Food 5 CNY\n".to_owned(),
+                    None,
+                )
+                .unwrap();
+            let mut json = serde_json::to_value(&directives).unwrap();
+            let postings = json[0]["data"]["Transaction"]["postings"].as_array_mut().unwrap();
+            assert_eq!(
+                postings[0]["meta"]["inner"]["receipt"][0]["QuoteString"], "r1",
+                "a plugin receives the posting metadata"
+            );
+
+            // what a plugin built against a zhang-ast without posting metadata returns
+            for posting in postings {
+                posting.as_object_mut().unwrap().remove("meta");
+            }
+            let returned: Vec<Spanned<Directive>> = serde_json::from_value(json).expect("an older plugin's directives deserialise");
+            let (Directive::Transaction(returned), Directive::Transaction(original)) = (&returned[0].data, &directives[0].data) else {
+                unreachable!()
+            };
+            assert!(returned.postings.iter().all(|posting| posting.meta.clone().get_flatten().is_empty()));
+            assert_eq!(returned.meta, original.meta);
+            assert_eq!(returned.postings.len(), original.postings.len());
+        }
     }
     mod account {
         use indoc::indoc;

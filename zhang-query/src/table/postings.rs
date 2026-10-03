@@ -23,9 +23,9 @@ use zhang_ast::{Directive, Flag, Meta, PostingCost, SingleTotalPrice, SpanInfo, 
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::inventory::BookingMethod;
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{Store, TransactionDomain};
+use zhang_core::store::{PostingMetaDomain, Store, TransactionDomain};
 
-use super::{Borrow, ColumnDef, Dataset, Get, Reads, POSTINGS};
+use super::{render_pairs, Borrow, ColumnDef, Dataset, Get, Reads, POSTINGS};
 use crate::decimal;
 use crate::projector::Projection;
 use crate::value::{Cost, DataType, Inventory, Position, Value};
@@ -156,15 +156,19 @@ impl<'a> Dataset<'a> {
         &self.entries[row.entry]
     }
 
-    /// Posting-level metadata `key` of the row, as a string.
-    ///
-    /// This is the single seam for posting metadata: zhang-core does not keep posting-level
-    /// metadata yet (metadata lines under a posting are folded into the transaction), so it
-    /// always returns `None` for now. Once the store records metadata per posting (keyed by
-    /// the posting id, `Uuid::from_txn_posting(trx_id, row.posting_index)`), look it up here
-    /// and `meta(key)` starts returning values without any API change. See issue #434.
-    pub fn posting_meta(&self, _row: &Row<'_>, _key: &str) -> Option<String> {
-        None
+    /// The metadata of the row's posting, as the store keeps it (sorted by key).
+    pub fn posting_metas(&self, row: &Row<'_>) -> &[PostingMetaDomain] {
+        self.entry(row)
+            .txn
+            .postings
+            .get(row.posting_index)
+            .map_or(&[], |posting| posting.metas.as_slice())
+    }
+
+    /// Posting-level metadata `key` of the row, as a string: the first value when the
+    /// key is repeated, as for [`Dataset::entry_meta`].
+    pub fn posting_meta(&self, row: &Row<'_>, key: &str) -> Option<String> {
+        self.posting_metas(row).iter().find(|meta| meta.key == key).map(|meta| meta.value.clone())
     }
 
     /// Transaction metadata `key` of the row, as a string.
@@ -659,6 +663,14 @@ pub static COLUMNS: &[ColumnDef] = &[
         get: Get::Posting(|data, row| Value::Set(other_accounts(data, row).map(str::to_owned).collect())),
         reads: Reads::POSTING,
         borrow: Borrow::Contains(|data, row, account| other_accounts(data, row).any(|it| it == account)),
+    },
+    ColumnDef {
+        name: "meta",
+        ty: DataType::Str,
+        description: "Metadata of the posting, as `key: \"value\"` pairs.",
+        get: Get::Posting(|data, row| render_pairs(data.posting_metas(row).iter().map(|meta| (meta.key.as_str(), meta.value.as_str())))),
+        reads: Reads::POSTING,
+        borrow: Borrow::No,
     },
     ColumnDef {
         name: BALANCE_COLUMN,

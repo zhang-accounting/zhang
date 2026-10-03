@@ -307,11 +307,17 @@ impl<'a> Record<'a> {
 /// separated by `, ` (the values of a repeated key in ledger order); `''` without metadata.
 /// Quotes and backslashes in values are escaped with a backslash.
 pub(crate) fn render_meta(meta: Option<&Meta>) -> Value {
-    let mut pairs = meta.cloned().map(|meta| meta.get_flatten()).unwrap_or_default();
-    pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
+    let pairs = meta.cloned().map(|meta| meta.get_flatten()).unwrap_or_default();
+    render_pairs(pairs.iter().map(|(key, value)| (key.as_str(), value.as_str())))
+}
+
+/// Metadata `pairs` as text, as [`render_meta`] writes it.
+pub(crate) fn render_pairs<'p>(pairs: impl Iterator<Item = (&'p str, &'p str)>) -> Value {
+    let mut pairs = pairs.collect::<Vec<_>>();
+    pairs.sort_by_key(|(key, _)| *key);
     let text = pairs
         .iter()
-        .map(|(key, value)| format!("{}: \"{}\"", key, value.as_str().replace('\\', "\\\\").replace('"', "\\\"")))
+        .map(|(key, value)| format!("{}: \"{}\"", key, value.replace('\\', "\\\\").replace('"', "\\\"")))
         .collect::<Vec<_>>()
         .join(", ");
     Value::Str(text)

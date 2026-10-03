@@ -100,6 +100,7 @@ fn posting(name: &str, units: Option<i64>) -> Posting {
         cost: None,
         price: None,
         comment: None,
+        meta: Default::default(),
     }
 }
 

@@ -4,6 +4,8 @@ import { operations } from './schemas';
 
 export type JournalItem = OpReturnType<operations['get_journals']>['data']['records'][number];
 export type JournalTransactionItem = Extract<JournalItem, { type: 'Transaction' }>;
+/** `{ key, value }` metadata entry of a transaction or a posting. */
+export type MetaEntry = JournalTransactionItem['metas'][number];
 export type JournalBalanceCheckItem = Extract<JournalItem, { type: 'BalanceCheck' }>;
 export type JournalBalancePadItem = Extract<JournalItem, { type: 'BalancePad' }>;
 
