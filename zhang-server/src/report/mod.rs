@@ -14,8 +14,10 @@ pub mod legacy;
 
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Datelike, Days, Months, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Days, Months, NaiveDate, NaiveTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use zhang_ast::amount::CalculatedAmount;
 use zhang_ast::AccountType;
@@ -24,8 +26,10 @@ use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, Inventory, Params, PriceMap, Value};
 
 use crate::builtin::{calculated_amount, execute, BuiltinQuery, LedgerDateRange};
+use crate::error::ServerError;
 use crate::request::StatisticInterval;
 use crate::response::{ReportRankItemEntity, StatisticGraphEntity, StatisticRankEntity, StatisticSummaryEntity};
+use crate::routes::query::{execute_options, max_result_values};
 use crate::ServerResult;
 
 /// The balances of the asset and of the liability accounts at the end of a day. The summary's
@@ -154,50 +158,90 @@ pub fn summary(ledger: &Ledger, range: &LedgerDateRange) -> ServerResult<Statist
     })
 }
 
-/// `GET /api/statistic/graph`: the net worth at the end of every day, week or month of the
-/// range, and what each account type changed by in it, keyed by the bucket's first day.
-///
-/// A bucket without postings has the balance of the one before (or the balance before the
-/// range), valued at its own last day with the engine's conversion, as `report.net_worth`
-/// would value it; it has no changes.
-pub fn graph(ledger: &Ledger, range: &LedgerDateRange, interval: &StatisticInterval) -> ServerResult<StatisticGraphEntity> {
-    let currency = ledger.options.operating_currency.as_str();
-    let params = range.bind(Params::new().bind("interval", stride(interval)).bind("currency", currency));
+/// The limits of building a graph, by default those of every query the server runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GraphLimits {
+    /// at most this many values in the graph's points and changes: two per point or change
+    /// (its day and its amount) and one per currency of its units
+    pub max_values: u64,
+    /// stop once building the graph, its queries included, has run this long
+    pub timeout: Option<Duration>,
+}
 
-    // the closing balance of every bucket with postings in the range
-    let mut closing: BTreeMap<NaiveDate, (Inventory, Figure)> = BTreeMap::new();
+impl GraphLimits {
+    /// The limits of `POST /api/query`: its result size limit and its time limit.
+    pub fn server() -> GraphLimits {
+        let options = execute_options(max_result_values());
+        GraphLimits {
+            max_values: options.max_result_values.unwrap_or(u64::MAX),
+            timeout: options.timeout,
+        }
+    }
+
+    /// The most points a graph may have: every point is at least two values.
+    pub fn max_points(&self) -> u64 {
+        self.max_values / POINT_VALUES
+    }
+}
+
+/// The values of a point or a change besides those of its currencies: its day and its amount.
+const POINT_VALUES: u64 = 2;
+
+/// `GET /api/statistic/graph`: the net worth at the end of every day, week or month of the
+/// range, and what each account type changed by in it, keyed by the bucket's first day. See
+/// [`graph_rows`] and [`GraphRows::build`], which the endpoint runs apart so that the ledger is
+/// only locked while the queries run.
+pub fn graph(ledger: &Ledger, range: &LedgerDateRange, interval: &StatisticInterval) -> ServerResult<StatisticGraphEntity> {
+    graph_rows(ledger, range, interval, GraphLimits::server())?.build()
+}
+
+/// What the graph reads from the ledger: the rows of its queries, and the ledger's price map to
+/// value the buckets without postings. Building the graph from them needs no ledger.
+pub struct GraphRows {
+    range: LedgerDateRange,
+    interval: StatisticInterval,
+    currency: String,
+    /// the balance at the end of the day before the range
+    opening: Inventory,
+    /// the closing balance (with its lots) and figure of every bucket with postings in the range
+    closing: BTreeMap<NaiveDate, (Inventory, Figure)>,
+    changes: HashMap<NaiveDate, HashMap<AccountType, CalculatedAmount>>,
+    prices: Arc<PriceMap>,
+    limits: GraphLimits,
+    started: Instant,
+}
+
+/// Run the graph's queries: `report.net_worth`, `report.balances` of the day before the range
+/// and `report.changes`. A range with more buckets than the limits allow points is a 400 before
+/// any query runs.
+pub fn graph_rows(ledger: &Ledger, range: &LedgerDateRange, interval: &StatisticInterval, limits: GraphLimits) -> ServerResult<GraphRows> {
+    let started = Instant::now();
+    let points = bucket_count(range, interval);
+    if points > limits.max_points() {
+        return Err(ServerError::InvalidInput(format!(
+            "the graph from {} to {} by {} would have {} points, and the server returns at most {} (half of the result size limit, ZHANG_QUERY_MAX_RESULT_VALUES); ask for weeks or months, or a shorter range",
+            range.from,
+            range.to,
+            unit(interval),
+            points,
+            limits.max_points()
+        )));
+    }
+    let currency = ledger.options.operating_currency.clone();
+    let params = range.bind(Params::new().bind("interval", stride(interval)).bind("currency", currency.as_str()));
+
+    let mut closing = BTreeMap::new();
     for mut row in run(ledger, &NET_WORTH, params.clone())? {
         if let Value::Date(bucket) = row.take("bucket") {
             closing.insert(bucket, (inventory(row.take("balance")), Figure::of(row.take("units"), row.take("value"))));
         }
     }
-
-    // the balance before the range, carried into its first buckets until they have postings
-    let mut carried = Inventory::new();
+    let mut opening = Inventory::new();
     if let Some(day_before) = range.from.pred_opt() {
-        for mut row in run(ledger, &BALANCES, Params::new().bind("to", day_before).bind("currency", currency))? {
-            carried.add_inventory(&inventory(row.take("balance")));
+        for mut row in run(ledger, &BALANCES, Params::new().bind("to", day_before).bind("currency", currency.as_str()))? {
+            opening.add_inventory(&inventory(row.take("balance")));
         }
     }
-    let mut prices: Option<PriceMap> = None;
-    let buckets = buckets(range, interval);
-    let mut balances = HashMap::with_capacity(buckets.len());
-    for bucket in buckets {
-        let amount = match closing.get(&bucket) {
-            Some((balance, figure)) => {
-                carried = balance.clone();
-                figure.amount(currency)
-            }
-            None if carried.is_empty() => Figure::default().amount(currency),
-            None => {
-                let prices = prices.get_or_insert_with(|| PriceMap::for_ledger(ledger));
-                let value = carried.convert(currency, prices, Some(bucket_end(bucket, interval).min(range.to)));
-                calculated_amount(&carried, &value, currency)
-            }
-        };
-        balances.insert(bucket, amount);
-    }
-
     let mut changes: HashMap<NaiveDate, HashMap<AccountType, CalculatedAmount>> = HashMap::new();
     for mut row in run(ledger, &CHANGES, params)? {
         let (Value::Date(bucket), Value::Str(account_type)) = (row.take("bucket"), row.take("type")) else {
@@ -206,16 +250,115 @@ pub fn graph(ledger: &Ledger, range: &LedgerDateRange, interval: &StatisticInter
         let Ok(account_type) = AccountType::from_str(&account_type) else {
             continue;
         };
-        let amount = Figure::of(row.take("units"), row.take("value")).amount(currency);
+        let amount = Figure::of(row.take("units"), row.take("value")).amount(&currency);
         changes.entry(bucket).or_default().insert(account_type, amount);
     }
-
-    Ok(StatisticGraphEntity {
-        from: range.from.and_time(NaiveTime::MIN),
-        to: range.to.and_time(END_OF_DAY),
-        balances,
+    Ok(GraphRows {
+        range: *range,
+        interval: *interval,
+        currency,
+        opening,
+        closing,
         changes,
+        prices: PriceMap::cached(ledger),
+        limits,
+        started,
     })
+}
+
+impl GraphRows {
+    /// The graph: a point for every bucket of the range. A bucket with postings is the row of
+    /// `report.net_worth`. A bucket without postings has the balance of the bucket before (or
+    /// the balance before the range), valued at its own last day in the range with the
+    /// ledger's prices, as `report.net_worth` would value it; it has no changes.
+    ///
+    /// TODO(#479): the carrying over is the one part of the report outside the engine, since
+    /// BQL has no series of dates to join the balances to, so "Open query" lists only the
+    /// buckets with postings.
+    ///
+    /// The points count against the result size limit, and the time limit stops the loop.
+    pub fn build(self) -> ServerResult<StatisticGraphEntity> {
+        let GraphRows {
+            range,
+            interval,
+            currency,
+            opening,
+            closing,
+            changes,
+            prices,
+            limits,
+            started,
+        } = self;
+        let too_slow = || {
+            ServerError::InvalidInput(format!(
+                "the graph from {} to {} by {} was stopped because it took longer than the {}s time limit; ask for weeks or months, or a shorter range",
+                range.from,
+                range.to,
+                unit(&interval),
+                limits.timeout.unwrap_or_default().as_secs()
+            ))
+        };
+        let too_large = || {
+            ServerError::InvalidInput(format!(
+                "the graph from {} to {} by {} holds more than the {} values of the result size limit (ZHANG_QUERY_MAX_RESULT_VALUES); ask for weeks or months, or a shorter range",
+                range.from,
+                range.to,
+                unit(&interval),
+                limits.max_values
+            ))
+        };
+        let late = || limits.timeout.is_some_and(|timeout| started.elapsed() > timeout);
+        let mut values: u64 = changes.values().flat_map(HashMap::values).map(amount_values).sum();
+        if late() {
+            return Err(too_slow());
+        }
+        if values > limits.max_values {
+            return Err(too_large());
+        }
+
+        let mut carried = opening;
+        let mut balances = HashMap::new();
+        for (index, bucket) in Buckets::of(&range, &interval).enumerate() {
+            if index % 256 == 255 && late() {
+                return Err(too_slow());
+            }
+            let amount = match closing.get(&bucket) {
+                Some((balance, figure)) => {
+                    carried = balance.clone();
+                    figure.amount(&currency)
+                }
+                None => {
+                    let value = carried.convert(&currency, &prices, Some(bucket_end(bucket, &interval).min(range.to)));
+                    calculated_amount(&carried, &value, &currency)
+                }
+            };
+            values += amount_values(&amount);
+            if values > limits.max_values {
+                return Err(too_large());
+            }
+            balances.insert(bucket, amount);
+        }
+        Ok(StatisticGraphEntity {
+            from: range.from.and_time(NaiveTime::MIN),
+            to: range.to.and_time(END_OF_DAY),
+            balances,
+            changes,
+        })
+    }
+}
+
+/// The values of a point or a change of the graph: its day, its amount and its currencies.
+fn amount_values(amount: &CalculatedAmount) -> u64 {
+    POINT_VALUES + amount.detail.len() as u64
+}
+
+/// The bucket size, for messages.
+fn unit(interval: &StatisticInterval) -> &'static str {
+    match interval {
+        StatisticInterval::Day => "day",
+        StatisticInterval::Week => "week",
+        StatisticInterval::Month => "month",
+    }
 }
 
 /// `GET /api/statistic/{account_type}`: what every account of the type changed by in the
@@ -303,15 +446,41 @@ fn bucket_end(start: NaiveDate, interval: &StatisticInterval) -> NaiveDate {
 }
 
 /// The first days of the buckets that hold a day of the range, in order.
-fn buckets(range: &LedgerDateRange, interval: &StatisticInterval) -> Vec<NaiveDate> {
-    let last = bucket_start(range.to, interval);
-    let mut buckets = vec![];
-    let mut bucket = Some(bucket_start(range.from, interval));
-    while let Some(start) = bucket.filter(|start| *start <= last) {
-        buckets.push(start);
-        bucket = next_bucket(start, interval);
+struct Buckets {
+    next: Option<NaiveDate>,
+    last: NaiveDate,
+    interval: StatisticInterval,
+}
+
+impl Buckets {
+    fn of(range: &LedgerDateRange, interval: &StatisticInterval) -> Buckets {
+        Buckets {
+            next: Some(bucket_start(range.from, interval)),
+            last: bucket_start(range.to, interval),
+            interval: *interval,
+        }
     }
-    buckets
+}
+
+impl Iterator for Buckets {
+    type Item = NaiveDate;
+
+    fn next(&mut self) -> Option<NaiveDate> {
+        let start = self.next.filter(|start| *start <= self.last)?;
+        self.next = next_bucket(start, &self.interval);
+        Some(start)
+    }
+}
+
+/// How many buckets hold a day of the range.
+fn bucket_count(range: &LedgerDateRange, interval: &StatisticInterval) -> u64 {
+    let (first, last) = (bucket_start(range.from, interval), bucket_start(range.to, interval));
+    let count = match interval {
+        StatisticInterval::Day => (last - first).num_days(),
+        StatisticInterval::Week => (last - first).num_days() / 7,
+        StatisticInterval::Month => i64::from(last.year() - first.year()) * 12 + i64::from(last.month()) - i64::from(first.month()),
+    };
+    u64::try_from(count + 1).unwrap_or(0)
 }
 
 /// The time of the last second of a day, the end of a range in the responses.
@@ -320,21 +489,31 @@ const END_OF_DAY: NaiveTime = match NaiveTime::from_hms_opt(23, 59, 59) {
     None => NaiveTime::MIN,
 };
 
-/// The first instant of a ledger date.
-fn first_instant(date: NaiveDate, timezone: &Tz) -> DateTime<Utc> {
-    instant(date.and_time(NaiveTime::MIN), timezone, true)
+/// The first instant of a ledger date: its midnight, or when a change of the clocks skips
+/// midnight, the first time of the day that exists.
+pub fn first_instant(date: NaiveDate, timezone: &Tz) -> DateTime<Utc> {
+    (0..24 * 60)
+        .find_map(|minute| {
+            timezone
+                .from_local_datetime(&(date.and_time(NaiveTime::MIN) + chrono::Duration::minutes(minute)))
+                .earliest()
+        })
+        .map(|it| it.with_timezone(&Utc))
+        .unwrap_or_else(|| Utc.from_utc_datetime(&date.and_time(NaiveTime::MIN)))
 }
 
-/// The last second of a ledger date.
-fn last_instant(date: NaiveDate, timezone: &Tz) -> DateTime<Utc> {
-    instant(date.and_time(END_OF_DAY), timezone, false)
-}
-
-fn instant(local: NaiveDateTime, timezone: &Tz, earliest: bool) -> DateTime<Utc> {
-    let mapped = timezone.from_local_datetime(&local);
-    let found = if earliest { mapped.earliest() } else { mapped.latest() };
-    // a time skipped by a DST change is read as UTC rather than failing
-    found.map(|it| it.with_timezone(&Utc)).unwrap_or_else(|| Utc.from_utc_datetime(&local))
+/// The last second of a ledger date, 23:59:59, or when a change of the clocks skips it, the
+/// last second of the day that exists.
+pub fn last_instant(date: NaiveDate, timezone: &Tz) -> DateTime<Utc> {
+    (0..24 * 60 * 60)
+        .step_by(60)
+        .find_map(|seconds| {
+            timezone
+                .from_local_datetime(&(date.and_time(END_OF_DAY) - chrono::Duration::seconds(seconds)))
+                .latest()
+        })
+        .map(|it| it.with_timezone(&Utc))
+        .unwrap_or_else(|| Utc.from_utc_datetime(&date.and_time(END_OF_DAY)))
 }
 
 /// The rows of one of the report's queries, their cells taken by column name.
@@ -422,5 +601,140 @@ fn text(value: Value) -> Option<String> {
     match value {
         Value::Str(text) => Some(text),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use chrono::NaiveDate;
+    use chrono_tz::Tz;
+    use zhang_core::clock::Clock;
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::data_type::DataType;
+    use zhang_core::ledger::{Ledger, LedgerProcessContext};
+
+    use super::{first_instant, graph_rows, last_instant, GraphLimits};
+    use crate::builtin::LedgerDateRange;
+    use crate::request::StatisticInterval;
+
+    fn ledger(content: &str) -> Ledger {
+        let directives = ZhangDataType {}.transform(content.to_owned(), None).unwrap();
+        Ledger::process(LedgerProcessContext {
+            directives,
+            entry: (PathBuf::from("."), "main.zhang".to_owned()),
+            visited_files: vec![],
+            data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
+            clock: Clock::System,
+        })
+        .unwrap()
+    }
+
+    fn date(text: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
+    }
+
+    fn range(from: &str, to: &str) -> LedgerDateRange {
+        LedgerDateRange {
+            from: date(from),
+            to: date(to),
+        }
+    }
+
+    const LEDGER: &str = r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity JPY
+1970-01-01 open Assets:Bank
+1970-01-01 open Equity:Opening
+2024-01-01 price USD 7 CNY
+2024-01-01 "Opening" "three currencies"
+  Assets:Bank 100 CNY
+  Assets:Bank 10 USD
+  Assets:Bank 1000 JPY
+  Equity:Opening -100 CNY
+  Equity:Opening -10 USD
+  Equity:Opening -1000 JPY
+"#;
+
+    #[test]
+    fn a_graph_with_more_points_than_the_limit_is_refused_before_its_queries() {
+        let ledger = ledger(LEDGER);
+        let limits = GraphLimits { max_values: 20, timeout: None };
+        // 11 days are 22 values at least, over the limit of 20; 10 days are 20, within it
+        let error = graph_rows(&ledger, &range("2024-01-01", "2024-01-11"), &StatisticInterval::Day, limits)
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.to_string(),
+            "the graph from 2024-01-01 to 2024-01-11 by day would have 11 points, and the server returns at most 10 (half of the result size limit, ZHANG_QUERY_MAX_RESULT_VALUES); ask for weeks or months, or a shorter range"
+        );
+        assert!(matches!(error, crate::error::ServerError::InvalidInput(_)));
+        assert!(graph_rows(&ledger, &range("2024-01-01", "2024-01-10"), &StatisticInterval::Day, limits).is_ok());
+        // the same range by week or month fits
+        assert!(graph_rows(&ledger, &range("2024-01-01", "2024-01-11"), &StatisticInterval::Week, limits).is_ok());
+        // a whole calendar by day, as the reviewer asked for, is refused with the server's limits
+        let error = graph_rows(&ledger, &range("0001-01-01", "9999-12-31"), &StatisticInterval::Day, GraphLimits::server())
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("would have 3652059 points"), "{}", error);
+    }
+
+    #[test]
+    fn the_points_count_against_the_limit_with_their_currencies() {
+        let ledger = ledger(LEDGER);
+        // every point holds three currencies, 5 values, and so do the two changes of January 1
+        // (Assets and Equity): 4 x 5 + 2 x 5 = 30 values; the carried points count too
+        let limits = |max_values| GraphLimits { max_values, timeout: None };
+        let rows = graph_rows(&ledger, &range("2024-01-01", "2024-01-04"), &StatisticInterval::Day, limits(30)).unwrap();
+        assert_eq!(rows.build().unwrap().balances.len(), 4);
+        let rows = graph_rows(&ledger, &range("2024-01-01", "2024-01-04"), &StatisticInterval::Day, limits(29)).unwrap();
+        assert_eq!(
+            rows.build().err().unwrap().to_string(),
+            "the graph from 2024-01-01 to 2024-01-04 by day holds more than the 29 values of the result size limit (ZHANG_QUERY_MAX_RESULT_VALUES); ask for weeks or months, or a shorter range"
+        );
+    }
+
+    #[test]
+    fn building_the_graph_stops_at_the_time_limit() {
+        let ledger = ledger(LEDGER);
+        let limits = GraphLimits {
+            max_values: u64::MAX,
+            timeout: Some(Duration::ZERO),
+        };
+        let rows = graph_rows(&ledger, &range("2024-01-01", "2026-12-31"), &StatisticInterval::Day, limits).unwrap();
+        assert_eq!(
+            rows.build().err().unwrap().to_string(),
+            "the graph from 2024-01-01 to 2026-12-31 by day was stopped because it took longer than the 0s time limit; ask for weeks or months, or a shorter range"
+        );
+        let limits = GraphLimits {
+            max_values: u64::MAX,
+            timeout: Some(Duration::from_secs(60)),
+        };
+        let rows = graph_rows(&ledger, &range("2024-01-01", "2026-12-31"), &StatisticInterval::Day, limits).unwrap();
+        assert_eq!(rows.build().unwrap().balances.len(), 1096);
+    }
+
+    #[test]
+    fn the_ends_of_a_day_exist_in_the_ledger_timezone() {
+        let at = |instant: chrono::DateTime<chrono::Utc>| instant.to_rfc3339();
+        let shanghai: Tz = "Asia/Shanghai".parse().unwrap();
+        assert_eq!(at(first_instant(date("2025-04-01"), &shanghai)), "2025-03-31T16:00:00+00:00");
+        assert_eq!(at(last_instant(date("2025-04-30"), &shanghai)), "2025-04-30T15:59:59+00:00");
+        // in Santiago the clocks jump from 00:00 to 01:00 on 2024-09-08: the day starts at 01:00 (-03)
+        let santiago: Tz = "America/Santiago".parse().unwrap();
+        assert_eq!(at(first_instant(date("2024-09-08"), &santiago)), "2024-09-08T04:00:00+00:00");
+        assert_eq!(at(last_instant(date("2024-09-08"), &santiago)), "2024-09-09T02:59:59+00:00");
+        // on 2024-04-07 they go back from 00:00 to 23:00 the day before: the day starts after it
+        assert_eq!(at(first_instant(date("2024-04-07"), &santiago)), "2024-04-07T04:00:00+00:00");
+        assert_eq!(at(last_instant(date("2024-04-06"), &santiago)), "2024-04-07T03:59:59+00:00");
+        // in New York the clocks skip 02:00 to 03:00 on 2025-03-09, so midnight exists
+        let new_york: Tz = "America/New_York".parse().unwrap();
+        assert_eq!(at(first_instant(date("2025-03-09"), &new_york)), "2025-03-09T05:00:00+00:00");
     }
 }

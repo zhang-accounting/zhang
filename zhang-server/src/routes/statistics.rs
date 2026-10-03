@@ -8,11 +8,13 @@ use gotcha::api;
 use zhang_ast::AccountType;
 
 use crate::builtin::LedgerDateRange;
+use crate::error::ServerError;
+use crate::report::GraphLimits;
 use crate::request::{StatisticGraphRequest, StatisticRequest};
 use crate::response::{ResponseWrapper, StatisticGraphEntity, StatisticRankEntity, StatisticSummaryEntity};
 use crate::routes::query::with_ledger;
 use crate::state::SharedLedger;
-use crate::{report, ApiResult};
+use crate::{report, ApiResult, ServerResult};
 
 /// The net worth and the liabilities at the end of the range, and the income, the expenses and
 /// the number of transactions of the range (built-in queries `report.balances`, `report.flows`
@@ -36,11 +38,13 @@ pub async fn get_statistic_summary(ledger: State<SharedLedger>, Query(params): Q
 /// `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
 #[api(group = "statistic")]
 pub async fn get_statistic_graph(ledger: State<SharedLedger>, Query(params): Query<StatisticGraphRequest>) -> ApiResult<StatisticGraphEntity> {
-    let graph = with_ledger(&ledger.0 .0, move |ledger| {
+    // the queries run under the ledger's read lock; the points are built after it is released
+    let rows = with_ledger(&ledger.0 .0, move |ledger| {
         let range = LedgerDateRange::from_query(&params.from, &params.to, &ledger.options.timezone)?;
-        report::graph(ledger, &range, &params.interval)
+        report::graph_rows(ledger, &range, &params.interval, GraphLimits::server())
     })
     .await?;
+    let graph = tokio::task::spawn_blocking(move || rows.build()).await??;
     ResponseWrapper::json(graph)
 }
 
@@ -52,11 +56,21 @@ pub async fn get_statistic_graph(ledger: State<SharedLedger>, Query(params): Que
 pub async fn get_statistic_rank_detail_by_account_type(
     ledger: State<SharedLedger>, paths: Path<(String,)>, Query(params): Query<StatisticRequest>,
 ) -> ApiResult<StatisticRankEntity> {
-    let account_type = AccountType::from_str(&paths.0 .0)?;
+    let account_type = account_type(&paths.0 .0)?;
     let rank = with_ledger(&ledger.0 .0, move |ledger| {
         let range = LedgerDateRange::from_query(&params.from, &params.to, &ledger.options.timezone)?;
         report::rank(ledger, account_type, &range)
     })
     .await?;
     ResponseWrapper::json(rank)
+}
+
+/// The account type of the path, such as `Expenses`; anything else is a 400.
+fn account_type(name: &str) -> ServerResult<AccountType> {
+    AccountType::from_str(name).map_err(|_| {
+        ServerError::InvalidInput(format!(
+            "unknown account type {:?}: expected Assets, Liabilities, Equity, Income or Expenses",
+            name
+        ))
+    })
 }
