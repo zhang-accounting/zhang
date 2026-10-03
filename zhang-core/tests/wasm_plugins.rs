@@ -6,16 +6,20 @@
 //! module cache file.
 #![cfg(feature = "plugin_runtime")]
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use indoc::indoc;
 use itertools::Itertools;
 use tempfile::TempDir;
+use zhang_ast::error::ErrorKind;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin::PluginType;
+use zhang_core::ZhangResult;
 
 const LEDGER: &str = indoc! {r#"
     1970-01-01 commodity CNY
@@ -41,10 +45,14 @@ fn plugin(dir: &TempDir, fixture: &str) -> String {
     format!("plugin \"{}\"\n", dir.path().join(fixture).display())
 }
 
-fn load(dir: &TempDir, content: &str) -> Ledger {
+fn try_load(dir: &TempDir, content: &str) -> ZhangResult<Ledger> {
     std::fs::write(dir.path().join("main.zhang"), content).unwrap();
     let source = LocalFileSystemDataSource::new(ZhangDataType {});
-    Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), Arc::new(source)).unwrap_or_else(|e| panic!("ledger should load: {e}"))
+    Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), Arc::new(source))
+}
+
+fn load(dir: &TempDir, content: &str) -> Ledger {
+    try_load(dir, content).unwrap_or_else(|e| panic!("ledger should load: {e}"))
 }
 
 /// the registered plugins in declaration order, with the types they run as
@@ -107,4 +115,69 @@ fn features_plugins_enables_plugins_too() {
     let dir = ledger_dir(&["echo.wat"]);
     let ledger = load(&dir, &format!("{}{LEDGER}", plugin(&dir, "echo.wat")));
     assert_eq!(registered(&ledger), vec![], "without the feature option, plugins stay off");
+}
+
+/// a ledger with plugins on, `plugin_lines` and the lunch transaction
+fn with_plugins(plugin_lines: &str) -> String {
+    format!("option \"features.plugin\" \"true\"\n{plugin_lines}{LEDGER}")
+}
+
+#[test]
+fn looping_plugin_fails_the_load_at_its_timeout() {
+    let dir = ledger_dir(&["loop.wat"]);
+    let started = Instant::now();
+
+    let result = try_load(&dir, &with_plugins(&format!("{}  timeout: \"1\"\n", plugin(&dir, "loop.wat"))));
+
+    let elapsed = started.elapsed();
+    let Err(error) = result else {
+        panic!("a plugin that never returns must fail the load")
+    };
+    let message = error.to_string();
+    assert!(message.contains("plugin loop timed out"), "{message}");
+    assert!(message.contains("`processor` call ran longer than 1s"), "{message}");
+    assert!(elapsed < Duration::from_secs(20), "the load took {elapsed:?}, not about a second");
+}
+
+#[test]
+fn invalid_timeout_is_reported_and_the_plugin_runs_with_the_default() {
+    let dir = ledger_dir(&["echo.wat"]);
+    let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"soon\"\n", plugin(&dir, "echo.wat"))));
+
+    let store = ledger.store.read().unwrap();
+    let errors = store
+        .errors
+        .iter()
+        .map(|it| (it.error_type.clone(), it.span.as_ref().map(|span| span.content.clone()), it.metas.clone()))
+        .collect_vec();
+    let module = dir.path().join("echo.wat").display().to_string();
+    assert_eq!(
+        errors,
+        vec![(
+            ErrorKind::ParseInvalidMeta,
+            Some(format!("{}  timeout: \"soon\"", plugin(&dir, "echo.wat"))),
+            HashMap::from([("plugin".to_owned(), module), ("timeout".to_owned(), "soon".to_owned())])
+        )]
+    );
+    drop(store);
+    assert_eq!(registered(&ledger), vec![("echo".to_owned(), vec![PluginType::Processor])]);
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the echo processor still runs");
+}
+
+#[test]
+fn failed_reload_keeps_the_previous_ledger() {
+    let dir = ledger_dir(&["echo.wat", "loop.wat"]);
+    let mut ledger = load(&dir, &with_plugins(&plugin(&dir, "echo.wat")));
+    let before = store_summary(&ledger);
+
+    std::fs::write(
+        dir.path().join("main.zhang"),
+        with_plugins(&format!("{}  timeout: \"1\"\n", plugin(&dir, "loop.wat"))),
+    )
+    .unwrap();
+    let Err(error) = ledger.reload() else { panic!("the reload must fail") };
+
+    assert!(error.to_string().contains("plugin loop timed out"), "{error}");
+    assert_eq!(registered(&ledger), vec![("echo".to_owned(), vec![PluginType::Processor])]);
+    assert_eq!(store_summary(&ledger), before);
 }
