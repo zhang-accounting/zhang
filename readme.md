@@ -46,7 +46,7 @@ are read as beancount.
 docker run --name zhang -v "/path/to/your/beancount:/data" -p "8000:8000" kilerd/zhang:latest --endpoint main.bean
 ```
 
-See [Launching with Beancount Data](https://zhang-accounting.kilerd.me/installation/2-beancount_launch/).
+See [Launching with Beancount Data](https://zhang-accounting.kilerd.me/getting-started/from-beancount/).
 
 ## Features
 
@@ -56,31 +56,31 @@ See [Launching with Beancount Data](https://zhang-accounting.kilerd.me/installat
   `pushmeta`/`popmeta`, costs and total costs, lot labels and posting metadata.
 - **Lots and cost basis**: FIFO, LIFO and STRICT booking, interpolated amounts and exact decimal arithmetic.
   Balance assertions are exact unless you give a tolerance.
-- **Query language**: a [BQL-compatible query language](https://zhang-accounting.kilerd.me/user-guide/query-language/)
+- **Query language**: a [BQL-compatible query language](https://zhang-accounting.kilerd.me/reference/query-language/)
   (`SELECT`, `BALANCES`, `JOURNAL`) in the web UI and over the API.
-- **Budgets and documents**: [zero-based budgets](https://zhang-accounting.kilerd.me/directives/4-budget/) in the
+- **Budgets and documents**: [zero-based budgets](https://zhang-accounting.kilerd.me/reference/directives/budget/) in the
   spirit of YNAB, and receipts or statements attached to transactions and accounts.
 - **Plugins**: opt-in WebAssembly plugins that transform or validate the ledger, or serve their own pages and APIs.
   Each plugin gets only the capabilities you grant (network hosts, file paths, a time limit), and there is a Rust
-  SDK. See [Writing Plugins](https://zhang-accounting.kilerd.me/developer-guides/plugins/).
-- **Your data, anywhere**: local disk, [S3](https://zhang-accounting.kilerd.me/datasources/s3/) (including
-  Cloudflare R2), [WebDAV](https://zhang-accounting.kilerd.me/datasources/webdav/) or a
-  [GitHub repository](https://zhang-accounting.kilerd.me/datasources/github/) as the data source.
+  SDK. See [Writing Plugins](https://zhang-accounting.kilerd.me/developers/writing-plugins/).
+- **Your data, anywhere**: local disk, [S3](https://zhang-accounting.kilerd.me/deployment/data-sources/s3/) (including
+  Cloudflare R2), [WebDAV](https://zhang-accounting.kilerd.me/deployment/data-sources/webdav/) or a
+  [GitHub repository](https://zhang-accounting.kilerd.me/deployment/data-sources/github/) as the data source.
 - **Sign-in**: an optional login page with a password and
-  [passkeys](https://zhang-accounting.kilerd.me/installation/3-authentication/) (Face ID, Touch ID, Windows Hello,
+  [passkeys](https://zhang-accounting.kilerd.me/deployment/authentication/) (Face ID, Touch ID, Windows Hello,
   security keys).
 
 ## Documentation
 
-- [Installation](https://zhang-accounting.kilerd.me/installation/1-installation/) and
-  [upgrading](https://zhang-accounting.kilerd.me/installation/4-upgrade/)
-- [Authentication](https://zhang-accounting.kilerd.me/installation/3-authentication/)
-- [Directives](https://zhang-accounting.kilerd.me/directives/1-options/): options, accounts, commodities, budgets,
+- [Installation](https://zhang-accounting.kilerd.me/getting-started/installation/) and
+  [upgrading](https://zhang-accounting.kilerd.me/deployment/upgrading/)
+- [Authentication](https://zhang-accounting.kilerd.me/deployment/authentication/)
+- [Directives](https://zhang-accounting.kilerd.me/reference/directives/options/): options, accounts, commodities, budgets,
   queries and transactions
-- [Query language](https://zhang-accounting.kilerd.me/user-guide/query-language/) and
-  [error codes](https://zhang-accounting.kilerd.me/user-guide/error-code/)
-- [Writing plugins](https://zhang-accounting.kilerd.me/developer-guides/plugins/) and
-  [router plugins](https://zhang-accounting.kilerd.me/user-guide/router-plugins/)
+- [Query language](https://zhang-accounting.kilerd.me/reference/query-language/) and
+  [error codes](https://zhang-accounting.kilerd.me/reference/error-codes/)
+- [Writing plugins](https://zhang-accounting.kilerd.me/developers/writing-plugins/) and
+  [router plugins](https://zhang-accounting.kilerd.me/guides/router-plugins/)
 
 ## Community and Support
 
