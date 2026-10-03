@@ -16,14 +16,17 @@
 //!   (`"500ms"`, `"30s"`, `"2m"`), above zero and at most a day. A repeated key keeps its last
 //!   value. An invalid value is a `ParseInvalidMeta` error on the directive, and the plugin gets the
 //!   default.
+//! - `seed` is mixed into the plugin's seed, [`SEED_CONFIG_KEY`] below; a repeated key keeps its
+//!   last value.
 //! - every other key reaches the plugin as a flat config entry; a repeated key keeps its last value.
 //! - keys starting with [`RESERVED_CONFIG_PREFIX`] are reserved for values the host sets. A meta
 //!   entry (or a ledger option) may still use one, but the host's value wins. The host sets
-//!   [`ABI_CONFIG_KEY`] (`zhang.abi`) to [`ABI_VERSION`], and [`PLUGIN_CONFIG_KEY`] (`zhang.plugin`)
+//!   [`ABI_CONFIG_KEY`] (`zhang.abi`) to [`ABI_VERSION`], [`PLUGIN_CONFIG_KEY`] (`zhang.plugin`)
 //!   to the directive as written: its positional arguments and every meta value, as JSON (see
-//!   [`PluginDirectiveConfig`]).
+//!   [`PluginDirectiveConfig`]), and [`SEED_CONFIG_KEY`] (`zhang.seed`) to the plugin's seed (see
+//!   [`plugin_seed`]).
 //!
-//! Every other capability key (`timeout`, and later `allowed_paths`, `seed`, `stage`) is read here
+//! Every other capability key (`timeout`, `seed`, and later `allowed_paths`, `stage`) is read here
 //! *and* still passed through as config, so a plugin that already uses a meta key with that name
 //! sees no change.
 
@@ -50,6 +53,9 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 /// the longest `timeout` a plugin may declare
 const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// meta key on a `plugin` directive mixed into the plugin's seed, [`SEED_CONFIG_KEY`]
+const SEED_KEY: &str = "seed";
+
 /// prefix of the config keys reserved for values the host sets
 pub const RESERVED_CONFIG_PREFIX: &str = "zhang.";
 
@@ -63,6 +69,12 @@ pub const ABI_VERSION: &str = "1";
 /// config key holding the plugin's directive as written, a [`PluginDirectiveConfig`] as JSON
 pub const PLUGIN_CONFIG_KEY: &str = "zhang.plugin";
 
+/// config key holding the plugin's seed, a decimal `u64` (see [`plugin_seed`])
+pub const SEED_CONFIG_KEY: &str = "zhang.seed";
+
+/// the domain separating [`plugin_seed`] hashes from any other use of SHA-256; the `v1` is part of the derivation
+const SEED_DOMAIN: &[u8] = b"zhang/plugin-seed/v1";
+
 /// what the host grants a plugin, as declared by its directive's meta
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginCapabilities {
@@ -70,6 +82,8 @@ pub struct PluginCapabilities {
     pub allowed_hosts: Vec<String>,
     /// how long a single call into the plugin may run before the host stops it
     pub timeout: Duration,
+    /// the `seed` meta, mixed into the plugin's seed; `None` without one
+    pub seed: Option<String>,
 }
 
 impl Default for PluginCapabilities {
@@ -77,6 +91,7 @@ impl Default for PluginCapabilities {
         PluginCapabilities {
             allowed_hosts: vec![],
             timeout: DEFAULT_TIMEOUT,
+            seed: None,
         }
     }
 }
@@ -163,6 +178,10 @@ impl PluginDeclaration {
                     timeout = Some(value.clone());
                     declaration.config.insert(key, value);
                 }
+                SEED_KEY => {
+                    declaration.capabilities.seed = Some(value.clone());
+                    declaration.config.insert(key, value);
+                }
                 _ => {
                     if key.starts_with(RESERVED_CONFIG_PREFIX) {
                         warn!(
@@ -187,10 +206,17 @@ impl PluginDeclaration {
     }
 
     /// the config values the host sets under [`RESERVED_CONFIG_PREFIX`] for this plugin:
-    /// [`ABI_CONFIG_KEY`] and [`PLUGIN_CONFIG_KEY`]. Pass them to [`PluginDeclaration::config_with`]
-    pub fn host_config(&self) -> Vec<(String, String)> {
+    /// [`ABI_CONFIG_KEY`], [`PLUGIN_CONFIG_KEY`] and [`SEED_CONFIG_KEY`]. `occurrence` is the number of
+    /// `plugin` directives before this one declaring the same module. Pass them to
+    /// [`PluginDeclaration::config_with`]
+    pub fn host_config(&self, occurrence: usize) -> Vec<(String, String)> {
         let directive = serde_json::to_string(&self.directive).expect("strings, arrays and maps of strings always serialize to JSON");
-        vec![(ABI_CONFIG_KEY.to_owned(), ABI_VERSION.to_owned()), (PLUGIN_CONFIG_KEY.to_owned(), directive)]
+        let seed = plugin_seed(&self.directive.module, occurrence, self.capabilities.seed.as_deref());
+        vec![
+            (ABI_CONFIG_KEY.to_owned(), ABI_VERSION.to_owned()),
+            (PLUGIN_CONFIG_KEY.to_owned(), directive),
+            (SEED_CONFIG_KEY.to_owned(), seed.to_string()),
+        ]
     }
 
     /// the flat config the plugin receives. On a key conflict a later layer wins:
@@ -202,6 +228,43 @@ impl PluginDeclaration {
         config.extend(reserved);
         config
     }
+}
+
+/// The seed of a plugin, which it receives as the decimal string of [`SEED_CONFIG_KEY`] (`zhang.seed`), so the ids
+/// and links it generates stay the same on every reload.
+///
+/// It depends only on the `plugin` directive: `module`, the module as written; `occurrence`, the number of `plugin`
+/// directives before this one declaring the same module, so two declarations of one module get different seeds; and
+/// `seed`, the directive's `seed` meta if it has one, which changes the seed without moving the directive. It does
+/// not depend on other modules, on the order of their directives, on the date or on the ledger's content. Writing
+/// the module differently (`./x.wasm` for `x.wasm`) changes it.
+///
+/// The derivation is part of plugin ABI v1 ([`ABI_VERSION`]), so a seed never changes between zhang versions: the
+/// first 8 bytes, read as a big-endian `u64`, of the SHA-256 of
+///
+/// ```text
+/// "zhang/plugin-seed/v1" ‖ len(module) ‖ module ‖ occurrence [‖ len(seed) ‖ seed]
+/// ```
+///
+/// where strings are UTF-8, lengths count bytes, `len(…)` and `occurrence` are big-endian `u64`s, and the bracketed
+/// part is present only with a `seed` meta.
+///
+/// The host cannot stop a plugin targeting WASI from reading the host's own entropy and clock through WASI (extism
+/// links them in, and its host functions cannot intercept them). Reproducibility is a contract: derive randomness
+/// from `zhang.seed`, and read the time with the `zhang_now` host function.
+pub fn plugin_seed(module: &str, occurrence: usize, seed: Option<&str>) -> u64 {
+    fn push_str(message: &mut Vec<u8>, value: &str) {
+        message.extend_from_slice(&(value.len() as u64).to_be_bytes());
+        message.extend_from_slice(value.as_bytes());
+    }
+    let mut message = SEED_DOMAIN.to_vec();
+    push_str(&mut message, module);
+    message.extend_from_slice(&(occurrence as u64).to_be_bytes());
+    if let Some(seed) = seed {
+        push_str(&mut message, seed);
+    }
+    let hash = sha256::digest(message.as_slice());
+    u64::from_str_radix(&hash[..16], 16).expect("a SHA-256 digest is hexadecimal")
 }
 
 /// a `timeout` meta value: whole seconds, or a whole number with a unit `ms`, `s`, `m` or `h`.
@@ -229,7 +292,7 @@ mod test {
     use zhang_ast::{Meta, Plugin, ZhangString};
 
     use crate::domains::schemas::OptionDomain;
-    use crate::plugin::capabilities::{DeclarationError, PluginCapabilities, PluginDeclaration, PluginDirectiveConfig, DEFAULT_TIMEOUT};
+    use crate::plugin::capabilities::{plugin_seed, DeclarationError, PluginCapabilities, PluginDeclaration, PluginDirectiveConfig, DEFAULT_TIMEOUT};
     use crate::utils::hashmap::HashMapOfExt;
 
     fn directive(meta: &[(&str, &str)]) -> Plugin {
@@ -389,7 +452,7 @@ mod test {
         );
         // the exact bytes are ABI: field order module, args, meta; sorted meta keys; values in source order
         assert_eq!(
-            declaration.config_with(&[], declaration.host_config()),
+            declaration.config_with(&[], declaration.host_config(0)),
             map(&[
                 ("base_currency", "USD"),
                 ("tag", "second"),
@@ -398,6 +461,7 @@ mod test {
                     "zhang.plugin",
                     r#"{"module":"fx-rate.wasm","args":["USD","strict \"mode\""],"meta":{"allowed_hosts":["b.example","a.example"],"base_currency":["USD"],"tag":["first","second"]}}"#
                 ),
+                ("zhang.seed", "1811957226761548848"),
             ])
         );
     }
@@ -407,25 +471,75 @@ mod test {
         let declaration = PluginDeclaration::parse(&directive(&[]));
 
         assert_eq!(
-            declaration.config_with(&[], declaration.host_config()),
-            map(&[("zhang.abi", "1"), ("zhang.plugin", r#"{"module":"fx-rate.wasm","args":[],"meta":{}}"#)])
+            declaration.config_with(&[], declaration.host_config(0)),
+            map(&[
+                ("zhang.abi", "1"),
+                ("zhang.plugin", r#"{"module":"fx-rate.wasm","args":[],"meta":{}}"#),
+                ("zhang.seed", "1811957226761548848"),
+            ])
         );
     }
 
     #[test]
     fn should_let_the_host_values_win_over_meta_and_options_named_like_them() {
-        let declaration = PluginDeclaration::parse(&directive(&[("zhang.plugin", "from meta"), ("zhang.abi", "0")]));
-        let options = [option("zhang.plugin", "from option")];
+        let declaration = PluginDeclaration::parse(&directive(&[("zhang.plugin", "from meta"), ("zhang.abi", "0"), ("zhang.seed", "7")]));
+        let options = [option("zhang.plugin", "from option"), option("zhang.seed", "8")];
 
         assert_eq!(
-            declaration.config_with(&options, declaration.host_config()),
+            declaration.config_with(&options, declaration.host_config(0)),
             map(&[
                 ("zhang.abi", "1"),
                 (
                     "zhang.plugin",
-                    r#"{"module":"fx-rate.wasm","args":[],"meta":{"zhang.abi":["0"],"zhang.plugin":["from meta"]}}"#
+                    r#"{"module":"fx-rate.wasm","args":[],"meta":{"zhang.abi":["0"],"zhang.plugin":["from meta"],"zhang.seed":["7"]}}"#
                 ),
+                ("zhang.seed", "1811957226761548848"),
             ])
         );
+    }
+
+    /// the `zhang.seed` the host hands a plugin declared by `directive`, the `occurrence`-th of its module
+    fn seed_config(directive: &Plugin, occurrence: usize) -> String {
+        let declaration = PluginDeclaration::parse(directive);
+        declaration.config_with(&[], declaration.host_config(occurrence))["zhang.seed"].clone()
+    }
+
+    #[test]
+    fn should_derive_the_seed_as_specified() {
+        // computed independently: the first 8 bytes of SHA-256("zhang/plugin-seed/v1" ‖ len ‖ module ‖ occurrence
+        // [‖ len ‖ seed]), big-endian. Changing a value here changes every seed users already rely on
+        assert_eq!(plugin_seed("fx-rate.wasm", 0, None), 1811957226761548848);
+        assert_eq!(plugin_seed("fx-rate.wasm", 1, None), 14470161454731210553);
+        assert_eq!(plugin_seed("fx-rate.wasm", 0, Some("ids")), 3501562816358462189);
+        assert_eq!(plugin_seed("fx-rate.wasm", 0, Some("")), 358401822436118058, "an empty seed meta still counts");
+    }
+
+    #[test]
+    fn should_hand_the_same_seed_to_every_load() {
+        assert_eq!(seed_config(&directive(&[]), 0), seed_config(&directive(&[]), 0));
+        assert_eq!(seed_config(&directive(&[]), 0), "1811957226761548848");
+        // the plugin's other config, args and options do not move it
+        let declaration = PluginDeclaration::parse(&directive_with_args(&["USD"], &[("base_currency", "USD")]));
+        assert_eq!(
+            declaration.config_with(&[option("timezone", "Asia/Shanghai")], declaration.host_config(0))["zhang.seed"],
+            "1811957226761548848"
+        );
+    }
+
+    #[test]
+    fn should_give_each_declaration_of_a_module_its_own_seed() {
+        assert_ne!(seed_config(&directive(&[]), 0), seed_config(&directive(&[]), 1));
+        assert_eq!(seed_config(&directive(&[]), 1), "14470161454731210553");
+    }
+
+    #[test]
+    fn should_mix_the_seed_meta_into_the_seed_and_still_pass_it_through() {
+        let declaration = PluginDeclaration::parse(&directive(&[("seed", "first"), ("seed", "ids")]));
+
+        assert_eq!(declaration.capabilities.seed.as_deref(), Some("ids"), "the last value wins");
+        let config = declaration.config_with(&[], declaration.host_config(0));
+        assert_eq!(config["seed"], "ids");
+        assert_eq!(config["zhang.seed"], "3501562816358462189");
+        assert_ne!(seed_config(&directive(&[("seed", "ids")]), 0), seed_config(&directive(&[("seed", "other")]), 0));
     }
 }

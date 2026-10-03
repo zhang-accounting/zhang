@@ -46,6 +46,7 @@ use log::{debug, warn};
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use crate::clock::LoadClock;
 use crate::ledger::Ledger;
 use crate::plugin::host::{read_input_str, MESSAGE_META};
 use crate::plugin::http::{PluginRequest, PluginResponse};
@@ -236,8 +237,9 @@ impl RegisteredPlugin {
             host: Some(host),
             ledger_info: Some(ledger_info(ledger)),
         };
-        // `zhang_emit_error` too, so a plugin importing it can serve requests
-        let plugin_host = self.host();
+        // `zhang_emit_error` too, so a plugin importing it can serve requests. `zhang_now` reads the
+        // ledger's clock afresh for this request
+        let plugin_host = self.routing_host(LoadClock::new(ledger.clock()), ledger.options.timezone);
         let functions = plugin_host.functions().into_iter().chain(host_functions(call));
         // the same manifest as a processor gets: config, allowed hosts and timeout
         let mut plugin = WasmPlugin::new(self.manifest(&options), functions, true).map_err(|e| RouterError::Load(format!("{e:#}")))?;

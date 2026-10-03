@@ -11,15 +11,19 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Utc};
 use indoc::{formatdoc, indoc};
 use itertools::Itertools;
 use serde_json::json;
 use tempfile::TempDir;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, SpanInfo};
-use zhang_core::data_source::LocalFileSystemDataSource;
+use zhang_core::clock::Clock;
+use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::ledger::Ledger;
+use zhang_core::inputs::ExtraInput;
+use zhang_core::ledger::{Ledger, LedgerProcessContext};
+use zhang_core::plugin::capabilities::plugin_seed;
 use zhang_core::plugin::http::PluginRequest;
 use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost};
 use zhang_core::plugin::PluginType;
@@ -57,6 +61,34 @@ fn try_load(dir: &TempDir, content: &str) -> ZhangResult<Ledger> {
 
 fn load(dir: &TempDir, content: &str) -> Ledger {
     try_load(dir, content).unwrap_or_else(|e| panic!("ledger should load: {e}"))
+}
+
+/// load `content` as the main file of `dir`, reading the current time from `clock`
+fn load_with_clock(dir: &TempDir, content: &str, clock: Clock) -> Ledger {
+    std::fs::write(dir.path().join("main.zhang"), content).unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+    let loaded = source.load(root.to_string_lossy().to_string(), "main.zhang".to_owned()).unwrap();
+    Ledger::process(LedgerProcessContext {
+        directives: loaded.directives,
+        entry: (root, "main.zhang".to_owned()),
+        visited_files: loaded.visited_files,
+        data_source: source,
+        clock,
+    })
+    .unwrap_or_else(|e| panic!("ledger should load: {e}"))
+}
+
+/// the contents of the comment directives in the processed stream, in order
+fn comments(ledger: &Ledger) -> Vec<String> {
+    ledger
+        .metas
+        .iter()
+        .filter_map(|it| match &it.data {
+            Directive::Comment(comment) => Some(comment.content.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// the registered plugins in declaration order, with the types they run as
@@ -566,4 +598,132 @@ fn the_first_declared_router_serves_a_shared_name() {
     let router = ledger.plugins.router("router-echo").unwrap();
     assert_eq!(router.capabilities().allowed_hosts, vec!["first.example".to_owned()]);
     assert!(ledger.plugins.router("router").is_none());
+}
+
+/// the instant tests fix the clock at: 00:30 the next day in Asia/Shanghai
+fn fixed_now() -> DateTime<Utc> {
+    "2024-03-15T16:30:00Z".parse().unwrap()
+}
+
+/// what the `now_echo.wat` plugins of a ledger got from `zhang_now`, in declaration order
+fn now_results(ledger: &Ledger) -> Vec<serde_json::Value> {
+    comments(ledger)
+        .iter()
+        .map(|it| serde_json::from_str(it).unwrap_or_else(|e| panic!("zhang_now should return JSON: {e}: {it}")))
+        .collect()
+}
+
+#[test]
+fn processor_reads_the_load_time_in_the_ledger_timezone_from_zhang_now() {
+    let dir = ledger_dir(&["now_echo.wat"]);
+    let content = format!("option \"timezone\" \"Asia/Shanghai\"\n{}", with_plugins(&plugin(&dir, "now_echo.wat")));
+    let mut ledger = load_with_clock(&dir, &content, Clock::Fixed(fixed_now()));
+
+    let expected = json!({"Ok": {"now": "2024-03-16T00:30:00+08:00", "today": "2024-03-16", "timezone": "Asia/Shanghai"}});
+    assert_eq!(now_results(&ledger), vec![expected.clone()]);
+    assert!(ledger.extra_inputs.contains(&ExtraInput::Clock), "{:?}", ledger.extra_inputs);
+    assert_eq!(ledger.clock_reading().map(|it| it.to_rfc3339()).as_deref(), Some("2024-03-16T00:30:00+08:00"));
+    assert_eq!(
+        store_summary(&ledger).1.len(),
+        2,
+        "the plugin appends to the stream, the lunch transaction still lands"
+    );
+
+    // a reload reads the same clock again
+    ledger.reload().unwrap();
+    assert_eq!(ledger.clock(), Clock::Fixed(fixed_now()));
+    assert_eq!(now_results(&ledger), vec![expected]);
+    assert!(ledger.extra_inputs.contains(&ExtraInput::Clock));
+}
+
+#[test]
+fn every_plugin_of_a_load_reads_the_same_time() {
+    // the system clock is read once per load, on the first call, so two plugins agree on the instant
+    let dir = ledger_dir(&["now_echo.wat"]);
+    let now_echo = plugin(&dir, "now_echo.wat");
+    let ledger = load(&dir, &with_plugins(&format!("{now_echo}{now_echo}")));
+
+    let results = now_results(&ledger);
+    assert_eq!(results.len(), 2, "{results:?}");
+    assert_eq!(results[0], results[1]);
+    let reading = ledger.clock_reading().expect("the load read the clock");
+    assert_eq!(results[0]["Ok"]["now"], reading.to_rfc3339());
+    assert_eq!(results[0]["Ok"]["today"], reading.format("%Y-%m-%d").to_string());
+    assert_eq!(ledger.clock(), Clock::System);
+}
+
+#[test]
+fn plugin_that_never_calls_zhang_now_does_not_read_the_clock() {
+    let dir = ledger_dir(&["echo.wat"]);
+    let ledger = load(&dir, &with_plugins(&plugin(&dir, "echo.wat")));
+
+    assert!(!ledger.extra_inputs.contains(&ExtraInput::Clock), "{:?}", ledger.extra_inputs);
+    assert_eq!(ledger.clock_reading(), None, "nothing asked for the time");
+}
+
+#[test]
+fn reading_the_time_while_registering_does_not_make_the_ledger_depend_on_the_date() {
+    let dir = ledger_dir(&["now_at_registration.wat"]);
+    let ledger = load_with_clock(&dir, &with_plugins(&plugin(&dir, "now_at_registration.wat")), Clock::Fixed(fixed_now()));
+
+    assert_eq!(registered(&ledger), vec![("now-at-registration".to_owned(), vec![PluginType::Processor])]);
+    assert!(!ledger.extra_inputs.contains(&ExtraInput::Clock), "{:?}", ledger.extra_inputs);
+    assert_eq!(
+        ledger.clock_reading().map(|it| it.with_timezone(&Utc)),
+        Some(fixed_now()),
+        "registering got the time of the load"
+    );
+    assert_eq!(store_summary(&ledger).1.len(), 2);
+}
+
+/// the `zhang.seed` values the `seed_echo.wat` plugins of a ledger received, in declaration order
+fn seeds(ledger: &Ledger) -> Vec<u64> {
+    comments(ledger)
+        .iter()
+        .map(|it| it.parse().unwrap_or_else(|e| panic!("zhang.seed should be a decimal u64: {e}: {it}")))
+        .collect()
+}
+
+#[test]
+fn plugin_seed_is_stable_across_loads_and_unique_per_declaration() {
+    let dir = ledger_dir(&["seed_echo.wat", "echo.wat"]);
+    let module = dir.path().join("seed_echo.wat").display().to_string();
+    let seed_echo = plugin(&dir, "seed_echo.wat");
+
+    let first = seeds(&load(&dir, &with_plugins(&seed_echo)));
+    assert_eq!(first, vec![plugin_seed(&module, 0, None)]);
+    assert_eq!(seeds(&load(&dir, &with_plugins(&seed_echo))), first, "every load gets the same seed");
+
+    // a second declaration of the module gets its own seed, and the first keeps its own
+    let twice = seeds(&load(&dir, &with_plugins(&format!("{seed_echo}{seed_echo}"))));
+    assert_eq!(twice, vec![plugin_seed(&module, 0, None), plugin_seed(&module, 1, None)]);
+    assert_ne!(twice[0], twice[1]);
+
+    // a `seed` meta changes it
+    let seeded = seeds(&load(&dir, &with_plugins(&format!("{seed_echo}  seed: \"ids\"\n"))));
+    assert_eq!(seeded, vec![plugin_seed(&module, 0, Some("ids"))]);
+    assert_ne!(seeded, first);
+
+    // a plugin of another module declared before it changes nothing
+    let after_echo = seeds(&load(&dir, &with_plugins(&format!("{}{seed_echo}", plugin(&dir, "echo.wat")))));
+    assert_eq!(after_echo, first);
+}
+
+#[test]
+fn router_reads_the_clock_for_each_request_and_records_nothing() {
+    let dir = ledger_dir(&["router_now.wat"]);
+    let content = format!("option \"timezone\" \"Asia/Shanghai\"\n{}", with_plugins(&plugin(&dir, "router_now.wat")));
+    let ledger = load_with_clock(&dir, &content, Clock::Fixed(fixed_now()));
+    assert_eq!(ledger.clock_reading(), None, "loading a router plugin reads no clock");
+
+    let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+    let response = call(&ledger, "router-now", &request).unwrap();
+    let now: serde_json::Value = serde_json::from_slice(response.body()).unwrap();
+    assert_eq!(
+        now,
+        json!({"Ok": {"now": "2024-03-16T00:30:00+08:00", "today": "2024-03-16", "timezone": "Asia/Shanghai"}})
+    );
+    // a request is not a load: the ledger does not start depending on the date
+    assert!(!ledger.extra_inputs.contains(&ExtraInput::Clock), "{:?}", ledger.extra_inputs);
+    assert_eq!(ledger.clock_reading(), None);
 }

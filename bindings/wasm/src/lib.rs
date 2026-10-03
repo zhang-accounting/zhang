@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use beancount::Beancount;
 use wasm_bindgen::prelude::*;
+use zhang_core::clock::Clock;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
@@ -84,6 +85,8 @@ pub fn parse(content: &str) -> PlayGroundParse {
                 entry: (PathBuf::from("/"), "".to_owned()),
                 visited_files: vec![],
                 data_source: source.clone(),
+                // never read: the playground runs no plugins, and nothing else asks for the time
+                clock: Clock::System,
             })
             .unwrap();
             let result1 = result.store.read().unwrap();
@@ -100,6 +103,8 @@ pub fn parse(content: &str) -> PlayGroundParse {
                 entry: (PathBuf::from("/"), "".to_owned()),
                 visited_files: vec![],
                 data_source: source.clone(),
+                // never read: the playground runs no plugins, and nothing else asks for the time
+                clock: Clock::System,
             })
             .unwrap();
             let result1 = result.store.read().unwrap();

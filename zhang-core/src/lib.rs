@@ -4,6 +4,7 @@ pub use error::ZhangError;
 pub mod utils;
 
 pub(crate) mod booking;
+pub mod clock;
 pub mod constants;
 pub mod data_source;
 pub mod data_type;

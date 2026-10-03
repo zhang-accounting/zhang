@@ -162,6 +162,7 @@ mod test {
     use serde_json::{json, Value};
     use tokio::sync::RwLock;
     use tower::ServiceExt;
+    use zhang_core::clock::Clock;
     use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::data_type::DataType;
@@ -372,6 +373,7 @@ mod test {
             entry: (PathBuf::from("."), "main.zhang".to_owned()),
             visited_files: vec![],
             data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
+            clock: Clock::System,
         })
         .unwrap();
         let ledger = Arc::new(RwLock::new(ledger));
