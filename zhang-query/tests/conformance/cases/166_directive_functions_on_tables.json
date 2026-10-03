@@ -1,0 +1,26 @@
+{
+  "name": "directive_functions_on_tables",
+  "query": "SELECT name, commodity_meta(name, 'export') AS export, open_date('Assets:US:Vanguard:Cash') AS vanguard_cash FROM #commodities ORDER BY name",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "name", "type": "str"},
+    {"name": "export", "type": "str"},
+    {"name": "vanguard_cash", "type": "date"}
+  ],
+  "rows": [
+    ["GLD", "NYSEARCA:GLD", "2015-01-01"],
+    ["IRAUSD", "IGNORE", "2015-01-01"],
+    ["ITOT", "NYSEARCA:ITOT", "2015-01-01"],
+    ["RGAGX", "MUTF:RGAGX", "2015-01-01"],
+    ["USD", "CASH", "2015-01-01"],
+    ["VACHR", "IGNORE", "2015-01-01"],
+    ["VBMPX", "MUTF:VBMPX", "2015-01-01"],
+    ["VEA", "NYSEARCA:VEA", "2015-01-01"],
+    ["VHT", "NYSEARCA:VHT", "2015-01-01"],
+    ["VMMXX", "MUTF:VMMXX (MONEY:USD)", "2015-01-01"]
+  ],
+  "notes": "The directive functions read the ledger, so they work on any table."
+}

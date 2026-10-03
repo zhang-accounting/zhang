@@ -1,0 +1,19 @@
+{
+  "name": "directive_functions_of_unknown_names",
+  "query": "SELECT DISTINCT open_date('Assets:Nope') AS opened, close_date('Assets:Nope') AS closed, open_meta('Assets:Nope', 'x') AS meta, commodity_meta('NOPE', 'name') AS commodity, open_date('assets:us:bofa:checking') AS lower_case WHERE account = 'Expenses:Financial:Fees'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "opened", "type": "date"},
+    {"name": "closed", "type": "date"},
+    {"name": "meta", "type": "str"},
+    {"name": "commodity", "type": "str"},
+    {"name": "lower_case", "type": "date"}
+  ],
+  "rows": [
+    [null, null, null, null, null]
+  ],
+  "notes": "An unknown account or commodity is NULL; names are case-sensitive."
+}

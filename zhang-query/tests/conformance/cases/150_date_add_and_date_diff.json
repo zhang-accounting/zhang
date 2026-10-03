@@ -1,0 +1,22 @@
+{
+  "name": "date_add_and_date_diff",
+  "query": "SELECT DISTINCT date_add(2016-02-28, 1) AS leap_day, date_add(2015-02-28, 1) AS march_first, date_add(2016-03-01, -1) AS back_to_leap_day, date_add(2016-12-31, 1) AS new_year, date_add(2016-01-31, 0) AS same, date_diff(2016-03-01, 2016-02-01) AS february, date_diff(2015-03-01, 2015-02-01) AS short_february, date_diff(2016-01-01, 2016-12-31) AS negative WHERE account = 'Expenses:Financial:Fees'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "leap_day", "type": "date"},
+    {"name": "march_first", "type": "date"},
+    {"name": "back_to_leap_day", "type": "date"},
+    {"name": "new_year", "type": "date"},
+    {"name": "same", "type": "date"},
+    {"name": "february", "type": "int"},
+    {"name": "short_february", "type": "int"},
+    {"name": "negative", "type": "int"}
+  ],
+  "rows": [
+    ["2016-02-29", "2015-03-01", "2016-02-29", "2017-01-01", "2016-01-31", 29, 28, -365]
+  ],
+  "notes": "date_add(date, days) adds days (negative days go back); date_diff(a, b) is the days from b to a."
+}

@@ -6,7 +6,8 @@
 //! query      := (select | balances | journal) [;]
 //! select     := SELECT [DISTINCT] targets [from] [where]
 //!               [GROUP BY item, ... [HAVING expr]] [ORDER BY item [ASC|DESC], ...]
-//!               [PIVOT BY column, column] [LIMIT int]
+//!               [PIVOT BY column, column] [LIMIT count [OFFSET count]]
+//! count      := int | $n | :name                 (a parameter is bound to an int)
 //! column     := name | int                       (a target name or a 1-based target index)
 //! balances   := BALANCES [AT name] [from] [where]
 //! journal    := JOURNAL ['regex' | $n | :name] [AT name] [from]
@@ -44,7 +45,10 @@ use nom::bytes::complete::{tag, tag_no_case, take_while, take_while1};
 use nom::error::{ErrorKind, ParseError};
 use nom::{Err as NomErr, IResult};
 
-use crate::ast::{ArithOp, BinaryOp, Expr, ExprKind, FromClause, InTarget, Literal, LogicalOp, OrderItem, Period, Select, TableName, Target, Targets, UnaryOp};
+use crate::ast::{
+    ArithOp, BinaryOp, Count, CountValue, Expr, ExprKind, FromClause, InTarget, Literal, LogicalOp, OrderItem, Period, Select, TableName, Target, Targets,
+    UnaryOp,
+};
 use crate::error::{QueryError, QueryErrorKind, Span};
 use crate::params::ParamRef;
 use crate::statements::{self, AtFunction};
@@ -81,7 +85,7 @@ type PResult<'a, T> = IResult<&'a str, T, PError<'a>>;
 
 const RESERVED: &[&str] = &[
     "select", "distinct", "from", "where", "group", "by", "order", "asc", "desc", "limit", "as", "and", "or", "not", "in", "is", "null", "true", "false",
-    "having", "pivot",
+    "having", "pivot", "offset",
 ];
 
 /// The clauses that may follow `FROM #table`.
@@ -317,18 +321,18 @@ impl<'s> Parser<'s> {
         };
         let (i, limit) = match keyword("limit")(i) {
             Ok((rest, _)) => {
-                let rest = skip_ws(rest);
-                let (after, digits) = take_while::<_, _, PError>(|c: char| c.is_ascii_digit())(rest)?;
-                if digits.is_empty() || after.starts_with(is_ident_char) {
-                    return failure(rest, format!("expected a non-negative integer after LIMIT, found {}", found(rest)));
-                }
-                let limit = digits.parse::<u64>().map_err(|_| {
-                    NomErr::Failure(PError {
-                        input: rest,
-                        message: Cow::Borrowed("LIMIT is too large"),
-                    })
-                })?;
-                (after, Some(limit))
+                let (rest, limit) = self.count(rest, "LIMIT")?;
+                (rest, Some(limit))
+            }
+            Err(_) => (i, None),
+        };
+        let (i, offset) = match keyword("offset")(i) {
+            Ok(_) if limit.is_none() => {
+                return failure(skip_ws(i), "OFFSET must follow LIMIT, e.g. LIMIT 10 OFFSET 20");
+            }
+            Ok((rest, _)) => {
+                let (rest, offset) = self.count(rest, "OFFSET")?;
+                (rest, Some(offset))
             }
             Err(_) => (i, None),
         };
@@ -349,6 +353,48 @@ impl<'s> Parser<'s> {
                 order_by,
                 pivot_by,
                 limit,
+                offset,
+            },
+        ))
+    }
+
+    /// The value of `LIMIT` or `OFFSET`, after the keyword: a non-negative integer or a
+    /// parameter (which the compiler requires to be an integer).
+    fn count(&self, i: &'s str, clause: &'static str) -> PResult<'s, Count> {
+        let i = skip_ws(i);
+        let start = self.offset(i);
+        if i.starts_with(['$', ':']) {
+            let (rest, param) = self.parameter(i, start)?;
+            let ExprKind::Param(param) = param.kind else {
+                unreachable!("parameter() parses a parameter")
+            };
+            let span = Span::new(start, self.offset(rest));
+            return Ok((
+                rest,
+                Count {
+                    value: CountValue::Param(param),
+                    span,
+                },
+            ));
+        }
+        let (after, digits) = take_while::<_, _, PError>(|c: char| c.is_ascii_digit())(i)?;
+        if digits.is_empty() || after.starts_with(is_ident_char) || after.starts_with('.') {
+            return failure(
+                i,
+                format!("expected a non-negative integer or a parameter after {}, found {}", clause, found(i)),
+            );
+        }
+        let value = digits.parse::<u64>().map_err(|_| {
+            NomErr::Failure(PError {
+                input: i,
+                message: Cow::Owned(format!("{} is too large", clause)),
+            })
+        })?;
+        Ok((
+            after,
+            Count {
+                value: CountValue::Literal(value),
+                span: Span::new(start, self.offset(after)),
             },
         ))
     }
@@ -1112,7 +1158,7 @@ mod tests {
         let order = select.order_by.unwrap();
         assert!(order[0].descending);
         assert!(!order[1].descending);
-        assert_eq!(select.limit, Some(10));
+        assert_eq!(select.limit.as_ref().and_then(Count::literal), Some(10));
     }
 
     #[test]
@@ -1476,8 +1522,29 @@ mod tests {
         // names are lower-cased like columns; indexes are integer literals
         assert_eq!(first.as_identifier(), Some("account"));
         assert_eq!(second.as_index(), Some(1));
-        assert_eq!(select.limit, Some(5));
+        assert_eq!(select.limit.as_ref().and_then(Count::literal), Some(5));
         assert!(parse_ok("SELECT a GROUP BY a").having.is_none() && parse_ok("SELECT a").pivot_by.is_none());
+    }
+
+    #[test]
+    fn limit_and_offset_take_integers_or_parameters() {
+        let select = parse_ok("SELECT a LIMIT 10 OFFSET 0");
+        assert_eq!(select.limit.as_ref().and_then(Count::literal), Some(10));
+        assert_eq!(select.offset.as_ref().and_then(Count::literal), Some(0));
+        let src = "select a limit :size offset $2;";
+        let select = parse_ok(src);
+        let (limit, offset) = (select.limit.unwrap(), select.offset.unwrap());
+        assert_eq!(limit.value, CountValue::Param(ParamRef::Named("size".into())));
+        assert_eq!(&src[limit.span.start..limit.span.end], ":size");
+        assert_eq!(offset.value, CountValue::Param(ParamRef::Positional(2)));
+        assert_eq!(&src[offset.span.start..offset.span.end], "$2");
+        assert!(parse_ok("SELECT a LIMIT 1").offset.is_none());
+        // OFFSET is a keyword
+        assert!(parse_err("SELECT offset").message.contains("keyword OFFSET"));
+        assert!(parse_err("SELECT a OFFSET 1 LIMIT 1").message.contains("OFFSET must follow LIMIT"));
+        assert!(parse_err("SELECT a LIMIT 1 OFFSET 1 PIVOT BY a, b")
+            .message
+            .contains("PIVOT BY must come before LIMIT"));
     }
 
     #[test]

@@ -122,6 +122,52 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
                  crashes at runtime, so there is no oracle result",
         accepted: Accepted::NoFixture,
     },
+    Deviation {
+        case: Some("interval_values"),
+        reason: "interval() also accepts weeks, seven days each (a zhang extension, by lead decision on #479); \
+                 beanquery's interval('2 weeks') is NULL",
+        accepted: Accepted::Rows(
+            r#"[["1 month", "1 year 1 month", "-1 year", "10 days", "1 day", "14 days", null, null, null, "11 months", "1 month 3 days"]]"#,
+        ),
+    },
+    Deviation {
+        case: Some("date_bin_on_boundaries"),
+        reason: "a date exactly on a bin boundary starts that bin, also for strides of months and years (by lead \
+                 decision on #479); beanquery puts it into the previous bin, e.g. date_bin('1 month', 2000-02-01, \
+                 2000-01-01) is 2000-01-01 there and 2000-02-01 here",
+        accepted: Accepted::Rows(r#"[["2000-02-01", "2000-03-01", "2015-07-01", "2016-01-01", "2015-01-01", "2014-12-01", "2014-11-01", "2015-01-12"]]"#),
+    },
+    Deviation {
+        case: Some("date_bin_month_end_origin"),
+        reason: "the bins of date_bin are origin + k strides, each computed from the origin, so bins from a month end \
+                 stay on month ends (2015-01-31, 2015-02-28, 2015-03-31); beanquery adds each stride to the previous \
+                 bin, so its bins drift (2015-03-28), and it puts a date on a boundary into the previous bin",
+        accepted: Accepted::Rows(r#"[["2015-02-28", "2015-02-28", "2015-02-28", "2014-10-31", "2014-12-31", "2015-01-31", "2017-02-28", null]]"#),
+    },
+    Deviation {
+        case: None,
+        reason: "date functions given a NULL literal return NULL (NULL in, NULL out); beanquery types NULL apart and \
+                 rejects date_add(NULL, 1) at compile time",
+        accepted: Accepted::NoFixture,
+    },
+    Deviation {
+        case: None,
+        reason: "date_bin with a zero stride, or a stride text interval() cannot read, is NULL; beanquery fails with \
+                 ZeroDivisionError or AttributeError",
+        accepted: Accepted::NoFixture,
+    },
+    Deviation {
+        case: None,
+        reason: "interval - interval is an interval; beanquery declares the result a date (while computing an interval), \
+                 and accepts interval - date, which then fails at run time (a compile error here)",
+        accepted: Accepted::NoFixture,
+    },
+    Deviation {
+        case: None,
+        reason: "open_meta(account) and commodity_meta(currency) are metas (key, value) lists of the directive's own \
+                 metadata; beanquery's dicts also hold the filename and lineno zhang does not keep",
+        accepted: Accepted::NoFixture,
+    },
 ];
 
 /// A `ledger-dependent` case that may differ from beanquery because zhang processes the ledger
@@ -191,7 +237,9 @@ struct Fixture {
     file: String,
     name: String,
     query: String,
-    /// 1 for the Phase 1 fixtures (no `phase` field), otherwise the `phase` field (2 or 3)
+    /// 1 for the Phase 1 fixtures (no `phase` field), otherwise the `phase` field (2 to 4); the
+    /// Phase 4 fixtures (issue #479, wave 1: beanquery's date functions, intervals and account
+    /// and commodity directive functions) are always strict, like Phase 1
     phase: u64,
     kind: String,
     ordered: bool,
@@ -238,8 +286,8 @@ fn load_fixtures() -> Vec<Fixture> {
                 query: string("query"),
                 phase: match json.get("phase").map(|phase| phase.as_u64()) {
                     None => 1,
-                    Some(Some(phase @ (1..=3))) => phase,
-                    Some(_) => panic!("{}: `phase` must be 1, 2 or 3", file),
+                    Some(Some(phase @ (1..=4))) => phase,
+                    Some(_) => panic!("{}: `phase` must be 1, 2, 3 or 4", file),
                 },
                 kind: string("kind"),
                 ordered: field("ordered").as_bool().expect("`ordered` is a bool"),
@@ -323,6 +371,8 @@ fn engine_cell(value: &Value) -> Json {
         Value::Amount(it) => engine_amount(it),
         Value::Position(it) => engine_position(it),
         Value::Inventory(it) => sorted_positions(it.positions().map(|position| engine_position(&position)).collect()),
+        Value::Interval(it) => json!(it.to_string()),
+        Value::Metas(it) => json!(it.iter().map(|(key, value)| json!({"key": key, "value": value})).collect::<Vec<_>>()),
     }
 }
 

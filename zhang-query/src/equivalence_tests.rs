@@ -1,7 +1,9 @@
 //! The execution decisions of the optimizer and the projector (deferred running balances,
-//! running sums for `units(balance)` / `cost(balance)`, LIMIT pushdown) change how much work
-//! an execution does, never its result: every query here returns byte-identical rows
-//! (decimal scales included) with [`Query::compile`] and with [`Query::compile_naive`].
+//! running sums for `units(balance)` / `cost(balance)`, LIMIT and OFFSET pushdown, hashed `IN`
+//! lists, prepared string tests, and parameters bound as constants) change how much work an
+//! execution does, never its result: every query here returns byte-identical rows (decimal
+//! scales included), and the same total row count, with [`Query::compile`] and with
+//! [`Query::compile_naive`].
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -11,7 +13,7 @@ use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 
-use crate::{ExecuteOptions, Params, Query};
+use crate::{DataType, ExecuteOptions, ParamTypes, Params, Query, Value};
 
 fn load(dir: PathBuf) -> Ledger {
     let source = LocalFileSystemDataSource::new(ZhangDataType {});
@@ -119,7 +121,72 @@ const QUERIES: &[&str] = &[
     "SELECT account, open.date, close FROM #accounts ORDER BY open.date DESC, account LIMIT 5",
     "SELECT account, year(date) AS y, count(*) AS n FROM #balances GROUP BY 1, 2 HAVING count(*) > 1 PIVOT BY account, y",
     "SELECT name, date FROM #commodities ORDER BY name DESC LIMIT 2",
+    // OFFSET with every LIMIT strategy: top-k, stopping the scan (with DISTINCT), the first
+    // groups, deferred balances, HAVING and PIVOT BY, and an offset past the end
+    "SELECT date, balance ORDER BY date DESC LIMIT 10 OFFSET 5",
+    "SELECT date, account, position, balance LIMIT 7 OFFSET 3",
+    "SELECT DISTINCT account LIMIT 3 OFFSET 2",
+    "SELECT DISTINCT account, currency ORDER BY account DESC LIMIT 4 OFFSET 1",
+    "SELECT account, count(*) GROUP BY account LIMIT 2 OFFSET 3",
+    "SELECT account, last(balance) GROUP BY account ORDER BY account LIMIT 3 OFFSET 2",
+    "SELECT account, count(*) GROUP BY account HAVING count(*) > 5 LIMIT 2 OFFSET 1",
+    "SELECT year, account, sum(position) AS total GROUP BY 1, 2 PIVOT BY account, year LIMIT 6 OFFSET 2",
+    "SELECT date, position LIMIT 5 OFFSET 100000",
+    "SELECT date, position ORDER BY date LIMIT 0 OFFSET 3",
+    "SELECT * FROM #entries ORDER BY date DESC, type LIMIT 7 OFFSET 7",
+    // hashed IN lists and prepared string tests over literals
+    "SELECT account, count(*) WHERE account IN ('Assets:Cash', 'Assets:Broker', 'Expenses:Food:Coffee', NULL) GROUP BY account",
+    "SELECT count(*) WHERE number IN (1, 2.0, 10.00, 0.5) OR number NOT IN (3.25, NULL)",
+    "SELECT date, payee WHERE icontains(payee, 'TRADE') OR icontains(narration, 'café') OR any_icontains(tags, 'TRIP')",
+    "SELECT account, count(*) WHERE under(account, 'Assets') OR under(account, 'Expenses:Food') GROUP BY account",
+    "SELECT DISTINCT account WHERE NOT under(account, 'Assets:US') AND account IN ('Assets:US:BofA:Checking', 'Assets:Cash')",
 ];
+
+/// Queries with parameters, run with [`PARAMS`]: the optimized execution binds them as
+/// constants (compiling a pattern, hashing a set, lower-casing a needle once), the naive one
+/// evaluates them for every row.
+const PARAM_QUERIES: &[&str] = &[
+    "SELECT date, payee WHERE payee ~ :keyword OR narration ~ :keyword OR account ~ :keyword",
+    "SELECT DISTINCT id WHERE payee ~ :keyword OR str(tags) ~ :keyword ORDER BY id LIMIT :size OFFSET :offset",
+    "SELECT account, count(*) WHERE account IN :accounts GROUP BY account",
+    "SELECT count(*) WHERE account NOT IN :accounts AND :missing IN tags",
+    "SELECT date, account WHERE account IN (:account, 'Assets:Cash', :missing) LIMIT :size",
+    "SELECT date, payee WHERE icontains(payee, :needle) OR icontains(narration, :needle) ORDER BY date DESC LIMIT :size OFFSET :offset",
+    "SELECT account, sum(position) WHERE under(account, :root) GROUP BY account ORDER BY account",
+    "SELECT date, balance WHERE under(account, :root) ORDER BY date DESC LIMIT :size OFFSET :offset",
+    "SELECT account, count(*) WHERE account ~ :empty OR :flag GROUP BY account LIMIT :size",
+    "SELECT date, payee WHERE payee ~ :invalid LIMIT :size",
+    "SELECT DISTINCT account LIMIT :size OFFSET :offset",
+    "SELECT account, count(*) GROUP BY account LIMIT :size OFFSET :offset",
+];
+
+fn params() -> Params {
+    let accounts = [
+        "Assets:Cash",
+        "Assets:Broker",
+        "Expenses:Food:Coffee",
+        "Assets:US:BofA:Checking",
+        "Liabilities:US:Chase:Slate",
+    ];
+    Params::new()
+        .bind("keyword", "(?i)trade|coffee|Rent")
+        .bind("accounts", Value::Set(accounts.iter().map(|it| it.to_string()).collect()))
+        .bind("account", "Expenses:Fees")
+        .bind("missing", Value::Null)
+        .bind("needle", "TrAdE")
+        .bind("root", "Assets")
+        .bind("empty", "")
+        .bind("flag", false)
+        .bind("invalid", "(")
+        .bind("size", 9i64)
+        .bind("offset", 4i64)
+}
+
+fn param_types() -> ParamTypes {
+    let mut types = params().types();
+    types = types.bind("missing", DataType::Str);
+    types
+}
 
 /// Run every query both ways and compare the rows by their `Debug` form, which shows
 /// decimal scales.
@@ -128,19 +195,110 @@ fn assert_equivalent(ledger: &Ledger, queries: &[&str]) {
         today: Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()),
         timeout: None,
         max_result_values: None,
+        count_total: true,
     };
+    assert_equivalent_with(ledger, queries, &ParamTypes::new(), &Params::new(), &options);
+}
+
+fn assert_equivalent_with(ledger: &Ledger, queries: &[&str], types: &ParamTypes, params: &Params, options: &ExecuteOptions) {
     for sql in queries {
-        let run = |query: Query| query.execute_with_options(ledger, &Params::new(), &options);
-        let naive = run(Query::compile_naive(sql).unwrap_or_else(|err| panic!("{sql}: {err}")));
-        let optimized = run(Query::compile(sql).unwrap_or_else(|err| panic!("{sql}: {err}")));
-        match (naive, optimized) {
+        let run = |query: Query, options: &ExecuteOptions| query.execute_with_options(ledger, params, options);
+        let naive = run(Query::compile_naive(sql, types).unwrap_or_else(|err| panic!("{sql}: {err}")), options);
+        let optimized = run(Query::compile_with_params(sql, types).unwrap_or_else(|err| panic!("{sql}: {err}")), options);
+        // counting the rows changes nothing else
+        let uncounted = run(
+            Query::compile_with_params(sql, types).unwrap(),
+            &ExecuteOptions {
+                count_total: false,
+                ..options.clone()
+            },
+        );
+        match (&naive, &optimized) {
             (Ok(naive), Ok(optimized)) => {
                 assert_eq!(naive.columns, optimized.columns, "{sql}");
                 assert_eq!(format!("{:?}", naive.rows), format!("{:?}", optimized.rows), "{sql}");
+                assert_eq!(naive.total, optimized.total, "{sql}");
+                assert!(optimized.total.is_some(), "{sql}");
             }
             (Err(naive), Err(optimized)) => assert_eq!(naive, optimized, "{sql}"),
-            (naive, optimized) => panic!("{sql}: {:?} vs {:?}", naive.map(|it| it.rows.len()), optimized.map(|it| it.rows.len())),
+            (naive, optimized) => panic!(
+                "{sql}: {:?} vs {:?}",
+                naive.as_ref().map(|it| it.rows.len()),
+                optimized.as_ref().map(|it| it.rows.len())
+            ),
         }
+        match (uncounted, optimized) {
+            (Ok(uncounted), Ok(optimized)) => {
+                assert_eq!(format!("{:?}", uncounted.rows), format!("{:?}", optimized.rows), "{sql}");
+                assert_eq!(uncounted.total, None, "{sql}");
+            }
+            (Err(uncounted), Err(optimized)) => assert_eq!(uncounted, optimized, "{sql}"),
+            // counting evaluates the filter past the window, where a row may fail that a scan
+            // stopped by LIMIT never reaches
+            (Ok(_), Err(_)) => {}
+            (Err(uncounted), Ok(_)) => panic!("{sql}: only the uncounted execution fails: {uncounted}"),
+        }
+    }
+}
+
+fn counted() -> ExecuteOptions {
+    ExecuteOptions {
+        today: Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()),
+        timeout: None,
+        max_result_values: None,
+        count_total: true,
+    }
+}
+
+#[test]
+fn bound_parameters_keep_results() {
+    let types = param_types();
+    assert_equivalent_with(&fava_demo_ledger(), PARAM_QUERIES, &types, &params(), &counted());
+    for seed in 1..=3 {
+        assert_equivalent_with(&load_text(&random_lots_ledger(seed, 120)), PARAM_QUERIES, &types, &params(), &counted());
+    }
+    // other windows, and parameters that make the filters always or never hold
+    for (size, offset, flag, root) in [
+        (0i64, 0i64, true, ""),
+        (1, 0, true, "Expenses"),
+        (1000, 3, false, "Assets:US"),
+        (5, 100_000, true, "Liabilities"),
+    ] {
+        let params = params().bind("size", size).bind("offset", offset).bind("flag", flag).bind("root", root);
+        assert_equivalent_with(&fava_demo_ledger(), PARAM_QUERIES, &types, &params, &counted());
+    }
+}
+
+/// The total counts every row before LIMIT and OFFSET, whatever cuts the scan short.
+#[test]
+fn totals_count_the_rows_before_the_window() {
+    let ledger = fava_demo_ledger();
+    let run = |sql: &str| Query::compile(sql).unwrap().execute_with_options(&ledger, &Params::new(), &counted()).unwrap();
+    for (sql, all) in [
+        ("SELECT date, position LIMIT 5 OFFSET 2", "SELECT date, position"),
+        ("SELECT date, position ORDER BY date DESC LIMIT 5", "SELECT date, position"),
+        ("SELECT DISTINCT account LIMIT 3", "SELECT DISTINCT account"),
+        ("SELECT DISTINCT account, units(balance) LIMIT 3", "SELECT DISTINCT account, units(balance)"),
+        ("SELECT account, count(*) GROUP BY account LIMIT 2", "SELECT account, count(*) GROUP BY account"),
+        (
+            "SELECT account, count(*) GROUP BY account HAVING count(*) > 50 LIMIT 2",
+            "SELECT account, count(*) GROUP BY account HAVING count(*) > 50",
+        ),
+        (
+            "SELECT year, account, count(*) AS n GROUP BY 1, 2 PIVOT BY account, year LIMIT 4",
+            "SELECT year, account, count(*) AS n GROUP BY 1, 2",
+        ),
+        (
+            "SELECT date, balance WHERE account ~ 'Vanguard' ORDER BY date DESC LIMIT 2 OFFSET 1",
+            "SELECT date WHERE account ~ 'Vanguard'",
+        ),
+        ("SELECT date LIMIT 0", "SELECT date"),
+        ("SELECT * FROM #prices LIMIT 3 OFFSET 900", "SELECT * FROM #prices"),
+    ] {
+        let windowed = run(sql);
+        let everything = run(all);
+        assert_eq!(windowed.total, Some(everything.rows.len() as u64), "{sql}");
+        assert_eq!(everything.total, Some(everything.rows.len() as u64), "{all}");
     }
 }
 
@@ -216,6 +374,14 @@ fn explain_shows_the_decisions() {
     assert!(journal.contains("balance: deferred targets [6]\n"), "{journal}");
     let top = explain("SELECT date, balance ORDER BY date DESC LIMIT 10");
     assert!(top.contains("limit: 10 (top-k while scanning)\nbalance: deferred targets [1]\n"), "{top}");
+    let page = Query::compile_with_params(
+        "SELECT date, balance ORDER BY date DESC LIMIT :size OFFSET :offset",
+        &ParamTypes::new().bind("size", DataType::Int).bind("offset", DataType::Int),
+    )
+    .unwrap()
+    .explain();
+    assert!(page.contains("limit: :size offset :offset (top-k while scanning)\n"), "{page}");
+    assert!(explain("SELECT DISTINCT account LIMIT 3 OFFSET 6").contains("limit: 3 offset 6 (stops the scan)\n"));
     let grouped = explain("SELECT account, last(balance), min(balance) GROUP BY account LIMIT 2");
     assert!(
         grouped.contains("limit: 2 (first groups only)\nbalance: running while scanning, deferred agg#0\n"),

@@ -135,6 +135,8 @@ fn engine_cell(value: &Value) -> Json {
         Value::Amount(it) => engine_amount(it),
         Value::Position(it) => engine_position(it),
         Value::Inventory(it) => sorted_positions(it.positions().map(|position| engine_position(&position)).collect()),
+        Value::Interval(it) => json!(it.to_string()),
+        Value::Metas(it) => json!(it.iter().map(|(key, value)| json!({"key": key, "value": value})).collect::<Vec<_>>()),
     }
 }
 
@@ -423,6 +425,7 @@ fn pivot_respects_the_result_budget() {
         today: Some(today()),
         timeout: None,
         max_result_values: Some(limit),
+        count_total: false,
     };
     let err = query.execute_with_options(&ledger, &Params::new(), &options(30_000)).unwrap_err();
     assert_eq!(err.kind, QueryErrorKind::TooLarge);
@@ -470,7 +473,7 @@ fn explain_shows_having_and_pivot() {
          order by: 2 DESC\n\
          limit: 8\n\
          pivot by: 1 (rows), 0 (columns)\n\
-         project: [account, number, year] (3 of 24 columns)\n"
+         project: [account, number, year] (3 of 26 columns)\n"
     );
     // without ORDER BY, LIMIT only aggregates the first groups unless HAVING may drop some
     let limit = |sql: &str| {

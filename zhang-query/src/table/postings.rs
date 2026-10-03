@@ -146,9 +146,11 @@ impl<'a> Dataset<'a> {
             records: vec![],
             today,
             projection,
+            ledger,
             store,
             prices: OnceCell::new(),
             store_meta: OnceCell::new(),
+            lookups: OnceCell::new(),
         }
     }
 
@@ -177,6 +179,45 @@ impl<'a> Dataset<'a> {
         if let Some(meta) = entry.meta {
             return meta.get_one(key).map(|value| value.as_str().to_owned());
         }
+        self.stored_entry_metas(row)
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, value)| (*value).to_owned())
+    }
+
+    /// Every value of transaction metadata `key` of the row, in written order.
+    pub fn entry_meta_values(&self, row: &Row<'_>, key: &str) -> Vec<String> {
+        match self.entry(row).meta {
+            Some(meta) => meta.get_all(key).into_iter().map(|value| value.as_str().to_owned()).collect(),
+            None => self
+                .stored_entry_metas(row)
+                .iter()
+                .filter(|(k, _)| *k == key)
+                .map(|(_, value)| (*value).to_owned())
+                .collect(),
+        }
+    }
+
+    /// The transaction metadata of the row as `(key, value)` pairs: the `entry_metas` column.
+    pub fn entry_metas(&self, row: &Row<'_>) -> Vec<(String, String)> {
+        match self.entry(row).meta {
+            Some(meta) => super::meta_pairs(Some(meta)),
+            None => {
+                let mut pairs = self
+                    .stored_entry_metas(row)
+                    .iter()
+                    .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                    .collect::<Vec<_>>();
+                pairs.sort_by(|a, b| a.0.cmp(&b.0));
+                pairs
+            }
+        }
+    }
+
+    /// The transaction metadata the store keeps for the row's transaction (one value per
+    /// key), for a transaction whose directive could not be matched.
+    fn stored_entry_metas(&self, row: &Row<'_>) -> &[(&'a str, &'a str)] {
+        let entry = self.entry(row);
         let index = self.store_meta.get_or_init(|| {
             let mut index: HashMap<&str, Vec<(&str, &str)>> = HashMap::new();
             for meta in &self.store.metas {
@@ -189,10 +230,7 @@ impl<'a> Dataset<'a> {
             }
             index
         });
-        index
-            .get(entry.txn.id.to_string().as_str())
-            .and_then(|pairs| pairs.iter().find(|(k, _)| *k == key))
-            .map(|(_, value)| (*value).to_owned())
+        index.get(entry.txn.id.to_string().as_str()).map_or(&[], Vec::as_slice)
     }
 }
 
@@ -669,6 +707,22 @@ pub static COLUMNS: &[ColumnDef] = &[
         ty: DataType::Str,
         description: "Metadata of the posting, as `key: \"value\"` pairs.",
         get: Get::Posting(|data, row| render_pairs(data.posting_metas(row).iter().map(|meta| (meta.key.as_str(), meta.value.as_str())))),
+        reads: Reads::POSTING,
+        borrow: Borrow::No,
+    },
+    ColumnDef {
+        name: "metas",
+        ty: DataType::Metas,
+        description: "Metadata of the posting as (key, value) pairs: sorted by key, every value of a repeated key in written order.",
+        get: Get::Posting(|data, row| Value::Metas(data.posting_metas(row).iter().map(|meta| (meta.key.clone(), meta.value.clone())).collect())),
+        reads: Reads::POSTING,
+        borrow: Borrow::No,
+    },
+    ColumnDef {
+        name: "entry_metas",
+        ty: DataType::Metas,
+        description: "Metadata of the transaction as (key, value) pairs: sorted by key, every value of a repeated key in written order.",
+        get: Get::Posting(|data, row| Value::Metas(data.entry_metas(row))),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },

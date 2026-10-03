@@ -14,7 +14,7 @@ use zhang_core::store::Store;
 use zhang_core::utils::id::FromSpan;
 
 use super::directives::{date_part, date_value, directive, ledger_order, meta_value, set_value, str_value, year};
-use super::{ColumnDef, Record, Rows, Table};
+use super::{directive_meta, meta_pairs, ColumnDef, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
@@ -243,6 +243,12 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
          balance, note and document, and the pad account of balance ... with pad; empty for other directives.",
         |_, record| of_directive(record, |it| entry_accounts(&it.data)),
     ),
+    ColumnDef::record(
+        "metas",
+        DataType::Metas,
+        "Metadata of the directive as (key, value) pairs: sorted by key, every value of a repeated key in written order.",
+        |_, record| metas_value(record),
+    ),
 ];
 
 static TRANSACTION_COLUMNS: &[ColumnDef] = &[
@@ -266,4 +272,15 @@ static TRANSACTION_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record("meta", DataType::Str, "Metadata of the transaction, as `key: \"value\"` pairs.", |_, record| {
         meta_value(record)
     }),
+    ColumnDef::record(
+        "metas",
+        DataType::Metas,
+        "Metadata of the transaction as (key, value) pairs: sorted by key, every value of a repeated key in written order.",
+        |_, record| metas_value(record),
+    ),
 ];
+
+/// The `metas` column of an entry.
+fn metas_value(record: &Record<'_>) -> Value {
+    of_directive(record, |it| Value::Metas(meta_pairs(directive_meta(&it.data))))
+}

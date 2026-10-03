@@ -1,0 +1,22 @@
+{
+  "name": "date_bin_on_boundaries",
+  "query": "SELECT DISTINCT date_bin('1 month', 2000-02-01, 2000-01-01) AS feb, date_bin(interval('1 month'), 2000-03-01, 2000-01-01) AS mar, date_bin('3 months', 2015-07-01, 2015-01-01) AS q3, date_bin('1 year', 2016-01-01, 2015-01-01) AS next_year, date_bin('1 month', 2015-01-01, 2015-01-01) AS origin, date_bin('1 month', 2014-12-01, 2015-01-01) AS month_before, date_bin('1 month', 2014-11-30, 2015-01-01) AS before, date_bin('7 days', 2015-01-12, 2015-01-05) AS week WHERE account = 'Expenses:Financial:Fees'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "feb", "type": "date"},
+    {"name": "mar", "type": "date"},
+    {"name": "q3", "type": "date"},
+    {"name": "next_year", "type": "date"},
+    {"name": "origin", "type": "date"},
+    {"name": "month_before", "type": "date"},
+    {"name": "before", "type": "date"},
+    {"name": "week", "type": "date"}
+  ],
+  "rows": [
+    ["2000-01-01", "2000-02-01", "2015-04-01", "2015-01-01", "2015-01-01", "2014-12-01", "2014-11-01", "2015-01-12"]
+  ],
+  "notes": "ACCEPTED DEVIATION: with a stride of months or years, beanquery puts a date exactly on a bin boundary other than the origin into the previous bin (date_bin('1 month', 2000-02-01, 2000-01-01) is 2000-01-01), while a stride of days starts a new bin there. In zhang a date on a boundary always starts its bin (2000-02-01), as date_trunc() does."
+}

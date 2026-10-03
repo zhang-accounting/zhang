@@ -1,0 +1,22 @@
+{
+  "name": "date_bin_month_end_origin",
+  "query": "SELECT DISTINCT date_bin('1 month', 2015-03-30, 2015-01-31) AS after_drift, date_bin('1 month', 2015-03-29, 2015-01-31) AS drift_day, date_bin('1 month', 2015-03-28, 2015-01-31) AS boundary, date_bin('1 month', 2014-11-15, 2015-01-31) AS before_origin, date_bin('1 month', 2014-12-31, 2015-01-31) AS one_before, date_bin('1 month', 2015-01-31, 2015-01-31) AS origin, date_bin('1 year', 2017-02-28, 2016-02-29) AS leap_origin, date_bin('-1 month', 2015-03-30, 2015-01-31) AS negative WHERE account = 'Expenses:Financial:Fees'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "after_drift", "type": "date"},
+    {"name": "drift_day", "type": "date"},
+    {"name": "boundary", "type": "date"},
+    {"name": "before_origin", "type": "date"},
+    {"name": "one_before", "type": "date"},
+    {"name": "origin", "type": "date"},
+    {"name": "leap_origin", "type": "date"},
+    {"name": "negative", "type": "date"}
+  ],
+  "rows": [
+    ["2015-03-28", "2015-03-28", "2015-02-28", "2014-10-30", "2014-12-31", "2015-01-31", "2016-02-29", null]
+  ],
+  "notes": "ACCEPTED DEVIATION: beanquery adds each stride to the previous bin, so from a month-end origin its bins drift (2015-01-31, 2015-02-28, 2015-03-28, ...; backwards 2014-12-31, 2014-11-30, 2014-10-30), and a date on a boundary falls in the previous bin. zhang lays the bins as origin + k strides (2015-02-28, 2015-03-31, ...; backwards 2014-11-30, 2014-10-31) and a boundary starts its bin. A negative stride is NULL in both."
+}

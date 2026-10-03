@@ -34,6 +34,7 @@ mod budgets;
 mod directives;
 mod entries;
 mod errors;
+mod lookups;
 mod postings;
 mod prices;
 
@@ -48,6 +49,7 @@ use zhang_ast::{Directive, Meta, Spanned};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
+pub(crate) use self::lookups::Lookups;
 pub use self::postings::COLUMNS;
 pub(crate) use self::postings::{position, Entry, Row, BALANCE_COLUMN};
 use crate::error::LocatedError;
@@ -301,6 +303,32 @@ impl<'a> Record<'a> {
             _ => self.metadata().and_then(|meta| meta.get_one(key)).map(|value| value.as_str().to_owned()),
         }
     }
+
+    /// Every value of metadata `key` of the row, in written order.
+    fn meta_values(&self, key: &str) -> Vec<String> {
+        match self {
+            Record::Error(error) => error.meta(key).into_iter().collect(),
+            _ => self
+                .metadata()
+                .map(|meta| meta.get_all(key).into_iter().map(|value| value.as_str().to_owned()).collect())
+                .unwrap_or_default(),
+        }
+    }
+}
+
+/// Metadata as `(key, value)` pairs, the value of the `metas` columns: sorted by key, the
+/// values of a repeated key in written order (zhang keeps no order between different keys).
+pub(crate) fn meta_pairs(meta: Option<&Meta>) -> Vec<(String, String)> {
+    let mut pairs = meta
+        .cloned()
+        .map(|meta| meta.get_flatten())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(key, value)| (key, value.to_plain_string()))
+        .collect::<Vec<_>>();
+    // a stable sort keeps the values of a key in order
+    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    pairs
 }
 
 /// Metadata as text, the value of the `meta` columns: `key: "value"` pairs sorted by key and
@@ -381,9 +409,12 @@ pub(crate) struct Dataset<'a> {
     pub records: Vec<Record<'a>>,
     pub today: NaiveDate,
     pub projection: Projection,
+    ledger: &'a Ledger,
     store: &'a Store,
     prices: OnceCell<PriceMap>,
     store_meta: OnceCell<HashMap<&'a str, Vec<(&'a str, &'a str)>>>,
+    /// the account and commodity directives, for `open_date()`, `commodity_meta()`, ...
+    lookups: OnceCell<Lookups<'a>>,
 }
 
 impl<'a> Dataset<'a> {
@@ -401,9 +432,11 @@ impl<'a> Dataset<'a> {
             records,
             today,
             projection,
+            ledger,
             store,
             prices: OnceCell::new(),
             store_meta: OnceCell::new(),
+            lookups: OnceCell::new(),
         })
     }
 
@@ -432,6 +465,11 @@ impl<'a> Dataset<'a> {
         self.prices.get_or_init(|| PriceMap::from_prices(&self.store.prices))
     }
 
+    /// The account and commodity directives of the ledger, indexed on first use.
+    pub fn lookups(&self) -> &Lookups<'a> {
+        self.lookups.get_or_init(|| Lookups::new(self.ledger))
+    }
+
     /// What `meta(key)` reads at `row`: the posting's metadata, or a record's own metadata.
     pub fn row_meta(&self, row: RowRef<'_, '_>, key: &str) -> Option<String> {
         match row {
@@ -446,6 +484,29 @@ impl<'a> Dataset<'a> {
         match row {
             RowRef::Posting(row) => self.entry_meta(row, key),
             RowRef::Record(record) => record.meta(key),
+        }
+    }
+
+    /// What `meta_values(key)` reads at `row`: every value of the key, as `meta(key)` reads
+    /// the first.
+    pub fn row_meta_values(&self, row: RowRef<'_, '_>, key: &str) -> Vec<String> {
+        match row {
+            RowRef::Posting(row) => self
+                .posting_metas(row)
+                .iter()
+                .filter(|meta| meta.key == key)
+                .map(|meta| meta.value.clone())
+                .collect(),
+            RowRef::Record(record) => record.meta_values(key),
+        }
+    }
+
+    /// What `entry_meta_values(key)` reads at `row`: every value of the key, as
+    /// `entry_meta(key)` reads the first.
+    pub fn row_entry_meta_values(&self, row: RowRef<'_, '_>, key: &str) -> Vec<String> {
+        match row {
+            RowRef::Posting(row) => self.entry_meta_values(row, key),
+            RowRef::Record(record) => record.meta_values(key),
         }
     }
 }

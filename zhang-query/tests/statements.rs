@@ -51,6 +51,8 @@ fn cell_json(value: &Value) -> Json {
         Value::Amount(it) => json!({"number": decimal_json(&it.number), "currency": it.commodity}),
         Value::Position(it) => position_json(it),
         Value::Inventory(it) => json!({ "positions": it.positions().map(|it| position_json(&it)).collect::<Vec<_>>() }),
+        Value::Interval(it) => json!(it.to_string()),
+        Value::Metas(it) => json!(it.iter().map(|(key, value)| json!({"key": key, "value": value})).collect::<Vec<_>>()),
     }
 }
 
@@ -161,7 +163,7 @@ fn explain_shows_the_desugared_statements() {
          filter: ((year = 2016) AND (account ~ /^Assets/i))\n\
          group by: [0, 2]\n\
          order by: 2 ASC\n\
-         project: [account, position, year] (3 of 24 columns)\n"
+         project: [account, position, year] (3 of 26 columns)\n"
     );
     let journal = Query::compile("JOURNAL 'Checking' AT units FROM year = 2016").unwrap();
     assert_eq!(
@@ -176,7 +178,7 @@ fn explain_shows_the_desugared_statements() {
          filter: ((year = 2016) AND (account ~ /Checking/i))\n\
          rewrite: units(balance) -> running units\n\
          balance: deferred targets [6]\n\
-         project: [account, balance, date, flag, narration, payee, position, year] (8 of 24 columns)\n"
+         project: [account, balance, date, flag, narration, payee, position, year] (8 of 26 columns)\n"
     );
 }
 
