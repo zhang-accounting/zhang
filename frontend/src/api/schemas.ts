@@ -118,11 +118,18 @@ export interface paths {
     get: operations['get_single_commodity'];
   };
   '/api/documents': {
-    /** Get Documents */
+    /**
+     * Get Documents
+     * @description Every document of the ledger, newest first: the built-in query `documents.all`.
+     */
     get: operations['get_documents'];
   };
   '/api/errors': {
-    /** Get Errors */
+    /**
+     * Get Errors
+     * @description The ledger's errors, one page at a time, by file and then by position in the file: the built-in
+     * query `errors.page`. A page size of 0, or a page beyond what an offset can count, is a bad request.
+     */
     get: operations['get_errors'];
   };
   '/api/files': {
@@ -136,7 +143,11 @@ export interface paths {
     put: operations['update_file_content'];
   };
   '/api/for-new-transaction': {
-    /** Get Info For New Transactions */
+    /**
+     * Get Info For New Transactions
+     * @description The payees and the open accounts the new-transaction form suggests: the built-in queries
+     * `new_transaction.payees` and `new_transaction.accounts`.
+     */
     get: operations['get_info_for_new_transactions'];
   };
   '/api/info': {
@@ -147,7 +158,10 @@ export interface paths {
     /**
      * Get Journals
      * @description The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
-     * among the transactions; it books nothing.
+     * among the transactions; it books nothing. The built-in query `journal.page`, with the postings and the checks
+     * of a page from `journal.postings` and `journal.balance_checks`.
+     *
+     * A page size of 0, or a page beyond what an offset can count, is a bad request.
      */
     get: operations['get_journals'];
   };
@@ -1045,7 +1059,10 @@ export interface operations {
       };
     };
   };
-  /** Get Documents */
+  /**
+   * Get Documents
+   * @description Every document of the ledger, newest first: the built-in query `documents.all`.
+   */
   get_documents: {
     responses: {
       /** @description default return */
@@ -1066,7 +1083,11 @@ export interface operations {
       };
     };
   };
-  /** Get Errors */
+  /**
+   * Get Errors
+   * @description The ledger's errors, one page at a time, by file and then by position in the file: the built-in
+   * query `errors.page`. A page size of 0, or a page beyond what an offset can count, is a bad request.
+   */
   get_errors: {
     parameters: {
       query?: {
@@ -1179,7 +1200,11 @@ export interface operations {
       };
     };
   };
-  /** Get Info For New Transactions */
+  /**
+   * Get Info For New Transactions
+   * @description The payees and the open accounts the new-transaction form suggests: the built-in queries
+   * `new_transaction.payees` and `new_transaction.accounts`.
+   */
   get_info_for_new_transactions: {
     responses: {
       /** @description default return */
@@ -1220,7 +1245,10 @@ export interface operations {
   /**
    * Get Journals
    * @description The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
-   * among the transactions; it books nothing.
+   * among the transactions; it books nothing. The built-in query `journal.page`, with the postings and the checks
+   * of a page from `journal.postings` and `journal.balance_checks`.
+   *
+   * A page size of 0, or a page beyond what an offset can count, is a bad request.
    */
   get_journals: {
     parameters: {

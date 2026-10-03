@@ -8,6 +8,9 @@
 //! Where an API is wrong, the tests say how: the budget API adds the numbers of amounts in
 //! different commodities and reports a budget's final `closed` for every month, which the
 //! table does not.
+//!
+//! `GET /api/errors` and `GET /api/documents` now read these tables (#479): their tables are
+//! compared with the hand-written endpoints they replace, kept until they are removed.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -25,8 +28,8 @@ use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_server::request::{BudgetIntervalDetailRequest, BudgetListRequest, JournalRequest, QueryRequest};
 use zhang_server::routes::budget::{get_budget_info, get_budget_interval_detail, get_budget_list};
-use zhang_server::routes::common::get_errors;
-use zhang_server::routes::document::get_documents;
+use zhang_server::routes::common::get_errors_legacy;
+use zhang_server::routes::document::get_documents_legacy;
 use zhang_server::routes::query::{get_query_schema, run_query};
 use zhang_server::state::SharedLedger;
 
@@ -195,7 +198,7 @@ async fn check_errors(name: &str) -> usize {
         tags: None,
         links: None,
     };
-    let errors = body(get_errors(State(ledger.clone()), UrlQuery(request)).await).await["data"].clone();
+    let errors = body(get_errors_legacy(State(ledger.clone()), UrlQuery(request)).await).await["data"].clone();
     assert_eq!(errors["total_count"], json!(rows.len()), "{name}");
 
     let root = fixture_dir(name).canonicalize().unwrap();
@@ -279,7 +282,7 @@ async fn the_schema_lists_the_zhang_tables() {
         assert!(budgets.contains(&(column.to_owned(), ty.to_owned())), "budgets.{column}: {budgets:?}");
     }
     let errors = columns("errors");
-    assert_eq!(errors.len(), 11);
+    assert_eq!(errors.len(), 12);
     for (column, ty) in [
         ("kind", "str"),
         ("message", "str"),
@@ -291,6 +294,7 @@ async fn the_schema_lists_the_zhang_tables() {
         ("id", "str"),
         ("span_start", "int"),
         ("span_end", "int"),
+        ("metas", "metas"),
     ] {
         assert!(errors.contains(&(column.to_owned(), ty.to_owned())), "errors.{column}: {errors:?}");
     }
@@ -554,7 +558,7 @@ async fn documents_are_the_documents_of_the_document_api() {
             json!({"date": row["date"], "path": row["path"], "account": account, "trx_id": row["transaction_id"]})
         })
         .collect::<Vec<_>>();
-    let documents = body(get_documents(State(ledger.clone())).await).await;
+    let documents = body(get_documents_legacy(State(ledger.clone())).await).await;
     let mut api = documents["data"]
         .as_array()
         .unwrap()

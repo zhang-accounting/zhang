@@ -11,7 +11,7 @@ use log::info;
 use crate::response::{DocumentEntity, ResponseWrapper};
 use crate::state::SharedLedger;
 use crate::util::cacheable_data;
-use crate::ApiResult;
+use crate::{journals, ApiResult};
 
 // #[api(group = "document")]
 pub async fn download_document(ledger: State<SharedLedger>, path: Path<(String,)>) -> impl IntoResponse {
@@ -33,8 +33,15 @@ pub async fn download_document(ledger: State<SharedLedger>, path: Path<(String,)
     (headers, bytes)
 }
 
+/// Every document of the ledger, newest first: the built-in query `documents.all`.
 #[api(group = "document")]
 pub async fn get_documents(ledger: State<SharedLedger>) -> ApiResult<Vec<DocumentEntity>> {
+    ResponseWrapper::json(journals::documents(&ledger).await?)
+}
+
+/// The hand-written [`get_documents`] the built-in query replaces, kept to compare them until it is
+/// removed (#479).
+pub async fn get_documents_legacy(ledger: State<SharedLedger>) -> ApiResult<Vec<DocumentEntity>> {
     let ledger = ledger.read().await;
     let operations = ledger.operations();
     let store = operations.read();

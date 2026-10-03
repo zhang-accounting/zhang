@@ -1,9 +1,9 @@
 #[cfg(feature = "openapi")]
 use gotcha_core::Schematic;
 use serde::Serialize;
-use strum::Display;
+use strum::{Display, EnumString};
 
-#[derive(Debug, Display, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Display, EnumString, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(Schematic))]
 pub enum ErrorKind {
     UnbalancedTransaction,

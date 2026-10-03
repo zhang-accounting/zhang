@@ -24,11 +24,19 @@ use crate::response::{
     ResponseWrapper,
 };
 use crate::state::{SharedLedger, SharedReloadSender};
-use crate::{validate, ApiResult, ServerResult};
+use crate::{journals, validate, ApiResult, ServerResult};
 
+/// The payees and the open accounts the new-transaction form suggests: the built-in queries
+/// `new_transaction.payees` and `new_transaction.accounts`.
 #[api(group = "transaction")]
 // todo rename api
 pub async fn get_info_for_new_transactions(ledger: State<SharedLedger>) -> ApiResult<InfoForNewTransaction> {
+    ResponseWrapper::json(journals::info_for_new_transaction(&ledger).await?)
+}
+
+/// The hand-written [`get_info_for_new_transactions`] the built-in queries replace, kept to compare
+/// them with it until it is removed (#479).
+pub async fn get_info_for_new_transactions_legacy(ledger: State<SharedLedger>) -> ApiResult<InfoForNewTransaction> {
     let guard = ledger.read().await;
     let mut operations = guard.operations();
 
@@ -48,9 +56,18 @@ enum JournalEntry {
 }
 
 /// The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
-/// among the transactions; it books nothing.
+/// among the transactions; it books nothing. The built-in query `journal.page`, with the postings and the checks
+/// of a page from `journal.postings` and `journal.balance_checks`.
+///
+/// A page size of 0, or a page beyond what an offset can count, is a bad request.
 #[api(group = "transaction")]
 pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemEntity>> {
+    ResponseWrapper::json(journals::journal(&ledger, params.0).await?)
+}
+
+/// The hand-written [`get_journals`] the built-in queries replace, kept to compare them with it until
+/// it is removed (#479).
+pub async fn get_journals_legacy(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemEntity>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
     let params = params.0;

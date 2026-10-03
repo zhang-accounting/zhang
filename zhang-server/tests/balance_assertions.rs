@@ -140,14 +140,14 @@ async fn the_journal_lists_each_assertion_with_its_balance_and_whether_it_passed
     let journals = scratch.journals(None, None, None, None).await;
     let records = journals["records"].as_array().unwrap();
     let kinds = records.iter().map(|it| it["type"].as_str().unwrap()).collect::<Vec<_>>();
-    // newest first; the assertions keep their place among the transactions, the `balance ... with pad` checked
-    // after its padding
+    // newest first, in the order of #entries: the assertions keep their place among the transactions; within
+    // a day #entries lists the assertions first, so the `balance ... with pad` comes before its padding
     assert_eq!(
         kinds,
         vec![
             "BalanceCheck",
-            "BalanceCheck",
             "BalancePad",
+            "BalanceCheck",
             "BalanceCheck",
             "Transaction",
             "BalanceCheck",
@@ -180,7 +180,7 @@ async fn the_journal_lists_each_assertion_with_its_balance_and_whether_it_passed
         described,
         vec![
             (decimal("500"), decimal("500"), decimal("0"), true),
-            // the `balance ... with pad`, after its padding
+            // the `balance ... with pad`, checked after its padding
             (decimal("500"), decimal("500"), decimal("0"), true),
             // within its tolerance: passes, though the balance is not the asserted amount
             (decimal("154.996"), decimal("155"), decimal("0.004"), true),
