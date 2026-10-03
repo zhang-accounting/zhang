@@ -10,7 +10,8 @@
 //!   directive the plugin received. The problem becomes a [`ErrorKind::PluginError`] in the ledger's
 //!   error list, on that span or else on the plugin's directive, with the metas `plugin` (the plugin's
 //!   name), `message` and the plugin's own `metas`. A payload that cannot be read is reported the same
-//!   way, with a message saying it is invalid.
+//!   way, with a message saying it is invalid. While a router plugin handles a request there is no
+//!   error list, so the problem is logged as a warning instead (see [`crate::plugin::router`]).
 //!
 //! Every plugin instance gets its own [`PluginHost`]. It keeps what the host functions collect while
 //! the instance runs, until the stage running the plugin hands it to the pipeline.

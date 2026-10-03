@@ -1459,7 +1459,7 @@ mod test {
         #[test]
         fn should_not_record_the_module_of_a_plugin_that_is_not_loaded() {
             let ledger = load_from_temp_str(indoc! {r#"
-                plugin "plugins/passthrough.wasm"
+                plugin "plugins/echo.wasm"
                 1970-01-01 open Assets:Cash
             "#});
 
@@ -1482,16 +1482,16 @@ mod test {
             use crate::inputs::ExtraInput;
             use crate::ledger::Ledger;
 
-            const PASSTHROUGH: &str = include_str!("../tests/plugins/passthrough.wat");
+            const ECHO: &str = include_str!("../tests/plugins/echo.wat");
 
-            /// load `main.zhang` from a fresh ledger root holding the passthrough plugin at
-            /// `plugins/passthrough.wat`; `{module}` in `content` is the module's absolute path
+            /// load `main.zhang` from a fresh ledger root holding the echo plugin at
+            /// `plugins/echo.wat`; `{module}` in `content` is the module's absolute path
             fn load_with_plugin(content: &str) -> (PathBuf, Ledger) {
                 // canonical, like the root `load_with_data_source` resolves
                 let root = tempdir().unwrap().into_path().canonicalize().unwrap();
                 std::fs::create_dir(root.join("plugins")).unwrap();
-                let module = root.join("plugins/passthrough.wat");
-                std::fs::write(&module, PASSTHROUGH).unwrap();
+                let module = root.join("plugins/echo.wat");
+                std::fs::write(&module, ECHO).unwrap();
                 let content = content.replace("{module}", &module.to_string_lossy());
                 std::fs::write(root.join("main.zhang"), content).unwrap();
                 let source = LocalFileSystemDataSource::new(ZhangDataType {});
@@ -1518,7 +1518,7 @@ mod test {
                 assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
                 assert_eq!(
                     ledger.extra_inputs.iter().cloned().collect_vec(),
-                    vec![ExtraInput::File(PathBuf::from("plugins/passthrough.wat"))]
+                    vec![ExtraInput::File(PathBuf::from("plugins/echo.wat"))]
                 );
                 // the module stays out of the file editor's list
                 assert_eq!(ledger.visited_files, vec![root.join("main.zhang")]);
@@ -1540,7 +1540,7 @@ mod test {
 
                 assert_eq!(
                     ledger.extra_inputs.iter().cloned().collect_vec(),
-                    vec![ExtraInput::File(PathBuf::from("plugins/passthrough.wat"))]
+                    vec![ExtraInput::File(PathBuf::from("plugins/echo.wat"))]
                 );
                 assert_eq!(ledger.visited_files, vec![root.join("main.zhang")]);
             }

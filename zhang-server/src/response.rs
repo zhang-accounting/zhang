@@ -357,11 +357,44 @@ impl BudgetIntervalEventEntity {
     }
 }
 
+/// a loaded plugin
 #[derive(Serialize, Schematic)]
 pub struct PluginEntity {
     pub name: String,
     pub version: String,
-    pub plugin_type: Vec<PluginType>,
+    /// the types the plugin runs as; a declared type this zhang does not know is left out
+    pub plugin_type: Vec<PluginTypeEntity>,
+    pub capabilities: PluginCapabilitiesEntity,
+    /// where a router plugin serves requests, `/api/plugins/{name}`; null for a plugin that is not a
+    /// router, and for a router whose name an earlier router plugin already serves
+    pub route: Nullable<String>,
+}
+
+/// a plugin type this zhang runs
+#[derive(Serialize, Schematic)]
+pub enum PluginTypeEntity {
+    Processor,
+    Mapper,
+    Router,
+}
+
+impl PluginTypeEntity {
+    /// `None` for a type this zhang does not run
+    pub fn from_core(plugin_type: &PluginType) -> Option<PluginTypeEntity> {
+        match plugin_type {
+            PluginType::Processor => Some(PluginTypeEntity::Processor),
+            PluginType::Mapper => Some(PluginTypeEntity::Mapper),
+            PluginType::Router => Some(PluginTypeEntity::Router),
+            PluginType::Unknown => None,
+        }
+    }
+}
+
+/// what a plugin's directive grants it
+#[derive(Serialize, Schematic)]
+pub struct PluginCapabilitiesEntity {
+    /// hosts the plugin may reach over HTTP; empty means no network access
+    pub allowed_hosts: Vec<String>,
 }
 
 #[derive(Serialize, Schematic)]

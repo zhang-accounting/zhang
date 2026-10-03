@@ -42,6 +42,18 @@ impl ScratchDir {
         ScratchDir(dir)
     }
 
+    /// A ledger serving zhang-core's echo router plugin, named `router-echo`: it answers every
+    /// request with status 201 and the request JSON it received.
+    fn with_router_plugin() -> Self {
+        let dir = ScratchDir::new();
+        let module = dir.0.join("router.wat");
+        std::fs::write(&module, include_str!("../../zhang-core/tests/plugins/router.wat")).unwrap();
+        // a local ledger resolves a module against the working directory, so declare it by absolute path
+        let main = format!("option \"features.plugin\" \"true\"\nplugin \"{}\"\n{MAIN}", module.display());
+        std::fs::write(dir.0.join("main.zhang"), main).unwrap();
+        dir
+    }
+
     fn passkeys_file(&self) -> PathBuf {
         self.0.join(".zhang/passkeys.json")
     }
@@ -1119,4 +1131,51 @@ async fn the_passkeys_file_is_not_part_of_the_ledger() {
         );
         assert!(ledger.extra_inputs.is_empty(), "{:?}", ledger.extra_inputs);
     }
+}
+
+#[tokio::test]
+async fn router_plugins_need_a_session_and_never_see_it() {
+    let dir = ScratchDir::with_router_plugin();
+    let router = server(&dir.0, &Settings::password()).await;
+
+    // refused like the rest of the API, whatever the method, and so is the plugin list
+    assert_unauthorized(&get(&router, "/api/plugins/router-echo/x", &[]).await);
+    assert_unauthorized(&post(&router, "/api/plugins/router-echo/x", &[], json!({"a": 1})).await);
+    assert_unauthorized(&call(&router, Method::PUT, "/api/plugins/router-echo", &[], None).await);
+    assert_unauthorized(&call(&router, Method::DELETE, "/api/plugins/router-echo/", &[], None).await);
+    assert_unauthorized(&get(&router, "/api/plugins/router-echo/x", &[("cookie", "zhang_session=forged")]).await);
+    assert_unauthorized(&get(&router, "/api/plugins", &[]).await);
+    // OPTIONS skips the session check for CORS preflights, but the CORS layer answers every OPTIONS
+    // request itself: it never reaches a plugin
+    for headers in [&[][..], &[("origin", "http://localhost:5173"), ("access-control-request-method", "POST")][..]] {
+        let reply = call(&router, Method::OPTIONS, "/api/plugins/router-echo/x", headers, None).await;
+        assert_eq!(reply.status, StatusCode::OK);
+        assert!(reply.headers.get("x-echo").is_none(), "the plugin ran without a session");
+        assert_eq!(reply.body, Value::Null);
+    }
+
+    let cookie = password_login(&router).await;
+    let reply = get(&router, "/api/plugins/router-echo/x?k=v", &[("cookie", &format!("theme=dark; {cookie}"))]).await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
+    assert_eq!(reply.headers["x-echo"], "router");
+    assert_eq!((&reply.body["method"], &reply.body["path"]), (&json!("GET"), &json!("/x")));
+    assert_eq!(reply.body["query"], json!({"k": ["v"]}));
+    // neither the session cookie nor any other cookie reaches the plugin
+    assert_eq!(reply.body["headers"], json!({"host": HOST}));
+
+    let reply = post(&router, "/api/plugins/router-echo/x", &[("cookie", &cookie)], json!({"a": 1})).await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
+    assert_eq!((&reply.body["method"], &reply.body["body"]), (&json!("POST"), &json!("{\"a\":1}")));
+    assert_eq!(reply.body["headers"], json!({"content-type": "application/json", "host": HOST}));
+
+    // scripts sending the Basic header reach the plugin too, which never sees the credential
+    let basic = format!("Basic {}", BASE64_STANDARD.encode("admin:secret"));
+    let reply = call(&router, Method::PUT, "/api/plugins/router-echo", &[("authorization", &basic)], None).await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
+    assert_eq!((&reply.body["method"], &reply.body["path"]), (&json!("PUT"), &json!("/")));
+    assert_eq!(reply.body["headers"], json!({"host": HOST}));
+
+    let list = get(&router, "/api/plugins", &[("cookie", &cookie)]).await;
+    assert_eq!(list.status, StatusCode::OK);
+    assert_eq!(list.body["data"][0]["route"], "/api/plugins/router-echo");
 }

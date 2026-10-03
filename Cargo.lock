@@ -6554,6 +6554,7 @@ name = "zhang-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.0",
  "bigdecimal",
  "cfg-if",
  "chrono",
@@ -6620,6 +6621,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "crossbeam-channel",
+ "form_urlencoded",
  "futures",
  "futures-util",
  "gotcha",
@@ -6630,6 +6632,7 @@ dependencies = [
  "log",
  "mime_guess",
  "notify",
+ "percent-encoding",
  "rand 0.8.5",
  "reqwest 0.11.27",
  "rust-embed",

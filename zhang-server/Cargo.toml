@@ -49,6 +49,8 @@ webauthn-rs = "0.5"
 hmac = "0.12"
 sha2 = "0.10"
 rand = "0.8"
+percent-encoding = "2"
+form_urlencoded = "1"
 
 [build-dependencies]
 chrono = { version = "0.4" }

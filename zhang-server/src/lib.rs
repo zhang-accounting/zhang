@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::DefaultBodyLimit;
+use axum::routing::any;
 use chrono::Utc;
 use gotcha::config::BasicConfig;
 use gotcha::{ConfigWrapper, GotchaApp, GotchaContext, GotchaRouter};
@@ -122,6 +123,8 @@ impl GotchaApp for ServerApp {
             .get("/api/budgets/:budget_name", get_budget_info)
             .get("/api/budgets/:budget_name/interval/:year/:month", get_budget_interval_detail)
             .get("/api/plugins", routes::plugin::plugin_list)
+            // router plugins: any method, behind the same layers (and authentication) as the rest of the API
+            .route(routes::plugin_router::ROUTE, any(routes::plugin_router::route_to_plugin))
             .post("/api/query", routes::query::run_query)
             .post("/api/query/csv", routes::query::run_query_csv)
             .get("/api/query/schema", routes::query::get_query_schema)

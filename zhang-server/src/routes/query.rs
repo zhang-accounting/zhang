@@ -87,6 +87,16 @@ async fn export_csv(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledge
     Ok(tokio::task::spawn_blocking(move || zhang_query::export::to_csv(&result)).await?)
 }
 
+/// The limits of every query the server runs: [`QUERY_TIMEOUT`] and a result of at most
+/// `max_result_values` values. Router plugins' `zhang_query` calls get them too.
+pub(crate) fn execute_options(max_result_values: u64) -> ExecuteOptions {
+    ExecuteOptions {
+        today: None,
+        timeout: Some(QUERY_TIMEOUT),
+        max_result_values: Some(max_result_values),
+    }
+}
+
 /// Compile and run a query off the async workers, under the ledger read lock, the time
 /// limit and the result size limit. The query length is capped by the parser.
 async fn execute(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::Ledger>>, text: String, max_result_values: u64) -> ServerResult<QueryResult> {
@@ -94,15 +104,7 @@ async fn execute(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::
     let query = tokio::task::spawn_blocking(move || Query::compile(&text)).await??;
     // an owned guard moves into the blocking task; the time limit bounds how long it is held
     let ledger = ledger.read_owned().await;
-    let result = tokio::task::spawn_blocking(move || {
-        let options = ExecuteOptions {
-            today: None,
-            timeout: Some(QUERY_TIMEOUT),
-            max_result_values: Some(max_result_values),
-        };
-        query.execute_with_options(&ledger, &Params::new(), &options)
-    })
-    .await??;
+    let result = tokio::task::spawn_blocking(move || query.execute_with_options(&ledger, &Params::new(), &execute_options(max_result_values))).await??;
     Ok(result)
 }
 

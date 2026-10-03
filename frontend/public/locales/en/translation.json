@@ -94,6 +94,7 @@
     "plugins_description": "Plugins loaded by the server.",
     "no_plugins_title": "No plugins",
     "no_plugins_description": "This ledger does not load any plugin.",
+    "open_plugin": "Open",
     "api_docs": "API documentation",
     "api_docs_description": "The server exposes an OpenAPI description of its HTTP API.",
     "passkeys": "Passkeys",
