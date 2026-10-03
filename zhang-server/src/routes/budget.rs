@@ -1,120 +1,377 @@
-use std::cmp::Reverse;
-use std::ops::Sub;
+//! The budget pages: every budget as of a month, one budget as of a month, and what happened to a
+//! budget in a month. Each endpoint runs [built-in queries](crate::builtin) over `#budgets`,
+//! `#budget_events` and the postings, and maps their rows into the response.
 
 use axum::extract::{Path, Query, State};
-use chrono::{Months, NaiveDate, NaiveTime, TimeDelta};
+use bigdecimal::BigDecimal;
+use chrono::{NaiveDate, Utc};
 use gotcha::api;
 use itertools::Itertools;
 use zhang_ast::amount::Amount;
-use zhang_ast::resolve_local_datetime;
-use zhang_core::store::BudgetIntervalDetail;
+use zhang_core::domains::schemas::AccountJournalDomain;
+use zhang_core::store::BudgetEventType;
+use zhang_query::{DataType, Params, Value};
 
+use crate::builtin::{run, BuiltinQuery};
+use crate::cells::{first_row, rows, Row};
 use crate::request::{BudgetIntervalDetailRequest, BudgetListRequest};
-use crate::response::{BudgetInfoEntity, BudgetIntervalEventEntity, BudgetListItemEntity, ResponseWrapper};
+use crate::response::{BudgetEventEntity, BudgetInfoEntity, BudgetIntervalEventEntity, BudgetListItemEntity, ResponseWrapper};
 use crate::state::SharedLedger;
-use crate::ApiResult;
+use crate::{ApiResult, ServerResult};
 
-#[api(group = "budget")]
-pub async fn get_budget_list(ledger: State<SharedLedger>, params: Query<BudgetListRequest>) -> ApiResult<Vec<BudgetListItemEntity>> {
-    let interval = params.as_interval();
+/// Every budget as of a month: its last month up to the requested one.
+pub(crate) static BUDGETS_BY_MONTH: BuiltinQuery = BuiltinQuery {
+    name: "budgets_by_month",
+    description: "Every budget as of a month (its first day): the budget's last month in #budgets up to that month. \
+                  A budget whose last month (last_month) is before the requested one has had no entries or spending \
+                  since, so the requested month starts with its available amount and spends nothing. Budgets that \
+                  start after the month are not listed.",
+    bql: "SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
+       last(date) AS last_month, last(assigned) AS assigned, last(activity) AS activity,
+       last(available) AS available, last(closed) AS closed
+FROM #budgets
+WHERE date <= :month
+GROUP BY name
+ORDER BY name",
+    params: &[("month", DataType::Date)],
+};
 
-    let ledger = ledger.read().await;
-    let operations = ledger.operations();
+/// One budget as of a month, as in [`BUDGETS_BY_MONTH`].
+pub(crate) static BUDGET_BY_MONTH: BuiltinQuery = BuiltinQuery {
+    name: "budget_by_month",
+    description: "One budget as of a month (its first day), as in budgets_by_month: its last month in #budgets up to \
+                  that month. No row if the budget starts after the month.",
+    bql: "SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
+       last(date) AS last_month, last(assigned) AS assigned, last(activity) AS activity,
+       last(available) AS available, last(closed) AS closed
+FROM #budgets
+WHERE name = :name AND date <= :month
+GROUP BY name",
+    params: &[("name", DataType::Str), ("month", DataType::Date)],
+};
 
-    let mut ret = vec![];
-    for budget in operations.all_budgets()? {
-        if let Some(interval_detail) = operations.budget_month_detail(&budget.name, interval)? {
-            ret.push(BudgetListItemEntity {
-                name: budget.name,
-                alias: budget.alias,
-                category: budget.category,
-                closed: budget.closed,
-                available_amount: interval_detail.assigned_amount.sub(interval_detail.activity_amount.number.clone()),
-                assigned_amount: interval_detail.assigned_amount,
-                activity_amount: interval_detail.activity_amount,
-            });
-        }
-    }
-    ResponseWrapper::json(ret)
+/// What a budget is, whatever the month.
+pub(crate) static BUDGET: BuiltinQuery = BuiltinQuery {
+    name: "budget",
+    description: "One budget: its display name, category, commodity, and the accounts whose postings are its activity. \
+                  No row if there is no such budget.",
+    bql: "SELECT name, first(alias) AS alias, first(category) AS category, first(currency) AS currency,
+       first(accounts) AS accounts
+FROM #budgets
+WHERE name = :name
+GROUP BY name",
+    params: &[("name", DataType::Str)],
+};
+
+/// What a budget's directives put into it in a month, newest first.
+pub(crate) static BUDGET_EVENTS_BY_MONTH: BuiltinQuery = BuiltinQuery {
+    name: "budget_events_by_month",
+    description: "What the budget-add and budget-transfer directives put into a budget in a month (its first day), \
+                  newest first, as written: a transfer out is negative.",
+    bql: "SELECT date, time, timestamp, type, amount
+FROM #budget_events
+WHERE name = :name AND type != 'close' AND yearmonth(date) = :month
+ORDER BY timestamp DESC",
+    params: &[("name", DataType::Str), ("month", DataType::Date)],
+};
+
+/// The postings of a budget's accounts in a month, newest first.
+pub(crate) static BUDGET_POSTINGS_BY_MONTH: BuiltinQuery = BuiltinQuery {
+    name: "budget_postings_by_month",
+    description: "The postings of some accounts (a budget's) in a month (its first day), newest first, each with its \
+                  account's balance in the posting's currency after it.",
+    bql: "SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
+       only(currency, account_balance) AS balance
+WHERE account IN :accounts AND yearmonth(date) = :month
+ORDER BY timestamp DESC",
+    params: &[("accounts", DataType::Set), ("month", DataType::Date)],
+};
+
+/// The first day of the month a budget page asks for: by default the current one in the
+/// ledger's timezone, as `today()` reads it.
+async fn requested_month(ledger: &SharedLedger, params: &BudgetListRequest) -> ServerResult<NaiveDate> {
+    let timezone = ledger.read().await.options.timezone;
+    params.month_or(Utc::now().with_timezone(&timezone).date_naive())
 }
 
+/// A budget's figures in a month.
+struct MonthFigures {
+    closed: bool,
+    assigned: Amount,
+    activity: Amount,
+    available: Amount,
+}
+
+impl MonthFigures {
+    /// The figures of `month` from a row of [`BUDGETS_BY_MONTH`] or [`BUDGET_BY_MONTH`]: those of
+    /// its last month. A budget whose last month is before `month` carries over, as `#budgets`
+    /// does from month to month: the month starts with what was available and spends nothing.
+    fn of(row: &Row<'_>, month: NaiveDate) -> MonthFigures {
+        let currency = row.str("currency").unwrap_or_default();
+        let amount = |name: &str| row.amount(name).unwrap_or_else(|| Amount::zero(&currency));
+        let available = amount("available");
+        let (assigned, activity) = if row.date("last_month").is_some_and(|last| last < month) {
+            (available.clone(), Amount::new(BigDecimal::from(0), &currency))
+        } else {
+            (amount("assigned"), amount("activity"))
+        };
+        MonthFigures {
+            closed: row.bool("closed").unwrap_or(false),
+            assigned,
+            activity,
+            available,
+        }
+    }
+
+    /// The figures of a month before the budget's first one: nothing assigned or spent, not closed.
+    fn before_start(currency: &str) -> MonthFigures {
+        MonthFigures {
+            closed: false,
+            assigned: Amount::zero(currency),
+            activity: Amount::zero(currency),
+            available: Amount::zero(currency),
+        }
+    }
+}
+
+/// Every budget as of a month, by default the current one in the ledger's timezone, ordered by
+/// name. Budgets that start after the month are not listed.
+///
+/// The figures are those of `#budgets`: activity is converted to the budget's commodity at each
+/// posting's date, and `closed` is whether the budget was closed in or before the month.
+#[api(group = "budget")]
+pub async fn get_budget_list(ledger: State<SharedLedger>, params: Query<BudgetListRequest>) -> ApiResult<Vec<BudgetListItemEntity>> {
+    let month = requested_month(&ledger, &params).await?;
+    let result = run(&ledger, &BUDGETS_BY_MONTH, Params::new().bind("month", month)).await?;
+    let budgets = rows(&result)
+        .map(|row| {
+            let figures = MonthFigures::of(&row, month);
+            BudgetListItemEntity {
+                name: row.str("name").unwrap_or_default(),
+                alias: row.str("alias"),
+                category: row.str("category"),
+                closed: figures.closed,
+                assigned_amount: figures.assigned,
+                activity_amount: figures.activity,
+                available_amount: figures.available,
+            }
+        })
+        .collect_vec();
+    ResponseWrapper::json(budgets)
+}
+
+/// One budget as of a month, by default the current one in the ledger's timezone, with the
+/// accounts whose postings are its activity, in name order. Before the budget's first month
+/// nothing is assigned or spent.
 #[api(group = "budget")]
 pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>, params: Query<BudgetListRequest>) -> ApiResult<BudgetInfoEntity> {
     let (budget_name,) = paths.0;
-    let ledger = ledger.read().await;
-    let operations = ledger.operations();
-
-    let Some(budget) = operations.all_budgets()?.into_iter().find(|budget| budget.name.eq(&budget_name)) else {
+    let month = requested_month(&ledger, &params).await?;
+    let budget = run(&ledger, &BUDGET, Params::new().bind("name", budget_name.as_str())).await?;
+    let Some(budget) = first_row(&budget) else {
         return ResponseWrapper::not_found();
     };
-    let interval = params.as_interval();
-    let interval_detail = operations.budget_month_detail(&budget.name, interval)?.unwrap_or(BudgetIntervalDetail {
-        date: interval,
-        events: vec![],
-        assigned_amount: Amount::zero(&budget.commodity),
-        activity_amount: Amount::zero(&budget.commodity),
-    });
-    let store = operations.store.read().unwrap();
-    let related_accounts = store
-        .metas
-        .iter()
-        .filter(|meta| meta.meta_type.eq("AccountMeta"))
-        .filter(|meta| meta.key.eq("budget"))
-        .filter(|meta| meta.value.eq(&budget_name))
-        .map(|meta| meta.type_identifier.clone())
-        .collect_vec();
+    let figures = run(&ledger, &BUDGET_BY_MONTH, Params::new().bind("name", budget_name.as_str()).bind("month", month)).await?;
+    let figures = match first_row(&figures) {
+        Some(row) => MonthFigures::of(&row, month),
+        None => MonthFigures::before_start(&budget.str("currency").unwrap_or_default()),
+    };
     ResponseWrapper::json(BudgetInfoEntity {
-        name: budget.name,
-        alias: budget.alias,
-        category: budget.category,
-        closed: budget.closed,
-        related_accounts,
-        available_amount: interval_detail.assigned_amount.sub(interval_detail.activity_amount.number.clone()),
-        assigned_amount: interval_detail.assigned_amount,
-        activity_amount: interval_detail.activity_amount,
+        name: budget.str("name").unwrap_or(budget_name),
+        alias: budget.str("alias"),
+        category: budget.str("category"),
+        closed: figures.closed,
+        related_accounts: budget.set("accounts").unwrap_or_default().into_iter().collect_vec(),
+        assigned_amount: figures.assigned,
+        activity_amount: figures.activity,
+        available_amount: figures.available,
     })
 }
 
+/// What happened to a budget in a month, newest first: what its `budget-add` and
+/// `budget-transfer` directives put in, and the postings of its accounts, with their times in
+/// the ledger's timezone.
 #[api(group = "budget")]
 pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path<BudgetIntervalDetailRequest>) -> ApiResult<Vec<BudgetIntervalEventEntity>> {
     let BudgetIntervalDetailRequest { budget_name, year, month } = paths.0;
-    let ledger = ledger.read().await;
-    let operations = ledger.operations();
-
-    if !operations.all_budgets()?.into_iter().any(|budget| budget.name.eq(&budget_name)) {
+    let month = BudgetListRequest::month_of(year, month)?;
+    let budget = run(&ledger, &BUDGET, Params::new().bind("name", budget_name.as_str())).await?;
+    let Some(budget) = first_row(&budget) else {
         return ResponseWrapper::not_found();
     };
-    let timezone = &ledger.options.timezone;
-    let first_day = NaiveDate::from_ymd_opt(year as i32, month, 1).unwrap();
-    let month_beginning = resolve_local_datetime(timezone, &first_day.and_time(NaiveTime::MIN));
-    let next_month_beginning = resolve_local_datetime(timezone, &(first_day + Months::new(1)).and_time(NaiveTime::MIN));
-    let month_end = next_month_beginning - TimeDelta::nanoseconds(1);
-    let interval = year * 100 + month;
-    let budget_events = operations
-        .budget_month_detail(&budget_name, interval)?
-        .map(|interval| interval.events)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|event| BudgetIntervalEventEntity::BudgetEvent(event.into()))
-        .collect_vec();
+    let accounts = budget.set("accounts").unwrap_or_default();
 
-    let store = operations.store.read().unwrap();
-    let related_accounts = store
-        .metas
-        .iter()
-        .filter(|meta| meta.meta_type.eq("AccountMeta"))
-        .filter(|meta| meta.key.eq("budget"))
-        .filter(|meta| meta.value.eq(&budget_name))
-        .map(|meta| meta.type_identifier.clone())
+    let events = run(
+        &ledger,
+        &BUDGET_EVENTS_BY_MONTH,
+        Params::new().bind("name", budget_name.as_str()).bind("month", month),
+    )
+    .await?;
+    let events = rows(&events)
+        .map(|row| {
+            let event_type = match row.str("type").as_deref() {
+                Some("assign") => BudgetEventType::AddAssignedAmount,
+                _ => BudgetEventType::Transfer,
+            };
+            BudgetIntervalEventEntity::BudgetEvent(BudgetEventEntity {
+                timestamp: row.int("timestamp").unwrap_or_default(),
+                amount: row.amount("amount").unwrap_or_else(|| Amount::zero("")),
+                event_type,
+            })
+        })
         .collect_vec();
-    let journals = operations
-        .accounts_dated_journals(&related_accounts, month_beginning, month_end)?
+    let postings = run(
+        &ledger,
+        &BUDGET_POSTINGS_BY_MONTH,
+        Params::new().bind("accounts", Value::Set(accounts)).bind("month", month),
+    )
+    .await?;
+    let postings = rows(&postings)
+        .map(|row| {
+            let units = row.amount("units").unwrap_or_else(|| Amount::zero(""));
+            BudgetIntervalEventEntity::Posting(AccountJournalDomain {
+                datetime: row.datetime("date", "time").unwrap_or_default(),
+                timestamp: row.int("timestamp").unwrap_or_default(),
+                account: row.str("account").unwrap_or_default(),
+                trx_id: row.str("id").unwrap_or_default(),
+                payee: row.str("payee"),
+                narration: row.str("narration").filter(|it| !it.is_empty()),
+                account_after: row.amount("balance").unwrap_or_else(|| Amount::zero(&units.commodity)),
+                inferred_unit: units,
+                asserted: None,
+                checked_balance: None,
+                passed: None,
+            })
+        })
+        .collect_vec();
+    // both lists are newest first; of the same time, the budget's own entries come first
+    let detail = events
         .into_iter()
-        .map(BudgetIntervalEventEntity::Posting)
+        .merge_by(postings, |event, posting| event.timestamp() >= posting.timestamp())
         .collect_vec();
-    let mut ret = vec![];
-    ret.extend(budget_events);
-    ret.extend(journals);
-    ret.sort_by_key(|a| Reverse(a.naive_datetime()));
-    ResponseWrapper::json(ret)
+    ResponseWrapper::json(detail)
+}
+
+/// The handlers as they were before they ran built-in queries, kept to compare the two until they
+/// are removed (#479).
+#[cfg(test)]
+pub(crate) mod legacy {
+    use std::cmp::Reverse;
+    use std::ops::Sub;
+
+    use axum::extract::{Path, Query, State};
+    use chrono::{Months, NaiveDate, NaiveTime, TimeDelta};
+    use itertools::Itertools;
+    use zhang_ast::amount::Amount;
+    use zhang_ast::resolve_local_datetime;
+    use zhang_core::store::BudgetIntervalDetail;
+
+    use crate::request::{BudgetIntervalDetailRequest, BudgetListRequest};
+    use crate::response::{BudgetInfoEntity, BudgetIntervalEventEntity, BudgetListItemEntity, ResponseWrapper};
+    use crate::state::SharedLedger;
+    use crate::ApiResult;
+
+    pub async fn get_budget_list(ledger: State<SharedLedger>, params: Query<BudgetListRequest>) -> ApiResult<Vec<BudgetListItemEntity>> {
+        let interval = params.as_interval();
+
+        let ledger = ledger.read().await;
+        let operations = ledger.operations();
+
+        let mut ret = vec![];
+        for budget in operations.all_budgets()? {
+            if let Some(interval_detail) = operations.budget_month_detail(&budget.name, interval)? {
+                ret.push(BudgetListItemEntity {
+                    name: budget.name,
+                    alias: budget.alias,
+                    category: budget.category,
+                    closed: budget.closed,
+                    available_amount: interval_detail.assigned_amount.sub(interval_detail.activity_amount.number.clone()),
+                    assigned_amount: interval_detail.assigned_amount,
+                    activity_amount: interval_detail.activity_amount,
+                });
+            }
+        }
+        ResponseWrapper::json(ret)
+    }
+
+    pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>, params: Query<BudgetListRequest>) -> ApiResult<BudgetInfoEntity> {
+        let (budget_name,) = paths.0;
+        let ledger = ledger.read().await;
+        let operations = ledger.operations();
+
+        let Some(budget) = operations.all_budgets()?.into_iter().find(|budget| budget.name.eq(&budget_name)) else {
+            return ResponseWrapper::not_found();
+        };
+        let interval = params.as_interval();
+        let interval_detail = operations.budget_month_detail(&budget.name, interval)?.unwrap_or(BudgetIntervalDetail {
+            date: interval,
+            events: vec![],
+            assigned_amount: Amount::zero(&budget.commodity),
+            activity_amount: Amount::zero(&budget.commodity),
+        });
+        let store = operations.store.read().unwrap();
+        let related_accounts = store
+            .metas
+            .iter()
+            .filter(|meta| meta.meta_type.eq("AccountMeta"))
+            .filter(|meta| meta.key.eq("budget"))
+            .filter(|meta| meta.value.eq(&budget_name))
+            .map(|meta| meta.type_identifier.clone())
+            .collect_vec();
+        ResponseWrapper::json(BudgetInfoEntity {
+            name: budget.name,
+            alias: budget.alias,
+            category: budget.category,
+            closed: budget.closed,
+            related_accounts,
+            available_amount: interval_detail.assigned_amount.sub(interval_detail.activity_amount.number.clone()),
+            assigned_amount: interval_detail.assigned_amount,
+            activity_amount: interval_detail.activity_amount,
+        })
+    }
+
+    pub async fn get_budget_interval_detail(
+        ledger: State<SharedLedger>, paths: Path<BudgetIntervalDetailRequest>,
+    ) -> ApiResult<Vec<BudgetIntervalEventEntity>> {
+        let BudgetIntervalDetailRequest { budget_name, year, month } = paths.0;
+        let ledger = ledger.read().await;
+        let operations = ledger.operations();
+
+        if !operations.all_budgets()?.into_iter().any(|budget| budget.name.eq(&budget_name)) {
+            return ResponseWrapper::not_found();
+        };
+        let timezone = &ledger.options.timezone;
+        let first_day = NaiveDate::from_ymd_opt(year as i32, month, 1).unwrap();
+        let month_beginning = resolve_local_datetime(timezone, &first_day.and_time(NaiveTime::MIN));
+        let next_month_beginning = resolve_local_datetime(timezone, &(first_day + Months::new(1)).and_time(NaiveTime::MIN));
+        let month_end = next_month_beginning - TimeDelta::nanoseconds(1);
+        let interval = year * 100 + month;
+        let budget_events = operations
+            .budget_month_detail(&budget_name, interval)?
+            .map(|interval| interval.events)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|event| BudgetIntervalEventEntity::BudgetEvent(event.into()))
+            .collect_vec();
+
+        let store = operations.store.read().unwrap();
+        let related_accounts = store
+            .metas
+            .iter()
+            .filter(|meta| meta.meta_type.eq("AccountMeta"))
+            .filter(|meta| meta.key.eq("budget"))
+            .filter(|meta| meta.value.eq(&budget_name))
+            .map(|meta| meta.type_identifier.clone())
+            .collect_vec();
+        let journals = operations
+            .accounts_dated_journals(&related_accounts, month_beginning, month_end)?
+            .into_iter()
+            .map(BudgetIntervalEventEntity::Posting)
+            .collect_vec();
+        let mut ret = vec![];
+        ret.extend(budget_events);
+        ret.extend(journals);
+        ret.sort_by_key(|a| Reverse(a.naive_datetime()));
+        ResponseWrapper::json(ret)
+    }
 }
