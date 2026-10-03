@@ -18,12 +18,13 @@ use zhang_core::store::{BalanceAssertionDomain, TransactionDomain};
 use zhang_core::utils::string_::{quote_as, QuoteStyle, StringExt};
 
 use super::Query;
+use crate::error::ServerError;
 use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, JournalRequest, MetaRequest};
 use crate::response::{
     InfoForNewTransaction, JournalBalanceItemEntity, JournalItemEntity, JournalTransactionItemEntity, JournalTransactionPostingEntity, Pageable,
     ResponseWrapper,
 };
-use crate::state::{SharedLedger, SharedReloadSender};
+use crate::state::{wrote, SharedLedger, SharedReloadSender};
 use crate::{validate, ApiResult, ServerResult};
 
 #[api(group = "transaction")]
@@ -254,9 +255,8 @@ pub async fn create_new_transaction(
 
     let trx = transaction_from_request(payload, &ledger, None)?;
 
-    ledger.data_source.async_append(&ledger, vec![trx]).await?;
-    ledger.written = true;
-    reload_sender.reload();
+    let appended = ledger.data_source.async_append(&ledger, vec![trx]).await;
+    wrote(&mut ledger, &reload_sender, appended.map_err(ServerError::from))?;
     ResponseWrapper::json("Ok".to_string())
 }
 
@@ -266,14 +266,11 @@ pub async fn create_new_transaction(
 pub async fn upload_transaction_document(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, mut multipart: Multipart,
 ) -> ApiResult<String> {
-    let transaction_id = Uuid::from_str(&path.0 .0).expect("invalid txn id");
+    let Ok(transaction_id) = Uuid::from_str(&path.0 .0) else {
+        return ResponseWrapper::bad_request();
+    };
     // the files first, then the ledger, held to write
-    let mut files = vec![];
-    while let Some(field) = multipart.next_field().await.unwrap() {
-        let file_name = field.file_name().unwrap().to_string();
-        let content_buf = field.bytes().await.unwrap();
-        files.push((file_name, content_buf));
-    }
+    let files = super::uploaded_files(&mut multipart).await?;
     let mut ledger = ledger.for_writing().await?;
     let mut operations = ledger.operations();
     let entry = &ledger.entry.0;
@@ -284,26 +281,33 @@ pub async fn upload_transaction_document(
         return ResponseWrapper::bad_request();
     };
 
-    for (file_name, content_buf) in files {
-        let v4 = Uuid::new_v4();
-        let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
-        let striped_buf = buf.strip_prefix(entry).unwrap();
-        let striped_path_string = striped_buf.to_string_lossy().to_string();
-        info!("uploading document `{}`(id={}) to transaction {}", file_name, v4, transaction_id);
+    let written = async {
+        // no file is saved for a transaction that is no longer where the ledger loaded it
+        let source_file_path = span_info.source_file.to_string_lossy().to_string();
+        ledger
+            .data_source
+            .async_get_unchanged(source_file_path, std::slice::from_ref(&span_info.span))
+            .await?;
+        for (file_name, content_buf) in files {
+            let v4 = Uuid::new_v4();
+            let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
+            let striped_buf = buf.strip_prefix(entry).unwrap();
+            let striped_path_string = striped_buf.to_string_lossy().to_string();
+            info!("uploading document `{}`(id={}) to transaction {}", file_name, v4, transaction_id);
 
-        ledger.data_source.async_save(&ledger, striped_path_string, &content_buf).await?;
+            ledger.data_source.async_save(&ledger, striped_path_string, &content_buf).await?;
 
-        let path = match buf.strip_prefix(entry) {
-            Ok(relative_path) => relative_path.to_str().unwrap(),
-            Err(_) => buf.to_str().unwrap(),
-        };
+            let path = match buf.strip_prefix(entry) {
+                Ok(relative_path) => relative_path.to_str().unwrap(),
+                Err(_) => buf.to_str().unwrap(),
+            };
 
-        documents.push(path.to_string());
+            documents.push(path.to_string());
+        }
+        write_transaction_documents(&ledger, &span_info, &documents).await
     }
-
-    write_transaction_documents(&ledger, &span_info, &documents).await?;
-    ledger.written = true;
-    reload_sender.reload();
+    .await;
+    wrote(&mut ledger, &reload_sender, written)?;
     ResponseWrapper::json("Ok".to_string())
 }
 
@@ -367,16 +371,18 @@ pub async fn update_single_transaction(
     let trx_content = String::from_utf8_lossy(&txn_content);
     let source_file_path = span_info.source_file.to_string_lossy().to_string();
 
-    // the transaction must still be where the ledger loaded it
-    let mut content = ledger
-        .data_source
-        .async_get_unchanged(source_file_path.clone(), std::slice::from_ref(&span_info.span))
-        .await?;
-    content.replace_by_span(&SpanInfo::simple(span_info.span_start, span_info.span_end), &trx_content);
-
-    ledger.data_source.async_save(&ledger, source_file_path, content.as_bytes()).await?;
-    ledger.written = true;
-    reload_sender.reload();
+    let written = async {
+        // the transaction must still be where the ledger loaded it
+        let mut content = ledger
+            .data_source
+            .async_get_unchanged(source_file_path.clone(), std::slice::from_ref(&span_info.span))
+            .await?;
+        content.replace_by_span(&SpanInfo::simple(span_info.span_start, span_info.span_end), &trx_content);
+        ledger.data_source.async_save(&ledger, source_file_path, content.as_bytes()).await?;
+        ServerResult::Ok(())
+    }
+    .await;
+    wrote(&mut ledger, &reload_sender, written)?;
     ResponseWrapper::json(())
 }
 
@@ -1451,5 +1457,53 @@ mod string_round_trip_test {
             "\n  Assets:Cash -5 CNY\n    dup: 1.5\n    dup: 2.5\n  Expenses:Food 5 CNY\n",
             "{written}"
         );
+    }
+    /// A document or an update of a transaction in a file changed since the ledger was loaded is refused with a 409,
+    /// and nothing is written: the transaction is no longer where the ledger loaded it. Tried again, the ledger is
+    /// reloaded first, and the update is written in the right place.
+    #[tokio::test]
+    async fn a_transaction_in_a_file_changed_since_the_load_is_not_written() {
+        let dir = std::env::temp_dir().join(format!("zhang-stale-transaction-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let main = dir.join("main.bean");
+        let opens = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n\n";
+        let ledger = format!("{opens}2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n");
+        std::fs::write(&main, &ledger).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+        let loaded = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
+        let id = loaded.operations().read().transactions.values().next().unwrap().id;
+        let span = loaded.operations().transaction_span(&id).unwrap().unwrap();
+        // an editor adds a line at the top, which the ledger has not loaded yet
+        let edited = format!("; an editor adds this line\n{ledger}");
+        std::fs::write(&main, &edited).unwrap();
+
+        let refused = write_transaction_documents(&loaded, &span, &["attachments/a.pdf".to_owned()])
+            .await
+            .unwrap_err();
+        assert_eq!(refused.into_response().status(), StatusCode::CONFLICT);
+        assert_eq!(std::fs::read_to_string(&main).unwrap(), edited, "nothing is written");
+
+        let (ledger_state, reload) = states(loaded);
+        let update = || edit(&[("Assets:Cash", -6, &[]), ("Expenses:Food", 6, &[])]);
+        let response = update_single_transaction(ledger_state.clone(), reload.clone(), Path((id.to_string(),)), Json(update()))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(std::fs::read_to_string(&main).unwrap(), edited, "nothing is written");
+
+        // the ledger is reloaded for the next write, which finds the transaction where it is now
+        let reloaded = ledger_state.for_writing().await.unwrap();
+        let id = reloaded.operations().read().transactions.values().next().unwrap().id;
+        drop(reloaded);
+        let response = update_single_transaction(ledger_state, reload, Path((id.to_string(),)), Json(update()))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let written = std::fs::read_to_string(&main).unwrap();
+        assert!(written.starts_with("; an editor adds this line\n"), "{written}");
+        assert!(written.contains("  Assets:Cash -6 CNY\n  Expenses:Food 6 CNY\n"), "{written}");
+        assert!(!written.contains("5 CNY"), "{written}");
+        std::fs::remove_dir_all(dir).ok();
     }
 }

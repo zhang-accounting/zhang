@@ -48,8 +48,9 @@ pub enum ZhangError {
     #[error("too large: {0}")]
     TooLarge(String),
 
-    /// a file a writer edits in place changed since the ledger was loaded: the places of its directives are stale
-    #[error("the file {0} changed since it was loaded: reload the ledger, and try again")]
+    /// a file a writer edits in place changed since the ledger was loaded: the places of its directives are stale, and
+    /// nothing is written
+    #[error("the file {0} changed since the ledger was loaded, so nothing was written: try again, on the ledger reloaded")]
     FileChanged(String),
 }
 

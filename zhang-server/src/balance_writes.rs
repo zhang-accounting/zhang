@@ -9,9 +9,10 @@
 //! also writes the difference, computed now from what the account and its sub-accounts hold, as a padding transaction
 //! (flag `P`) dated now. The UI writes no `pad`: a `pad` would pad the next balance of every commodity of its account,
 //! and would silently absorb a transaction added later today. Such a transaction makes tomorrow's `balance` fail
-//! instead, until the next check of the day replaces it: a balance of the account and commodity dated tomorrow is
-//! rewritten in place, not written twice. A padding transaction written before stays, and the difference is computed
-//! with it.
+//! instead, until the next check of the day replaces it: each balance of the account and commodity dated tomorrow
+//! asserts the new amount, in its place, and nothing else of it changes. None is written twice. A padding transaction
+//! written before stays, and the difference is computed with it. A file changed since the ledger was loaded is not
+//! edited: its places are stale, and the write is a 409.
 //!
 //! A `pad` the ledger has, written by hand, would still pad a balance written after it in a commodity it never
 //! served, and absorb later transactions in it: such a balance is refused, with the `pad` to close first.

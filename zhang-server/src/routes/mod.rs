@@ -25,6 +25,23 @@ use serde_qs;
 
 pub struct Query<T>(pub T);
 
+/// the files of an upload, each with its name, read before the ledger is held to write them. A file is saved by its
+/// name under the ledger's attachments, so the name is a plain file name: the upload is a 400 otherwise, or when it
+/// cannot be read
+pub(crate) async fn uploaded_files(multipart: &mut axum::extract::Multipart) -> crate::ServerResult<Vec<(String, axum::body::Bytes)>> {
+    let unreadable = |e: axum::extract::multipart::MultipartError| crate::error::ServerError::InvalidInput(format!("the upload cannot be read: {e}"));
+    let mut files = vec![];
+    while let Some(field) = multipart.next_field().await.map_err(unreadable)? {
+        let file_name = field.file_name().unwrap_or_default().to_owned();
+        if std::path::Path::new(&file_name).file_name().and_then(|it| it.to_str()) != Some(file_name.as_str()) {
+            return Err(crate::error::ServerError::InvalidInput(format!("{file_name:?} is not the name of a file")));
+        }
+        let content = field.bytes().await.map_err(unreadable)?;
+        files.push((file_name, content));
+    }
+    Ok(files)
+}
+
 #[async_trait]
 impl<T, S> FromRequestParts<S> for Query<T>
 where
@@ -71,5 +88,52 @@ where
             }
         }
         Either::Left(ret)
+    }
+}
+
+#[cfg(test)]
+mod uploaded_files_test {
+    use axum::body::Body;
+    use axum::extract::{FromRequest, Multipart};
+    use axum::http::Request;
+
+    use super::uploaded_files;
+    use crate::error::ServerError;
+
+    async fn upload(file_names: &[&str]) -> crate::ServerResult<Vec<(String, axum::body::Bytes)>> {
+        let mut body = String::new();
+        for name in file_names {
+            body.push_str(&format!(
+                "--X\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\nContent-Type: application/pdf\r\n\r\n%PDF {name}\r\n"
+            ));
+        }
+        body.push_str("--X--\r\n");
+        let request = Request::builder()
+            .method("POST")
+            .header("content-type", "multipart/form-data; boundary=X")
+            .body(Body::from(body))
+            .unwrap();
+        let mut multipart = Multipart::from_request(request, &()).await.unwrap();
+        uploaded_files(&mut multipart).await
+    }
+
+    #[tokio::test]
+    async fn an_upload_is_read_as_its_files_each_with_a_plain_name() {
+        let files = upload(&["statement.pdf", "收据 1.pdf"]).await.unwrap();
+        let names = files.iter().map(|(name, content)| (name.as_str(), content.as_ref())).collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            vec![
+                ("statement.pdf", b"%PDF statement.pdf".as_slice()),
+                ("收据 1.pdf", "%PDF 收据 1.pdf".as_bytes())
+            ]
+        );
+        // a name that would be saved elsewhere than the ledger's attachments is a 400, not a panic
+        for name in ["../main.zhang", "/etc/passwd", "a/b.pdf", "..", ""] {
+            match upload(&["ok.pdf", name]).await {
+                Err(ServerError::InvalidInput(message)) => assert!(message.contains("is not the name of a file"), "{message}"),
+                other => panic!("{name:?}: {:?}", other.map(|files| files.len())),
+            }
+        }
     }
 }

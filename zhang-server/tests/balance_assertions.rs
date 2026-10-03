@@ -626,10 +626,11 @@ mod beancount_pads {
     use zhang_ast::error::ErrorKind;
     use zhang_server::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
     use zhang_server::routes::account::{create_account_balance, create_batch_account_balances};
-    use zhang_server::state::SharedReloadSender;
+    use zhang_server::routes::transaction::update_single_transaction;
+    use zhang_server::state::{SharedLedger, SharedReloadSender};
     use zhang_server::ReloadSender;
 
-    use super::{respond, Scratch};
+    use super::{decimal, respond, Scratch};
 
     fn today() -> NaiveDate {
         // the ledgers below are in UTC
@@ -645,8 +646,13 @@ mod beancount_pads {
     }
 
     async fn check(scratch: &Scratch, account: &str, amount: Amount) -> (StatusCode, Value) {
+        check_with(scratch.state().await, account, amount).await
+    }
+
+    /// a check written to `ledger`, loaded before
+    async fn check_with(ledger: State<SharedLedger>, account: &str, amount: Amount) -> (StatusCode, Value) {
         let request = AccountBalanceRequest::Check { amount };
-        respond(create_account_balance(scratch.state().await, reload(), UrlPath((account.to_owned(),)), Json(request)).await).await
+        respond(create_account_balance(ledger, reload(), UrlPath((account.to_owned(),)), Json(request)).await).await
     }
 
     /// a batch of rows (account, amount, account padded from, or "" for a plain balance)
@@ -688,8 +694,13 @@ mod beancount_pads {
     }
 
     async fn pad(scratch: &Scratch, account: &str, amount: Amount, from: &str) -> (StatusCode, Value) {
+        pad_with(scratch.state().await, account, amount, from).await
+    }
+
+    /// a reconcile written to `ledger`, loaded before
+    async fn pad_with(ledger: State<SharedLedger>, account: &str, amount: Amount, from: &str) -> (StatusCode, Value) {
         let request = AccountBalanceRequest::Pad { amount, pad: from.to_owned() };
-        respond(create_account_balance(scratch.state().await, reload(), UrlPath((account.to_owned(),)), Json(request)).await).await
+        respond(create_account_balance(ledger, reload(), UrlPath((account.to_owned(),)), Json(request)).await).await
     }
 
     /// what the ledger reloaded from its files holds: the errors, the paddings (date, units, account padded from) and
@@ -1286,5 +1297,262 @@ option "timezone" "UTC"
             pad(&scratch, "Assets:Broker", amount(12, "AAPL"), "Equity:Open").await,
             &["Assets:Broker holds AAPL at cost", "would book 2 AAPL without a cost"],
         );
+    }
+    fn read(path: &std::path::Path) -> String {
+        std::fs::read_to_string(path).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_replaced_balance_changes_its_amount_only() {
+        // balances for tomorrow written by hand, with metadata, a comment and a tolerance: the new amounts take the
+        // places of theirs, and the rest stays as written. Two in one file, the first growing longer
+        let scratch = Scratch::beancount(&format!(
+            r#"{OPENS}include "statements.bean"
+{} * "seed"
+  Assets:A 100.50 CNY
+  Assets:A 6 USD
+  Equity:Fx -100.50 CNY
+  Equity:Fx -6 USD
+"#,
+            days_ago(30)
+        ));
+        let statements = scratch.dir.join("statements.bean");
+        let written_by_hand = format!(
+            r#"; the statement of the bank, for tomorrow
+{tomorrow} balance Assets:A 61 CNY ; a trailing comment
+  statement: "bank PDF"
+{tomorrow} balance Equity:Open 0 CNY
+{tomorrow} balance Assets:A 5 ~ 0.01 USD
+  statement: "broker"
+"#,
+            tomorrow = tomorrow()
+        );
+        std::fs::write(&statements, &written_by_hand).unwrap();
+        let (status, body) = rows(
+            &scratch,
+            vec![("Assets:A", Amount::new(decimal("100.50"), "CNY"), ""), ("Assets:A", amount(6, "USD"), "")],
+        )
+        .await;
+        assert!(status.is_success(), "{status} {body}");
+        assert_eq!(
+            body["data"]["replaced"],
+            json!([
+                {"date": tomorrow().to_string(), "account": "Assets:A", "amount": {"number": "61", "commodity": "CNY"}},
+                {"date": tomorrow().to_string(), "account": "Assets:A", "amount": {"number": "5", "commodity": "USD"}}
+            ])
+        );
+        assert_eq!(
+            read(&statements),
+            written_by_hand
+                .replace("Assets:A 61 CNY", "Assets:A 100.50 CNY")
+                .replace("Assets:A 5 ~ 0.01 USD", "Assets:A 6 ~ 0.01 USD")
+        );
+        assert_eq!(walkdir(&scratch.dir).len(), 2, "nothing is appended");
+        let (errors, _, passed) = reloaded(&scratch).await;
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(passed, vec![true, true, true]);
+    }
+
+    #[tokio::test]
+    async fn every_balance_of_the_commodity_for_tomorrow_is_replaced() {
+        // the same balance written twice, in two files, one with CRLF line endings: both assert the new amount, and
+        // keep what else they have
+        let scratch = Scratch::beancount(&format!(
+            "{OPENS}include \"crlf.bean\"\n{} * \"seed\"\n  Assets:A 80 CNY\n  Equity:Fx\n{} balance Assets:A 60 CNY\n",
+            days_ago(30),
+            tomorrow()
+        ));
+        let crlf = scratch.dir.join("crlf.bean");
+        let written_by_hand = format!(
+            "{} * \"Ünïcödé\" \"before\"\r\n  Expenses:Food 1 CNY\r\n  Equity:Fx\r\n{} balance Assets:A 62 CNY\r\n  statement: \"scan ☕\"\r\n",
+            days_ago(3),
+            tomorrow()
+        );
+        std::fs::write(&crlf, &written_by_hand).unwrap();
+        let main = read(&scratch.dir.join(scratch.main));
+        let (status, body) = check(&scratch, "Assets:A", amount(80, "CNY")).await;
+        assert!(status.is_success(), "{status} {body}");
+        let mut replaced = body["data"]["replaced"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|it| it["amount"]["number"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        replaced.sort();
+        assert_eq!(replaced, vec!["60", "62"], "{body}");
+        assert_eq!(
+            read(&scratch.dir.join(scratch.main)),
+            main.replace("balance Assets:A 60 CNY", "balance Assets:A 80 CNY")
+        );
+        assert_eq!(read(&crlf), written_by_hand.replace("balance Assets:A 62 CNY", "balance Assets:A 80 CNY"));
+        assert_eq!(walkdir(&scratch.dir).len(), 2, "nothing is appended");
+        let (errors, _, passed) = reloaded(&scratch).await;
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(passed, vec![true, true]);
+    }
+
+    #[tokio::test]
+    async fn a_balance_for_tomorrow_a_pad_of_the_ledger_serves_is_not_replaced() {
+        // the pad of yesterday, written by hand, pads tomorrow's balance: replaced, that balance would leave the pad to
+        // pad the new one, which would absorb any transaction added today
+        let scratch = Scratch::beancount(&format!(
+            r#"{OPENS}{} * "seed"
+  Assets:A 50 CNY
+  Equity:Fx
+{} pad Assets:A Equity:Open
+{} balance Assets:A 100 CNY
+"#,
+            days_ago(30),
+            days_ago(1),
+            tomorrow()
+        ));
+        let main = scratch.dir.join(scratch.main);
+        let before = read(&main);
+        let (status, body) = check(&scratch, "Assets:A", amount(80, "CNY")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        let message = body["message"].as_str().unwrap();
+        let pad = format!("the pad of Assets:A on {} from Equity:Open, in main.bean", days_ago(1));
+        for part in [pad.as_str(), "edit main.bean"] {
+            assert!(message.contains(part), "{part:?} in {message}");
+        }
+        assert_eq!(read(&main), before, "nothing is written");
+        assert_eq!(walkdir(&scratch.dir).len(), 1, "nothing is appended");
+    }
+
+    #[tokio::test]
+    async fn a_commodity_whose_lots_were_all_sold_is_padded() {
+        // the lots of AAPL are sold, so AAPL is no longer held at cost: the padding books it without one
+        let ledger = format!(
+            r#"option "operating_currency" "USD"
+option "timezone" "UTC"
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Cash
+1970-01-01 open Equity:Open
+{} * "buy"
+  Assets:Broker 10 AAPL {{100 USD}}
+  Assets:Cash -1000 USD
+{} * "sell all"
+  Assets:Broker -10 AAPL {{100 USD}}
+  Assets:Cash 1000 USD
+"#,
+            days_ago(5),
+            days_ago(4)
+        );
+        for scratch in [Scratch::beancount(&ledger), Scratch::new(&ledger)] {
+            let (status, body) = pad(&scratch, "Assets:Broker", amount(3, "AAPL"), "Equity:Open").await;
+            assert!(status.is_success(), "{} {status} {body}", scratch.main);
+            let (errors, _, passed) = reloaded(&scratch).await;
+            assert!(errors.is_empty(), "{} {errors:?}", scratch.main);
+            assert_eq!(passed, vec![true], "{}", scratch.main);
+            assert_eq!(scratch.balance("Assets:Broker").await["AAPL"], json!("3"), "{}", scratch.main);
+        }
+    }
+
+    /// a ledger whose main file holds tomorrow's balance after a price, a transaction before them, and one after
+    fn ledger_with_tomorrows_balance() -> Scratch {
+        Scratch::beancount(&format!(
+            r#"{OPENS}1970-01-01 open Income:X
+{} * "seed"
+  Assets:A 50 CNY
+  Income:X
+{} price USD 7.1000000 CNY
+{} balance Assets:A 50 CNY
+{} * "tail" "must survive"
+  Expenses:Food 1 CNY
+  Income:X
+"#,
+            days_ago(30),
+            days_ago(30),
+            tomorrow(),
+            days_ago(29)
+        ))
+    }
+
+    #[tokio::test]
+    async fn a_balance_in_a_file_changed_since_the_load_is_not_replaced() {
+        // an editor adds a line at the top of the file, as long as the price line or longer, and the ledger is not
+        // reloaded yet: replaced at the places loaded, the balance would overwrite the price, or cut a transaction
+        for comment in ["; an editor adds a line at the top of the file", "; a line as long as the price line"] {
+            let scratch = ledger_with_tomorrows_balance();
+            let main = scratch.dir.join(scratch.main);
+            let ledger = scratch.state().await;
+            let edited = format!("{comment}\n{}", read(&main));
+            std::fs::write(&main, &edited).unwrap();
+
+            let (status, body) = check_with(ledger.clone(), "Assets:A", amount(45, "CNY")).await;
+            assert_eq!(status, StatusCode::CONFLICT, "{body}");
+            let message = body["message"].as_str().unwrap();
+            assert!(
+                message.contains("main.bean changed since the ledger was loaded, so nothing was written"),
+                "{message}"
+            );
+            assert_eq!(read(&main), edited, "nothing is written");
+            assert_eq!(walkdir(&scratch.dir).len(), 1, "nothing is appended");
+            let (errors, _, _) = reloaded(&scratch).await;
+            assert!(errors.is_empty(), "{errors:?}");
+
+            // tried again, on the ledger reloaded: the balance is replaced, and the line of the editor and the price stay
+            let (status, body) = check_with(ledger, "Assets:A", amount(45, "CNY")).await;
+            assert!(status.is_success(), "{status} {body}");
+            assert_eq!(read(&main), edited.replace("balance Assets:A 50 CNY", "balance Assets:A 45 CNY"));
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn writes_at_once_are_written_one_after_the_other() {
+        // two reconciles of the same balance and an update of a transaction of the same file, at once: each reads
+        // what the one before wrote
+        for _ in 0..10 {
+            let scratch = ledger_with_tomorrows_balance();
+            let ledger = scratch.state().await;
+            let tail = {
+                let ledger = ledger.read().await;
+                let store = ledger.store.read().unwrap();
+                store
+                    .transactions
+                    .values()
+                    .find(|it| it.narration.as_deref() == Some("must survive"))
+                    .unwrap()
+                    .id
+            };
+            let reconcile = || {
+                let ledger = ledger.clone();
+                tokio::spawn(async move { pad_with(ledger, "Assets:A", amount(60, "CNY"), "Equity:Open").await })
+            };
+            let (first, second) = (reconcile(), reconcile());
+            let update = {
+                let ledger = ledger.clone();
+                let request = serde_json::from_value(json!({
+                    "datetime": format!("{}T12:00:00Z", days_ago(29)),
+                    "payee": "tail",
+                    "flag": "Okay",
+                    "narration": "updated",
+                    "postings": [
+                        {"account": "Expenses:Food", "unit": {"number": "1", "commodity": "CNY"}},
+                        {"account": "Income:X", "unit": null}
+                    ],
+                    "metas": [],
+                    "tags": [],
+                    "links": []
+                }))
+                .unwrap();
+                tokio::spawn(async move { respond(update_single_transaction(ledger, reload(), UrlPath((tail.to_string(),)), Json(request)).await).await })
+            };
+            for (status, body) in [first.await.unwrap(), second.await.unwrap(), update.await.unwrap()] {
+                assert!(status.is_success(), "{status} {body}");
+            }
+            let main = read(&scratch.dir.join(scratch.main));
+            assert!(main.contains(&format!("{} balance Assets:A 60 CNY\n", tomorrow())), "{main}");
+            assert!(main.contains("\"tail\" \"updated\""), "{main}");
+            assert!(main.contains("price USD 7.1000000 CNY"), "{main}");
+            let files = format!("{main}{}", written(&scratch));
+            assert_eq!(files.matches(" balance Assets:A ").count(), 1, "{files}");
+            let (errors, paddings, passed) = reloaded(&scratch).await;
+            assert!(errors.is_empty(), "{errors:?}\n{files}");
+            assert_eq!(paddings, vec![format!("{} 10 CNY from Equity:Open", today())], "{files}");
+            assert_eq!(passed, vec![true]);
+        }
     }
 }

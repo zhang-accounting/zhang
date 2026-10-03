@@ -129,8 +129,11 @@ impl LocalFileSystemDataSource {
         }
     }
 
-    pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) {
-        std::fs::create_dir_all(filename.parent().unwrap()).expect("cannot create folder recursive");
+    pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) -> ZhangResult<()> {
+        match filename.parent() {
+            Some(folder) => std::fs::create_dir_all(folder).with_path(folder),
+            None => Ok(()),
+        }
     }
 
     /// append `directive` to `file`, or to the file of its month, which the main file then includes unless the ledger
@@ -146,7 +149,7 @@ impl LocalFileSystemDataSource {
             }
         });
 
-        LocalFileSystemDataSource::create_folder_if_not_exist(&endpoint);
+        LocalFileSystemDataSource::create_folder_if_not_exist(&endpoint)?;
 
         // a file new to the ledger and to this append
         let new_file = included.filter(|included| !has_path_visited(&ledger.visited_files, &endpoint) && !has_path_visited(included.iter(), &endpoint));

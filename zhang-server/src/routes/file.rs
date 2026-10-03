@@ -3,9 +3,10 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use gotcha::api;
 
+use crate::error::ServerError;
 use crate::request::FileUpdateRequest;
 use crate::response::{Created, FileDetailEntity, ResponseWrapper};
-use crate::state::{SharedLedger, SharedReloadSender};
+use crate::state::{wrote, SharedLedger, SharedReloadSender};
 use crate::{ApiResult, ServerResult};
 
 #[api(group = "file")]
@@ -45,8 +46,7 @@ pub async fn update_file_content(
 
     // todo(refact) check if the syntax valid
     // if parse_zhang(&payload.content, None).is_ok() {
-    ledger.data_source.async_save(&ledger, filename, payload.content.as_bytes()).await?;
-    ledger.written = true;
-    reload_sender.reload();
+    let saved = ledger.data_source.async_save(&ledger, filename, payload.content.as_bytes()).await;
+    wrote(&mut ledger, &reload_sender, saved.map_err(ServerError::from))?;
     Ok(Created)
 }

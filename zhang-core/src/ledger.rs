@@ -62,9 +62,9 @@ pub struct Ledger {
     /// reload replaces the ledger, and starts this empty
     pub derived: Derived,
 
-    /// whether the ledger's files were written since it was loaded: a writer reloads it first, to read what was
-    /// written, and edit the places it has now
-    pub written: bool,
+    /// whether the ledger may no longer be what its files hold: they were written, or found changed, since it was
+    /// loaded. A writer reloads it first, to read the files as they are, and edit the places they have now
+    pub stale: bool,
 
     #[cfg(feature = "plugin_runtime")]
     pub plugins: crate::plugin::store::PluginStore,
@@ -181,7 +181,7 @@ impl Ledger {
             reported_undefined_budgets: HashSet::new(),
             clock: LoadClock::new(context.clock),
             derived: Derived::default(),
-            written: false,
+            stale: false,
             #[cfg(feature = "plugin_runtime")]
             plugins: crate::plugin::store::PluginStore::default(),
         };
