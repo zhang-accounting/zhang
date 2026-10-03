@@ -9,6 +9,10 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'Zhang Accounting v0.2.0',
+      logo: {
+        src: './src/assets/logo.png',
+      },
+      favicon: '/favicon.ico',
       head: [{
         tag: 'script',
         attrs: {

@@ -1,5 +1,5 @@
 <div align="center">
-  <img width="256" height="256" src="/docs/src/assets/logo-without-bg.png" />
+  <img width="256" height="256" src="/docs/src/assets/logo.png" />
   <h1>账 Zhang</h1>
   <p>A self-hosted, plain text double-entry accounting tool that speaks beancount.</p>
 </div>
