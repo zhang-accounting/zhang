@@ -115,6 +115,8 @@ fn budget_name_of(row: &serde_json::Map<String, Value>) -> &str {
     row["name"].as_str().unwrap()
 }
 
+/// Checks every row of `#budgets` of the fixture against the budget API, and returns the number
+/// of rows through the month of the ledger's last entry.
 async fn check_budgets(name: &str) -> usize {
     let ledger = load(name).await;
     let rows = query(
@@ -183,14 +185,23 @@ async fn check_budgets(name: &str) -> usize {
             assert_eq!(row["closed"], api["closed"], "{at}");
         }
     }
-    rows.len()
+    // the months through the ledger's last entry; the later ones, through the current month,
+    // carry the last one over
+    let last_entry = query(&ledger, "SELECT max(date) AS last FROM #entries").await[0]["last"]
+        .as_str()
+        .map(|date| (date[..4].parse::<u32>().unwrap(), date[5..7].parse::<u32>().unwrap()))
+        .unwrap();
+    rows.iter()
+        .filter(|row| (row["year"].as_u64().unwrap() as u32, row["month"].as_u64().unwrap() as u32) <= last_entry)
+        .count()
 }
 
 #[tokio::test]
 async fn budgets_are_the_amounts_of_the_budget_api() {
     assert_eq!(check_budgets("budget-sytem-syntax-and-category").await, 10);
     assert_eq!(check_budgets("budget-sytem-syntax-and-category-multiple-file").await, 10);
-    assert_eq!(check_budgets("query-zhang-tables").await, 10);
+    // `fun`, closed in April, runs on through the current month, so May and June count too
+    assert_eq!(check_budgets("query-zhang-tables").await, 12);
 }
 
 async fn check_errors(name: &str) -> usize {

@@ -101,6 +101,16 @@ fn query(ledger: &Ledger, sql: &str) -> Vec<Vec<String>> {
     query_with(ledger, sql, &Params::new())
 }
 
+/// [`query`] with `today()` on another day.
+fn query_on(ledger: &Ledger, today: NaiveDate, sql: &str) -> Vec<Vec<String>> {
+    let options = ExecuteOptions {
+        today: Some(today),
+        ..ExecuteOptions::default()
+    };
+    let result = Query::compile(sql).and_then(|query| query.execute_with_options(ledger, &Params::new(), &options));
+    cells(&result.unwrap_or_else(|err| panic!("{}\n  failed: {:?} {}", sql, err.kind, err.message)))
+}
+
 /// The error of a query that must fail.
 fn query_error(ledger: &Ledger, sql: &str, params: &Params) -> QueryError {
     match try_query(ledger, sql, params) {
@@ -1303,8 +1313,14 @@ fn d2_errors_of_one_directive_share_its_span() {
 /// The budget-add to `vacation`, a budget that does not exist, is an error and adds nothing.
 #[test]
 fn d2_budgets_convert_activity_at_the_posting_date_and_close_per_month() {
+    // in April 2024, the fixture's last month: a budget's months also run through the current one
+    let april = NaiveDate::from_ymd_opt(2024, 4, 30).unwrap();
     assert_eq!(
-        query(budgets(), "SELECT name, date, assigned, added, activity, available, closed FROM #budgets"),
+        query_on(
+            budgets(),
+            april,
+            "SELECT name, date, assigned, added, activity, available, closed FROM #budgets"
+        ),
         rows(&[
             &["food", "2024-01-01", "1000 CNY", "1000 CNY", "180 CNY", "820 CNY", "FALSE"],
             &["food", "2024-02-01", "620 CNY", "-200 CNY", "29 CNY", "591 CNY", "FALSE"],
@@ -1318,28 +1334,29 @@ fn d2_budgets_convert_activity_at_the_posting_date_and_close_per_month() {
     );
     // the current month of each budget, as the spec suggests for consumers
     assert_eq!(
-        query(
+        query_on(
             budgets(),
+            april,
             "SELECT name, last(available), last(closed) FROM #budgets GROUP BY name ORDER BY name"
         ),
         rows(&[&["food", "431 CNY", "FALSE"], &["travel", "750 CNY", "TRUE"]])
     );
     // the open budgets of a month
     assert_eq!(
-        query(budgets(), "SELECT name FROM #budgets WHERE date = 2024-02-01 AND NOT closed"),
+        query_on(budgets(), april, "SELECT name FROM #budgets WHERE date = 2024-02-01 AND NOT closed"),
         rows(&[&["food"], &["travel"]])
     );
     assert_eq!(
-        query(budgets(), "SELECT name FROM #budgets WHERE date = 2024-03-01 AND NOT closed"),
+        query_on(budgets(), april, "SELECT name FROM #budgets WHERE date = 2024-03-01 AND NOT closed"),
         rows(&[&["food"]])
     );
     // the activity is in the budget's commodity and adds up: 180 + 29 + 110 + 50
     assert_eq!(
-        query(budgets(), "SELECT name, sum(activity) FROM #budgets WHERE name = 'food' GROUP BY name"),
+        query_on(budgets(), april, "SELECT name, sum(activity) FROM #budgets WHERE name = 'food' GROUP BY name"),
         rows(&[&["food", "369 CNY"]])
     );
     assert_eq!(
-        query(budgets(), "SELECT DISTINCT name, currency(activity) FROM #budgets ORDER BY name"),
+        query_on(budgets(), april, "SELECT DISTINCT name, currency(activity) FROM #budgets ORDER BY name"),
         rows(&[&["food", "CNY"], &["travel", "CNY"]])
     );
     // only defined budgets have rows

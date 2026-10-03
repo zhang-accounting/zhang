@@ -38,14 +38,16 @@
 //!   from its first one, carrying the available amount over months without entries, so the
 //!   table does too: a query for one month lists every budget the UI lists, and a budget's rows
 //!   form a gap-free monthly series. The series runs from the month of the budget's
-//!   definition through the later of the budget's own last month (its last `budget-add`,
-//!   `budget-transfer` or `budget-close`) and the ledger's last month with a transaction (the
-//!   last month the budget can have spending in): the budget page is about money coming in and
-//!   going out, so the series follows the transactions, and a budget planned ahead with a
-//!   `budget-add` in a future month shows that month too. Other directives, such as prices,
+//!   definition through the latest of the budget's own last month (its last `budget-add`,
+//!   `budget-transfer` or `budget-close`), the ledger's last month with a transaction (the
+//!   last month the budget can have spending in) and the current month (of `today()`, in the
+//!   ledger's timezone): the budget page is about money coming in and going out, so the series
+//!   follows the transactions, a budget planned ahead with a `budget-add` in a future month
+//!   shows that month too, and "this month" (`WHERE date = yearmonth(today())`) lists every
+//!   budget even before its first transaction of the month. Other directives, such as prices,
 //!   events, notes or balance assertions, do not extend it, so a date typo on one of them cannot
-//!   add centuries of months. The rows only depend on the ledger, not on the current date; a
-//!   later month looks like the last row carried over, with nothing spent.
+//!   add centuries of months. A month after the series looks like its last row carried over,
+//!   with nothing spent.
 //! - **Bounded.** The months are generated, not read from the ledger, so a typo in the date of
 //!   a transaction or a budget directive could still ask for a very long series: every
 //!   generated row is charged to the result budget and the deadline is checked while they are
@@ -94,7 +96,7 @@ use crate::value::{Cost, DataType, Position, Value};
 
 pub(super) static BUDGETS: Table = Table {
     name: "budgets",
-    description: "One row per budget per month, from the budget's first month through its last entry or the ledger's last month with a transaction, whichever is later, with the assigned, activity and available amounts the budget pages show, in the budget's commodity; ordered by name, then month.",
+    description: "One row per budget per month, from the budget's first month through its last entry, the ledger's last month with a transaction or the current month, whichever is latest, with the assigned, activity and available amounts the budget pages show, in the budget's commodity; ordered by name, then month.",
     columns: COLUMNS,
     wildcard: &["name", "date", "assigned", "activity", "available"],
     rows: Rows::Generated(rows),
@@ -390,8 +392,8 @@ fn first_of_month(date: NaiveDate) -> NaiveDate {
 struct Series<'s, 'a> {
     budget: &'s Budget<'a>,
     end: NaiveDate,
-    /// the directive whose date sets `end`
-    end_by: &'a Spanned<Directive>,
+    /// the directive whose date sets `end`, or `None` when the current month does
+    end_by: Option<&'a Spanned<Directive>>,
 }
 
 impl Series<'_, '_> {
@@ -401,7 +403,7 @@ impl Series<'_, '_> {
     }
 }
 
-fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection, limits: &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError> {
+fn rows<'a>(ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection, limits: &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError> {
     let Budgets { budgets, events } = budgets(ledger);
     let last_transaction = last_transaction(ledger, store);
     let wants_activity = ["activity", "assigned", "available"].into_iter().any(|name| projects(projection, name));
@@ -425,26 +427,28 @@ fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection, limits
         _ => HashMap::new(),
     };
 
-    // a series ends with the budget's own last month, or the last month with a transaction
-    let last_transaction_month = last_transaction.map(|(date, _)| first_of_month(date));
+    // a series ends with the latest of the budget's own last month, the last month with a
+    // transaction and the current month
+    let current_month = first_of_month(today);
     let mut sorted = budgets.values().collect::<Vec<_>>();
     sorted.sort_by(|a, b| a.name.cmp(b.name));
     let all = sorted
         .into_iter()
         .map(|budget| {
-            let own = first_of_month(budget.latest.0);
-            match (last_transaction, last_transaction_month) {
-                (Some((_, transaction)), Some(month)) if month > own => Series {
-                    budget,
-                    end: month,
-                    end_by: transaction,
-                },
-                _ => Series {
-                    budget,
-                    end: own,
-                    end_by: budget.latest.1,
-                },
+            let mut series = Series {
+                budget,
+                end: first_of_month(budget.latest.0),
+                end_by: Some(budget.latest.1),
+            };
+            if let Some((date, transaction)) = last_transaction {
+                if first_of_month(date) > series.end {
+                    (series.end, series.end_by) = (first_of_month(date), Some(transaction));
+                }
             }
+            if current_month > series.end {
+                (series.end, series.end_by) = (current_month, None);
+            }
+            series
         })
         .collect::<Vec<_>>();
 
@@ -494,27 +498,37 @@ fn too_many_months(err: LocatedError, ledger: &Ledger, all: &[Series<'_, '_>]) -
         return err;
     };
     let month = |date: NaiveDate| date.format("%Y-%m").to_string();
-    let directive = longest.end_by;
-    let kind = match &directive.data {
-        Directive::Transaction(_) => Some("a transaction"),
-        Directive::Budget(_) => Some("its budget directive"),
-        Directive::BudgetAdd(_) => Some("a budget-add"),
-        Directive::BudgetTransfer(_) => Some("a budget-transfer"),
-        Directive::BudgetClose(_) => Some("a budget-close"),
-        _ => None,
+    let file = |directive: &Spanned<Directive>| {
+        directive
+            .span
+            .filename
+            .as_deref()
+            .map(|path| format!(" ({})", ledger_file(ledger, path).display()))
+            .unwrap_or_default()
     };
-    let cause = kind
-        .zip(date_of(&directive.data))
-        .map(|(kind, date)| {
-            let file = directive
-                .span
-                .filename
-                .as_deref()
-                .map(|path| format!(" ({})", ledger_file(ledger, path).display()))
-                .unwrap_or_default();
-            format!(" because of {} dated {}{}; check that date", kind, date, file)
-        })
-        .unwrap_or_default();
+    let cause = match longest.end_by {
+        // the current month ends it: the series is long because it starts early
+        None => {
+            let definition = ledger.directives.get(longest.budget.defined_at);
+            format!(
+                ", the current month; check the date of its budget directive{}",
+                definition.map(file).unwrap_or_default()
+            )
+        }
+        Some(directive) => {
+            let kind = match &directive.data {
+                Directive::Transaction(_) => Some("a transaction"),
+                Directive::Budget(_) => Some("its budget directive"),
+                Directive::BudgetAdd(_) => Some("a budget-add"),
+                Directive::BudgetTransfer(_) => Some("a budget-transfer"),
+                Directive::BudgetClose(_) => Some("a budget-close"),
+                _ => None,
+            };
+            kind.zip(date_of(&directive.data))
+                .map(|(kind, date)| format!(" because of {} dated {}{}; check that date", kind, date, file(directive)))
+                .unwrap_or_default()
+        }
+    };
     LocatedError {
         kind: QueryErrorKind::TooLarge,
         message: format!(

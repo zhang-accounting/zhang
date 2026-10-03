@@ -797,8 +797,8 @@ ORDER BY account
 
 `#budgets` 中每个预算每个月对应一行，数据与网页界面的预算页面在该月显示的一致。
 
-- 每个预算从其 `budget` 指令所在的月份起，每个月都有一行，直到以下两个月份中较晚的一个：该预算最后一次 `budget-add`、`budget-transfer` 或 `budget-close` 所在的月份，以及账本中最后一笔交易所在的月份。因此，用 `budget-add` 为未来月份提前安排的预算会显示那个月。价格、事件、备注、余额断言等其他指令不会延长这些月份。没有预算条目、也没有支出的月份同样有一行，可用金额顺延到这个月，与预算页面一致。这些行只取决于账本，与今天的日期无关：更晚的月份就是该预算最后一行顺延过去、没有任何支出的样子。
-- 这些月份是生成的，而不是从账本中读取的，所以每个月份都计入[结果大小限制](#限制)，即使它随后被 `WHERE` 丢弃。如果某笔交易或某条预算指令的日期被误写成遥远的未来，查询会以“结果过大”的错误结束，而不会耗尽内存。错误信息会指出月份最多的预算，以及决定其结束月份的指令，例如 `budget 'food' runs from 2024-01 until 2204-05 because of a transaction dated 2204-05-01 (main.zhang); check that date`。改正日期后即可再次查询该表。
+- 每个预算从其 `budget` 指令所在的月份起，每个月都有一行，直到以下三个月份中最晚的一个：该预算最后一次 `budget-add`、`budget-transfer` 或 `budget-close` 所在的月份，账本中最后一笔交易所在的月份，以及当前月份，即账本时区中 [`today()`](#日期函数) 所在的月份。因此，用 `budget-add` 为未来月份提前安排的预算会显示那个月，`WHERE date = yearmonth(today())` 也会列出本月的每个预算，即使本月还没有发生任何事。价格、事件、备注、余额断言等其他指令不会延长这些月份。没有预算条目、也没有支出的月份同样有一行，可用金额顺延到这个月，与预算页面一致。最后一行之后的月份没有行：它就是该预算最后一行顺延过去、没有任何支出的样子。
+- 这些月份是生成的，而不是从账本中读取的，所以每个月份都计入[结果大小限制](#限制)，即使它随后被 `WHERE` 丢弃。如果某笔交易或某条预算指令的日期被误写成遥远的未来，或某条 `budget` 指令的日期被误写成遥远的过去，查询会以“结果过大”的错误结束，而不会耗尽内存。错误信息会指出月份最多的预算，以及决定其结束月份的指令，例如 `budget 'food' runs from 2024-01 until 2204-05 because of a transaction dated 2204-05-01 (main.zhang); check that date`；如果它的月份一直延续到当前月份，则会指出它的 `budget` 指令。改正日期后即可再次查询该表。
 - `assigned`、`activity` 和 `available` 即预算页面上的 Assigned、Activity 和 Available 列。`assigned` 是这个月的起始金额（上个月月底仍可用的金额），加上本月 `budget-add` 和 `budget-transfer` 指令放入的金额（`added`）。`activity` 是预算关联的账户在本月的支出，`available` 即 `assigned - activity`，会顺延到下个月。
 - 所有金额都以预算的商品计。`activity` 把预算关联账户的分录相加，每笔分录都按其日期折算为预算的商品，与 [`convert(position, currency, date)`](#估值函数) 用账本中的价格折算的结果相同：`activity` 就是对这些分录求 `sum(convert(position, 'CNY', date))` 的结果。以其他商品计的 `budget-add` 或 `budget-transfer` 金额，按指令的日期以同样方式折算。没有价格可以折算的分录或金额不计入，而不会被当作另一种商品的数字加进去。
 - 预算从其 `budget` 指令起才存在。针对尚不存在的预算的 `budget-add`、`budget-transfer` 或 `budget-close` 不起作用，预算的 `budget` 指令之前的分录也不算它的支出；张记账会把两者都报告为错误。同名的第二条 `budget` 指令是重复定义，会被忽略。

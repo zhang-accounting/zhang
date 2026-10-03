@@ -25,13 +25,19 @@ fn fixture(name: &str) -> Ledger {
     common::load_ledger(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integration-tests").join(name), "main.zhang")
 }
 
+/// `today()` of the executions: before every entry of the fixtures, so that the current month
+/// does not extend the series of `#budgets` (`zhang-query/tests/data_tables.rs` tests that).
 fn today() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2024, 6, 30).unwrap()
+    NaiveDate::from_ymd_opt(2000, 1, 1).unwrap()
 }
 
 fn run(ledger: &Ledger, sql: &str) -> Vec<Vec<String>> {
+    run_at(ledger, sql, today())
+}
+
+fn run_at(ledger: &Ledger, sql: &str, today: NaiveDate) -> Vec<Vec<String>> {
     let result = Query::compile(sql)
-        .and_then(|query| query.execute_at(ledger, &Params::new(), today()))
+        .and_then(|query| query.execute_at(ledger, &Params::new(), today))
         .unwrap_or_else(|err| panic!("{}: {}", sql, err));
     result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
 }
@@ -574,7 +580,9 @@ fn budget_months_follow_the_budget_and_the_transactions() {
 }
 
 /// The ledger of the review of #434: a hundred budgets from the year 1000 and an event in 9999.
-/// The event does not extend the budgets, so the table stays small.
+/// The event does not extend the budgets, so the table stays small. The current month does: in
+/// the year 2000, a hundred series of 12001 months are too many, and the error points at the
+/// budget directive, whose date is the typo.
 #[test]
 fn a_far_future_event_does_not_generate_months() {
     let mut text = String::from("9999-12-31 event \"location\" \"a typo\"\n");
@@ -582,11 +590,23 @@ fn a_far_future_event_does_not_generate_months() {
         text.push_str(&format!("1000-01-01 budget b{} CNY\n", index));
     }
     let ledger = common::load_text(&text);
+    let in_the_year_1000 = NaiveDate::from_ymd_opt(1000, 1, 15).unwrap();
     assert_eq!(
-        run(&ledger, "SELECT count(*), min(date), max(date) FROM #budgets"),
+        run_at(&ledger, "SELECT count(*), min(date), max(date) FROM #budgets", in_the_year_1000),
         rows(&[&["100", "1000-01-01", "1000-01-01"]])
     );
-    assert!(run(&ledger, "SELECT name FROM #budgets WHERE year = 2024").is_empty());
+    assert!(run_at(&ledger, "SELECT name FROM #budgets WHERE year = 2024", in_the_year_1000).is_empty());
+
+    let err = Query::compile("SELECT count(*) FROM #budgets")
+        .unwrap()
+        .execute_at(&ledger, &Params::new(), today())
+        .unwrap_err();
+    assert_eq!(err.kind, QueryErrorKind::TooLarge, "{}", err.message);
+    assert_eq!(
+        err.message,
+        "the #budgets table would generate too many rows (1200100 months in all, more than the result size limit): \
+         budget 'b0' runs from 1000-01 until 2000-01, the current month; check the date of its budget directive (main.zhang)"
+    );
 }
 
 /// A date typo on a transaction can still ask for millions of months: the generated rows are

@@ -14,13 +14,19 @@ use chrono::NaiveDate;
 use zhang_core::ledger::Ledger;
 use zhang_query::{Params, Query, Value};
 
+/// `today()` of the executions: before every entry of the ledgers, so that the current month
+/// does not extend the series of `#budgets` (see `budgets_run_through_the_current_month`).
 fn today() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2024, 12, 31).unwrap()
+    NaiveDate::from_ymd_opt(2000, 1, 1).unwrap()
 }
 
 fn run(ledger: &Ledger, sql: &str) -> Vec<Vec<String>> {
+    run_at(ledger, sql, today())
+}
+
+fn run_at(ledger: &Ledger, sql: &str, today: NaiveDate) -> Vec<Vec<String>> {
     let result = Query::compile(sql)
-        .and_then(|query| query.execute_at(ledger, &Params::new(), today()))
+        .and_then(|query| query.execute_at(ledger, &Params::new(), today))
         .unwrap_or_else(|err| panic!("{}: {}", sql, err));
     result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
 }
@@ -573,6 +579,35 @@ fn budgets_convert_spending_and_additions_to_the_budget_commodity() {
             &["travel", "NULL", "-170.0 CNY", "TRUE"],
         ])
     );
+}
+
+/// The series of a budget runs through the current month too, so "this month" lists every
+/// budget before anything happened in it: the last month carried over, with nothing added or
+/// spent. A month after the current one is not generated.
+#[test]
+fn budgets_run_through_the_current_month() {
+    let ledger = common::load_text(BUDGETS);
+    let june = NaiveDate::from_ymd_opt(2024, 6, 15).unwrap();
+    assert_eq!(
+        run_at(
+            &ledger,
+            "SELECT name, date, assigned, added, activity, available, closed FROM #budgets WHERE date = yearmonth(today())",
+            june
+        ),
+        rows(&[
+            &["food", "2024-06-01", "615.00 CNY", "0 CNY", "0 CNY", "615.00 CNY", "FALSE"],
+            &["invest", "2024-06-01", "-2160.0 CNY", "0 CNY", "0 CNY", "-2160.0 CNY", "FALSE"],
+            &["travel", "2024-06-01", "-170.0 CNY", "0 CNY", "0 CNY", "-170.0 CNY", "TRUE"],
+        ])
+    );
+    // April (the last month with a transaction), May and June, and nothing after June
+    assert_eq!(
+        run_at(&ledger, "SELECT date FROM #budgets WHERE name = 'food' AND date >= 2024-04-01", june),
+        rows(&[&["2024-04-01"], &["2024-05-01"], &["2024-06-01"]])
+    );
+    // a current month before the series ends changes nothing
+    let march = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
+    assert_eq!(run_at(&ledger, BUDGET_FIGURES, march), budget_figures());
 }
 
 /// The table reads the directives and the booked postings: it gives the same rows without

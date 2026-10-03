@@ -116,7 +116,8 @@ pub(crate) type RecordSource = for<'a> fn(&'a Ledger, &'a Store, Projection) -> 
 
 /// Builds the generated rows of a record table, in the table's row order, calling
 /// [`Limits::row`] for every row before it builds it.
-pub(crate) type GeneratedSource = for<'a> fn(&'a Ledger, &'a Store, Projection, &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError>;
+/// The date is `today()` of the execution.
+pub(crate) type GeneratedSource = for<'a> fn(&'a Ledger, &'a Store, NaiveDate, Projection, &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError>;
 
 /// The limits of one execution as a [`GeneratedSource`] sees them: every generated row costs
 /// one value of the result budget, and the deadline is checked as rows are generated, so a
@@ -441,7 +442,7 @@ impl<'a> Dataset<'a> {
         let records = match projection.table().rows {
             Rows::Postings => return Ok(Dataset::postings(ledger, store, cache, today, projection, scope)),
             Rows::Records(source) => source(ledger, store, projection),
-            Rows::Generated(source) => source(ledger, store, projection, limits)?,
+            Rows::Generated(source) => source(ledger, store, today, projection, limits)?,
         };
         Ok(Dataset {
             table: projection.table(),

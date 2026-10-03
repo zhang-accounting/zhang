@@ -37,9 +37,10 @@ struct MonthFigures {
 
 impl MonthFigures {
     /// The figures of `month` from a row of `budgets.month` or `budgets.budget_month`: those of
-    /// the budget's last month up to `month`. A budget whose last month is before `month` carries
-    /// over, as `#budgets` does from month to month: the month starts with what was available and
-    /// spends nothing.
+    /// the budget's last month up to `month`. `#budgets` runs through the current month, so a
+    /// budget's last month is before `month` only when `month` is later; nothing happened to the
+    /// budget since, so it carries over, as `#budgets` does from month to month: the month starts
+    /// with what was available and spends nothing.
     fn of(row: &Row<'_>, month: NaiveDate) -> MonthFigures {
         let currency = row.str("currency").unwrap_or_default();
         let amount = |name: &str| row.amount(name).unwrap_or_else(|| Amount::zero(&currency));
