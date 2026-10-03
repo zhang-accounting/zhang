@@ -363,6 +363,7 @@
     "filled_other": "{{count}} of {{total}} filled",
     "mismatch_count_one": "{{count}} mismatch",
     "mismatch_count_other": "{{count}} mismatches",
+    "beancount_parent_pad": "In a beancount ledger, bean-check fails a pad of an account together with a balance of one of its sub-accounts. Check the parent without a pad.",
     "reset": "Reset",
     "submit": "Submit",
     "empty_title": "No account balances",

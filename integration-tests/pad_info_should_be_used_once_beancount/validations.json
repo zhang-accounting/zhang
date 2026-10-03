@@ -64,5 +64,14 @@
         false
       ]
     ]
+  },
+  {
+    "uri": "/api/info",
+    "validations": [
+      [
+        "$.data.format",
+        "beancount"
+      ]
+    ]
   }
 ]

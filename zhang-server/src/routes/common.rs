@@ -45,6 +45,12 @@ pub async fn get_basic_info(ledger: State<SharedLedger>) -> ApiResult<BasicInfoE
         title: operations.option::<String>("title")?,
         version: env!("ZHANG_BUILD_VERSION").to_string(),
         build_date: env!("ZHANG_BUILD_DATE").to_string(),
+        format: if zhang_core::data_type::is_beancount_endpoint(&ledger.entry.1) {
+            "beancount"
+        } else {
+            "zhang"
+        }
+        .to_owned(),
     })
 }
 

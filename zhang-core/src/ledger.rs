@@ -1184,8 +1184,13 @@ mod test {
                     ("Assets:Bank:Checking".to_owned(), BigDecimal::from(200), true),
                 ]
             );
-            // a check kept for a `balance ... with pad` has an id of its own, apart from its padding's
-            let mut ids = store.transactions.keys().chain(store.balance_assertions.iter().map(|it| &it.id)).collect_vec();
+            // a check kept for a `balance ... with pad` has an id of its own, apart from its padding's and its postings'
+            let mut ids = store
+                .transactions
+                .keys()
+                .chain(store.postings.iter().map(|it| &it.id))
+                .chain(store.balance_assertions.iter().map(|it| &it.id))
+                .collect_vec();
             let all = ids.len();
             ids.sort();
             ids.dedup();

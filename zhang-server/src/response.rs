@@ -351,6 +351,8 @@ pub struct BasicInfoEntity {
     pub version: String,
     /// docker build date of zhang accounting
     pub build_date: String,
+    /// the ledger's file format, from its main file's extension: `beancount` or `zhang`
+    pub format: String,
 }
 
 #[derive(Serialize, Schematic)]

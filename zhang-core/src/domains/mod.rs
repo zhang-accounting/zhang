@@ -189,14 +189,17 @@ impl Operations {
         Ok(())
     }
 
-    /// `id`, or if a transaction has it already, the first id derived from it that none has. Directives a stage
-    /// synthesized can share a span, which ids are derived from: the padding transactions of a `pad` serving
-    /// several currencies, and a `balance ... with pad`, whose check is kept, and its padding transaction
+    /// `id`, or if a transaction or one of its postings has it already, the first id derived from it
+    /// ([`FromSpan::derived`]) that none has. Directives a stage synthesized can share a span, which ids are derived
+    /// from: the padding transactions of a `pad` serving several currencies, and a `balance ... with pad`, whose
+    /// check is kept, and its padding transaction. A derived id lives apart from posting ids, so only the postings
+    /// of the transaction with `id` itself could share one
     pub(crate) fn unused_id(&self, id: Uuid) -> Uuid {
         let store = self.read();
+        let postings = store.transactions.get(&id).map(|txn| txn.postings.as_slice()).unwrap_or_default();
         (0..)
-            .map(|n| if n == 0 { id } else { Uuid::from_txn_posting(&id, n) })
-            .find(|candidate| !store.transactions.contains_key(candidate))
+            .map(|n| if n == 0 { id } else { Uuid::derived(&id, n) })
+            .find(|candidate| !store.transactions.contains_key(candidate) && postings.iter().all(|posting| posting.id != *candidate))
             .expect("an id is free")
     }
 
