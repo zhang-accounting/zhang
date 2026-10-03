@@ -26,22 +26,27 @@ pub struct FileUpdateRequest {
     pub content: String,
 }
 
-#[derive(Schematic, Deserialize)]
+/// The buckets of the report graph: calendar days, weeks starting on Monday, or months.
+#[derive(Schematic, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatisticInterval {
     Day,
     Week,
     Month,
 }
 
+/// A report range. `from` and `to` are ledger dates, `YYYY-MM-DD`, both inclusive; an RFC 3339
+/// instant is still accepted and read as its date in the ledger's timezone.
 #[derive(Schematic, Deserialize)]
 pub struct StatisticRequest {
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
+    pub from: String,
+    pub to: String,
 }
+
+/// A report range, as in [`StatisticRequest`], and the buckets of the graph.
 #[derive(Schematic, Deserialize)]
 pub struct StatisticGraphRequest {
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
+    pub from: String,
+    pub to: String,
     pub interval: StatisticInterval,
 }
 
