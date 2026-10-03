@@ -461,14 +461,17 @@ export interface operations {
           'application/json': {
             data: {
               account: string;
-              /** @description the account's balance after the row */
+              /**
+               * @description the account's balance after the row. For a balance assertion, the balance it was checked
+               * against, which covers the account's sub-accounts too
+               */
               account_after: {
                 commodity: string;
                 number: string;
               };
               /**
                * @description for the row of a balance assertion: the asserted amount, which `account_after` was checked
-               * against. `None` for a posting
+               * against; null for a posting
                */
               asserted?: {
                 commodity: string;
@@ -482,7 +485,7 @@ export interface operations {
                 number: string;
               };
               narration?: string | null;
-              /** @description for the row of a balance assertion: whether it held, within its tolerance. `None` for a posting */
+              /** @description for the row of a balance assertion: whether it held, within its tolerance; null for a posting */
               passed?: boolean | null;
               payee?: string | null;
               timestamp: number;
@@ -901,14 +904,17 @@ export interface operations {
                 }
               | {
                   account: string;
-                  /** @description the account's balance after the row */
+                  /**
+                   * @description the account's balance after the row. For a balance assertion, the balance it was checked
+                   * against, which covers the account's sub-accounts too
+                   */
                   account_after: {
                     commodity: string;
                     number: string;
                   };
                   /**
                    * @description for the row of a balance assertion: the asserted amount, which `account_after` was checked
-                   * against. `None` for a posting
+                   * against; null for a posting
                    */
                   asserted?: {
                     commodity: string;
@@ -922,7 +928,7 @@ export interface operations {
                     number: string;
                   };
                   narration?: string | null;
-                  /** @description for the row of a balance assertion: whether it held, within its tolerance. `None` for a posting */
+                  /** @description for the row of a balance assertion: whether it held, within its tolerance; null for a posting */
                   passed?: boolean | null;
                   payee?: string | null;
                   timestamp: number;
@@ -1268,8 +1274,9 @@ export interface operations {
                     /** @description `Balance Check` */
                     payee: string;
                     /**
-                     * @description one entry describing the check, not a posting: `account_before` is the account's balance where the assertion
-                     * stands, `account_after` the asserted amount, and `unit` and `inferred_unit` the asserted amount minus the balance
+                     * @description one entry describing the check, not a posting: `account_before` is the balance it was checked against, that of the
+                     * account and all its sub-accounts where the assertion stands, `account_after` the asserted amount, and `unit` and
+                     * `inferred_unit` the asserted amount minus the balance
                      */
                     postings: {
                       account: string;
@@ -1300,7 +1307,7 @@ export interface operations {
                       } | null;
                     }[];
                     sequence: number;
-                    /** @description the explicit tolerance (`~`) of the assertion; none for an exact one */
+                    /** @description the explicit tolerance (`~`) of the assertion; null for an exact one */
                     tolerance?: string | null;
                     /** @enum {string} */
                     type: 'BalanceCheck';
@@ -1760,14 +1767,17 @@ export interface operations {
               to: string;
               top_transactions: {
                 account: string;
-                /** @description the account's balance after the row */
+                /**
+                 * @description the account's balance after the row. For a balance assertion, the balance it was checked
+                 * against, which covers the account's sub-accounts too
+                 */
                 account_after: {
                   commodity: string;
                   number: string;
                 };
                 /**
                  * @description for the row of a balance assertion: the asserted amount, which `account_after` was checked
-                 * against. `None` for a posting
+                 * against; null for a posting
                  */
                 asserted?: {
                   commodity: string;
@@ -1781,7 +1791,7 @@ export interface operations {
                   number: string;
                 };
                 narration?: string | null;
-                /** @description for the row of a balance assertion: whether it held, within its tolerance. `None` for a posting */
+                /** @description for the row of a balance assertion: whether it held, within its tolerance; null for a posting */
                 passed?: boolean | null;
                 payee?: string | null;
                 timestamp: number;

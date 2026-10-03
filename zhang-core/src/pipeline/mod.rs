@@ -60,7 +60,8 @@ pub struct StageError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssertionOutcome {
     /// the account's balance in the asserted currency where the assertion stands: the sum of the
-    /// postings before it. The assertion itself changes no balance
+    /// postings of the account and all its sub-accounts before it. The assertion itself changes
+    /// no balance
     pub balance: Amount,
     /// whether `balance` is within the assertion's tolerance of the asserted amount. A failing
     /// assertion is also reported as an [`ErrorKind::AccountBalanceCheckError`]

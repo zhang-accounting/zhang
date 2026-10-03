@@ -13,9 +13,11 @@ use crate::ZhangResult;
 /// sizes every `BalancePad` against the account's balance at that point of the
 /// stream and inserts the padding transaction (flag `P`) right after it.
 ///
-/// The balance is the true one, the sum of the account's postings, as in
-/// beancount: a `balance` assertion before the pad changes no balance, even when it
-/// fails, so a pad brings the account to its amount from where the postings left it.
+/// The balance is the true one, as in beancount: the sum of the postings of the
+/// account and all its sub-accounts. A `balance` assertion before the pad changes no
+/// balance, even when it fails, so a pad brings the account to its amount from where
+/// the postings left it. A pad of a parent account books the difference to the
+/// parent account itself.
 /// The pad directive stays in the stream (like beancount's `Pad` entry); the
 /// store fold books only the synthesized transaction. A pad already at its
 /// target amount synthesizes nothing.
@@ -192,6 +194,28 @@ mod test {
             .map(|pad| pad.postings[0].units.clone().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(pads, vec![Amount::new(BigDecimal::from(100), "CNY"), Amount::new(BigDecimal::from(50), "CNY")]);
+    }
+
+    #[test]
+    fn should_pad_a_parent_account_from_the_balance_of_its_sub_accounts() {
+        // the sub-accounts hold 100 of the 150: the parent account itself gets the other 50
+        let (directives, errors) = run_builtin_stages(indoc! {r#"
+            1970-01-01 open Assets:Bank
+            1970-01-01 open Assets:Bank:Checking
+            1970-01-01 open Assets:Bank:Savings
+            1970-01-01 open Equity:Open
+            2023-01-01 * ""
+              Assets:Bank:Checking 60 CNY
+              Assets:Bank:Savings 40 CNY
+              Equity:Open
+            2023-01-02 balance Assets:Bank 150 CNY with pad Equity:Open
+            2023-01-03 balance Assets:Bank 150 CNY
+        "#});
+        assert!(errors.is_empty());
+        let pads = synthesized(&directives, Flag::BalancePad);
+        assert_eq!(pads.len(), 1);
+        assert_eq!(pads[0].postings[0].account.name(), "Assets:Bank");
+        assert_eq!(pads[0].postings[0].units, Some(Amount::new(BigDecimal::from(50), "CNY")));
     }
 
     #[test]

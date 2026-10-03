@@ -1393,5 +1393,5 @@ ORDER BY date
 - **`#accounts` 的 `open` 和 `close` 不带字段时读作日期。**在 beanquery 中它们是整条指令。
 - **`entry_meta()` 和 `any_meta()` 与 `meta()` 一样可用于每个表。**beanquery 只在 postings 表上接受它们。
 - **`#entries` 包含张记账的指令。**其中有张记账的预算指令；`balance ... with pad` 是一条 `balance` 记录，后面跟着它的补齐交易，而 beancount 中是一条 `pad` 和一条 `balance` 记录。记录的 `id` 是张记账的 ID，不是 beancount 的哈希值。
-- **`discrepancy` 遵循张记账的余额检查。**与 beancount 一样，张记账从分录的合计计算差额，断言不会改变任何余额。张记账检查账户自身的分录，而 beancount 包括子账户；没有 `~` 容差的断言必须精确相等，而 beancount 会根据断言金额的小数位数推断容差。
+- **`discrepancy` 遵循张记账的余额检查。**与 beancount 一样，张记账从该账户及其子账户分录的合计计算差额，断言不会改变任何余额。没有 `~` 容差的断言必须精确相等，而 beancount 会根据断言金额的小数位数推断容差。
 - **CSV 导出保留精确的数字。**`bean-query` 会为对齐而在数字前补空格（`" 600.00"`），把 numberify 后的数字舍入到各货币的显示精度（`360.03` 而不是 `360.03016`），有些数字还会用指数写法（`1E+3`）。张记账都不会这样做。

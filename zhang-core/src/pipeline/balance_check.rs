@@ -10,7 +10,8 @@ use super::{AssertionOutcome, ProcessStage, StageContext};
 use crate::ZhangResult;
 
 /// validates every `BalanceCheck` against the account's balance at that point of
-/// the stream — the sum of its postings, including the padding transactions
+/// the stream — the sum of the postings of the account and all its sub-accounts, as
+/// in beancount, including the padding transactions
 /// [`PadStage`](crate::pipeline::PadStage) inserted before it — and reports
 /// breaches through the stage error channel.
 ///
@@ -175,6 +176,29 @@ mod test {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn should_check_an_account_with_its_sub_accounts() {
+        let (_, errors, outcomes) = run_builtin_stages_with_assertions(indoc! {r#"
+            1970-01-01 open Assets:Bank
+            1970-01-01 open Assets:Bank:Checking
+            1970-01-01 open Assets:Bank:Savings
+            1970-01-01 open Assets:Banking
+            1970-01-01 open Equity:Open
+            2023-01-01 * ""
+              Assets:Bank 5 CNY
+              Assets:Bank:Checking 60 CNY
+              Assets:Bank:Savings 40 CNY
+              Assets:Banking 1000 CNY
+              Equity:Open
+            2023-01-02 balance Assets:Bank 105 CNY
+            2023-01-02 balance Assets:Bank:Checking 60 CNY
+            2023-01-02 balance Assets:Bank 5 CNY
+        "#});
+        // `Assets:Banking` is no sub-account of `Assets:Bank`
+        assert_eq!(errors, vec![ErrorKind::AccountBalanceCheckError]);
+        assert_eq!(outcomes, vec![outcome("105", true), outcome("60", true), outcome("105", false)]);
     }
 
     #[test]

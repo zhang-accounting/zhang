@@ -10,7 +10,7 @@
 //! [`ActiveAccountsStage`](crate::pipeline::ActiveAccountsStage) folds the account
 //! lifecycle ([`AccountStates`]) the same way.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::{Add, Sub};
 use std::str::FromStr;
 
@@ -44,11 +44,12 @@ pub fn default_booking_method(options: &[OptionDomain]) -> BookingMethod {
 
 /// running per-account, per-commodity unit sums of the transactions folded so far.
 ///
-/// Balances are per *exact* account (not its subtree) — what a balance directive
-/// asserts in zhang.
+/// The balance of an account is that of the account and all its sub-accounts, as in
+/// beancount: what a balance directive asserts, and what a pad brings to its amount.
 pub struct UnitBalances {
-    /// account name -> commodity -> units
-    balances: HashMap<String, HashMap<String, BigDecimal>>,
+    /// account name -> commodity -> units of the postings of that account alone, sorted by
+    /// name so that an account's sub-accounts are a range
+    balances: BTreeMap<String, HashMap<String, BigDecimal>>,
     /// books every transaction like the store fold, so an implicit posting gets the amount the
     /// fold gives it, interpolated from the lots its transaction books against. Its errors are
     /// the fold's to report
@@ -63,7 +64,7 @@ impl UnitBalances {
             booker.define_commodity(&commodity.name, commodity.precision, commodity.rounding);
         }
         Self {
-            balances: HashMap::new(),
+            balances: BTreeMap::new(),
             booker,
         }
     }
@@ -109,16 +110,20 @@ impl UnitBalances {
         *balance = (&*balance).add(&amount.number);
     }
 
-    /// the account's current units of `commodity`; zero if it holds none
+    /// the current units of `commodity` of the account and all its sub-accounts; zero if they hold none
     pub fn balance(&self, account: &Account, commodity: &str) -> BigDecimal {
+        let name = account.name();
+        // `Assets:Bank:` up to `Assets:Bank;` (`;` follows `:`) holds exactly the sub-accounts of `Assets:Bank`
+        let sub_accounts = self.balances.range(format!("{name}:")..format!("{name};"));
         self.balances
-            .get(account.name())
-            .and_then(|commodities| commodities.get(commodity))
-            .cloned()
-            .unwrap_or_else(BigDecimal::zero)
+            .get_key_value(name)
+            .into_iter()
+            .chain(sub_accounts)
+            .filter_map(|(_, commodities)| commodities.get(commodity))
+            .fold(BigDecimal::zero(), |sum, units| sum + units)
     }
 
-    /// the account's current units of `commodity` as an amount
+    /// [`UnitBalances::balance`] as an amount
     pub fn amount(&self, account: &Account, commodity: &str) -> Amount {
         Amount::new(self.balance(account, commodity), commodity)
     }
@@ -283,16 +288,27 @@ mod test {
     }
 
     #[test]
-    fn should_track_exact_account_not_subtree() {
+    fn should_sum_an_account_with_its_sub_accounts() {
         let balances = fold(indoc! {r#"
             2023-01-01 * ""
+              Assets:A 1 CNY
               Assets:A:Sub 10 CNY
-              Equity:Open
+              Assets:A:Sub:Deep 100 CNY
+              Assets:AB 1000 CNY
+              Assets:A:Sub 5 USD
+              Equity:Open -1111 CNY
+              Equity:Open -5 USD
         "#});
-        assert_eq!(balances.balance(&account("Assets:A"), "CNY"), BigDecimal::from(0));
+        // `Assets:AB` is no sub-account of `Assets:A`
+        assert_eq!(balances.balance(&account("Assets:A"), "CNY"), BigDecimal::from(111));
+        assert_eq!(balances.balance(&account("Assets:A:Sub"), "CNY"), BigDecimal::from(110));
+        assert_eq!(balances.balance(&account("Assets:A:Sub:Deep"), "CNY"), BigDecimal::from(100));
+        assert_eq!(balances.balance(&account("Assets:A"), "USD"), BigDecimal::from(5));
+        assert_eq!(balances.balance(&account("Assets"), "CNY"), BigDecimal::from(1111));
+        assert_eq!(balances.balance(&account("Assets:Missing"), "CNY"), BigDecimal::from(0));
         assert_eq!(
-            balances.distance(&account("Assets:A:Sub"), &Amount::new(BigDecimal::from(15), "CNY")),
-            Amount::new(BigDecimal::from(5), "CNY")
+            balances.distance(&account("Assets:A"), &Amount::new(BigDecimal::from(150), "CNY")),
+            Amount::new(BigDecimal::from(39), "CNY")
         );
     }
 

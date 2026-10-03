@@ -112,7 +112,8 @@ pub struct AccountJournalDomain {
     pub narration: Option<String>,
     /// what the row adds to the account; zero for a balance assertion, which changes no balance
     pub inferred_unit: Amount,
-    /// the account's balance after the row
+    /// the account's balance after the row. For a balance assertion, the balance it was checked
+    /// against, which covers the account's sub-accounts too
     pub account_after: Amount,
     /// for the row of a balance assertion: the asserted amount, which `account_after` was checked
     /// against; null for a posting

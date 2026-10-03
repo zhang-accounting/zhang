@@ -132,8 +132,8 @@ pub struct BalanceAssertionDomain {
     pub amount: Amount,
     /// the explicit tolerance (`~`); `None` asserts the exact amount
     pub tolerance: Option<BigDecimal>,
-    /// the account's balance in the asserted currency where the assertion stands: the sum of its
-    /// postings before it
+    /// the account's balance in the asserted currency where the assertion stands: the sum of the
+    /// postings of the account and all its sub-accounts before it, as in beancount
     pub balance: Amount,
     /// whether `balance` is within `tolerance` of `amount`
     pub passed: bool,

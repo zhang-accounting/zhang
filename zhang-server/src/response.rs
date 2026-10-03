@@ -212,8 +212,9 @@ pub struct JournalBalanceCheckItemEntity {
     /// the account
     pub narration: Option<String>,
     pub type_: String,
-    /// one entry describing the check, not a posting: `account_before` is the account's balance where the assertion
-    /// stands, `account_after` the asserted amount, and `unit` and `inferred_unit` the asserted amount minus the balance
+    /// one entry describing the check, not a posting: `account_before` is the balance it was checked against, that of the
+    /// account and all its sub-accounts where the assertion stands, `account_after` the asserted amount, and `unit` and
+    /// `inferred_unit` the asserted amount minus the balance
     pub(crate) postings: Vec<JournalTransactionPostingEntity>,
     /// the explicit tolerance (`~`) of the assertion; null for an exact one
     pub tolerance: Option<BigDecimal>,

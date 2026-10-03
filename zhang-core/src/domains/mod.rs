@@ -911,8 +911,8 @@ impl Operations {
 }
 
 /// the row of a balance assertion in its account's journal: it adds nothing, and `account_after` is the
-/// balance the assertion was checked against. Its id follows the posting rows' ids, derived from the
-/// assertion id like the id of a single posting
+/// balance the assertion was checked against, that of the account and its sub-accounts. Its id follows
+/// the posting rows' ids, derived from the assertion id like the id of a single posting
 fn assertion_journal_row(assertion: &BalanceAssertionDomain) -> AccountJournalDomain {
     // zero, written with the decimals of the asserted amount and the balance
     let difference = (&assertion.amount.number).sub(&assertion.balance.number);

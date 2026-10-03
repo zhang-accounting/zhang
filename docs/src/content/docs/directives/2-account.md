@@ -118,7 +118,8 @@ A `balance` directive asserts what an account holds in one commodity:
 
 - The assertion is checked at the start of its date (at its time, if it has one), against the sum of the account's
   postings before it. Transactions of the same day come after it, as in Beancount.
-- It checks the postings of the account itself, not those of its sub-accounts.
+- It covers the account and all its sub-accounts, as in Beancount: `balance Assets:Bank 100 CNY` passes when
+  `Assets:Bank:Checking` holds 60 CNY and `Assets:Bank:Savings` holds 40 CNY.
 - It must match exactly, unless it gives a tolerance with `~`: `1520.00 ~ 0.01 CNY` passes for any balance from
   1519.99 to 1520.01.
 - An assertion only checks. Passing or failing, it changes no balance: an account always holds the sum of its
@@ -137,8 +138,9 @@ To correct a balance on purpose, add `with pad` and the account to pad from:
 
 Zhang adds a padding transaction (flag `P`) that moves the difference between the asserted amount and the
 account's balance there from the pad account, so the assertion holds. The difference is measured from the sum of
-the postings: an earlier assertion, even a failing one, does not count. An account already at the asserted amount
-gets no padding transaction.
+the postings of the account and its sub-accounts: an earlier assertion, even a failing one, does not count. The
+padding goes to the asserted account itself, also when it is a parent account. An account already at the asserted
+amount gets no padding transaction.
 
 In a Beancount ledger, a `pad` directive serves the next `balance` of its account in each commodity, as in
 Beancount. A `balance` on the day of the `pad` comes before it and is not padded. The padding transaction is dated

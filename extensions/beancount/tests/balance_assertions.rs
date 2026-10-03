@@ -4,7 +4,7 @@
 //! (`balance_assertions/oracle.json`, written by `balance_assertions/generate.py`).
 //!
 //! A balance assertion never moves a balance: the balances are the sums of the postings, and a
-//! pad is sized from them.
+//! pad is sized from them. An assertion or a pad covers the account and all its sub-accounts.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -222,32 +222,14 @@ fn an_assertion_on_the_day_of_a_pad_is_not_padded() {
 }
 
 #[test]
-fn an_assertion_on_a_parent_account_checks_the_account_alone() {
-    // a known difference: beancount sums the account and its sub-accounts, zhang the
-    // postings of the account itself. Balances and pads agree
-    let expected = oracle("parent_account");
-    let actual = zhang("parent_account");
-    assert_eq!(actual.balances, expected.balances);
-    assert_eq!(actual.pads, expected.pads);
-    let cny = |number: i32| (BigDecimal::from(number), "CNY".to_owned());
-    let assertion =
-        |date: &str, account: &str, asserted: i32, balance: i32, passed: bool| (date.to_owned(), account.to_owned(), cny(asserted), cny(balance), passed);
-    assert_eq!(
-        expected.assertions,
-        vec![
-            assertion("2024-01-02", "Assets:Bank", 70, 70, true),
-            assertion("2024-01-03", "Assets:Bank", 50, 70, false),
-            assertion("2024-01-04", "Assets:Bank:Checking", 20, 20, true),
-        ]
-    );
-    assert_eq!(
-        actual.assertions,
-        vec![
-            assertion("2024-01-02", "Assets:Bank", 70, 50, false),
-            assertion("2024-01-03", "Assets:Bank", 50, 50, true),
-            assertion("2024-01-04", "Assets:Bank:Checking", 20, 20, true),
-        ]
-    );
+fn an_assertion_on_a_parent_account_covers_its_sub_accounts() {
+    check("parent_account");
+    check("parent_children_only");
+}
+
+#[test]
+fn a_pad_on_a_parent_account_pads_the_parent_from_the_balance_of_its_sub_accounts() {
+    check("pad_on_parent");
 }
 
 #[test]

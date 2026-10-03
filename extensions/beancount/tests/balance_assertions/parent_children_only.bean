@@ -1,0 +1,24 @@
+; An assertion on a parent account without postings of its own sums its
+; sub-accounts.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Assets:Bank:Savings
+1970-01-01 open Equity:Open
+1970-01-01 open Expenses:Fees
+
+2024-01-01 * "x" "opening"
+  Assets:Bank:Checking  60 CNY
+  Assets:Bank:Savings  40 CNY
+  Equity:Open
+
+2024-01-02 balance Assets:Bank  100 CNY
+
+2024-01-03 * "bank" "fee"
+  Assets:Bank:Savings  -10 CNY
+  Expenses:Fees
+
+2024-01-04 balance Assets:Bank  100 CNY
+2024-01-05 balance Assets:Bank  90 CNY

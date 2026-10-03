@@ -237,6 +237,55 @@ async fn the_account_journal_shows_assertions_with_the_true_running_balance() {
 }
 
 #[tokio::test]
+async fn an_assertion_on_a_parent_account_is_checked_against_its_sub_accounts_too() {
+    let scratch = Scratch::new(
+        r#"option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Assets:Bank:Savings
+1970-01-01 open Equity:Open
+2024-01-01 * "Self" "opening"
+  Assets:Bank:Checking 60 CNY
+  Assets:Bank:Savings 40 CNY
+  Equity:Open
+2024-01-02 balance Assets:Bank 100 CNY
+2024-01-03 balance Assets:Bank 150 CNY with pad Equity:Open
+"#,
+    );
+    let journals = scratch.journals(None, None, None, None).await;
+    let records = journals["records"].as_array().unwrap();
+    let check = records.iter().find(|it| it["type"] == "BalanceCheck").unwrap();
+    assert_eq!(check["passed"], true);
+    assert_eq!(number(&check["postings"][0]["account_before"]["number"]), decimal("100"));
+    // the pad books what the sub-accounts lack to the parent account itself
+    let pad = records.iter().find(|it| it["type"] == "BalancePad").unwrap();
+    assert_eq!(pad["postings"][0]["account"], "Assets:Bank");
+    assert_eq!(number(&pad["postings"][0]["inferred_unit"]["number"]), decimal("50"));
+
+    // the assertion row shows the balance it was checked against; the posting rows show the
+    // parent account's own postings
+    let rows = scratch.account_journals("Assets:Bank").await;
+    let described = rows
+        .iter()
+        .map(|row| {
+            (
+                row["payee"].as_str().unwrap().to_owned(),
+                number(&row["account_after"]["number"]),
+                row["passed"].as_bool(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        described,
+        vec![
+            ("Balance Pad".to_owned(), decimal("50"), None),
+            ("Balance Check".to_owned(), decimal("100"), Some(true)),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn a_c_flagged_transaction_is_an_ordinary_transaction() {
     let scratch = Scratch::new(
         r#"option "operating_currency" "CNY"
