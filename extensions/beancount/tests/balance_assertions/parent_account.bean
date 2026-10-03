@@ -1,0 +1,20 @@
+; An assertion on a parent account. Beancount sums the account and its
+; sub-accounts; zhang checks the postings of the account itself.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Equity:Open
+
+2024-01-01 * "x" "parent"
+  Assets:Bank  50 CNY
+  Equity:Open
+
+2024-01-01 * "x" "child"
+  Assets:Bank:Checking  20 CNY
+  Equity:Open
+
+2024-01-02 balance Assets:Bank  70 CNY
+2024-01-03 balance Assets:Bank  50 CNY
+2024-01-04 balance Assets:Bank:Checking  20 CNY

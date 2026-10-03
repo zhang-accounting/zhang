@@ -1,0 +1,501 @@
+{
+  "failing_assertion": {
+    "assertions": [
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "200"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "165"
+        },
+        "date": "2024-01-02",
+        "passed": false
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "500"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "500"
+        },
+        "date": "2024-01-03",
+        "passed": true
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "500"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "500"
+        },
+        "date": "2024-01-04",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:A": {
+        "CNY": "500"
+      },
+      "Equity:Open": {
+        "CNY": "-335"
+      },
+      "Income:X": {
+        "CNY": "-165"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:A",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "335"
+        }
+      }
+    ]
+  },
+  "multi_currency": {
+    "assertions": [
+      {
+        "account": "Assets:Wallet",
+        "amount": {
+          "currency": "CNY",
+          "number": "300"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "300"
+        },
+        "date": "2024-01-02",
+        "passed": true
+      },
+      {
+        "account": "Assets:Wallet",
+        "amount": {
+          "currency": "USD",
+          "number": "150"
+        },
+        "balance": {
+          "currency": "USD",
+          "number": "150"
+        },
+        "date": "2024-01-02",
+        "passed": true
+      },
+      {
+        "account": "Assets:Wallet",
+        "amount": {
+          "currency": "CNY",
+          "number": "300"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "300"
+        },
+        "date": "2024-01-04",
+        "passed": true
+      },
+      {
+        "account": "Assets:Wallet",
+        "amount": {
+          "currency": "USD",
+          "number": "170"
+        },
+        "balance": {
+          "currency": "USD",
+          "number": "160"
+        },
+        "date": "2024-01-04",
+        "passed": false
+      }
+    ],
+    "balances": {
+      "Assets:Wallet": {
+        "CNY": "300",
+        "USD": "160"
+      },
+      "Equity:Open": {
+        "CNY": "-300",
+        "USD": "-50"
+      },
+      "Income:Salary": {
+        "USD": "-110"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:Wallet",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "300"
+        }
+      },
+      {
+        "account": "Assets:Wallet",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "USD",
+          "number": "50"
+        }
+      }
+    ]
+  },
+  "pad_then_failing_assertion": {
+    "assertions": [
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "100"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "100"
+        },
+        "date": "2024-01-02",
+        "passed": true
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "100"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "70"
+        },
+        "date": "2024-01-04",
+        "passed": false
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "70"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "70"
+        },
+        "date": "2024-01-05",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:A": {
+        "CNY": "70"
+      },
+      "Equity:Open": {
+        "CNY": "-100"
+      },
+      "Expenses:Food": {
+        "CNY": "30"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:A",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "100"
+        }
+      }
+    ]
+  },
+  "parent_account": {
+    "assertions": [
+      {
+        "account": "Assets:Bank",
+        "amount": {
+          "currency": "CNY",
+          "number": "70"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "70"
+        },
+        "date": "2024-01-02",
+        "passed": true
+      },
+      {
+        "account": "Assets:Bank",
+        "amount": {
+          "currency": "CNY",
+          "number": "50"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "70"
+        },
+        "date": "2024-01-03",
+        "passed": false
+      },
+      {
+        "account": "Assets:Bank:Checking",
+        "amount": {
+          "currency": "CNY",
+          "number": "20"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "20"
+        },
+        "date": "2024-01-04",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:Bank": {
+        "CNY": "50"
+      },
+      "Assets:Bank:Checking": {
+        "CNY": "20"
+      },
+      "Equity:Open": {
+        "CNY": "-70"
+      }
+    },
+    "errors": [],
+    "pads": []
+  },
+  "same_day_pad": {
+    "assertions": [
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "0.10"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "0"
+        },
+        "date": "2017-12-01",
+        "passed": false
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "0.10"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "0.10"
+        },
+        "date": "2017-12-02",
+        "passed": true
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "0.10"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "0.10"
+        },
+        "date": "2017-12-03",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:A": {
+        "CNY": "0.10"
+      },
+      "Equity:Open": {
+        "CNY": "-0.10"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:A",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "0.10"
+        }
+      }
+    ]
+  },
+  "tolerance": {
+    "assertions": [
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "50"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "50.004"
+        },
+        "date": "2024-01-02",
+        "passed": true
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "49.99"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "50.004"
+        },
+        "date": "2024-01-03",
+        "passed": false
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "50.004"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "50.004"
+        },
+        "date": "2024-01-04",
+        "passed": true
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "50"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "50.004"
+        },
+        "date": "2024-01-05",
+        "passed": false
+      }
+    ],
+    "balances": {
+      "Assets:A": {
+        "CNY": "50.004"
+      },
+      "Equity:Open": {
+        "CNY": "-50.004"
+      }
+    },
+    "errors": [],
+    "pads": []
+  },
+  "two_pads": {
+    "assertions": [
+      {
+        "account": "Assets:Cash",
+        "amount": {
+          "currency": "CNY",
+          "number": "20"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "20"
+        },
+        "date": "2024-01-05",
+        "passed": true
+      },
+      {
+        "account": "Assets:Bank",
+        "amount": {
+          "currency": "CNY",
+          "number": "1000"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "1000"
+        },
+        "date": "2024-01-06",
+        "passed": true
+      },
+      {
+        "account": "Assets:Bank",
+        "amount": {
+          "currency": "CNY",
+          "number": "900"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "940"
+        },
+        "date": "2024-01-08",
+        "passed": false
+      },
+      {
+        "account": "Assets:Bank",
+        "amount": {
+          "currency": "CNY",
+          "number": "1500"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "1500"
+        },
+        "date": "2024-01-10",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:Bank": {
+        "CNY": "1500"
+      },
+      "Assets:Cash": {
+        "CNY": "20"
+      },
+      "Equity:Open": {
+        "CNY": "-1620"
+      },
+      "Expenses:Food": {
+        "CNY": "100"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:Bank",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "1040"
+        }
+      },
+      {
+        "account": "Assets:Cash",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "20"
+        }
+      },
+      {
+        "account": "Assets:Bank",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "560"
+        }
+      }
+    ]
+  }
+}

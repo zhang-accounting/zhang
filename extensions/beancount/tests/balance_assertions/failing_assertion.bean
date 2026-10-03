@@ -1,0 +1,19 @@
+; A failing assertion is an error and moves no balance; the pad after it is sized
+; from the true balance (165), not from what the failing assertion claimed (200).
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Equity:Open
+1970-01-01 open Income:X
+
+2024-01-01 * "x" "income"
+  Assets:A  165 CNY
+  Income:X
+
+2024-01-02 balance Assets:A  200 CNY
+
+2024-01-02 pad Assets:A Equity:Open
+2024-01-03 balance Assets:A  500 CNY
+
+2024-01-04 balance Assets:A  500 CNY

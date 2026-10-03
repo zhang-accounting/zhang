@@ -1,0 +1,24 @@
+; An account holding two currencies: one pad serves the next assertion in each
+; currency, and a failing assertion in one currency leaves the other alone.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 open Assets:Wallet
+1970-01-01 open Equity:Open
+1970-01-01 open Income:Salary
+
+2024-01-01 * "employer" "salary"
+  Assets:Wallet  100 USD
+  Income:Salary
+
+2024-01-01 pad Assets:Wallet Equity:Open
+2024-01-02 balance Assets:Wallet  300 CNY
+2024-01-02 balance Assets:Wallet  150 USD
+
+2024-01-03 * "employer" "bonus"
+  Assets:Wallet  10 USD
+  Income:Salary
+
+2024-01-04 balance Assets:Wallet  300 CNY
+2024-01-04 balance Assets:Wallet  170 USD
